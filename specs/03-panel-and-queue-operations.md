@@ -1,202 +1,262 @@
-# Panel and queue operations
+# Panels and queues
 
-## 1. Objectives
+## 1. Operating model
 
-- Put relevant expertise in front of each team.
-- Prevent absent reviewers from silently degrading a panel.
-- Keep queue movement predictable under uneven review duration.
-- Balance reviewer workload.
-- Make every substitution and assignment explainable.
+A panel is a group of reviewers assigned to one or more venue tables for a round. A queue contains teams that the panel can review.
 
-## 2. Panel construction
+The working panel size is three scoring reviewers. Final panel size and criterion-coverage rules remain event policy.
 
-Review administrators create a staffing plan per round using:
+## 2. Reviewer profile
 
-- required panel size (working assumption: three scoring reviewers)
-- required criterion coverage
-- track/domain demand forecast
-- reviewer expertise and verified criterion grants
-- availability and training
-- conflicts of interest
-- organisational diversity
-- accessibility constraints
-- maximum assignment load
+Review operations prepares each reviewer record before the event:
 
-A panel must collectively cover all rubric criteria required for the round. A panel can review any team if it has the required coverage; it is not permanently locked to one track.
+- approved Google email;
+- name and contact number;
+- reviewer type for staffing only;
+- technical domains;
+- product/user domains;
+- tracks the reviewer can assess;
+- rubric criteria the reviewer can score;
+- languages;
+- venue availability windows;
+- conflicts and restricted teams;
+- accessibility or scheduling needs;
+- app and training status.
 
-The system may recommend panels, but an administrator approves and publishes them. Recommendations include a plain-language rationale and warnings.
+Reviewer type or seniority never changes score weight.
 
-## 3. Conflict rules
+## 3. Panel planning
 
-A reviewer is ineligible for a team if they:
+The planning screen builds panels from the roster and the selected rubric version.
 
-- are a team member or close collaborator;
-- mentored or materially contributed to the project;
-- have a declared personal conflict;
-- have another conflict defined by event policy.
+A valid panel must satisfy:
 
-Reviewers must be able to declare a newly discovered conflict immediately. The system removes them from that team assignment and begins substitution without revealing sensitive conflict details to participants.
+- required number of reviewers;
+- minimum scorer count for every active criterion;
+- at least one reviewer who can assess the team’s main technical area;
+- no known team conflict;
+- no overlapping assignment;
+- reviewer availability for the round;
+- one named panel lead.
 
-## 4. Clock-in and readiness
+The planner shows gaps before a panel can be published. It also estimates how many reviews the panel can complete from the configured duration and round window.
 
-Before a round:
+Publishing a plan creates a version. Later edits keep the previous version and record who changed which seat.
 
-1. Reviewer opens the mobile app and completes device/network checks.
-2. Reviewer clocks in for the round.
-3. App confirms assigned panel, rendezvous location, and start window.
-4. Panel state becomes complete only when all required members are clocked in and available.
-5. Operations sees absent, late, device-not-ready, and unacknowledged reviewers.
+## 4. Routing teams
 
-Clock-in is not proof of presence at a team. Presence for each review is separately confirmed through the team QR.
+Panels are not fixed only by track. A cybersecurity project still needs product and communication coverage; a health project still needs technical and responsible-use coverage.
 
-## 5. Paging and substitution
+The routing function first removes ineligible panels:
 
-Triggers include:
+- known reviewer conflict;
+- panel unavailable or paused;
+- no required criterion coverage;
+- team already reviewed by the panel when policy forbids continuity;
+- table or venue zone unavailable;
+- panel at its capacity limit.
 
-- reviewer fails to clock in by threshold;
-- reviewer does not acknowledge an assignment/page;
-- reviewer declares a conflict;
-- reviewer pauses or leaves;
-- device becomes unavailable;
-- operations marks reviewer missing.
+It then ranks eligible panels using:
 
-Substitution workflow:
+1. team-domain match;
+2. rubric coverage;
+3. current queue length and observed review pace;
+4. continuity or rotation policy for the round;
+5. venue distance when the floor map contains zones;
+6. number of recent manual exceptions.
 
-1. Rank eligible substitutes by missing criterion coverage, domain fit, distance/availability, current load, and conflicts.
-2. Page the top candidate with panel, location, urgency, and accept/decline actions.
-3. If not accepted within the configured window, page the next candidate.
-4. On acceptance, update panel membership for the applicable scope.
-5. Preserve the original membership and reason in audit.
-6. Notify panel and operations.
+The ranker is deterministic code with a recorded rules version. It does not call a language model.
 
-Board administrators can force-assign a substitute. They cannot bypass an identified conflict without a separate high-severity override.
+Operations can auto-accept the top result for ordinary teams during a configured assignment window. A manual choice outside the top result requires a reason. Assignment becomes fixed when the team enters `queued`; later moves use the exception flow.
 
-## 6. Team-to-panel assignment
+## 5. Table preparation
 
-Assignment considers:
+Operations records team-to-table assignments roughly 90 minutes before the review window and freezes them 30–60 minutes before routing.
 
-- track
-- technologies and project domain
-- safety/security/AI/data concerns
-- required rubric coverage
-- declared conflicts
-- panel workload and location
-- prior-round panel, to balance continuity and independent review
+Before freeze, the dashboard lists:
 
-The recommendation must state why a panel fits and identify missing expertise. Administrators can accept, change, or lock assignments.
+- unassigned teams;
+- duplicate table claims;
+- inaccessible or closed tables;
+- teams whose reported table differs from the operations table;
+- panels without a table;
+- zone capacity.
 
-Using the same panel in later rounds is not automatic. Continuity helps verify commitments, while rotation reduces repeated bias. The policy remains open and must be configured per round.
+The official table comes from the server. Participant confirmation reports a mismatch but does not silently change it.
 
-## 7. Queue model
+## 6. Reviewer clock-in
 
-Each round can have multiple panel queues. A queue entry contains:
+A reviewer clocks in from the reviewer app at the venue.
 
-- team, table, and round
-- assigned panel
-- readiness timestamp
-- priority class and reason
-- current ordinal
-- estimated window
-- status and hold reason
-- assignment revision
+The server checks:
 
-Normal ordering is stable and explainable. Manual reprioritisation requires a reason. Teams on hold do not block all following teams.
+- active roster grant;
+- current event and availability window;
+- registered, non-revoked device;
+- minimum app build;
+- notification permission and token;
+- camera permission or documented scanner fallback;
+- no unresolved conflict/training block.
 
-Queue order is stored as an explicit server-owned ordering key plus policy revision. Clients never calculate or persist canonical ordinals. A queue mutation updates the affected entries, emits domain events, and invalidates the participant, panel, and operations projections in one transaction.
+Clock-in states are:
 
-### Queue lifecycle
+`expected → present → temporarily_unavailable → clocked_out`
 
-`Draft → Ready → Queued → Called → Accepted by panel → In review → Submitted → Complete`
+Operations may mark a no-show after the configured grace period. The change records the operator and reason.
 
-Alternate transitions:
+The app sends a low-frequency heartbeat while active. A stale heartbeat is an attention signal, not proof that the reviewer left. Operations confirms status before removing a panel seat.
 
-- `Ready/Queued → Withdrawn`
-- `Queued/Called → Hold → Queued`
-- `Called → Missed → Hold or Requeued`
-- `Any pre-review state → Cancelled`
+## 7. Missing reviewer and substitute
 
-Only one active queue entry per team per round is allowed.
+When a required seat is empty or a reviewer becomes unavailable:
 
-## 8. Readiness-based operation
+1. the panel changes to `needs_reviewer`;
+2. the server ranks eligible substitutes by criterion coverage, domain match, conflict status, active workload, location, and recent pages;
+3. the highest eligible reviewer receives a page;
+4. the reviewer accepts or declines in the app;
+5. an accepted page creates the replacement assignment and cancels later candidates;
+6. a declined or expired page advances to the next candidate;
+7. operations sees the entire page chain and can select a different eligible reviewer.
 
-Readiness reduces wasted travel and idle panel time, but does not create an unbounded first-come advantage. Each round defines:
+The working acknowledgement window is 90 seconds and remains configurable.
 
-- readiness opening time
-- scheduled cohort/window, if any
-- late policy
-- maximum hold time
-- priority categories
-- whether teams may see exact ordinal or only teams-ahead/window
+A delivered push does not count as acceptance. Only an authenticated in-app action can accept the page. If no candidate responds, operations calls the reviewer or sends a floor runner while the exception stays visible.
 
-If a team is not ready when its scheduled cohort activates, the system moves it to a visible hold and continues the queue.
+## 8. Queue
 
-## 9. Starting a review
+### States
 
-A standard review starts only if:
+`not_ready → ready → queued → called → at_table → in_review → completed`
 
-- team and panel assignment are current;
-- the team table is confirmed;
-- all required panel members are clocked in;
-- every required reviewer scans the current team QR;
-- no reviewer conflict is active;
-- the review has not already started elsewhere;
-- the server grants a unique review-session lease.
+Exceptional states are:
 
-The final item prevents two panels from reviewing the same team concurrently. If connectivity is degraded, the reliability policy defines a controlled provisional lease.
+- `held`
+- `missed`
+- `withdrawn`
+- `moved`
 
-The lease has `leaseEpoch`, holder panel, acquired time, expiry, and last renewal. Every start, timer, evidence, presence, score, and completion command includes the review session and current epoch. A late command from an expired holder is rejected rather than merged into the replacement session.
+Every exceptional state stores a reason and the actor.
 
-## 10. Timer policy
+### Ordering
 
-- Default review budget: 10 minutes (working assumption pending final configuration).
-- The app shows elapsed and remaining time to the panel.
-- At threshold, a panel member can request **+2 minutes**.
-- Extensions are discrete, visible, and audited.
-- The allowed number of ordinary extensions is configurable.
-- Beyond that, an administrator approves the extension or the review must conclude.
-- Overrun never deletes a draft; it blocks completion only if required justification is missing.
+Within the set of teams an eligible panel can review, the default order is:
 
-Time metrics are used to improve operations, not reward superficial reviews.
+1. earliest accepted `readyAt`;
+2. teams returning from an approved hold;
+3. tie-break by stable team ID.
 
-## 11. Operational exceptions
+Routing and conflict constraints may create different visible queues per panel. Operations can reprioritise a team only with a reason code such as accessibility, hardware incident, venue safety, or correction of an earlier operations error.
 
-| Exception | Default response |
+### Participant display
+
+Participants see:
+
+- current state;
+- assigned table when safe to show;
+- their current ordinal and the ordinal now being called;
+- number of teams ahead;
+- a coarse time window;
+- a clear action when called or held.
+
+The ordinal is derived from the current eligible queue and may change after an approved hold or move; the UI explains the change. The estimate uses active review start times and recent panel duration. It updates when a review starts, completes, extends, or changes panel. It never promises an exact minute.
+
+### Calling a team
+
+The panel or operations user calls the next eligible team. The server records `calledAt` and the expected table.
+
+The final missed-call grace period, number of calls, and re-entry position are open decisions. The dashboard must not implement a hidden default.
+
+## 9. Reviewer presence
+
+Each assigned reviewer scans the team QR from their signed-in device.
+
+The server checks:
+
+- token signature, event, round, team, and expiry;
+- reviewer is an active member of the assigned panel;
+- team is called or at the expected table;
+- no conflict appeared after assignment;
+- reviewer has not already scanned for that session.
+
+The presence record stores reviewer, device, scan time, token version, and result. A reviewer cannot scan for another reviewer.
+
+If the camera fails, the reviewer types the fallback code. If both methods fail, a board member may waive one or more presence requirements. The override names each missing reviewer and records a reason.
+
+## 10. Starting the review
+
+The server starts a review only when:
+
+- round is open;
+- team, panel, assignment, and table are current;
+- no other active review exists for the team or panel;
+- required presence is complete or a valid board override exists;
+- the rubric and criterion assignments are fixed;
+- required project and integration snapshots exist.
+
+One accepted start creates:
+
+- review session ID;
+- server `startedAt`;
+- planned end time;
+- project and snapshot references;
+- panel-plan version;
+- rubric version;
+- criterion assignments.
+
+All clients calculate elapsed time from `startedAt`. They do not send one write per second.
+
+The start response also includes `serverNow`. Each client calculates remaining time from the observed server offset and advances it with a monotonic device clock. A live update resynchronises the offset after foregrounding or reconnect.
+
+## 11. Timer and extension
+
+The working duration is 10 minutes. The working ordinary extension is one two-minute block.
+
+- The app warns reviewers at configured remaining times.
+- A panel lead requests an extension.
+- The server checks the remaining allowance and updates `extensionSeconds`.
+- Operations sees the new end time immediately.
+- Expiry marks the review overdue; it does not auto-submit unfinished scorecards.
+- A further extension or forced close requires a review-operations or board action under event policy.
+
+Timer settings are frozen with the round configuration.
+
+## 12. Completing the review
+
+A review can complete when:
+
+- every required reviewer has submitted a valid scorecard;
+- every active rubric criterion has the required independent coverage;
+- panel commitments and the next-checkpoint note are present when the round requires them;
+- no scorecard correction is pending;
+- the team and panel are still assigned to this session.
+
+The completion mutation closes the session, moves the team to `completed` for the round, frees the panel, and advances the queue.
+
+The panel lead may confirm completion. The lead cannot edit another reviewer’s score.
+
+## 13. Failure handling
+
+| Failure | Response |
 | --- | --- |
-| Reviewer absent | Begin substitution paging |
-| Team at wrong table | Verify and update table before call |
-| Team not present | Put on hold; continue queue |
-| QR cannot load | Staff verifies signed fallback identifier |
-| Duplicate live review | Keep lease holder; freeze second attempt |
-| Conflict discovered mid-review | Pause, preserve draft, substitute, record scope |
-| Device dies | Replace device/session; recover server-acknowledged draft |
-| Network degraded | Enter safe degraded mode; show unsynced status |
-| Unsafe conduct | Pause review and escalate to board/safety lead |
-| Round close with incomplete team | Explicit incomplete disposition; never silently drop |
+| Reviewer does not arrive | Page substitutes; keep panel visibly blocked until accepted |
+| Reviewer phone dies | Move the reviewer to a spare registered device or replace the reviewer |
+| Push is late | In-app assignment and dashboard stay current; call or runner is the fallback |
+| Team is at the wrong table | Hold, correct the official table, then reroute or resume |
+| QR expired | Refresh the participant QR; do not reuse an old token |
+| Duplicate review start | Return the existing active session |
+| Two operators move the same team | Accept one current-version command; reject the stale command with the new state |
+| Review runs over | Mark overdue and require an explicit extension or close decision |
+| Required scorecard missing | Keep the review and round incomplete; page the reviewer or start the approved missing-reviewer process |
 
-## 12. Realtime coordination
+## 14. Acceptance checks
 
-| Change | Participant portal | Reviewer app | Operations dashboard |
-| --- | --- | --- | --- |
-| Team declares ready | Shows queued/window | Eligible panel next list updates | Queue and capacity update |
-| Panel member clocks in | No private identity detail | Panel readiness updates | Missing-reviewer exception clears |
-| Page accepted | Shows panel-arriving when policy permits | Assignment becomes active | Substitution attempt resolves |
-| Presence scan accepted | Shows arrival progress | All panel devices update | Presence matrix updates |
-| Review lease acquired | Shows in-review | Workspace activates | Duplicate starts become blocked |
-| Extension granted | Timer/window updates | All panel timers use server event | Overrun/extension metrics update |
-| Review submitted | Shows submitted/complete state | Completion and receipt update | Missing-input blocker clears |
-
-These views are separate role-filtered queries over the same records. No client sends another client a state update directly.
-
-## 13. Acceptance criteria
-
-- An incomplete panel cannot begin without an authorised override.
-- Every reviewer presence proof is tied to a specific review session.
-- No team has two active review sessions in one round.
-- A queue can continue when a team or panel is held.
-- Every assignment and reprioritisation has a recorded rationale.
-- Substitution preserves criterion coverage or raises a visible critical warning.
-- Participants receive a comprehensible status within seconds of an operational change once connected.
-- Operations can reconcile all incomplete queue entries before closing a round.
-- Simultaneous start attempts result in one lease winner and a deterministic rejection for every loser.
-- A stale lease epoch cannot add evidence or scores to the current session.
-- An online client never needs manual refresh to observe a committed queue, panel, timer, or review-state change.
+- A panel cannot publish with missing criterion coverage.
+- A reviewer with a known team conflict is never an eligible route or substitute.
+- One accepted substitute page fills one seat and cancels competing pages.
+- A push receipt alone never changes the assignment.
+- A team cannot have two active review sessions in one round.
+- A panel cannot run two active sessions at once.
+- A review cannot start without required presence or a recorded board override.
+- The participant and operations queue change after the same accepted server write.
+- Timer reloads calculate the same end time on every client.
+- Queue moves, holds, overrides, extensions, and forced closes retain actor and reason.

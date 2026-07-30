@@ -1,111 +1,96 @@
 # Code2Create 7.0
 
-## Platform specifications
+## Platform handbook
 
-This is the source of truth for the Code2Create 7.0 participant portal, reviewer application, operations dashboard, judging system, and live event backend.
+This handbook defines the participant portal, native reviewer app, operations dashboard, judging workflow, and event backend for Code2Create 7.0.
 
-It is not a starter-project README. The handbook viewer uses a shared password only because these documents are internal. The product described here uses Google authentication and scoped application roles.
+The source discussion describes a 48-hour event with roughly 900–1,000 people in the venue. The previous review process failed when reviewers were absent or hard to locate, teams waited without clear queues, reviewers lacked project context, and scores moved through informal channels. The product has to fix those specific failures.
 
-- **Status:** architecture selected; product policy still contains named open decisions
-- **Audience:** product, design, engineering, review operations, event board, and audit
-- **Scale:** approximately 900–1,000 people in the venue, with bursty round-start traffic
+The password on this handbook only protects the specifications. It has no connection to authentication in the Code2Create product.
 
-## The system we are building
+## What is confirmed
 
-Code2Create runs as one realtime event system with three primary surfaces:
+- Participants choose **VIT Student** or **External Participant**, then authenticate with Google.
+- VIT students must use the VIT student Google Workspace account.
+- Reviewer and staff access comes from an approved event roster. Nobody can select an elevated role during sign-in.
+- Participants use a web portal. Reviewers use a dedicated Expo application on Android or iOS. Staff use a web operations dashboard.
+- The three clients read and write the same Convex deployment.
+- Every planned panel member must scan the team QR before a normal review starts.
+- Reviews are timed. The working policy is 10 minutes with one two-minute extension.
+- Reviewers score independently. Seniority does not change score weight.
+- The system may summarise project material, but it may not generate, change, or recommend a judging score.
+- GitHub and Figma connections record progress between review checkpoints.
+- The event is online-first. Bluetooth and peer-to-peer sync are not part of the build.
 
-| Surface | Users | Responsibility |
+## Production baseline
+
+| Part | Choice | Reason |
 | --- | --- | --- |
-| Participant portal | VIT students and external participants | Identity, teams, project profile, check-in, readiness, queue, review progress, and Synesthesia |
-| Reviewer app | Reviewers and panel leads | Clock-in, pages, QR presence, timed reviews, evidence, independent scores, and recovery |
-| Operations dashboard | Operations, review administrators, board, auditors | Configuration, panels, assignments, queues, exceptions, scoring oversight, round close, and audit |
+| Participant and staff web | Next.js App Router | One deployment can serve participant and role-gated staff routes. |
+| Reviewer mobile | Expo, React Native, Expo Router | Native camera, notifications, secure session storage, and controlled builds. |
+| Authentication | Better Auth with Google only | Runs on the Convex deployment through the Convex-maintained adapter and works with Next.js and Expo. |
+| Live backend | Convex | Database transactions, reactive queries, HTTP endpoints, scheduled work, and file storage in one backend. |
+| Reviewer paging | Expo Notifications | Background attention signal, backed by an in-app assignment and an operations fallback. |
+| Web hosting | Vercel | Preview, staging, and production Next.js deployments. |
+| Mobile delivery | EAS Build and Update | Signed reviewer builds and controlled release channels. |
+| Error reporting | Sentry | Web and mobile crash reports with release and environment tags. |
+| Repository | pnpm workspaces and TypeScript | Two applications and one shared domain package do not need a larger build framework yet. |
 
-These are not separate products with copied databases. They are clients of the same authenticated Convex backend. A successful mutation becomes visible to every authorised subscriber from the same committed database snapshot.
+Clerk is not used. There is no second application database, custom WebSocket service, participant password system, or separate mobile API.
 
-## Confirmed identity flow
+## Surfaces
 
-The public participant flow begins with exactly two choices:
+| Surface | Main jobs |
+| --- | --- |
+| Participant portal | Sign-in, profile, team, project application, admission result, GitHub/Figma connection, venue check-in, readiness, queue, review progress, and Synesthesia |
+| Reviewer app | Google sign-in, clock-in, page acknowledgement, QR scan, project context, timed review, evidence, scoring, and short offline recovery |
+| Operations dashboard | Rounds, rosters, panels, tables, queues, substitutes, live reviews, scoring completeness, exceptions, and audit |
 
-1. **VIT student**
-2. **External participant**
+## System boundary
 
-The selected account class is recorded in a short-lived signed authentication intent. The user then continues with **Authenticate with Google**.
+Convex stores event state and pushes changed query results to authorised clients. A client only shows a score submission, review start, assignment, or round change as accepted after the server confirms it.
 
-- A VIT student must authenticate with the VIT student Google Workspace account. The initial allowlisted hosted domain is `vitstudent.ac.in`.
-- The server validates the Google identity token and its `hd` hosted-domain claim. An email suffix check alone is not accepted as proof of Workspace membership.
-- An external participant authenticates with any verified Google account and supplies institution and affiliation details during onboarding.
-- Google `sub`, reached through the Clerk identity, is the stable external identity. Email remains a verified contact attribute and may change.
-- Participant class is not an application role. Reviewer, operations, administrator, moderator, and auditor access comes only from approved invitations or rosters.
-- Reviewer and staff sign-in uses Google as well, but roster matching—not the participant selector—grants staff capability.
+Push notifications wake a reviewer but do not assign them. Local mobile storage protects an unfinished scorecard during a short connection loss but cannot finish a review. GitHub and Figma provide evidence snapshots; neither integration judges the team.
 
-If VIT IT enables a managed Google Workspace SSO connection, that replaces the social-OAuth VIT verification path without changing application user IDs or permissions.
+## Status language
 
-## Selected technology baseline
+Each document separates three kinds of statements:
 
-| Layer | Selected technology | Purpose |
-| --- | --- | --- |
-| Repository | pnpm workspaces + Turborepo + TypeScript | Shared types, domain rules, UI primitives, and coordinated builds |
-| Participant and staff web | Next.js App Router + React | Portal and role-gated operations dashboard in one web deployment |
-| Reviewer mobile | Expo + React Native + Expo Router | Android/iOS reviewer app with camera, push, secure storage, and offline draft outbox |
-| Authentication | Clerk with Google-only sign-in | One web/mobile session system and Convex-compatible JWTs |
-| VIT verification | Google OIDC token verification | Validate signature, issuer, audience, expiry, `sub`, verified email, and `hd` |
-| Realtime backend | Convex | Reactive queries, transactional mutations, scheduling, file storage, and one authoritative data model |
-| Push | Expo Notifications through Expo Push Service | Reviewer paging and time-sensitive background alerts; never the source of truth |
-| Web deployment | Vercel | Next.js preview, staging, and production deployments |
-| Mobile delivery | EAS Build, Submit, and Update | Signed builds and controlled preview/production channels |
-| Monitoring | Sentry + structured Convex audit/domain events | Client/backend errors, performance, operational alerts, and forensic history |
-| Testing | Vitest, Testing Library, Playwright, Maestro | Domain, web, backend, and mobile workflow verification |
+- **Confirmed** comes from the planning discussion or the user’s later direction.
+- **Selected** is the production design used by this revision.
+- **Open** needs an event-policy decision before launch.
 
-The reasoning, package boundaries, deployment topology, and alternatives are defined in **Technical architecture** and **Infrastructure & delivery**.
-
-## Non-negotiable rules
-
-- Convex is the only live application source of truth.
-- Every client reads authorised projections through reactive subscriptions.
-- Every write goes through a named server mutation that validates identity, capability, scope, state transition, and expected version.
-- Outcome-affecting commands are idempotent and return a durable receipt.
-- Queue state, panel state, review state, score state, and round state are explicit state machines.
-- External effects such as push notifications are driven from a transactional outbox and may be retried.
-- A notification tells a device to look; it never proves the current state.
-- Clients may cache context and encrypted drafts. They may not create a second source of truth.
-- Reviewer scores remain independent and hidden from peers until the configured reveal point.
-- Overrides require the narrow capability, a reason, scope, expiry where relevant, and an audit event.
-- No AI model assigns, alters, normalises, or recommends a judging score.
+An open policy must live in versioned event configuration or remain blocked. Client code must not hide a guess.
 
 ## Reading order
 
-| Document | Read it for |
+| Document | Contents |
 | --- | --- |
-| Product brief | Outcomes, event model, scope, actors, and success measures |
-| Domain & access | Canonical concepts, account classes, roles, capabilities, and visibility |
-| Participant onboarding | Google authentication, teams, project profile, check-in, and queue experience |
-| Panels & queues | Staffing, routing, presence, queue state, leases, timers, and exceptions |
-| Reviewer application | Focused mobile workflow, independent submission, push, and offline behaviour |
-| Evaluation system | Rubric model, criterion coverage, progress, aggregation, and corrections |
-| Operations dashboard | Live command centre, exceptions, overrides, scoring oversight, and round close |
-| Reliability & audit | Source of truth, integrity, recovery, incidents, and data protection |
-| Synesthesia | Requests, votes, moderation, playback, and isolation from core operations |
-| Delivery & acceptance | Build sequence, rehearsals, load model, and launch gates |
-| Decision register | Confirmed, assumed, open, superseded, and rejected decisions |
-| Technical architecture | Full stack, applications, boundaries, request paths, and package layout |
-| Data schema | Convex tables, indexes, ownership, state machines, and invariants |
-| Realtime synchronization | Subscription projections, commands, receipts, concurrency, and offline recovery |
-| Authentication & authorization | Exact Google/VIT flow, session claims, roster grants, and threat controls |
-| Backend function catalog | Public queries/mutations/actions, internal jobs, and authorization contracts |
-| Infrastructure & delivery | Environments, deployment, secrets, observability, backups, and release process |
+| Product brief | Event problem, scope, users, and outcomes |
+| Identity and access | Google sign-in, VIT classification, rosters, roles, and sessions |
+| Participant portal | Registration, teams, project application, admission, integrations, readiness, and queue experience |
+| Panels and queues | Reviewer staffing, routing, presence, timers, and substitutions |
+| Reviewer app | Native workflow, score drafts, push, and short connection loss |
+| Evaluation | Rubric, criterion coverage, aggregation, progress, and corrections |
+| Operations dashboard | Live floor control and protected commands |
+| Reliability and audit | Venue network, recovery, backups, incidents, privacy, and logs |
+| Synesthesia | Requests, votes, moderation, and playback |
+| Delivery and acceptance | Build slices, tests, rehearsals, and launch gates |
+| Decision register | Confirmed, selected, open, and rejected directions |
+| Production architecture | Applications, packages, authentication, backend, and deployment shape |
+| Data model and realtime | Tables, indexes, writes, subscriptions, concurrency, and retention |
+| Integrations and release | GitHub, Figma, notifications, environments, CI, and release operations |
 
-## Decisions that still need event-owner input
+## Policy decisions still required
 
-Architecture is no longer deferred. The remaining blockers are event policy:
+- team-size bounds and participant eligibility;
+- the exact round and elimination schedule;
+- final rubric wording, aggregation, ties, and missing-score policy;
+- conflict-of-interest rules;
+- missed-call, hold, and queue re-entry rules;
+- reviewer and staff rosters;
+- data retention and participant feedback;
+- final tracks, awards, and sponsor track;
+- Synesthesia catalogue, playback source, and licensing.
 
-- final team-size bounds;
-- exact round and elimination schedule;
-- final rubric, aggregation, ties, and missing-score policy;
-- conflict-of-interest policy;
-- queue re-entry and missed-call policy;
-- retention and participant-feedback policy;
-- exact VIT Google Workspace coordination available from VIT IT;
-- approved reviewer/staff rosters and emergency authority owners;
-- Synesthesia playback source and licensing.
-
-Until those are decided, they remain versioned configuration or explicit launch gates—never hidden assumptions in client code.
+These decisions have owners and deadlines in the decision register.

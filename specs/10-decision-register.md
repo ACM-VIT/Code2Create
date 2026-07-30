@@ -1,113 +1,133 @@
 # Decision register
 
-This file is authoritative for product decisions. Update it when organisers decide an open item; link the decision to meeting/chat evidence and revise affected specifications.
+This register separates source requirements from implementation choices and unresolved event policy.
 
-## 1. Confirmed
+## 1. Confirmed product direction
 
 | ID | Decision |
 | --- | --- |
-| D-001 | Maintain detailed Markdown specifications as the implementation source of truth. |
-| D-002 | Build a dedicated reviewer app synchronised with a web operations dashboard. |
-| D-003 | Reviewer UI is minimal, with large controls and little text. |
-| D-004 | Panels are pre-planned around reviewer expertise and criterion coverage. |
-| D-005 | The system can recommend dynamic team-to-panel matches rather than using only rigid track panels. |
-| D-006 | Every required panel member proves presence by scanning the team QR before a normal review starts. |
-| D-007 | Board-level override exists for exceptional cases and must be controlled. |
-| D-008 | Reviewer absence triggers paging/substitution logic. |
-| D-009 | Participants have visible queued review status and a readiness mechanism. |
-| D-010 | Reviews use a time cap with explicit two-minute extension controls. |
-| D-011 | Reviewers independently score criteria associated with their expertise; one dominant person must not set all panel scores. |
-| D-012 | No AI-generated score determines judging outcomes. |
-| D-013 | Project onboarding is guided question-by-question, not a traditional long form or PPT. |
-| D-014 | Project tools, prior work, and original team contribution are disclosed and assessed. |
-| D-015 | Progress against commitments across reviews is captured. |
-| D-016 | Five tracks are planned with buffer for a sponsor track; exact tracks are separate. |
-| D-017 | Current event model is two reviews plus a final round. |
-| D-018 | Track participation does not automatically guarantee a finalist or track prize. |
-| D-019 | Synesthesia accepts participant requests/upvotes but organisers retain override. |
-| D-020 | Superseded: technology selection was initially deferred; the architecture baseline is now approved for specification and implementation planning. |
-| D-021 | Participant registration asks VIT Student or External Participant before Google authentication. |
-| D-022 | VIT Student classification requires server-validated Google Workspace hosted-domain evidence; email suffix matching alone is prohibited. |
-| D-023 | Google `sub`, linked through Clerk, is the stable external identity; email is a verified mutable attribute. |
-| D-024 | Account class and application authorization are independent; reviewer/staff/admin access is granted only from approved rosters or invitations. |
-| D-025 | Next.js serves participant and role-gated operations web surfaces; Expo/React Native serves the dedicated reviewer app. |
-| D-026 | Clerk provides Google-only sessions on web/mobile and issues identity accepted by Convex. |
-| D-027 | Convex is the single realtime application backend and source of truth for portal, reviewer app, and dashboard. |
-| D-028 | Accepted mutations atomically write state, command receipt, domain/audit events, and required notification outbox entries. |
-| D-029 | Expo Notifications provides reviewer paging; notification payloads are hints and never authoritative state. |
-| D-030 | The codebase uses a pnpm/Turborepo TypeScript monorepo with shared domain, UI, configuration, and testing packages. |
-| D-031 | Production delivery uses Vercel for web, EAS for mobile, and separate development/staging/production Clerk and Convex environments. |
+| C-001 | Code2Create 7.0 is a 48-hour event expected to place roughly 900–1,000 people in the venue. |
+| C-002 | Participants use a web portal, reviewers use a dedicated mobile application, and staff use a web operations dashboard. |
+| C-003 | Participant entry asks VIT Student or External Participant before Google authentication. |
+| C-004 | A VIT student must authenticate with the VIT student Google Workspace account. |
+| C-005 | Reviewer and staff access comes from an approved roster; users do not select an elevated role. |
+| C-006 | Reviewer UI uses large controls, little text, and one current task. |
+| C-007 | Panels are planned before the round from reviewer expertise and rubric coverage. |
+| C-008 | Every required panel reviewer scans the team QR before a normal review starts. |
+| C-009 | A board override can handle an exceptional missing-presence case and must be recorded. |
+| C-010 | Reviewers clock in; an absent reviewer triggers a substitute workflow. |
+| C-011 | Team tables are captured before the review window and frozen before routing. |
+| C-012 | Participants mark ready and see their queue/review state. |
+| C-013 | Reviews have a time cap and an explicit extension path. |
+| C-014 | Reviewers score independently on criteria assigned from their expertise. |
+| C-015 | Reviewer seniority does not multiply score weight. |
+| C-016 | No AI model generates, changes, normalises, or recommends judging scores. |
+| C-017 | The working rubric uses seven weighted criteria scored 0–4. |
+| C-018 | Later reviews receive previous findings, commitments, and progress evidence. |
+| C-019 | The working round model is two ordinary reviews followed by a final round. |
+| C-020 | Project onboarding is question-by-question and does not require a PPT. |
+| C-021 | Teams disclose previous work and third-party tools. |
+| C-022 | Teams connect GitHub and Figma so reviewers can inspect progress checkpoints. |
+| C-023 | The application uses normal internet/HTTP connectivity. Bluetooth/P2P is not committed. |
+| C-024 | Synesthesia accepts participant requests and votes while staff retain playback control. |
+| C-025 | Five tracks are planned with room for a sponsor track. Mandatory problem statements were not adopted. |
+| C-026 | The guided project intake supports pre-event shortlisting so the organisers can admit fewer teams when venue/review capacity requires it. |
+| C-027 | Every active panel reviewer needs a working phone with the reviewer app; otherwise operations supplies a spare or replaces the reviewer. |
 
-## 2. Working assumptions to confirm
+## 2. Selected implementation
 
-| ID | Assumption | Consequence if changed |
+| ID | Decision | Reason |
 | --- | --- | --- |
-| A-001 | Standard panel has three scoring reviewers. | Panel staffing, UI, coverage, and capacity change. |
-| A-002 | Default review duration is 10 minutes. | Queue simulation and timer design change. |
-| A-003 | One ordinary +2 minute extension is allowed before escalation. | Review completion and capacity change. |
-| A-004 | The seven-criterion, 100-point rubric in the June discussion is the baseline. | Scoring configuration and training change. |
-| A-005 | Team leads control submissions and readiness. | Permission and UX changes. |
-| A-006 | Convex remains authoritative; offline mode permits encrypted drafts/outbox entries but not ordinary final authority transitions. | Reliability architecture changes. |
-| A-007 | Table confirmation begins 90 minutes before reviews and is finalised 30–60 minutes before. | Staffing and queue readiness change. |
-| A-008 | Initial VIT student Google Workspace hosted domain is `vitstudent.ac.in`. | Identity policy configuration and test fixtures change. |
-| A-009 | VIT verification initially uses Google social OIDC token validation through Clerk; managed VIT Workspace SSO is a later hardening path if VIT IT participates. | Authentication setup, cost, and deprovisioning behaviour change. |
+| T-001 | Better Auth with Google only | Self-hosted auth code and data on the Convex deployment; supported web and Expo clients |
+| T-002 | Validate Google `sub`, verified email, and `hd`; derive participant class on the server | The selector cannot grant or bypass VIT classification |
+| T-003 | Store event roles in application tables, separate from the auth session | Roster revocation takes effect without changing provider identity |
+| T-004 | Next.js for participant and staff web routes | One web codebase and deployment |
+| T-005 | Expo/React Native for the reviewer application | Native camera, push, secure storage, and controlled builds |
+| T-006 | Convex for application records, transactions, reactive queries, HTTP endpoints, scheduled work, and file storage | One live backend for all three clients |
+| T-007 | Expo Notifications for reviewer pages, with in-app acknowledgement and call/runner fallback | Push can attract attention but cannot be trusted as assignment state |
+| T-008 | Vercel for web and EAS for mobile delivery | Production-grade Next.js and signed Expo releases |
+| T-009 | pnpm workspaces without Turborepo | The first codebase has two apps and one shared package; another build layer is unnecessary |
+| T-010 | Sentry for client crash reporting, with domain history kept in Convex | Technical errors and event decisions have different records |
+| T-011 | GitHub App with read-only Contents/Metadata access and signed push webhooks | No participant personal access token or write permission |
+| T-012 | Figma OAuth with metadata/version scopes and checkpoint polling | File webhooks require permissions and have plan limits that do not fit hundreds of participant files |
+| T-013 | Deterministic reviewer/panel routing rules | Assignments can be explained and reproduced without an AI decision |
+| T-014 | One encrypted local reviewer draft for the active review | Protects short connection loss without creating a second event database |
+| T-015 | Final scorecard submission, review start, assignment, and round changes require server confirmation | Client cache and push cannot claim judging state |
+| T-016 | Private versioned S3 bucket in `ap-south-1` for round exports and downloaded backups, pending VIT policy approval | Keeps recovery copies outside the live backend with restricted access |
 
-## 3. Open decisions
+## 3. Working assumptions
 
-| ID | Decision needed | Owner | Needed by |
+| ID | Assumption | If changed |
+| --- | --- | --- |
+| A-001 | Standard panel has three scoring reviewers. | Panel capacity, app layout, and coverage matrix change. |
+| A-002 | Ordinary review duration is 10 minutes. | Queue estimates and event schedule change. |
+| A-003 | One ordinary two-minute extension is available. | Capacity and escalation rules change. |
+| A-004 | Each active criterion receives at least two independent ratings. | Reviewer workload and aggregation completeness change. |
+| A-005 | Team lead controls project submission and ready state. | Team permissions change. |
+| A-006 | Table capture begins about 90 minutes before the window and freezes 30–60 minutes before routing. | Floor preparation timeline changes. |
+| A-007 | `vitstudent.ac.in` is the initial VIT student hosted domain. | Auth configuration and fixtures change. |
+| A-008 | Expected 200–330 teams, depending on final team size. | Load and panel-capacity plan changes. |
+| A-009 | A substitute page expires after 90 seconds. | Page chain and runner/call timing change. |
+| A-010 | Better Auth sessions last seven days; event grants end six hours after event close. | Session and operations support settings change. |
+| A-011 | Each submitted application receives two independent admission recommendations. | Application-review workload and decision coverage change. |
+
+## 4. Open policy
+
+| ID | Decision | Owner | Deadline |
 | --- | --- | --- | --- |
-| O-001 | Final team size: 2–5, 3–5, or another range | Event board | Milestone 0 |
-| O-002 | Exact round schedule and which stages eliminate | Event board | Milestone 0 |
-| O-003 | Final rubric wording, weights, and per-round applicability | Review leads | Milestone 0 |
-| O-004 | Aggregation formula, minimum scorers, rounding, ties, missing-data policy | Review leads | Milestone 0 |
-| O-005 | Whether progress is a separate weighted criterion or supporting evidence | Review leads | Milestone 0 |
-| O-006 | Whether later rounds preserve panel continuity, rotate panels, or use a hybrid | Review leads | Milestone 3 |
-| O-007 | When, if ever, reviewers see peer scores | Review leads | Milestone 0 |
-| O-008 | Ordinary extension count and escalation threshold | Review operations | Milestone 0 |
-| O-009 | Queue policy: exact ordinal versus teams-ahead/time window | Participant ops | Milestone 4 |
-| O-010 | Late, missed-call, hold, and re-entry rules | Participant ops | Milestone 0 |
-| O-011 | Exact conflict-of-interest policy | Event board | Milestone 0 |
-| O-012 | External judge role and permissions | Event board | Milestone 3 |
-| O-013 | Correction deadline and post-lock remedy | Review leads | Milestone 0 |
-| O-014 | Process complaint/appeal window and remedies | Event board | Milestone 0 |
-| O-015 | Degraded-mode authority and permitted offline transitions | Technical + ops leads | Milestone 0 |
-| O-016 | Data retention and participant feedback policy | Event board | Milestone 0 |
-| O-017 | Final tracks and whether there are open problem statements | Event board | Before registration |
-| O-018 | Award categories and relationship to rubric | Event board | Before marketing prizes |
-| O-019 | Synesthesia catalogue/playback source, moderation policy, and licensing | Event ops | Milestone 7 |
-| O-020 | Whether transcription is approved with consent/privacy controls and a sponsor | Event board | Deferred |
-| O-021 | Confirm `vitstudent.ac.in` and any additional legitimate VIT student hosted domains with VIT IT | Technical + event leads | Before auth staging |
-| O-022 | Whether VIT IT will configure a managed Google Workspace SSO connection and deprovisioning | Technical + VIT IT | Before production auth freeze |
-| O-023 | Exact roster source and identity-matching process for reviewers, staff, and board | Review operations | Milestone 0 |
-| O-024 | Required recent-authentication/MFA policy for board overrides and sensitive exports | Security + event board | Milestone 0 |
-| O-025 | Production data residency, backup destination, RPO/RTO, and retention approval | Security + event board | Before production data |
+| O-001 | Final team-size bounds | Event board | Before registration opens |
+| O-002 | Whether mixed VIT/External teams are allowed | Event board | Before registration opens |
+| O-003 | Participant eligibility and evidence for external applicants | Event board | Before registration opens |
+| O-004 | Final VIT hosted-domain list and account support route | Technical lead + VIT IT | Before auth staging sign-off |
+| O-005 | Exact round schedule and elimination points | Event board | Before panel capacity planning |
+| O-006 | Final rubric wording and which criteria apply in each round | Review leads | Before reviewer training |
+| O-007 | Minimum scorers per criterion and aggregation formula approval | Review leads | Before reviewer training |
+| O-008 | Round weighting, ties, missing-score handling, and final clean-slate/cumulative rule | Review leads + board | Before scoring staging sign-off |
+| O-009 | Whether progress becomes a separate weighted criterion | Review leads | Before rubric publication |
+| O-010 | Conflict-of-interest rules | Event board | Before roster import |
+| O-011 | Panel continuity versus rotation between rounds | Review leads | Before panel planning |
+| O-012 | Missed-call grace, number of calls, and queue re-entry | Participant + review operations | Before queue rehearsal |
+| O-013 | Extension escalation and forced-close authority | Review operations + board | Before reviewer training |
+| O-014 | Score correction window and post-lock remedy | Review leads | Before reviewer training |
+| O-015 | Participant process-complaint window and remedies | Event board | Before participant policy publication |
+| O-016 | Participant score/feedback release | Event board | Before final-round configuration |
+| O-017 | Final tracks, sponsor track, and awards | Event board | Before event marketing freezes |
+| O-018 | Reviewer/staff roster owner and emergency authority roster | Event board | Before reviewer staging |
+| O-019 | Data retention, deletion, and export recipients | Event board + VIT policy owner | Before registration opens |
+| O-020 | Synesthesia catalogue, playback account, moderation, and venue licensing | Event operations | Before Synesthesia production test |
+| O-021 | Review transcription/recording | Event board | Deferred unless consent, privacy, and retention are approved |
+| O-022 | Whether GitHub/Figma are mandatory for every team, accepted alternatives, and baseline deadline | Review leads | Before project onboarding opens |
+| O-023 | Admission criteria, minimum application reviewers, venue/track capacity, waitlist order, offer deadline, and published decision detail | Event board + admissions lead | Before applications open |
 
-## 4. Rejected or deferred directions
+## 5. Rejected or deferred
 
-| ID | Direction | Status/reason |
+| ID | Direction | Status |
 | --- | --- | --- |
-| X-001 | Keep technology selection deferred | Superseded by D-025 through D-031 |
-| X-002 | Traditional application form plus PPT | Rejected |
-| X-003 | AI-generated judging scores | Rejected |
-| X-004 | Seniority-based score multipliers | Rejected due to skew risk |
-| X-005 | Automatic score normalisation | Not approved; anomaly review is human |
-| X-006 | Panels fixed exclusively by track | Replaced by expertise-aware dynamic routing |
-| X-007 | Mandatory problem statements for every project | Not adopted; concern about repetitive implementations |
-| X-008 | Bluetooth/P2P as a committed transport | Deferred architecture exploration |
-| X-009 | Review transcription by default | Deferred pending sponsor, consent, privacy, and retention |
-| X-010 | Social engagement points | Deferred outside core review platform |
-| X-011 | Separate databases/backends for portal, reviewer app, and dashboard | Rejected; creates synchronization and authority failures |
-| X-012 | Trust `@vitstudent.ac.in` string suffix as VIT proof | Rejected; require validated Google hosted-domain evidence |
-| X-013 | Use participant class as a reviewer/admin role | Rejected; classification and capability grants remain separate |
-| X-014 | Treat push delivery as assignment acknowledgement | Rejected; only an authenticated server mutation can acknowledge |
+| X-001 | Clerk | Removed; Better Auth runs with Convex and avoids another auth vendor/database |
+| X-002 | Separate portal, reviewer, and dashboard backends | Rejected; they would create competing event state |
+| X-003 | Reviewer PWA instead of a native app | Rejected in the planning discussion |
+| X-004 | Participant passwords or local credential database | Rejected; Google is the sign-in provider |
+| X-005 | Trust an email suffix as VIT proof | Rejected; use verified Google hosted-domain evidence |
+| X-006 | Participant-selected reviewer/admin role | Rejected; staff access is rostered |
+| X-007 | AI judging, AI score recommendations, or AI score adjustment | Rejected |
+| X-008 | Seniority score multipliers | Rejected |
+| X-009 | Automatic cross-panel score normalisation | Rejected |
+| X-010 | Panels fixed only by track | Rejected; panels need broad rubric and domain coverage |
+| X-011 | Mandatory problem statements for every team | Not adopted |
+| X-012 | Bluetooth/P2P event sync | Deferred outside production scope |
+| X-013 | Default review audio recording/transcription | Deferred |
+| X-014 | A participant mobile app | Deferred; responsive web covers participant work |
+| X-015 | Participant GitHub personal access tokens | Rejected; use a GitHub App installation |
+| X-016 | One Figma webhook per team file | Rejected for permission, rate, and plan-limit reasons |
+| X-017 | Store or judge full source/design files by default | Rejected; capture metadata and progress evidence |
+| X-018 | Sponsor CRM, speaker management, or public social feed in the event backend | Outside scope |
 
-## 5. Change procedure
+## 6. Change procedure
 
-For every approved change:
+When an open item is decided:
 
-1. assign a decision ID;
-2. record date, approver, rationale, and source;
-3. mark superseded decisions;
-4. update affected specifications;
-5. update acceptance tests and configuration;
-6. communicate participant- or reviewer-facing policy changes before freeze.
+1. add the approved value, date, owner, and source;
+2. mark any superseded row;
+3. update the affected workflow and event configuration;
+4. update automated tests and rehearsal script;
+5. tell participants or reviewers before the relevant policy freeze.

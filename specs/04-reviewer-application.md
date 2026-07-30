@@ -1,222 +1,293 @@
-# Reviewer application
+# Reviewer app
 
-## 1. Design intent
+## 1. Product shape
 
-The reviewer application is a dedicated mobile experience because it must reliably page reviewers and stay synchronised with the operations dashboard. It is not a compressed admin dashboard.
+Reviewers use a dedicated Expo application on Android or iOS. A browser/PWA is not the planned reviewer surface.
 
-The interface uses:
+The app is built for a reviewer standing at a venue table:
 
-- one primary action per screen;
-- large tap targets;
-- minimal persistent text;
-- high contrast and clear state colour plus text/icon;
-- no gesture-only critical actions;
-- visible sync state;
-- local drafts with explicit server receipts;
-- no peer score anchoring before independent submission.
+- one current task;
+- large controls;
+- little text;
+- no deep menu;
+- clear saved/offline state;
+- no peer scores;
+- no decorative dashboard.
 
-## 2. Implementation baseline
+The app talks to the same Convex backend as the participant portal and operations dashboard.
 
-- Expo + React Native + Expo Router, written in TypeScript
-- `@clerk/expo` with Google-only authentication
-- Convex React client for queries, mutations, authentication, and automatic subscription recovery
-- `expo-camera` for QR presence scans
-- `expo-notifications` with Expo/native device tokens for paging
-- `expo-secure-store` for device-bound secrets and encryption keys
-- SQLite-backed durable outbox for protected drafts and unacknowledged commands
-- EAS Build for signed Android/iOS artifacts and EAS Update channels for compatible JavaScript fixes
-- Sentry for crashes, performance, and release correlation
+## 2. Build and distribution
 
-The app is a native client of the same Convex deployment as the web portal and operations dashboard. It does not call a separate “mobile backend.”
+- Expo with React Native and Expo Router
+- `@better-auth/expo` for Google sign-in and secure cookie handling
+- Convex React client for live queries and writes
+- `expo-camera` for team QR scans
+- `expo-notifications` for pages and time warnings
+- `expo-secure-store` for the auth cookie and local encryption key
+- SQLCipher-backed `expo-sqlite` for the current review draft and unsent operations
+- EAS development, staging, and production builds
+
+Reviewer testing uses development builds. Expo Go does not represent the production auth callback, notification, camera, or encrypted-database setup.
 
 ## 3. Navigation
 
-Primary destinations:
+The bottom-level route set stays small:
 
-1. **Now** — current instruction, active page, panel, or review
-2. **Reviews** — upcoming and completed assignments
-3. **Panel** — members, readiness, coverage, and contact/escalation
-4. **Status** — clock-in, availability, device/network health
-5. **Help** — conflict, missing team, safety, device, or connectivity issue
+1. **Now**
+2. **History**
+3. **Profile**
 
-Administrators may receive additional controls, but the default reviewer view stays focused.
+Sign-in, page response, scan, and active review are focused screens outside normal navigation.
 
-## 4. Round clock-in
+The **Now** screen can show only one primary action:
 
-The reviewer:
+- Sign in
+- Complete device check
+- Clock in
+- Respond to page
+- Go to table
+- Scan team
+- Continue review
+- Submit scorecard
+- No current assignment
 
-- confirms identity;
-- verifies device battery and notification permission;
-- sees connectivity and last successful sync;
-- confirms availability;
-- acknowledges panel and meeting point;
-- clocks in.
+## 4. Sign-in and device check
 
-The app displays any missing training, criterion grant, or conflict declaration that blocks eligibility.
+Google sign-in opens the system browser and returns through a production app deep link. Better Auth stores the resulting session cookie in SecureStore.
 
-## 5. Page handling
+After sign-in, the app calls `reviewer.bootstrap`. The response either contains the reviewer’s event grant and current work or a refusal reason.
 
-A page contains:
+Before clock-in, the app checks:
 
-- reason (assignment, substitution, escalation)
-- team/table or rendezvous point
-- response deadline
-- accept, decline, and cannot-attend actions
+- production or approved staging build;
+- minimum build number;
+- notification permission and a registered token;
+- camera permission;
+- local encrypted database can open;
+- current Convex connection;
+- reviewer profile and training acknowledgement.
 
-Decline/cannot-attend requires a short reason. Repeated unacknowledged pages raise an operations alert. Critical pages produce a distinct notification pattern, subject to device accessibility settings.
+The device record stores no Google password or raw OAuth token.
 
-## 6. Team arrival and presence
+## 5. Clock-in
 
-At the table:
+The clock-in screen shows:
 
-1. App opens scanner from the active assignment.
-2. Reviewer scans the team QR.
-3. App displays team name, table, round, and project one-line summary.
-4. Reviewer confirms the match.
-5. Presence is recorded.
+- event and review window;
+- assigned panel and venue zone, when published;
+- availability end time;
+- declared criterion coverage;
+- unresolved conflict or training block.
 
-The app shows panel readiness without exposing personal explanations. When all required reviewers are present, an eligible panel member can start the review.
+Clock-in is one server write. The app then subscribes to `reviewer.now`, which contains the reviewer’s current panel, page, assignment, and review.
 
-## 7. Review workspace
+The reviewer can mark **Temporarily unavailable** with a reason and expected return time. Operations sees it immediately and decides whether to replace the seat.
 
-### Header
+## 6. Page response
 
-- team, track, table, and round
-- timer
-- sync indicator
-- panel presence
-- pause/help action
+A substitute or reassignment page includes:
 
-### Context
+- panel and table;
+- reason for the page;
+- expected duration;
+- criteria the reviewer would cover;
+- response deadline.
 
-- concise project brief
-- prior-round commitments and verified evidence
-- material project changes
-- disclosed tools, APIs, models, datasets, and starter code
-- private assignment rationale where appropriate
+The screen has **Accept** and **Decline**. Decline asks for one short reason.
 
-### Evidence checklist
+Opening a notification fetches the current page from the server. A stale or cancelled page cannot be accepted from an old notification.
 
-Configurable evidence observations include:
+The page states are:
 
-- core user flow demonstrated end to end
-- UI or interface implemented
-- working model/service demonstrated
-- repository or build evidence shown
-- original contribution explained
-- stated milestone completed
-- safety/data/tool disclosures consistent
+`sent → opened → accepted`
 
-Checkboxes are observations, not automatic scores. Each can include a short note or evidence link.
+or:
 
-### Criterion scoring
+`sent → declined | expired | cancelled`
 
-Only assigned criteria appear as required. Each criterion shows:
+## 7. Team presence
 
-- plain-language definition
-- 0–4 scale anchors
-- weight
-- evidence prompts
-- score selector
-- concise rationale field
-- not-applicable/escalate option where permitted
+The app enables **Scan team** only for the reviewer’s current assignment.
 
-The reviewer cannot see another reviewer's selection before submitting their own.
+After a scan, it shows:
 
-### Notes
+- team name;
+- project title;
+- table;
+- round;
+- presence count, such as `2 of 3 reviewers present`.
 
-Notes are separated into:
+The reviewer confirms the result before the presence write. The app does not expose the QR token after parsing it.
 
-- evidence observed
-- claims not verified
-- risks or concerns
-- next-round commitment
-- private operations note
-- candidate participant feedback
+If the camera fails, the reviewer can type the fallback code. A backend rejection explains whether the code expired, belongs to another round, or does not match the assignment.
 
-Audio recording or transcription is deferred and disabled unless separately approved for consent, privacy, retention, and sponsorship feasibility.
+## 8. Review context
 
-## 8. Independent submission
+When the review starts, the app caches the context required to finish that active review:
 
-The submit screen checks:
+- project summary written by the team;
+- problem, user, and evidence;
+- declared pre-existing work and third-party tools;
+- current demo state;
+- GitHub and Figma checkpoint summaries;
+- previous review findings and commitments;
+- changes claimed since the previous review;
+- active rubric and the reviewer’s criteria;
+- timer start and end time.
 
-- all assigned criteria completed;
-- required rationale present for extreme scores or configured cases;
-- critical evidence and risk prompts handled;
-- next-round commitment recorded when applicable;
-- no unresolved conflict;
-- draft sync status.
+The app does not download another panel’s notes, private eligibility evidence, or peer score values.
 
-On submit:
+If the reviewer notices a conflict that was not declared, **Report conflict** freezes that reviewer’s scorecard and alerts operations.
 
-1. The client sends an idempotent versioned submission containing `clientMutationId`, `deviceId`, session ID, lease epoch, rubric version, and expected draft version.
-2. The server validates reviewer eligibility, session, criterion grant, and score range.
-3. The server returns a receipt.
-4. The app displays **Submitted and synced** with time.
+## 9. Review workspace
 
-Closing the screen before receipt must show a persistent unsynced warning. The reviewer may continue only under the degraded-mode policy.
+The workspace has four parts.
 
-## 9. Completing the panel review
+### Timer
 
-The review session can complete when:
+The start/query response includes `serverNow`, `startedAt`, and approved extension seconds. The app derives the remaining duration from the server offset, then advances it with a monotonic device clock. It resynchronises after foregrounding or reconnect so a wrong device wall clock cannot change the official timer.
 
-- every required reviewer has submitted all assigned criteria;
-- all required criteria have valid coverage;
-- required panel-level evidence/commitments exist;
-- the timer is stopped;
-- every record has a server receipt or an authorised degraded-mode disposition.
+### Evidence
 
-A panel lead coordinates completion but cannot edit peer scores.
+The configured checklist can include:
 
-## 10. Corrections
+- participant demonstrated a working interface;
+- core flow worked live;
+- prototype/model was shown instead of a working implementation;
+- team identified work completed before the event;
+- repository/design evidence was available;
+- previous commitments were addressed;
+- risk or disclosure needs follow-up.
 
-A reviewer can request correction after submission. They see:
+Evidence items support the score but do not calculate it.
 
-- existing value
-- replacement value
-- mandatory reason
-- impact warning
+### Criteria
 
-The correction creates a new version. Administrators can lock corrections at round close. Emergency changes after lock require board authority and are highlighted in the audit/export.
+The app shows only criteria assigned to the reviewer. Each criterion contains:
 
-## 11. Offline and degraded state
+- short question;
+- anchors for 0 through 4;
+- one score control;
+- optional evidence note;
+- required explanation for 0 or 4.
 
-The app always labels one of:
+Changing a score or checkbox saves immediately. Text saves after a short idle period and on blur.
 
-- Online and synced
-- Online, syncing
-- Connection unstable
-- Offline with protected draft
-- Action blocked: server confirmation required
+### Notes and commitments
 
-Scores and notes may be drafted offline. Starting a new review, claiming a team lease, final submission, and privileged overrides require server confirmation unless the formally activated degraded-mode procedure is in effect.
+Private reviewer notes remain attached to that reviewer. Panel commitments are a separate shared field entered by the panel lead and confirmed before review completion.
 
-No state may say “submitted” without a server receipt.
+## 10. Draft saving
 
-The local outbox stores only the minimum command payload, encrypted with a per-installation key held in operating-system protected storage. Records move through `local_draft → queued → sending → acknowledged` or `needs_attention`. A server receipt purges the acknowledged payload after the configured recovery window. A rejected stale command remains visible and is never silently retried as a new version.
+The server stores one draft scorecard per reviewer and review session.
 
-Push notifications wake or alert the reviewer. The app always opens and subscribes to `reviewer.now` before presenting an assignment as current; notification payload data is not authoritative.
+Each save contains:
 
-## 12. Accessibility and ergonomics
+- scorecard ID;
+- fields changed;
+- client operation ID;
+- expected draft version;
+- device ID;
+- local edit time.
 
-- Critical controls are reachable one-handed.
-- Minimum touch size and text scaling support are required.
-- Timer warnings use visual, haptic, and optional audio cues.
-- Colour is never the only status indicator.
-- Scanner has manual fallback.
-- Reviewers can pre-download assigned team context.
-- Long text is not required during active scoring; structured prompts and optional voice-to-text provided by the operating system may be used.
+The server returns the new draft version. The app then shows **Saved**.
 
-## 13. Acceptance criteria
+If the connection drops:
 
-- A trained reviewer can complete the normal flow without instruction after one rehearsal.
-- A reviewer cannot score an unassigned criterion.
-- Peer scores never influence the initial independent entry.
-- A submission cannot be lost or falsely shown as synced.
-- A restarted app recovers the latest acknowledged draft/session.
-- A conflict can be raised at any point.
-- Every timer extension identifies actor, time, duration, and reason/policy.
-- Panel completion detects missing criteria, not merely missing reviewers.
-- A push can be late, duplicated, or absent without corrupting assignment state.
-- Reinstalling or revoking a device invalidates its push token and prevents old outbox commands from acquiring new authority.
-- A change accepted on the operations dashboard appears in the reviewer app through its active subscription without polling.
+- edits continue in the encrypted local draft;
+- the header changes to **Offline — not yet saved**;
+- pending changes keep their operation IDs;
+- reconnect sends changes in order;
+- a stale server version opens a comparison screen instead of overwriting either copy.
+
+Only the active review draft is kept offline. Completed project context and scorecards are not kept as a local archive.
+
+## 11. Submission
+
+The reviewer presses **Review and submit**. The app lists missing criteria, required explanations, and unresolved sync.
+
+Submission sends the complete scorecard plus a stable submission operation ID. The server checks:
+
+- reviewer, panel, and session still match;
+- review is open;
+- rubric version and criterion assignments match;
+- every assigned criterion is valid;
+- expected draft version is current;
+- the scorecard was not already submitted.
+
+The app shows **Submitted** only after the server returns the submitted scorecard ID and time.
+
+If the response is lost, the app queries that operation ID. It either finds the accepted submission, retries the same operation, or shows a definite rejection. It never creates a second scorecard.
+
+After submission, editing is locked. A correction uses the review-administrator flow and keeps both versions.
+
+## 12. Short connection loss
+
+The app is online-first.
+
+Allowed during a brief outage:
+
+- read cached context for the current active review;
+- continue the current timer from server time;
+- edit the current local scorecard;
+- queue draft saves and one submission attempt.
+
+Blocked while offline:
+
+- clock-in;
+- page acceptance;
+- new QR presence;
+- starting a review;
+- confirming an extension;
+- claiming submission success;
+- beginning a different team’s review.
+
+If the active scorecard cannot sync, the reviewer stays on that review. Operations moves the reviewer to a spare device/hotspot or pauses the panel. The system does not copy state over Bluetooth.
+
+## 13. Notification behaviour
+
+Push is used for:
+
+- substitute pages;
+- imminent assignment;
+- panel moved or paused;
+- scorecard/correction action requested;
+- clock-out reminder.
+
+The payload contains a page or event ID and a route, not private project text or scores.
+
+The app fetches current state after opening. Provider delivery tickets are logged, invalid tokens are disabled, and an unacknowledged critical page becomes an operations exception.
+
+## 14. Ergonomics and accessibility
+
+- primary controls are at least 48 device-independent pixels;
+- score controls include number and text, not colour alone;
+- the app supports system text scaling without hiding submit or timer state;
+- scanning has manual-code and screen-reader paths;
+- destructive or final actions require a confirmation screen;
+- haptics and sound support alerts but are never the only signal;
+- light and dark themes maintain readable contrast in the venue.
+
+## 15. Fleet operation
+
+Before the event:
+
+- every reviewer installs and opens the production candidate;
+- sign-in, push, camera, and SecureStore are tested on the actual device;
+- operations records a spare-device pool and charging plan;
+- the minimum supported build is fixed after the final rehearsal;
+- a remote update is tested, but a new native build is not planned during the event.
+
+On a device handover, operations revokes the old device, registers the spare, and confirms any unsynced active draft before reassignment.
+
+## 16. Acceptance checks
+
+- An unrostered user receives no reviewer context.
+- A stale push cannot accept a cancelled page.
+- The same reviewer cannot hold two accepted pages that overlap.
+- A scan for another panel or round is rejected.
+- Timer remains correct after backgrounding and restart.
+- Peer scores never appear before the configured reveal point.
+- A short offline edit survives app restart and syncs once.
+- An ambiguous submit response resolves to one submitted scorecard.
+- Logout or device revocation removes access and prevents queued operations from gaining authority.

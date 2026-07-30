@@ -1,199 +1,283 @@
 # Delivery and acceptance
 
-## 1. Delivery sequence
+## 1. Build order
 
-The technology baseline is selected. Product-policy decisions remain configuration and launch gates; they do not block creation of the shared identity, schema, authorization, realtime, audit, and deployment foundations.
+Build vertical event flows. Do not spend the first phase creating every table, role, and dashboard without a reviewer completing a real scorecard.
 
-### Milestone 0: Platform foundation and policy lock
+## 2. Slice 0: decisions and technical proof
 
 Deliver:
 
-- pnpm/Turborepo repository with `apps/web`, `apps/reviewer`, `packages/domain`, `packages/ui`, and `convex`
-- isolated development, staging, and production Clerk/Convex/Vercel/EAS environments
-- Google-only Clerk authentication on Next.js and Expo
-- VIT Student/External auth-intent flow and server-side Google `hd` verification
-- Convex schema, indexes, auth configuration, capability guard, command-receipt helper, domain-event helper, and audit helper
-- reactive client providers and connection/sync indicators on web and mobile
-- reviewer device registration, secure token storage, encrypted draft/outbox skeleton, and push-token lifecycle
-- error reporting, release identifiers, structured logs, and baseline dashboards
-- CI typecheck, lint, unit, Convex function, web E2E, and mobile smoke-test jobs
-- approved rubric and aggregation method
-- team-size policy
-- round/elimination model
-- panel size and criterion coverage
-- timing/extension rules
-- visibility and correction policy
-- degraded-mode authority
-- data retention policy
+- event configuration for team size, rounds, rubric, timer, correction windows, and queue policy;
+- pnpm workspace with web, reviewer, Convex, and shared domain package;
+- separate development, staging, and production projects;
+- Better Auth running on Convex with Google only;
+- web and Expo Google callback flows;
+- proof that the server can read and validate Google `sub`, verified email, and `hd`;
+- participant class and roster-claim prototypes;
+- one authorised Convex query and mutation from both clients;
+- release IDs and basic error reporting.
 
-Exit: a VIT student and external test user can authenticate; a rostered reviewer can authenticate on mobile; a test mutation appears live on web and mobile; unauthorized writes fail in Convex; environment and policy blockers have owners.
+Exit when:
 
-### Milestone 1: Identity, teams, and project onboarding
+- VIT and personal Google test accounts produce the expected participant classes;
+- a rostered reviewer signs in on a real device;
+- an unrostered account receives no reviewer data;
+- a role revoked in the dashboard fails on the reviewer’s next protected write;
+- the same accepted mutation appears on web and mobile.
 
-Deliver participant identity, team membership, guided project profile, submission receipts, and organiser shortlisting.
+If the Google hosted-domain claim cannot be captured through the selected Better Auth flow, stop and fix the auth design before participant registration work.
 
-Exit: full registration journey and permissions pass acceptance tests.
+## 3. Slice 1: participant registration
 
-### Milestone 2: Venue identity and table operations
+Deliver:
 
-Deliver check-in, team QR, table assignment/confirmation, staff exceptions, and participant review status shell.
+- participant profile;
+- team create/join/lead transfer;
+- guided project questions;
+- draft save and submitted project versions;
+- application-review assignment and independent recommendation;
+- shortlist, waitlist, offer, confirmation, and capacity state;
+- registration support codes;
+- event configuration checks.
 
-Exit: simulated venue check-in and table sweep succeeds.
+Exit when a VIT participant and an external participant can form a valid mixed or same-class team under the chosen policy, submit a project, receive a reviewed admission decision, confirm an offer, refresh on another device, and see the same server state.
 
-### Milestone 3: Reviewer and panel foundation
+## 4. Slice 2: one complete review
 
-Deliver reviewer profiles, criterion grants, training state, availability, panels, conflicts, clock-in, paging, and substitution.
+Use one team, one panel, and three reviewer devices.
 
-Exit: staffing drill can replace absences while preserving coverage.
+Deliver:
 
-### Milestone 4: Queue and review execution
+- staff roster and role grants;
+- reviewer profile and panel plan;
+- clock-in;
+- table assignment;
+- team QR and fallback code;
+- ready/call/at-table states;
+- reviewer presence;
+- server timer and extension;
+- rubric/criterion assignment;
+- draft save and independent submission;
+- review completion;
+- minimal operations views.
 
-Deliver readiness, assignments, queues, presence scanning, session lease, timer/extensions, evidence, independent scoring, receipts, and completion.
+Exit when the team travels from ready to complete with all required scorecards, one reviewer briefly loses connection, and every accepted state survives app/browser restart.
 
-Exit: concurrent mock round completes without duplicate or missing sessions.
+## 5. Slice 3: floor operations
 
-### Milestone 5: Scoring oversight and round close
+Deliver:
 
-Deliver aggregation, anomalies, progress tracking, corrections, finalist workspace, close checklist, and validated exports.
+- multi-panel routing;
+- queue ordering and participant estimate;
+- missing-reviewer detection;
+- substitute ranking, push, acknowledgement, and fallback;
+- panel/table moves;
+- holds and missed-team states;
+- active-review board;
+- support cases;
+- protected overrides and audit.
 
-Exit: two independent exports reproduce the same results.
+Exit after a dry run with at least five panels where staff handle a no-show, stale push, wrong table, expired QR, overrun, and simultaneous operator conflict.
 
-### Milestone 6: Reliability and event rehearsal
+## 6. Slice 4: progress evidence
 
-Deliver monitoring, backups, recovery, degraded mode, support, incident tooling, and accessibility fixes.
+Deliver:
 
-Exit: full-scale rehearsal and failure drills meet launch gates.
+- GitHub App installation and signed push webhook;
+- repository snapshots;
+- Figma OAuth and file selection;
+- metadata/version snapshots at checkpoints;
+- disclosure and stale-integration states;
+- Review 1 commitments and Review 2 context.
 
-### Milestone 7: Synesthesia
+Exit when a reviewer can compare two checkpoints without receiving repository secrets, full Figma document content, or a generated score.
 
-Independent delivery after core review operations are safe. It must never compete with or impair review traffic and operations.
+## 7. Slice 5: scoring and round close
 
-## 2. Required test environments
+Deliver:
 
-- Local development with generated identities and deterministic seed data
-- Shared development deployment with no real participant data
-- Staging/reviewer-training environment with production-like Google, Clerk, Convex, push, and EAS configuration
-- Operations rehearsal environment or namespaced rehearsal event in staging
-- Production-like load environment with synthetic accounts and isolated notification targets
-- Recovery/restore environment
+- score-spread flags;
+- correction and void workflows;
+- criterion completeness;
+- configured aggregation;
+- finalist/award view behind approved policy;
+- participant feedback release;
+- CSV/JSON round export;
+- round close/reopen controls.
 
-Configuration promotion is versioned and auditable.
+Exit when the export reproduces every team total from raw scorecards and the saved rubric version, and a missing criterion blocks round close.
 
-No environment shares Clerk users, Convex records, Google OAuth credentials, Vercel secrets, Expo push credentials, or backup destinations with another environment unless the exception is documented and approved.
+## 8. Slice 6: reliability and rehearsal
 
-## 3. Core end-to-end scenarios
+Deliver:
 
-1. Participant creates a valid team, completes guided onboarding, and receives submission receipt.
-2. Team checks in, moves tables once, and sees the correct QR and queue status.
-3. All reviewers clock in, scan presence, complete independent criteria, and finish a review.
-4. One reviewer is absent and a qualified substitute accepts a page.
-5. A conflict is discovered before and during a review.
-6. A team is not ready; queue proceeds and team later re-enters fairly.
-7. A review uses permitted extensions and concludes with justification.
-8. A reviewer loses connection while drafting and later receives a valid receipt without duplication.
-9. Two clients try to start the same team review; only one lease succeeds.
-10. A device dies after acknowledged saves; another device recovers the work.
-11. An administrator performs and later audits an override.
-12. A round attempts to close with a missing criterion and is blocked.
-13. Review 2 compares declared commitments against demonstrated progress.
-14. An export is generated, restored from backup, and independently reproduced.
-15. Synesthesia handles duplicate request, vote removal, moderation, playback override, and fallback.
+- venue network results;
+- reviewer device inventory;
+- minimum-build enforcement;
+- spare-device handover;
+- backup download and staging restore;
+- incident banners and round pause;
+- printed manual-mode pack;
+- two-person manual-record import;
+- monitoring and on-call ownership;
+- production support runbook.
 
-## 4. Load model
+Exit after the full rehearsal completes without unowned exceptions or unreconciled scorecards.
 
-The final load plan must use confirmed registration and staffing numbers. It should include:
+## 9. Slice 7: Synesthesia
 
-- 1,000 participants checking queue state near round start
-- all panels clocking in within a short window
-- burst QR scans at many tables
-- concurrent review drafts and score submissions
-- notification/page bursts during substitution
-- dashboard live updates
-- partial network degradation
+Build Synesthesia after the core review flow passes its rehearsal.
 
-Success thresholds for latency and error rate are validated and frozen before the full-scale rehearsal. Data correctness is a harder gate than visual responsiveness.
+Exit when request, voting, moderation, playback acknowledgement, and failure isolation work without granting access to review data.
 
-Working technical gates for rehearsal:
+## 10. Environments
 
-- accepted command p95 ≤ 750 ms and p99 ≤ 2 s under the approved synthetic load;
-- accepted-command-to-online-subscriber p95 ≤ 1.5 s;
-- zero duplicate active review sessions, score submissions, or queue entries;
-- 100% of acknowledged critical commands resolvable by command receipt;
-- dashboard critical projection age ≤ 5 s while connected;
-- push ticket creation p95 ≤ 5 s, with delivery receipt processing and an in-app/operations fallback;
-- a client reconnect restores current authoritative projections without manual refresh.
+| Environment | Use |
+| --- | --- |
+| Development | Local work, synthetic identities, disposable data |
+| Staging | Production-like Google clients, real device builds, rehearsals, load tests |
+| Production | Registered participants and event operation |
 
-## 5. Operational drills
+Each environment has separate:
 
-Run at least:
+- Convex deployment and data;
+- Better Auth secret and Google OAuth clients;
+- Vercel project/environment;
+- EAS channel and app scheme;
+- GitHub App or webhook configuration;
+- Figma OAuth redirect;
+- Expo credentials;
+- Sentry environment;
+- backup/export destination.
 
-- absent-reviewer drill
-- wrong-table drill
-- connectivity-loss drill
-- duplicate-session drill
-- corrupted/failed client update drill
-- notification failure drill
-- backup restore drill
-- unsafe-conduct escalation drill
-- round-close reconciliation drill
+Production data is never copied into development. A staging seed uses generated teams and reviewers.
 
-Each drill records observed time, confusion, data state, and runbook changes.
+## 11. Automated tests
 
-## 6. Training
+### Domain/unit
+
+- participant classification;
+- team membership and lock rules;
+- reviewer eligibility and conflicts;
+- panel criterion coverage;
+- routing rank and tie-break;
+- queue transitions;
+- timer/extension policy;
+- rubric aggregation;
+- score completeness;
+- role capability checks.
+
+### Convex
+
+- unauthorised reads and writes;
+- unique active session/scorecard constraints;
+- stale expected-version rejection;
+- duplicate operation ID resolution;
+- round-close blockers;
+- audit records for protected commands;
+- webhook deduplication.
+
+### Web
+
+Playwright covers participant registration, team/project submission, independent application review, admission offer, ready/queue, roster administration, floor operations, correction, and round close.
+
+### Mobile
+
+Maestro and device tests cover Google sign-in, clock-in, page open, QR scan, background timer, offline draft, reconnect, submit-time response loss, restart, and device revocation.
+
+### Integration
+
+Signed fixture payloads cover GitHub push/install/uninstall and Figma OAuth/token refresh/API errors. Provider sandboxes or test accounts cover the live happy path.
+
+## 12. Load test
+
+The provisional test envelope is:
+
+- 1,200 active live connections;
+- 300 reconnects over two minutes near round open;
+- 60 simultaneous active reviews;
+- 150 state-changing operations per minute;
+- dashboard subscriptions for all panels, queues, pages, and active sessions;
+- one round export while normal reads continue.
+
+The script uses registered counts once available. It records server function latency, client update delay, failures, reconnect behaviour, and any duplicate/missing state.
+
+Cloud-only results do not replace a venue rehearsal.
+
+## 13. Rehearsal scenarios
+
+The final rehearsal includes:
+
+1. VIT participant signs in with the wrong Google account.
+2. Reviewer is not on the roster.
+3. Reviewer accepts a page after it expired.
+4. One panel member is absent.
+5. Reviewer phone loses battery during an active draft.
+6. Venue Wi-Fi drops for one table.
+7. Expo push is delayed.
+8. Team arrives at the wrong table.
+9. QR is expired or belongs to another round.
+10. Two operators move the same team.
+11. Reviewer submits but the response is lost.
+12. A score criterion lacks the minimum coverage.
+13. GitHub/Figma checkpoint is stale.
+14. Convex becomes unavailable and the round pauses.
+15. One manual paper review is entered and verified.
+16. Round export is checked and restored into staging.
+
+Every scenario has an owner, expected screen state, recovery action, and pass/fail result.
+
+## 14. Training
 
 ### Reviewers
 
-- rubric and evidence anchors
-- independent scoring and anti-anchoring
-- conflicts
-- app practice
-- timer and extension policy
-- connectivity and device recovery
-- participant conduct
+- sign-in and device check;
+- page acknowledgement;
+- conflict reporting;
+- QR presence;
+- evidence versus score;
+- independent scoring;
+- offline indicator and submission confirmation;
+- spare-device procedure.
 
 ### Operations
 
-- table verification
-- queues and holds
-- paging/substitution
-- safe commands and permissions
-- incident escalation
+- table freeze;
+- panel gap and substitute flow;
+- queue holds/moves;
+- active-review exceptions;
+- stale command conflicts;
+- pause and incident mode;
+- support case ownership.
 
-### Board/review administrators
+### Review administrators and board
 
-- configuration lock
-- overrides
-- anomaly review
-- correction and appeals
-- round close and exports
+- rubric publication;
+- correction/void;
+- score visibility;
+- close blockers;
+- presence and overrun overrides;
+- exports and manual-record verification.
 
-## 7. Definition of done
+## 15. Freeze and launch
 
-A feature is done only when:
+- Product policy freezes before the final rehearsal.
+- Schema and auth changes freeze after the final rehearsal except for a launch-blocking defect.
+- Mobile native dependencies freeze before production reviewer installation.
+- EAS Update may ship a compatible JavaScript fix only after staging verification and release-owner approval.
+- Production seed/configuration is exported and reviewed before check-in.
+- A named release owner, incident commander, auth owner, reviewer-app owner, backend owner, and floor-operations owner are present for event windows.
 
-- product rules and edge cases are implemented;
-- permissions and audit events exist;
-- loading, empty, error, offline, and recovery states exist;
-- accessibility requirements pass;
-- metrics and alerts exist;
-- automated tests cover invariants;
-- runbook and operator ownership exist;
-- representative users complete rehearsal;
-- no unresolved critical or high-severity defect remains.
-- schema and function changes remain backward-compatible with the supported mobile runtime or are protected by a coordinated minimum-version gate.
-- every new external side effect is outbox-driven, retryable, observable, and idempotent.
+## 16. Definition of done
 
-## 8. Event launch checklist
+A feature is done when:
 
-- Configuration frozen and checksum recorded
-- Staff roster and backups confirmed
-- Reviewer training eligibility locked
-- Supported app version enforced
-- Participant communications published
-- Venue tables and labels verified
-- Notification and QR smoke tests passed
-- Backup/restore and exports verified
-- Incident channel and command roles staffed
-- Manual fallback materials controlled
-- Round 1 dashboard dry run complete
-- Final go/no-go recorded by named owners
+- server permissions and state checks exist;
+- participant/reviewer/staff error states are written;
+- live updates reach every affected surface;
+- duplicate, stale, offline, and restart behaviour is tested where relevant;
+- protected actions create the required history;
+- support and operations can diagnose failure;
+- staging and production configuration is documented;
+- the event owner has approved any policy the feature applies.

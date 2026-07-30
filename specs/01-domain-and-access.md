@@ -1,177 +1,212 @@
-# Domain and access model
+# Identity and access
 
-## 1. Canonical entities
+## 1. Authentication choice
 
-Every entity has an immutable system identifier, created/updated timestamps, version, status, and audit metadata where applicable.
+Code2Create uses Better Auth with Google as the only sign-in provider.
 
-| Entity | Required meaning |
-| --- | --- |
-| User | One application identity anchored to a Clerk subject and verified Google identity |
-| AuthIntent | Short-lived signed record of VIT-student/external selection, nonce, and safe return path |
-| IdentityLink | Stable provider link containing Clerk subject, Google `sub`, provider, and verification metadata |
-| AccountClass | Participant classification: `vit_student` or `external`; never an authorization role |
-| RoleGrant | A time-bounded, event-scoped capability bundle granted to a user from an approved roster |
-| Device | Registered reviewer/staff installation, app version, platform, and last-seen health |
-| PushToken | Revocable Expo/native push token tied to a user and device |
-| ReviewerProfile | Expertise, interests, declared conflicts, eligibility, and availability |
-| Team | Participant group and public team identity |
-| TeamMembership | Person-to-team relationship, role, invitation state |
-| ProjectProfile | Versioned project answers, track, evidence links, tools, and disclosures |
-| VenueTable | Physical table identifier, zone, and availability |
-| TableAssignment | Time-bounded team-to-table association |
-| Round | Review phase, schedule, state, timing policy, and elimination policy |
-| EventConfig | Frozen event policy revision referenced by rounds, rubrics, and clients |
-| Criterion | Rubric item, definition, weight, scale, evidence guidance |
-| ReviewerCriterionGrant | Criteria a reviewer may score, with qualification source |
-| Panel | A group of reviewers operating together during a round |
-| PanelMembership | Reviewer-to-panel assignment and attendance state |
-| TeamPanelAssignment | Team routed to a panel for a round, plus reason and status |
-| QueueEntry | Ordered, participant-visible review position |
-| ReviewSession | One panel reviewing one team in one round |
-| ReviewPresence | Proof that each required reviewer was physically present |
-| Score | Independent reviewer score for one criterion |
-| EvidenceRecord | Observed capability, demo, link, claim, milestone, or risk |
-| ReviewNote | Structured or free-text note with visibility rules |
-| Extension | Approved addition to review time |
-| Page | Alert sent to a reviewer or substitute |
-| Override | Exceptional privileged action with reason and audit trail |
-| CommandReceipt | Durable idempotent acknowledgement for a client command and resulting versions |
-| DomainEvent | Append-only business event emitted in the same transaction as authoritative state |
-| NotificationJob | Retryable external-delivery request derived from a domain event |
-| Decision | Elimination, finalist, award, or disqualification record |
-| SongRequest | Synesthesia track request |
-| SongVote | One person's active vote on a request |
-| PlaybackItem | Moderated item in playback history or queue |
-| AuditEvent | Append-only record of a security or operational action |
+Better Auth runs inside the Convex deployment through `@convex-dev/better-auth`, which is maintained by Convex. The auth component owns provider accounts, sessions, verification records, and cookies. Application tables own event membership, participant class, teams, reviewer profiles, and role grants.
 
-## 2. Identity and account-class rules
+There is no Clerk tenant, participant password, magic link, or role stored in an unverified client claim.
 
-- Authentication is Google-only for participants, reviewers, and staff.
-- Clerk owns login sessions and exposes a stable subject to web, mobile, and Convex.
-- The application stores Google `sub` as the stable upstream identity link. Email is a verified contact/display attribute and is not a database primary key.
-- One human should have one event user. Automatic account linking is allowed only when the identity provider proves control; uncertain duplicates enter an administrator merge workflow.
-- The public participant flow asks **VIT student** or **External participant** before opening Google authentication.
-- The choice creates a short-lived `AuthIntent` containing a random nonce, requested account class, safe return path, creation time, and expiry. The callback consumes it once.
-- `vit_student` requires a verified Google identity whose `hd` claim exactly matches an active domain in `identityPolicies.vitStudentHostedDomains`. The initial value is `vitstudent.ac.in`.
-- The server validates the Google token signature, issuer, audience, expiry, nonce where available, `sub`, `email_verified`, and `hd`. It never grants VIT status from `email.endsWith(...)`.
-- `external` requires a verified Google identity and then collects institution, city/country, and participant affiliation. It does not imply lower judging eligibility.
-- A VIT-domain user who deliberately selected External remains external for that event unless an authorised reclassification command records the reason.
-- A non-VIT user who selected VIT Student fails closed and can restart as External. The system never silently downgrades the selection.
-- Account class can affect registration policy and forms. It cannot grant reviewer, operations, moderator, auditor, or administrator capability.
-- Staff and reviewer capability comes from a roster/invitation matched to the verified identity, followed by required training and activation.
-- A removed or suspended user immediately loses new-write authority. Already submitted records remain attributed and immutable.
+## 2. Participant sign-in
 
-## 3. Authentication routes
+The first screen has two choices:
 
-| Entry route | Required flow | Result |
+1. **VIT Student**
+2. **External Participant**
+
+After the choice, the user selects **Authenticate with Google**.
+
+### Authentication intent
+
+The server creates a short-lived `authIntent` containing:
+
+- random nonce;
+- selected participant class;
+- event ID;
+- return route;
+- creation and expiry time.
+
+The OAuth state carries the nonce. The server consumes an intent once after the Google callback. A client cannot change the selected class or event by editing a return URL.
+
+### Server classification
+
+After Google returns a verified account, the server reads:
+
+- Google provider subject (`sub`);
+- verified email;
+- hosted-domain claim (`hd`), when present;
+- Better Auth user and session IDs.
+
+The server applies these rules:
+
+| Selected path | Verified Google result | Outcome |
 | --- | --- | --- |
-| Participant registration | Select account class → Google → provision identity → complete profile | Participant-capable user with `vit_student` or `external` classification |
-| Returning participant | Google → resolve existing identity | Existing participant context and team |
-| Reviewer invitation | Open invite → Google → roster match → accept terms/training | Reviewer grant scoped to event/round/criteria |
-| Staff/admin invitation | Open invite → Google → roster match → optional step-up | Narrow staff capability grant |
-| Uninvited Google account on staff route | Google succeeds; roster match fails | Authenticated but no staff authority |
+| VIT Student | `hd` matches an approved VIT student domain | Create or resume a `vit_student` event membership |
+| VIT Student | `hd` missing or not approved | Stop provisioning; explain that the VIT account is required and offer a restart as External |
+| External | `hd` matches an approved VIT student domain | Classify as `vit_student`; the selector cannot bypass VIT classification |
+| External | verified Google account with no approved VIT `hd` | Create or resume an `external` event membership |
 
-Authentication success and application authorization success are separate outcomes.
+The initial approved domain is `vitstudent.ac.in`. VIT IT must confirm the final list before production opens.
 
-## 4. Role permissions
+Email suffix matching is not enough. Google documents `sub` as the stable user identifier and `hd` as the claim to check for Workspace-domain membership. The provider subject is stored as the external identity key; email remains a verified contact and roster-matching value.
 
-Legend: **R** read, **W** create/update within scope, **A** exceptional authority, **—** no access.
+## 3. Reviewer and staff sign-in
 
-| Capability | Participant | Reviewer | Panel lead | Ops | Review admin | Board admin | Auditor |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Own team/project | W | R when assigned | R when assigned | R | R | R | R |
-| Other teams | Public status only | Assigned team only | Assigned team only | Operational fields | R | R | R |
-| Own score draft | — | W | W | — | R after submit | R | R |
-| Another reviewer's score | — | Hidden until permitted | Hidden until permitted | — | R after lock | R | R |
-| Panel attendance | Own visible status | Own W | Panel R | W | W | A | R |
-| Queue | Own/team view | Assigned view | Panel view | W | W | A | R |
-| Panel definitions | — | Own R | Own R | R | W | A | R |
-| Assignment recommendation | — | — | R | W | W | A | R |
-| Begin/complete review | Team status only | W if eligible | W if eligible | operational assist | A | A | R |
-| Extend timer | Visible | Request/W within policy | Request/W | — | W | A | R |
-| Override safety gates | — | — | — | — | Limited | A | R |
-| Round open/close | — | R | R | R | W | A | R |
-| Finalist decision | Own outcome | — | — | — | Recommend | A | R |
-| Audit history | Own relevant events | Own events | Panel events | Operational subset | R | R | R |
+Reviewer and staff routes do not show the VIT/External selector.
 
-Exact permissions must be implemented as named capabilities, not hard-coded role checks.
+Before the event, an administrator imports roster rows containing:
 
-## 5. Capability evaluation
+- event;
+- verified Google email expected at first claim;
+- person name;
+- role;
+- optional panel, track, or team scope;
+- active-from and active-until times;
+- roster source and importer.
 
-Every protected query and mutation evaluates:
+On first Google sign-in:
 
-1. valid Clerk/Convex identity;
-2. active, non-suspended application user;
-3. active event membership;
-4. named capability;
-5. grant scope (event, round, panel, team, criterion, or venue zone);
-6. current entity state and configuration revision;
-7. step-up requirement for high-risk actions.
+1. the backend looks for an unclaimed active roster row with the exact normalised verified email;
+2. it checks that the row belongs to the current event;
+3. it links the roster row to the Better Auth user and Google provider subject;
+4. it creates the named role grant;
+5. later sign-ins use the linked user ID rather than repeating an email match.
 
-Example capabilities include `team.manage_own`, `queue.declare_ready`, `review.score_assigned`, `panel.start_review`, `ops.manage_queue`, `review_admin.configure_round`, `board.override`, `audit.read`, and `synesthesia.moderate`.
+A participant may also be a rostered volunteer or reviewer. The user keeps one account and receives separate event grants. An external judge can use any verified Google account if that address is on the roster.
 
-Roles are maintained as bundles for administration, but backend functions authorize capabilities. A board administrator acting as a reviewer receives reviewer capability only for their assigned panel and cannot rely on their broader title to bypass ordinary scoring rules.
+Roster normalisation trims whitespace and lowercases the address for lookup. It does not remove `+tags`, dots, or apply provider-specific alias rules.
 
-## 6. Reviewer profile
+An unmatched account sees a plain “not on the event roster” screen and a support code. It receives no staff data.
 
-A reviewer profile includes:
+## 4. Account records
 
-- Primary organisational role (JC, SC, board, external judge, mentor)
-- Verified expertise tags
-- Secondary interests
-- Criteria they may score
-- Track/domain familiarity
-- Review training status
-- Device readiness
-- Availability by round
-- Accessibility needs
-- Declared team/member conflicts
-- Past assignment load for this event
-- Current panel and live status
+| Record | Owner | Purpose |
+| --- | --- | --- |
+| Better Auth user/account/session | Better Auth component | Google identity link and session lifecycle |
+| Person | Application | Display name, verified contact, status, and auth-user reference |
+| Event membership | Application | Participant class and event participation state |
+| Role grant | Application | Time-bound role with event and optional resource scope |
+| Roster entry | Application | Approved reviewer/staff invitation and first-sign-in claim |
+| Device | Application | Reviewer installation, app version, notification token, and revocation state |
 
-Expertise claims require one of: organiser validation, documented experience, previous work, or training completion. Seniority alone does not produce a score multiplier.
+The application does not copy session secrets or raw Google access tokens into its domain tables.
 
-## 7. Visibility boundaries
+## 5. Roles and permissions
 
-- Participants can see their own submitted project, review state, queue estimate, published feedback, and final public outcome.
-- Reviewers see only teams assigned to their panel, with enough project context to review.
-- A reviewer must not see peer scores until their own required scores are submitted and locked. Whether peer scores are ever shown during the round is an open policy decision.
-- Private reviewer notes are never participant-visible.
-- Published feedback is a separately selected and moderated field.
-- Project secrets, private repositories, personal contact details, and sensitive disclosures are restricted to roles with a clear need.
-- Synesthesia voters do not expose their vote history publicly.
+Permissions are granted by capability. A role is a named bundle of capabilities.
 
-## 8. Immutability and corrections
+| Role | Main access |
+| --- | --- |
+| Participant | Own profile, own teams, project versions, readiness, own queue state, own review progress, Synesthesia |
+| Application reviewer | Assigned pre-event applications, their own admission reviews, and no venue judging score |
+| Admissions administrator | Eligibility checks, application assignment, shortlist/waitlist decisions, offers, and confirmation capacity |
+| Reviewer | Own clock-in, pages, assigned reviews, project context, presence, own scorecards |
+| Panel lead | Reviewer access plus panel completion and non-score operational checks |
+| Review operations | Panels, tables, queues, pages, substitutions, review exceptions, completeness |
+| Review administrator | Rubrics, criterion assignments, correction requests, score reveal, round close |
+| Event administrator | Event configuration, rosters, grants, exports, and support actions |
+| Board | Named emergency overrides and final-round decisions |
+| Auditor | Read-only event history and approved exports |
+| Synesthesia moderator | Request moderation and playback queue control |
+| Playback operator | Current Synesthesia item and playback acknowledgement |
 
-- Submitted scores are append-only. A correction creates a new version linked to the replaced score, requires a reason, and preserves the original.
-- Review presence, timer events, queue transitions, overrides, and final decisions are append-only events.
-- Project profiles remain versioned across registration and review rounds.
-- Administrative configuration changes after a round opens create a visible revision and require a reason.
-- Hard deletion of event records is prohibited during the retention period, except legally required personal-data erasure handled through an approved redaction process.
+Team lead is a team-membership permission, not a global event role.
 
-## 9. Session and device policy
+### Capability checks
 
-- Clerk sessions are revocable and short enough to reflect roster and suspension changes.
-- Convex authorization always reads current application grants for outcome-affecting writes; a stale client token cannot preserve removed authority.
-- Reviewer devices register an installation ID, platform, build/runtime version, notification permission, and last-seen timestamp.
-- Tokens stored on device use operating-system protected storage. No Google or Clerk secret is written to general application storage.
-- Privileged commands can require recent Google/Clerk re-verification. The re-verification timestamp is checked server-side.
-- Push tokens are tied to a device record, rotated when changed, and disabled after provider feedback or logout.
-- Shared accounts, shared device PINs, and generic panel logins are prohibited.
+Each public Convex function checks:
 
-## 10. Audit event minimum
+1. a valid Better Auth identity;
+2. an active person record;
+3. active event membership where required;
+4. the named capability;
+5. event and resource scope;
+6. the current object state;
+7. conflict-of-interest restrictions;
+8. session or device requirements for the command.
 
-Every privileged or outcome-affecting event records:
+The web route guard improves navigation. It does not replace checks inside Convex.
 
-- event ID and timestamp
-- actor user and evaluated capabilities
-- action type
-- target type and ID
-- before/after version or structured diff
-- client/device/session reference
-- request idempotency key
-- reason, if required
-- connectivity state and server receipt
-- related round, panel, team, and review session
+## 6. Data visibility
 
-Audit search must support actor, team, panel, round, action type, and time range.
+### Participants can see
+
+- their own personal record;
+- members and project material for their teams;
+- their team’s table, ready state, queue state, review status, and released feedback;
+- public event configuration and Synesthesia state.
+
+They cannot see other teams’ private submissions, reviewer identities before policy allows it, scores, panel notes, conflicts, or staff locations.
+
+### Application reviewers can see
+
+Application reviewers see only applications assigned to them, the project/team fields approved for admission review, and their own recommendation. They do not see another reviewer’s recommendation before submitting and cannot use the venue judging rubric.
+
+### Reviewers can see
+
+- their profile, device state, clock-in state, pages, and assignments;
+- project context for a currently assigned or recently completed review;
+- previous-round findings and commitments released to that review;
+- their own draft and submitted scorecards.
+
+They cannot see peer score values before the configured reveal point, unrelated teams, hidden participant data, or staff-only audit records.
+
+### Operations can see
+
+Operations views show what is needed to move the event: status, table, panel, timer, missing presence, missing scorecards, and exception reason. Score values require a separate review-administrator or board capability.
+
+## 7. Sessions and devices
+
+- Better Auth sessions expire after seven days and may refresh after twelve hours of activity.
+- Event role grants expire independently, normally six hours after the event closes.
+- Removing a role takes effect on the next protected backend call even if the Google session remains valid.
+- Web sessions use secure, HTTP-only, same-site cookies.
+- The Expo Better Auth client stores session cookies in `expo-secure-store`.
+- The reviewer app registers one device record with platform, build number, notification token, last-seen time, and revocation state.
+- Clock-in rejects a revoked device or an app below the configured minimum build.
+- Board overrides, post-lock score corrections, role changes, and raw exports require a session created within the previous 30 minutes. An older session is sent through Google sign-in again.
+
+The exact session settings live in security configuration and must be tested on real web and mobile builds.
+
+## 8. Identity changes and duplicates
+
+- Accounts are never merged only because two Google identities share an email.
+- If a provider subject changes or a rostered email was wrong, an event administrator opens an identity-repair case.
+- The repair records the old link, new link, evidence, actor, and reason.
+- A claimed roster row cannot be claimed by another person until the first link is revoked.
+- A suspended person cannot create a new event membership through a fresh auth intent.
+- Deleting a Google or Figma connection does not delete judging records already captured from it.
+
+## 9. Audit
+
+Record these access events:
+
+- participant provisioning and resulting class;
+- failed VIT-domain checks by reason, without storing raw tokens;
+- roster import, claim, unlink, and rejection;
+- role grant, scope change, expiry, and revocation;
+- reviewer device registration, token replacement, minimum-build rejection, and revocation;
+- privileged reauthentication failure;
+- identity repair and account suspension.
+
+Normal page views are not written to the audit log.
+
+## 10. Acceptance checks
+
+- A VIT Workspace account reaches VIT onboarding from either selector path.
+- A personal Google account cannot complete the VIT path.
+- A personal Google account can complete External onboarding.
+- A participant cannot call reviewer or operations functions.
+- A rostered reviewer can sign in on a production-like Expo build and claim only their own row.
+- An unrostered Google account receives no reviewer data.
+- Revoking a role blocks the next protected call without waiting for session expiry.
+- A duplicated callback cannot consume an auth intent twice or create two memberships.
+
+## References
+
+- [Better Auth Convex integration](https://better-auth.com/docs/integrations/convex)
+- [Better Auth Expo integration](https://better-auth.com/docs/integrations/expo)
+- [Better Auth OAuth state and provider handling](https://better-auth.com/docs/concepts/oauth)
+- [Google OpenID Connect claims](https://developers.google.com/identity/openid-connect/openid-connect)
+- [VIT Chennai IT policy naming the student Workspace domain](https://chennai.vit.ac.in/files/v2-chennai-it-policy.pdf)

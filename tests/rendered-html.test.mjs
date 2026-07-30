@@ -83,13 +83,14 @@ test("server-renders the authenticated Code2Create handbook", async () => {
 
   const html = await response.text();
   assert.match(html, /Code2Create 7\.0/);
-  assert.match(html, /Technical architecture/);
-  assert.match(html, /Data schema/);
-  assert.match(html, /Realtime synchronization/);
-  assert.match(html, /Authentication &amp; authorization/);
-  assert.match(html, /Infrastructure &amp; delivery/);
+  assert.match(html, /Production architecture/);
+  assert.match(html, /Data model &amp; realtime/);
+  assert.match(html, /Integrations &amp; release/);
+  assert.match(html, /Better Auth/);
+  assert.match(html, /VIT Student/);
+  assert.match(html, /GitHub App/);
   assert.doesNotMatch(
     html,
-    /vinext-starter|Workspace Auth Headers|Sign in with ChatGPT/i,
+    /vinext-starter|Workspace Auth Headers|Sign in with ChatGPT|Clerk with Google-only/i,
   );
 });

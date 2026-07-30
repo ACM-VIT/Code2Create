@@ -1,104 +1,116 @@
 # Synesthesia
 
-## 1. Goal
+## 1. Purpose
 
-Synesthesia gives participants a lightweight way to shape the room's music without surrendering ambience, safety, or final control to an unmoderated popularity queue.
+Synesthesia lets participants request and upvote music during the event while event staff keep control of safety, ambience, timing, and playback.
+
+It shares participant identity and event configuration with the main platform. Its records and failures do not block registration, reviews, scoring, or round close.
 
 ## 2. Roles
 
-- Participant: request, upvote, remove own vote, report
-- Moderator: approve/reject, edit metadata, mark explicit, schedule, skip
-- Playback controller: start/pause/skip/reorder within policy
-- Board administrator: override and manage policy
+| Role | Access |
+| --- | --- |
+| Participant | Search/request an allowed track, vote once, remove own vote, report a request |
+| Moderator | Approve, reject, hide, schedule, and add a reason |
+| Playback operator | View the playback queue and acknowledge start/finish/skip |
+| Event administrator | Configure windows, vote policy, catalogue source, and moderation rules |
 
 ## 3. Request flow
 
-1. Participant searches the approved music catalogue/source.
-2. Existing matching requests appear first.
-3. Participant upvotes an existing item or creates a request.
-4. New requests enter moderation unless the source/policy allows automatic eligibility.
-5. Eligible items appear in the participant queue with title, artist, duration, votes, and broad playback status.
+1. Participant searches the approved catalogue or enters the supported track identifier.
+2. The server checks event window, participant status, duplicate track, request limit, and moderation rules.
+3. If the track already exists in the active window, the participant is offered a vote.
+4. Otherwise the request enters `pending` or `approved` according to moderation policy.
+5. Participant sees the request state and any plain rejection reason.
 
-Free-text URLs do not directly enter playback.
+Free-form text is limited to a short optional note. It is not sent to the playback provider as a search query without validation.
 
 ## 4. Voting
 
-- One active vote per person per song request.
-- A requester automatically adds one vote.
-- Votes can be removed until the item is locked for playback.
-- Duplicate song/version requests merge under moderator control.
-- Vote count influences priority but does not guarantee immediate playback.
-- Rate limits prevent one participant from flooding requests.
+- One active vote per participant per request.
+- Repeating the same vote operation does not add another vote.
+- Removing a vote subtracts it once.
+- Vote totals update live.
+- Staff and playback accounts do not vote.
+- A participant may not vote while suspended.
 
-## 5. Queue policy
+The event can set per-window request and vote limits.
 
-Ranking can consider:
+## 5. Playback queue
 
-- unique votes
-- request age
-- recent artist/genre repetition
-- song duration
-- energy/ambience window
-- language and genre diversity
-- moderator scheduling
+Approved requests receive a priority from:
 
-The exact formula may remain private to reduce gaming, but participants must be told that votes are advisory and moderation/ambience rules apply.
+- vote count;
+- age;
+- ambience window;
+- recently played artist/track limits;
+- moderator scheduling;
+- explicit event override.
+
+The normal queue order is computed from published rules. A moderator can pin, defer, or skip an item with a reason.
+
+Participant views show **Requested**, **Approved**, **Queued**, **Playing**, **Played**, **Skipped**, or **Rejected**. They do not promise an exact play time.
 
 ## 6. Ambience windows
 
-Moderators can define room modes such as:
+Event administrators can create windows such as:
 
-- arrival / soft ambient
-- build session / low-distraction
-- high-energy break
-- late-night
-- announcements pause
-- quiet/review window
+- arrival;
+- working session;
+- late night;
+- morning reset;
+- judging;
+- closing.
 
-A request can be eligible now, held for a suitable window, or rejected.
+A window can change allowed energy/explicit-content tags, maximum duration, request limits, and whether participant voting is open.
 
-## 7. Moderation
+Judging and announcements can pause playback without deleting the queue.
 
-Reasons include:
+## 7. Moderation and safety
 
-- explicit or unsuitable content
-- duplicate
-- unavailable source
-- excessive duration
-- repeated artist/genre
-- disruptive for current event phase
-- reported content
-- organiser policy
+Reject or hide a request for:
 
-Rejection reasons are visible to the requester at an appropriate level. Moderator actions are audited.
+- explicit content outside the configured window;
+- harassment or targeted message;
+- unsafe or prohibited media;
+- duplicate/spam behaviour;
+- licensing or catalogue restriction;
+- event direction.
 
-## 8. Playback
+A moderator action stores actor, reason, and time. Participants see a short public reason, not internal notes.
 
-- Only one controller owns the active playback lease.
-- Now playing and recently played are visible.
-- Participant, moderator, and playback views subscribe to role-filtered projections of the same Convex request/vote/queue records.
-- A vote mutation updates the canonical vote and request total atomically; duplicate retries return the original command receipt.
-- Playback history prevents accidental repeats.
-- Organisers can pause for announcements or reviews.
-- Skip/override requires a reason category; free text is required for exceptional cases.
-- A fallback curated playlist/set is available if the queue is empty or the service fails.
+Reports create support cases. Repeated abuse can suspend Synesthesia access without suspending the participant from the event unless an event administrator chooses that separate action.
 
-## 9. Privacy and safety
+## 8. Playback integration
 
-- Public views show aggregate votes, not voter identities.
-- Reports are private.
-- Requests and votes are tied to verified event identities for abuse control.
-- Content filtering is configured before launch.
-- Playback source licensing and venue terms must be reviewed by organisers.
+The playback source and licensing are open decisions.
 
-## 10. Acceptance criteria
+The first release can use an operator-driven queue:
 
-- Duplicate requests do not split votes indefinitely.
-- A participant cannot cast duplicate votes.
-- Voting never removes organiser control.
-- The active player cannot be controlled simultaneously by two devices.
-- Announcements can interrupt playback immediately.
-- The system can fall back to a curated source without blocking event operations.
-- Moderator and override actions are auditable.
-- Connected participants see accepted request, vote, moderation, and playback changes without refreshing.
-- Synesthesia queries and jobs are rate-limited and isolated so a request/vote burst cannot starve review mutations.
+1. dashboard shows the next approved item;
+2. operator starts it in the licensed playback application;
+3. operator acknowledges **Playing**;
+4. operator marks **Played** or **Skipped**.
+
+Direct provider control should be added only after confirming API terms, venue licensing, account ownership, and failure behaviour. The platform must not scrape a streaming service or store audio.
+
+## 9. Data model
+
+Core records:
+
+- `synesthesiaWindows`
+- `songRequests`
+- `songVotes`
+- `playbackEvents`
+- moderation audit events
+
+Requests store provider track ID and display metadata, not media files.
+
+## 10. Acceptance checks
+
+- A participant can hold at most one vote on a request.
+- Duplicate requests resolve to the existing active request.
+- Moderation changes appear in participant and playback views without refresh.
+- A moderator override records a reason.
+- Closing a voting window blocks new requests/votes but keeps the playback queue.
+- Synesthesia outage does not affect any review or score function.

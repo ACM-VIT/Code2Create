@@ -1,187 +1,278 @@
-# Participant onboarding and portal
+# Participant portal
 
-## 1. Experience goal
+## 1. Entry
 
-Registration must feel like a guided project conversation, not a dense form. It asks one meaningful question at a time, explains why it matters, saves continuously, and produces a structured project profile suitable for shortlisting and later review.
+The portal opens with:
 
-No PPT is required.
+- VIT Student
+- External Participant
 
-## 2. Onboarding flow
+The next action is **Authenticate with Google**. Identity and classification follow the rules in Identity and access.
 
-### Step 1: Identity
+A returning participant goes to the first unfinished task instead of repeating onboarding.
 
-The first screen asks:
+## 2. Participant profile
 
-- **VIT student**
-- **External participant**
+The portal collects only event fields that Google does not provide.
 
-No email field or password field is shown. Selecting a class creates a one-time authentication intent, after which the primary action is **Authenticate with Google**.
+### All participants
 
-#### VIT student
+- preferred name;
+- phone number for event operations;
+- institution or organisation;
+- graduation year or current role;
+- dietary/accessibility needs if event operations supports them;
+- required policies and consent versions.
 
-1. The user chooses **VIT student**.
-2. The UI explains that the VIT Google Workspace account is required.
-3. Google authentication opens with the hosted-domain hint `vitstudent.ac.in`; the hint improves account selection but is not security.
-4. The server verifies the Google ID token and requires `email_verified = true` and `hd = vitstudent.ac.in` (or another explicitly configured VIT student domain).
-5. The application links Google `sub` to one internal user and marks the event participant class `vit_student`.
-6. The user confirms display name, registration number, campus, programme, expected graduation year, phone/contact preference, terms, and required consent.
+### VIT students
 
-The registration number remains a separately validated profile field. It is not parsed from the email and is not used as the login identifier.
+- registration number;
+- school/programme;
+- campus, if more than one campus is eligible.
 
-#### External participant
+### External participants
 
-1. The user chooses **External participant**.
-2. The user authenticates with any verified Google account.
-3. The application records class `external`.
-4. The user provides institution/organisation, course or role, city/country, expected graduation year where applicable, phone/contact preference, terms, and required consent.
+- institution or organisation name;
+- city and country;
+- student/professional classification;
+- eligibility evidence if event policy requires it.
 
-#### Mismatch and recovery
+The final eligibility fields remain blocked until the event board approves the participant policy.
 
-- Non-VIT Google identity on the VIT path: block provisioning, explain the mismatch, and offer **Start again as External**.
-- VIT identity on the External path: respect the selected class for that event and offer a clearly explained reclassification request.
-- Abandoned or replayed auth intent: expire it and restart at the selector.
-- Existing account on another device: resolve the same internal user and restore onboarding progress.
-- Invited reviewer/staff account: authenticate successfully, then resolve roster grants separately from participant registration.
+## 3. Team formation
 
-Progress can resume across devices after provisioning because drafts are stored against the internal user and current project version.
+A participant can create one team or join one team for the event.
 
-### Step 2: Team
+### Create
 
-The participant creates a team or joins by a single-use invitation. The lead sees invited, verified, accepted, declined, and expired states.
+The creator becomes team lead and receives:
 
-Rules:
+- a short join code;
+- an expiring invite link;
+- a member list with claim status.
 
-- A person can belong to only one active team.
-- Team-size limits are configurable; the June discussion did not conclusively settle 2–5 versus 3–5.
-- The lead cannot submit while membership violates the configured limit.
-- Removing a member after submission creates a revision and may require organiser approval.
+### Join
 
-### Step 3: Project narrative
+The server checks:
 
-Ask one prompt at a time:
+- participant is eligible for the event;
+- participant is not already in another active team;
+- team is not submitted, locked, full, or disqualified;
+- invitation is valid;
+- mixed VIT/External teams comply with event policy.
 
-1. What is your project about? Provide a plain-language one-sentence description.
-2. Who specifically experiences the problem?
-3. What problem are you solving, and what evidence suggests it is real?
-4. What does the user do today?
-5. What will your team build during Code2Create?
-6. What is the single end-to-end action your demo must complete?
-7. What will be your team's original contribution?
-8. Which tools, APIs, templates, models, datasets, and starter code do you expect to use?
-9. What could go wrong for a user? Address privacy, security, safety, bias, and misuse where relevant.
-10. How will you test that the project works?
-11. Select the best-fit track and explain the fit in one short answer.
-12. What will you deliver by Review 1 and Review 2?
+### Team changes
 
-Questions may branch based on prior answers, but all teams must produce the same canonical fields. AI may help participants understand a prompt or improve clarity, but it must not invent claims or silently replace their answer.
+- A team lead can remove an unconfirmed member.
+- A confirmed member can leave before the team-lock time.
+- Lead transfer requires acceptance by the new lead.
+- Merge, split, or post-lock removal is an operations action with a reason.
+- Join codes can be rotated if exposed.
 
-### Step 4: Review
+Team-size bounds and mixed-team eligibility are open policy decisions. The backend reads them from event configuration.
 
-Show the project as a readable brief, not a field dump. Flag contradictions, missing evidence, overly vague answers, prohibited content, and incomplete disclosures. The team explicitly confirms accuracy before submission.
+## 4. Guided project profile
 
-### Step 5: Submission
+The project profile is a question-by-question flow. It does not ask for a PPT.
 
-Submission freezes a version and issues a receipt. The team can continue to update allowed live fields such as repository and demo links. Material narrative changes create a new version and remain visible to reviewers.
+The required prompts are:
 
-## 3. Shortlisting workspace
+1. What problem are you solving?
+2. Who has this problem?
+3. What evidence tells you the problem is real?
+4. What are you building during Code2Create?
+5. What already existed before the event?
+6. What will your team build yourselves?
+7. What tools, datasets, APIs, templates, models, or previous code will you use?
+8. What is working now?
+9. What will you demonstrate at the next review?
+10. What risks involve privacy, safety, security, misuse, or accessibility?
+11. Which track best fits the project?
 
-Authorised organisers see:
+Each answer has a clear length limit and autosaves after the user leaves the field. The portal shows **Saving**, **Saved**, or **Could not save** next to the active answer.
 
-- project brief and track
-- team eligibility
-- answer completeness
-- similarity/duplication signals, if later approved
-- feasibility and safety flags
-- reviewer comments
-- shortlist status and reason
+The product may later help shorten a team-written answer, but it cannot invent evidence, novelty, progress, or disclosures.
 
-Automation can group or summarise applications, but cannot autonomously accept or reject a team. There are no fixed problem statements in the current direction; tracks should be approachable but deep enough to discourage repetitive low-effort concepts.
+## 5. Project versions
 
-## 4. Check-in
+The team lead can edit a draft until submission.
 
-At the venue:
+Submitting creates a project version containing:
 
-1. A team member presents the team identifier.
-2. Staff verifies required members and eligibility.
-3. The system marks individual and team arrival.
-4. The team is assigned or confirms a venue table.
-5. The participant portal displays the canonical table and team QR.
-6. Conflicts are routed to an exception desk.
+- answers and disclosures;
+- track selection;
+- repository and Figma links;
+- demo URL, if present;
+- version number;
+- submitting member;
+- server time;
+- policy and form-schema versions.
 
-The QR contains a short-lived, signed reference. It must not expose personal data or serve as a permanent bearer credential.
+The team continues updating explicitly live fields such as demo status and checkpoint links. Editing a submitted narrative creates a new version; it never overwrites the earlier reviewer context.
 
-## 5. Table association
+At each review boundary, the backend records which project version and integration snapshots the panel received.
 
-- A table has a visible human-readable code.
-- Table-to-team association is confirmed 30–60 minutes before a review round.
-- Operations begins verification approximately 90 minutes before the round.
-- A team confirms its current table from the portal or through staff-assisted scan.
-- A table cannot have overlapping active assignments.
-- Moving a team ends the prior assignment and creates a new audited assignment.
-- Unconfirmed and conflicting tables appear as operations exceptions.
+## 6. Application and admission
 
-## 6. Readiness and queue
+The first submitted project version becomes the team’s pre-event application.
 
-Before each review:
+Application states are:
 
-- The team confirms required members are present.
-- Required project links and round deliverables are updated.
-- The team verifies its table.
-- The lead selects **Ready for review**.
+`draft → submitted → under_review → selected | waitlisted | rejected`
 
-The portal then displays:
+Selected applications continue:
 
-- current state
-- teams ahead or queue number
-- estimated window as a range, not a false exact promise
-- assigned panel only when policy permits
-- required preparation
-- pause or help state
+`selected → offer_sent → confirmed | offer_expired | withdrawn`
 
-A team can withdraw readiness before being called. After being called, it must request assistance rather than silently leaving the queue.
+### Application review
 
-## 7. Participant-facing review states
+- An admissions administrator assigns each application to the configured number of application reviewers.
+- Reviewers inspect project answers, team composition allowed by policy, disclosures, and track choice.
+- Each reviewer submits an independent recommendation: `select`, `waitlist`, `reject`, or `needs_information`, with reason codes and a short note.
+- Reviewers cannot see peer recommendations until their own is submitted.
+- Admissions uses a separate, approved admission policy. The venue judging rubric and scores do not apply.
+- A language model cannot accept or reject an application.
 
-`Not eligible → Not ready → Ready → Queued → Called → Panel arriving → In review → Submitted → Complete`
+An application returned for information opens only the named questions and records a new project version.
 
-Exceptional substates:
+### Capacity and offers
 
-- Table unconfirmed
-- Panel incomplete
-- Participant unavailable
-- Technical hold
-- Operations hold
-- Review disputed
+The admissions page shows team and participant counts against venue capacity. An admissions administrator publishes selected, waitlisted, and rejected decisions after checking reviewer coverage and eligibility.
 
-Every exceptional state has a human-readable explanation and next action.
+A selected team receives an offer with a confirmation deadline. Sending the offer reserves places for the team’s current active members; confirmation locks those members for event check-in. Membership changes after an offer require a capacity recheck. Expired or declined offers release places to the waitlist under the approved promotion rule.
 
-Every state is returned by a reactive portal query. The client does not infer queue position, panel readiness, or review completion from local events.
+Only a confirmed team can proceed to event check-in. A rejected or expired team can still sign in and view its decision/status, but receives no venue QR or event queue access.
 
-## 8. Project updates across rounds
+Selection criteria, reviewer count, capacity/track quotas, decision visibility, and offer deadlines require event-board approval.
 
-At Review 1, the team confirms planned Review 2 deliverables. Before Review 2, it reports:
+## 7. GitHub and Figma
 
-- completed commitments
-- changed commitments and reason
-- repository/demo evidence
-- blockers
-- new tool or data disclosures
+The project page contains separate connection cards.
 
-The system calculates a descriptive progress summary but does not invent a score. Reviewers verify whether claimed progress is demonstrated.
+### GitHub
 
-## 9. Acceptance criteria
+The team lead installs the Code2Create GitHub App on one selected repository and chooses the branch the team will present. The portal shows installation state, repository, tracked branch, latest recorded commit time, and checkpoint status.
 
-- The first participant decision is exactly VIT student or External participant, followed by Google authentication.
-- A VIT-student account cannot be provisioned from an email suffix alone; the configured Google hosted-domain claim is required.
-- A non-VIT Google user can complete the external flow without manual account creation.
-- A participant class never grants staff/reviewer/admin access.
-- Replaying or changing an authentication intent cannot change the provisioned class.
-- A participant can stop after any prompt and resume without losing an answer.
-- A submitted project always maps to one immutable version.
-- A team cannot submit with duplicate membership or invalid size.
-- A participant sees only their own private team data.
-- Table reassignment never leaves two active canonical tables.
-- A team can identify its current queue state without messaging an organiser.
-- Every material project change between reviews is attributable and reviewable.
-- No workflow asks for a PPT.
-- An accepted queue or review mutation appears in the participant portal without manual refresh while connected.
+The app has read-only repository access. It does not request administration, issues, actions, secrets, or write access.
+
+### Figma
+
+A team member authenticates with Figma, pastes or selects a file they can access, and confirms that it belongs to the team. The portal shows file name, last touched time, latest recorded version, and checkpoint status.
+
+The baseline integration reads file metadata and version history. It does not read the full design document.
+
+### Disclosure
+
+Teams must disclose work that predates the event even if the repository or design file is new. Integration activity is evidence, not proof of originality and not a score.
+
+If the project does not use GitHub or Figma, the team explicitly marks that provider as not used and describes the alternative evidence it will present. A connection made after the event baseline deadline is labelled late.
+
+## 8. Registration and project states
+
+### Participant
+
+`profile_required → eligible → suspended`
+
+### Team
+
+`forming → profile_in_progress → submitted → admitted → confirmed → checked_in → active → completed`
+
+Exceptional terminal states are `withdrawn` and `disqualified`.
+
+### Project version
+
+`draft → submitted → superseded`
+
+A state change happens on the server after it rechecks current policy and membership.
+
+## 9. Venue check-in
+
+An event desk checks in each participant against the registered account and event badge process.
+
+A team becomes venue-ready after:
+
+- the required number of members are checked in;
+- the admission offer is confirmed;
+- a table has been assigned;
+- the submitted project passes required-field checks;
+- required disclosures are complete;
+- any mandatory integration or alternative evidence is present.
+
+Operations sets the official table. The team lead can confirm or report it as wrong. Table capture starts roughly 90 minutes before a review window and is frozen 30–60 minutes before routing, subject to the final schedule.
+
+## 10. Team QR
+
+The team home screen displays a server-issued QR for the current round.
+
+The payload contains an opaque token, not participant details. It is bound to:
+
+- event;
+- team;
+- round;
+- expiry;
+- token version.
+
+The QR rotates after expiry or manual revocation. A six-character fallback code appears below it for camera failure. Reviewers still need an online server check before presence counts.
+
+## 11. Ready and queue experience
+
+Only the team lead can mark the team ready.
+
+The server accepts ready when:
+
+- team and project state allow it;
+- a frozen table assignment exists;
+- the team has no unresolved eligibility or conflict hold;
+- the round accepts new ready teams.
+
+The participant home screen then shows one of:
+
+| State | Participant message |
+| --- | --- |
+| Not ready | Finish the listed blockers |
+| Ready | Waiting for panel assignment |
+| Queued | Current queue position, position being called, panel/table, and teams ahead |
+| Called | Go to the shown table now |
+| At table | Waiting for reviewers to complete presence |
+| In review | Review in progress and elapsed time |
+| Held | Plain reason and where to get help |
+| Missed | Next action under the approved missed-call policy |
+| Complete | Review recorded; next checkpoint shown |
+
+The queue displays a coarse window calculated from active reviews and teams ahead. It does not display an exact appointment time that floor delays will break.
+
+## 12. Between reviews
+
+After Review 1, the team sees:
+
+- commitments agreed at the review;
+- project answers or disclosures that must be updated;
+- the next checkpoint;
+- released feedback;
+- GitHub/Figma connection health.
+
+The team records what changed since the previous checkpoint. Review 2 receives that update and the integration snapshots captured at both review boundaries.
+
+Raw scores stay hidden until the event’s feedback policy releases them.
+
+## 13. Support and recovery
+
+- Every blocked screen shows the failing condition and a support code.
+- A participant can report a wrong table, team-membership issue, integration disconnect, or queue problem.
+- Support staff see the same server state and can take only actions granted to their role.
+- Refreshing, changing devices, or reinstalling a browser does not duplicate team membership or submissions.
+- If the venue network fails, participants keep their QR visible from a short-lived local cache, but review presence still waits for server validation or an authorised manual incident process.
+
+## 14. Acceptance checks
+
+- Both account-class paths reach Google sign-in and the server derives the final class.
+- A participant cannot belong to two active teams.
+- Two users cannot claim the same rostered/team identity through a duplicated invite.
+- The guided profile resumes at the first unfinished question after refresh.
+- Submitting twice with the same operation ID creates one project version.
+- Application reviewers cannot see peer recommendations before submitting.
+- A selected team cannot check in until its offer is confirmed.
+- Expiring an offer releases capacity without deleting the application decision.
+- GitHub/Figma disconnects are visible without deleting captured checkpoints.
+- A ready team appears in operations and participant queue views from the same accepted write.
+- The participant never receives another team’s private project, queue, or review data.

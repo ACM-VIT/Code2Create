@@ -1,165 +1,248 @@
-# Evaluation system
+# Evaluation
 
-## 1. Rubric
+## 1. Working rubric
 
-Each criterion is scored from 0 to 4:
+Each criterion is scored from 0 to 4.
 
-| Score | Anchor |
+| Criterion | Weight | Question |
+| --- | ---: | --- |
+| Problem & User Fit | 15 | Is the problem specific, evidenced, and relevant to a clear user? |
+| Working Solution | 20 | Does the demonstrated solution perform the important flow? |
+| Original Team Contribution | 15 | What did this team add during the event beyond prior work, templates, and third-party tools? |
+| Technical Execution | 15 | Are the implementation choices sound for the problem and current stage? |
+| User Readiness | 10 | Can the intended user understand and use the current experience? |
+| Trust & Responsible Use | 15 | Has the team handled privacy, security, safety, data, accessibility, and misuse risk? |
+| Communication & Evidence | 10 | Did the team explain its decisions and support claims with a demo or other evidence? |
+| **Total** | **100** | |
+
+The event board must approve wording and round applicability before the rubric is published.
+
+## 2. Shared score anchors
+
+| Score | Meaning |
 | ---: | --- |
 | 0 | Not shown |
 | 1 | Weak or mostly claimed |
 | 2 | Basic or partially shown |
-| 3 | Strong and clearly shown |
-| 4 | Excellent; reviewer can confidently verify |
+| 3 | Strong or clearly shown |
+| 4 | Excellent; the reviewer can confidently verify it |
 
-Working rubric from the June discussion:
+Each rubric criterion also has examples for 0, 2, and 4. Reviewer training uses the same examples as the app.
 
-| Criterion | Weight | Core question |
-| --- | ---: | --- |
-| Problem & User Fit | 15 | Is the team solving a clear problem for a clear user? |
-| Working Solution | 20 | Does the project perform its core task end to end? |
-| Original Team Contribution | 15 | What did the team build beyond templates, APIs, starter kits, or prebuilt tools? |
-| Technical Execution | 15 | Are the technical choices appropriate and well executed? |
-| User Readiness | 10 | Can the intended user understand and complete the main task? |
-| Trust & Responsible Use | 15 | Did the team handle data, safety, security, AI/tool disclosure, and misuse risks responsibly? |
-| Communication & Evidence | 10 | Did the team clearly explain and verify what they built? |
-
-Weights total 100. The event may revise names, definitions, or weights before configuration lock.
-
-## 2. Criterion guidance
+## 3. Criterion guidance
 
 ### Problem & User Fit
 
-Evidence may include a specific user, observed pain, current workaround, constraints, and reason the proposed approach fits. A fashionable topic without a clear user scores poorly.
+Review the user definition, observed need, urgency, alternatives, and evidence. A broad market statement without a specific user or observation does not earn a high score.
 
 ### Working Solution
 
-Review the core flow live. Distinguish a real end-to-end path from mock screens, disconnected components, or a narrated claim. Reliability under one demonstrated happy path is necessary but not automatically excellent.
+Score what the team demonstrates. Separate a functioning flow from a slide, video, static mock-up, or verbal promise. The evidence checklist records what was shown.
 
 ### Original Team Contribution
 
-Require disclosure of templates, APIs, pretrained models, generated code, starter repositories, and prior work. Score the decisions and components created during the hackathon, not the prestige of external tools.
+Consider disclosed starting material, repository/design checkpoints, third-party services, generated code, templates, datasets, and what changed during the event. Using tools is allowed. Hiding prior work is not.
 
 ### Technical Execution
 
-Consider architecture, correctness, integration, engineering judgment, testing, and handling of failure. Complexity for its own sake is not rewarded.
+Review architecture, implementation depth, reliability, security, and fit to the problem. Do not reward complexity by itself.
 
 ### User Readiness
 
-Evaluate whether the intended user can understand and complete the main task, including usability, accessibility, feedback, and recovery from error.
+Review task clarity, interaction, accessibility, error handling, and whether an intended user could complete the main flow. The “interface” may be a GUI, CLI, API, hardware control, data output, or another form appropriate to the project. Do not turn this into a visual-design score.
 
 ### Trust & Responsible Use
 
-Apply proportionately to project risk. Consider data minimisation, consent, secrets, access control, unsafe outputs, bias, misuse, transparency, and appropriate limitations.
+Review data collection, consent, permissions, model/tool disclosure, unsafe failure modes, abuse prevention, and accessibility concerns relevant to the project.
 
 ### Communication & Evidence
 
-Reward a clear explanation tied to verifiable evidence. Presentation polish must not compensate for a non-working product.
-
-## 3. Criterion ownership
-
-- Every reviewer has explicit criterion grants based on expertise/training.
-- Every required criterion must have a configured minimum number of independent scorers.
-- A reviewer may raise evidence relevant to any criterion but scores only granted criteria.
-- Seniority does not multiply a score.
-- Panel composition must avoid a criterion being effectively decided by one organisational faction where feasible.
-- If coverage is lost mid-review, the review remains incomplete until substitution or an authorised exception.
+Review whether the team explained the problem, decisions, limitations, and progress with evidence. Presentation polish cannot replace a working result.
 
 ## 4. Independent scoring
 
-Reviewers submit without seeing peer scores. Discussion may happen after independent capture, but it cannot overwrite the original record. If a reviewer changes a score after discussion, the system stores both versions and the reason.
+- Reviewers score alone on their own devices.
+- A reviewer receives only criteria assigned before the session starts.
+- Peer score values remain hidden until the event policy permits reveal.
+- Discussion may clarify evidence, but the panel does not negotiate one shared score.
+- The panel lead cannot edit another reviewer’s scorecard.
+- Reviewer designation and seniority do not change weight.
+- A reviewer with a conflict cannot submit.
 
-The system does not ask the panel to agree on a single number.
+The working panel has three reviewers. The working coverage rule requires at least two independent scores for each criterion. That gives each criterion more than one opinion without asking every reviewer to score all seven criteria.
 
-## 5. Aggregation
+The final minimum scorer count remains an open event decision and is stored with the rubric version.
 
-The exact aggregation method is **open** and must be validated with simulations before launch. It must satisfy:
+## 5. Criterion assignment
 
-- no hidden seniority multiplier;
-- transparent handling of missing scores;
-- comparable treatment across panels;
-- no silent imputation;
-- criterion weights applied only after valid criterion aggregation;
-- reproducible output from immutable inputs;
-- anomaly flags do not automatically change scores.
+Before routing opens, the panel plan creates a coverage matrix:
 
-Candidate methods should be tested against mock datasets for panel harshness, missing data, outliers, and uneven scorer counts. The chosen formula, rounding, tie policy, and minimum coverage are frozen before reviewer training.
+| Criterion | Reviewer A | Reviewer B | Reviewer C |
+| --- | :---: | :---: | :---: |
+| Problem & User Fit | ✓ | ✓ | |
+| Working Solution | ✓ | | ✓ |
+| Original Team Contribution | | ✓ | ✓ |
+| Technical Execution | ✓ | | ✓ |
+| User Readiness | ✓ | ✓ | |
+| Trust & Responsible Use | | ✓ | ✓ |
+| Communication & Evidence | ✓ | ✓ | |
 
-## 6. Improvement across reviews
+This is an example, not a fixed mapping. The planner uses reviewer expertise and ensures the configured minimum.
 
-Review 1 captures specific, demonstrable commitments for Review 2. Review 2 records each as:
+If a substitute joins before review start, the server recomputes assignments and freezes a new coverage version. After start, changing criterion ownership requires a review-operations correction and cannot erase submitted work.
 
-- completed and demonstrated;
-- partially completed;
-- changed with justified reason;
-- not completed;
-- not assessable.
+## 6. Aggregation
 
-Progress is evidence for the rubric and finalist discussion. Whether it becomes a separate weighted criterion is open; it must not be double-counted without a deliberate policy.
+The selected working formula is:
 
-## 7. Cross-panel consistency
+1. calculate the arithmetic mean of valid independent 0–4 scores for each criterion;
+2. calculate criterion points as `mean ÷ 4 × criterion weight`;
+3. add criterion points for a total out of 100.
 
-Before the event:
+The backend stores raw integer scores and computes points from the rubric version. It does not round each reviewer score or alter a reviewer’s input.
 
-- reviewers complete calibration examples;
-- criterion definitions include positive and negative anchors;
-- sample projects are scored and variance discussed;
-- reviewers must pass a minimal rubric understanding check.
+Example: scores 3 and 4 for a 20-point criterion produce a mean of 3.5 and 17.5 criterion points.
 
-During the event, the dashboard flags:
+The following do not occur:
 
-- unusually harsh or generous panel distributions;
-- missing criterion coverage;
-- excessive straight-line scoring;
-- unusually fast reviews;
-- frequent corrections;
-- conflict or override concentration.
+- seniority multipliers;
+- automatic score normalisation across panels;
+- hidden panel-specific offsets;
+- replacement of independent scores with a consensus score;
+- AI-written or AI-recommended ratings.
 
-Flags trigger human review. Scores are never automatically normalised or altered.
+If a criterion lacks its minimum scorer count, the review is incomplete and no total is published.
 
-## 8. Round and finalist decisions
+Tie-breaks, round weighting, and final-round aggregation remain open decisions.
 
-A round cannot close until every team has one explicit disposition:
+## 7. Score spread
 
-- complete and advancing;
-- complete and not advancing;
-- incomplete with approved resolution;
-- withdrawn;
-- disqualified with restricted reason.
+A spread check flags a criterion when the highest and lowest ratings differ by at least two points. The threshold is configurable with the rubric.
 
-Finalist selection uses validated review records and documented deliberation. Tracks do not guarantee a finalist or prize. The current direction favours overall and themed prizes over mandatory track winners.
+A flag does not change the numbers. A review administrator can:
 
-Potential themed recognitions discussed include best design/UX and best all-women team; award policy remains outside the scoring formula until confirmed.
+- confirm that reviewers used the same rubric version;
+- ask for a short clarification of evidence;
+- identify a wrong criterion assignment or data-entry mistake;
+- open a correction before round lock.
 
-## 9. Appeals and corrections
+The administrator cannot ask a reviewer to move toward the panel average. Any correction keeps the original scorecard and the reviewer’s reason.
 
-Participants may report a process problem (missing reviewer, wrong team, interrupted demo, conflict), not negotiate scores in real time. Operations records the claim, evidence, and resolution.
+## 8. Progress between reviews
 
-If a process failure is confirmed, board administrators choose a published remedy such as a replacement review. Direct score editing is not the default remedy.
+Review 1 records:
 
-## 10. Exports
+- demonstrated baseline;
+- missing or weak evidence;
+- specific commitments for the next checkpoint;
+- GitHub and Figma snapshot IDs.
 
-Validated exports include:
+Before Review 2, the team records what changed. Review 2 receives:
 
-- criterion-level raw score versions
-- active score version and aggregation output
-- reviewer eligibility and criterion grants
-- panel/team assignments
-- review duration and extensions
-- evidence and commitments
-- missing-data and anomaly flags
-- overrides/corrections
-- advancement and award decisions
+- previous commitments;
+- team’s change summary;
+- old and new integration snapshots;
+- current demonstration evidence.
 
-Exports must be reproducible and carry configuration version, generation time, and checksum.
+Progress is required evidence. The current rubric has no separate progress weight, so reviewers apply it only where it supports Working Solution, Original Team Contribution, Technical Execution, or another relevant criterion.
 
-## 11. Acceptance criteria
+Adding a separate weighted progress criterion is an open decision. The system does not create bonus points without that decision.
 
-- Weights total 100 and every score is within the configured scale.
-- No active score lacks reviewer, criterion, team, round, and review-session attribution.
-- No result is generated with silently missing required criterion coverage.
-- A reviewer cannot view peer scores before initial submission.
-- A changed score preserves its earlier version and reason.
-- Round closure accounts for every eligible team.
-- An automatic anomaly flag never changes a human score.
+## 9. AI boundary
 
+An optional server action may produce a three- or four-line summary from the team’s submitted answers. It must:
+
+- identify itself as generated;
+- link back to the submitted fields;
+- avoid a novelty verdict;
+- avoid predicted rank, score, or winner language;
+- never replace the reviewer’s access to the original answers.
+
+No model receives peer scores to recommend an adjustment. Routing and criterion coverage use fixed rules.
+
+## 10. Round close
+
+The review administrator sees:
+
+- teams expected and completed;
+- required scorecards present and missing;
+- criterion coverage;
+- score-spread flags;
+- conflicts;
+- open corrections;
+- manual incident records;
+- totals computed from the published rubric version.
+
+Round close is blocked until each unresolved item is fixed or handled by an approved exception policy.
+
+Moving a round to `closing` freezes its scorecard versions and starts the export. The final `closed` transition requires a verified export manifest. Reopening requires board capability, a fresh sign-in, and a reason.
+
+## 11. Finalist and award decisions
+
+The system can prepare a ranked view after the event board approves:
+
+- which reviews contribute;
+- round weights;
+- minimum eligibility;
+- tie-break order;
+- track and sponsor-award rules;
+- whether the final is cumulative or a clean slate.
+
+The ranking view always shows the underlying criterion totals and any missing/exception state. A board decision that departs from the configured ranking requires a recorded reason.
+
+Track participation does not guarantee a finalist place or prize.
+
+## 12. Corrections and complaints
+
+### Correction
+
+A reviewer requests correction to their own submitted scorecard. A review administrator checks that the correction window is open, records the reason, and opens a new scorecard version. The reviewer resubmits. The original remains read-only.
+
+### Administrative void
+
+A review administrator may void a scorecard for duplicate session, confirmed conflict, wrong team, or reviewer ineligibility. The action requires evidence and may trigger a replacement review.
+
+### Process complaint
+
+A participant may report a process problem such as missing panel member, wrong table, or unavailable review. Complaints do not directly edit scores. The board chooses a remedy under the approved complaint policy.
+
+The correction deadline, complaint window, and remedies are open decisions.
+
+## 13. Participant feedback
+
+The release policy decides whether participants receive:
+
+- commitments;
+- criterion-level scores;
+- written feedback;
+- total score;
+- finalist decision reason.
+
+Private reviewer notes, conflict reports, other teams’ results, and staff audit details are never participant feedback.
+
+## 14. Exports
+
+Each round export contains:
+
+- event, round, and rubric versions;
+- teams and eligibility state;
+- review sessions and panel membership;
+- raw scorecard versions;
+- computed criterion means and totals;
+- missing coverage and spread flags;
+- correction and override references;
+- generation time and export checksum.
+
+CSV supports operations analysis. JSON preserves version and relationship detail for audit and recovery.
+
+## 15. Acceptance checks
+
+- A reviewer cannot score an unassigned criterion.
+- Peer values remain hidden during independent scoring.
+- Two reviewers’ ratings for the same criterion both remain in the record.
+- Missing coverage blocks the total and round close.
+- The formula reproduces totals from raw scores and the saved rubric version.
+- A spread flag never changes a score.
+- A correction keeps the original and corrected versions.
+- No AI function can call a score-write function.
+- Review 2 context contains the exact Review 1 commitments and checkpoint references.
