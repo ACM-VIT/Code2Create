@@ -51,10 +51,19 @@ export function DocsShell({ documents }: { documents: DocumentItem[] }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    const requested = window.location.hash.slice(1);
-    if (documents.some((doc) => doc.slug === requested)) {
-      setActiveSlug(requested);
+    function syncDocumentFromHash() {
+      const requested = window.location.hash.slice(1);
+      if (documents.some((doc) => doc.slug === requested)) {
+        setActiveSlug(requested);
+      }
     }
+
+    const frame = window.requestAnimationFrame(syncDocumentFromHash);
+    window.addEventListener("hashchange", syncDocumentFromHash);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("hashchange", syncDocumentFromHash);
+    };
   }, [documents]);
 
   const active =

@@ -102,6 +102,8 @@ Each round can have multiple panel queues. A queue entry contains:
 
 Normal ordering is stable and explainable. Manual reprioritisation requires a reason. Teams on hold do not block all following teams.
 
+Queue order is stored as an explicit server-owned ordering key plus policy revision. Clients never calculate or persist canonical ordinals. A queue mutation updates the affected entries, emits domain events, and invalidates the participant, panel, and operations projections in one transaction.
+
 ### Queue lifecycle
 
 `Draft → Ready → Queued → Called → Accepted by panel → In review → Submitted → Complete`
@@ -142,6 +144,8 @@ A standard review starts only if:
 
 The final item prevents two panels from reviewing the same team concurrently. If connectivity is degraded, the reliability policy defines a controlled provisional lease.
 
+The lease has `leaseEpoch`, holder panel, acquired time, expiry, and last renewal. Every start, timer, evidence, presence, score, and completion command includes the review session and current epoch. A late command from an expired holder is rejected rather than merged into the replacement session.
+
 ## 10. Timer policy
 
 - Default review budget: 10 minutes (working assumption pending final configuration).
@@ -169,7 +173,21 @@ Time metrics are used to improve operations, not reward superficial reviews.
 | Unsafe conduct | Pause review and escalate to board/safety lead |
 | Round close with incomplete team | Explicit incomplete disposition; never silently drop |
 
-## 12. Acceptance criteria
+## 12. Realtime coordination
+
+| Change | Participant portal | Reviewer app | Operations dashboard |
+| --- | --- | --- | --- |
+| Team declares ready | Shows queued/window | Eligible panel next list updates | Queue and capacity update |
+| Panel member clocks in | No private identity detail | Panel readiness updates | Missing-reviewer exception clears |
+| Page accepted | Shows panel-arriving when policy permits | Assignment becomes active | Substitution attempt resolves |
+| Presence scan accepted | Shows arrival progress | All panel devices update | Presence matrix updates |
+| Review lease acquired | Shows in-review | Workspace activates | Duplicate starts become blocked |
+| Extension granted | Timer/window updates | All panel timers use server event | Overrun/extension metrics update |
+| Review submitted | Shows submitted/complete state | Completion and receipt update | Missing-input blocker clears |
+
+These views are separate role-filtered queries over the same records. No client sends another client a state update directly.
+
+## 13. Acceptance criteria
 
 - An incomplete panel cannot begin without an authorised override.
 - Every reviewer presence proof is tied to a specific review session.
@@ -179,4 +197,6 @@ Time metrics are used to improve operations, not reward superficial reviews.
 - Substitution preserves criterion coverage or raises a visible critical warning.
 - Participants receive a comprehensible status within seconds of an operational change once connected.
 - Operations can reconcile all incomplete queue entries before closing a round.
-
+- Simultaneous start attempts result in one lease winner and a deterministic rejection for every loser.
+- A stale lease epoch cannot add evidence or scores to the current session.
+- An online client never needs manual refresh to observe a committed queue, panel, timer, or review-state change.

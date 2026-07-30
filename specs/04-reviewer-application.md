@@ -15,7 +15,21 @@ The interface uses:
 - local drafts with explicit server receipts;
 - no peer score anchoring before independent submission.
 
-## 2. Navigation
+## 2. Implementation baseline
+
+- Expo + React Native + Expo Router, written in TypeScript
+- `@clerk/expo` with Google-only authentication
+- Convex React client for queries, mutations, authentication, and automatic subscription recovery
+- `expo-camera` for QR presence scans
+- `expo-notifications` with Expo/native device tokens for paging
+- `expo-secure-store` for device-bound secrets and encryption keys
+- SQLite-backed durable outbox for protected drafts and unacknowledged commands
+- EAS Build for signed Android/iOS artifacts and EAS Update channels for compatible JavaScript fixes
+- Sentry for crashes, performance, and release correlation
+
+The app is a native client of the same Convex deployment as the web portal and operations dashboard. It does not call a separate “mobile backend.”
+
+## 3. Navigation
 
 Primary destinations:
 
@@ -27,7 +41,7 @@ Primary destinations:
 
 Administrators may receive additional controls, but the default reviewer view stays focused.
 
-## 3. Round clock-in
+## 4. Round clock-in
 
 The reviewer:
 
@@ -40,7 +54,7 @@ The reviewer:
 
 The app displays any missing training, criterion grant, or conflict declaration that blocks eligibility.
 
-## 4. Page handling
+## 5. Page handling
 
 A page contains:
 
@@ -51,7 +65,7 @@ A page contains:
 
 Decline/cannot-attend requires a short reason. Repeated unacknowledged pages raise an operations alert. Critical pages produce a distinct notification pattern, subject to device accessibility settings.
 
-## 5. Team arrival and presence
+## 6. Team arrival and presence
 
 At the table:
 
@@ -63,7 +77,7 @@ At the table:
 
 The app shows panel readiness without exposing personal explanations. When all required reviewers are present, an eligible panel member can start the review.
 
-## 6. Review workspace
+## 7. Review workspace
 
 ### Header
 
@@ -122,7 +136,7 @@ Notes are separated into:
 
 Audio recording or transcription is deferred and disabled unless separately approved for consent, privacy, retention, and sponsorship feasibility.
 
-## 7. Independent submission
+## 8. Independent submission
 
 The submit screen checks:
 
@@ -135,14 +149,14 @@ The submit screen checks:
 
 On submit:
 
-1. The client sends an idempotent versioned submission.
+1. The client sends an idempotent versioned submission containing `clientMutationId`, `deviceId`, session ID, lease epoch, rubric version, and expected draft version.
 2. The server validates reviewer eligibility, session, criterion grant, and score range.
 3. The server returns a receipt.
 4. The app displays **Submitted and synced** with time.
 
 Closing the screen before receipt must show a persistent unsynced warning. The reviewer may continue only under the degraded-mode policy.
 
-## 8. Completing the panel review
+## 9. Completing the panel review
 
 The review session can complete when:
 
@@ -154,7 +168,7 @@ The review session can complete when:
 
 A panel lead coordinates completion but cannot edit peer scores.
 
-## 9. Corrections
+## 10. Corrections
 
 A reviewer can request correction after submission. They see:
 
@@ -165,7 +179,7 @@ A reviewer can request correction after submission. They see:
 
 The correction creates a new version. Administrators can lock corrections at round close. Emergency changes after lock require board authority and are highlighted in the audit/export.
 
-## 10. Offline and degraded state
+## 11. Offline and degraded state
 
 The app always labels one of:
 
@@ -179,7 +193,11 @@ Scores and notes may be drafted offline. Starting a new review, claiming a team 
 
 No state may say “submitted” without a server receipt.
 
-## 11. Accessibility and ergonomics
+The local outbox stores only the minimum command payload, encrypted with a per-installation key held in operating-system protected storage. Records move through `local_draft → queued → sending → acknowledged` or `needs_attention`. A server receipt purges the acknowledged payload after the configured recovery window. A rejected stale command remains visible and is never silently retried as a new version.
+
+Push notifications wake or alert the reviewer. The app always opens and subscribes to `reviewer.now` before presenting an assignment as current; notification payload data is not authoritative.
+
+## 12. Accessibility and ergonomics
 
 - Critical controls are reachable one-handed.
 - Minimum touch size and text scaling support are required.
@@ -189,7 +207,7 @@ No state may say “submitted” without a server receipt.
 - Reviewers can pre-download assigned team context.
 - Long text is not required during active scoring; structured prompts and optional voice-to-text provided by the operating system may be used.
 
-## 12. Acceptance criteria
+## 13. Acceptance criteria
 
 - A trained reviewer can complete the normal flow without instruction after one rehearsal.
 - A reviewer cannot score an unassigned criterion.
@@ -199,4 +217,6 @@ No state may say “submitted” without a server receipt.
 - A conflict can be raised at any point.
 - Every timer extension identifies actor, time, duration, and reason/policy.
 - Panel completion detects missing criteria, not merely missing reviewers.
-
+- A push can be late, duplicated, or absent without corrupting assignment state.
+- Reinstalling or revoking a device invalidates its push token and prevents old outbox commands from acquiring new authority.
+- A change accepted on the operations dashboard appears in the reviewer app through its active subscription without polling.

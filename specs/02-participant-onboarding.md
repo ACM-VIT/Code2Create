@@ -10,7 +10,40 @@ No PPT is required.
 
 ### Step 1: Identity
 
-The participant signs in, verifies contact details, accepts event terms, and completes essential profile fields. Progress can resume across devices.
+The first screen asks:
+
+- **VIT student**
+- **External participant**
+
+No email field or password field is shown. Selecting a class creates a one-time authentication intent, after which the primary action is **Authenticate with Google**.
+
+#### VIT student
+
+1. The user chooses **VIT student**.
+2. The UI explains that the VIT Google Workspace account is required.
+3. Google authentication opens with the hosted-domain hint `vitstudent.ac.in`; the hint improves account selection but is not security.
+4. The server verifies the Google ID token and requires `email_verified = true` and `hd = vitstudent.ac.in` (or another explicitly configured VIT student domain).
+5. The application links Google `sub` to one internal user and marks the event participant class `vit_student`.
+6. The user confirms display name, registration number, campus, programme, expected graduation year, phone/contact preference, terms, and required consent.
+
+The registration number remains a separately validated profile field. It is not parsed from the email and is not used as the login identifier.
+
+#### External participant
+
+1. The user chooses **External participant**.
+2. The user authenticates with any verified Google account.
+3. The application records class `external`.
+4. The user provides institution/organisation, course or role, city/country, expected graduation year where applicable, phone/contact preference, terms, and required consent.
+
+#### Mismatch and recovery
+
+- Non-VIT Google identity on the VIT path: block provisioning, explain the mismatch, and offer **Start again as External**.
+- VIT identity on the External path: respect the selected class for that event and offer a clearly explained reclassification request.
+- Abandoned or replayed auth intent: expire it and restart at the selector.
+- Existing account on another device: resolve the same internal user and restore onboarding progress.
+- Invited reviewer/staff account: authenticate successfully, then resolve roster grants separately from participant registration.
+
+Progress can resume across devices after provisioning because drafts are stored against the internal user and current project version.
 
 ### Step 2: Team
 
@@ -122,6 +155,8 @@ Exceptional substates:
 
 Every exceptional state has a human-readable explanation and next action.
 
+Every state is returned by a reactive portal query. The client does not infer queue position, panel readiness, or review completion from local events.
+
 ## 8. Project updates across rounds
 
 At Review 1, the team confirms planned Review 2 deliverables. Before Review 2, it reports:
@@ -136,6 +171,11 @@ The system calculates a descriptive progress summary but does not invent a score
 
 ## 9. Acceptance criteria
 
+- The first participant decision is exactly VIT student or External participant, followed by Google authentication.
+- A VIT-student account cannot be provisioned from an email suffix alone; the configured Google hosted-domain claim is required.
+- A non-VIT Google user can complete the external flow without manual account creation.
+- A participant class never grants staff/reviewer/admin access.
+- Replaying or changing an authentication intent cannot change the provisioned class.
 - A participant can stop after any prompt and resume without losing an answer.
 - A submitted project always maps to one immutable version.
 - A team cannot submit with duplicate membership or invalid size.
@@ -144,4 +184,4 @@ The system calculates a descriptive progress summary but does not invent a score
 - A team can identify its current queue state without messaging an organiser.
 - Every material project change between reviews is attributable and reviewable.
 - No workflow asks for a PPT.
-
+- An accepted queue or review mutation appears in the participant portal without manual refresh while connected.

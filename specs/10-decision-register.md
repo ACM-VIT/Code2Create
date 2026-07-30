@@ -6,7 +6,7 @@ This file is authoritative for product decisions. Update it when organisers deci
 
 | ID | Decision |
 | --- | --- |
-| D-001 | Create detailed Markdown specifications before implementation or technology selection. |
+| D-001 | Maintain detailed Markdown specifications as the implementation source of truth. |
 | D-002 | Build a dedicated reviewer app synchronised with a web operations dashboard. |
 | D-003 | Reviewer UI is minimal, with large controls and little text. |
 | D-004 | Panels are pre-planned around reviewer expertise and criterion coverage. |
@@ -25,7 +25,18 @@ This file is authoritative for product decisions. Update it when organisers deci
 | D-017 | Current event model is two reviews plus a final round. |
 | D-018 | Track participation does not automatically guarantee a finalist or track prize. |
 | D-019 | Synesthesia accepts participant requests/upvotes but organisers retain override. |
-| D-020 | Technology stack decisions are deferred until specifications are approved. |
+| D-020 | Superseded: technology selection was initially deferred; the architecture baseline is now approved for specification and implementation planning. |
+| D-021 | Participant registration asks VIT Student or External Participant before Google authentication. |
+| D-022 | VIT Student classification requires server-validated Google Workspace hosted-domain evidence; email suffix matching alone is prohibited. |
+| D-023 | Google `sub`, linked through Clerk, is the stable external identity; email is a verified mutable attribute. |
+| D-024 | Account class and application authorization are independent; reviewer/staff/admin access is granted only from approved rosters or invitations. |
+| D-025 | Next.js serves participant and role-gated operations web surfaces; Expo/React Native serves the dedicated reviewer app. |
+| D-026 | Clerk provides Google-only sessions on web/mobile and issues identity accepted by Convex. |
+| D-027 | Convex is the single realtime application backend and source of truth for portal, reviewer app, and dashboard. |
+| D-028 | Accepted mutations atomically write state, command receipt, domain/audit events, and required notification outbox entries. |
+| D-029 | Expo Notifications provides reviewer paging; notification payloads are hints and never authoritative state. |
+| D-030 | The codebase uses a pnpm/Turborepo TypeScript monorepo with shared domain, UI, configuration, and testing packages. |
+| D-031 | Production delivery uses Vercel for web, EAS for mobile, and separate development/staging/production Clerk and Convex environments. |
 
 ## 2. Working assumptions to confirm
 
@@ -36,8 +47,10 @@ This file is authoritative for product decisions. Update it when organisers deci
 | A-003 | One ordinary +2 minute extension is allowed before escalation. | Review completion and capacity change. |
 | A-004 | The seven-criterion, 100-point rubric in the June discussion is the baseline. | Scoring configuration and training change. |
 | A-005 | Team leads control submissions and readiness. | Permission and UX changes. |
-| A-006 | Server remains authoritative; offline mode permits drafts but not ordinary final authority transitions. | Reliability architecture changes. |
+| A-006 | Convex remains authoritative; offline mode permits encrypted drafts/outbox entries but not ordinary final authority transitions. | Reliability architecture changes. |
 | A-007 | Table confirmation begins 90 minutes before reviews and is finalised 30–60 minutes before. | Staffing and queue readiness change. |
+| A-008 | Initial VIT student Google Workspace hosted domain is `vitstudent.ac.in`. | Identity policy configuration and test fixtures change. |
+| A-009 | VIT verification initially uses Google social OIDC token validation through Clerk; managed VIT Workspace SSO is a later hardening path if VIT IT participates. | Authentication setup, cost, and deprovisioning behaviour change. |
 
 ## 3. Open decisions
 
@@ -63,12 +76,17 @@ This file is authoritative for product decisions. Update it when organisers deci
 | O-018 | Award categories and relationship to rubric | Event board | Before marketing prizes |
 | O-019 | Synesthesia catalogue/playback source, moderation policy, and licensing | Event ops | Milestone 7 |
 | O-020 | Whether transcription is approved with consent/privacy controls and a sponsor | Event board | Deferred |
+| O-021 | Confirm `vitstudent.ac.in` and any additional legitimate VIT student hosted domains with VIT IT | Technical + event leads | Before auth staging |
+| O-022 | Whether VIT IT will configure a managed Google Workspace SSO connection and deprovisioning | Technical + VIT IT | Before production auth freeze |
+| O-023 | Exact roster source and identity-matching process for reviewers, staff, and board | Review operations | Milestone 0 |
+| O-024 | Required recent-authentication/MFA policy for board overrides and sensitive exports | Security + event board | Milestone 0 |
+| O-025 | Production data residency, backup destination, RPO/RTO, and retention approval | Security + event board | Before production data |
 
 ## 4. Rejected or deferred directions
 
 | ID | Direction | Status/reason |
 | --- | --- | --- |
-| X-001 | Choose a technology stack during ideation | Rejected for this phase |
+| X-001 | Keep technology selection deferred | Superseded by D-025 through D-031 |
 | X-002 | Traditional application form plus PPT | Rejected |
 | X-003 | AI-generated judging scores | Rejected |
 | X-004 | Seniority-based score multipliers | Rejected due to skew risk |
@@ -78,6 +96,10 @@ This file is authoritative for product decisions. Update it when organisers deci
 | X-008 | Bluetooth/P2P as a committed transport | Deferred architecture exploration |
 | X-009 | Review transcription by default | Deferred pending sponsor, consent, privacy, and retention |
 | X-010 | Social engagement points | Deferred outside core review platform |
+| X-011 | Separate databases/backends for portal, reviewer app, and dashboard | Rejected; creates synchronization and authority failures |
+| X-012 | Trust `@vitstudent.ac.in` string suffix as VIT proof | Rejected; require validated Google hosted-domain evidence |
+| X-013 | Use participant class as a reviewer/admin role | Rejected; classification and capability grants remain separate |
+| X-014 | Treat push delivery as assignment acknowledgement | Rejected; only an authenticated server mutation can acknowledge |
 
 ## 5. Change procedure
 
@@ -89,4 +111,3 @@ For every approved change:
 4. update affected specifications;
 5. update acceptance tests and configuration;
 6. communicate participant- or reviewer-facing policy changes before freeze.
-

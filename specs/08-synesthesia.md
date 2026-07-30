@@ -76,6 +76,8 @@ Rejection reasons are visible to the requester at an appropriate level. Moderato
 
 - Only one controller owns the active playback lease.
 - Now playing and recently played are visible.
+- Participant, moderator, and playback views subscribe to role-filtered projections of the same Convex request/vote/queue records.
+- A vote mutation updates the canonical vote and request total atomically; duplicate retries return the original command receipt.
 - Playback history prevents accidental repeats.
 - Organisers can pause for announcements or reviews.
 - Skip/override requires a reason category; free text is required for exceptional cases.
@@ -98,4 +100,5 @@ Rejection reasons are visible to the requester at an appropriate level. Moderato
 - Announcements can interrupt playback immediately.
 - The system can fall back to a curated source without blocking event operations.
 - Moderator and override actions are auditable.
-
+- Connected participants see accepted request, vote, moderation, and playback changes without refreshing.
+- Synesthesia queries and jobs are rate-limited and isolated so a request/vote burst cannot starve review mutations.

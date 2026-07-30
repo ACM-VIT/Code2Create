@@ -6,11 +6,13 @@ Venue connectivity may be unstable. The system must prefer an honest blocked sta
 
 ## 2. Source of truth
 
-- The server is authoritative for identity, assignments, active review leases, submitted scores, queue order, and round state.
+- Convex is authoritative for application users, assignments, active review leases, submitted scores, queue order, configuration, and round state. Clerk is authoritative for authentication sessions and linked Google login identity.
 - Clients may hold cached context and protected drafts.
-- Every mutation carries an idempotency key and expected entity version.
-- Every accepted mutation returns a durable receipt.
+- Every outcome-affecting mutation carries `clientMutationId`, device ID, expected entity/configuration version, and lease epoch where applicable.
+- A mutation atomically updates authoritative documents, stores a command receipt, emits domain/audit events, and creates any required notification-outbox record.
+- Every accepted mutation returns a durable receipt that can be queried after an ambiguous network failure.
 - Conflicting versions are surfaced; last-write-wins is prohibited for outcome-affecting records.
+- Convex reactive queries distribute the resulting committed snapshot to authorised clients. WebSockets are a delivery mechanism, not a second state layer.
 
 ## 3. Connectivity classes
 
@@ -36,9 +38,12 @@ Bluetooth/peer-to-peer relay is a deferred architecture exploration, not a produ
 
 ## 5. Authentication and sessions
 
-- Verified identity is required for all non-public actions.
-- Privileged roles require stronger authentication.
-- Sessions are device-bound where practical and revocable centrally.
+- Verified Google identity through Clerk is required for all non-public actions.
+- VIT-student provisioning validates the Google OIDC `hd` claim against configured VIT student Workspace domains. Email suffix alone is forbidden as an eligibility check.
+- Google `sub`/Clerk subject anchors identity; email is a mutable verified attribute.
+- Account class and authorization role are separate. Privileged grants originate from approved rosters/invitations.
+- Privileged roles require recent re-verification for defined high-risk commands.
+- Sessions are device-bound where practical and revocable centrally through Clerk plus application device/grant state.
 - Lost devices can be invalidated without deleting submitted records.
 - Role/permission changes take effect promptly.
 - Rate limits and abuse protection apply to sign-in, QR, queue, voting, and admin commands.
@@ -69,7 +74,8 @@ Violations create critical alerts and freeze only the affected workflow where po
 ## 8. Backup and recovery
 
 - Outcome-affecting records have durable primary storage and independent backup.
-- Recovery point and recovery time objectives are set before architecture approval.
+- Production Convex backups/exports and round-boundary signed snapshots are stored outside the live application deployment.
+- Working objectives are RPO ≤ 5 minutes during active rounds and RTO ≤ 30 minutes for core review operations; rehearsals must prove or revise them before launch.
 - Backups are tested, not merely configured.
 - The event team performs a restore drill using representative review records.
 - Export snapshots are generated at round boundaries.
@@ -90,6 +96,10 @@ Monitor:
 - failed QR scans
 - administrator command failure
 - audit pipeline health
+- reactive subscription disconnect/reconnect rate
+- command-to-observer propagation latency
+- Clerk/Google authentication and VIT-classification failures
+- notification outbox age, Expo tickets, receipts, and disabled tokens
 
 Alerts state impact, affected scope, runbook, and owner.
 
@@ -140,4 +150,7 @@ The incident commander can activate degraded mode. Recovery requires reconciliat
 - Audit completeness verified
 - Accessibility review passed
 - Incident roster and communications ready
-
+- Google OAuth production credentials and redirect allowlists verified
+- `vitstudent.ac.in` hosted-domain verification tested with valid and invalid accounts
+- Clerk grant revocation propagated to Convex authorization tests
+- Separate production/staging Convex, Clerk, Vercel, and EAS configuration confirmed

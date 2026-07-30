@@ -2,12 +2,21 @@
 
 ## 1. Delivery sequence
 
-Technology selection begins only after the product rules and open decisions required for that milestone are approved.
+The technology baseline is selected. Product-policy decisions remain configuration and launch gates; they do not block creation of the shared identity, schema, authorization, realtime, audit, and deployment foundations.
 
-### Milestone 0: Policy lock
+### Milestone 0: Platform foundation and policy lock
 
 Deliver:
 
+- pnpm/Turborepo repository with `apps/web`, `apps/reviewer`, `packages/domain`, `packages/ui`, and `convex`
+- isolated development, staging, and production Clerk/Convex/Vercel/EAS environments
+- Google-only Clerk authentication on Next.js and Expo
+- VIT Student/External auth-intent flow and server-side Google `hd` verification
+- Convex schema, indexes, auth configuration, capability guard, command-receipt helper, domain-event helper, and audit helper
+- reactive client providers and connection/sync indicators on web and mobile
+- reviewer device registration, secure token storage, encrypted draft/outbox skeleton, and push-token lifecycle
+- error reporting, release identifiers, structured logs, and baseline dashboards
+- CI typecheck, lint, unit, Convex function, web E2E, and mobile smoke-test jobs
 - approved rubric and aggregation method
 - team-size policy
 - round/elimination model
@@ -17,7 +26,7 @@ Deliver:
 - degraded-mode authority
 - data retention policy
 
-Exit: decision register has owners and no blocking open item.
+Exit: a VIT student and external test user can authenticate; a rostered reviewer can authenticate on mobile; a test mutation appears live on web and mobile; unauthorized writes fail in Convex; environment and policy blockers have owners.
 
 ### Milestone 1: Identity, teams, and project onboarding
 
@@ -61,13 +70,16 @@ Independent delivery after core review operations are safe. It must never compet
 
 ## 2. Required test environments
 
-- Product demo data with no real participant data
-- Reviewer training environment
-- Operations rehearsal environment
-- Production-like load environment
+- Local development with generated identities and deterministic seed data
+- Shared development deployment with no real participant data
+- Staging/reviewer-training environment with production-like Google, Clerk, Convex, push, and EAS configuration
+- Operations rehearsal environment or namespaced rehearsal event in staging
+- Production-like load environment with synthetic accounts and isolated notification targets
 - Recovery/restore environment
 
 Configuration promotion is versioned and auditable.
+
+No environment shares Clerk users, Convex records, Google OAuth credentials, Vercel secrets, Expo push credentials, or backup destinations with another environment unless the exception is documented and approved.
 
 ## 3. Core end-to-end scenarios
 
@@ -99,7 +111,17 @@ The final load plan must use confirmed registration and staffing numbers. It sho
 - dashboard live updates
 - partial network degradation
 
-Success thresholds for latency and error rate are set before architecture approval. Data correctness is a harder gate than visual responsiveness.
+Success thresholds for latency and error rate are validated and frozen before the full-scale rehearsal. Data correctness is a harder gate than visual responsiveness.
+
+Working technical gates for rehearsal:
+
+- accepted command p95 ≤ 750 ms and p99 ≤ 2 s under the approved synthetic load;
+- accepted-command-to-online-subscriber p95 ≤ 1.5 s;
+- zero duplicate active review sessions, score submissions, or queue entries;
+- 100% of acknowledged critical commands resolvable by command receipt;
+- dashboard critical projection age ≤ 5 s while connected;
+- push ticket creation p95 ≤ 5 s, with delivery receipt processing and an in-app/operations fallback;
+- a client reconnect restores current authoritative projections without manual refresh.
 
 ## 5. Operational drills
 
@@ -158,6 +180,8 @@ A feature is done only when:
 - runbook and operator ownership exist;
 - representative users complete rehearsal;
 - no unresolved critical or high-severity defect remains.
+- schema and function changes remain backward-compatible with the supported mobile runtime or are protected by a coordinated minimum-version gate.
+- every new external side effect is outbox-driven, retryable, observable, and idempotent.
 
 ## 8. Event launch checklist
 
@@ -173,4 +197,3 @@ A feature is done only when:
 - Manual fallback materials controlled
 - Round 1 dashboard dry run complete
 - Final go/no-go recorded by named owners
-

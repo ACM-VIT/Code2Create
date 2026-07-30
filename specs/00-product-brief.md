@@ -36,6 +36,10 @@ Participants must know when to prepare without chasing organisers. Reviewers mus
 - Five primary tracks are planned, with capacity for one sponsor track.
 - Teams should be routed by project needs and reviewer expertise rather than rigid track-only panels.
 - The platform is a one-stop event system, with participant portal, reviewer app, and web operations dashboard kept in sync.
+- Participant registration starts by choosing **VIT student** or **External participant**, followed by Google authentication.
+- VIT-student classification requires a verified Google Workspace identity for the configured VIT student domain; a matching email string alone is insufficient.
+- Reviewer, operations, and administrator authority is assigned from approved rosters and is independent of participant class.
+- All surfaces use one realtime backend and see authorised projections of the same committed state.
 - Every panel member must be present before a standard review can begin.
 - Presence is confirmed by scanning a team QR displayed on the participant portal.
 - Board-level users may override exceptional blocks, with a mandatory reason and audit entry.
@@ -62,6 +66,10 @@ Critical rules cannot depend on reminders:
 - missing sync cannot be discovered only after a round ends;
 - an override cannot exist without an actor, time, target, and reason.
 
+### One committed truth
+
+The participant portal, reviewer application, and operations dashboard never reconcile independent copies of live event state. Convex is authoritative. Clients subscribe to scoped projections and issue validated commands. Push notifications, local caches, and offline drafts accelerate or protect the experience, but none of them becomes a competing source of truth.
+
 ### Fast at the point of work
 
 Reviewers use large targets, short labels, sensible defaults, and one primary action per screen. Participants see a clear state and next step. Operations users can identify exceptions before normal cases.
@@ -78,8 +86,23 @@ Automation can recommend panel assignments, identify conflicts, summarise eviden
 
 Rubric definitions, time rules, readiness rules, and relevant participant-facing statuses should be published before the event. Internal risk flags and security controls remain restricted.
 
-## 5. In scope
+## 5. Architecture baseline
 
+- Next.js web application for the participant portal and role-gated staff/administration surfaces
+- Expo React Native reviewer application for Android and iOS
+- Clerk sessions with Google-only authentication across web and mobile
+- Server-side Google OpenID Connect verification for VIT Workspace classification
+- Convex reactive queries, transactional mutations, scheduled jobs, and storage
+- Expo Notifications for background reviewer paging
+- pnpm/Turborepo TypeScript monorepo with shared domain and UI packages
+- Vercel web deployment, EAS mobile delivery, separate Convex/Clerk environments
+- Sentry error monitoring plus structured domain and audit events
+
+The architecture is a confirmed implementation direction, not an example. Vendor substitutions require a decision-register entry and must preserve the realtime, identity, transactional, offline, and audit contracts.
+
+## 6. In scope
+
+- Google authentication, VIT/external participant classification, and account provisioning
 - Participant and staff identity
 - Team creation and membership
 - Guided project onboarding
@@ -96,11 +119,12 @@ Rubric definitions, time rules, readiness rules, and relevant participant-facing
 - Review history and progress across rounds
 - Finalist operations and exports
 - Live operations, exception handling, audit, and recovery
+- Reactive synchronization across participant, reviewer, and operations clients
+- Push paging, device registration, delivery receipts, and notification fallbacks
 - Synesthesia requests, voting, moderation, and playback control
 
-## 6. Out of scope for this cycle
+## 7. Out of scope for this cycle
 
-- Choice of frameworks, databases, hosting, or native application technology
 - Bluetooth or peer-to-peer transport architecture
 - Sponsor CRM and outbound email tooling
 - Sponsor decks and partnership proposals
@@ -110,8 +134,9 @@ Rubric definitions, time rules, readiness rules, and relevant participant-facing
 - Prize amounts and sponsor benefits
 - Exact track names and problem statements
 - Venue and final event timeline
+- Replacing VIT's own identity directory or managing VIT Google Workspace accounts
 
-## 7. Actors
+## 8. Actors
 
 | Actor | Primary need |
 | --- | --- |
@@ -125,7 +150,7 @@ Rubric definitions, time rules, readiness rules, and relevant participant-facing
 | Playback moderator | Moderate and control Synesthesia |
 | Auditor | Read immutable operational history and exports |
 
-## 8. Success measures
+## 9. Success measures
 
 Targets must be finalised after rehearsal, but the launch candidate should support measurement of:
 
@@ -141,8 +166,10 @@ Targets must be finalised after rehearsal, but the launch candidate should suppo
 - Participant-visible queue accuracy
 - Time from round close to a validated finalist dataset
 - Support requests per 100 teams
+- 95th-percentile propagation time from an accepted command to subscribed online clients
+- Percentage of Google authentications provisioned without manual intervention
+- Push acknowledgement and fallback-escalation time for critical reviewer pages
 
-## 9. Non-goals
+## 10. Non-goals
 
 The platform is not intended to make judging subjective questions disappear. It exists to ensure the same process, evidence expectations, and operational controls are applied consistently enough that human judgment is defensible.
-

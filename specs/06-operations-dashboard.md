@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-The dashboard is the event control room. Its default view prioritises exceptions and required decisions over decorative aggregate statistics.
+The dashboard is the event control room. It is a role-gated surface of the Next.js web application, backed directly by authorised Convex queries and mutations. Its default view prioritises exceptions and required decisions over decorative aggregate statistics.
 
 ## 2. Global command view
 
@@ -21,6 +21,8 @@ At a glance:
 - round-close blockers
 
 Every count opens the underlying records.
+
+Counts, lists, and detail drawers must derive from compatible query projections pinned to the same event configuration revision. The dashboard does not poll exported snapshots or require refresh.
 
 ## 3. Round setup
 
@@ -155,7 +157,17 @@ Operators can search a chronological event stream and export:
 
 Participant-facing feedback is generated only from explicitly approved fields.
 
-## 11. Acceptance criteria
+## 11. Realtime command contract
+
+- Each panel, queue, review, incident, and round-control screen has a narrowly scoped reactive query.
+- A command button calls one named mutation and carries a `clientMutationId`, expected version, target IDs, and reason when required.
+- The mutation re-evaluates capability and state; disabling a button in the browser is only a usability aid.
+- The UI shows `pending` until the server receipt arrives, then lets subscribed query results render the committed truth.
+- Retrying the same command returns the original receipt.
+- A transport failure after send is resolved by looking up the command receipt, not by guessing whether the write happened.
+- Large aggregate views use maintained projections/counters where measurement proves they are necessary; they do not subscribe every operator to every raw record.
+
+## 12. Acceptance criteria
 
 - An operator can locate any team, reviewer, panel, or table in three interactions or fewer.
 - Critical exceptions appear without refreshing.
@@ -164,4 +176,5 @@ Participant-facing feedback is generated only from explicitly approved fields.
 - The dashboard cannot conceal round-close blockers.
 - Overrides are searchable and included in exports.
 - Draft peer scores are not exposed during active review by default.
-
+- Two operators issuing conflicting commands receive one serializable outcome and one actionable conflict response.
+- A reviewer-app command and participant-portal command become visible to authorised dashboard subscriptions without integration jobs.
