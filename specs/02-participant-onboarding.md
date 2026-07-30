@@ -91,61 +91,104 @@ The team writes naturally. The server saves that text verbatim before any model 
 
 Before intake begins, the accepted participant policy explains that project-answer text may be sent to OpenAI for interpretation, states the effective retention controls, and asks teams not to enter contact, identity, credential, or other unnecessary personal data. If that policy is not approved, the event runs the same intake in deterministic-only mode.
 
-### Three separate kinds of phase
+### Fresh-project rule and event phases
 
-The system does not overload one `phase` field:
+Every Code2Create project is `fresh_for_event`. A team may arrive with an idea and may describe it during the application, but project-specific implementation, prototype work, and product/design artefacts begin at the official build start. There is no continuing-project option and the introduction never asks how far along the project is.
 
-| Concept | Working values | Meaning |
+Before submission, the lead accepts one sentence: **We will begin project-specific implementation and design after Code2Create's official start.** General-purpose libraries, frameworks, public datasets, APIs, pretrained models, starter templates, and skills are allowed under the event policy and must be disclosed when material. The event board separately defines any allowed pre-start account, repository, or empty-project setup. GitHub, Figma, and manual baselines record exactly what exists at the official start. A project-specific implementation or design that existed before that baseline triggers admissions/operations eligibility review.
+
+The system keeps two separate configured concepts:
+
+| Concept | Initial working values | Meaning |
 | --- | --- | --- |
-| Project maturity | `idea`, `ideation`, `prototype`, `intermediate_build`, `working_build` | Where the project is now |
-| Intake stage | `opening`, `idea`, `problem`, `approach`, `track`, `build`, `evidence`, `responsibility`, `review` | Which kind of prompt the participant is answering |
-| Event checkpoint | application, pre-event update, a configured round update, or final update | Why the intake is running now |
+| Event phase | `introduction`, `ideation`, `build`, `intermediate_update`, `review_ready`, `final_update` | The schedule/checkpoint currently assigned by the server |
+| Question purpose | `user`, `problem`, `experience`, `event_goal`, `tradeoff`, `risk`, `track_fit` | What one generated question is trying to clarify |
 
-Project origin is a separate confirmation: `new_for_event` or `continuing_existing_project`. A continuing project can be at any maturity. Maturity and origin help select relevant questions; they are not scores or admission decisions.
-
-The labels, descriptions, allowed transitions, and checkpoint bindings are published configuration. The values above are the production starting set, not client-side constants.
+Participants do not select an event phase. The server derives it from the event schedule and checkpoint. Phase names, timing, generation guidance, and fallback bindings are published configuration rather than client-side constants.
 
 ### Adaptive sequence
 
-After the opening answer, the intake gathers only the missing information needed for the current checkpoint. A normal application path covers:
+After the opening answer, the model generates three to five follow-up questions. They appear one at a time. The sequence should leave the organisers with a clear description of:
 
-- the maturity and origin the team confirms;
-- the problem, intended user, and evidence the team actually has;
-- the proposed experience or approach;
-- what exists now and what the team intends to build during Code2Create;
-- one core track and any optional sponsor-track entries;
-- prior work, repositories, designs, datasets, APIs, models, templates, and other third-party material;
-- what the team can demonstrate next;
-- material privacy, safety, security, misuse, and accessibility concerns;
-- a final structured brief assembled from confirmed answers.
+- who the project is for and what it helps them do;
+- the main experience or approach;
+- what the team wants to make during Code2Create;
+- one or two important choices, unknowns, or risks that are useful to think through;
+- likely core-track fit and any material starting tools or third-party resources.
 
-This is not a fixed eleven-question sequence. If the opening answer already explains the user and approach, the system should not ask the team to repeat them. If a claim is vague, it chooses an approved follow-up. Every visible question comes from the published intake configuration; the model cannot invent an unreviewed question.
+The sequence uses what the team has already said instead of a fixed questionnaire. It avoids asking for the same fact twice and may stop after the third question when there is enough coverage. It never exceeds five generated follow-ups. Every generated question:
+
+- is one plain-language question no longer than 140 characters;
+- asks about one idea and can normally be answered in one to three sentences;
+- requires no research, metrics, market proof, technical specification, or pitch preparation;
+- is specific enough to be insightful without judging the idea;
+- avoids personal data, protected or sensitive traits, credentials, novelty claims, eligibility, scores, and winner language;
+- does not ask compound questions or demand TAM, validation, a full architecture, or “why should you win?”;
+- offers a small **Skip** action.
+
+Sample tone:
+
+- **Who would use this first?**
+- **What should they be able to do with it?**
+- **What would you most like to finish during Code2Create?**
+
+The product presents the required freshness attestation, track confirmation, disclosures, and final-brief confirmation after the generated sequence.
 
 Before each later review, the same engine runs a short update path: what changed, what works now, what the team will demonstrate, what previous commitment remains open, and whether any disclosure or track eligibility changed. It links the configured GitHub/Figma checkpoint instead of asking the team to reproduce provider statistics.
 
 ### OpenAI interpretation layer
 
-The OpenAI layer is behind the interface, not the interface itself. A server action sends the minimum project text plus the published maturity, track, field, and question definitions to the Responses API with Structured Outputs. It may return:
+OpenAI runs behind the static interface. A server action sends the minimum project text plus the current server-assigned phase, published track/brief definitions, and generation policy to the Responses API with strict Structured Outputs. Its output contract is:
 
-- candidate maturity values and reasons;
-- candidate core and sponsor tracks and reasons;
-- brief-field drafts tied to source answer-version IDs;
-- fields that appear answered, missing, or ambiguous;
-- the next eligible question keys from the server-provided allowlist.
+```json
+{
+  "briefFieldDrafts": [
+    {
+      "fieldKey": "string",
+      "text": "string",
+      "sourceAnswerVersionIds": ["opaque-id"]
+    }
+  ],
+  "trackCandidates": [
+    {
+      "trackVersionId": "opaque-id",
+      "reason": "string",
+      "sourceAnswerVersionIds": ["opaque-id"]
+    }
+  ],
+  "coverage": [
+    {
+      "purposeKey": "user",
+      "sourceAnswerVersionIds": ["opaque-id"]
+    }
+  ],
+  "nextQuestion": {
+    "text": "What would someone do first when they open it?",
+    "purposeKey": "experience",
+    "answerLength": "short",
+    "sourceAnswerVersionIds": ["opaque-id"]
+  },
+  "stopReason": "needs_question"
+}
+```
+
+`nextQuestion` may be `null`. `purposeKey` uses the published purpose enum, `answerLength` is `short | medium`, and `stopReason` is `needs_question | enough_context | question_limit`. The model writes the question text; it does not choose it from a wording allowlist. The server requires a question for introduction ordinals one through three, permits `enough_context` after the third, and rejects any question after the fifth.
 
 The model receives no application-owned Google subject, email, phone, registration number, auth/session data, admission recommendation, reviewer note, or score. A deterministic preprocessor also replaces common email, phone, registration-number, URL-credential, and secret-token patterns found in free text before the request; the raw answer stays in Convex. It receives no tools, web access, database function, or provider credential. Participant text is treated as untrusted data, never as instructions to change the system contract.
 
 The model cannot:
 
-- select or change a track or maturity on the team’s behalf;
+- select or change a track or event phase on the team’s behalf;
 - write an authoritative answer or silently alter the participant’s words;
 - invent validation, users, novelty, progress, disclosures, or evidence;
 - accept, reject, rank, route, or score a team;
-- choose a question outside the published allowlist.
+- write or accept the freshness attestation for the team.
 
-The participant confirms maturity, project origin, core track, sponsor-track entries, and the final brief. Each generated field remains visibly editable and keeps links to the answers it came from.
+Strict Structured Outputs guarantees the response shape. Application code validates the free text and rejects a generated question that is too long, contains more than one question, uses a disallowed purpose, repeats normalized prior wording, cites stale answers, includes blocked personal/credential patterns, violates the published wording policy, or appears after the question limit. Semantic repetition and ease are also measured in the release evaluation suite. A rejected result uses the published fallback for that phase and purpose.
 
-The server saves an answer first, then starts interpretation in the bounded intake work pool. It gives the model a short latency budget. On timeout, refusal, invalid output, rate limit, or provider outage, the deterministic route graph immediately supplies the next approved fallback question. A late result cannot replace a question already on screen. Model availability never blocks draft completion or submission.
+The participant confirms the freshness attestation, core track, sponsor-track entries, and final brief. Each model-assisted field remains visibly editable and keeps links to the answers it came from.
+
+The server saves an answer first, then starts interpretation in the bounded intake work pool. It gives the model a short latency budget. A valid generated question is stored as an immutable, versioned record tied to its source answers and exact model/configuration versions before it becomes visible. On timeout, refusal, invalid output, policy rejection, rate limit, or provider outage, the deterministic route graph immediately supplies the next published fallback question. A late result cannot replace a question already on screen. Model availability never blocks draft completion or submission.
 
 ### Tracks
 
@@ -158,9 +201,9 @@ Each published track contains:
 - stable key, display name, type `core | sponsor`, description, and examples;
 - explicit eligibility and required disclosures;
 - optional sponsor/tool-use conditions;
-- applicable project maturities and event checkpoints;
+- applicable event phases/checkpoints;
 - domain tags used as one input to reviewer coverage;
-- track-specific intake-question bindings;
+- track-specific generation guidance and fallback-prompt bindings;
 - capacity or award-policy reference when approved;
 - status, display order, version, and checksum.
 
@@ -182,7 +225,7 @@ Changing the core track after application submission creates a new project versi
 - A stale device cannot overwrite a newer answer.
 - The final screen is a plain project brief, not a generated deck.
 - Every brief field is editable and cites its source answer versions.
-- The lead submits only after confirming the brief, maturity, origin, core track, sponsor entries, and disclosures.
+- The lead submits only after confirming the brief, `fresh_for_event` attestation, core track, sponsor entries, and disclosures.
 
 ## 5. Project versions
 
@@ -191,7 +234,7 @@ The team lead can edit a draft until submission.
 Submitting creates a project version containing:
 
 - verbatim answer versions, confirmed brief fields, and disclosures;
-- confirmed project maturity and origin;
+- the `fresh_for_event` attestation, policy version, and official baseline reference;
 - core-track and optional sponsor-track version IDs;
 - ordered repository set with declared kinds/purposes and the Figma link;
 - demo URL, if present;
@@ -219,7 +262,7 @@ Selected applications continue:
 ### Application review
 
 - An admissions administrator assigns each application to the configured number of application reviewers.
-- Reviewers inspect the confirmed brief, its source answers, team composition allowed by policy, disclosures, project maturity/origin, and confirmed track versions.
+- Reviewers inspect the confirmed brief, its source answers, team composition allowed by policy, freshness attestation, starting-material disclosures, and confirmed track versions.
 - Each reviewer submits an independent recommendation: `select`, `waitlist`, `reject`, or `needs_information`, with reason codes and a short note.
 - Reviewers cannot see peer recommendations until their own is submitted.
 - Admissions uses a separate, approved admission policy. The venue judging rubric and scores do not apply.
@@ -270,7 +313,7 @@ The backend uses a file webhook when the authorizer can edit and the Figma plan 
 
 ### Disclosure
 
-Teams must disclose work that predates the event even if a repository or design file is new. Integration activity is evidence, not proof of originality and not a score.
+All submitted projects start at Code2Create. Teams disclose material general-purpose starting resources and any allowed pre-start setup. A sign of project-specific implementation or design before the official baseline is flagged for eligibility review rather than reclassified as a continuation. Integration activity is evidence of what changed after the baseline, not proof of quality or a score.
 
 If the project does not use GitHub or Figma, the team explicitly marks that provider as not used and describes the alternative evidence it will present. A repository added after the event baseline deadline is labelled late. The same repository or Figma file cannot be claimed by another event team without an administrator-reviewed shared-resource exception.
 

@@ -37,9 +37,9 @@ One person may hold several event roles. Each role is granted for a named event 
 
 ### Participant portal
 
-A responsive web application handles Google sign-in, participant classification, team formation, a one-prompt-at-a-time project intake, maturity/origin and track confirmation, admission status, GitHub/Figma connections, check-in, team QR, readiness, queue status, review history, and Synesthesia.
+A responsive web application handles Google sign-in, participant classification, team formation, a one-prompt-at-a-time project intake, fresh-project attestation and track confirmation, admission status, GitHub/Figma connections, check-in, team QR, readiness, queue status, review history, and Synesthesia.
 
-Project intake begins with **Hello.** and **What is your project about?** The interface stays visually static and minimal while a server-side OpenAI interpretation layer identifies already answered fields and relevant configured follow-ups. It produces no authoritative participant or judging state, and the same flow remains usable through deterministic routing when the model is unavailable.
+Project intake begins with **Hello.** and **What is your project about?** The interface stays visually static and minimal while a server-side OpenAI layer identifies already answered fields and generates three to five short, relevant follow-up questions. Each question is designed to be answerable from the team's current intent without research or pitch preparation. The model produces no authoritative participant or judging state, and the same flow remains usable through deterministic fallback prompts when it is unavailable.
 
 ### Reviewer app
 
@@ -75,7 +75,7 @@ An operations user can handle a missing reviewer, team hold, table move, scan fa
 - Google sign-in and participant classification;
 - staff/reviewer roster claims and event roles;
 - participant, team, and project onboarding;
-- configurable project maturities, sequential intake stages, five core-track positions, and optional sponsor-track eligibility;
+- a fresh-project rule, configurable event checkpoints, sequential intake, five core-track positions, and optional sponsor-track eligibility;
 - pre-event application review, shortlist, waitlist, offer, and confirmation;
 - venue check-in and team QR;
 - reviewer expertise, conflicts, panels, and substitute paging;
@@ -106,7 +106,7 @@ An operations user can handle a missing reviewer, team hold, table move, scan fa
 - A panel lead cannot replace the panel’s independent scorecards with one consensus number.
 - A reviewer’s designation does not multiply their score.
 - The routing service uses declared expertise, conflict checks, availability, and load. It does not use an AI model to decide winners or scores.
-- The intake model may identify missing fields and suggest published tracks. Participants confirm those values; the model cannot submit, admit, reject, route, or score a team.
+- The intake model may generate a bounded follow-up question, identify missing fields, and suggest published tracks. Participants provide every answer and confirm track choices; the model cannot submit, admit, reject, route, or score a team.
 - A participant-facing queue gives teams ahead and a time window. It does not promise an exact start minute.
 - A timer is calculated from the server start time. Clients do not write a database record every second.
 - A push notification asks a reviewer to open the app. The in-app page must still be accepted.
@@ -145,6 +145,6 @@ The launch is acceptable when:
 
 ## 9. Policy versus software
 
-The software must support versioned event configuration for team size, rounds, review duration, extension count, rubric, criterion coverage, queue policy, correction windows, track catalogs, project-maturity definitions, intake graphs, track/phase prompt bindings, and the bounded model contract.
+The software must support versioned event configuration for team size, rounds, review duration, extension count, rubric, criterion coverage, queue policy, correction windows, track catalogs, event checkpoints, intake generation policy, track/checkpoint guidance, deterministic fallback prompts, and the bounded model contract.
 
 Event owners must approve those values before production data opens. A missing policy remains a launch blocker; engineers do not choose it inside client code.

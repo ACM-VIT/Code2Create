@@ -55,21 +55,23 @@ The venue judging rubric and score views do not appear in this workspace.
 
 Event administrators receive a configuration studio. It is not mixed into live floor controls.
 
-The studio has five related editors:
+The studio has six related editors:
 
-1. **Track catalog** — exactly five core tracks in the working event policy, plus optional sponsor tracks, eligibility, disclosures, examples, domain tags, display order, and status.
-2. **Project maturity** — the versioned `idea`, `ideation`, `prototype`, `intermediate_build`, and `working_build` starting set, origin choices, descriptions, and allowed transitions.
-3. **Intake flow** — the opening, one-question-at-a-time base graph, checkpoint variants, question limits, answer fields, and deterministic edges.
-4. **Track bindings** — the small question overlays required for a core/sponsor track at a maturity or checkpoint.
-5. **Model contract** — approved model ID/snapshot, instruction/schema/evaluation versions, input/output limits, deadlines, retries, and no-tools/`store: false` requirements.
+1. **Track catalog:** exactly five core tracks in the working event policy, plus optional sponsor tracks, eligibility, disclosures, examples, domain tags, display order, and status.
+2. **Event phases:** schedule-assigned `introduction`, `ideation`, `build`, `intermediate_update`, `review_ready`, and `final_update` definitions and checkpoint mappings.
+3. **Intake shell:** the opening, first prompt, required confirmations, brief fields, answer limits, and deterministic fallback prompts.
+4. **Question policy:** minimum three and maximum five generated introduction follow-ups, smaller bounds for later phases, allowed purpose keys, 140-character limit, easy-answer rules, skip behaviour, and prohibited topics.
+5. **Track/phase guidance:** small guidance overlays and fallback-prompt bindings for a core/sponsor track at an event phase or checkpoint.
+6. **Model contract:** approved model ID/snapshot, instruction/schema/evaluation versions, input/output limits, deadlines, retries, and no-tools/`store: false` requirements.
 
 The opening preview must show only **Hello.**, followed by **What is your project about?** and one text box. A preview that renders a long form, chat transcript, assistant persona, or PPT upload cannot publish.
 
 ### Draft and publication
 
 - Published versions are immutable. An administrator clones one to make a draft.
-- The validator checks stable keys, track count/types, every reference, required-field reachability, cycles, maximum path length, sponsor eligibility, and deterministic fallback coverage.
-- The simulator runs every maturity/core-track combination and sponsor overlay at each checkpoint under model success, timeout, refusal, invalid output, and disabled-model conditions.
+- The validator checks stable keys, track count/types, every reference, the introduction's three-to-five question bound, later-phase bounds, generated-question policy, required-confirmation reachability, sponsor eligibility, and deterministic fallback coverage.
+- The simulator runs representative project descriptions across every phase/core-track combination and sponsor overlay under model success, rejected-question, timeout, refusal, invalid-output, and disabled-model conditions.
+- Publication samples generated paths for human review and requires the evaluation suite to meet thresholds for relevance, easy-answer rate, duplicate/compound-question rate, prohibited-topic/PII rate, average question length, and fallback rate.
 - The diff lists participant-visible wording, routing, eligibility, submission requirements, retention/model settings, and the number of active sessions pinned to the previous version.
 - Publication uses a fresh session, named capability, summary, and reason. It updates defaults for new sessions only.
 - Moving an active session is a separate migration command with a previewed key mapping and per-session result. No bulk “use latest” switch is available.
@@ -81,11 +83,12 @@ Track bindings can ask for domain evidence. They cannot edit rubric criteria/wei
 The health view shows:
 
 - answer-save latency and save failures;
-- active/complete/abandoned sessions by checkpoint and stable question key;
+- active/complete/abandoned sessions by checkpoint, generated-question purpose, and fallback key;
 - sessions by pinned catalog/flow/model version;
 - intake Workpool depth and oldest job;
-- model success, refusal, invalid-schema, timeout, rate-limit, stale-result, and deterministic-fallback rates;
-- median and tail latency and bounded token usage by configuration version.
+- model success, refusal, invalid-schema, question-policy rejection, timeout, rate-limit, stale-result, and deterministic-fallback rates;
+- median and tail latency and bounded token usage by configuration version;
+- aggregate question length, skip, duplicate, compound-question, and easy-answer evaluation rates by policy version.
 
 Diagnostics never show participant answer text, generated brief text, contact information, system instructions, provider payloads, or API keys. Support can open a participant-authorised project record through the ordinary scoped route when content inspection is actually required.
 
@@ -357,6 +360,7 @@ Manual incident records are reconciled after recovery under the reliability proc
 - Two dashboards receive the same panel/queue change without refresh.
 - A published catalog has five core tracks; optional sponsor entries do not replace a team's core track.
 - Every simulated intake path finishes when model output succeeds, times out, refuses, is invalid, or is disabled.
+- Every published model policy generates three to five introduction follow-ups, respects the smaller bound for later phases, rejects unsafe or burdensome wording, and has a phase-appropriate deterministic fallback.
 - Publishing a new flow does not change an active session, and migration cannot run without an exact preview.
 - Intake diagnostics expose operational counts and versions without participant/model text.
 - An application reviewer cannot read an unassigned application or a peer recommendation before submission.

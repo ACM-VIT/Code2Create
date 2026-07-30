@@ -135,7 +135,7 @@ The web route guard improves navigation. It does not replace checks inside Conve
 ### Participants can see
 
 - their own personal record;
-- members, intake answers, confirmed brief, maturity/track state, and project material for their teams;
+- members, intake answers, generated questions, confirmed brief, fresh-project attestation, track state, and project material for their teams;
 - their team’s GitHub/Figma resource, connection state, freshness, statistics, and checkpoints;
 - their team’s table, ready state, queue state, review status, and released feedback;
 - public event configuration and Synesthesia state.
@@ -144,7 +144,7 @@ They cannot see other teams’ private submissions, reviewer identities before p
 
 ### Application reviewers can see
 
-Application reviewers see only applications assigned to them, the confirmed project brief and source answers approved for admission review, confirmed maturity/track versions, the permitted team fields, and their own recommendation. They do not see hidden model suggestions, another reviewer’s recommendation before submitting, or the venue judging rubric.
+Application reviewers see only applications assigned to them, the confirmed project brief and source answers approved for admission review, the fresh-project attestation, confirmed track versions, the permitted team fields, and their own recommendation. They do not see hidden model suggestions, another reviewer’s recommendation before submitting, or the venue judging rubric.
 
 ### Reviewers can see
 

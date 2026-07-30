@@ -41,7 +41,7 @@ A client may show an optimistic control for low-risk actions such as a Synesthes
 - team ready;
 - table or panel assignment;
 - reviewer presence;
-- confirmed project maturity/origin/track and project submission;
+- fresh-project attestation, confirmed track, and project submission;
 - review start or extension;
 - scorecard submission;
 - correction;
@@ -170,7 +170,7 @@ A production restore is destructive. The incident commander takes a new backup f
 
 - Convex function failures and latency;
 - failed auth callbacks and roster claims by reason;
-- intake answer-save latency; intake Workpool depth/age; model success, refusal, invalid, timeout, rate-limit, stale, and fallback rates by configuration version;
+- intake answer-save latency; intake Workpool depth/age; model success, refusal, invalid, question-policy rejection, timeout, rate-limit, stale, and fallback rates by configuration version;
 - web/reviewer crashes by release;
 - subscription reconnect rate;
 - GitHub signature failures, Figma passcode failures, duplicate deliveries, and oldest unprocessed provider event;
@@ -253,7 +253,7 @@ Routine reads, timer ticks, and draft autosaves are not audit events. Submitted 
 - Convex backup download and staging restore are proven.
 - Multiple GitHub installations, repository kinds, add/archive/reorder, topic present/missing, duplicate/out-of-order push, fork overlap, partial access loss, and stale per-repository reconciliation are tested.
 - Figma PKCE, passcode webhook, view-only fallback, metadata/content divergence, rate-limit backoff, reauthorization, and artifact access are tested.
-- Intake graph publication, source attribution, prompt-injection fixtures, track changes, stale model output, timeout/refusal/invalid output, disabled-model fallback, and no-model submission are tested.
+- Intake publication, generated-question bounds and wording policy, source attribution, prompt-injection fixtures, track changes, stale model output, timeout/refusal/invalid output, disabled-model fallback, and no-model submission are tested.
 - A provider-event burst cannot exhaust review writes or the scheduler; Workpool limits and alert thresholds are verified at event scale.
 - Operations can pause starts, page a substitute, move a table, handle a wrong QR, and close a round in the rehearsal.
 - No known path can edit another reviewer’s submitted score or grant itself a staff role.

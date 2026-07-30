@@ -103,9 +103,15 @@ test("server-renders the authenticated Code2Create handbook", async () => {
   assert.match(html, /trackCatalogVersions/);
   assert.match(html, /intakeFlowVersions/);
   assert.match(html, /intakeModelConfigVersions/);
+  assert.match(html, /intakeGeneratedQuestions/);
+  assert.match(html, /fresh_for_event/);
+  assert.match(html, /purposeKey/);
+  assert.match(html, /three to five/i);
+  assert.match(html, /easy to answer/i);
+  assert.match(html, /Event Build Contribution/);
   assert.match(html, /deterministic fallback/i);
   assert.doesNotMatch(
     html,
-    /vinext-starter|Workspace Auth Headers|Sign in with ChatGPT|Clerk with Google-only|does not fetch full document content|does not read the full design document|one selected repository|grants one primary repository|binds one team to one repository|The required prompts are:/i,
+    /vinext-starter|Workspace Auth Headers|Sign in with ChatGPT|Clerk with Google-only|does not fetch full document content|does not read the full design document|one selected repository|grants one primary repository|binds one team to one repository|The required prompts are:|continuing_existing_project|new_for_event|Original Team Contribution|The model cannot invent an unreviewed question|next eligible question keys from the server-provided allowlist/i,
   );
 });

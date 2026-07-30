@@ -8,7 +8,7 @@ Each criterion is scored from 0 to 4.
 | --- | ---: | --- |
 | Problem & User Fit | 15 | Is the problem specific, evidenced, and relevant to a clear user? |
 | Working Solution | 20 | Does the demonstrated solution perform the important flow? |
-| Original Team Contribution | 15 | What did this team add during the event beyond prior work, templates, and third-party tools? |
+| Event Build Contribution | 15 | What did this team build during Code2Create from the official event baseline? |
 | Technical Execution | 15 | Are the implementation choices sound for the problem and current stage? |
 | User Readiness | 10 | Can the intended user understand and use the current experience? |
 | Trust & Responsible Use | 15 | Has the team handled privacy, security, safety, data, accessibility, and misuse risk? |
@@ -39,9 +39,9 @@ Review the user definition, observed need, urgency, alternatives, and evidence. 
 
 Score what the team demonstrates. Separate a functioning flow from a slide, video, static mock-up, or verbal promise. The evidence checklist records what was shown.
 
-### Original Team Contribution
+### Event Build Contribution
 
-Consider disclosed starting material, repository/design checkpoints, third-party services, generated code, templates, datasets, and what changed during the event. Using tools is allowed. Hiding prior work is not.
+Consider the official event baseline, disclosed general-purpose starting resources, repository/design checkpoints, third-party services, generated code, templates, datasets, and what changed during Code2Create. Using tools is allowed. Admissions handles any project-specific implementation or design from before the baseline; reviewers do not offset it with a lower or higher score.
 
 ### Technical Execution
 
@@ -81,7 +81,7 @@ Before routing opens, the panel plan creates a coverage matrix:
 | --- | :---: | :---: | :---: |
 | Problem & User Fit | ✓ | ✓ | |
 | Working Solution | ✓ | | ✓ |
-| Original Team Contribution | | ✓ | ✓ |
+| Event Build Contribution | | ✓ | ✓ |
 | Technical Execution | ✓ | | ✓ |
 | User Readiness | ✓ | ✓ | |
 | Trust & Responsible Use | | ✓ | ✓ |
@@ -144,7 +144,7 @@ Before Review 2, the team records what changed. Review 2 receives:
 - old and new evidence checkpoint sets fixed by ID;
 - current demonstration evidence.
 
-Progress is required evidence. The current rubric has no separate progress weight, so reviewers apply it only where it supports Working Solution, Original Team Contribution, Technical Execution, or another relevant criterion.
+Progress is required evidence. The current rubric has no separate progress weight, so reviewers apply it only where it supports Working Solution, Event Build Contribution, Technical Execution, or another relevant criterion.
 
 Provider statistics do not calculate or suggest a score. Commit, line, file, node, version, and comment counts can help a reviewer locate change, but they cannot establish quality, effort, originality, or individual contribution. GitHub authors and Figma version/comment handles are observations from provider records, not a member-attribution system.
 
@@ -154,12 +154,12 @@ Adding a separate weighted progress criterion is an open decision. The system do
 
 ## 9. AI boundary
 
-The intake interpretation layer may identify fields already present in team-written answers, suggest published maturity/track values, choose among server-allowed follow-up question keys, and draft a compact source-linked project brief.
+The intake interpretation layer may identify fields already present in team-written answers, generate a bounded follow-up question, suggest published tracks, and draft a compact source-linked project brief.
 
 It must:
 
 - label every model-assisted brief field and link it to participant-written answer versions;
-- leave maturity, origin, track, sponsor eligibility, and final wording unconfirmed until the participant acts;
+- leave track, sponsor eligibility, freshness attestation, and final wording unconfirmed until the participant acts;
 - avoid novelty verdicts and invented validation, users, progress, disclosures, or evidence;
 - avoid predicted admission, rank, score, or winner language;
 - never replace reviewer access to original answers.

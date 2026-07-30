@@ -127,9 +127,9 @@ When the review starts, the app caches the context required to finish that activ
 
 - confirmed project brief with team-written and model-assisted fields clearly distinguished;
 - the source participant answers behind every model-assisted brief field;
-- confirmed project maturity, origin, core-track version, and optional sponsor-track versions;
+- server-assigned event phase, fresh-project attestation, core-track version, and optional sponsor-track versions;
 - problem, user, and evidence;
-- declared pre-existing work and third-party tools;
+- disclosed general-purpose starting resources and allowed pre-start setup;
 - current demo state;
 - one GitHub/Figma evidence checkpoint set fixed to this review;
 - previous review findings and commitments;

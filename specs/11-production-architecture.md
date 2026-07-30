@@ -77,7 +77,7 @@ convex/
   schema.ts               Application tables and indexes
   identity/               participant provisioning and roster claim
   teams/                  teams, projects, check-in, ready
-  intake/                 versioned prompt graph, track catalog, interpretations, project brief
+  intake/                 versioned shell, question policy, track catalog, generated prompts, project brief
   admissions/             application review, decisions, offers, capacity
   reviews/                panels, queues, presence, sessions, scorecards
   integrations/           team bindings, GitHub/Figma webhooks, snapshots, metrics
@@ -214,22 +214,23 @@ The write path is:
 2. The mutation creates a pending `intakeInterpretation` keyed by the answer-set hash, intake-flow version, track-catalog version, and model-config version.
 3. The bounded `intake_ai` Workpool calls `POST /v1/responses` from a Convex action.
 4. The request uses `store: false`, no tools, no web access, and strict JSON Schema through `text.format`.
-5. An internal mutation validates every returned key against the pinned published configuration and stores a source-linked draft only if the session still accepts that input version.
-6. The route query chooses the next configured question. The participant separately confirms maturity, origin, track selections, and final brief fields.
+5. An internal mutation validates every returned key plus the generated question's purpose, length, single-question form, wording policy, source IDs, freshness, and ordinal against the pinned configuration.
+6. If still current, the mutation stores the question as an immutable `intakeGeneratedQuestion` and advances the session. Otherwise the route query serves the phase's published deterministic fallback. The participant separately accepts the freshness attestation and confirms track selections and final brief fields.
 
-The schema returns only candidate maturity/track keys, source-linked brief fields, field-completeness labels, and eligible next-question keys. Structured output does not remove application validation: unknown IDs, unavailable tracks, stale sources, oversized text, refusal, incomplete response, or a mismatched schema version make the interpretation unusable.
+The schema returns source-linked brief fields, candidate track keys, purpose coverage, an optional generated `nextQuestion { text, purposeKey, answerLength, sourceAnswerVersionIds }`, and `stopReason`. Structured Outputs constrains the shape and closed enums; question text remains model-generated and requires application validation. Unknown IDs, unavailable tracks, stale sources, oversized/compound/repeated/prohibited questions, a question beyond the fifth ordinal, refusal, incomplete response, or a mismatched schema version make that next question unusable.
 
 Every `intakeModelConfigVersion` freezes:
 
 - the approved model ID or snapshot;
-- system-instruction, input-redaction, and JSON-Schema checksums;
-- allowed output enums derived from the paired published intake/track versions;
+- system-instruction, input-redaction, question-policy, and JSON-Schema checksums;
+- allowed output enums derived from the paired published phase/track versions;
+- phase-specific generated-question bounds, including three to five for the introduction, plus the 140-character limit, allowed purpose keys, blocked patterns, and fallback mapping;
 - input/output character and token limits;
 - soft latency deadline, hard timeout, retry count, and Workpool priority;
 - `store: false` and the no-tools contract;
 - evaluation-suite version and publication actor.
 
-A new model or prompt is evaluated on staged synthetic/adversarial answers before publication. Active sessions remain pinned to their starting configuration unless an explicit migration maps every answer/question key and reports the effect.
+A new model, instruction, or question policy is evaluated on staged synthetic/adversarial answers before publication. The suite measures relevance, ease of answering, duplication, compound questions, prohibited/PII topics, source attribution, track fit, length, and fallback rate. Human reviewers inspect representative generated paths. Active sessions remain pinned to their starting configuration unless an explicit migration maps every answer, generated question, fallback, and phase and reports the effect.
 
 The participant never waits indefinitely for interpretation. When the soft deadline passes, the server returns the deterministic fallback edge. Late output may help a later unanswered step, but it cannot replace the question currently visible. A refusal, invalid schema, timeout, quota error, or OpenAI outage leaves the raw answer intact and the complete fallback intake usable.
 
@@ -318,7 +319,7 @@ Figma OAuth grants are encrypted once per Figma App/user and referenced by team-
 
 - Sentry receives web/mobile exceptions, release ID, environment, route/screen, and non-sensitive event identifiers.
 - Convex logs function errors, external-job attempts, and scheduled-work failures.
-- Intake diagnostics show model latency, timeout/refusal/schema-failure/fallback rates, token usage, abandonment by stable question key, and config version without logging answer text.
+- Intake diagnostics show model latency, timeout/refusal/schema-failure/question-policy-rejection/fallback rates, token usage, skips by purpose or fallback key, and config version without logging answer or generated-question text.
 - Integration diagnostics show Workpool backlog, provider rate-limit windows, webhook age, metadata age, full-snapshot age, and incomplete/truncated results.
 - The operations dashboard shows business failures such as missing presence, unacknowledged page, stale draft, and round blocker.
 - GitHub Actions records build/test/deploy results.
@@ -334,7 +335,8 @@ Business history stays in domain records and audit events. Sentry is not the jud
 - A stale or duplicate high-impact write cannot create a second review, assignment, or scorecard.
 - External provider failure cannot hold open a Convex transaction.
 - An answer is durable before model work begins; OpenAI failure follows the configured fallback path and cannot block submission.
-- Model output cannot call a mutation, select a track, change a participant answer, publish a brief, or reach judging data.
+- A successful introduction contains three to five generated follow-ups; each is short, single-purpose, immutable, and tied to the source/configuration versions that produced it.
+- Model output cannot call a mutation, select a phase or track, accept the freshness attestation, change a participant answer, publish a brief, or reach judging data.
 - Every generated brief field names its source answer versions and the exact intake, track, schema, and model-config versions.
 - A burst of provider events stays inside configured Workpool concurrency and does not starve review writes.
 - One team can add repositories from several GitHub App installations, classify and reorder them, and freeze all of them in one review checkpoint set.
@@ -353,5 +355,6 @@ Business history stays in domain records and audit events. Sentry is not the jud
 - [Convex Workpool](https://github.com/get-convex/workpool)
 - [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses)
 - [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
+- [OpenAI evaluation best practices](https://developers.openai.com/api/docs/guides/evaluation-best-practices)
 - [OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data)
 - [Expo push notification overview](https://docs.expo.dev/push-notifications/overview/)

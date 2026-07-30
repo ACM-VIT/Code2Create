@@ -31,23 +31,23 @@ The Convex action uses the Responses API as a single-turn extraction request:
 
 The request includes only:
 
-- the redacted copy of active project-answer text needed for the current route;
+- the redacted active question/answer history needed to avoid repetition;
 - opaque source answer-version IDs;
-- published maturity and origin definitions;
+- the server-assigned event phase and published question-purpose policy;
 - published core/sponsor track definitions;
-- allowed brief fields and next-question keys.
+- allowed brief fields, prior generated-question ordinals, count/length limits, and phase fallback keys.
 
 It excludes application-owned names, email, phone, registration number, Google claims, team invitations, auth/session data, admission state, GitHub/Figma credentials, reviewer context, and all score data. Before the request, a versioned deterministic filter replaces common contact, registration-number, URL-credential, and secret-token patterns inside participant free text. The original answer remains only in the project record; redacted request text is not copied into job or error logs.
 
-The output is a proposal. After schema parsing, application code still rejects unknown or unpublished IDs, stale answer references, ineligible track combinations, a question outside the supplied allowlist, and text beyond field limits. The result cannot call a Convex function. An internal mutation writes it only as an `intakeInterpretation` tied to exact input/config versions.
+The output is a proposal. It may contain source-linked brief drafts, published track candidates, coverage labels, and one free-text `nextQuestion`. After schema parsing, application code still rejects unknown or unpublished IDs, stale answer references, ineligible track combinations, a question after ordinal five, a disallowed purpose, more than one question, normalized duplicate wording, blocked personal/credential patterns, policy-prohibited wording, and text beyond field limits. The result cannot call a Convex function. An internal mutation writes a current valid result as an `intakeInterpretation` and the question as a separate immutable `intakeGeneratedQuestion`, both tied to exact input/config versions.
 
 ### Prompt-injection and failure handling
 
-The system instruction states that participant text is untrusted project material and cannot modify the schema, allowed IDs, or product rules. Delimiter text alone is not treated as security. The actual boundary is no tools, a closed output schema, server-side enum validation, and no authoritative write path.
+The system instruction states that participant text is untrusted project material and cannot modify the schema, question policy, allowed IDs, or product rules. Delimiter text alone is not treated as security. The actual boundary is no tools, a closed output schema, server-side key and question-text validation, immutable version checks, and no authoritative write path.
 
 Each answer-set/config tuple has one deduplicated job. The `intake_ai` Workpool has independent concurrency, queue-age alerts, a short soft deadline, one bounded retry for transient failure, and a hard timeout. It never retries a safety refusal as if it were a network error.
 
-The published route graph supplies a deterministic next question for every node. Timeout, refusal, incomplete or content-filtered output, invalid schema, quota/rate limit, or service outage records a non-sensitive failure category and follows that edge. Raw answers and submission remain available.
+The published phase policy supplies a deterministic fallback question for each possible next purpose and ordinal. Timeout, refusal, incomplete or content-filtered output, invalid schema, question-policy rejection, quota/rate limit, or service outage records a non-sensitive failure category and follows that edge. Raw answers and submission remain available.
 
 ### Model and prompt release
 
@@ -56,15 +56,19 @@ A model configuration cannot move to `published` until its evaluation suite pass
 - ordinary short and long project descriptions;
 - descriptions that already answer several fields;
 - vague, multilingual, typo-heavy, and code-mixed answers;
-- ideas at every configured maturity;
+- ideas across every configured event phase;
 - core-track ambiguity and sponsor eligibility;
 - prompt-injection attempts and fake IDs;
 - claims without evidence;
+- potential repeated, compound, overlong, overly technical, market-proof, scoring, novelty, and “why should you win?” questions;
+- questions that should be answerable immediately in one to three sentences and cases where the model should stop after the third, fourth, or fifth follow-up;
 - sensitive personal data pasted into a project answer;
 - redaction fixtures for email, phone, registration number, URL credentials, and common secret formats;
 - refusal, truncation, invalid output, timeout, and late-result fixtures.
 
-Assertions cover schema validity, source attribution, allowed question/track IDs, no invented evidence, no authoritative selection, and deterministic fallback. Model or prompt changes publish a new immutable version; they do not rewrite active sessions.
+Assertions cover schema validity, source attribution, published track IDs, question relevance, easy-answer rate, length, one-question form, duplicate/prohibited-topic/PII rates, the three-to-five bound, no invented evidence, no authoritative selection, and deterministic fallback. Model or prompt changes publish a new immutable version; they do not rewrite active sessions.
+
+The release suite uses a held-out set separate from prompt examples. Human reviewers label each question against short binary criteria: relevant to the team's text, answerable now without research, one idea, plain language, non-judgmental, and non-repetitive. Candidate and current configurations are compared on the same cases. The publication record stores thresholds and aggregate results. Opted-in production feedback adds new edge cases to a later suite; participant text does not enter an evaluation dataset by default.
 
 ### Data controls
 
@@ -461,7 +465,7 @@ Do not change native dependencies, auth callback shape, rubric calculation, or d
 - Every EAS Update has a runtime version compatible with the installed native build.
 - Changing a native dependency creates a new runtime/build.
 - Event/rubric/panel configuration is versioned; a code deploy does not rewrite an active round’s configuration.
-- Track catalogs, intake graphs, model prompts, and output schemas are immutable versions; active sessions do not silently move between them.
+- Track catalogs, intake shells, question policies, fallback prompts, model instructions, and output schemas are immutable versions; active sessions do not silently move between them.
 
 ## 12. Rollback
 
@@ -511,10 +515,11 @@ Token-encryption key rotation keeps the previous decrypt key until all active Fi
 
 - Production auth callbacks accept only production origins/schemes.
 - The first intake frame is **Hello.**, followed by **What is your project about?**, with one text box and no form, chat, or PPT UI.
-- Every published maturity/track route terminates, has a deterministic fallback, and uses only published question keys.
+- Every introduction asks three to five follow-ups: generated questions on the normal path and published fallbacks when model work is disabled or rejected. Later event-phase/track paths obey their smaller published bounds and the same wording policy.
 - OpenAI requests set `store: false`, expose no tools, exclude identity/judging fields, and accept only the strict versioned output schema.
 - A timeout, refusal, invalid output, quota error, or disabled model still lets a team finish and submit; a late result cannot replace the visible question.
-- Suggested maturity and track values remain unconfirmed until the team acts, and every generated brief field cites source answers.
+- A generated question is short, single-purpose, easy to answer, source/configuration-linked, validated before display, and never treated as a participant answer.
+- Event phase is server-assigned; suggested track values and the freshness attestation remain unconfirmed until the team acts, and every generated brief field cites source answers.
 - GitHub App permission screen contains no write/admin permission.
 - A team can add repositories from different App installations and give each a required kind, purpose, branch/root, and order.
 - The portal verifies `code2create-7-0` on every active repository; a missing topic does not cause an Administration permission request.
@@ -535,6 +540,7 @@ Token-encryption key rotation keeps the previous decrypt key until all active Fi
 
 - [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses)
 - [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
+- [OpenAI evaluation best practices](https://developers.openai.com/api/docs/guides/evaluation-best-practices)
 - [OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data)
 - [GitHub App permissions](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app)
 - [GitHub installation access tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)

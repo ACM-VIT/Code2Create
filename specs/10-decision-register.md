@@ -26,7 +26,7 @@ This register separates source requirements from implementation choices and unre
 | C-018 | Later reviews receive previous findings, commitments, and progress evidence. |
 | C-019 | The working round model is two ordinary reviews followed by a final round. |
 | C-020 | Project onboarding begins with **Hello.** and **What is your project about?**, shows one text box/prompt at a time, and does not require a PPT or expose a traditional form. |
-| C-021 | Teams disclose previous work and third-party tools. |
+| C-021 | Every hack project is fresh: project-specific implementation and design begin at the official event baseline. Teams disclose material general-purpose starting resources and any allowed pre-start setup; there is no continuation category. |
 | C-022 | GitHub and Figma resources, live progress facts, and checkpoints are team-scoped; a team can submit several classified repositories, and assigned reviewers inspect the frozen repository set/design rather than a member-owned metadata link. |
 | C-023 | The application uses normal internet/HTTP connectivity. Bluetooth/P2P is not committed. |
 | C-024 | Synesthesia accepts participant requests and votes while staff retain playback control. |
@@ -34,7 +34,8 @@ This register separates source requirements from implementation choices and unre
 | C-026 | The guided project intake supports pre-event shortlisting so the organisers can admit fewer teams when venue/review capacity requires it. |
 | C-027 | Every active panel reviewer needs a working phone with the reviewer app; otherwise operations supplies a spare or replaces the reviewer. |
 | C-028 | An OpenAI layer sits behind the minimal intake to interpret the team's natural-language answer and make the sequence adaptive. |
-| C-029 | Project maturity/phase and track-dependent paths require extensive event configuration rather than client-side hard-coding. |
+| C-029 | Event phases and track-dependent guidance require versioned event configuration rather than client-side hard-coding; the schedule assigns each phase. |
+| C-030 | After the opening description, the AI writes three to five short, relevant questions that are mostly easy to answer. Questions are validated and versioned; they do not come from a fixed questionnaire. |
 
 ## 2. Selected implementation
 
@@ -60,8 +61,8 @@ This register separates source requirements from implementation choices and unre
 | T-018 | Materialised provider facts and hourly metric buckets | Live cards and charts do not scan webhook history or wait for provider statistics endpoints |
 | T-019 | One GitHub team integration owns an ordered repository set; each repository has a kind/purpose and independent snapshots; reviews reference an immutable evidence checkpoint set | Repository membership or classification can change without rewriting evidence used by an active or completed review |
 | T-020 | One confirmed core track plus zero or more eligible sponsor-track entries per project version | Keeps the five-track event structure while allowing sponsor eligibility without replacing a team's primary area |
-| T-021 | Immutable track catalogs, maturity definitions, intake graphs, questions, route rules, and track/maturity bindings | Organisers can configure paths while active/submitted sessions keep reproducible meaning |
-| T-022 | OpenAI Responses API with strict Structured Outputs, `store: false`, no tools, source-linked output, and a deterministic fallback edge at every node | Gives the intake useful interpretation without making model availability or output authoritative |
+| T-021 | Immutable track catalogs, event phases, intake shells, question policies, fallback prompts, and track/phase guidance | Organisers can tune the experience while active/submitted sessions keep reproducible meaning |
+| T-022 | OpenAI Responses API with strict Structured Outputs, `store: false`, no tools, source-linked output, bounded free-text question generation, server validation, and deterministic fallbacks | Gives the intake genuinely adaptive questions without making model availability or output authoritative |
 | T-023 | Append-only answer versions and participant-confirmed source-linked brief versions | Reviewers can distinguish team evidence from model-assisted wording and edits cannot erase history |
 
 ## 3. Working assumptions
@@ -109,7 +110,7 @@ This register separates source requirements from implementation choices and unre
 | O-023 | Admission criteria, minimum application reviewers, venue/track capacity, waitlist order, offer deadline, and published decision detail | Event board + admissions lead | Before applications open |
 | O-024 | Figma comment visibility and retention, full-design evidence retention, and who may download raw checkpoints | Event board + VIT policy owner | Before Figma OAuth consent text is published |
 | O-025 | Maximum active GitHub repositories per team after registered-scale and rate-budget testing | Engineering lead + event operations | Before GitHub connection opens |
-| O-026 | Final public maturity labels/descriptions and which checkpoint paths use them | Participant experience lead + event board | Before intake configuration freezes |
+| O-026 | Final event-phase labels/checkpoints and the exact allowed pre-start setup policy | Participant experience lead + event board | Before intake configuration freezes |
 | O-027 | OpenAI privacy notice, approved data controls, interpretation-record retention, and whether the organisation will seek MAM/ZDR | Event board + VIT policy owner | Before applications open |
 
 ## 5. Rejected or deferred
@@ -138,7 +139,7 @@ This register separates source requirements from implementation choices and unre
 | X-020 | Attach a provider resource to the individual who clicked Connect | Rejected; event ownership and visibility are team-scoped |
 | X-021 | Force each team into one primary GitHub repository | Rejected; one team integration owns several classified repository bindings |
 | X-022 | Long project form, PPT upload, or chatbot-style onboarding | Rejected; use the minimal sequential intake |
-| X-023 | Model-generated arbitrary questions or automatic maturity/track selection | Rejected; questions and IDs come from published configuration and the participant confirms |
+| X-023 | Unbounded or unvalidated model questions, or automatic phase/track selection | Rejected; question text may be generated only inside the published length, purpose, safety, count, versioning, and fallback contract |
 | X-024 | Make project submission depend on an OpenAI response | Rejected; every path has a deterministic fallback |
 
 ## 6. Change procedure

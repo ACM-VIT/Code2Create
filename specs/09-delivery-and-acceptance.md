@@ -8,7 +8,7 @@ Build vertical event flows. Do not spend the first phase creating every table, r
 
 Deliver:
 
-- event configuration for team size, rounds, rubric, timer, correction windows, queue policy, track catalog, project maturity, and intake graph;
+- event configuration for team size, rounds, rubric, timer, correction windows, queue policy, track catalog, event phases, generated-question policy, and intake fallbacks;
 - pnpm workspace with web, reviewer, Convex, and shared domain package;
 - separate development, staging, and production projects;
 - Better Auth running on Convex with Google only;
@@ -37,7 +37,7 @@ Deliver:
 - participant profile;
 - team create/join/lead transfer;
 - the exact **Hello.** then **What is your project about?** opening with one prompt and text box at a time;
-- configurable maturity/origin confirmation, five core-track positions, optional sponsor entries, and track/maturity question bindings;
+- required `fresh_for_event` attestation, five core-track positions, optional sponsor entries, and track/phase generation guidance;
 - source-linked OpenAI interpretation with strict Structured Outputs and participant confirmation;
 - a deterministic fallback for every intake branch;
 - immutable answer, brief, catalog, flow, model-schema, and submitted project versions;
@@ -47,7 +47,7 @@ Deliver:
 - registration support codes;
 - event configuration checks.
 
-Exit when a VIT participant and an external participant can form a valid mixed or same-class team under the chosen policy, complete different maturity/track paths, submit the same confirmed brief with OpenAI enabled or disabled, receive a reviewed admission decision, confirm an offer, refresh on another device, and see the same server state.
+Exit when a VIT participant and an external participant can form a valid mixed or same-class team under the chosen policy, describe a fresh project, receive three to five short follow-ups on different track/phase paths, submit the same confirmed brief with OpenAI enabled or disabled, receive a reviewed admission decision, confirm an offer, refresh on another device, and see the same server state.
 
 ## 4. Slice 2: one complete review
 
@@ -174,8 +174,8 @@ Production data is never copied into development. A staging seed uses generated 
 - rubric aggregation;
 - score completeness;
 - role capability checks;
-- intake-graph reachability, termination, and maximum path length;
-- track/maturity/sponsor binding precedence and deterministic fallback selection.
+- intake completion, the three-to-five generated-question bound, and deterministic fallback termination;
+- track/phase/sponsor guidance precedence and deterministic fallback selection.
 
 ### Convex
 
@@ -191,7 +191,7 @@ Production data is never copied into development. A staging seed uses generated 
 
 ### Web
 
-Playwright covers participant registration, the minimal sequential intake, maturity/track confirmation and change, source-linked brief review, model-success/no-model submission, team/project submission, independent application review, admission offer, ready/queue, roster administration, floor operations, correction, and round close.
+Playwright covers participant registration, the minimal sequential intake, fresh-project attestation, generated-question skip, track confirmation/change, source-linked brief review, model-success/no-model submission, team/project submission, independent application review, admission offer, ready/queue, roster administration, floor operations, correction, and round close.
 
 ### Mobile
 
@@ -199,7 +199,7 @@ Maestro and device tests cover Google sign-in, clock-in, page open, QR scan, bac
 
 ### Integration
 
-OpenAI fixtures cover valid structured output, refusal, incomplete/content-filtered response, unknown IDs, stale source IDs, invalid schema, timeout, rate limit, prompt injection, late completion, provider disablement, and input redaction for contact/registration/credential patterns. Signed/verified fixture payloads cover repositories from several GitHub installations, add/classify/reorder/archive, push/install/uninstall/repository removal, topic present/missing per repository, fork overlap, force push, partial access loss, duplicate/out-of-order delivery, and comparison truncation. Figma fixtures cover OAuth state/PKCE/token refresh, passcode `PING`/`FILE_UPDATE`, duplicate delivery, view-only webhook failure, full-file parsing, render failure, metadata/content divergence, and `429 Retry-After`. Provider test accounts cover the live happy paths.
+OpenAI fixtures cover valid generated questions, `nextQuestion: null`, refusal, incomplete/content-filtered response, unknown track/field IDs, stale source IDs, invalid schema, overlong/compound/repeated/prohibited questions, timeout, rate limit, prompt injection, late completion, provider disablement, and input redaction for contact/registration/credential patterns. Signed/verified fixture payloads cover repositories from several GitHub installations, add/classify/reorder/archive, push/install/uninstall/repository removal, topic present/missing per repository, fork overlap, force push, partial access loss, duplicate/out-of-order delivery, and comparison truncation. Figma fixtures cover OAuth state/PKCE/token refresh, passcode `PING`/`FILE_UPDATE`, duplicate delivery, view-only webhook failure, full-file parsing, render failure, metadata/content divergence, and `429 Retry-After`. Provider test accounts cover the live happy paths.
 
 ## 12. Load test
 
@@ -248,7 +248,7 @@ The final rehearsal includes:
 20. One manual paper review is entered and verified.
 21. OpenAI times out after the opening answer; the answer stays saved and the team completes the deterministic route.
 22. A late interpretation arrives after the team changes its core track and is rejected as stale.
-23. A model returns an unknown track/question key or follows participant prompt-injection text; the server rejects it without changing the session.
+23. A model returns an unknown track ID, a compound or overlong question, or follows participant prompt-injection text; the server rejects it and serves the pinned fallback without changing accepted answers.
 24. An administrator publishes a new track/flow version while a team is active; the team stays on its pinned version.
 25. Round export and integration artifact are checked and restored into staging.
 
@@ -269,7 +269,7 @@ Every scenario has an owner, expected screen state, recovery action, and pass/fa
 
 ### Operations
 
-- track, maturity, intake graph, and model-config validation, simulation, publication, and rollback;
+- track, event-phase, question-policy, fallback, and model-config validation, simulation, publication, and rollback;
 - active-session migration preview and per-session result;
 - table freeze;
 - panel gap and substitute flow;
@@ -291,7 +291,7 @@ Every scenario has an owner, expected screen state, recovery action, and pass/fa
 ## 15. Freeze and launch
 
 - Product policy freezes before the final rehearsal.
-- Core/sponsor track definitions, maturity wording, intake graph, model configuration, consent, and deterministic fallbacks freeze before applications open.
+- Core/sponsor track definitions, event phases, generated-question policy, model configuration, consent, and deterministic fallbacks freeze before applications open.
 - Schema and auth changes freeze after the final rehearsal except for a launch-blocking defect.
 - Mobile native dependencies freeze before production reviewer installation.
 - EAS Update may ship a compatible JavaScript fix only after staging verification and release-owner approval.
