@@ -4,11 +4,13 @@
 
 A panel is a group of reviewers assigned to one or more venue tables for a round. A queue contains teams that the panel can review.
 
+In the judging documents, “reviewer” means a person rostered with the External Judge role. Panel coordinator is a per-panel assignment, not another role.
+
 The working panel size is three scoring reviewers. Final panel size and criterion-coverage rules remain event policy.
 
 ## 2. Reviewer profile
 
-Review operations prepares each reviewer record before the event:
+SC with review-operations duty prepares each External Judge record before the event:
 
 - approved Google email;
 - name and contact number;
@@ -37,7 +39,7 @@ A valid panel must satisfy:
 - no known team conflict;
 - no overlapping assignment;
 - reviewer availability for the round;
-- one named panel lead.
+- one named panel coordinator.
 
 The planner shows gaps before a panel can be published. It also estimates how many reviews the panel can complete from the configured duration and round window.
 
@@ -184,7 +186,7 @@ The server checks:
 
 The presence record stores reviewer, device, scan time, token version, and result. A reviewer cannot scan for another reviewer.
 
-If the camera fails, the reviewer types the fallback code. If both methods fail, a board member may waive one or more presence requirements. The override names each missing reviewer and records a reason.
+If the camera fails, the judge types the fallback code. If both methods fail, Board may waive one or more presence requirements. The override names each missing judge and records a reason.
 
 ## 10. Starting the review
 
@@ -217,11 +219,11 @@ The start response also includes `serverNow`. Each client calculates remaining t
 The working duration is 10 minutes. The working ordinary extension is one two-minute block.
 
 - The app warns reviewers at configured remaining times.
-- A panel lead requests an extension.
+- The panel coordinator requests an extension.
 - The server checks the remaining allowance and updates `extensionSeconds`.
 - Operations sees the new end time immediately.
 - Expiry marks the review overdue; it does not auto-submit unfinished scorecards.
-- A further extension or forced close requires a review-operations or board action under event policy.
+- A further extension or forced close requires SC with review-operations duty or Board, as defined by event policy.
 
 Timer settings are frozen with the round configuration.
 
@@ -237,7 +239,7 @@ A review can complete when:
 
 The completion mutation closes the session, moves the team to `completed` for the round, frees the panel, and advances the queue.
 
-The panel lead may confirm completion. The lead cannot edit another reviewer’s score.
+The panel coordinator may confirm completion. The coordinator cannot edit another judge’s score.
 
 ## 13. Failure handling
 

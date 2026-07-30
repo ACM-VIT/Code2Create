@@ -37,7 +37,7 @@ The portal collects only event fields that Google does not provide.
 - student/professional classification;
 - eligibility evidence if event policy requires it.
 
-The final eligibility fields remain blocked until the event board approves the participant policy.
+The final eligibility fields remain blocked until Board approves the participant policy.
 
 ## 3. Team formation
 
@@ -95,7 +95,7 @@ Before intake begins, the accepted participant policy explains that project-answ
 
 Every Code2Create project is `fresh_for_event`. A team may arrive with an idea and may describe it during the application, but project-specific implementation, prototype work, and product/design artefacts begin at the official build start. There is no continuing-project option and the introduction never asks how far along the project is.
 
-Before submission, the lead accepts one sentence: **We will begin project-specific implementation and design after Code2Create's official start.** General-purpose libraries, frameworks, public datasets, APIs, pretrained models, starter templates, and skills are allowed under the event policy and must be disclosed when material. The event board separately defines any allowed pre-start account, repository, or empty-project setup. GitHub, Figma, and manual baselines record exactly what exists at the official start. A project-specific implementation or design that existed before that baseline triggers admissions/operations eligibility review.
+Before submission, the lead accepts one sentence: **We will begin project-specific implementation and design after Code2Create's official start.** General-purpose libraries, frameworks, public datasets, APIs, pretrained models, starter templates, and skills are allowed under the event policy and must be disclosed when material. Board separately defines any allowed pre-start account, repository, or empty-project setup. GitHub, Figma, and manual baselines record exactly what exists at the official start. A project-specific implementation or design that existed before that baseline triggers admissions/operations eligibility review.
 
 The system keeps two separate configured concepts:
 
@@ -192,7 +192,7 @@ The server saves an answer first, then starts interpretation in the bounded inta
 
 ### Tracks
 
-The working event model reserves five core-track positions and supports zero or more sponsor tracks. The event board has not approved the names or definitions, so the application must read the published catalog rather than ship placeholder tracks as policy.
+The working event model reserves five core-track positions and supports zero or more sponsor tracks. Board has not approved the names or definitions, so the application must read the published catalog rather than ship placeholder tracks as policy.
 
 A team confirms exactly one core track before submission. It may also opt into any published sponsor tracks for which it meets the stated requirements. A sponsor track is additional eligibility, not a replacement for the core track.
 
@@ -261,7 +261,7 @@ Selected applications continue:
 
 ### Application review
 
-- An admissions administrator assigns each application to the configured number of application reviewers.
+- An SC with admissions duty assigns each application to the configured number of SC/JC members on application-review duty.
 - Reviewers inspect the confirmed brief, its source answers, team composition allowed by policy, freshness attestation, starting-material disclosures, and confirmed track versions.
 - Each reviewer submits an independent recommendation: `select`, `waitlist`, `reject`, or `needs_information`, with reason codes and a short note.
 - Reviewers cannot see peer recommendations until their own is submitted.
@@ -272,7 +272,7 @@ An application returned for information opens only the named questions and recor
 
 ### Capacity and offers
 
-The admissions page shows team and participant counts against venue capacity. An admissions administrator publishes selected, waitlisted, and rejected decisions after checking reviewer coverage and eligibility.
+The admissions page shows team and participant counts against venue capacity. Board publishes selected, waitlisted, and rejected decisions after checking review coverage and eligibility; SC with admissions duty prepares the decision and capacity view.
 
 A selected team receives an offer with a confirmation deadline. Sending the offer reserves places for the team’s current active members; confirmation locks those members for event check-in. Membership changes after an offer require a capacity recheck. Expired or declined offers release places to the waitlist under the approved promotion rule.
 
@@ -315,7 +315,7 @@ The backend uses a file webhook when the authorizer can edit and the Figma plan 
 
 All submitted projects start at Code2Create. Teams disclose material general-purpose starting resources and any allowed pre-start setup. A sign of project-specific implementation or design before the official baseline is flagged for eligibility review rather than reclassified as a continuation. Integration activity is evidence of what changed after the baseline, not proof of quality or a score.
 
-If the project does not use GitHub or Figma, the team explicitly marks that provider as not used and describes the alternative evidence it will present. A repository added after the event baseline deadline is labelled late. The same repository or Figma file cannot be claimed by another event team without an administrator-reviewed shared-resource exception.
+If the project does not use GitHub or Figma, the team explicitly marks that provider as not used and describes the alternative evidence it will present. A repository added after the event baseline deadline is labelled late. The same repository or Figma file cannot be claimed by another event team without a Board-reviewed shared-resource exception.
 
 ## 8. Registration and project states
 
@@ -425,7 +425,7 @@ Raw scores stay hidden until the event’s feedback policy releases them.
 
 - Every blocked screen shows the failing condition and a support code.
 - A participant can report a wrong table, team-membership issue, integration disconnect, or queue problem.
-- Support staff see the same server state and can take only actions granted to their role.
+- SC/JC members with support duty see the same server state and can take only actions allowed by their role, duty, and scope.
 - Refreshing, changing devices, or reinstalling a browser does not duplicate team membership or submissions.
 - If the venue network fails, participants keep their QR visible from a short-lived local cache, but review presence still waits for server validation or an authorised manual incident process.
 
@@ -436,7 +436,7 @@ Raw scores stay hidden until the event’s feedback policy releases them.
 - Two users cannot claim the same rostered/team identity through a duplicated invite.
 - The guided profile resumes at the first unfinished question after refresh.
 - Submitting twice with the same operation ID creates one project version.
-- Application reviewers cannot see peer recommendations before submitting.
+- SC/JC members on application-review duty cannot see peer recommendations before submitting.
 - A selected team cannot check in until its offer is confirmed.
 - Venue check-in, venue presence, and hacking-session confirmation cannot satisfy one another accidentally.
 - A VIT ID card tap, external event-badge QR, or current portal QR produces the same server-owned attendance state.

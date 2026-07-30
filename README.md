@@ -12,7 +12,8 @@ The password on this handbook only protects the specifications. It has no connec
 
 - Participants choose **VIT Student** or **External Participant**, then authenticate with Google.
 - VIT students must use the VIT student Google Workspace account.
-- Reviewer and staff access comes from an approved event roster. Nobody can select an elevated role during sign-in.
+- Staff access comes from an approved roster with four internal levels: Supreme, Board, SC, and JC. External Judge is the only separate judging role. Nobody can select or promote a role during sign-in.
+- Attendance, admissions, review operations, configuration, support, release, incident, and Synesthesia work are scoped duties assigned to those internal roles, not additional account roles.
 - Participants use a web portal. Reviewers use a dedicated Expo application on Android or iOS. Staff use a web operations dashboard.
 - The three clients read and write the same Convex deployment.
 - Every participant confirms presence for each configured hacking session. Staff phones read an enrolled existing VIT ID card for VIT students; external participants and all fallbacks use event-badge or short-lived portal QR.

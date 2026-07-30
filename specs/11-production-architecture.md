@@ -319,8 +319,8 @@ Figma OAuth grants are encrypted once per Figma App/user and referenced by team-
 ## 17. Security boundaries
 
 - Google proves identity; application records grant event access.
-- Better Auth sessions prove the caller; Convex functions still check the current role.
-- Client-supplied event, team, reviewer, score, and role IDs are always checked against the caller.
+- Better Auth sessions prove the caller; Convex functions still check the current role, duty, and scope.
+- Client-supplied event, team, judge, score, role, and duty IDs are always checked against the caller.
 - A phone-read VIT card identifier is sent only to the authorised attendance command, converted into an event-scoped keyed fingerprint, and discarded. Raw identifiers never become account identity, records, logs, or exports.
 - External-badge QR bearers contain no identity and are stored only as hashes. Short-lived portal QR tokens resolve the already-authenticated event member.
 - Station mode, direction, zone, and attendance session are server-owned configuration. A card, badge, or participant cannot select the transition.

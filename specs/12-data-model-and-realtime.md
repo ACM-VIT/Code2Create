@@ -84,15 +84,17 @@ Time-bound application authorization.
 Key fields:
 
 - `eventId`, `personId`
-- `role`
-- `scopeType: event | round | panel | team | synesthesia`
-- `scopeId?`
+- `role: supreme | board | sc | jc | external_judge`
 - `validFrom`, `validUntil`
 - `status: active | revoked | expired`
-- `sourceType: roster | administrator | board`
+- `sourceType: production_seed | roster | supreme | board`
 - `sourceId`
 - `grantedByPersonId`
 - `revokedAt?`, `revokeReason?`
+
+One active staff/judging role exists per event/person. Participant and team-lead access does not use this enum. Supreme may grant or revoke Board, SC, and JC. Board may grant or revoke SC and JC. External Judge comes only from the approved judge roster. A role change replaces the active grant and keeps the previous record.
+
+The initial Supreme grants come only from a reviewed production seed with two-person verification. No ordinary role command may create the first Supreme, grant Supreme to its own caller, or remove the final active Supreme.
 
 ### `rosterEntries`
 
@@ -103,7 +105,9 @@ Key fields:
 - `eventId`
 - `emailNormalized`
 - `displayName`
-- `role`, `scopeType`, `scopeId?`
+- `role`
+- bounded `initialDuties?` entries containing duty, scope type/ID, and validity when the role is SC or JC
+- optional External Judge profile seed containing domain tags and availability, but no panel assignment
 - `validFrom`, `validUntil`
 - `status: unclaimed | claimed | disabled`
 - `linkedPersonId?`
@@ -111,6 +115,23 @@ Key fields:
 - `claimedAt?`
 
 Claiming an entry and creating its role grant happen in one mutation.
+
+### `dutyAssignments`
+
+Time-bound internal work, without creating another role.
+
+Key fields:
+
+- `eventId`, `personId`, `roleGrantId`
+- `duty: application_review | admissions | attendance | venue | review_operations | configuration | support | integrations_release | synesthesia | incident`
+- `scopeType: event | round | panel | team | station | synesthesia`
+- `scopeId?`
+- `validFrom`, `validUntil`
+- `status: active | revoked | expired`
+- `assignedByPersonId`
+- `reason?`, `revokedAt?`, `revokeReason?`
+
+Only Supreme, Board, SC, or JC can hold an internal duty. SC and JC commands require both the active role and matching duty/scope. An SC may assign or revoke JC duties only inside an SC duty they currently hold. Board or Supreme assigns SC duties and the named incident commander. External Judge work comes from panel/review assignments rather than this table.
 
 ### `devices`
 
@@ -173,7 +194,7 @@ Versioned non-round policy.
 - published actor/time;
 - checksum.
 
-The admission payload contains minimum application reviewers, overall and optional core-track capacity, track-change re-review rules, waitlist ordering, offer expiry, and decision-publication rules. The intake-policy payload contains editing/submission windows, answer limits, allowed checkpoint types, and the required core-track count. The attendance payload contains credential methods, session/cohort rules, tracked zones, scan windows, temporary-exit alerts, exception rules, review-readiness use, and retention references. The integration payload contains the active-repository cap, required topic, repository-kind enum version, checkpoint schedule, and refresh budgets. Published versions are immutable.
+The admission payload contains minimum application-review coverage, overall and optional core-track capacity, track-change re-review rules, waitlist ordering, offer expiry, and decision-publication rules. The intake-policy payload contains editing/submission windows, answer limits, allowed checkpoint types, and the required core-track count. The attendance payload contains credential methods, session/cohort rules, tracked zones, scan windows, temporary-exit alerts, exception rules, review-readiness use, and retention references. The integration payload contains the active-repository cap, required topic, repository-kind enum version, checkpoint schedule, and refresh budgets. Published versions are immutable.
 
 ### `trackCatalogVersions`
 
@@ -997,7 +1018,7 @@ The ownership boundary for a team’s connected provider resources.
 - connected, replaced, or revoked actor/time;
 - late-baseline and shared-resource-override flags.
 
-One active integration exists per event/team/provider. Its GitHub integration owns an ordered set of active repository bindings; its Figma integration currently owns one active file binding. A resource-level uniqueness check prevents the same repository or file from being active for two teams in one event unless an administrator records an override.
+One active integration exists per event/team/provider. Its GitHub integration owns an ordered set of active repository bindings; its Figma integration currently owns one active file binding. A resource-level uniqueness check prevents the same repository or file from being active for two teams in one event unless Board records an override.
 
 The GitHub integration is `degraded` when at least one active repository is missing, inaccessible, stale, or incomplete while another remains usable. The team integration does not contain a participant-owned token. Team members read one shared projection, a team lead changes the binding set, and a review session references one frozen evidence checkpoint set.
 
@@ -1190,6 +1211,7 @@ Request, action `start | finish | skip | pause`, operator, provider reference, r
 | `eventMemberships.by_event_person` | Resolve participant access |
 | `rosterEntries.by_event_email_status` | First staff/reviewer claim |
 | `roleGrants.by_event_person_status` | Authorize a current request |
+| `dutyAssignments.by_event_person_duty_status` | Authorize scoped SC/JC work |
 | `eventConfigVersions.by_event_kind_status` | Resolve published event policy |
 | `trackCatalogVersions.by_event_status_version` | Resolve or publish a catalog |
 | `trackVersions.by_catalog_type_status_order` | Show the exact core/sponsor track set |
@@ -1207,7 +1229,7 @@ Request, action `start | finish | skip | pause`, operator, provider reference, r
 | `projectVersions.by_team_version` | Load exact reviewer context |
 | `applications.by_event_state` | Admission queues and capacity |
 | `applicationReviews.by_application_reviewer` | One independent review per reviewer |
-| `applicationReviews.by_reviewer_state` | Application reviewer queue |
+| `applicationReviews.by_reviewer_state` | Assigned application-review duty queue |
 | `admissionOffers.by_event_state_expiry` | Capacity and waitlist promotion |
 | `venueCheckIns.by_event_membership_status` | One staffed arrival record |
 | `attendancePlanVersions.by_event_status_version` | Resolve the published attendance policy |
@@ -1288,7 +1310,7 @@ Returns the caller's team-owned GitHub repository set and Figma binding, reposit
 
 ### `admissions.reviewQueue`
 
-Returns only the current application reviewer’s assigned application versions and own submitted recommendations.
+Returns only the current SC/JC member’s assigned application versions and own submitted recommendations while their application-review duty is active.
 
 ### `admissions.capacity`
 
@@ -1344,7 +1366,7 @@ Subscriptions update only when records read by the query change. Screens use sta
 
 | Area | Main commands |
 | --- | --- |
-| Identity | create auth intent, provision participant, claim roster, revoke grant, register/revoke device |
+| Identity | create auth intent, provision participant, claim roster, grant/revoke role, assign/revoke duty, register/revoke device |
 | Team/project | create/join/leave team, transfer lead, start/resume intake, save answer, skip generated question, accept fresh-project attestation, confirm tracks, confirm brief, submit version, start/confirm team integration, add/classify/reorder/archive/replace repository |
 | Intake configuration | draft/clone/validate/simulate/publish/retire track catalog, intake flow, prompt binding, and model config |
 | Admissions | assign application, submit own recommendation, request information, publish decision, send/respond/expire offer, promote waitlist |
@@ -1431,7 +1453,7 @@ The close mutation checks incomplete scorecards/corrections in the same transact
 
 ## 17. Data retention
 
-The event board must set exact periods. The schema supports separate policies:
+Board must set exact periods. The schema supports separate policies:
 
 - auth sessions and expired intents;
 - participant contact/eligibility data;
@@ -1464,7 +1486,7 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - Every model-assisted brief field links to participant-written answer versions.
 - Editing an answer, changing a track, or publishing configuration cannot erase answer history or rewrite a submitted project version.
 - A participant cannot hold two active team memberships.
-- One application reviewer cannot submit two active recommendations for the same application.
+- One SC/JC member cannot submit two active recommendations for the same application.
 - Active offered/confirmed admission records cannot reserve more participants than approved capacity.
 - One staffed venue check-in, current-presence projection, and session result have distinct ownership and cannot satisfy one another accidentally.
 - Every published attendance session freezes an expected participant set and preserves its plan/version.

@@ -72,7 +72,7 @@ The card is enrolled to the participant’s event membership at the first staffe
 
 The raw card identifier is not stored, logged, exported, or used as the person’s account identity. The Google-linked person and event membership remain authoritative. The card fingerprint is a pseudonymous server lookup value, not a biometric; it proves only that the enrolled physical card was presented to a supervised scanner.
 
-The same card cannot be actively bound to two people in one event. Rebinding after a replacement, damaged card, or incorrect enrolment requires an attendance lead, a fresh sign-in, a visual identity check, and a reason. The previous binding remains in history but cannot produce another accepted event.
+The same card cannot be actively bound to two people in one event. Rebinding after a replacement, damaged card, or incorrect enrolment requires SC with attendance duty, a fresh sign-in, a visual identity check, and a reason. The previous binding remains in history but cannot produce another accepted event.
 
 The production team must test real current VIT cards before making the tap path mandatory. The public handbook does not assume a particular card family, UID format, or NFC protocol. If a campus/batch card cannot be read reliably from the qualified phones, that participant uses QR without losing attendance access.
 
@@ -309,7 +309,7 @@ If the scanner battery, NFC reader, or camera fails, staff switch method or devi
 - Sensitive exception details stay in the support case; attendance views use a coarse operational code.
 - Participants see their own current state, recent accepted scans, session result, and a correction-request route.
 - Team leads see only the team availability needed to regroup, not another member’s exception detail.
-- Attendance operators see the minimum identity needed to scan and resolve mismatches.
+- JC/SC members on attendance duty see the minimum identity needed to scan and resolve mismatches.
 - Exact movement events and identifiable exports use a shorter approved retention period than event membership.
 - Raw VIT card identifiers, card fingerprints, QR values, hashes, and bearer values never appear in logs, exports, analytics, or support screens.
 - Accessibility desks, manual confirmation, excused attendance, and authorised companions are first-class paths.

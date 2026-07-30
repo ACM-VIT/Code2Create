@@ -139,16 +139,16 @@ When the core backend cannot confirm state:
 1. operations posts an incident banner if the dashboard is available;
 2. the round controller pauses new review starts;
 3. active reviewers keep current drafts open and stop after the current team;
-4. the incident commander checks provider status, venue network, and a second connection;
+4. the named incident commander, assigned from Supreme or Board for this incident, checks provider status, venue network, and a second connection;
 5. attendance operations stop or redirect affected stations, preserve pending status, and record the last confirmed zone snapshot;
 6. operations records affected panels and last confirmed server times;
-7. the incident commander chooses recovery, relocation to backup connectivity, or manual mode.
+7. the named incident commander chooses recovery, relocation to backup connectivity, or manual mode.
 
 No staff member starts an unofficial spreadsheet while normal service may recover.
 
 ### Manual mode
 
-Manual mode requires the incident commander and one board member.
+Manual mode requires the named incident commander and a second Supreme or Board member. One person cannot supply both approvals.
 
 Use numbered paper sheets from the printed incident pack.
 
@@ -189,7 +189,7 @@ Required actions:
 
 Convex backups contain table data and stored files, but not deployed code, environment variables, or pending scheduled functions. Source control and the secret inventory cover those separately.
 
-A production restore is destructive. The incident commander takes a new backup first when possible, records the chosen restore point, and follows the rehearsed runbook.
+A production restore is destructive. The incident commander takes a new backup first when possible, records the chosen restore point, and follows the rehearsed runbook. Supreme approves the restore; if Supreme is unavailable, two Board members may approve the documented emergency path.
 
 ## 10. Monitoring
 
@@ -285,7 +285,7 @@ Routine accepted attendance scans live in the immutable presence ledger rather t
 - Exports containing personal data use restricted storage and an expiry date.
 - Presence collection is limited to configured venue-zone boundary and session-confirmation events. GPS, Bluetooth, Wi-Fi, and background participant-phone tracking are excluded.
 - Exact attendance events use a shorter approved operational/incident window; longer-lived aggregates contain only fields approved by event policy.
-- Data-retention and deletion periods require event-board approval before registration.
+- Data-retention and deletion periods require Board approval before registration.
 
 ## 14. Launch gates
 

@@ -7,12 +7,12 @@ The connected GitHub repositories and Figma file belong to the Code2Create team 
 - A team lead adds, classifies, reorders, replaces, or disconnects a resource.
 - Every active team member can see the same repository set, connection health, progress facts, and captured checkpoints.
 - An assigned reviewer can see the immutable checkpoint attached to that review.
-- Review operations can see live connection health and job failures across teams.
+- SC with integrations/release duty can see live connection health and job failures across teams.
 - Provider credentials never enter a participant, reviewer, or operations client.
 
 GitHub and Figma record evidence. They do not calculate effort, originality, technical quality, or score. Every fact is labelled with its provider time, capture time, completeness, and previous checkpoint. A missing, late, rate-limited, or stale integration stays visible and the review continues with live/manual evidence.
 
-Each GitHub repository and Figma file can be active for only one team in the same event. An administrator may override a genuine shared-resource case with a reason; the exception appears to every affected reviewer.
+Each GitHub repository and Figma file can be active for only one team in the same event. Board may override a genuine shared-resource case with a reason; the exception appears to every affected reviewer.
 
 OpenAI, GitHub, Figma, Expo, S3, and Google calls happen outside Convex mutations. Every environment has separate credentials, and no external system owns authoritative event state.
 
@@ -397,7 +397,7 @@ Configuration:
 - server-side encryption with a dedicated KMS key;
 - event-specific prefixes split by export, backup, and team integration;
 - deployment credential can write/list only the active event prefixes;
-- audit/backup readers are separate roles;
+- audit/backup readers use separate restricted IAM identities;
 - lifecycle expiry matches approved retention;
 - object checksum and application manifest retained.
 

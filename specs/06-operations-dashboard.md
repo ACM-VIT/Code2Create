@@ -18,22 +18,17 @@ Charts are secondary. The first screen is an ordered exception list and the live
 
 ## 2. Access
 
-Staff authenticate with Google and claim a preloaded roster entry. Each route and command checks event capabilities in Convex.
+Staff authenticate with Google and claim a preloaded Supreme, Board, SC, or JC roster entry. External Judges use the reviewer app and do not receive internal dashboard access.
 
-Common scopes:
+Each route and command combines role, active duty, scope, object state, and any fresh-session/device requirement:
 
-- application reviewers can read assigned applications and submit their own recommendations;
-- admissions administrators can manage pre-event application assignment, decisions, offers, and capacity;
-- attendance operators can use an assigned scan station and resolve a current mismatch;
-- attendance leads can manage attendance plans, sessions, credentials, presence corrections, roll call, and restricted exports;
-- venue operations can manage tables and one-time venue check-in;
-- review operations can manage panels, pages, queues, and active reviews;
-- review administrators can manage rubrics, corrections, score reveal, and round close;
-- event administrators can manage configuration, rosters, grants, and exports;
-- board users can perform named emergency overrides;
-- auditors can read history but cannot mutate event state.
+- Board publishes policy, configuration, admissions decisions, rubrics, results, corrections, protected exports, and named overrides;
+- SC manages the live workflow for an assigned admissions, attendance, venue, review-operations, configuration, support, integration/release, Synesthesia, or incident duty;
+- JC performs bounded frontline work at an assigned station, table, queue, runner route, support queue, verification desk, or playback position;
+- Supreme can perform Board work, manage internal roles, approve destructive recovery, and resolve exceptional final actions;
+- SC or JC on `application_review` duty can read only their assigned applications and submit only their own recommendations.
 
-The dashboard does not contain one unrestricted “admin mode.”
+There is no generic shared “admin mode.” Supreme is a named, very small roster; its actions receive the same state validation, fresh-authentication, reason, and audit checks as other protected commands.
 
 ## 3. Admissions
 
@@ -49,7 +44,7 @@ Before the event, the admissions workspace shows:
 - offered and confirmed participant counts against venue capacity;
 - expiring offers and waitlist promotions.
 
-Admissions can assign applications, request named information, publish decisions, send/expire offers, and promote the waitlist. Every published decision keeps the application version, admission-policy version, reviewer recommendations, actor, and time.
+SC with admissions duty can assign applications, request named information, prepare decisions, and manage capacity exceptions. Board publishes decisions, sends or expires offers, and promotes the waitlist. Every published decision keeps the application version, admission-policy version, reviewer recommendations, actor, and time.
 
 A submitted core-track change creates a new project version. If it affects reviewer assignment, a track quota, or an active offer, admissions receives a re-review/capacity blocker; the dashboard never moves the reservation silently.
 
@@ -57,7 +52,7 @@ The venue judging rubric and score views do not appear in this workspace.
 
 ## 4. Intake and track configuration
 
-Event administrators receive a configuration studio. It is not mixed into live floor controls.
+Board receives the configuration studio. SC with configuration duty can draft, validate, simulate, and prepare a publication, but Board publishes it. The studio is not mixed into live floor controls.
 
 The studio has six related editors:
 
@@ -72,7 +67,7 @@ The opening preview must show only **Hello.**, followed by **What is your projec
 
 ### Draft and publication
 
-- Published versions are immutable. An administrator clones one to make a draft.
+- Published versions are immutable. Board or SC with configuration duty clones one to make a draft.
 - The validator checks stable keys, track count/types, every reference, the introduction's three-to-five question bound, later-phase bounds, generated-question policy, required-confirmation reachability, sponsor eligibility, and deterministic fallback coverage.
 - The simulator runs representative project descriptions across every phase/core-track combination and sponsor overlay under model success, rejected-question, timeout, refusal, invalid-output, and disabled-model conditions.
 - Publication samples generated paths for human review and requires the evaluation suite to meet thresholds for relevance, easy-answer rate, duplicate/compound-question rate, prohibited-topic/PII rate, average question length, and fallback rate.
@@ -107,7 +102,7 @@ Every screen shows:
 - published track-catalog/intake-flow versions;
 - number of unresolved critical exceptions;
 - active incident banner;
-- signed-in role and scope.
+- signed-in role, active duty, and scope.
 
 If the live subscription is stale, command controls disable and the page shows the last server update time.
 
@@ -316,11 +311,11 @@ The integration view is team-scoped. Each row shows:
 
 Participant, reviewer, and operations screens read the same materialised status records. The dashboard does not calculate cards by scanning raw provider events.
 
-Event administrators can request an idempotent reconciliation, request a full checkpoint, send a reauthorization prompt, disable a binding, or approve a documented shared-resource exception. An operator cannot reveal a token, change the captured evidence for an active review, or bypass provider backoff. Every manual retry and binding replacement keeps its actor and reason.
+SC with integrations/release duty can request an idempotent reconciliation, request a full checkpoint, send a reauthorization prompt, or disable a binding. Board approves a documented shared-resource exception. No internal role can reveal a token, change the captured evidence for an active review, or bypass provider backoff. Every manual retry and binding replacement keeps its actor and reason.
 
 ## 13. Scoring completeness
 
-Review administrators receive a separate view containing:
+Board receives a separate scoring-governance view containing:
 
 - expected scorecards by team and reviewer;
 - criteria covered and missing;
@@ -333,7 +328,7 @@ Review administrators receive a separate view containing:
 
 The default view shows completeness, not a winner leaderboard during active reviews.
 
-An administrator can open a correction, void an invalid scorecard, or release scores under policy. They cannot type over a submitted score.
+Board can open a correction, void an invalid scorecard, or release scores under policy. It cannot type over a submitted score.
 
 ## 14. Support desk
 
@@ -358,28 +353,28 @@ A support case links to the relevant server records but grants no extra permissi
 
 | Command | Minimum capability | Extra check |
 | --- | --- | --- |
-| Publish application decision | Admissions administrator | admission policy, review coverage, and capacity |
-| Publish intake/track/model configuration | Event administrator | validation/evaluation pass, fresh session, diff, and reason |
-| Migrate active intake sessions | Event administrator + named configuration authority | dry-run mapping, affected-session list, and reason |
-| Promote waitlisted team | Admissions administrator | available confirmed-participant capacity |
-| Publish attendance plan | Attendance lead/event administrator | validation, impact preview, fresh session, and reason |
-| Open/extend/close/cancel attendance session | Attendance lead | current session version and consequence preview |
-| Reconfigure active scan station | Attendance lead | registered device, affected queue, and reason |
-| Enrol/rebind VIT ID card | Attendance operator/lead | VIT membership, visible card/account match, uniqueness, repeat read; previous binding suspended atomically |
-| Replace external QR badge | Attendance operator | participant match; old bearer revoked atomically |
-| Reconcile participant presence | Attendance lead | fresh sign-in, linked source events, preview, and reason |
-| Start emergency roll call | Attendance lead/incident commander | named incident or drill and zone snapshot |
-| Export identifiable attendance | Event administrator/auditor scope | fresh sign-in, purpose, fields, and expiry |
-| Change table after freeze | Venue operations | reason |
-| Move queued team | Review operations | reason and current queue version |
-| Assign substitute manually | Review operations | eligibility and conflict check |
+| Publish application decision | Board | admission policy, review coverage, and capacity |
+| Publish intake/track/model configuration | Board | validation/evaluation pass, fresh session, diff, and reason |
+| Migrate active intake sessions | Board | dry-run mapping, affected-session list, fresh session, and reason |
+| Promote waitlisted team | Board | available confirmed-participant capacity |
+| Publish attendance plan | Board | validation, impact preview, fresh session, and reason |
+| Open/extend/close/cancel attendance session | SC + attendance duty | current session version and consequence preview |
+| Reconfigure active scan station | SC + attendance duty | registered device, affected queue, and reason |
+| Enrol/rebind VIT ID card | JC/SC + attendance duty | VIT membership, visible card/account match, uniqueness, repeat read; SC and fresh authentication required for rebinding |
+| Replace external QR badge | JC/SC + attendance duty | participant match; old bearer revoked atomically |
+| Reconcile participant presence | SC + attendance duty | fresh sign-in, linked source events, preview, and reason |
+| Start emergency roll call | Board or named incident commander | named incident or drill and zone snapshot |
+| Export identifiable attendance | Board/Supreme | fresh sign-in, purpose, fields, and expiry |
+| Change table after freeze | SC + venue duty | reason |
+| Move queued team | SC + review-operations duty | reason and current queue version |
+| Assign substitute manually | SC + review-operations duty | eligibility and conflict check |
 | Waive reviewer presence | Board | fresh sign-in and reason |
-| Extend beyond ordinary allowance | Board or named review authority | fresh sign-in and reason |
-| Open score correction | Review administrator | correction window and reason |
-| Void scorecard | Review administrator | evidence and replacement decision |
-| Close round | Review administrator | no unresolved blockers |
-| Reopen closed round | Board | fresh sign-in and reason |
-| Export identifiable records | Event administrator/auditor scope | fresh sign-in and export purpose |
+| Extend beyond ordinary allowance | Board | fresh sign-in and reason |
+| Open score correction | Board | correction window and reason |
+| Void scorecard | Board | evidence and replacement decision |
+| Close round | Board | no unresolved blockers |
+| Reopen closed round | Board/Supreme | fresh sign-in and reason |
+| Export identifiable records | Board/Supreme | fresh sign-in and export purpose |
 
 High-impact commands show the current value, proposed value, affected records, and reason before submission.
 
@@ -395,7 +390,7 @@ High-impact commands also carry a client operation ID. Repeating the same reques
 
 ## 17. Incident mode
 
-An incident commander can post a banner with:
+A named incident commander, assigned from Supreme or Board for that incident, can post a banner with:
 
 - affected service or venue zone;
 - severity;
@@ -415,9 +410,9 @@ Manual incident records are reconciled after recovery under the reliability proc
 - Attendance views contain boundary events only; they do not show GPS, Bluetooth, Wi-Fi, or background location.
 - An ordinary temporary exit stores no reason. Sensitive attendance exceptions stay in restricted support records.
 - Team leads receive a regrouping summary, not another member’s movement timeline.
-- Exact presence history and exports are available only to attendance leads, authorised event administrators, or auditors with a purpose.
+- Exact presence history is available to SC with attendance duty when required for reconciliation; identifiable exports require Board/Supreme authority and a purpose.
 - Attendance events never appear in project evidence, reviewer context, score calculations, or engagement leaderboards.
-- Score values remain behind review-administrator or board capability.
+- Score values remain behind Board/Supreme authority.
 - Raw provider tokens and session details never appear in the dashboard.
 - Exports are purpose-labelled, time-limited, and logged.
 
@@ -430,13 +425,13 @@ Manual incident records are reconciled after recovery under the reliability proc
 - A session with 1,000 expected people opens/closes through resumable indexed batches and never claims completion from a partial job.
 - An attendance correction cannot edit or delete the original event and fails without a fresh session, linked evidence, and reason.
 - An emergency roll call keeps its opening snapshot while displaying later live changes.
-- A floor operator cannot read detailed attendance history or export attendance without the narrower capability.
+- A JC or SC on floor duty cannot read detailed attendance history or export attendance without the separately authorised path.
 - A published catalog has five core tracks; optional sponsor entries do not replace a team's core track.
 - Every simulated intake path finishes when model output succeeds, times out, refuses, is invalid, or is disabled.
 - Every published model policy generates three to five introduction follow-ups, respects the smaller bound for later phases, rejects unsafe or burdensome wording, and has a phase-appropriate deterministic fallback.
 - Publishing a new flow does not change an active session, and migration cannot run without an exact preview.
 - Intake diagnostics expose operational counts and versions without participant/model text.
-- An application reviewer cannot read an unassigned application or a peer recommendation before submission.
+- An SC or JC on application-review duty cannot read an unassigned application or a peer recommendation before submission.
 - A published admission decision points to the reviewed project and admission-policy versions.
 - A stale dashboard cannot overwrite a newer table or queue update.
 - Floor operations can see missing scorecards without seeing score values.

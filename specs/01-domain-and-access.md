@@ -55,13 +55,13 @@ Email suffix matching is not enough. Google documents `sub` as the stable user i
 
 Reviewer and staff routes do not show the VIT/External selector.
 
-Before the event, an administrator imports roster rows containing:
+Before the event, Board or Supreme imports roster rows containing:
 
 - event;
 - verified Google email expected at first claim;
 - person name;
-- role;
-- optional panel, track, or team scope;
+- one role: `supreme`, `board`, `sc`, `jc`, or `external_judge`;
+- optional initial internal duties/scopes, or External Judge domain and availability seed;
 - active-from and active-until times;
 - roster source and importer.
 
@@ -70,7 +70,7 @@ On first Google sign-in:
 1. the backend looks for an unclaimed active roster row with the exact normalised verified email;
 2. it checks that the row belongs to the current event;
 3. it links the roster row to the Better Auth user and Google provider subject;
-4. it creates the named role grant;
+4. it creates the named role grant and any pre-approved internal duty assignments;
 5. later sign-ins use the linked user ID rather than repeating an email match.
 
 A participant may also be a rostered volunteer or reviewer. The user keeps one account and receives separate event grants. An external judge can use any verified Google account if that address is on the roster.
@@ -79,6 +79,8 @@ Roster normalisation trims whitespace and lowercases the address for lookup. It 
 
 An unmatched account sees a plain “not on the event roster” screen and a support code. It receives no staff data.
 
+The first Supreme accounts are part of the reviewed production seed and require two-person verification before launch. No dashboard command can create the first Supreme or promote its own caller.
+
 ## 4. Account records
 
 | Record | Owner | Purpose |
@@ -86,7 +88,7 @@ An unmatched account sees a plain “not on the event roster” screen and a sup
 | Better Auth user/account/session | Better Auth component | Google identity link and session lifecycle |
 | Person | Application | Display name, verified contact, status, and auth-user reference |
 | Event membership | Application | Participant class and event participation state |
-| Role grant | Application | Time-bound role with event and optional resource scope |
+| Role grant | Application | One time-bound Supreme, Board, SC, JC, or External Judge role for the event |
 | Roster entry | Application | Approved reviewer/staff invitation and first-sign-in claim |
 | Device | Application | Reviewer/scanner installation, app version, hardware capabilities, station assignment, notification token, and revocation state |
 | Attendance credential | Application | Event-scoped VIT ID card fingerprint binding, external badge QR, and short-lived portal QR state; raw card identifiers/bearers are not stored |
@@ -95,28 +97,42 @@ An unmatched account sees a plain “not on the event roster” screen and a sup
 
 The application does not copy session secrets or raw Google access tokens into its domain tables. Provider authorizations grant API access, but they do not own the connected repository set, Figma file, or captured evidence.
 
-## 5. Roles and permissions
+## 5. Roles, duties, and permissions
 
-Permissions are granted by capability. A role is a named bundle of capabilities.
+The event has four internal levels and one separate judging role:
 
-| Role | Main access |
+| Role | Maximum authority |
 | --- | --- |
-| Participant | Own profile, own teams, project versions, own attendance/QR, readiness, own queue state, own review progress, Synesthesia |
-| Application reviewer | Assigned pre-event applications, their own admission reviews, and no venue judging score |
-| Admissions administrator | Eligibility checks, application assignment, shortlist/waitlist decisions, offers, and confirmation capacity |
-| Attendance operator | Assigned station, participant scan result, credential mismatch recovery, and minimal current presence |
-| Attendance lead | Attendance-plan publication, sessions, stations, credentials, live presence, reconciliation, roll call, and restricted export |
-| Reviewer | Own clock-in, pages, assigned reviews, project context, presence, own scorecards |
-| Panel lead | Reviewer access plus panel completion and non-score operational checks |
-| Review operations | Panels, tables, queues, pages, substitutions, review exceptions, completeness |
-| Review administrator | Rubrics, criterion assignments, correction requests, score reveal, round close |
-| Event administrator | Event configuration, rosters, grants, exports, and support actions |
-| Board | Named emergency overrides and final-round decisions |
-| Auditor | Read-only event history and approved exports |
-| Synesthesia moderator | Request moderation and playback queue control |
-| Playback operator | Current Synesthesia item and playback acknowledgement |
+| Supreme | Full event authority; appoint/revoke internal roles; approve destructive recovery; publish or reverse exceptional final actions |
+| Board | Publish policy/configuration; make admissions and results decisions; control rubrics, protected exports, corrections, and named emergency overrides |
+| SC | Manage live work inside an assigned duty and scope; configure ordinary operations; supervise JC work in that duty |
+| JC | Execute explicitly assigned station, table, queue, runner, verification, support, or playback work |
+| External Judge | Clock in, accept assigned panels, inspect only assigned project evidence, prove presence, and submit only their own scorecards |
 
-Team lead is a team-membership permission, not a global event role.
+Supreme, Board, SC, JC, and External Judge are the only values stored in a staff/judging role grant. Participant access is event membership, and team lead is a team-membership permission.
+
+Operational names are duties, not roles. A time-bound duty assignment may be:
+
+- `application_review`
+- `admissions`
+- `attendance`
+- `venue`
+- `review_operations`
+- `configuration`
+- `support`
+- `integrations_release`
+- `synesthesia`
+- `incident`
+
+An SC or JC sees a workspace only while the matching duty and scope are active. Role determines the maximum action allowed inside that duty: an SC may manage the workflow, while a JC performs bounded frontline actions. Board and Supreme can enter any internal workspace, but sensitive reads and writes still use purpose-limited queries, fresh authentication, reasons, and audit. External Judge never receives an internal duty.
+
+“Panel coordinator,” “incident commander,” and “release owner” are named assignments:
+
+- a panel coordinator is one External Judge on one panel and may confirm non-score completion only;
+- an incident commander is one Supreme or Board member on one incident;
+- a release owner is one Board or SC member for one release window.
+
+No shared Supreme or Board account is permitted. Seniority never permits editing another person’s scorecard, bypassing conflict rules, or silently changing submitted evidence.
 
 ### Capability checks
 
@@ -147,11 +163,11 @@ The web route guard improves navigation. It does not replace checks inside Conve
 
 They cannot see other teams’ private submissions, reviewer identities before policy allows it, scores, panel notes, conflicts, or staff locations.
 
-### Application reviewers can see
+### Application-review duty can see
 
-Application reviewers see only applications assigned to them, the confirmed project brief and source answers approved for admission review, the fresh-project attestation, confirmed track versions, the permitted team fields, and their own recommendation. They do not see hidden model suggestions, another reviewer’s recommendation before submitting, or the venue judging rubric.
+An SC or JC with an active `application_review` duty sees only applications assigned to them, the confirmed project brief and source answers approved for admission review, the fresh-project attestation, confirmed track versions, the permitted team fields, and their own recommendation. They do not see hidden model suggestions, another reviewer’s recommendation before submitting, or the venue judging rubric.
 
-### Reviewers can see
+### External Judges can see
 
 - their profile, device state, clock-in state, pages, and assignments;
 - project context for a currently assigned or recently completed review;
@@ -161,28 +177,28 @@ Application reviewers see only applications assigned to them, the confirmed proj
 
 They cannot see peer score values before the configured reveal point, unrelated teams, hidden participant data, or staff-only audit records.
 
-### Operations can see
+### Internal duty views can see
 
-Operations views show what is needed to move the event: attendance session, current participant/zone presence, scanner health, table, panel, timer, missing reviewer presence, missing scorecards, integration health, and exception reason. Attendance operators receive only the identity and current state needed at their assigned station. Exact movement history, sensitive exceptions, identifiable exports, and emergency roll-call controls require narrower capabilities. Score values require a separate review-administrator or board capability. Raw provider and attendance bearer credentials are never an operations capability.
+SC and JC duty views show only what is needed to perform the current assignment: attendance session, current participant/zone presence, scanner health, table, panel, timer, missing judge presence, missing scorecards, integration health, or exception reason. A JC at a scan station receives only the identity and current state needed there. Exact movement history, sensitive exceptions, identifiable exports, emergency roll call, and score values require Board/Supreme authority or the narrower SC action explicitly named by policy. Raw provider and attendance bearer credentials are never exposed.
 
 ## 7. Sessions and devices
 
 - Better Auth sessions expire after seven days and may refresh after twelve hours of activity.
-- Event role grants expire independently, normally six hours after the event closes.
+- Event role grants and duty assignments expire independently, normally six hours after the event closes.
 - Removing a role takes effect on the next protected backend call even if the Google session remains valid.
 - Web sessions use secure, HTTP-only, same-site cookies.
 - The Expo Better Auth client stores session cookies in `expo-secure-store`.
 - The Expo app registers one device record with platform, build number, camera/NFC capability, notification token, last-seen time, and revocation state.
 - Reviewer clock-in and attendance scanning reject a revoked device or an app below the configured minimum build.
 - A scanner must also have an active station assignment whose event, mode, zone, direction, and validity match the command.
-- Board overrides, attendance-history reconciliation, post-lock score corrections, role changes, and raw exports require a session created within the previous 30 minutes. An older session is sent through Google sign-in again.
+- Supreme/Board overrides, attendance-history reconciliation, post-lock score corrections, role or duty changes, and raw exports require a session created within the previous 30 minutes. An older session is sent through Google sign-in again.
 
 The exact session settings live in security configuration and must be tested on real web and mobile builds.
 
 ## 8. Identity changes and duplicates
 
 - Accounts are never merged only because two Google identities share an email.
-- If a provider subject changes or a rostered email was wrong, an event administrator opens an identity-repair case.
+- If a provider subject changes or a rostered email was wrong, a Board or Supreme member opens an identity-repair case.
 - The repair records the old link, new link, evidence, actor, and reason.
 - A claimed roster row cannot be claimed by another person until the first link is revoked.
 - A suspended person cannot create a new event membership through a fresh auth intent.
@@ -195,7 +211,7 @@ Record these access events:
 - participant provisioning and resulting class;
 - failed VIT-domain checks by reason, without storing raw tokens;
 - roster import, claim, unlink, and rejection;
-- role grant, scope change, expiry, and revocation;
+- role grant, duty assignment, scope change, expiry, and revocation;
 - reviewer/scanner device registration, station assignment, hardware-capability change, token replacement, minimum-build rejection, and revocation;
 - VIT ID card enrolment/suspension/rebinding and external badge issue/replacement/revocation;
 - privileged reauthentication failure;
@@ -210,7 +226,7 @@ Normal page views are not written to the audit log.
 - A personal Google account can complete External onboarding.
 - A participant cannot call reviewer or operations functions.
 - A participant can mint only their own short-lived attendance QR and cannot choose its session, station direction, or membership.
-- An attendance operator can scan only through the currently assigned station and cannot read another session’s full movement history.
+- An SC or JC with attendance duty can scan only through the currently assigned station and cannot read another session’s full movement history.
 - Revoking a scanner device/station, suspending a VIT card binding, or revoking an external badge blocks the next online scan.
 - A VIT card fingerprint cannot be bound to a second active event membership, and the card does not replace the Google-linked person as identity.
 - A rostered reviewer can sign in on a production-like Expo build and claim only their own row.

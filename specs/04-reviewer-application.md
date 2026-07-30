@@ -4,7 +4,7 @@
 
 Reviewers use a dedicated Expo application on Android or iOS. A browser/PWA is not the planned reviewer surface.
 
-The signed binary also contains a capability-gated attendance scanner for rostered staff on provisioned devices. A reviewer without the attendance capability never sees scanner routes; an attendance operator does not receive review context or scorecard routes.
+The signed binary also contains a capability-gated attendance scanner for rostered SC/JC staff on provisioned devices. An External Judge never sees scanner routes; an SC or JC on attendance duty does not receive review context or scorecard routes.
 
 The app is built for a reviewer standing at a venue table:
 
@@ -153,7 +153,7 @@ The evidence tab can open:
 - the Figma page/frame index, captured previews, layer properties, components, prototype flows, named versions, comment state, and changed-screen list;
 - freshness, completeness, truncation, rate-limit, and provider-access warnings.
 
-The review keeps the checkpoint-set ID chosen at start. If a repository is added, removed, reclassified, reordered, or refreshed later, the app may show **Newer evidence available** but cannot swap the scoring context. Review operations must explicitly restart or replace the context when policy requires it.
+The review keeps the checkpoint-set ID chosen at start. If a repository is added, removed, reclassified, reordered, or refreshed later, the app may show **Newer evidence available** but cannot swap the scoring context. SC with review-operations duty must explicitly restart or replace the context when policy requires it.
 
 If the reviewer notices a conflict that was not declared, **Report conflict** freezes that reviewer’s scorecard and alerts operations.
 
@@ -193,7 +193,7 @@ Changing a score or checkbox saves immediately. Text saves after a short idle pe
 
 ### Notes and commitments
 
-Private reviewer notes remain attached to that reviewer. Panel commitments are a separate shared field entered by the panel lead and confirmed before review completion.
+Private judge notes remain attached to that judge. Panel commitments are a separate shared field entered by the panel coordinator and confirmed before review completion.
 
 ## 10. Draft saving
 

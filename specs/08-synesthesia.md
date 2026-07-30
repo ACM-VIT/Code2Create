@@ -6,14 +6,13 @@ Synesthesia lets participants request and upvote music during the event while ev
 
 It shares participant identity and event configuration with the main platform. Its records and failures do not block registration, reviews, scoring, or round close.
 
-## 2. Roles
+## 2. Access
 
-| Role | Access |
+| Person | Access |
 | --- | --- |
 | Participant | Search/request an allowed track, vote once, remove own vote, report a request |
-| Moderator | Approve, reject, hide, schedule, and add a reason |
-| Playback operator | View the playback queue and acknowledge start/finish/skip |
-| Event administrator | Configure windows, vote policy, catalogue source, and moderation rules |
+| JC/SC with Synesthesia duty | Approve, reject, hide, schedule, add a reason, view the playback queue, and acknowledge start/finish/skip |
+| Board | Publish windows, vote policy, catalogue source, and moderation rules |
 
 ## 3. Request flow
 
@@ -53,7 +52,7 @@ Participant views show **Requested**, **Approved**, **Queued**, **Playing**, **P
 
 ## 6. Ambience windows
 
-Event administrators can create windows such as:
+Board can publish windows such as:
 
 - arrival;
 - working session;
@@ -79,7 +78,7 @@ Reject or hide a request for:
 
 A moderator action stores actor, reason, and time. Participants see a short public reason, not internal notes.
 
-Reports create support cases. Repeated abuse can suspend Synesthesia access without suspending the participant from the event unless an event administrator chooses that separate action.
+Reports create support cases. Repeated abuse can suspend Synesthesia access without suspending the participant from the event unless Board chooses that separate action.
 
 ## 8. Playback integration
 

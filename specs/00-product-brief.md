@@ -22,18 +22,13 @@ The product is an event operating system for that review process. It connects pa
 | --- | --- |
 | Participant | Clear registration, team state, project submission, session attendance, review readiness, queue position, and review progress |
 | Team lead | Control of team membership, project versions, tool connections, and ready state |
-| Application reviewer | A focused pre-event project application and an independent admission recommendation |
-| Admissions administrator | Eligibility, reviewer coverage, shortlist/waitlist decisions, offers, and venue capacity |
-| Attendance operator | Fast VIT ID enrolment/tap, external/fallback QR scanning, mismatch recovery, and an unambiguous accepted/pending result |
-| Attendance lead | Configurable hacking sessions, live presence, scanner health, exceptions, and emergency roll call |
-| Reviewer | One current assignment, enough context, a timer, assigned criteria, an independent scorecard, and fast recovery |
-| Panel lead | Panel readiness and completion without access to edit another reviewer’s score |
-| Review operations | Live queues, absent reviewers, substitutes, panel coverage, and review exceptions |
-| Event administrator | Event configuration, rosters, round control, corrections, and protected exports |
-| Board member | Narrow emergency overrides and final-decision access |
-| Auditor | Read-only history of decisions, changes, and exceptions |
+| Supreme | Final event authority, internal-role control, destructive recovery approval, and exceptional release/override actions |
+| Board | Policy, configuration, admissions, rubric, results, protected exports, and named emergency decisions |
+| SC | Duty-scoped control of admissions review, attendance, venue, panels, queues, support, integrations, release, or Synesthesia |
+| JC | Duty-scoped station, table, queue, runner, support, verification, or playback work |
+| External Judge | One current panel assignment, enough context, a timer, assigned criteria, an independent scorecard, and fast recovery |
 
-One person may hold several event roles. Each role is granted for a named event and checked by the backend.
+These are the only staff/judging roles. Supreme, Board, SC, and JC are the four internal levels; External Judge is separate from that hierarchy. Work such as attendance control, application review, incident command, release ownership, panel coordination, and Synesthesia moderation is a temporary duty or assignment, not another role. Participant and team-lead access comes from event/team membership.
 
 ## 3. Product surfaces
 
@@ -108,7 +103,7 @@ An operations user can handle a missing reviewer, team hold, table move, scan fa
 - A temporary exit, missing scan, or long break cannot change a judging score or automatically disqualify a participant.
 - Reviewers cannot see peer scores before the configured reveal point.
 - A reviewer scores only the criteria assigned to that reviewer.
-- A panel lead cannot replace the panel’s independent scorecards with one consensus number.
+- A designated panel coordinator cannot replace the panel’s independent scorecards with one consensus number.
 - A reviewer’s designation does not multiply their score.
 - The routing service uses declared expertise, conflict checks, availability, and load. It does not use an AI model to decide winners or scores.
 - The intake model may generate a bounded follow-up question, identify missing fields, and suggest published tracks. Participants provide every answer and confirm track choices; the model cannot submit, admit, reject, route, or score a team.

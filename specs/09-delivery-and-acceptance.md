@@ -23,7 +23,7 @@ Deliver:
 Exit when:
 
 - VIT and personal Google test accounts produce the expected participant classes;
-- a rostered reviewer signs in on a real device;
+- a rostered External Judge signs in on a real device;
 - an unrostered account receives no reviewer data;
 - a role revoked in the dashboard fails on the reviewer’s next protected write;
 - the same accepted mutation appears on web and mobile;
@@ -42,7 +42,7 @@ Deliver:
 - source-linked OpenAI interpretation with strict Structured Outputs and participant confirmation;
 - a deterministic fallback for every intake branch;
 - immutable answer, brief, catalog, flow, model-schema, and submitted project versions;
-- administrator validation, simulation, publication, rollback, and safe active-session pinning;
+- SC configuration-duty validation/simulation plus Board publication/rollback and safe active-session pinning;
 - application-review assignment and independent recommendation;
 - shortlist, waitlist, offer, confirmation, and capacity state;
 - registration support codes;
@@ -77,7 +77,7 @@ Use one team, one panel, and three reviewer devices.
 
 Deliver:
 
-- staff roster and role grants;
+- Supreme/Board/SC/JC and External Judge rosters, role grants, and internal duty assignments;
 - reviewer profile and panel plan;
 - clock-in;
 - table assignment;
@@ -195,7 +195,7 @@ Production data is never copied into development. A staging seed uses generated 
 - timer/extension policy;
 - rubric aggregation;
 - score completeness;
-- role capability checks;
+- role, duty, and scope capability checks;
 - attendance-plan/session interpretation, expectation snapshot, anti-passback, duration/checkpoint result, and excused/unknown rules;
 - presence transition and interval calculation across repeated exits/returns and changed actual session bounds;
 - intake completion, the three-to-five generated-question bound, and deterministic fallback termination;
@@ -278,7 +278,7 @@ The final rehearsal includes:
 21. OpenAI times out after the opening answer; the answer stays saved and the team completes the deterministic route.
 22. A late interpretation arrives after the team changes its core track and is rejected as stale.
 23. A model returns an unknown track ID, a compound or overlong question, or follows participant prompt-injection text; the server rejects it and serves the pinned fallback without changing accepted answers.
-24. An administrator publishes a new track/flow version while a team is active; the team stays on its pinned version.
+24. Board publishes a new track/flow version while a team is active; the team stays on its pinned version.
 25. Round export and integration artifact are checked and restored into staging.
 26. A participant remains inside between hacking sessions but does not receive session credit until the new confirmation scan.
 27. One participant exits and returns three times; present/away totals and current state remain correct.
@@ -293,7 +293,7 @@ Every scenario has an owner, expected screen state, recovery action, and pass/fa
 
 ## 15. Training
 
-### Reviewers
+### External Judges
 
 - sign-in and device check;
 - page acknowledgement;
@@ -304,7 +304,7 @@ Every scenario has an owner, expected screen state, recovery action, and pass/fa
 - offline indicator and submission confirmation;
 - spare-device procedure.
 
-### Operations
+### SC and JC by assigned duty
 
 - attendance session open/extend/close/cancel and expectation impact;
 - station setup, direction, scanner result language, VIT-card/QR fallback, and queue redirection;
@@ -320,7 +320,7 @@ Every scenario has an owner, expected screen state, recovery action, and pass/fa
 - pause and incident mode;
 - support case ownership.
 
-### Review administrators and board
+### Board and Supreme
 
 - rubric publication;
 - correction/void;
@@ -337,7 +337,7 @@ Every scenario has an owner, expected screen state, recovery action, and pass/fa
 - Mobile native dependencies, verified VIT card compatibility matrix, scanner hardware list, external badge format, and station configuration freeze before production event-app installation.
 - EAS Update may ship a compatible JavaScript fix only after staging verification and release-owner approval.
 - Production seed/configuration is exported and reviewed before check-in.
-- A named release owner, incident commander, auth owner, reviewer-app owner, backend owner, and floor-operations owner are present for event windows.
+- Board names a release owner, auth owner, reviewer-app owner, backend owner, and floor-operations owner from Board or SC for each event window. Supreme or Board names the incident commander. These are shift assignments, not additional roles.
 
 ## 17. Definition of done
 

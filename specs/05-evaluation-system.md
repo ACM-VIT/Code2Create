@@ -15,7 +15,7 @@ Each criterion is scored from 0 to 4.
 | Communication & Evidence | 10 | Did the team explain its decisions and support claims with a demo or other evidence? |
 | **Total** | **100** | |
 
-The event board must approve wording and round applicability before the rubric is published.
+Board must approve wording and round applicability before the rubric is published.
 
 ## 2. Shared score anchors
 
@@ -65,7 +65,7 @@ Review whether the team explained the problem, decisions, limitations, and progr
 - A reviewer receives only criteria assigned before the session starts.
 - Peer score values remain hidden until the event policy permits reveal.
 - Discussion may clarify evidence, but the panel does not negotiate one shared score.
-- The panel lead cannot edit another reviewer’s scorecard.
+- The panel coordinator cannot edit another External Judge’s scorecard.
 - Reviewer designation and seniority do not change weight.
 - A reviewer with a conflict cannot submit.
 
@@ -119,14 +119,14 @@ Tie-breaks, round weighting, and final-round aggregation remain open decisions.
 
 A spread check flags a criterion when the highest and lowest ratings differ by at least two points. The threshold is configurable with the rubric.
 
-A flag does not change the numbers. A review administrator can:
+A flag does not change the numbers. Board can:
 
 - confirm that reviewers used the same rubric version;
 - ask for a short clarification of evidence;
 - identify a wrong criterion assignment or data-entry mistake;
 - open a correction before round lock.
 
-The administrator cannot ask a reviewer to move toward the panel average. Any correction keeps the original scorecard and the reviewer’s reason.
+Board cannot ask a judge to move toward the panel average. Any correction keeps the original scorecard and the judge’s reason.
 
 ## 8. Progress between reviews
 
@@ -150,7 +150,7 @@ Provider statistics do not calculate or suggest a score. Commit, line, file, nod
 
 Attendance confirmations, present duration, temporary exits, missed scans, and excused absence are operations/safety records. They are not project progress evidence and never enter a criterion, reviewer context, score, tie-break, or award recommendation.
 
-The evidence context is immutable after the review starts. A later push, Figma refresh, or repository-set change may be visible as newer available evidence, but scoring remains tied to the recorded checkpoint-set ID unless review operations explicitly replaces the context and records why.
+The evidence context is immutable after the review starts. A later push, Figma refresh, or repository-set change may be visible as newer available evidence, but scoring remains tied to the recorded checkpoint-set ID unless SC with review-operations duty explicitly replaces the context and records why.
 
 Adding a separate weighted progress criterion is an open decision. The system does not create bonus points without that decision.
 
@@ -172,7 +172,7 @@ No model receives admission recommendations, private reviewer notes, peer scores
 
 ## 10. Round close
 
-The review administrator sees:
+Board sees:
 
 - teams expected and completed;
 - required scorecards present and missing;
@@ -189,7 +189,7 @@ Moving a round to `closing` freezes its scorecard versions and starts the export
 
 ## 11. Finalist and award decisions
 
-The system can prepare a ranked view after the event board approves:
+The system can prepare a ranked view after Board approves:
 
 - which reviews contribute;
 - round weights;
@@ -206,11 +206,11 @@ Track participation does not guarantee a finalist place or prize.
 
 ### Correction
 
-A reviewer requests correction to their own submitted scorecard. A review administrator checks that the correction window is open, records the reason, and opens a new scorecard version. The reviewer resubmits. The original remains read-only.
+A judge requests correction to their own submitted scorecard. Board checks that the correction window is open, records the reason, and opens a new scorecard version. The judge resubmits. The original remains read-only.
 
 ### Administrative void
 
-A review administrator may void a scorecard for duplicate session, confirmed conflict, wrong team, or reviewer ineligibility. The action requires evidence and may trigger a replacement review.
+Board may void a scorecard for duplicate session, confirmed conflict, wrong team, or judge ineligibility. The action requires evidence and may trigger a replacement review.
 
 ### Process complaint
 

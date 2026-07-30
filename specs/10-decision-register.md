@@ -10,7 +10,7 @@ This register separates source requirements from implementation choices and unre
 | C-002 | Participants use a web portal, reviewers use a dedicated mobile application, and staff use a web operations dashboard. |
 | C-003 | Participant entry asks VIT Student or External Participant before Google authentication. |
 | C-004 | A VIT student must authenticate with the VIT student Google Workspace account. |
-| C-005 | Reviewer and staff access comes from an approved roster; users do not select an elevated role. |
+| C-005 | Staff roles are limited to Supreme, Board, SC, and JC; External Judge is the separate judging role. Access comes from an approved roster, and users cannot select or promote a role. |
 | C-006 | Reviewer UI uses large controls, little text, and one current task. |
 | C-007 | Panels are planned before the round from reviewer expertise and rubric coverage. |
 | C-008 | Every required panel reviewer scans the team QR before a normal review starts. |
@@ -47,7 +47,7 @@ This register separates source requirements from implementation choices and unre
 | --- | --- | --- |
 | T-001 | Better Auth with Google only | Self-hosted auth code and data on the Convex deployment; supported web and Expo clients |
 | T-002 | Validate Google `sub`, verified email, and `hd`; derive participant class on the server | The selector cannot grant or bypass VIT classification |
-| T-003 | Store event roles in application tables, separate from the auth session | Roster revocation takes effect without changing provider identity |
+| T-003 | Store one event role (`supreme`, `board`, `sc`, `jc`, or `external_judge`) plus scoped internal duty assignments in application tables, separate from the auth session | Keeps the role model small while allowing safe station/round/shift access and immediate revocation |
 | T-004 | Next.js for participant and staff web routes | One web codebase and deployment |
 | T-005 | Expo/React Native for the reviewer application | Native camera, push, secure storage, and controlled builds |
 | T-006 | Convex for application records, transactions, reactive queries, HTTP endpoints, scheduling, and file storage; Workpool for bounded external jobs | One live backend for all three clients without letting model/provider bursts starve review traffic |
@@ -97,38 +97,38 @@ This register separates source requirements from implementation choices and unre
 
 | ID | Decision | Owner | Deadline |
 | --- | --- | --- | --- |
-| O-001 | Final team-size bounds | Event board | Before registration opens |
-| O-002 | Whether mixed VIT/External teams are allowed | Event board | Before registration opens |
-| O-003 | Participant eligibility and evidence for external applicants | Event board | Before registration opens |
-| O-004 | Final VIT hosted-domain list and account support route | Technical lead + VIT IT | Before auth staging sign-off |
-| O-005 | Exact round schedule and elimination points | Event board | Before panel capacity planning |
-| O-006 | Final rubric wording and which criteria apply in each round | Review leads | Before reviewer training |
-| O-007 | Minimum scorers per criterion and aggregation formula approval | Review leads | Before reviewer training |
-| O-008 | Round weighting, ties, missing-score handling, and final clean-slate/cumulative rule | Review leads + board | Before scoring staging sign-off |
-| O-009 | Whether progress becomes a separate weighted criterion | Review leads | Before rubric publication |
-| O-010 | Conflict-of-interest rules | Event board | Before roster import |
-| O-011 | Panel continuity versus rotation between rounds | Review leads | Before panel planning |
-| O-012 | Missed-call grace, number of calls, and queue re-entry | Participant + review operations | Before queue rehearsal |
-| O-013 | Extension escalation and forced-close authority | Review operations + board | Before reviewer training |
-| O-014 | Score correction window and post-lock remedy | Review leads | Before reviewer training |
-| O-015 | Participant process-complaint window and remedies | Event board | Before participant policy publication |
-| O-016 | Participant score/feedback release | Event board | Before final-round configuration |
-| O-017 | Final tracks, sponsor track, and awards | Event board | Before event marketing freezes |
-| O-018 | Reviewer/staff roster owner and emergency authority roster | Event board | Before reviewer staging |
-| O-019 | Data retention, deletion, and export recipients | Event board + VIT policy owner | Before registration opens |
-| O-020 | Synesthesia catalogue, playback account, moderation, and venue licensing | Event operations | Before Synesthesia production test |
-| O-021 | Review transcription/recording | Event board | Deferred unless consent, privacy, and retention are approved |
-| O-022 | Whether GitHub/Figma are mandatory for every team, accepted alternatives, and baseline deadline | Review leads | Before project onboarding opens |
-| O-023 | Admission criteria, minimum application reviewers, venue/track capacity, waitlist order, offer deadline, and published decision detail | Event board + admissions lead | Before applications open |
-| O-024 | Figma comment visibility and retention, full-design evidence retention, and who may download raw checkpoints | Event board + VIT policy owner | Before Figma OAuth consent text is published |
-| O-025 | Maximum active GitHub repositories per team after registered-scale and rate-budget testing | Engineering lead + event operations | Before GitHub connection opens |
-| O-026 | Final event-phase labels/checkpoints and the exact allowed pre-start setup policy | Participant experience lead + event board | Before intake configuration freezes |
-| O-027 | OpenAI privacy notice, approved data controls, interpretation-record retention, and whether the organisation will seek MAM/ZDR | Event board + VIT policy owner | Before applications open |
-| O-028 | Final hacking-session schedule, overlaps, expected cohorts, required/optional status, check-in/grace/late windows, duration/checkpoint rules, and away-alert thresholds | Event operations + participant experience lead | Before attendance-plan publication |
-| O-029 | Tracked zone boundaries, station count/layout, entry/exit direction, table-sweep plan, safe occupancy, and emergency roll-call procedure | Venue operations + safety lead | Before full venue rehearsal |
-| O-030 | Actual VIT card technologies and identifier normalisation, representative campus/batch compatibility matrix, VIT approval, scanner-device inventory, and external-badge QR format | Engineering lead + VIT IT + venue operations | Before the full attendance rehearsal |
-| O-031 | Excused attendance, accessibility/manual confirmation, review-readiness minimum, missed-scan remedies, and any consequence after human review | Event board + participant experience lead | Before participant policy publication |
-| O-032 | Raw scan, interval, aggregate, roll-call, manual-sheet, and identifiable attendance-export retention/access | Event board + VIT policy owner | Before participant check-in opens |
+| O-001 | Final team-size bounds | Board | Before registration opens |
+| O-002 | Whether mixed VIT/External teams are allowed | Board | Before registration opens |
+| O-003 | Participant eligibility and evidence for external applicants | Board | Before registration opens |
+| O-004 | Final VIT hosted-domain list and account support route | SC with integrations/release duty + VIT IT | Before auth staging sign-off |
+| O-005 | Exact round schedule and elimination points | Board | Before panel capacity planning |
+| O-006 | Final rubric wording and which criteria apply in each round | Board | Before reviewer training |
+| O-007 | Minimum scorers per criterion and aggregation formula approval | Board | Before reviewer training |
+| O-008 | Round weighting, ties, missing-score handling, and final clean-slate/cumulative rule | Board | Before scoring staging sign-off |
+| O-009 | Whether progress becomes a separate weighted criterion | Board | Before rubric publication |
+| O-010 | Conflict-of-interest rules | Board | Before roster import |
+| O-011 | Panel continuity versus rotation between rounds | Board + SC with review-operations duty | Before panel planning |
+| O-012 | Missed-call grace, number of calls, and queue re-entry | Board + SC with review-operations duty | Before queue rehearsal |
+| O-013 | Extension escalation and forced-close authority | Board + SC with review-operations duty | Before reviewer training |
+| O-014 | Score correction window and post-lock remedy | Board | Before reviewer training |
+| O-015 | Participant process-complaint window and remedies | Board | Before participant policy publication |
+| O-016 | Participant score/feedback release | Board | Before final-round configuration |
+| O-017 | Final tracks, sponsor track, and awards | Board | Before event marketing freezes |
+| O-018 | Supreme/Board/SC/JC and External Judge roster owners, duty assignment rules, and emergency authority list | Supreme + Board | Before reviewer staging |
+| O-019 | Data retention, deletion, and export recipients | Board + VIT policy owner | Before registration opens |
+| O-020 | Synesthesia catalogue, playback account, moderation, and venue licensing | Board + SC with Synesthesia duty | Before Synesthesia production test |
+| O-021 | Review transcription/recording | Board | Deferred unless consent, privacy, and retention are approved |
+| O-022 | Whether GitHub/Figma are mandatory for every team, accepted alternatives, and baseline deadline | Board + SC with integrations/release duty | Before project onboarding opens |
+| O-023 | Admission criteria, minimum application-review coverage, venue/track capacity, waitlist order, offer deadline, and published decision detail | Board + SC with admissions duty | Before applications open |
+| O-024 | Figma comment visibility and retention, full-design evidence retention, and who may download raw checkpoints | Board + VIT policy owner | Before Figma OAuth consent text is published |
+| O-025 | Maximum active GitHub repositories per team after registered-scale and rate-budget testing | Board + SC with integrations/release duty | Before GitHub connection opens |
+| O-026 | Final event-phase labels/checkpoints and the exact allowed pre-start setup policy | Board + SC with configuration duty | Before intake configuration freezes |
+| O-027 | OpenAI privacy notice, approved data controls, interpretation-record retention, and whether the organisation will seek MAM/ZDR | Board + VIT policy owner | Before applications open |
+| O-028 | Final hacking-session schedule, overlaps, expected cohorts, required/optional status, check-in/grace/late windows, duration/checkpoint rules, and away-alert thresholds | Board + SC with attendance duty | Before attendance-plan publication |
+| O-029 | Tracked zone boundaries, station count/layout, entry/exit direction, table-sweep plan, safe occupancy, and emergency roll-call procedure | Board + SC with attendance/venue duty | Before full venue rehearsal |
+| O-030 | Actual VIT card technologies and identifier normalisation, representative campus/batch compatibility matrix, VIT approval, scanner-device inventory, and external-badge QR format | SC with attendance duty + VIT IT | Before the full attendance rehearsal |
+| O-031 | Excused attendance, accessibility/manual confirmation, review-readiness minimum, missed-scan remedies, and any consequence after human review | Board + SC with attendance duty | Before participant policy publication |
+| O-032 | Raw scan, interval, aggregate, roll-call, manual-sheet, and identifiable attendance-export retention/access | Board + VIT policy owner | Before participant check-in opens |
 
 ## 5. Rejected or deferred
 
@@ -139,7 +139,7 @@ This register separates source requirements from implementation choices and unre
 | X-003 | Reviewer PWA instead of a native app | Rejected in the planning discussion |
 | X-004 | Participant passwords or local credential database | Rejected; Google is the sign-in provider |
 | X-005 | Trust an email suffix as VIT proof | Rejected; use verified Google hosted-domain evidence |
-| X-006 | Participant-selected reviewer/admin role | Rejected; staff access is rostered |
+| X-006 | Participant-selected staff or External Judge role | Rejected; role access is rostered |
 | X-007 | AI judging, AI score recommendations, or AI score adjustment | Rejected |
 | X-008 | Seniority score multipliers | Rejected |
 | X-009 | Automatic cross-panel score normalisation | Rejected |
