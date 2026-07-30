@@ -603,60 +603,152 @@ Indexes support event/time and target/time lookup.
 
 ## 10. Integration tables
 
-### `integrationConnections`
+### `teamIntegrations`
 
-- `eventId`, `teamId`
+The ownership boundary for a connected provider resource.
+
+- `eventId`, `teamId`;
 - provider `github | figma`;
-- external account/installation/resource IDs;
-- tracked GitHub branch and optional root path when provider is GitHub;
-- display name and URL;
-- granted scopes;
-- status and last successful check;
-- connected/revoked actor/time;
-- credential ID where required.
+- `state: setup | active | content_dirty | stale | reauth_required | inaccessible | revoked | replaced`;
+- active provider-binding ID;
+- baseline/current snapshot IDs;
+- connection version;
+- last provider event, metadata check, successful full sync, and error category/time;
+- connected, replaced, or revoked actor/time;
+- late-baseline and shared-resource-override flags.
 
-### `integrationCredentials`
+One active integration exists per event/team/provider. A second uniqueness check prevents the same provider resource from being active for two teams in one event unless an administrator records an override.
 
-- `eventId`, `connectionId`
-- encrypted token/refresh token;
-- key version;
-- provider expiry;
-- status.
+The team integration does not contain a participant-owned token. Team members read one shared projection, a team lead changes the binding, and a review session references a frozen snapshot.
 
-GitHub installation access tokens are not stored here; they are minted when needed. Figma OAuth tokens are encrypted here.
+### `githubInstallations`
+
+One GitHub App installation can serve several team repository bindings.
+
+- `eventId`;
+- GitHub installation and account ID;
+- account login/type;
+- granted repository-selection mode and permission snapshot;
+- `state: active | suspended | deleted | permissions_outdated`;
+- created, updated, and last webhook time.
+
+Installation access tokens are minted for one job, restricted to the selected repository and read permissions, and never persisted.
+
+### `githubRepositoryBindings`
+
+- `eventId`, `teamId`, `integrationId`, `installationId`;
+- GitHub repository ID, owner/name, URL, visibility, fork/source metadata, and creation time;
+- default branch, tracked branch, optional root path;
+- required topic and `topicState: present | missing | unknown`;
+- first/last topic verification time;
+- baseline SHA, current head SHA, last push/provider time;
+- tree SHA, tree-truncated state, and last reconciliation time;
+- current API rate reset/error state.
+
+The repository ID, not owner/name, is the durable external key. Binding replacement preserves the old binding and snapshots.
+
+### `figmaAuthorizations`
+
+One encrypted OAuth grant per event/Figma App/Figma user.
+
+- `eventId`;
+- Figma `user_id_string`;
+- Code2Create person who most recently authorised it;
+- exact granted scopes;
+- encrypted access token and refresh token;
+- token expiry and encryption-key version;
+- `state: active | refresh_required | revoked | invalid`;
+- authorised, refreshed, revoked, and last-used time.
+
+A team does not own this credential record. A `teamIntegration` owns the selected file and references an authorization that can currently read it. This shape avoids separate token copies and refresh races when one Figma user connects more than one team file.
+
+### `figmaFileBindings`
+
+- `eventId`, `teamId`, `integrationId`, `authorizationId`;
+- file key, optional main-file key, name, URL, editor type, link access, and role;
+- metadata version, full-content version, provider last-touched time;
+- metadata checked, full content captured, and next allowed Tier 1 request time;
+- rate-limit plan/type and `Retry-After` state when observed;
+- webhook ID, event type, endpoint version, passcode hash, and webhook state;
+- latest artifact-manifest key and preview count.
+
+The file key is unique per event unless a shared-resource override is active. Webhook passcodes are compared by hash; the plaintext exists only when the webhook is created or rotated.
 
 ### `providerEvents`
 
-- provider and delivery ID;
+- `eventId`, provider, integration ID, and external resource ID;
+- provider deduplication key;
 - event type;
-- installation/resource reference;
-- signature-check result;
-- received/processed time;
+- GitHub installation/repository/ref/before/after fields or Figma webhook/file/version fields;
+- verification result;
+- provider time, received time, and processed time;
 - processing status and failure category.
 
-Raw provider payloads are not retained by default.
+GitHub uses `X-GitHub-Delivery`. Figma uses a stable hash of webhook ID, event type, file key, provider timestamp, and version ID when supplied. Raw provider payloads are not retained after validation and field extraction.
+
+### `githubCommitFacts`
+
+One derived row per integration/commit SHA seen after baseline.
+
+- `eventId`, `teamId`, `integrationId`, repository ID, commit SHA;
+- tracked ref and push-delivery reference;
+- authored/committed/provider-observed time;
+- linked GitHub author/committer IDs and logins when supplied;
+- additions, deletions, changed-file count, verification state;
+- root-filtered path categories and completeness;
+- force-push/discontinuity association.
+
+Do not store commit email, raw message, patch, or source in this table.
+
+### `integrationMetricBuckets`
+
+Materialised provider statistics for fast charts.
+
+- `eventId`, `teamId`, `integrationId`, provider;
+- bucket start and duration;
+- metric schema version;
+- counter values and bounded top lists;
+- source event/snapshot range;
+- completeness and computed time.
+
+Hourly GitHub buckets contain pushes, commits, additions, deletions, changed files, linked/unknown authors, and force pushes. Figma buckets contain observed metadata changes, full snapshots, changed top-level frames, named versions, and comment-state changes. Current totals are updated in the same mutation as the accepted derived facts; dashboards never scan every provider event to draw a card.
 
 ### `integrationSnapshots`
 
-- `eventId`, `teamId`, provider, connection ID;
-- checkpoint type `connected | review_start | round_close | manual_refresh`;
+- `eventId`, `teamId`, provider, integration/binding IDs;
+- checkpoint type `baseline | provider_refresh | review_window | review_start | round_close | manual_refresh`;
 - round/review references;
 - provider resource version;
 - captured time and provider source time;
-- sanitised summary;
-- stale/error state;
+- metric schema version and sanitised summary;
+- private S3 artifact-manifest key, object checksum, and preview count when present;
+- freshness, completeness, truncation, and error state;
 - previous snapshot ID.
 
-GitHub summary can contain tracked branch, head SHA, commit count since previous snapshot, contributor IDs/logins, additions/deletions, and top changed paths. Figma summary can contain file version, last touched time, and named versions since the previous snapshot.
+GitHub snapshots contain the topic state, tracked/baseline/head SHAs, tree manifest, activity totals, changed-path summary, languages, discontinuities, and completeness. Figma snapshots contain file/version metadata, node and reuse statistics, named versions, comment counts, top-level-node hashes, changed-frame summary, and protected preview/artifact references.
+
+### `figmaNodeFacts`
+
+One bounded row per page or selected top-level node in a Figma snapshot.
+
+- `eventId`, `teamId`, `integrationId`, `snapshotId`;
+- Figma node ID, parent page ID, type, name, and visible state;
+- semantic hash and optional render hash;
+- descendant/component/instance/reaction counts;
+- preview object key, dimensions, and render state;
+- change state versus previous snapshot.
+
+The raw node tree remains in compressed private object storage. These rows drive the page/frame browser and changed-screen list without loading the entire document into a Convex query.
 
 ### `externalJobs`
 
 - `eventId`
-- kind `github_refresh | figma_refresh | push_send | push_receipt | export_upload`;
+- kind `github_enrich | github_reconcile | figma_metadata | figma_content | figma_render | figma_webhook_repair | push_send | push_receipt | artifact_upload | export_upload`;
 - deduplication key;
 - target reference;
-- `state: pending | running | retry | succeeded | failed`;
-- attempt count, next attempt, last error category;
+- Workpool name/work ID and priority;
+- `state: pending | running | provider_wait | retry | succeeded | failed | cancelled`;
+- attempt count, next attempt/provider reset, last status/error category;
 - created/finished time.
 
 Job payloads reference protected records instead of copying secrets into the job.
@@ -716,7 +808,18 @@ Request, action `start | finish | skip | pause`, operator, provider reference, r
 | `scorecards.by_session_reviewer` | One working scorecard per reviewer |
 | `scorecardVersions.by_scorecard_version` | Immutable submission history |
 | `evaluationResults.by_round_state_total` | Complete ranking and round close |
+| `teamIntegrations.by_event_team_provider` | One shared provider binding per team |
+| `teamIntegrations.by_event_provider_state` | Operations health board |
+| `githubInstallations.by_event_installation` | Resolve an App webhook installation |
+| `githubRepositoryBindings.by_event_repository_state` | Route a repository event and prevent duplicate use |
+| `figmaAuthorizations.by_event_figma_user` | One refreshable Figma grant per provider user |
+| `figmaFileBindings.by_event_file_state` | Route a webhook and prevent duplicate use |
+| `providerEvents.by_provider_dedupe` | Ignore retries/replays |
+| `githubCommitFacts.by_integration_sha` | Idempotent commit enrichment |
+| `integrationMetricBuckets.by_integration_bucket` | Live provider charts without scans |
 | `integrationSnapshots.by_team_provider_time` | Compare checkpoints |
+| `figmaNodeFacts.by_snapshot_page_node` | Captured Figma page/frame browser |
+| `externalJobs.by_state_next_attempt` | Workpool/provider retry diagnostics |
 | `operationResults.by_actor_operation` | Resolve ambiguous writes |
 | `exportManifests.by_round_version` | Round export and verification |
 | `auditEvents.by_event_time` | Event audit |
@@ -734,6 +837,10 @@ Returns person, active memberships/grants, event, required next step, device req
 
 Returns participant/team/project completion, application/admission state, official table, team QR reference, current `teamRoundState`, queue summary, commitments, and integration health.
 
+### `participant.integrationEvidence`
+
+Returns the caller's team-owned GitHub/Figma binding, topic/webhook state, current materialised metrics, latest snapshot summary, changed-frame/path lists, and freshness fields. It never returns an OAuth grant, installation token, S3 object key, or another team's provider resource.
+
 ### `admissions.reviewQueue`
 
 Returns only the current application reviewer’s assigned application versions and own submitted recommendations.
@@ -750,9 +857,17 @@ Returns clock-in state, active panel seat, current page, active session summary,
 
 Returns the fixed project/rubric/integration context for the assigned active session and that reviewer’s scorecard.
 
+### `reviewer.integrationEvidence`
+
+Accepts only a snapshot ID already attached to the caller's assigned current/recent review. It returns the pinned GitHub tree and file-view capability or Figma page/frame facts and short-lived preview access. A newer live team snapshot may be advertised, but it does not replace the scoring context.
+
 ### `operations.roundBoard`
 
 Returns round state, panel summaries, team-state counts, critical exceptions, and stale timestamps. Detail opens through separate indexed queries.
+
+### `operations.integrationHealth`
+
+Returns one compact row per team/provider: connection state, required-topic/webhook state, provider/metadata/content ages, current job state, rate-limit wait, completeness, and next action. Detail queries expose event facts and metric buckets without returning credentials or raw artifacts.
 
 ### `operations.scoreCompleteness`
 
@@ -765,14 +880,14 @@ Subscriptions update only when records read by the query change. Screens use sta
 | Area | Main commands |
 | --- | --- |
 | Identity | create auth intent, provision participant, claim roster, revoke grant, register/revoke device |
-| Team/project | create/join/leave team, transfer lead, save draft, submit version, connect/disconnect integration |
+| Team/project | create/join/leave team, transfer lead, save draft, submit version, start/confirm/replace team integration |
 | Admissions | assign application, submit own recommendation, request information, publish decision, send/respond/expire offer, promote waitlist |
 | Venue | check in participant, assign/freeze table, report mismatch |
 | Round/panel | publish plan, clock in, mark unavailable, page substitute, accept/decline page |
 | Queue/review | set ready, route, call, hold, move, scan presence, start, extend, complete |
 | Score | save own draft, submit own scorecard, request/approve correction, resubmit, void |
 | Operations | pause/resume round, resolve support case, approve manual mode, import/verify paper record, close/reopen round |
-| Integration | receive webhook, request checkpoint, retry/disable connection |
+| Integration | verify/deduplicate provider event, refresh metadata/content, reconcile, render, retry/pause/disable binding |
 | Synesthesia | request, vote, moderate, acknowledge playback |
 
 Each command has one server implementation used by web and mobile. A mobile-specific API does not apply different judging rules.
@@ -815,14 +930,14 @@ The event board must set exact periods. The schema supports separate policies:
 - participant contact/eligibility data;
 - project versions;
 - provider credentials;
-- integration snapshots;
+- integration facts, snapshots, raw Figma artifacts, comments, previews, and short-lived GitHub blob cache;
 - reviewer private notes;
 - submitted scorecards and audit events;
 - support/incident records;
 - Synesthesia requests/votes;
 - exports/backups.
 
-Provider credentials should be deleted soon after the last required checkpoint and any complaint window. Revoking a connection marks snapshots as historical and removes usable tokens.
+Provider credentials should be deleted soon after the last dependent team checkpoint and complaint window. Disconnecting one team removes its authorization reference and webhook; it does not revoke a shared Figma grant still used by another team. Revoking the provider grant marks every dependent binding for reauthorization. Historical snapshot manifests remain until their evidence-retention date, while GitHub blob cache expires after the review window.
 
 Operational judging records use status/versions rather than hard deletion during the event and complaint window.
 
@@ -838,5 +953,9 @@ Operational judging records use status/versions rather than hard deletion during
 - Every complete evaluation result names the exact immutable scorecard versions used.
 - Round close cannot race past a required scorecard.
 - Live participant, reviewer, and operations views derive from the same operational records.
+- A provider resource cannot be active for two teams in one event without an audited override.
+- Replacing the member who authorised Figma does not change the team that owns the file evidence.
+- Duplicate GitHub/Figma provider events cannot increment a fact or metric twice.
+- A review session keeps its original snapshot IDs when a newer provider snapshot arrives.
 - Provider credentials never appear in project, snapshot, job, query, audit, or error payloads.
 - A backup/restore and round export preserve every relation needed to reproduce totals and exception history.

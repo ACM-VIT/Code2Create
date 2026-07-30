@@ -79,7 +79,7 @@ An operations user can handle a missing reviewer, team hold, table move, scan fa
 - table assignment, readiness, routing, and queues;
 - timed reviews and reviewer presence;
 - versioned rubrics, criterion assignments, scorecards, and progress commitments;
-- GitHub and Figma progress snapshots;
+- team-scoped GitHub/Figma resources, live progress facts, full checkpoints, and reviewer evidence views;
 - live operations views and controlled overrides;
 - audit history, round exports, backups, and incident procedures;
 - Synesthesia requests, voting, moderation, and playback control.

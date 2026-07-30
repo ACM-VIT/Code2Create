@@ -2,24 +2,23 @@
 
 ## 1. Integration rule
 
-GitHub and Figma record progress evidence. They do not calculate effort, originality, technical quality, or score.
+The connected repository or file belongs to the Code2Create team record. It does not belong to the member who happens to install the GitHub App or finish Figma OAuth.
 
-Every reviewer-facing snapshot shows:
+- A team lead connects, replaces, or disconnects a resource.
+- Every active team member can see connection health, progress facts, and captured checkpoints.
+- An assigned reviewer can see the immutable checkpoint attached to that review.
+- Review operations can see live connection health and job failures across teams.
+- Provider credentials never enter a participant, reviewer, or operations client.
 
-- provider and connected resource;
-- capture time;
-- last provider update time;
-- previous checkpoint;
-- connection/staleness warning;
-- the small set of recorded facts.
+GitHub and Figma record evidence. They do not calculate effort, originality, technical quality, or score. Every fact is labelled with its provider time, capture time, completeness, and previous checkpoint. A missing, late, rate-limited, or stale integration stays visible and the review continues with live/manual evidence.
 
-A missing or stale integration remains visible. The review continues with live/manual evidence.
+One GitHub repository and one Figma file can be active for only one team in the same event. An administrator may override a genuine shared-resource case with a reason; the exception appears to every affected reviewer.
 
 ## 2. GitHub App
 
-### Permissions
+### Permissions and event topic
 
-Register a Code2Create GitHub App with:
+Register the production Code2Create GitHub App with:
 
 - **Metadata: read**;
 - **Contents: read**.
@@ -30,143 +29,170 @@ Subscribe only to:
 - `installation`;
 - `installation_repositories`.
 
-Do not request:
+The required repository topic is `code2create-7-0`. `GET /repos/{owner}/{repo}/topics` needs only Metadata read, so the production App checks the topic at connection, readiness, and every reconciliation.
 
-- Contents write;
-- Administration;
-- Actions;
-- Issues or pull requests;
-- Secrets;
-- Members;
-- user email;
-- organisation-wide access.
+GitHub's topic write endpoint is not a narrow “add topic” operation. `PUT /repos/{owner}/{repo}/topics` replaces the complete topic list and requires **Administration: write**. The selected production App therefore does not auto-write the topic. When it is missing, the portal shows the exact topic, asks a repository administrator to add it in GitHub, and rechecks without reinstalling the App.
 
-The team chooses **Only select repositories** during installation and selects one primary repository for the project.
+If the board later requires automatic topic repair, ship it as a separate elevated App registration after security approval. That path must fetch the current list, merge `code2create-7-0`, replace the list, and read it back. Do not add Administration write to the read-only evidence App.
 
-### GitHub connection
+Do not request Contents write, Actions, Issues, pull requests, Secrets, Members, user email, or account-wide repository access. The installer chooses **Only select repositories** and grants one primary repository.
 
-1. Team lead selects **Connect GitHub**.
-2. The portal creates a signed setup intent bound to event/team/person.
-3. GitHub opens the App installation flow.
-4. The callback validates state and installation ownership.
-5. The portal lists only repositories granted to that installation.
-6. Team lead selects one repository, one tracked branch, and an optional project root path.
-7. The backend stores installation ID, repository ID, default branch, tracked branch, name, and permission set.
-8. A baseline snapshot is captured.
+### Team connection
 
-The application never asks a participant to paste a personal access token.
+1. A team lead selects **Connect GitHub**.
+2. The portal creates a one-use setup intent bound to event, team, person, and return route.
+3. GitHub opens the App installation or repository-selection flow.
+4. The callback validates the intent and resolves the installation.
+5. The portal lists only repositories currently granted to that installation.
+6. The lead selects one repository, one tracked branch, and an optional project root.
+7. The backend verifies that the repository is not already bound to another team in the event.
+8. The backend reads repository metadata, topics, languages, the tracked head, and the commit/tree at that head.
+9. It records the baseline SHA, topic state, repository creation/fork metadata, and the first immutable snapshot.
 
-### Authentication
+The installation may be shared by several Code2Create teams owned by the same GitHub account, but each `teamIntegration` binds one team to one repository. The application never asks for a personal access token.
 
-The backend signs a short-lived GitHub App JWT with the private key and exchanges it for an installation access token. The token is limited to the selected repository and read permission.
+### Authentication and API version
 
-Installation access tokens expire after one hour. Mint them when a provider action starts and discard them after the call. Store only the installation and repository IDs.
+The backend signs a short-lived GitHub App JWT and mints an installation access token restricted to the selected repository and read permissions. Installation tokens expire after one hour. Mint one for a provider job, keep it only in action memory, and discard it after the call.
 
-### Webhooks
+Every REST request sends `Accept: application/vnd.github+json` and the pinned `X-GitHub-Api-Version: 2026-03-10` header. The API version is upgraded only after fixture and staging checks pass.
+
+### Webhook fast path
 
 The Convex HTTP action:
 
-1. reads the raw body;
-2. validates `X-Hub-Signature-256`;
-3. checks event type and installation/repository ID;
+1. reads the unmodified request body;
+2. validates `X-Hub-Signature-256` with constant-time comparison;
+3. checks `X-GitHub-Event`, installation ID, and repository ID;
 4. deduplicates `X-GitHub-Delivery`;
-5. writes a sanitised provider event;
-6. schedules snapshot work;
-7. returns quickly.
+5. records the small provider event and advances the live head/health projection;
+6. enqueues enrichment in the bounded integration Workpool;
+7. returns a 2xx response within GitHub's ten-second window.
 
-An invalid signature, unknown repository, duplicate delivery, or payload above supported size does not change project data.
+A `push` payload supplies `ref`, `before`, `after`, `created`, `deleted`, `forced`, and up to 2,048 pushed commits. The fast path updates the team card without waiting for another API request. Events can arrive out of order, so the worker compares provider timestamps and ancestry instead of treating delivery order as commit order.
 
-### Snapshots
+Invalid signatures, unknown repositories, repeated deliveries, unsupported event types, and oversized payloads do not change project evidence.
 
-Capture at:
+### Enrichment, statistics, and repository view
 
-- connection;
-- before each review window;
-- review start when the existing snapshot is stale and rate budget permits;
-- round close;
-- participant/manual refresh.
+For the tracked branch and optional project root, the worker uses the Commits, Compare, Git Trees, Contents, repository, topic, and language endpoints. It records:
 
-For the tracked branch and optional root path, record:
+- required-topic state and first/last verified time;
+- baseline SHA, current head SHA, head commit time, and ahead/behind state;
+- push count, commit count, and active-hour buckets since baseline;
+- additions, deletions, changed-file count, file-type mix, and top changed directories;
+- GitHub user IDs/logins attached to commits, plus a separate unknown/unlinked-author count;
+- language byte distribution;
+- force pushes, branch creation/deletion, default-branch changes, access loss, and delivery gaps;
+- last webhook time, last successful reconciliation, freshness, and completeness.
 
-- head commit SHA and commit time;
-- number of commits since the previous checkpoint;
-- provider author IDs/logins seen in those commits;
-- additions, deletions, and changed-file count;
-- top changed paths after root-path filtering;
-- force-push, branch deletion, default-branch, or repository-access warning;
-- previous snapshot ID.
+The reviewer repository view is pinned to the snapshot SHA. It shows the tree and can fetch a selected text file through the Contents API at that SHA. Recursive Git tree results are marked incomplete if GitHub returns `truncated`; the worker then walks subtrees or shows the limit. Binary and oversized files are metadata-only. Source blobs may use a short-lived encrypted cache during a review window, but the system does not retain a permanent clone, archive, raw diff, commit email, or secret-bearing commit message.
 
-Do not store source file contents, diffs, commit messages containing secrets, email addresses, or a clone of the repository.
+GitHub's repository-statistics endpoints are periodic enrichment only. They can return `202` while GitHub computes a cache, reset when the default-branch SHA changes, and do not support repositories with 10,000 or more commits. Live cards therefore come from signed pushes plus commit/compare reconciliation, not the cached statistics endpoints. Compare responses also cap the changed-file list at 300, so every metric carries a completeness flag.
 
-Line and commit counts are context only. Generated files, squashes, pair programming, and branch strategy make them poor scoring measures. The baseline time and any late connection are shown beside the snapshot.
+Counts are context. Squashes, generated files, rebases, pair programming, and Git author configuration make them unreliable as a score or as proof of individual contribution.
 
-### GitHub failure and revocation
+### Failure and revocation
 
-- Installation removal marks the connection revoked and stops jobs.
-- Repository access removal marks it inaccessible.
-- Rename/transfer is resolved by repository ID on the next refresh.
-- A force push records the new head and a discontinuity flag.
-- A deleted tracked branch marks the snapshot stale until the team selects another branch.
-- API rate limits schedule the job for later; review context shows the last successful capture.
-- A team can reconnect before the integration freeze. Reconnection creates a new connection record and keeps earlier snapshots.
+- Installation removal marks every affected team binding `revoked` and stops new jobs.
+- Repository-access removal marks the binding `inaccessible`.
+- Rename or transfer resolves by repository ID on reconciliation.
+- A force push records the new head and a discontinuity; it never silently rewrites an earlier snapshot.
+- A deleted tracked branch requires the team to choose another branch and creates a new baseline relationship.
+- Rate-limit responses pause that installation's Workpool lane until reset; live clients keep the last verified data and its age.
+- Reconnection before freeze creates a new binding version and preserves earlier snapshots.
 
-## 3. Figma OAuth
+## 3. Figma OAuth and full design evidence
 
 ### Scopes
 
-Request:
+Request only:
 
 - `file_metadata:read`;
-- `file_versions:read`.
+- `file_content:read`;
+- `file_versions:read`;
+- `file_comments:read`;
+- `webhooks:read`;
+- `webhooks:write`.
 
-Do not request `projects:read`, `file_content:read`, comments, variables, webhooks, or write scopes in the baseline.
+The file-content scope is required because reviewers and teams need the document tree, components, styles, prototype structure, and rendered frames, not a metadata card. Comment read access supplies open/resolved collaboration context. The App never writes comments or file content.
 
-The portal asks the team to paste a Figma file URL. This avoids broad project listing and its extra scope/approval. The backend parses the file key and verifies access with `GET /v1/files/:key/meta`.
+Do not request `projects:read`, organisation scopes, variables, libraries, or write scopes in the baseline. A later event may add `file_dev_resources:read` or `file_variables:read` only after a separate feature, plan check, consent text, and review. Variables API access is not available on every Figma plan.
 
-### Figma connection
+The portal accepts a Figma file URL instead of listing a person's projects. The backend parses the file key and first verifies it with `GET /v1/files/:key/meta`.
 
-1. Team member selects **Connect Figma**.
-2. The backend creates a signed OAuth intent bound to event/team/person.
-3. Figma OAuth returns to an exact environment callback URL.
-4. The backend exchanges the code and encrypts the access/refresh tokens with the current token key.
-5. The participant pastes a file URL.
-6. The backend fetches metadata, confirms access, and shows name/role/last-touched time.
-7. Team lead confirms it as the project file.
-8. A baseline snapshot is captured.
+### Credential grant versus team ownership
 
-If Figma requires app review for the chosen public/private distribution, submit the OAuth app early enough for staging and production approval.
+Figma OAuth is granted by a person, so the encrypted token record is keyed by the Figma user ID, not copied once per team. The selected file, snapshots, metrics, and review visibility remain owned by `eventId + teamId`.
 
-### Checkpoints
+One Figma authorization may support more than one team connection if that Figma user can access those files. Refreshing it updates one credential record, avoiding the race caused by Figma maintaining one current access token per App and user. If the authorizer leaves the Code2Create team or revokes access, the team data remains and any current team lead can replace the authorization.
 
-At each project checkpoint, ask the team to create a named Figma version. The backend records:
+### Connection flow
 
-- file key and name;
-- current file version;
-- last touched time;
-- named versions created since the previous snapshot;
-- captured time;
-- previous snapshot ID.
+1. A team member selects **Connect Figma**.
+2. The backend creates a one-use OAuth intent bound to event, team, person, PKCE verifier, and exact callback.
+3. The browser opens Figma OAuth with state and an S256 PKCE challenge.
+4. The callback validates state and exchanges the 30-second authorization code at `/v1/oauth/token`.
+5. The backend encrypts the access and refresh tokens and stores `user_id_string` as a string.
+6. The member pastes a file URL.
+7. The backend checks metadata, access role, file/main-file key, link access, current version, and whether the file is already used by another event team.
+8. A team lead confirms the file.
+9. The backend fetches full content, version history, comments, and selected frame renders for the baseline.
+10. It attempts one file-context `FILE_UPDATE` webhook when the authorizer has **Can edit** access and the plan has capacity.
 
-The pre-round worker spreads calls over the preparation window and respects per-token/app/plan rate limits. Review start uses the newest successful snapshot and triggers a refresh only when allowed. A provider request never delays the review-start transaction.
+The public production OAuth App must complete Figma review before participant onboarding. Access tokens are refreshed before expiry through `/v1/oauth/token`; the legacy refresh endpoint is not used.
 
-### Why polling instead of file webhooks
+### Provider observation and application realtime
 
-Figma file webhooks are a poor default for this event:
+Convex publishes a received provider event or completed metadata check to every authorised client immediately. That does not make Figma itself instant:
 
-- creating one needs `webhooks:write`;
-- file-level creation requires edit permission;
-- Professional plans allow 150 file webhooks, while the event may have 200–330 teams;
-- `FILE_VERSION_UPDATE` fires for a named version, not every autosave.
+- `FILE_UPDATE` can arrive only after up to 30 minutes of editing inactivity;
+- a file webhook requires Can edit access;
+- Figma limits file webhooks by context and plan;
+- full-file and image calls are Tier 1 and can be as low as six requests per month for View or Collab seats.
 
-Checkpoint polling with metadata/version scopes uses less access and works for the expected team count.
+The production design combines three signals:
 
-### Figma failure and revocation
+1. A file-context `FILE_UPDATE` webhook when available. Its passcode is validated before the event is accepted.
+2. A lightweight `GET /v1/files/:key/meta` heartbeat every 60–120 seconds during event/review windows and less often outside them.
+3. Explicit full checkpoints at connection, before each review window, review start when stale and allowed, round close, and participant refresh.
 
-- Expired/invalid tokens mark the connection `reauth_required`.
-- File permission loss marks it `inaccessible`.
-- Rate-limit response schedules a later attempt.
-- Team can reconnect and select the same or a replacement file before freeze.
-- Disconnect deletes usable tokens but keeps historical snapshots for review/audit under retention policy.
+A metadata version change marks the team view `content_dirty` immediately and coalesces one full-content job. High-rate-limit grants may refresh content after the debounce window. Low/unknown grants reserve Tier 1 calls for required checkpoints. A `429` stores `Retry-After`, `X-Figma-Plan-Tier`, and `X-Figma-Rate-Limit-Type`; no worker retries before that time.
+
+The UI shows separate times for provider last touched, provider event observed, metadata checked, and full content captured. “Live” never hides a stale full snapshot.
+
+### Full snapshots, previews, and statistics
+
+`GET /v1/files/:key` returns the complete node tree when no `depth` or `ids` filter is supplied. The raw response can exceed Convex's one-megabyte document limit, so the action compresses it and writes an immutable private S3 object. Convex stores only the manifest, hashes, derived facts, and authorised preview references.
+
+For each snapshot, derive:
+
+- page, section, top-level frame/screen, and total node counts;
+- counts by node type;
+- components, component sets, variants, instances, styles, and local reuse;
+- auto-layout use among eligible frame-like nodes;
+- prototype flow starting points and reactions;
+- text-style and font-family counts without treating text volume as quality;
+- named versions and their Figma user handles;
+- comment, reply, open, and resolved counts when the comment scope is active;
+- per-page and per-top-level-node semantic hashes;
+- added, removed, and changed top-level frames since the prior checkpoint;
+- provider last-touched time and snapshot freshness.
+
+The image endpoint renders selected top-level frames in batches. The worker downloads successful renders into the private artifact bucket before Figma's URLs expire. The portal and reviewer app can open a page/frame index, preview each captured screen, inspect the layer tree and node properties, review prototypes/components/comments, and open the original Figma file when their own Figma access allows it.
+
+Figma does not expose keystrokes, edit duration, every autosave, or reliable per-person contribution. Version/comment handles and changed-node counts are labelled as observed activity, not authorship or effort.
+
+### Failure, revocation, and webhook limits
+
+- Wrong passcode, unknown webhook/file, or duplicate `{webhook_id, event_type, file_key, timestamp}` is rejected or ignored.
+- `PING` proves endpoint setup but does not create a project snapshot.
+- Expired or invalid OAuth credentials mark every dependent team binding `reauth_required`.
+- File permission loss marks only that file binding `inaccessible`.
+- A paused/error webhook falls back to metadata heartbeat and appears in integration diagnostics.
+- A View-only authorizer can still supply content if the API allows it, but cannot create the file webhook.
+- When file-webhook capacity is exhausted, metadata heartbeat and checkpoints remain valid; the team is not blocked.
+- Disconnect removes the team's active authorization reference and webhook. Historical snapshots remain under the approved evidence-retention policy.
 
 ## 4. Google and Better Auth setup
 
@@ -223,20 +249,32 @@ Do not include team project text, score, phone number, or private reason.
 
 The 90-second page deadline is based on the page record, not the push ticket.
 
-## 6. Export bucket
+## 6. Private artifact and export bucket
 
-The selected baseline is a private AWS S3 bucket in Mumbai (`ap-south-1`) after data-policy approval.
+The selected baseline is a private AWS S3 bucket in Mumbai (`ap-south-1`) after data-policy approval. It holds immutable round exports, downloaded backups, compressed Figma checkpoints, captured Figma previews, and any short-lived GitHub blob cache. Live counters and searchable metadata stay in Convex.
 
 Configuration:
 
 - public access blocked;
 - bucket versioning on;
 - server-side encryption with a dedicated KMS key;
-- event-specific prefix;
-- deployment credential can write/list only that prefix;
+- event-specific prefixes split by export, backup, and team integration;
+- deployment credential can write/list only the active event prefixes;
 - audit/backup readers are separate roles;
 - lifecycle expiry matches approved retention;
 - object checksum and application manifest retained.
+
+Integration artifact layout:
+
+```text
+events/{eventId}/teams/{teamId}/integrations/{provider}/{integrationId}/{snapshotId}/
+  manifest.json
+  figma-file.json.gz
+  previews/{nodeId}.png
+  temporary-github-blobs/{blobSha}
+```
+
+Only files present for that provider are written. Figma JSON and previews follow the approved evidence-retention period. GitHub blob cache uses a short lifecycle tied to the review window. A reviewer receives a short-lived signed object URL only after the backend verifies the assigned review and exact snapshot.
 
 Round export layout:
 
@@ -264,9 +302,9 @@ If VIT policy requires another provider/region, replace this decision before pro
 | Better Auth | dev secret/clients | staging secret/clients | production secret/clients |
 | Reviewer app | dev build/scheme | preview build/channel | production build/channel |
 | GitHub | dev App | staging App/test repos | production App/team repos |
-| Figma | dev callback/test files | staging callback/test files | approved production callback |
+| Figma | dev OAuth/webhook/test files | staging OAuth/webhook/test files | approved production OAuth App and webhook endpoint |
 | Push | test devices | reviewer training devices | registered event devices |
-| S3 | local/test bucket | staging prefix | production event prefix |
+| S3 | local/test bucket | staging integration/export prefixes | production integration/export prefixes |
 | Sentry | development | staging | production |
 
 No callback URL, provider key, auth secret, user record, or push token is shared across staging and production.
@@ -359,24 +397,28 @@ Before launch, rehearse rotation for:
 - Better Auth secret;
 - Google client secret;
 - GitHub App private key and webhook secret;
-- Figma client secret;
+- Figma client secret and file-webhook passcodes;
 - token-encryption key;
 - Expo server credential;
 - S3 application credential;
 - Sentry auth token.
 
-Token-encryption key rotation keeps the previous decrypt key until all active Figma credentials are re-encrypted. Webhook-secret rotation may require an overlap or coordinated provider update.
+Token-encryption key rotation keeps the previous decrypt key until all active Figma authorizations are re-encrypted. GitHub webhook-secret rotation may require an overlap or coordinated provider update. Figma passcode rotation updates each active webhook and verifies its new `PING` before discarding the old encrypted value.
 
 ## 13. Release acceptance
 
 - Production auth callbacks accept only production origins/schemes.
 - GitHub App permission screen contains no write/admin permission.
-- Invalid or repeated GitHub webhook deliveries do not create snapshots twice.
-- Figma works with metadata/version scopes and does not fetch full document content.
-- Provider rate limits leave a clear stale snapshot instead of blocking a review.
+- The portal verifies `code2create-7-0`; a missing topic does not cause an Administration permission request.
+- Invalid, repeated, or out-of-order GitHub webhook deliveries do not double-count activity.
+- A private repository can be browsed at the exact captured SHA without exposing an installation token.
+- Figma OAuth requests the documented read scopes and creates a file webhook only when access and plan capacity allow it.
+- A captured Figma checkpoint includes the full file tree, derived statistics, and frame previews; the raw document does not enter a Convex document.
+- Provider rate limits leave an explicit metadata/content age and completeness state instead of blocking a review.
+- Two team members see one shared integration, and any current lead can replace a revoked Figma authorizer.
 - Push ticket, receipt, reviewer acknowledgement, expiry, and fallback remain distinct.
 - A compatible web/backend/mobile release survives rollback rehearsal.
-- Round export reaches the private bucket with matching checksum and no provider credential.
+- Round export and one Figma artifact reach the private bucket with matching checksums and no provider credential.
 - A production bundle/secret scan finds no private credential.
 
 ## References
@@ -384,10 +426,18 @@ Token-encryption key rotation keeps the previous decrypt key until all active Fi
 - [GitHub App permissions](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app)
 - [GitHub installation access tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
 - [GitHub webhook signature validation](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)
+- [GitHub repository topics](https://docs.github.com/en/rest/repos/repos#get-all-repository-topics)
+- [GitHub push payload](https://docs.github.com/en/webhooks/webhook-events-and-payloads#push)
+- [GitHub commits and comparisons](https://docs.github.com/en/rest/commits/commits)
+- [GitHub repository statistics limits](https://docs.github.com/en/rest/metrics/statistics)
+- [GitHub Git Trees API](https://docs.github.com/en/rest/git/trees)
 - [Figma OAuth scopes](https://developers.figma.com/docs/rest-api/scopes/)
-- [Figma file metadata](https://developers.figma.com/docs/rest-api/file-endpoints/)
+- [Figma file, node, metadata, and image endpoints](https://developers.figma.com/docs/rest-api/file-endpoints/)
 - [Figma version history](https://developers.figma.com/docs/rest-api/version-history-endpoints/)
+- [Figma comments](https://developers.figma.com/docs/rest-api/comments-endpoints/)
+- [Figma webhook events](https://developers.figma.com/docs/rest-api/webhooks-events/)
 - [Figma webhook limits and permissions](https://developers.figma.com/docs/rest-api/webhooks/)
+- [Figma webhook security](https://developers.figma.com/docs/rest-api/webhooks-security/)
 - [Figma rate limits](https://developers.figma.com/docs/rest-api/rate-limits/)
 - [Expo notification tickets and receipts](https://docs.expo.dev/push-notifications/sending-notifications/)
 - [Expo runtime versions](https://docs.expo.dev/eas-update/runtime-versions/)

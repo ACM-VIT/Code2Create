@@ -129,13 +129,22 @@ When the review starts, the app caches the context required to finish that activ
 - problem, user, and evidence;
 - declared pre-existing work and third-party tools;
 - current demo state;
-- GitHub and Figma checkpoint summaries;
+- GitHub and Figma checkpoint manifests fixed to this review;
 - previous review findings and commitments;
 - changes claimed since the previous review;
 - active rubric and the reviewer’s criteria;
 - timer start and end time.
 
 The app does not download another panel’s notes, private eligibility evidence, or peer score values.
+
+The evidence tab can open:
+
+- the GitHub topic/baseline/head state, activity charts, changed paths, commit facts, and repository tree at the captured SHA;
+- an authorised text file from that captured repository tree;
+- the Figma page/frame index, captured previews, layer properties, components, prototype flows, named versions, comment state, and changed-screen list;
+- freshness, completeness, truncation, rate-limit, and provider-access warnings.
+
+The review keeps the snapshot IDs chosen at start. If a newer provider snapshot arrives, the app may show **Newer evidence available** but cannot swap the scoring context. Review operations must explicitly restart or replace the context when policy requires it.
 
 If the reviewer notices a conflict that was not declared, **Report conflict** freezes that reviewer’s scorecard and alerts operations.
 
@@ -291,3 +300,6 @@ On a device handover, operations revokes the old device, registers the spare, an
 - A short offline edit survives app restart and syncs once.
 - An ambiguous submit response resolves to one submitted scorecard.
 - Logout or device revocation removes access and prevents queued operations from gaining authority.
+- A provider credential never enters the mobile cache, logs, or an evidence response.
+- An assigned reviewer can inspect only the repository files and Figma artifacts attached to that review’s captured snapshots.
+- A newer provider snapshot cannot silently replace the evidence fixed when the review started.

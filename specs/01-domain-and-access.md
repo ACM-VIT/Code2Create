@@ -89,8 +89,10 @@ An unmatched account sees a plain “not on the event roster” screen and a sup
 | Role grant | Application | Time-bound role with event and optional resource scope |
 | Roster entry | Application | Approved reviewer/staff invitation and first-sign-in claim |
 | Device | Application | Reviewer installation, app version, notification token, and revocation state |
+| Provider authorization | Application security boundary | One encrypted Figma App/user grant or GitHub App installation reference used only by server jobs |
+| Team integration | Team | Selected provider resource, status, checkpoints, statistics, and review visibility |
 
-The application does not copy session secrets or raw Google access tokens into its domain tables.
+The application does not copy session secrets or raw Google access tokens into its domain tables. Provider authorizations grant API access, but they do not own the connected repository/file or its captured evidence.
 
 ## 5. Roles and permissions
 
@@ -134,6 +136,7 @@ The web route guard improves navigation. It does not replace checks inside Conve
 
 - their own personal record;
 - members and project material for their teams;
+- their team’s GitHub/Figma resource, connection state, freshness, statistics, and checkpoints;
 - their team’s table, ready state, queue state, review status, and released feedback;
 - public event configuration and Synesthesia state.
 
@@ -147,6 +150,7 @@ Application reviewers see only applications assigned to them, the project/team f
 
 - their profile, device state, clock-in state, pages, and assignments;
 - project context for a currently assigned or recently completed review;
+- the GitHub/Figma manifests and captured repository/design evidence fixed to those reviews;
 - previous-round findings and commitments released to that review;
 - their own draft and submitted scorecards.
 
@@ -154,7 +158,7 @@ They cannot see peer score values before the configured reveal point, unrelated 
 
 ### Operations can see
 
-Operations views show what is needed to move the event: status, table, panel, timer, missing presence, missing scorecards, and exception reason. Score values require a separate review-administrator or board capability.
+Operations views show what is needed to move the event: status, table, panel, timer, missing presence, missing scorecards, integration health, and exception reason. Score values require a separate review-administrator or board capability. Raw provider credentials are never an operations capability.
 
 ## 7. Sessions and devices
 
@@ -176,7 +180,7 @@ The exact session settings live in security configuration and must be tested on 
 - The repair records the old link, new link, evidence, actor, and reason.
 - A claimed roster row cannot be claimed by another person until the first link is revoked.
 - A suspended person cannot create a new event membership through a fresh auth intent.
-- Deleting a Google or Figma connection does not delete judging records already captured from it.
+- Revoking Google identity, a GitHub installation, or a Figma authorization does not delete team-owned judging records already captured from it.
 
 ## 9. Audit
 
@@ -202,6 +206,8 @@ Normal page views are not written to the audit log.
 - An unrostered Google account receives no reviewer data.
 - Revoking a role blocks the next protected call without waiting for session expiry.
 - A duplicated callback cannot consume an auth intent twice or create two memberships.
+- A member leaving a team or revoking Figma cannot erase the team’s captured checkpoints; a current lead can replace the authorizer.
+- Two teams cannot claim the same provider resource in one event without an audited shared-resource exception.
 
 ## References
 

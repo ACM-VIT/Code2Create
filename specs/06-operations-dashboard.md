@@ -204,7 +204,22 @@ Protected actions:
 
 The dashboard does not expose live peer score values to floor operations.
 
-## 10. Scoring completeness
+## 10. Integration evidence and health
+
+The integration view is team-scoped. Each row shows:
+
+- provider, selected repository/file, and binding owner team;
+- GitHub topic, tracked branch, baseline/head SHA, last push, last reconciliation, and completeness;
+- Figma provider-last-touched, webhook-observed, metadata-checked, and full-content-captured times;
+- current snapshot IDs attached to each review;
+- installation, webhook, authorization, access, rate-limit, and Workpool state;
+- duplicate, out-of-order, truncated, stale, `content_dirty`, or reauthorization warnings.
+
+Participant, reviewer, and operations screens read the same materialised status records. The dashboard does not calculate cards by scanning raw provider events.
+
+Event administrators can request an idempotent reconciliation, request a full checkpoint, send a reauthorization prompt, disable a binding, or approve a documented shared-resource exception. An operator cannot reveal a token, change the captured evidence for an active review, or bypass provider backoff. Every manual retry and binding replacement keeps its actor and reason.
+
+## 11. Scoring completeness
 
 Review administrators receive a separate view containing:
 
@@ -221,7 +236,7 @@ The default view shows completeness, not a winner leaderboard during active revi
 
 An administrator can open a correction, void an invalid scorecard, or release scores under policy. They cannot type over a submitted score.
 
-## 11. Support desk
+## 12. Support desk
 
 Support cases can come from participant, reviewer, or staff screens.
 
@@ -240,7 +255,7 @@ Categories include identity, team, table, integration, queue, reviewer device, s
 
 A support case links to the relevant server records but grants no extra permissions.
 
-## 12. Protected command rules
+## 13. Protected command rules
 
 | Command | Minimum capability | Extra check |
 | --- | --- | --- |
@@ -259,7 +274,7 @@ A support case links to the relevant server records but grants no extra permissi
 
 High-impact commands show the current value, proposed value, affected records, and reason before submission.
 
-## 13. Live updates and conflicts
+## 14. Live updates and conflicts
 
 Dashboard panels subscribe to small, indexed Convex queries. A panel row updates when its reviewer, queue, page, review, or exception records change.
 
@@ -269,7 +284,7 @@ Commands that can collide include a current record version. If another operator 
 
 High-impact commands also carry a client operation ID. Repeating the same request after a timeout returns the first accepted result.
 
-## 14. Incident mode
+## 15. Incident mode
 
 An incident commander can post a banner with:
 
@@ -283,7 +298,7 @@ Round pause blocks new review starts but keeps active drafts available. The dash
 
 Manual incident records are reconciled after recovery under the reliability procedure.
 
-## 15. Privacy
+## 16. Privacy
 
 - Floor views use preferred names and event identifiers, not eligibility documents.
 - Phone numbers appear only to support/operations users who need to contact the person.
@@ -292,7 +307,7 @@ Manual incident records are reconciled after recovery under the reliability proc
 - Raw provider tokens and session details never appear in the dashboard.
 - Exports are purpose-labelled, time-limited, and logged.
 
-## 16. Acceptance checks
+## 17. Acceptance checks
 
 - Two dashboards receive the same panel/queue change without refresh.
 - An application reviewer cannot read an unassigned application or a peer recommendation before submission.
@@ -304,3 +319,6 @@ Manual incident records are reconciled after recovery under the reliability proc
 - A board override fails without a fresh session and reason.
 - Every after-freeze table move, manual queue priority, presence waiver, correction, and reopen appears in audit history.
 - A disconnected or stale dashboard cannot submit commands.
+- Participant, reviewer, and operations views agree on a team’s current integration snapshot and freshness.
+- A manual provider retry is deduplicated, respects stored backoff, and cannot alter an active review’s evidence.
+- No operations response or screen contains a GitHub installation token, Figma OAuth token, webhook secret, or raw credential record.

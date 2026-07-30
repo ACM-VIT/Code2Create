@@ -19,7 +19,7 @@ The password on this handbook only protects the specifications. It has no connec
 - Reviews are timed. The working policy is 10 minutes with one two-minute extension.
 - Reviewers score independently. Seniority does not change score weight.
 - The system may summarise project material, but it may not generate, change, or recommend a judging score.
-- GitHub and Figma connections record progress between review checkpoints.
+- GitHub repositories and Figma files are connected to the team, not the member who authorises them. Signed events, provider checks, full checkpoints, and derived statistics record progress without judging it.
 - The event is online-first. Bluetooth and peer-to-peer sync are not part of the build.
 
 ## Production baseline
@@ -29,7 +29,9 @@ The password on this handbook only protects the specifications. It has no connec
 | Participant and staff web | Next.js App Router | One deployment can serve participant and role-gated staff routes. |
 | Reviewer mobile | Expo, React Native, Expo Router | Native camera, notifications, secure session storage, and controlled builds. |
 | Authentication | Better Auth with Google only | Runs on the Convex deployment through the Convex-maintained adapter and works with Next.js and Expo. |
-| Live backend | Convex | Database transactions, reactive queries, HTTP endpoints, scheduled work, and file storage in one backend. |
+| Live backend | Convex | Transactions, reactive queries, HTTP endpoints, scheduled work, and small live records in one backend. |
+| Provider job control | `@convex-dev/workpool` | Bounds GitHub, Figma, push, and export work so provider bursts do not block review traffic. |
+| Large artifacts | Private S3 in `ap-south-1` | Stores compressed Figma checkpoints/previews, short-lived GitHub blob cache, exports, and backups outside one-megabyte live records. |
 | Reviewer paging | Expo Notifications | Background attention signal, backed by an in-app assignment and an operations fallback. |
 | Web hosting | Vercel | Preview, staging, and production Next.js deployments. |
 | Mobile delivery | EAS Build and Update | Signed reviewer builds and controlled release channels. |
@@ -50,7 +52,7 @@ Clerk is not used. There is no second application database, custom WebSocket ser
 
 Convex stores event state and pushes changed query results to authorised clients. A client only shows a score submission, review start, assignment, or round change as accepted after the server confirms it.
 
-Push notifications wake a reviewer but do not assign them. Local mobile storage protects an unfinished scorecard during a short connection loss but cannot finish a review. GitHub and Figma provide evidence snapshots; neither integration judges the team.
+Push notifications wake a reviewer but do not assign them. Local mobile storage protects an unfinished scorecard during a short connection loss but cannot finish a review. GitHub and Figma events feed bounded background jobs; Convex publishes the resulting team state immediately. Reviews stay pinned to exact evidence snapshots, and neither integration judges the team.
 
 ## Status language
 
@@ -89,7 +91,7 @@ An open policy must live in versioned event configuration or remain blocked. Cli
 - conflict-of-interest rules;
 - missed-call, hold, and queue re-entry rules;
 - reviewer and staff rosters;
-- data retention and participant feedback;
+- data retention, provider-evidence retention, artifact access, and participant feedback;
 - final tracks, awards, and sponsor track;
 - Synesthesia catalogue, playback source, and licensing.
 

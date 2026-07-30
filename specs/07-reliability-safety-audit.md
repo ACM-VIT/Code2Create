@@ -107,8 +107,8 @@ On restart, the app restores the current session, fetches `reviewer.now`, opens 
 | Google/Better Auth | New sign-ins or fresh-session checks fail | Existing valid sessions continue; support moves signed-in staff/reviewer work to prepared devices where allowed |
 | Convex | Core reads/writes fail | Pause new reviews; current reviewer drafts stay local; start incident procedure |
 | Expo Push | Background pages may not arrive | Dashboard, call, and runner fallback |
-| GitHub | Repository checkpoint cannot refresh | Keep last successful snapshot, show its time, accept live/manual evidence |
-| Figma | File checkpoint cannot refresh | Keep last successful snapshot, show its time, accept live/manual evidence |
+| GitHub | Push delivery or repository reconciliation fails | Keep the last verified head/checkpoint, show webhook and reconciliation ages separately, accept live/manual evidence |
+| Figma | Metadata, full content, comments, or previews cannot refresh | Keep the last complete checkpoint, show each freshness time and missing part, accept live/manual evidence |
 | Vercel | Participant/dashboard web may fail | Reviewer app may continue if Convex is healthy; operations uses prepared access route and incident pack |
 | Sentry | Crash reports delayed | Event functions continue; use Convex/operations logs |
 
@@ -170,8 +170,11 @@ A production restore is destructive. The incident commander takes a new backup f
 - failed auth callbacks and roster claims by reason;
 - web/reviewer crashes by release;
 - subscription reconnect rate;
-- webhook signature failures and retry age;
-- external API errors and rate limits;
+- GitHub signature failures, Figma passcode failures, duplicate deliveries, and oldest unprocessed provider event;
+- separate GitHub, Figma, push, and export Workpool depth, running count, retry count, and oldest-job age;
+- external API errors, provider rate-limit budget, and stored retry time;
+- missing GitHub topic, installation/repository access loss, and webhook silence;
+- Figma metadata age, full-content age, `content_dirty` age, webhook state, and reauthorization count;
 - backup/export completion.
 
 ### Event operation
@@ -214,7 +217,10 @@ Routine reads, timer ticks, and draft autosaves are not audit events. Submitted 
 - QR tokens are opaque, short-lived, round-bound, and revocable.
 - Codes use enough entropy to prevent venue guessing and are rate-limited by user/device.
 - GitHub webhooks validate `X-Hub-Signature-256` against the raw request body.
-- Webhook delivery IDs are deduplicated.
+- GitHub `X-GitHub-Delivery` values are deduplicated before enrichment is queued.
+- Figma webhooks validate the encrypted per-webhook passcode, expected webhook ID, context/file key, and event type. Figma does not provide a GitHub-style HMAC signature.
+- Figma deliveries are deduplicated from the webhook, event, file, and provider timestamp fields before a job is queued.
+- Webhook endpoints acknowledge accepted envelopes quickly; provider API reads and snapshot work run in bounded Workpools.
 - Figma OAuth callbacks and Google auth intents use server-validated state.
 - Return URLs are same-origin allowlisted routes.
 
@@ -222,9 +228,12 @@ Routine reads, timer ticks, and draft autosaves are not audit events. Submitted 
 
 - Request only provider scopes named in the integration specification.
 - Store provider tokens only server-side and encrypt refresh/access tokens with an application key.
+- Store one Figma authorization per Figma App/user grant and reference it from team-owned file bindings; never copy refresh tokens into team records.
 - Keep auth secrets, Google client secrets, GitHub private key, webhook secrets, Figma secret, Expo credentials, and backup credentials out of client bundles and source control.
 - Do not put project text, scores, phone numbers, or provider tokens in push payloads or error logs.
 - Redact auth headers and cookies before Sentry or structured logging.
+- Store compressed Figma files, previews, and temporary GitHub source blobs in the private artifact bucket. Reviewers receive short-lived URLs only after assignment and snapshot checks.
+- Raw provider payloads and source/design artifacts follow explicit evidence-retention periods; derived judging records keep only the approved manifest and facts.
 - Exports containing personal data use restricted storage and an expiry date.
 - Data-retention and deletion periods require event-board approval before registration.
 
@@ -235,7 +244,9 @@ Routine reads, timer ticks, and draft autosaves are not audit events. Submitted 
 - Duplicate-submit, stale-write, lost-response, and app-restart tests pass.
 - Manual-mode sheets and two-person reconciliation are rehearsed.
 - Convex backup download and staging restore are proven.
-- GitHub/Figma disconnect and stale-evidence states are tested.
+- GitHub topic present/missing, duplicate/out-of-order push, force-push, access loss, and stale reconciliation states are tested.
+- Figma PKCE, passcode webhook, view-only fallback, metadata/content divergence, rate-limit backoff, reauthorization, and artifact access are tested.
+- A provider-event burst cannot exhaust review writes or the scheduler; Workpool limits and alert thresholds are verified at event scale.
 - Operations can pause starts, page a substitute, move a table, handle a wrong QR, and close a round in the rehearsal.
 - No known path can edit another reviewer’s submitted score or grant itself a staff role.
 

@@ -27,7 +27,7 @@ This register separates source requirements from implementation choices and unre
 | C-019 | The working round model is two ordinary reviews followed by a final round. |
 | C-020 | Project onboarding is question-by-question and does not require a PPT. |
 | C-021 | Teams disclose previous work and third-party tools. |
-| C-022 | Teams connect GitHub and Figma so reviewers can inspect progress checkpoints. |
+| C-022 | GitHub and Figma resources, live progress facts, and checkpoints are team-scoped; assigned reviewers can inspect the captured repository/design rather than a member-owned metadata link. |
 | C-023 | The application uses normal internet/HTTP connectivity. Bluetooth/P2P is not committed. |
 | C-024 | Synesthesia accepts participant requests and votes while staff retain playback control. |
 | C-025 | Five tracks are planned with room for a sponsor track. Mandatory problem statements were not adopted. |
@@ -43,17 +43,19 @@ This register separates source requirements from implementation choices and unre
 | T-003 | Store event roles in application tables, separate from the auth session | Roster revocation takes effect without changing provider identity |
 | T-004 | Next.js for participant and staff web routes | One web codebase and deployment |
 | T-005 | Expo/React Native for the reviewer application | Native camera, push, secure storage, and controlled builds |
-| T-006 | Convex for application records, transactions, reactive queries, HTTP endpoints, scheduled work, and file storage | One live backend for all three clients |
+| T-006 | Convex for application records, transactions, reactive queries, HTTP endpoints, scheduling, and file storage; Workpool for bounded provider jobs | One live backend for all three clients without letting provider bursts starve review traffic |
 | T-007 | Expo Notifications for reviewer pages, with in-app acknowledgement and call/runner fallback | Push can attract attention but cannot be trusted as assignment state |
 | T-008 | Vercel for web and EAS for mobile delivery | Production-grade Next.js and signed Expo releases |
 | T-009 | pnpm workspaces without Turborepo | The first codebase has two apps and one shared package; another build layer is unnecessary |
 | T-010 | Sentry for client crash reporting, with domain history kept in Convex | Technical errors and event decisions have different records |
-| T-011 | GitHub App with read-only Contents/Metadata access and signed push webhooks | No participant personal access token or write permission |
-| T-012 | Figma OAuth with metadata/version scopes and checkpoint polling | File webhooks require permissions and have plan limits that do not fit hundreds of participant files |
+| T-011 | GitHub App with read-only Contents/Metadata, signed push webhooks, required-topic verification, derived live statistics, and a snapshot-SHA repository view | No participant token or repository write; GitHub requires broad Administration write to replace topics |
+| T-012 | Figma OAuth with metadata/content/version/comment read plus file-webhook management, adaptive metadata heartbeat, full checkpoints, previews, and derived design statistics | Gives reviewers real design evidence while respecting edit-permission and Tier 1 rate limits |
 | T-013 | Deterministic reviewer/panel routing rules | Assignments can be explained and reproduced without an AI decision |
 | T-014 | One encrypted local reviewer draft for the active review | Protects short connection loss without creating a second event database |
 | T-015 | Final scorecard submission, review start, assignment, and round changes require server confirmation | Client cache and push cannot claim judging state |
-| T-016 | Private versioned S3 bucket in `ap-south-1` for round exports and downloaded backups, pending VIT policy approval | Keeps recovery copies outside the live backend with restricted access |
+| T-016 | Private versioned S3 bucket in `ap-south-1` for Figma artifacts/previews, short-lived GitHub blob cache, round exports, and downloaded backups, pending VIT policy approval | Large immutable artifacts stay outside one-megabyte live records and use restricted signed access |
+| T-017 | `teamIntegrations` owns each provider resource; Figma OAuth grants are encrypted once per Figma App/user and can be replaced by a team lead | Team access survives member changes without duplicating refresh tokens |
+| T-018 | Materialised provider facts and hourly metric buckets | Live cards and charts do not scan webhook history or wait for provider statistics endpoints |
 
 ## 3. Working assumptions
 
@@ -98,6 +100,7 @@ This register separates source requirements from implementation choices and unre
 | O-021 | Review transcription/recording | Event board | Deferred unless consent, privacy, and retention are approved |
 | O-022 | Whether GitHub/Figma are mandatory for every team, accepted alternatives, and baseline deadline | Review leads | Before project onboarding opens |
 | O-023 | Admission criteria, minimum application reviewers, venue/track capacity, waitlist order, offer deadline, and published decision detail | Event board + admissions lead | Before applications open |
+| O-024 | Figma comment visibility and retention, full-design evidence retention, and who may download raw checkpoints | Event board + VIT policy owner | Before Figma OAuth consent text is published |
 
 ## 5. Rejected or deferred
 
@@ -118,9 +121,11 @@ This register separates source requirements from implementation choices and unre
 | X-013 | Default review audio recording/transcription | Deferred |
 | X-014 | A participant mobile app | Deferred; responsive web covers participant work |
 | X-015 | Participant GitHub personal access tokens | Rejected; use a GitHub App installation |
-| X-016 | One Figma webhook per team file | Rejected for permission, rate, and plan-limit reasons |
-| X-017 | Store or judge full source/design files by default | Rejected; capture metadata and progress evidence |
+| X-016 | Figma webhook-only sync | Rejected; `FILE_UPDATE` may wait for inactivity and file webhooks need edit access/capacity, so metadata heartbeat and checkpoints remain required |
+| X-017 | Continuously clone every source blob or treat every Figma autosave as a permanent judging record | Rejected; browse GitHub at a captured SHA and retain explicit Figma checkpoints under policy |
 | X-018 | Sponsor CRM, speaker management, or public social feed in the event backend | Outside scope |
+| X-019 | Give the main GitHub App Administration write only to add `code2create-7-0` | Rejected; verify the topic read-only and ask a repository administrator to add it |
+| X-020 | Attach a provider resource to the individual who clicked Connect | Rejected; event ownership and visibility are team-scoped |
 
 ## 6. Change procedure
 
