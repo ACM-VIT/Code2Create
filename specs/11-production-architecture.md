@@ -211,7 +211,7 @@ Examples:
 - `pages.accept` changes reviewer Now, panel staffing, and the operations exception list.
 - `reviews.start` changes participant state, reviewer context, panel row, queue, and active-review board.
 - `scorecards.submit` changes the reviewer receipt and operations completeness; it does not reveal the value to other reviewers.
-- A verified GitHub push changes the team activity card before its slower enrichment job completes.
+- A verified GitHub push changes that repository row and the team rollup before its slower enrichment job completes.
 - A Figma metadata version change marks content dirty, then a completed snapshot replaces the derived design view.
 
 Large boards subscribe to indexed summaries and paginated detail. They do not subscribe to every raw event record and filter it in the browser.
@@ -239,7 +239,7 @@ Convex file storage contains:
 
 Access uses authorised functions. A Convex storage ID is never treated as permission, and a generated Convex file URL is a bearer URL rather than an expiring authorization token. Protected small files are served through an HTTP action after a capability check; artifacts that require expiring signed access use private S3.
 
-Full Figma JSON and captured previews go to private S3 because they can exceed Convex document/HTTP-response limits and need expiring signed access. GitHub source is fetched at a pinned SHA when an assigned reviewer opens a file; only a short-lived encrypted blob cache may be stored. Convex keeps manifests, checksums, hashes, and derived metrics.
+Full Figma JSON and captured previews go to private S3 because they can exceed Convex document/HTTP-response limits and need expiring signed access. GitHub source is fetched from the selected repository at its pinned SHA when an assigned reviewer opens a file; only a short-lived encrypted blob cache may be stored. Convex keeps repository/checkpoint-set manifests, checksums, hashes, and derived metrics.
 
 ## 14. Deployment
 
@@ -297,6 +297,7 @@ Business history stays in domain records and audit events. Sentry is not the jud
 - A stale or duplicate high-impact write cannot create a second review, assignment, or scorecard.
 - External provider failure cannot hold open a Convex transaction.
 - A burst of provider events stays inside configured Workpool concurrency and does not starve review writes.
+- One team can add repositories from several GitHub App installations, classify and reorder them, and freeze all of them in one review checkpoint set.
 - Team integration access follows the team binding even when the Figma authorizer changes.
 - Production secrets do not appear in web/mobile bundles, logs, source control, or push payloads.
 - Current production mobile builds remain compatible through a backend deploy and rollback rehearsal.

@@ -107,7 +107,7 @@ On restart, the app restores the current session, fetches `reviewer.now`, opens 
 | Google/Better Auth | New sign-ins or fresh-session checks fail | Existing valid sessions continue; support moves signed-in staff/reviewer work to prepared devices where allowed |
 | Convex | Core reads/writes fail | Pause new reviews; current reviewer drafts stay local; start incident procedure |
 | Expo Push | Background pages may not arrive | Dashboard, call, and runner fallback |
-| GitHub | Push delivery or repository reconciliation fails | Keep the last verified head/checkpoint, show webhook and reconciliation ages separately, accept live/manual evidence |
+| GitHub | Push delivery or one repository reconciliation fails | Keep every other repository current, retain the failed repository’s last verified checkpoint, show partial completeness, and accept live/manual evidence |
 | Figma | Metadata, full content, comments, or previews cannot refresh | Keep the last complete checkpoint, show each freshness time and missing part, accept live/manual evidence |
 | Vercel | Participant/dashboard web may fail | Reviewer app may continue if Convex is healthy; operations uses prepared access route and incident pack |
 | Sentry | Crash reports delayed | Event functions continue; use Convex/operations logs |
@@ -173,7 +173,7 @@ A production restore is destructive. The incident commander takes a new backup f
 - GitHub signature failures, Figma passcode failures, duplicate deliveries, and oldest unprocessed provider event;
 - separate GitHub, Figma, push, and export Workpool depth, running count, retry count, and oldest-job age;
 - external API errors, provider rate-limit budget, and stored retry time;
-- missing GitHub topic, installation/repository access loss, and webhook silence;
+- missing GitHub topics, repository-set count drift, installation/repository access loss, and per-repository webhook silence;
 - Figma metadata age, full-content age, `content_dirty` age, webhook state, and reauthorization count;
 - backup/export completion.
 
@@ -244,7 +244,7 @@ Routine reads, timer ticks, and draft autosaves are not audit events. Submitted 
 - Duplicate-submit, stale-write, lost-response, and app-restart tests pass.
 - Manual-mode sheets and two-person reconciliation are rehearsed.
 - Convex backup download and staging restore are proven.
-- GitHub topic present/missing, duplicate/out-of-order push, force-push, access loss, and stale reconciliation states are tested.
+- Multiple GitHub installations, repository kinds, add/archive/reorder, topic present/missing, duplicate/out-of-order push, fork overlap, partial access loss, and stale per-repository reconciliation are tested.
 - Figma PKCE, passcode webhook, view-only fallback, metadata/content divergence, rate-limit backoff, reauthorization, and artifact access are tested.
 - A provider-event burst cannot exhaust review writes or the scheduler; Workpool limits and alert thresholds are verified at event scale.
 - Operations can pause starts, page a substitute, move a table, handle a wrong QR, and close a round in the rehearsal.

@@ -135,20 +135,20 @@ Review 1 records:
 - demonstrated baseline;
 - missing or weak evidence;
 - specific commitments for the next checkpoint;
-- GitHub and Figma snapshot IDs.
+- immutable evidence-checkpoint-set ID containing every declared repository and the Figma snapshot.
 
 Before Review 2, the team records what changed. Review 2 receives:
 
 - previous commitments;
 - team’s change summary;
-- old and new integration snapshots fixed by snapshot ID;
+- old and new evidence checkpoint sets fixed by ID;
 - current demonstration evidence.
 
 Progress is required evidence. The current rubric has no separate progress weight, so reviewers apply it only where it supports Working Solution, Original Team Contribution, Technical Execution, or another relevant criterion.
 
 Provider statistics do not calculate or suggest a score. Commit, line, file, node, version, and comment counts can help a reviewer locate change, but they cannot establish quality, effort, originality, or individual contribution. GitHub authors and Figma version/comment handles are observations from provider records, not a member-attribution system.
 
-The evidence context is immutable after the review starts. A later push or Figma refresh may be visible as a newer available snapshot, but scoring remains tied to the recorded baseline and checkpoint IDs unless review operations explicitly replaces the context and records why.
+The evidence context is immutable after the review starts. A later push, Figma refresh, or repository-set change may be visible as newer available evidence, but scoring remains tied to the recorded checkpoint-set ID unless review operations explicitly replaces the context and records why.
 
 Adding a separate weighted progress criterion is an open decision. The system does not create bonus points without that decision.
 
@@ -251,4 +251,4 @@ CSV supports operations analysis. JSON preserves version and relationship detail
 - No AI function can call a score-write function.
 - Review 2 context contains the exact Review 1 commitments and checkpoint references.
 - Provider activity counts cannot write, prefill, weight, or recommend a criterion score.
-- A submitted scorecard can be traced to the exact GitHub and Figma snapshot IDs shown during that review.
+- A submitted scorecard can be traced to the exact repository snapshots and Figma snapshot inside the checkpoint set shown during that review.

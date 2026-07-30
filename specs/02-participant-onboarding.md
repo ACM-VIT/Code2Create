@@ -101,7 +101,7 @@ Submitting creates a project version containing:
 
 - answers and disclosures;
 - track selection;
-- repository and Figma links;
+- ordered repository set with declared kinds/purposes and the Figma link;
 - demo URL, if present;
 - version number;
 - submitting member;
@@ -147,24 +147,26 @@ Selection criteria, reviewer count, capacity/track quotas, decision visibility, 
 
 ## 7. GitHub and Figma
 
-The project page contains separate team connection cards. A connection belongs to the team, so every active member sees the same resource, freshness, statistics, and checkpoints. A team lead confirms, replaces, or disconnects it.
+The project page contains separate team connection cards. Connections belong to the team, so every active member sees the same resources, freshness, statistics, and checkpoints. A team lead confirms, classifies, reorders, replaces, or disconnects them.
 
 ### GitHub
 
-The team lead installs the Code2Create GitHub App on one selected repository and chooses the branch and optional project root the team will present. The portal verifies the required `code2create-7-0` topic.
+The GitHub card is an ordered repository list. A lead can add every repository used by the project, including repositories reached through different GitHub App installations. Each row requires a kind, short purpose, tracked branch, and optional project root. Supported kinds cover full product, frontend, backend/API, mobile, desktop, AI/ML, data pipeline, hardware/firmware, infrastructure, library/SDK, docs/research, and a labelled **Other**.
 
-The App has Metadata read and Contents read. GitHub requires Administration write to replace repository topics, so the production App does not auto-add a missing topic. The card gives the exact topic to a repository administrator and rechecks it.
+Every active repository must contain `code2create-7-0`. The App has Metadata read and Contents read. GitHub requires Administration write to replace repository topics, so the production App does not auto-add a missing topic. Each affected row gives the exact topic to that repository’s administrator and rechecks it.
 
-The team card updates from signed pushes and shows:
+Each repository row updates from signed pushes and shows:
 
-- topic, installation, repository, and tracked-branch state;
+- kind, purpose, topic, installation, repository, and tracked branch/root;
 - baseline and current head;
 - latest push and reconciliation time;
 - commits/pushes, linked and unknown authors, additions/deletions, changed files, languages, and top changed directories;
 - force-push, branch, access, rate-limit, truncation, and stale warnings;
 - captured checkpoint history.
 
-Counts are evidence, not a team-member leaderboard. Any team member can open the captured tree and text files at a checkpoint SHA; provider credentials never reach the browser.
+Above the list, the team sees repository/kind count, topic coverage, combined activity, and complete/expected repositories. Combined totals identify overlapping commits across forks and never hide a failed repository. Counts are evidence, not a team-member leaderboard.
+
+Any team member can switch repositories and open the captured tree and text files at that repository’s checkpoint SHA. Provider credentials never reach the browser. Archiving a repository removes it from future checkpoint sets without deleting its earlier evidence.
 
 ### Figma
 
@@ -176,9 +178,9 @@ The backend uses a file webhook when the authorizer can edit and the Figma plan 
 
 ### Disclosure
 
-Teams must disclose work that predates the event even if the repository or design file is new. Integration activity is evidence, not proof of originality and not a score.
+Teams must disclose work that predates the event even if a repository or design file is new. Integration activity is evidence, not proof of originality and not a score.
 
-If the project does not use GitHub or Figma, the team explicitly marks that provider as not used and describes the alternative evidence it will present. A connection made after the event baseline deadline is labelled late. The same repository or Figma file cannot be claimed by another event team without an administrator-reviewed shared-resource exception.
+If the project does not use GitHub or Figma, the team explicitly marks that provider as not used and describes the alternative evidence it will present. A repository added after the event baseline deadline is labelled late. The same repository or Figma file cannot be claimed by another event team without an administrator-reviewed shared-resource exception.
 
 ## 8. Registration and project states
 

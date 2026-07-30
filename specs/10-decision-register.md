@@ -27,7 +27,7 @@ This register separates source requirements from implementation choices and unre
 | C-019 | The working round model is two ordinary reviews followed by a final round. |
 | C-020 | Project onboarding is question-by-question and does not require a PPT. |
 | C-021 | Teams disclose previous work and third-party tools. |
-| C-022 | GitHub and Figma resources, live progress facts, and checkpoints are team-scoped; assigned reviewers can inspect the captured repository/design rather than a member-owned metadata link. |
+| C-022 | GitHub and Figma resources, live progress facts, and checkpoints are team-scoped; a team can submit several classified repositories, and assigned reviewers inspect the frozen repository set/design rather than a member-owned metadata link. |
 | C-023 | The application uses normal internet/HTTP connectivity. Bluetooth/P2P is not committed. |
 | C-024 | Synesthesia accepts participant requests and votes while staff retain playback control. |
 | C-025 | Five tracks are planned with room for a sponsor track. Mandatory problem statements were not adopted. |
@@ -48,7 +48,7 @@ This register separates source requirements from implementation choices and unre
 | T-008 | Vercel for web and EAS for mobile delivery | Production-grade Next.js and signed Expo releases |
 | T-009 | pnpm workspaces without Turborepo | The first codebase has two apps and one shared package; another build layer is unnecessary |
 | T-010 | Sentry for client crash reporting, with domain history kept in Convex | Technical errors and event decisions have different records |
-| T-011 | GitHub App with read-only Contents/Metadata, signed push webhooks, required-topic verification, derived live statistics, and a snapshot-SHA repository view | No participant token or repository write; GitHub requires broad Administration write to replace topics |
+| T-011 | GitHub App with read-only Contents/Metadata, several repository bindings per team, declared repository kinds, signed push webhooks, required-topic verification, derived live statistics, and snapshot-SHA repository views | Covers split projects without a participant token or repository write; GitHub requires broad Administration write to replace topics |
 | T-012 | Figma OAuth with metadata/content/version/comment read plus file-webhook management, adaptive metadata heartbeat, full checkpoints, previews, and derived design statistics | Gives reviewers real design evidence while respecting edit-permission and Tier 1 rate limits |
 | T-013 | Deterministic reviewer/panel routing rules | Assignments can be explained and reproduced without an AI decision |
 | T-014 | One encrypted local reviewer draft for the active review | Protects short connection loss without creating a second event database |
@@ -56,6 +56,7 @@ This register separates source requirements from implementation choices and unre
 | T-016 | Private versioned S3 bucket in `ap-south-1` for Figma artifacts/previews, short-lived GitHub blob cache, round exports, and downloaded backups, pending VIT policy approval | Large immutable artifacts stay outside one-megabyte live records and use restricted signed access |
 | T-017 | `teamIntegrations` owns each provider resource; Figma OAuth grants are encrypted once per Figma App/user and can be replaced by a team lead | Team access survives member changes without duplicating refresh tokens |
 | T-018 | Materialised provider facts and hourly metric buckets | Live cards and charts do not scan webhook history or wait for provider statistics endpoints |
+| T-019 | One GitHub team integration owns an ordered repository set; each repository has a kind/purpose and independent snapshots; reviews reference an immutable evidence checkpoint set | Repository membership or classification can change without rewriting evidence used by an active or completed review |
 
 ## 3. Working assumptions
 
@@ -101,6 +102,7 @@ This register separates source requirements from implementation choices and unre
 | O-022 | Whether GitHub/Figma are mandatory for every team, accepted alternatives, and baseline deadline | Review leads | Before project onboarding opens |
 | O-023 | Admission criteria, minimum application reviewers, venue/track capacity, waitlist order, offer deadline, and published decision detail | Event board + admissions lead | Before applications open |
 | O-024 | Figma comment visibility and retention, full-design evidence retention, and who may download raw checkpoints | Event board + VIT policy owner | Before Figma OAuth consent text is published |
+| O-025 | Maximum active GitHub repositories per team after registered-scale and rate-budget testing | Engineering lead + event operations | Before GitHub connection opens |
 
 ## 5. Rejected or deferred
 
@@ -126,6 +128,7 @@ This register separates source requirements from implementation choices and unre
 | X-018 | Sponsor CRM, speaker management, or public social feed in the event backend | Outside scope |
 | X-019 | Give the main GitHub App Administration write only to add `code2create-7-0` | Rejected; verify the topic read-only and ask a repository administrator to add it |
 | X-020 | Attach a provider resource to the individual who clicked Connect | Rejected; event ownership and visibility are team-scoped |
+| X-021 | Force each team into one primary GitHub repository | Rejected; one team integration owns several classified repository bindings |
 
 ## 6. Change procedure
 

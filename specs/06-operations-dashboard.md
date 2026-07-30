@@ -208,10 +208,10 @@ The dashboard does not expose live peer score values to floor operations.
 
 The integration view is team-scoped. Each row shows:
 
-- provider, selected repository/file, and binding owner team;
-- GitHub topic, tracked branch, baseline/head SHA, last push, last reconciliation, and completeness;
+- provider, active GitHub repository count or Figma file state, and binding owner team;
+- one GitHub child row per repository with kind, purpose, topic, tracked branch/root, baseline/head SHA, last push, last reconciliation, and completeness;
 - Figma provider-last-touched, webhook-observed, metadata-checked, and full-content-captured times;
-- current snapshot IDs attached to each review;
+- current checkpoint-set IDs attached to each review;
 - installation, webhook, authorization, access, rate-limit, and Workpool state;
 - duplicate, out-of-order, truncated, stale, `content_dirty`, or reauthorization warnings.
 

@@ -90,9 +90,9 @@ An unmatched account sees a plain “not on the event roster” screen and a sup
 | Roster entry | Application | Approved reviewer/staff invitation and first-sign-in claim |
 | Device | Application | Reviewer installation, app version, notification token, and revocation state |
 | Provider authorization | Application security boundary | One encrypted Figma App/user grant or GitHub App installation reference used only by server jobs |
-| Team integration | Team | Selected provider resource, status, checkpoints, statistics, and review visibility |
+| Team integration | Team | Selected provider resources, repository classifications, checkpoint sets, statistics, and review visibility |
 
-The application does not copy session secrets or raw Google access tokens into its domain tables. Provider authorizations grant API access, but they do not own the connected repository/file or its captured evidence.
+The application does not copy session secrets or raw Google access tokens into its domain tables. Provider authorizations grant API access, but they do not own the connected repository set, Figma file, or captured evidence.
 
 ## 5. Roles and permissions
 
@@ -150,7 +150,7 @@ Application reviewers see only applications assigned to them, the project/team f
 
 - their profile, device state, clock-in state, pages, and assignments;
 - project context for a currently assigned or recently completed review;
-- the GitHub/Figma manifests and captured repository/design evidence fixed to those reviews;
+- the frozen GitHub repository-set/Figma manifest and captured evidence fixed to those reviews;
 - previous-round findings and commitments released to that review;
 - their own draft and submitted scorecards.
 

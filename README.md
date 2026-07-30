@@ -19,7 +19,7 @@ The password on this handbook only protects the specifications. It has no connec
 - Reviews are timed. The working policy is 10 minutes with one two-minute extension.
 - Reviewers score independently. Seniority does not change score weight.
 - The system may summarise project material, but it may not generate, change, or recommend a judging score.
-- GitHub repositories and Figma files are connected to the team, not the member who authorises them. Signed events, provider checks, full checkpoints, and derived statistics record progress without judging it.
+- Teams can connect several GitHub repositories, declare each repository’s kind and purpose, and connect a Figma file. Signed events, provider checks, frozen checkpoint sets, and derived statistics record progress without judging it.
 - The event is online-first. Bluetooth and peer-to-peer sync are not part of the build.
 
 ## Production baseline

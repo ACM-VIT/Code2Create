@@ -153,7 +153,7 @@ Sensitive eligibility evidence, if required, is stored as a protected file refer
 - name, slug, timezone;
 - registration/check-in/event windows;
 - status;
-- active participant, project-form, admission, security, retention, and Synesthesia configuration IDs;
+- active participant, project-form, admission, integration, security, retention, and Synesthesia configuration IDs;
 - hosted-domain allowlist;
 - active incident ID;
 - production release metadata.
@@ -163,14 +163,14 @@ Sensitive eligibility evidence, if required, is stored as a protected file refer
 Versioned non-round policy.
 
 - `eventId`;
-- `kind: participant_policy | project_form | admission_policy | security | retention | synesthesia`;
+- `kind: participant_policy | project_form | admission_policy | integration_policy | security | retention | synesthesia`;
 - version number;
 - typed configuration payload for that kind;
 - `status: draft | published | superseded`;
 - published actor/time;
 - checksum.
 
-The admission payload contains minimum application reviewers, venue/track capacity, waitlist ordering, offer expiry, and decision-publication rules. The project-form payload contains stable question keys and limits. Published versions are immutable.
+The admission payload contains minimum application reviewers, venue/track capacity, waitlist ordering, offer expiry, and decision-publication rules. The project-form payload contains stable question keys and limits. The integration payload contains the active-repository cap, required topic, repository-kind enum version, checkpoint schedule, and refresh budgets. Published versions are immutable.
 
 ### `rounds`
 
@@ -248,8 +248,9 @@ Immutable submission snapshots.
 - `eventId`, `teamId`
 - project version number;
 - copied answers/disclosures/links;
+- ordered GitHub binding declarations `{ bindingId, kind, customKind?, purpose, trackedBranch, rootPath? }` and Figma binding ID;
 - track;
-- project-form and participant-policy configuration IDs;
+- project-form, participant-policy, and integration-policy configuration IDs;
 - source draft version;
 - submitted by/at;
 - supersedes project version ID when applicable.
@@ -442,7 +443,7 @@ The first accepted page in a chain closes competing pages in the same mutation.
 - server `startedAt`;
 - base duration and extension seconds;
 - project-version ID;
-- GitHub/Figma snapshot IDs;
+- immutable evidence-checkpoint-set ID;
 - rubric-version and panel-plan IDs;
 - criterion-assignment snapshot;
 - completed/void actor, time, reason;
@@ -605,21 +606,22 @@ Indexes support event/time and target/time lookup.
 
 ### `teamIntegrations`
 
-The ownership boundary for a connected provider resource.
+The ownership boundary for a team’s connected provider resources.
 
 - `eventId`, `teamId`;
 - provider `github | figma`;
-- `state: setup | active | content_dirty | stale | reauth_required | inaccessible | revoked | replaced`;
-- active provider-binding ID;
-- baseline/current snapshot IDs;
+- `state: setup | active | degraded | content_dirty | stale | reauth_required | inaccessible | revoked | replaced`;
+- active binding count and aggregate health/completeness;
+- configured resource cap when the provider supports several bindings;
+- baseline/current checkpoint-set IDs;
 - connection version;
 - last provider event, metadata check, successful full sync, and error category/time;
 - connected, replaced, or revoked actor/time;
 - late-baseline and shared-resource-override flags.
 
-One active integration exists per event/team/provider. A second uniqueness check prevents the same provider resource from being active for two teams in one event unless an administrator records an override.
+One active integration exists per event/team/provider. Its GitHub integration owns an ordered set of active repository bindings; its Figma integration currently owns one active file binding. A resource-level uniqueness check prevents the same repository or file from being active for two teams in one event unless an administrator records an override.
 
-The team integration does not contain a participant-owned token. Team members read one shared projection, a team lead changes the binding, and a review session references a frozen snapshot.
+The GitHub integration is `degraded` when at least one active repository is missing, inaccessible, stale, or incomplete while another remains usable. The team integration does not contain a participant-owned token. Team members read one shared projection, a team lead changes the binding set, and a review session references one frozen evidence checkpoint set.
 
 ### `githubInstallations`
 
@@ -632,20 +634,24 @@ One GitHub App installation can serve several team repository bindings.
 - `state: active | suspended | deleted | permissions_outdated`;
 - created, updated, and last webhook time.
 
-Installation access tokens are minted for one job, restricted to the selected repository and read permissions, and never persisted.
+Installation access tokens are minted for one job, restricted to that job’s repository and read permissions, and never persisted.
 
 ### `githubRepositoryBindings`
 
 - `eventId`, `teamId`, `integrationId`, `installationId`;
 - GitHub repository ID, owner/name, URL, visibility, fork/source metadata, and creation time;
+- `state: setup | active | inaccessible | revoked | archived | replaced`;
+- repository kind `full_product | frontend | backend_api | mobile_app | desktop_app | ai_ml | data_pipeline | hardware_firmware | infrastructure | library_sdk | docs_research | other`;
+- custom kind label when kind is `other`, required purpose, and display order;
 - default branch, tracked branch, optional root path;
 - required topic and `topicState: present | missing | unknown`;
 - first/last topic verification time;
 - baseline SHA, current head SHA, last push/provider time;
 - tree SHA, tree-truncated state, and last reconciliation time;
-- current API rate reset/error state.
+- current API rate reset/error state;
+- connected, classification-changed, archived, and replaced actor/time.
 
-The repository ID, not owner/name, is the durable external key. Binding replacement preserves the old binding and snapshots.
+The repository ID, not owner/name, is the durable external key. One integration can contain several active bindings and can reference several installations. Kind is declared by the team rather than inferred from source. Binding replacement preserves the old binding, classification history, and snapshots.
 
 ### `figmaAuthorizations`
 
@@ -688,9 +694,9 @@ GitHub uses `X-GitHub-Delivery`. Figma uses a stable hash of webhook ID, event t
 
 ### `githubCommitFacts`
 
-One derived row per integration/commit SHA seen after baseline.
+One derived row per repository binding/commit SHA seen after baseline.
 
-- `eventId`, `teamId`, `integrationId`, repository ID, commit SHA;
+- `eventId`, `teamId`, `integrationId`, binding ID, repository ID, commit SHA;
 - tracked ref and push-delivery reference;
 - authored/committed/provider-observed time;
 - linked GitHub author/committer IDs and logins when supplied;
@@ -704,18 +710,20 @@ Do not store commit email, raw message, patch, or source in this table.
 
 Materialised provider statistics for fast charts.
 
-- `eventId`, `teamId`, `integrationId`, provider;
+- `eventId`, `teamId`, `integrationId`, provider, optional binding ID;
+- scope `resource | team_rollup`;
 - bucket start and duration;
 - metric schema version;
 - counter values and bounded top lists;
 - source event/snapshot range;
 - completeness and computed time.
 
-Hourly GitHub buckets contain pushes, commits, additions, deletions, changed files, linked/unknown authors, and force pushes. Figma buckets contain observed metadata changes, full snapshots, changed top-level frames, named versions, and comment-state changes. Current totals are updated in the same mutation as the accepted derived facts; dashboards never scan every provider event to draw a card.
+Hourly GitHub resource buckets contain pushes, commits, additions, deletions, changed files, linked/unknown authors, and force pushes for one repository. Team rollups include repository/kind counts, topic coverage, the union of linked users, combined counters, overlap count, and complete/expected repository counts. Duplicate commit SHAs across connected forks count once in a combined total and remain visible in each resource bucket. Figma buckets contain observed metadata changes, full snapshots, changed top-level frames, named versions, and comment-state changes. Current totals are updated in the same mutation as the accepted derived facts; dashboards never scan every provider event to draw a card.
 
 ### `integrationSnapshots`
 
-- `eventId`, `teamId`, provider, integration/binding IDs;
+- `eventId`, `teamId`, provider, integration ID, provider-binding ID;
+- resource kind and display label at capture time;
 - checkpoint type `baseline | provider_refresh | review_window | review_start | round_close | manual_refresh`;
 - round/review references;
 - provider resource version;
@@ -725,7 +733,23 @@ Hourly GitHub buckets contain pushes, commits, additions, deletions, changed fil
 - freshness, completeness, truncation, and error state;
 - previous snapshot ID.
 
-GitHub snapshots contain the topic state, tracked/baseline/head SHAs, tree manifest, activity totals, changed-path summary, languages, discontinuities, and completeness. Figma snapshots contain file/version metadata, node and reuse statistics, named versions, comment counts, top-level-node hashes, changed-frame summary, and protected preview/artifact references.
+Each GitHub snapshot belongs to one repository binding and contains its declared kind/purpose, topic state, tracked/baseline/head SHAs, tree manifest, activity totals, changed-path summary, languages, discontinuities, and completeness. Figma snapshots contain file/version metadata, node and reuse statistics, named versions, comment counts, top-level-node hashes, changed-frame summary, and protected preview/artifact references.
+
+### `evidenceCheckpointSets`
+
+One immutable team evidence bundle used by a review or round transition.
+
+- `eventId`, `teamId`;
+- checkpoint type `baseline | review_window | review_start | round_close | manual_refresh`;
+- ordered GitHub entries `{ bindingId, repositoryId, kind, purpose, snapshotId?, stateAtCapture }`;
+- optional Figma entry `{ bindingId, snapshotId?, stateAtCapture }`;
+- expected and captured resource counts;
+- aggregate freshness/completeness and missing-resource reasons;
+- round/review references;
+- previous checkpoint-set ID;
+- created actor/time and manifest checksum.
+
+Every active repository appears even when its snapshot failed, so a missing backend repository cannot disappear from reviewer context. A review session stores this set’s ID. Later repository additions, removals, reordering, kind changes, or provider refreshes create another set and never mutate the first.
 
 ### `figmaNodeFacts`
 
@@ -812,12 +836,14 @@ Request, action `start | finish | skip | pause`, operator, provider reference, r
 | `teamIntegrations.by_event_provider_state` | Operations health board |
 | `githubInstallations.by_event_installation` | Resolve an App webhook installation |
 | `githubRepositoryBindings.by_event_repository_state` | Route a repository event and prevent duplicate use |
+| `githubRepositoryBindings.by_integration_state_order` | Ordered active repository set for one team |
 | `figmaAuthorizations.by_event_figma_user` | One refreshable Figma grant per provider user |
 | `figmaFileBindings.by_event_file_state` | Route a webhook and prevent duplicate use |
 | `providerEvents.by_provider_dedupe` | Ignore retries/replays |
-| `githubCommitFacts.by_integration_sha` | Idempotent commit enrichment |
-| `integrationMetricBuckets.by_integration_bucket` | Live provider charts without scans |
-| `integrationSnapshots.by_team_provider_time` | Compare checkpoints |
+| `githubCommitFacts.by_binding_sha` | Idempotent per-repository commit enrichment |
+| `integrationMetricBuckets.by_integration_scope_binding_bucket` | Per-resource and team-rollup charts without scans |
+| `integrationSnapshots.by_binding_time` | Compare one resource across checkpoints |
+| `evidenceCheckpointSets.by_team_time` | Load immutable multi-resource review evidence |
 | `figmaNodeFacts.by_snapshot_page_node` | Captured Figma page/frame browser |
 | `externalJobs.by_state_next_attempt` | Workpool/provider retry diagnostics |
 | `operationResults.by_actor_operation` | Resolve ambiguous writes |
@@ -839,7 +865,7 @@ Returns participant/team/project completion, application/admission state, offici
 
 ### `participant.integrationEvidence`
 
-Returns the caller's team-owned GitHub/Figma binding, topic/webhook state, current materialised metrics, latest snapshot summary, changed-frame/path lists, and freshness fields. It never returns an OAuth grant, installation token, S3 object key, or another team's provider resource.
+Returns the caller's team-owned GitHub repository set and Figma binding, repository kinds/purposes, topic/webhook state, per-resource and team-rollup metrics, latest checkpoint-set summary, changed-frame/path lists, and freshness fields. Repositories are ordered by the team’s display order. It never returns an OAuth grant, installation token, S3 object key, or another team's provider resource.
 
 ### `admissions.reviewQueue`
 
@@ -855,11 +881,11 @@ Returns clock-in state, active panel seat, current page, active session summary,
 
 ### `reviewer.activeContext`
 
-Returns the fixed project/rubric/integration context for the assigned active session and that reviewer’s scorecard.
+Returns the fixed project/rubric/evidence-checkpoint-set context for the assigned active session and that reviewer’s scorecard.
 
 ### `reviewer.integrationEvidence`
 
-Accepts only a snapshot ID already attached to the caller's assigned current/recent review. It returns the pinned GitHub tree and file-view capability or Figma page/frame facts and short-lived preview access. A newer live team snapshot may be advertised, but it does not replace the scoring context.
+Accepts only the checkpoint-set ID attached to the caller's assigned current/recent review. A GitHub request must also name a repository entry in that set. It returns the ordered repository index, the selected repository’s pinned tree and file-view capability, or Figma page/frame facts and short-lived preview access. A newer live team checkpoint set may be advertised, but it does not replace the scoring context.
 
 ### `operations.roundBoard`
 
@@ -867,7 +893,7 @@ Returns round state, panel summaries, team-state counts, critical exceptions, an
 
 ### `operations.integrationHealth`
 
-Returns one compact row per team/provider: connection state, required-topic/webhook state, provider/metadata/content ages, current job state, rate-limit wait, completeness, and next action. Detail queries expose event facts and metric buckets without returning credentials or raw artifacts.
+Returns one compact row per team/provider with active-resource count, aggregate state, topic/webhook coverage, provider/metadata/content ages, current job state, rate-limit wait, completeness, and next action. GitHub detail returns one child row per repository with kind, branch/root, topic, freshness, and job state. Detail queries expose event facts and metric buckets without returning credentials or raw artifacts.
 
 ### `operations.scoreCompleteness`
 
@@ -880,7 +906,7 @@ Subscriptions update only when records read by the query change. Screens use sta
 | Area | Main commands |
 | --- | --- |
 | Identity | create auth intent, provision participant, claim roster, revoke grant, register/revoke device |
-| Team/project | create/join/leave team, transfer lead, save draft, submit version, start/confirm/replace team integration |
+| Team/project | create/join/leave team, transfer lead, save draft, submit version, start/confirm team integration, add/classify/reorder/archive/replace repository |
 | Admissions | assign application, submit own recommendation, request information, publish decision, send/respond/expire offer, promote waitlist |
 | Venue | check in participant, assign/freeze table, report mismatch |
 | Round/panel | publish plan, clock in, mark unavailable, page substitute, accept/decline page |
@@ -930,7 +956,7 @@ The event board must set exact periods. The schema supports separate policies:
 - participant contact/eligibility data;
 - project versions;
 - provider credentials;
-- integration facts, snapshots, raw Figma artifacts, comments, previews, and short-lived GitHub blob cache;
+- integration bindings, checkpoint sets, facts, snapshots, raw Figma artifacts, comments, previews, and short-lived GitHub blob cache;
 - reviewer private notes;
 - submitted scorecards and audit events;
 - support/incident records;
@@ -954,8 +980,11 @@ Operational judging records use status/versions rather than hard deletion during
 - Round close cannot race past a required scorecard.
 - Live participant, reviewer, and operations views derive from the same operational records.
 - A provider resource cannot be active for two teams in one event without an audited override.
+- One team can hold several active GitHub repository bindings, including bindings from different App installations.
+- Every active repository has a kind, purpose, branch/root, baseline, independent status, metrics, and snapshots.
 - Replacing the member who authorised Figma does not change the team that owns the file evidence.
 - Duplicate GitHub/Figma provider events cannot increment a fact or metric twice.
-- A review session keeps its original snapshot IDs when a newer provider snapshot arrives.
+- A review session keeps its original evidence-checkpoint-set ID when repository membership, classification, order, or snapshots change.
+- Combined GitHub metrics identify incomplete repositories and duplicate commit overlap instead of silently double-counting or omitting them.
 - Provider credentials never appear in project, snapshot, job, query, audit, or error payloads.
 - A backup/restore and round export preserve every relation needed to reproduce totals and exception history.

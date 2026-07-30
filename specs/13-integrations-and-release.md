@@ -2,17 +2,17 @@
 
 ## 1. Integration rule
 
-The connected repository or file belongs to the Code2Create team record. It does not belong to the member who happens to install the GitHub App or finish Figma OAuth.
+The connected GitHub repositories and Figma file belong to the Code2Create team record. They do not belong to the member who happens to install the GitHub App or finish Figma OAuth.
 
-- A team lead connects, replaces, or disconnects a resource.
-- Every active team member can see connection health, progress facts, and captured checkpoints.
+- A team lead adds, classifies, reorders, replaces, or disconnects a resource.
+- Every active team member can see the same repository set, connection health, progress facts, and captured checkpoints.
 - An assigned reviewer can see the immutable checkpoint attached to that review.
 - Review operations can see live connection health and job failures across teams.
 - Provider credentials never enter a participant, reviewer, or operations client.
 
 GitHub and Figma record evidence. They do not calculate effort, originality, technical quality, or score. Every fact is labelled with its provider time, capture time, completeness, and previous checkpoint. A missing, late, rate-limited, or stale integration stays visible and the review continues with live/manual evidence.
 
-One GitHub repository and one Figma file can be active for only one team in the same event. An administrator may override a genuine shared-resource case with a reason; the exception appears to every affected reviewer.
+Each GitHub repository and Figma file can be active for only one team in the same event. An administrator may override a genuine shared-resource case with a reason; the exception appears to every affected reviewer.
 
 ## 2. GitHub App
 
@@ -29,13 +29,47 @@ Subscribe only to:
 - `installation`;
 - `installation_repositories`.
 
-The required repository topic is `code2create-7-0`. `GET /repos/{owner}/{repo}/topics` needs only Metadata read, so the production App checks the topic at connection, readiness, and every reconciliation.
+The required repository topic is `code2create-7-0`. `GET /repos/{owner}/{repo}/topics` needs only Metadata read, so the production App checks it for every active repository at connection, readiness, and reconciliation.
 
 GitHub's topic write endpoint is not a narrow “add topic” operation. `PUT /repos/{owner}/{repo}/topics` replaces the complete topic list and requires **Administration: write**. The selected production App therefore does not auto-write the topic. When it is missing, the portal shows the exact topic, asks a repository administrator to add it in GitHub, and rechecks without reinstalling the App.
 
 If the board later requires automatic topic repair, ship it as a separate elevated App registration after security approval. That path must fetch the current list, merge `code2create-7-0`, replace the list, and read it back. Do not add Administration write to the read-only evidence App.
 
-Do not request Contents write, Actions, Issues, pull requests, Secrets, Members, user email, or account-wide repository access. The installer chooses **Only select repositories** and grants one primary repository.
+Do not request Contents write, Actions, Issues, pull requests, Secrets, Members, user email, or account-wide repository access. The installer chooses **Only select repositories** and grants exactly the repositories the team wants to submit.
+
+### Repository set and kind
+
+A team can connect several repositories under one GitHub integration, including repositories from different GitHub App installations or organisations. One integration contains the team’s complete submitted repository set.
+
+Every active repository requires:
+
+- one repository kind;
+- a short purpose written by the team;
+- tracked branch;
+- optional project root when only part of a monorepo is relevant;
+- display order;
+- its own baseline, topic state, freshness, metrics, and checkpoint history.
+
+Repository kind is a required enum:
+
+| Value | Use |
+| --- | --- |
+| `full_product` | Full product or monorepo containing several application layers |
+| `frontend` | Web or other client-facing interface |
+| `backend_api` | API, server, worker, or backend service |
+| `mobile_app` | Android, iOS, or cross-platform mobile client |
+| `desktop_app` | Desktop client |
+| `ai_ml` | Model, agent, inference, training, or evaluation code |
+| `data_pipeline` | Data ingestion, transformation, analytics, or dataset tooling |
+| `hardware_firmware` | Firmware, embedded software, HDL, or hardware-control code |
+| `infrastructure` | Deployment, cloud, containers, observability, or infrastructure-as-code |
+| `library_sdk` | Shared package, SDK, plugin, or reusable library |
+| `docs_research` | Project documentation, specifications, experiments, or research material |
+| `other` | Another role; a custom kind label is required |
+
+The portal does not infer kind from languages or filenames. A team can change the kind or purpose before the integration freeze; the history records the previous values. External dependencies that the team cannot administer belong in the prior-work/tool disclosure, not in the connected-repository set.
+
+Versioned event configuration supplies `maxActiveGitHubRepositoriesPerTeam` after the registered scale and GitHub rate budget are tested, so the limit is an explicit event policy rather than a one-repository product constraint. The UI explains the configured cap and lets a lead archive an old binding without deleting its checkpoints.
 
 ### Team connection
 
@@ -44,16 +78,17 @@ Do not request Contents write, Actions, Issues, pull requests, Secrets, Members,
 3. GitHub opens the App installation or repository-selection flow.
 4. The callback validates the intent and resolves the installation.
 5. The portal lists only repositories currently granted to that installation.
-6. The lead selects one repository, one tracked branch, and an optional project root.
-7. The backend verifies that the repository is not already bound to another team in the event.
+6. **Add repository** asks for repository, tracked branch, optional project root, kind, custom kind when needed, purpose, and display order.
+7. The backend verifies the event cap and that the repository is not already bound to another team in the event.
 8. The backend reads repository metadata, topics, languages, the tracked head, and the commit/tree at that head.
-9. It records the baseline SHA, topic state, repository creation/fork metadata, and the first immutable snapshot.
+9. It records the repository baseline SHA, topic state, repository creation/fork metadata, and first immutable snapshot.
+10. The lead repeats the flow for every submitted repository and can start another App installation flow when the next repository belongs to a different account or organisation.
 
-The installation may be shared by several Code2Create teams owned by the same GitHub account, but each `teamIntegration` binds one team to one repository. The application never asks for a personal access token.
+One `teamIntegration` owns the ordered repository set. A GitHub installation can serve several repositories and several Code2Create teams, while one team can reference several installations. The application never asks for a personal access token.
 
 ### Authentication and API version
 
-The backend signs a short-lived GitHub App JWT and mints an installation access token restricted to the selected repository and read permissions. Installation tokens expire after one hour. Mint one for a provider job, keep it only in action memory, and discard it after the call.
+The backend signs a short-lived GitHub App JWT and mints an installation access token restricted to the repository needed by that job and to read permissions. Installation tokens expire after one hour. Mint one for a provider job, keep it only in action memory, and discard it after the call.
 
 Every REST request sends `Accept: application/vnd.github+json` and the pinned `X-GitHub-Api-Version: 2026-03-10` header. The API version is upgraded only after fixture and staging checks pass.
 
@@ -65,7 +100,7 @@ The Convex HTTP action:
 2. validates `X-Hub-Signature-256` with constant-time comparison;
 3. checks `X-GitHub-Event`, installation ID, and repository ID;
 4. deduplicates `X-GitHub-Delivery`;
-5. records the small provider event and advances the live head/health projection;
+5. resolves the repository binding, records the small provider event, and advances that repository plus the team summary projection;
 6. enqueues enrichment in the bounded integration Workpool;
 7. returns a 2xx response within GitHub's ten-second window.
 
@@ -75,7 +110,7 @@ Invalid signatures, unknown repositories, repeated deliveries, unsupported event
 
 ### Enrichment, statistics, and repository view
 
-For the tracked branch and optional project root, the worker uses the Commits, Compare, Git Trees, Contents, repository, topic, and language endpoints. It records:
+For each repository’s tracked branch and optional project root, the worker uses the Commits, Compare, Git Trees, Contents, repository, topic, and language endpoints. It records:
 
 - required-topic state and first/last verified time;
 - baseline SHA, current head SHA, head commit time, and ahead/behind state;
@@ -86,7 +121,11 @@ For the tracked branch and optional project root, the worker uses the Commits, C
 - force pushes, branch creation/deletion, default-branch changes, access loss, and delivery gaps;
 - last webhook time, last successful reconciliation, freshness, and completeness.
 
-The reviewer repository view is pinned to the snapshot SHA. It shows the tree and can fetch a selected text file through the Contents API at that SHA. Recursive Git tree results are marked incomplete if GitHub returns `truncated`; the worker then walks subtrees or shows the limit. Binary and oversized files are metadata-only. Source blobs may use a short-lived encrypted cache during a review window, but the system does not retain a permanent clone, archive, raw diff, commit email, or secret-bearing commit message.
+The participant and reviewer views show a repository switcher with kind, purpose, branch/root, topic, freshness, and completeness. Each repository view is pinned to that repository snapshot’s SHA. It shows the tree and can fetch a selected text file through the Contents API at that SHA. Recursive Git tree results are marked incomplete if GitHub returns `truncated`; the worker then walks subtrees or shows the limit. Binary and oversized files are metadata-only. Source blobs may use a short-lived encrypted cache during a review window, but the system does not retain a permanent clone, archive, raw diff, commit email, or secret-bearing commit message.
+
+The team summary is materialised from the active repository bindings. It contains per-kind counts, repository count, combined activity buckets, the union of linked GitHub users, topic coverage, and `completeRepositories / expectedRepositories`. Per-repository values stay beside the combined view. A commit SHA observed in two connected forks remains visible in both repository histories but counts once in the combined commit total; the summary records the overlap. Missing, inaccessible, or truncated repositories make the combined result incomplete.
+
+At each checkpoint, the backend captures every active repository independently, then creates one immutable checkpoint set containing the ordered repository binding/snapshot pairs and the Figma snapshot when present. A missing repository remains in the set with its failure state. Review start stores the checkpoint-set ID, so adding, removing, reordering, or refreshing a repository later cannot change the evidence already shown to reviewers.
 
 GitHub's repository-statistics endpoints are periodic enrichment only. They can return `202` while GitHub computes a cache, reset when the default-branch SHA changes, and do not support repositories with 10,000 or more commits. Live cards therefore come from signed pushes plus commit/compare reconciliation, not the cached statistics endpoints. Compare responses also cap the changed-file list at 300, so every metric carries a completeness flag.
 
@@ -94,13 +133,13 @@ Counts are context. Squashes, generated files, rebases, pair programming, and Gi
 
 ### Failure and revocation
 
-- Installation removal marks every affected team binding `revoked` and stops new jobs.
-- Repository-access removal marks the binding `inaccessible`.
+- Installation removal marks every affected repository binding `revoked` and stops its jobs.
+- Repository-access removal marks only that binding `inaccessible`; the other team repositories continue updating.
 - Rename or transfer resolves by repository ID on reconciliation.
 - A force push records the new head and a discontinuity; it never silently rewrites an earlier snapshot.
 - A deleted tracked branch requires the team to choose another branch and creates a new baseline relationship.
 - Rate-limit responses pause that installation's Workpool lane until reset; live clients keep the last verified data and its age.
-- Reconnection before freeze creates a new binding version and preserves earlier snapshots.
+- Removing or replacing a repository before freeze changes the active set and preserves earlier binding versions, snapshots, and checkpoint sets.
 
 ## 3. Figma OAuth and full design evidence
 
@@ -409,9 +448,12 @@ Token-encryption key rotation keeps the previous decrypt key until all active Fi
 
 - Production auth callbacks accept only production origins/schemes.
 - GitHub App permission screen contains no write/admin permission.
-- The portal verifies `code2create-7-0`; a missing topic does not cause an Administration permission request.
+- A team can add repositories from different App installations and give each a required kind, purpose, branch/root, and order.
+- The portal verifies `code2create-7-0` on every active repository; a missing topic does not cause an Administration permission request.
 - Invalid, repeated, or out-of-order GitHub webhook deliveries do not double-count activity.
-- A private repository can be browsed at the exact captured SHA without exposing an installation token.
+- Per-repository and combined metrics agree, duplicate fork commits are marked, and an inaccessible repository makes the combined view incomplete.
+- A reviewer can switch through every repository in the fixed checkpoint set and browse it at the exact captured SHA without exposing an installation token.
+- Adding, archiving, reordering, reclassifying, or refreshing a repository cannot change an existing review checkpoint set.
 - Figma OAuth requests the documented read scopes and creates a file webhook only when access and plan capacity allow it.
 - A captured Figma checkpoint includes the full file tree, derived statistics, and frame previews; the raw document does not enter a Convex document.
 - Provider rate limits leave an explicit metadata/content age and completeness state instead of blocking a review.

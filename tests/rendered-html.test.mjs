@@ -93,8 +93,11 @@ test("server-renders the authenticated Code2Create handbook", async () => {
   assert.match(html, /file_content:read/);
   assert.match(html, /@convex-dev\/workpool/);
   assert.match(html, /team-scoped/i);
+  assert.match(html, /maxActiveGitHubRepositoriesPerTeam/);
+  assert.match(html, /backend_api/);
+  assert.match(html, /evidenceCheckpointSets/);
   assert.doesNotMatch(
     html,
-    /vinext-starter|Workspace Auth Headers|Sign in with ChatGPT|Clerk with Google-only|does not fetch full document content|does not read the full design document/i,
+    /vinext-starter|Workspace Auth Headers|Sign in with ChatGPT|Clerk with Google-only|does not fetch full document content|does not read the full design document|one selected repository|grants one primary repository|binds one team to one repository/i,
   );
 });

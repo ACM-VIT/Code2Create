@@ -85,13 +85,14 @@ Exit after a dry run with at least five panels where staff handle a no-show, sta
 Deliver:
 
 - team-owned integration setup/replacement and provider-resource uniqueness;
-- GitHub App installation, `code2create-7-0` verification, signed push webhook, reconciliation, materialised statistics, and snapshot-SHA repository browser;
+- several GitHub repositories per team across App installations, required kind/purpose, add/reorder/archive flows, and an immutable checkpoint set;
+- per-repository `code2create-7-0` verification, signed push handling, reconciliation, materialised statistics, and snapshot-SHA repository browser;
 - Figma OAuth with PKCE, file selection, full document checkpoints, frame previews, version/comment context, file webhook when allowed, and metadata heartbeat fallback;
 - bounded provider Workpools, rate-limit state, deduplication, and integration diagnostics;
 - disclosure, late baseline, incomplete, stale, revoked, and reauthorization states;
 - Review 1 commitments and Review 2 context.
 
-Exit when two team members see one shared connection, a lead can replace its Figma authorizer, and an assigned reviewer can compare two pinned repository/design checkpoints without receiving a provider credential or generated score. The reviewer can browse the private repository at its captured SHA and inspect captured Figma pages, layers, frames, components, prototypes, comments, and freshness.
+Exit when two team members see the same ordered repository set and Figma connection, a lead can classify/reorder/archive repositories and replace the Figma authorizer, and an assigned reviewer can compare two pinned checkpoint sets without receiving a provider credential or generated score. The reviewer can switch through every included private repository at its captured SHA and inspect captured Figma pages, layers, frames, components, prototypes, comments, and freshness.
 
 ## 7. Slice 5: scoring and round close
 
@@ -188,7 +189,7 @@ Maestro and device tests cover Google sign-in, clock-in, page open, QR scan, bac
 
 ### Integration
 
-Signed/verified fixture payloads cover GitHub push/install/uninstall/repository removal, topic present/missing, force push, duplicate/out-of-order delivery, and comparison truncation. Figma fixtures cover OAuth state/PKCE/token refresh, passcode `PING`/`FILE_UPDATE`, duplicate delivery, view-only webhook failure, full-file parsing, render failure, metadata/content divergence, and `429 Retry-After`. Provider test accounts cover the live happy paths.
+Signed/verified fixture payloads cover repositories from several GitHub installations, add/classify/reorder/archive, push/install/uninstall/repository removal, topic present/missing per repository, fork overlap, force push, partial access loss, duplicate/out-of-order delivery, and comparison truncation. Figma fixtures cover OAuth state/PKCE/token refresh, passcode `PING`/`FILE_UPDATE`, duplicate delivery, view-only webhook failure, full-file parsing, render failure, metadata/content divergence, and `429 Retry-After`. Provider test accounts cover the live happy paths.
 
 ## 12. Load test
 
@@ -199,6 +200,7 @@ The provisional test envelope is:
 - 60 simultaneous active reviews;
 - 150 state-changing operations per minute;
 - dashboard subscriptions for all panels, queues, pages, and active sessions;
+- 1,000 active GitHub repository bindings spread across 330 teams and several App installations;
 - 500 GitHub push deliveries over two minutes with duplicates and out-of-order events;
 - metadata heartbeat across 330 Figma bindings plus 50 coalesced full-content jobs;
 - provider Workpool backlog while review mutations continue at the target latency;
@@ -226,11 +228,13 @@ The final rehearsal includes:
 12. A score criterion lacks the minimum coverage.
 13. GitHub/Figma checkpoint is stale.
 14. GitHub topic is missing and the read-only App cannot add it.
-15. Figma authorizer is revoked, another lead reconnects, and earlier snapshots remain.
-16. A Figma View/Collab rate limit permits metadata but defers full content.
-17. Convex becomes unavailable and the round pauses.
-18. One manual paper review is entered and verified.
-19. Round export and integration artifact are checked and restored into staging.
+15. A team adds frontend, backend, and model repositories from two installations; one loses access while the other two remain current.
+16. A repository is archived after Review 1, and Review 1 still opens its original three-repository checkpoint set.
+17. Figma authorizer is revoked, another lead reconnects, and earlier snapshots remain.
+18. A Figma View/Collab rate limit permits metadata but defers full content.
+19. Convex becomes unavailable and the round pauses.
+20. One manual paper review is entered and verified.
+21. Round export and integration artifact are checked and restored into staging.
 
 Every scenario has an owner, expected screen state, recovery action, and pass/fail result.
 
