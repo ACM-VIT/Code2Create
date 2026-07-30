@@ -68,6 +68,10 @@ export function DocsShell({ documents }: { documents: DocumentItem[] }) {
 
   const active =
     documents.find((document) => document.slug === activeSlug) ?? documents[0];
+  const activeIndex = documents.findIndex(
+    (document) => document.slug === active.slug,
+  );
+  const nextDocument = documents[(activeIndex + 1) % documents.length];
   const headings = useMemo(() => headingsFrom(active.content), [active.content]);
 
   const results = useMemo(() => {
@@ -119,33 +123,27 @@ export function DocsShell({ documents }: { documents: DocumentItem[] }) {
           <span />
         </button>
         <a className="brand" href="#index" onClick={() => chooseDocument("index")}>
-          <span className="brand-mark">C2C</span>
           <span className="brand-copy">
-            <strong>Platform specifications</strong>
-            <small>Working handbook · 7.0</small>
+            <strong>Code2Create 7.0</strong>
+            <small>Platform specifications</small>
           </span>
         </a>
         <div className="topbar-actions">
-          <span className="status-pill">
-            <i />
-            Internal
-          </span>
           <a className="sign-out" href="/api/logout">
-            Lock
+            Sign out
           </a>
         </div>
       </header>
 
       <aside className={`sidebar ${menuOpen ? "is-open" : ""}`}>
         <div className="search-wrap">
-          <label htmlFor="docs-search">Search the handbook</label>
+          <label htmlFor="docs-search">Search</label>
           <div className="search-input">
-            <span aria-hidden="true">⌕</span>
             <input
               id="docs-search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Try “override”"
+              placeholder="Search all documents"
               autoComplete="off"
             />
             {query && (
@@ -176,7 +174,7 @@ export function DocsShell({ documents }: { documents: DocumentItem[] }) {
         </div>
 
         <nav className="document-nav" aria-label="Specification documents">
-          <p>Documents</p>
+          <p>Contents</p>
           {documents.map((document) => (
             <button
               type="button"
@@ -190,18 +188,13 @@ export function DocsShell({ documents }: { documents: DocumentItem[] }) {
             </button>
           ))}
         </nav>
-
-        <div className="sidebar-note">
-          <span>Source of truth</span>
-          <p>Rendered directly from the Markdown specifications.</p>
-        </div>
       </aside>
 
       <main className="document-stage">
         <article className="markdown-body">
           <div className="document-kicker">
-            <span>Code2Create 7.0</span>
-            <span>Document {active.number}</span>
+            <span>{active.label}</span>
+            <span>{active.number}</span>
           </div>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
@@ -239,17 +232,12 @@ export function DocsShell({ documents }: { documents: DocumentItem[] }) {
             {active.content}
           </ReactMarkdown>
           <footer className="document-footer">
-            <span>End of document {active.number}</span>
+            <span>{active.number}</span>
             <button
               type="button"
-              onClick={() => {
-                const index = documents.findIndex(
-                  (document) => document.slug === active.slug,
-                );
-                chooseDocument(documents[(index + 1) % documents.length].slug);
-              }}
+              onClick={() => chooseDocument(nextDocument.slug)}
             >
-              Next document <b>→</b>
+              Next: {nextDocument.label} <b>→</b>
             </button>
           </footer>
         </article>

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const authSecret = "test-auth-secret-with-enough-entropy";
@@ -53,10 +54,13 @@ test("renders the minimal password screen", async () => {
   assert.equal(response.status, 200);
 
   const html = await response.text();
-  assert.match(html, /Code2Create 7\.0 — Platform Specifications/);
-  assert.match(html, /Shared access password/);
-  assert.match(html, /Restricted working document/);
-  assert.doesNotMatch(html, /vinext-starter|Your site is taking shape/i);
+  assert.match(html, /Code2Create 7\.0 specifications/);
+  assert.match(html, /Platform specifications/);
+  assert.match(html, /Shared password/);
+  assert.doesNotMatch(
+    html,
+    /vinext-starter|Your site is taking shape|The operating system for Code2Create|Restricted working document/i,
+  );
 });
 
 test("accepts the configured password and issues a session cookie", async () => {
@@ -83,6 +87,9 @@ test("server-renders the authenticated Code2Create handbook", async () => {
 
   const html = await response.text();
   assert.match(html, /Code2Create 7\.0/);
+  assert.match(html, /Contents/);
+  assert.match(html, /Sign out/);
+  assert.match(html, /Next:/);
   assert.match(html, /Production architecture/);
   assert.match(html, /Data model &amp; realtime/);
   assert.match(html, /Integrations &amp; release/);
@@ -114,4 +121,15 @@ test("server-renders the authenticated Code2Create handbook", async () => {
     html,
     /vinext-starter|Workspace Auth Headers|Sign in with ChatGPT|Clerk with Google-only|does not fetch full document content|does not read the full design document|one selected repository|grants one primary repository|binds one team to one repository|The required prompts are:|continuing_existing_project|new_for_event|Original Team Contribution|The model cannot invent an unreviewed question|next eligible question keys from the server-provided allowlist/i,
   );
+});
+
+test("keeps interface text in sentence case at readable sizes", async () => {
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(css, /text-transform:\s*uppercase/i);
+  assert.doesNotMatch(css, /letter-spacing:\s*(?:0\.\d+|\.\d+)em/i);
+  assert.doesNotMatch(css, /font:\s*[^;]*\b(?:8|9|10)px\//i);
 });

@@ -16,19 +16,18 @@ export default async function Login({
       <div className="login-grid" aria-hidden="true" />
       <section className="login-card">
         <div className="login-header">
-          <div className="login-mark">C2C</div>
-          <span>Internal handbook · 7.0</span>
+          <div className="login-mark">Code2Create 7.0</div>
+          <span>Working handbook</span>
         </div>
         <div className="login-copy">
-          <p className="eyebrow">Restricted working document</p>
-          <h1>The operating system for Code2Create.</h1>
+          <h1>Platform specifications</h1>
           <p>
-            Product decisions, review mechanics, participant flows, and launch
-            standards—kept in one place for the organising team.
+            Product decisions, review rules, participant flows, and launch
+            requirements for the organising team.
           </p>
         </div>
         <form className="login-form" action="/api/login" method="post">
-          <label htmlFor="password">Shared access password</label>
+          <label htmlFor="password">Shared password</label>
           <div className="password-field">
             <input
               id="password"
@@ -40,7 +39,7 @@ export default async function Login({
               aria-describedby={error ? "login-error" : undefined}
             />
             <button type="submit">
-              Unlock <span>→</span>
+              Open <span>→</span>
             </button>
           </div>
           {error && (
@@ -49,19 +48,7 @@ export default async function Login({
             </p>
           )}
         </form>
-        <footer>
-          <span>ACM-VIT</span>
-          <span>Private · 2026</span>
-        </footer>
       </section>
-      <aside className="login-index" aria-hidden="true">
-        <span>01</span>
-        <p>Plan deliberately.</p>
-        <span>02</span>
-        <p>Review fairly.</p>
-        <span>03</span>
-        <p>Operate visibly.</p>
-      </aside>
     </main>
   );
 }

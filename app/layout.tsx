@@ -25,22 +25,22 @@ export async function generateMetadata(): Promise<Metadata> {
   const image = `${origin}/og.png`;
 
   return {
-    title: "Code2Create 7.0 — Platform Specifications",
+    title: "Code2Create 7.0 specifications",
     description:
-      "The working product and operations handbook for the Code2Create 7.0 event platform.",
+      "Product and operations specifications for Code2Create 7.0.",
     icons: {
       icon: "/favicon.svg",
       shortcut: "/favicon.svg",
     },
     openGraph: {
-      title: "Code2Create 7.0 — Platform Specifications",
-      description: "The private working handbook for the organising team.",
+      title: "Code2Create 7.0 specifications",
+      description: "The working handbook for the organising team.",
       images: [{ url: image, width: 1536, height: 1024 }],
     },
     twitter: {
       card: "summary_large_image",
-      title: "Code2Create 7.0 — Platform Specifications",
-      description: "The private working handbook for the organising team.",
+      title: "Code2Create 7.0 specifications",
+      description: "The working handbook for the organising team.",
       images: [image],
     },
   };
