@@ -2,7 +2,7 @@
 
 ## Platform handbook
 
-This handbook defines the participant portal, native reviewer app, operations dashboard, judging workflow, and event backend for Code2Create 7.0.
+This handbook defines the participant portal, native event app, operations dashboard, judging workflow, participant attendance, and event backend for Code2Create 7.0.
 
 The source discussion describes a 48-hour event with roughly 900–1,000 people in the venue. The previous review process failed when reviewers were absent or hard to locate, teams waited without clear queues, reviewers lacked project context, and scores moved through informal channels. The product has to fix those specific failures.
 
@@ -15,6 +15,8 @@ The password on this handbook only protects the specifications. It has no connec
 - Reviewer and staff access comes from an approved event roster. Nobody can select an elevated role during sign-in.
 - Participants use a web portal. Reviewers use a dedicated Expo application on Android or iOS. Staff use a web operations dashboard.
 - The three clients read and write the same Convex deployment.
+- Every participant confirms presence for each configured hacking session. NFC badges, printed badge QR, and short-lived portal QR use one participant-scoped attendance system.
+- Temporary exits and returns are recorded as boundary events. Attendance is not continuous tracking, a judging signal, or an automatic punishment.
 - Every planned panel member must scan the team QR before a normal review starts.
 - Reviews are timed. The working policy is 10 minutes with one two-minute extension.
 - Reviewers score independently. Seniority does not change score weight.
@@ -38,6 +40,7 @@ The password on this handbook only protects the specifications. It has no connec
 | External job control | `@convex-dev/workpool` | Bounds intake, GitHub, Figma, push, and export work so external work does not block review traffic. |
 | Large artifacts | Private S3 in `ap-south-1` | Stores compressed Figma checkpoints/previews, short-lived GitHub blob cache, exports, and backups outside one-megabyte live records. |
 | Reviewer paging | Expo Notifications | Background attention signal, backed by an in-app assignment and an operations fallback. |
+| Attendance scanning | Capability-gated mode in the signed Expo build | Provisioned devices use native NFC or the camera; every accepted scan reaches the same Convex mutation. |
 | Web hosting | Vercel | Preview, staging, and production Next.js deployments. |
 | Mobile delivery | EAS Build and Update | Signed reviewer builds and controlled release channels. |
 | Error reporting | Sentry | Web and mobile crash reports with release and environment tags. |
@@ -49,13 +52,13 @@ Clerk is not used. There is no second application database, custom WebSocket ser
 
 | Surface | Main jobs |
 | --- | --- |
-| Participant portal | Sign-in, profile, team, sequential project intake, track confirmation, admission result, GitHub/Figma connection, venue check-in, readiness, queue, review progress, and Synesthesia |
-| Reviewer app | Google sign-in, clock-in, page acknowledgement, QR scan, project context, timed review, evidence, scoring, and short offline recovery |
-| Operations dashboard | Rounds, rosters, panels, tables, queues, substitutes, live reviews, scoring completeness, exceptions, and audit |
+| Participant portal | Sign-in, profile, team, sequential project intake, track confirmation, admission result, GitHub/Figma connection, attendance status and QR, readiness, queue, review progress, and Synesthesia |
+| Event mobile app | Reviewer workflow plus a capability-gated staff scanner mode using NFC or QR on provisioned devices |
+| Operations dashboard | Attendance sessions, live presence, emergency roll call, rounds, rosters, panels, tables, queues, substitutes, reviews, scoring completeness, exceptions, and audit |
 
 ## System boundary
 
-Convex stores event state and pushes changed query results to authorised clients. A client only shows a score submission, review start, assignment, or round change as accepted after the server confirms it.
+Convex stores event state and pushes changed query results to authorised clients. A client only shows an attendance scan, score submission, review start, assignment, or round change as accepted after the server confirms it.
 
 Push notifications wake a reviewer but do not assign them. Local mobile storage protects an unfinished scorecard during a short connection loss but cannot finish a review. OpenAI, GitHub, and Figma calls run as bounded background work; Convex publishes accepted team state immediately. The intake continues through an approved fallback graph when model work fails. Reviews stay pinned to exact project and evidence versions, and no external integration judges the team.
 
@@ -76,6 +79,7 @@ An open policy must live in versioned event configuration or remain blocked. Cli
 | Product brief | Event problem, scope, users, and outcomes |
 | Identity and access | Google sign-in, VIT classification, rosters, roles, and sessions |
 | Participant portal | Registration, teams, fresh-project attestation, sequential intake, tracks, application, admission, integrations, readiness, and queue experience |
+| Attendance and presence | Hacking sessions, NFC and QR credentials, temporary exits, realtime presence, scanner recovery, and privacy |
 | Panels and queues | Reviewer staffing, routing, presence, timers, and substitutions |
 | Reviewer app | Native workflow, score drafts, push, and short connection loss |
 | Evaluation | Rubric, criterion coverage, aggregation, progress, and corrections |
@@ -97,6 +101,7 @@ An open policy must live in versioned event configuration or remain blocked. Cli
 - missed-call, hold, and queue re-entry rules;
 - reviewer and staff rosters;
 - data retention, provider-evidence retention, artifact access, and participant feedback;
+- attendance-session schedule, required/optional rules, grace and duration policy, tracked zones, badge hardware, excused absence, and presence-data retention;
 - final core-track names/definitions, sponsor tracks, awards, event checkpoints, and the exact allowed pre-start setup policy;
 - OpenAI intake consent, effective data controls, and interpretation retention;
 - Synesthesia catalogue, playback source, and licensing.

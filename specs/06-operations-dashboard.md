@@ -5,6 +5,8 @@
 The dashboard is the floor-control application for staff. It answers:
 
 - Which rounds are open?
+- Which attendance session is active, and who is present, temporarily out, late, excused, or unresolved?
+- Which entry/exit station is offline, overloaded, or replaying pending scans?
 - Which teams are ready, waiting, called, held, or overdue?
 - Which panels are complete and which seats are empty?
 - Where is every active review?
@@ -22,7 +24,9 @@ Common scopes:
 
 - application reviewers can read assigned applications and submit their own recommendations;
 - admissions administrators can manage pre-event application assignment, decisions, offers, and capacity;
-- venue operations can manage tables and check-in;
+- attendance operators can use an assigned scan station and resolve a current mismatch;
+- attendance leads can manage attendance plans, sessions, credentials, presence corrections, roll call, and restricted exports;
+- venue operations can manage tables and one-time venue check-in;
 - review operations can manage panels, pages, queues, and active reviews;
 - review administrators can manage rubrics, corrections, score reveal, and round close;
 - event administrators can manage configuration, rosters, grants, and exports;
@@ -138,7 +142,55 @@ Opening a round validates all required configuration. Closing validates review a
 
 `closing` freezes judging writes and generates the round export. The round reaches `closed` only after the manifest is uploaded and verified. A failed export leaves a visible blocker and retry action.
 
-## 7. Floor and tables
+Review-round check-in is not a participant hacking-session check-in. The attendance schedule and the judging round schedule may overlap but keep separate records and policy.
+
+## 7. Attendance and presence
+
+The attendance workspace opens on the active session, not a historical chart.
+
+Summary cards show:
+
+- expected and confirmed participants;
+- currently present, temporarily out, departed, excused, and needs-review counts;
+- participants whose confirmation window is closing;
+- team review-readiness impact;
+- zone occupancy and configured safe capacity;
+- online, stale, offline, and replaying stations;
+- accepted, duplicate, rejected, and pending throughput.
+
+The live participant table can be filtered by session, zone, team, track, participant class, state, or support flag. A row shows preferred name, badge reference, team, current state, latest accepted server time, station, and coarse exception state. Sensitive reason detail stays inside the linked support case.
+
+The session panel shows:
+
+- published attendance-plan version and expected-cohort snapshot;
+- expectation-build or closing/finalisation progress, processed count, needs-review count, and checksum state;
+- scheduled and accepted actual start/end;
+- check-in opening, grace, late-arrival, and away-alert settings;
+- tracked zones and enabled scan methods;
+- required, optional, or information-only status;
+- minimum-duration/checkpoint rule when configured;
+- session version and last protected change.
+
+Operators can:
+
+- open, extend, close, or cancel a session;
+- activate, reconfigure, or disable a station;
+- issue, revoke, or replace a participant credential;
+- record an excused/accessibility exception;
+- add a compensating event for a missed or incorrect scan;
+- place or clear a short team review-readiness hold;
+- open an emergency roll call;
+- request a purpose-limited export.
+
+The scan ledger is never edited from this screen. A correction previews the current event sequence, the compensating transition, affected intervals/results, actor, and required reason.
+
+An emergency roll call creates a frozen starting snapshot and a continuing live view by zone. It separates confirmed inside, temporarily out, departed, unknown, excused, and not expected. New scans update the live view without changing the snapshot used to start the roll call.
+
+The board does not rank participants by hours or label an ordinary temporary exit as misconduct. Long-away and missing-scan conditions are operational prompts until an authorised person applies the approved attendance policy.
+
+Overlapping sessions are separate rows and per-participant states. A workshop confirmation cannot replace the broader hacking-session confirmation. The dashboard blocks open until expectation materialisation completes and keeps close visibly in progress until every resumable finalisation batch and count check succeeds.
+
+## 8. Floor and tables
 
 The floor view groups tables by venue zone.
 
@@ -161,7 +213,7 @@ Staff can:
 
 After table freeze, every change requires a reason and updates participant, reviewer, and operations views from the same server write.
 
-## 8. Reviewer and panel board
+## 9. Reviewer and panel board
 
 The panel board shows one row per panel:
 
@@ -190,7 +242,7 @@ Available actions:
 
 The UI never claims a substitute is assigned because a push was delivered.
 
-## 9. Queue board
+## 10. Queue board
 
 The queue board has columns for:
 
@@ -218,7 +270,7 @@ Dragging a card is a request to the server, not a local reorder. The server rech
 
 Manual priority requires a reason code and remains visible on the card until the team completes the review.
 
-## 10. Active reviews
+## 11. Active reviews
 
 The active-review view sorts by:
 
@@ -250,7 +302,7 @@ Protected actions:
 
 The dashboard does not expose live peer score values to floor operations.
 
-## 11. Integration evidence and health
+## 12. Integration evidence and health
 
 The integration view is team-scoped. Each row shows:
 
@@ -265,7 +317,7 @@ Participant, reviewer, and operations screens read the same materialised status 
 
 Event administrators can request an idempotent reconciliation, request a full checkpoint, send a reauthorization prompt, disable a binding, or approve a documented shared-resource exception. An operator cannot reveal a token, change the captured evidence for an active review, or bypass provider backoff. Every manual retry and binding replacement keeps its actor and reason.
 
-## 12. Scoring completeness
+## 13. Scoring completeness
 
 Review administrators receive a separate view containing:
 
@@ -282,7 +334,7 @@ The default view shows completeness, not a winner leaderboard during active revi
 
 An administrator can open a correction, void an invalid scorecard, or release scores under policy. They cannot type over a submitted score.
 
-## 13. Support desk
+## 14. Support desk
 
 Support cases can come from participant, reviewer, or staff screens.
 
@@ -297,11 +349,11 @@ A case contains:
 - state and timestamps;
 - actions taken.
 
-Categories include identity, team, project intake, track/configuration, table, integration, queue, reviewer device, scorecard, accessibility, and safety.
+Categories include identity, team, project intake, track/configuration, attendance credential, missing scan, scanner device, table, integration, queue, reviewer device, scorecard, accessibility, and safety.
 
 A support case links to the relevant server records but grants no extra permissions.
 
-## 14. Protected command rules
+## 15. Protected command rules
 
 | Command | Minimum capability | Extra check |
 | --- | --- | --- |
@@ -309,6 +361,13 @@ A support case links to the relevant server records but grants no extra permissi
 | Publish intake/track/model configuration | Event administrator | validation/evaluation pass, fresh session, diff, and reason |
 | Migrate active intake sessions | Event administrator + named configuration authority | dry-run mapping, affected-session list, and reason |
 | Promote waitlisted team | Admissions administrator | available confirmed-participant capacity |
+| Publish attendance plan | Attendance lead/event administrator | validation, impact preview, fresh session, and reason |
+| Open/extend/close/cancel attendance session | Attendance lead | current session version and consequence preview |
+| Reconfigure active scan station | Attendance lead | registered device, affected queue, and reason |
+| Replace participant credential | Attendance operator | participant match; old credentials revoked atomically |
+| Reconcile participant presence | Attendance lead | fresh sign-in, linked source events, preview, and reason |
+| Start emergency roll call | Attendance lead/incident commander | named incident or drill and zone snapshot |
+| Export identifiable attendance | Event administrator/auditor scope | fresh sign-in, purpose, fields, and expiry |
 | Change table after freeze | Venue operations | reason |
 | Move queued team | Review operations | reason and current queue version |
 | Assign substitute manually | Review operations | eligibility and conflict check |
@@ -322,17 +381,17 @@ A support case links to the relevant server records but grants no extra permissi
 
 High-impact commands show the current value, proposed value, affected records, and reason before submission.
 
-## 15. Live updates and conflicts
+## 16. Live updates and conflicts
 
-Dashboard panels subscribe to small, indexed Convex queries. A panel row updates when its reviewer, queue, page, review, or exception records change.
+Dashboard panels subscribe to small, indexed Convex queries. Attendance rows subscribe to individual projections and sharded counts rather than the raw scan ledger. A participant scan updates the participant, team availability, zone, active session, and roll-call views from the same accepted mutation. A panel row updates when its reviewer, queue, page, review, or exception records change.
 
 The client may show an action as pending. It shows accepted only after the mutation returns.
 
-Commands that can collide include a current record version. If another operator changed the target first, the server rejects the stale command and returns the new state. The UI asks the operator to review it rather than replaying the old action.
+Commands that can collide include a current record version. If another operator changed the target first, the server rejects the stale command and returns the new state. The UI asks the operator to review it rather than replaying the old action. Simultaneous NFC and QR scans for one participant return one accepted transition and one duplicate result.
 
 High-impact commands also carry a client operation ID. Repeating the same request after a timeout returns the first accepted result.
 
-## 16. Incident mode
+## 17. Incident mode
 
 An incident commander can post a banner with:
 
@@ -342,22 +401,34 @@ An incident commander can post a banner with:
 - time opened and last updated;
 - owner.
 
-Round pause blocks new review starts but keeps active drafts available. The dashboard has a printable emergency pack containing the current roster, panel/table plan, active sessions, and serialised manual-review sheets. Printing the pack is restricted and audited.
+Round pause blocks new review starts but keeps active drafts available. Attendance incident mode can disable a station, redirect traffic, begin a roll call, and mark offline scans for later reconciliation. The dashboard has a printable emergency pack containing the current roster, last accepted zone/presence snapshot, station list, panel/table plan, active sessions, numbered attendance sheets, and serialised manual-review sheets. Printing the pack is restricted and audited.
 
 Manual incident records are reconciled after recovery under the reliability procedure.
 
-## 17. Privacy
+## 18. Privacy
 
 - Floor views use preferred names and event identifiers, not eligibility documents.
 - Phone numbers appear only to support/operations users who need to contact the person.
 - Participant registration numbers do not appear on panel boards.
+- Attendance views contain boundary events only; they do not show GPS, Bluetooth, Wi-Fi, or background location.
+- An ordinary temporary exit stores no reason. Sensitive attendance exceptions stay in restricted support records.
+- Team leads receive a regrouping summary, not another member’s movement timeline.
+- Exact presence history and exports are available only to attendance leads, authorised event administrators, or auditors with a purpose.
+- Attendance events never appear in project evidence, reviewer context, score calculations, or engagement leaderboards.
 - Score values remain behind review-administrator or board capability.
 - Raw provider tokens and session details never appear in the dashboard.
 - Exports are purpose-labelled, time-limited, and logged.
 
-## 18. Acceptance checks
+## 19. Acceptance checks
 
 - Two dashboards receive the same panel/queue change without refresh.
+- NFC and QR scans update two attendance dashboards, the participant portal, and the relevant team/zone summary without refresh.
+- A duplicate or simultaneous scan creates one presence transition and stable counters.
+- Extending, closing early, or cancelling an attendance session preserves scan history and recalculates only derived results.
+- A session with 1,000 expected people opens/closes through resumable indexed batches and never claims completion from a partial job.
+- An attendance correction cannot edit or delete the original event and fails without a fresh session, linked evidence, and reason.
+- An emergency roll call keeps its opening snapshot while displaying later live changes.
+- A floor operator cannot read detailed attendance history or export attendance without the narrower capability.
 - A published catalog has five core tracks; optional sponsor entries do not replace a team's core track.
 - Every simulated intake path finishes when model output succeeds, times out, refuses, is invalid, or is disabled.
 - Every published model policy generates three to five introduction follow-ups, respects the smaller bound for later phases, rejects unsafe or burdensome wording, and has a phase-appropriate deterministic fallback.

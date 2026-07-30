@@ -93,6 +93,7 @@ test("server-renders the authenticated Code2Create handbook", async () => {
   assert.match(html, /Production architecture/);
   assert.match(html, /Data model &amp; realtime/);
   assert.match(html, /Integrations &amp; release/);
+  assert.match(html, /Attendance &amp; presence/);
   assert.match(html, /Better Auth/);
   assert.match(html, /VIT Student/);
   assert.match(html, /GitHub App/);
@@ -117,6 +118,14 @@ test("server-renders the authenticated Code2Create handbook", async () => {
   assert.match(html, /easy to answer/i);
   assert.match(html, /Event Build Contribution/);
   assert.match(html, /deterministic fallback/i);
+  assert.match(html, /react-native-nfc-manager/);
+  assert.match(html, /attendancePlanVersions/);
+  assert.match(html, /attendanceSessionJobs/);
+  assert.match(html, /presenceEvents/);
+  assert.match(html, /presenceIntervals/);
+  assert.match(html, /emergencyRollCalls/);
+  assert.match(html, /Temporarily out/);
+  assert.match(html, /NFC hardware UID is not an identity key/);
   assert.doesNotMatch(
     html,
     /vinext-starter|Workspace Auth Headers|Sign in with ChatGPT|Clerk with Google-only|does not fetch full document content|does not read the full design document|one selected repository|grants one primary repository|binds one team to one repository|The required prompts are:|continuing_existing_project|new_for_event|Original Team Contribution|The model cannot invent an unreviewed question|next eligible question keys from the server-provided allowlist/i,

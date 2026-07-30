@@ -166,6 +166,8 @@ The ordinal is derived from the current eligible queue and may change after an a
 
 The panel or operations user calls the next eligible team. The server records `calledAt` and the expected table.
 
+Before calling, the server reads the current participant-attendance team summary. When the round policy names a minimum currently available member count, a team below it remains queued or receives a short visible hold. One temporarily out member does not automatically mark the team missed or remove its ready time. The portal asks the team to regroup; operations may continue, hold, or record the approved exception.
+
 The final missed-call grace period, number of calls, and re-entry position are open decisions. The dashboard must not implement a hidden default.
 
 ## 9. Reviewer presence
@@ -191,7 +193,8 @@ The server starts a review only when:
 - round is open;
 - team, panel, assignment, and table are current;
 - no other active review exists for the team or panel;
-- required presence is complete or a valid board override exists;
+- required reviewer presence is complete or a valid board override exists;
+- the configured minimum participant availability is met or an authorised attendance exception exists;
 - the rubric and criterion assignments are fixed;
 - required project and integration snapshots exist.
 
@@ -259,6 +262,8 @@ The panel lead may confirm completion. The lead cannot edit another reviewer’s
 - A team cannot have two active review sessions in one round.
 - A panel cannot run two active sessions at once.
 - A review cannot start without required presence or a recorded board override.
+- A temporarily out participant produces the configured regroup/hold flow rather than silently marking the team missed.
+- Participant attendance and reviewer QR presence cannot satisfy one another.
 - The participant and operations queue change after the same accepted server write.
 - Timer reloads calculate the same end time on every client.
 - Queue moves, holds, overrides, extensions, and forced closes retain actor and reason.

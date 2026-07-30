@@ -348,7 +348,41 @@ Do not include team project text, score, phone number, or private reason.
 
 The 90-second page deadline is based on the page record, not the push ticket.
 
-## 7. Private artifact and export bucket
+## 7. Attendance scanner and badge release
+
+Attendance NFC is native application functionality, not a web integration.
+
+The Expo app includes:
+
+- `expo-camera` for printed badge and dynamic portal QR;
+- `react-native-nfc-manager` behind an app-owned adapter;
+- a config plugin and required Android/iOS NFC declarations;
+- a custom development/preview/production build, never Expo Go;
+- secure auth/device registration and an encrypted pending-operation queue.
+
+The event qualifies one primary Android scanner model, one spare model, and the selected NFC tag family. The test covers repeated foreground reads, app resume, screen lock, camera/NFC switching, duplicate taps, tag removal, low battery, connection loss, and 30 minutes of continuous station operation. iOS remains a QR-capable reviewer/scanner client; iOS NFC is enabled only after the exact production build/tag combination passes the same throughput and recovery test.
+
+Badge provisioning is a protected station workflow:
+
+1. create separate random NFC and printed-QR bearer values;
+2. store their hashes and credential versions in Convex;
+3. encode the opaque NFC value as an NDEF record and print the separate QR;
+4. read both back before assignment;
+5. link the verified badge reference to the checked-in participant;
+6. destroy or revoke any failed/replaced values.
+
+The app never derives identity from the tag UID. It never writes a name, registration number, team, email, or session into NFC/QR media.
+
+Production release inventory records:
+
+- scanner installation, model, OS, app/runtime build, camera/NFC capability, station, charger, and spare owner;
+- badge batch, tag family, encoder/print batch, read-back result, issued/revoked/replaced counts;
+- session station layout, direction, expected throughput, backup network, and operator shift;
+- last successful online scan, pending queue age, and device heartbeat.
+
+An attendance-native dependency or permission change requires a new signed build and full scanner rehearsal. A compatible JavaScript update cannot add NFC support to an installed runtime that lacks the native module.
+
+## 8. Private artifact and export bucket
 
 The selected baseline is a private AWS S3 bucket in Mumbai (`ap-south-1`) after data-policy approval. It holds immutable round exports, downloaded backups, compressed Figma checkpoints, captured Figma previews, and any short-lived GitHub blob cache. Live counters and searchable metadata stay in Convex.
 
@@ -392,7 +426,7 @@ Convex backup ZIP files use a separate `backups/` prefix. Restore access is not 
 
 If VIT policy requires another provider/region, replace this decision before production registration data exists.
 
-## 8. Environment matrix
+## 9. Environment matrix
 
 | Item | Development | Staging | Production |
 | --- | --- | --- | --- |
@@ -400,7 +434,7 @@ If VIT policy requires another provider/region, replace this decision before pro
 | Convex | developer deployment | rehearsal deployment | production deployment |
 | Better Auth | dev secret/clients | staging secret/clients | production secret/clients |
 | OpenAI | dev project/key and synthetic input | staging project/key and intake evals | production project/key and published model config |
-| Reviewer app | dev build/scheme | preview build/channel | production build/channel |
+| Event app | dev build/scheme with synthetic tags | preview build/channel and rehearsal scanners | production build/channel and provisioned scanner/reviewer fleet |
 | GitHub | dev App | staging App/test repos | production App/team repos |
 | Figma | dev OAuth/webhook/test files | staging OAuth/webhook/test files | approved production OAuth App and webhook endpoint |
 | Push | test devices | reviewer training devices | registered event devices |
@@ -409,7 +443,7 @@ If VIT policy requires another provider/region, replace this decision before pro
 
 No callback URL, provider key, auth secret, user record, or push token is shared across staging and production.
 
-## 9. CI
+## 10. CI
 
 Pull requests run:
 
@@ -426,22 +460,22 @@ Pull requests run:
 Main-branch release candidates also run:
 
 - signed Expo staging build when native inputs changed;
-- Maestro smoke suite on at least Android and iOS;
+- Maestro smoke suite on at least Android and iOS plus physical-device NFC/QR smoke when attendance native inputs changed;
 - database migration/backfill check;
 - load smoke test;
 - staging auth/integration health checks.
 
 CI logs must not print environment values, cookies, webhook bodies, or provider responses containing tokens.
 
-## 10. Production release
+## 11. Production release
 
 ### Before event freeze
 
 1. Deploy additive Convex schema/functions to staging.
 2. Run any backfill and verify counts.
-3. Deploy Vercel staging and reviewer preview build/update.
-4. Run auth, deterministic/model intake, one-review, integration, push, export, and incident smoke tests.
-5. Publish the production reviewer build and install it on reviewer devices.
+3. Deploy Vercel staging and event-app preview build/update.
+4. Run auth, deterministic/model intake, NFC/QR attendance, one-review, integration, push, export, and incident smoke tests.
+5. Publish the production event-app build and install it on reviewer and scanner devices.
 6. Set the minimum build only after installation/training is complete.
 
 ### Production promotion
@@ -452,12 +486,12 @@ CI logs must not print environment values, cookies, webhook bodies, or provider 
 4. Create a staged Vercel production deployment and run route/auth checks.
 5. Promote the tested Vercel deployment.
 6. Publish a compatible EAS update only if needed and test a small device group first.
-7. Verify one synthetic OpenAI interpretation/fallback, GitHub/Figma callbacks, one test push, export bucket write, Sentry release, and dashboard release IDs.
+7. Verify one synthetic OpenAI interpretation/fallback, one NFC and QR attendance transition, GitHub/Figma callbacks, one test push, export bucket write, Sentry release, and dashboard release IDs.
 8. Record the release in event configuration.
 
 Do not change native dependencies, auth callback shape, rubric calculation, or destructive schema during a live round.
 
-## 11. Compatibility and migrations
+## 12. Compatibility and migrations
 
 - Schema changes are additive through the event.
 - New required fields start optional, receive a backfill, then become required in code after verification.
@@ -465,9 +499,10 @@ Do not change native dependencies, auth callback shape, rubric calculation, or d
 - Every EAS Update has a runtime version compatible with the installed native build.
 - Changing a native dependency creates a new runtime/build.
 - Event/rubric/panel configuration is versioned; a code deploy does not rewrite an active round’s configuration.
+- Attendance plans, sessions, expectation snapshots, station assignments, and credential versions are preserved across deploys; a code change cannot reinterpret an open session without a compatible published policy/version.
 - Track catalogs, intake shells, question policies, fallback prompts, model instructions, and output schemas are immutable versions; active sessions do not silently move between them.
 
-## 12. Rollback
+## 13. Rollback
 
 ### Web
 
@@ -476,6 +511,10 @@ Move the production domain back to the last verified Vercel deployment. Confirm 
 ### Reviewer update
 
 Roll back to the previous EAS Update on the same runtime. A native-runtime problem requires the prepared previous signed build or spare devices.
+
+### Attendance scanner
+
+Pause or redirect affected stations, retain pending operations, and move to the prepared previous signed build/spare fleet. Never downgrade a credential version or re-enable a revoked badge to match an old client. Reconcile pending scans only after the restored build passes one online NFC and QR test against the current station configuration.
 
 ### Convex functions
 
@@ -495,7 +534,7 @@ Restore the recorded previous secret/config version only if it is still secure. 
 
 Every rollback records owner, reason, affected release IDs, start/end time, and verification result.
 
-## 13. Secret rotation
+## 14. Secret rotation
 
 Before launch, rehearse rotation for:
 
@@ -511,7 +550,7 @@ Before launch, rehearse rotation for:
 
 Token-encryption key rotation keeps the previous decrypt key until all active Figma authorizations are re-encrypted. GitHub webhook-secret rotation may require an overlap or coordinated provider update. Figma passcode rotation updates each active webhook and verifies its new `PING` before discarding the old encrypted value.
 
-## 14. Release acceptance
+## 15. Release acceptance
 
 - Production auth callbacks accept only production origins/schemes.
 - The first intake frame is **Hello.**, followed by **What is your project about?**, with one text box and no form, chat, or PPT UI.
@@ -532,6 +571,10 @@ Token-encryption key rotation keeps the previous decrypt key until all active Fi
 - Provider rate limits leave an explicit metadata/content age and completeness state instead of blocking a review.
 - Two team members see one shared integration, and any current lead can replace a revoked Figma authorizer.
 - Push ticket, receipt, reviewer acknowledgement, expiry, and fallback remain distinct.
+- NFC and QR scanning work in the signed production build on the provisioned fleet; the web portal makes no Web NFC promise.
+- NFC UID and tag payload contain no participant identity. A replaced badge is rejected online and historical events remain traceable to the old credential reference.
+- A repeated/simultaneous mixed-method scan creates one accepted transition; a connection loss remains pending and replays idempotently.
+- Two consecutive attendance sessions, temporary exits/returns, a session extension, and an emergency roll call update every live projection without rewriting presence events.
 - A compatible web/backend/mobile release survives rollback rehearsal.
 - Round export and one Figma artifact reach the private bucket with matching checksums and no provider credential.
 - A production bundle/secret scan finds no private credential.
@@ -542,6 +585,11 @@ Token-encryption key rotation keeps the previous decrypt key until all active Fi
 - [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
 - [OpenAI evaluation best practices](https://developers.openai.com/api/docs/guides/evaluation-best-practices)
 - [OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data)
+- [Expo development builds](https://docs.expo.dev/develop/development-builds/introduction/)
+- [Expo custom native code](https://docs.expo.dev/workflow/customizing/)
+- [React Native NFC Manager](https://github.com/revtel/react-native-nfc-manager)
+- [Android NFC overview](https://developer.android.com/develop/connectivity/nfc)
+- [Apple Core NFC](https://developer.apple.com/documentation/CoreNFC)
 - [GitHub App permissions](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app)
 - [GitHub installation access tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
 - [GitHub webhook signature validation](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)

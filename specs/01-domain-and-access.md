@@ -88,7 +88,8 @@ An unmatched account sees a plain “not on the event roster” screen and a sup
 | Event membership | Application | Participant class and event participation state |
 | Role grant | Application | Time-bound role with event and optional resource scope |
 | Roster entry | Application | Approved reviewer/staff invitation and first-sign-in claim |
-| Device | Application | Reviewer installation, app version, notification token, and revocation state |
+| Device | Application | Reviewer/scanner installation, app version, hardware capabilities, station assignment, notification token, and revocation state |
+| Attendance credential | Application | Revocable participant badge/QR reference; bearer values are stored only as hashes |
 | Provider authorization | Application security boundary | One encrypted Figma App/user grant or GitHub App installation reference used only by server jobs |
 | Team integration | Team | Selected provider resources, repository classifications, checkpoint sets, statistics, and review visibility |
 
@@ -100,9 +101,11 @@ Permissions are granted by capability. A role is a named bundle of capabilities.
 
 | Role | Main access |
 | --- | --- |
-| Participant | Own profile, own teams, project versions, readiness, own queue state, own review progress, Synesthesia |
+| Participant | Own profile, own teams, project versions, own attendance/QR, readiness, own queue state, own review progress, Synesthesia |
 | Application reviewer | Assigned pre-event applications, their own admission reviews, and no venue judging score |
 | Admissions administrator | Eligibility checks, application assignment, shortlist/waitlist decisions, offers, and confirmation capacity |
+| Attendance operator | Assigned station, participant scan result, credential mismatch recovery, and minimal current presence |
+| Attendance lead | Attendance-plan publication, sessions, stations, credentials, live presence, reconciliation, roll call, and restricted export |
 | Reviewer | Own clock-in, pages, assigned reviews, project context, presence, own scorecards |
 | Panel lead | Reviewer access plus panel completion and non-score operational checks |
 | Review operations | Panels, tables, queues, pages, substitutions, review exceptions, completeness |
@@ -137,6 +140,8 @@ The web route guard improves navigation. It does not replace checks inside Conve
 - their own personal record;
 - members, intake answers, generated questions, confirmed brief, fresh-project attestation, track state, and project material for their teams;
 - their team’s GitHub/Figma resource, connection state, freshness, statistics, and checkpoints;
+- their own attendance sessions, recent accepted scans, current presence, session result, dynamic QR, and correction route;
+- the minimum team availability summary needed to regroup, without another member’s exception detail;
 - their team’s table, ready state, queue state, review status, and released feedback;
 - public event configuration and Synesthesia state.
 
@@ -158,7 +163,7 @@ They cannot see peer score values before the configured reveal point, unrelated 
 
 ### Operations can see
 
-Operations views show what is needed to move the event: status, table, panel, timer, missing presence, missing scorecards, integration health, and exception reason. Score values require a separate review-administrator or board capability. Raw provider credentials are never an operations capability.
+Operations views show what is needed to move the event: attendance session, current participant/zone presence, scanner health, table, panel, timer, missing reviewer presence, missing scorecards, integration health, and exception reason. Attendance operators receive only the identity and current state needed at their assigned station. Exact movement history, sensitive exceptions, identifiable exports, and emergency roll-call controls require narrower capabilities. Score values require a separate review-administrator or board capability. Raw provider and attendance bearer credentials are never an operations capability.
 
 ## 7. Sessions and devices
 
@@ -167,9 +172,10 @@ Operations views show what is needed to move the event: status, table, panel, ti
 - Removing a role takes effect on the next protected backend call even if the Google session remains valid.
 - Web sessions use secure, HTTP-only, same-site cookies.
 - The Expo Better Auth client stores session cookies in `expo-secure-store`.
-- The reviewer app registers one device record with platform, build number, notification token, last-seen time, and revocation state.
-- Clock-in rejects a revoked device or an app below the configured minimum build.
-- Board overrides, post-lock score corrections, role changes, and raw exports require a session created within the previous 30 minutes. An older session is sent through Google sign-in again.
+- The Expo app registers one device record with platform, build number, camera/NFC capability, notification token, last-seen time, and revocation state.
+- Reviewer clock-in and attendance scanning reject a revoked device or an app below the configured minimum build.
+- A scanner must also have an active station assignment whose event, mode, zone, direction, and validity match the command.
+- Board overrides, attendance-history reconciliation, post-lock score corrections, role changes, and raw exports require a session created within the previous 30 minutes. An older session is sent through Google sign-in again.
 
 The exact session settings live in security configuration and must be tested on real web and mobile builds.
 
@@ -190,7 +196,8 @@ Record these access events:
 - failed VIT-domain checks by reason, without storing raw tokens;
 - roster import, claim, unlink, and rejection;
 - role grant, scope change, expiry, and revocation;
-- reviewer device registration, token replacement, minimum-build rejection, and revocation;
+- reviewer/scanner device registration, station assignment, hardware-capability change, token replacement, minimum-build rejection, and revocation;
+- attendance credential issue, replacement, and revocation;
 - privileged reauthentication failure;
 - identity repair and account suspension.
 
@@ -202,6 +209,9 @@ Normal page views are not written to the audit log.
 - A personal Google account cannot complete the VIT path.
 - A personal Google account can complete External onboarding.
 - A participant cannot call reviewer or operations functions.
+- A participant can mint only their own short-lived attendance QR and cannot choose its session, station direction, or membership.
+- An attendance operator can scan only through the currently assigned station and cannot read another session’s full movement history.
+- Revoking a scanner device, station assignment, or participant badge blocks the next online scan.
 - A rostered reviewer can sign in on a production-like Expo build and claim only their own row.
 - An unrostered Google account receives no reviewer data.
 - Revoking a role blocks the next protected call without waiting for session expiry.

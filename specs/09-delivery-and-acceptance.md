@@ -8,7 +8,7 @@ Build vertical event flows. Do not spend the first phase creating every table, r
 
 Deliver:
 
-- event configuration for team size, rounds, rubric, timer, correction windows, queue policy, track catalog, event phases, generated-question policy, and intake fallbacks;
+- event configuration for team size, attendance sessions/cohorts/zones/methods, rounds, rubric, timer, correction windows, queue policy, track catalog, event phases, generated-question policy, and intake fallbacks;
 - pnpm workspace with web, reviewer, Convex, and shared domain package;
 - separate development, staging, and production projects;
 - Better Auth running on Convex with Google only;
@@ -16,6 +16,7 @@ Deliver:
 - proof that the server can read and validate Google `sub`, verified email, and `hd`;
 - participant class and roster-claim prototypes;
 - one authorised Convex query and mutation from both clients;
+- one native NFC read and one QR scan from the signed Expo build on the proposed scanner hardware/tag family;
 - one OpenAI Responses/Structured Outputs contract spike plus a complete deterministic no-model path;
 - release IDs and basic error reporting.
 
@@ -49,7 +50,28 @@ Deliver:
 
 Exit when a VIT participant and an external participant can form a valid mixed or same-class team under the chosen policy, describe a fresh project, receive three to five short follow-ups on different track/phase paths, submit the same confirmed brief with OpenAI enabled or disabled, receive a reviewed admission decision, confirm an offer, refresh on another device, and see the same server state.
 
-## 4. Slice 2: one complete review
+## 4. Slice 2: venue and session attendance
+
+Use at least 30 synthetic participants, three scanner devices, two zones, and two consecutive hacking sessions before scaling the rehearsal.
+
+Deliver:
+
+- published attendance-plan version and frozen per-session expectation sets;
+- staffed venue check-in and dual NFC/printed-QR badge issue;
+- participant portal current state, next session, recent scans, and short-lived dynamic QR;
+- provisioned station modes for entry, exit, session confirmation, and roving table sweep;
+- one server scan command for NFC, printed QR, portal QR, and manual fallback;
+- append-only scan outcomes, presence intervals, current projection, sharded counts, and team availability;
+- repeated temporary exit/return;
+- lost-badge revocation/replacement and anti-passback handling;
+- encrypted bounded pending queue with explicit pending/replay results;
+- attendance operations board, credential support, correction, and emergency roll call;
+- resumable expectation-build and closing/finalisation batches for event-scale cohorts;
+- privacy/access controls and separate raw-event/aggregate retention.
+
+Exit when every synthetic participant confirms two sessions through mixed NFC/QR methods; an optional session overlaps one hacking block; some stay in the venue across the boundary; some leave and return more than once; one badge is replaced; two scans race; one station loses connectivity; the second session is extended; a finalisation worker restarts; and every participant/operations/roll-call view converges without a duplicate interval, partial close, or edited event.
+
+## 5. Slice 3: one complete review
 
 Use one team, one panel, and three reviewer devices.
 
@@ -70,7 +92,7 @@ Deliver:
 
 Exit when the team travels from ready to complete with all required scorecards, one reviewer briefly loses connection, and every accepted state survives app/browser restart.
 
-## 5. Slice 3: floor operations
+## 6. Slice 4: floor operations
 
 Deliver:
 
@@ -86,7 +108,7 @@ Deliver:
 
 Exit after a dry run with at least five panels where staff handle a no-show, stale push, wrong table, expired QR, overrun, and simultaneous operator conflict.
 
-## 6. Slice 4: progress evidence
+## 7. Slice 5: progress evidence
 
 Deliver:
 
@@ -100,7 +122,7 @@ Deliver:
 
 Exit when two team members see the same ordered repository set and Figma connection, a lead can classify/reorder/archive repositories and replace the Figma authorizer, and an assigned reviewer can compare two pinned checkpoint sets without receiving a provider credential or generated score. The reviewer can switch through every included private repository at its captured SHA and inspect captured Figma pages, layers, frames, components, prototypes, comments, and freshness.
 
-## 7. Slice 5: scoring and round close
+## 8. Slice 6: scoring and round close
 
 Deliver:
 
@@ -115,7 +137,7 @@ Deliver:
 
 Exit when the export reproduces every team total from raw scorecards and the saved rubric version, and a missing criterion blocks round close.
 
-## 8. Slice 6: reliability and rehearsal
+## 9. Slice 7: reliability and rehearsal
 
 Deliver:
 
@@ -132,13 +154,13 @@ Deliver:
 
 Exit after the full rehearsal completes without unowned exceptions or unreconciled scorecards.
 
-## 9. Slice 7: Synesthesia
+## 10. Slice 8: Synesthesia
 
 Build Synesthesia after the core review flow passes its rehearsal.
 
 Exit when request, voting, moderation, playback acknowledgement, and failure isolation work without granting access to review data.
 
-## 10. Environments
+## 11. Environments
 
 | Environment | Use |
 | --- | --- |
@@ -160,7 +182,7 @@ Each environment has separate:
 
 Production data is never copied into development. A staging seed uses generated teams and reviewers.
 
-## 11. Automated tests
+## 12. Automated tests
 
 ### Domain/unit
 
@@ -174,6 +196,8 @@ Production data is never copied into development. A staging seed uses generated 
 - rubric aggregation;
 - score completeness;
 - role capability checks;
+- attendance-plan/session interpretation, expectation snapshot, anti-passback, duration/checkpoint result, and excused/unknown rules;
+- presence transition and interval calculation across repeated exits/returns and changed actual session bounds;
 - intake completion, the three-to-five generated-question bound, and deterministic fallback termination;
 - track/phase/sponsor guidance precedence and deterministic fallback selection.
 
@@ -185,28 +209,32 @@ Production data is never copied into development. A staging seed uses generated 
 - duplicate operation ID resolution;
 - round-close blockers;
 - audit records for protected commands;
+- credential uniqueness/replacement, QR expiry/use, scan idempotency, one open interval, projection/counter transition, and compensating reconciliation;
+- resumable expectation/finalisation cursor, overlap isolation, closing-state visibility, and checksum-gated completion;
 - webhook deduplication;
 - stale interpretation rejection and answer/session optimistic concurrency;
 - track-catalog/intake/model-config publication validation.
 
 ### Web
 
-Playwright covers participant registration, the minimal sequential intake, fresh-project attestation, generated-question skip, track confirmation/change, source-linked brief review, model-success/no-model submission, team/project submission, independent application review, admission offer, ready/queue, roster administration, floor operations, correction, and round close.
+Playwright covers participant registration, the minimal sequential intake, fresh-project attestation, generated-question skip, track confirmation/change, source-linked brief review, model-success/no-model submission, team/project submission, independent application review, admission offer, own attendance/session/QR state and correction route, ready/queue, roster administration, attendance operations, floor operations, correction, and round close.
 
 ### Mobile
 
-Maestro and device tests cover Google sign-in, clock-in, page open, QR scan, background timer, offline draft, reconnect, submit-time response loss, restart, and device revocation.
+Maestro and real-device tests cover Google sign-in, reviewer clock-in, page open, review QR, repeated NFC/attendance QR scanning, wrong station/session, badge replacement, camera/NFC fallback, scanner pending queue/replay, background timer, offline draft, reconnect, submit-time response loss, restart, and device revocation.
 
 ### Integration
 
 OpenAI fixtures cover valid generated questions, `nextQuestion: null`, refusal, incomplete/content-filtered response, unknown track/field IDs, stale source IDs, invalid schema, overlong/compound/repeated/prohibited questions, timeout, rate limit, prompt injection, late completion, provider disablement, and input redaction for contact/registration/credential patterns. Signed/verified fixture payloads cover repositories from several GitHub installations, add/classify/reorder/archive, push/install/uninstall/repository removal, topic present/missing per repository, fork overlap, force push, partial access loss, duplicate/out-of-order delivery, and comparison truncation. Figma fixtures cover OAuth state/PKCE/token refresh, passcode `PING`/`FILE_UPDATE`, duplicate delivery, view-only webhook failure, full-file parsing, render failure, metadata/content divergence, and `429 Retry-After`. Provider test accounts cover the live happy paths.
 
-## 12. Load test
+## 13. Load test
 
 The provisional test envelope is:
 
 - 1,200 active live connections;
 - 300 reconnects over two minutes near round open;
+- 1,000 session confirmations over ten minutes with a peak of 60 mixed NFC/QR attempts per second, duplicate bursts, exits/returns, and 20 scanner subscriptions;
+- expectation materialisation and finalisation for 1,000 participants, including a worker restart, while unrelated scans and review writes continue;
 - 330 near-simultaneous opening-answer saves and intake jobs, with the model pool saturated while deterministic next steps remain fast;
 - 60 simultaneous active reviews;
 - 150 state-changing operations per minute;
@@ -216,13 +244,14 @@ The provisional test envelope is:
 - metadata heartbeat across 330 Figma bindings plus 50 coalesced full-content jobs;
 - provider Workpool backlog while review mutations continue at the target latency;
 - intake Workpool backlog while participant answer saves and review mutations continue at the target latency;
-- one round export while normal reads continue.
+- one round export while normal reads continue;
+- one attendance export and active emergency roll-call subscription while scans continue.
 
 The core load script stubs external APIs and uses production Workpool/concurrency logic. A separately budgeted staging test samples the live OpenAI path without sending production participant text. The test records server function latency, client update delay, failures, reconnect behaviour, deterministic-fallback latency, and duplicate/missing state.
 
 Cloud-only results do not replace a venue rehearsal.
 
-## 13. Rehearsal scenarios
+## 14. Rehearsal scenarios
 
 The final rehearsal includes:
 
@@ -251,10 +280,18 @@ The final rehearsal includes:
 23. A model returns an unknown track ID, a compound or overlong question, or follows participant prompt-injection text; the server rejects it and serves the pinned fallback without changing accepted answers.
 24. An administrator publishes a new track/flow version while a team is active; the team stays on its pinned version.
 25. Round export and integration artifact are checked and restored into staging.
+26. A participant remains inside between hacking sessions but does not receive session credit until the new confirmation scan.
+27. One participant exits and returns three times; present/away totals and current state remain correct.
+28. NFC and portal QR are scanned nearly simultaneously for one participant; one transition is accepted.
+29. A lost badge is replaced while the old printed QR is tried at another station.
+30. An exit scanner queues events offline while an online roving scanner confirms a newer state; replay creates a visible review case rather than overwriting it.
+31. A hacking session is extended and another is cancelled; scan history remains unchanged and results use the accepted actual bounds.
+32. An emergency roll call begins while people continue entering and leaving; the starting snapshot and live view remain distinct.
+33. A participant needs an accessibility/manual confirmation and another disputes a missing exit; both paths preserve privacy and audit history.
 
 Every scenario has an owner, expected screen state, recovery action, and pass/fail result.
 
-## 14. Training
+## 15. Training
 
 ### Reviewers
 
@@ -269,6 +306,10 @@ Every scenario has an owner, expected screen state, recovery action, and pass/fa
 
 ### Operations
 
+- attendance session open/extend/close/cancel and expectation impact;
+- station setup, direction, scanner result language, NFC/QR fallback, and queue redirection;
+- badge issue/replacement, duplicate/anti-passback result, pending replay, missing-scan reconciliation, and emergency roll call;
+- privacy, accessibility, excused absence, and the ban on attendance-as-score;
 - track, event-phase, question-policy, fallback, and model-config validation, simulation, publication, and rollback;
 - active-session migration preview and per-session result;
 - table freeze;
@@ -288,17 +329,17 @@ Every scenario has an owner, expected screen state, recovery action, and pass/fa
 - presence and overrun overrides;
 - exports and manual-record verification.
 
-## 15. Freeze and launch
+## 16. Freeze and launch
 
 - Product policy freezes before the final rehearsal.
 - Core/sponsor track definitions, event phases, generated-question policy, model configuration, consent, and deterministic fallbacks freeze before applications open.
 - Schema and auth changes freeze after the final rehearsal except for a launch-blocking defect.
-- Mobile native dependencies freeze before production reviewer installation.
+- Mobile native dependencies, NFC tag family, scanner hardware list, and station configuration freeze before production event-app installation.
 - EAS Update may ship a compatible JavaScript fix only after staging verification and release-owner approval.
 - Production seed/configuration is exported and reviewed before check-in.
 - A named release owner, incident commander, auth owner, reviewer-app owner, backend owner, and floor-operations owner are present for event windows.
 
-## 16. Definition of done
+## 17. Definition of done
 
 A feature is done when:
 

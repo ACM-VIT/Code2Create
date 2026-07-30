@@ -148,6 +148,8 @@ Progress is required evidence. The current rubric has no separate progress weigh
 
 Provider statistics do not calculate or suggest a score. Commit, line, file, node, version, and comment counts can help a reviewer locate change, but they cannot establish quality, effort, originality, or individual contribution. GitHub authors and Figma version/comment handles are observations from provider records, not a member-attribution system.
 
+Attendance confirmations, present duration, temporary exits, missed scans, and excused absence are operations/safety records. They are not project progress evidence and never enter a criterion, reviewer context, score, tie-break, or award recommendation.
+
 The evidence context is immutable after the review starts. A later push, Figma refresh, or repository-set change may be visible as newer available evidence, but scoring remains tied to the recorded checkpoint-set ID unless review operations explicitly replaces the context and records why.
 
 Adding a separate weighted progress criterion is an open decision. The system does not create bonus points without that decision.
@@ -257,4 +259,5 @@ CSV supports operations analysis. JSON preserves version and relationship detail
 - Track-specific intake prompts cannot change the rubric version or criterion weights.
 - Review 2 context contains the exact Review 1 commitments and checkpoint references.
 - Provider activity counts cannot write, prefill, weight, or recommend a criterion score.
+- Attendance state, duration, exit count, or exception cannot write, prefill, weight, or recommend a criterion score.
 - A submitted scorecard can be traced to the exact repository snapshots and Figma snapshot inside the checkpoint set shown during that review.

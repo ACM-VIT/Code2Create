@@ -114,7 +114,7 @@ Claiming an entry and creating its role grant happen in one mutation.
 
 ### `devices`
 
-Reviewer installations.
+Reviewer and attendance-scanner installations.
 
 Key fields:
 
@@ -122,6 +122,8 @@ Key fields:
 - `installationId`
 - `platform: ios | android`
 - `appBuild`, `runtimeVersion`
+- `capabilities: camera | nfc | notifications | encrypted_queue`
+- optional active scan-station ID and assignment version;
 - `pushToken?`, `pushTokenUpdatedAt?`
 - `status: active | revoked | replaced`
 - `notificationPermission`
@@ -153,7 +155,7 @@ Sensitive eligibility evidence, if required, is stored as a protected file refer
 - name, slug, timezone;
 - registration/check-in/event windows;
 - status;
-- active participant, intake-policy, admission, integration, security, retention, and Synesthesia configuration IDs;
+- active participant, intake-policy, admission, attendance, integration, security, retention, and Synesthesia configuration IDs;
 - active track-catalog, intake-flow, and intake-model-configuration version IDs;
 - hosted-domain allowlist;
 - active incident ID;
@@ -164,14 +166,14 @@ Sensitive eligibility evidence, if required, is stored as a protected file refer
 Versioned non-round policy.
 
 - `eventId`;
-- `kind: participant_policy | intake_policy | admission_policy | integration_policy | security | retention | synesthesia`;
+- `kind: participant_policy | intake_policy | admission_policy | attendance_policy | integration_policy | security | retention | synesthesia`;
 - version number;
 - typed configuration payload for that kind;
 - `status: draft | published | superseded`;
 - published actor/time;
 - checksum.
 
-The admission payload contains minimum application reviewers, overall and optional core-track capacity, track-change re-review rules, waitlist ordering, offer expiry, and decision-publication rules. The intake-policy payload contains editing/submission windows, answer limits, allowed checkpoint types, and the required core-track count. The integration payload contains the active-repository cap, required topic, repository-kind enum version, checkpoint schedule, and refresh budgets. Published versions are immutable.
+The admission payload contains minimum application reviewers, overall and optional core-track capacity, track-change re-review rules, waitlist ordering, offer expiry, and decision-publication rules. The intake-policy payload contains editing/submission windows, answer limits, allowed checkpoint types, and the required core-track count. The attendance payload contains credential methods, session/cohort rules, tracked zones, scan windows, temporary-exit alerts, exception rules, review-readiness use, and retention references. The integration payload contains the active-repository cap, required topic, repository-kind enum version, checkpoint schedule, and refresh budgets. Published versions are immutable.
 
 ### `trackCatalogVersions`
 
@@ -486,15 +488,17 @@ One active review exists per application/reviewer. Peer recommendations stay out
 
 Sending an offer reserves participant capacity in the same mutation. Confirmation locks the accepted member set. Expiry, decline, or revocation releases the reservation.
 
-### `checkIns`
+### `venueCheckIns`
 
-- `eventId`, `membershipId`
-- desk/zone;
+- `eventId`, `membershipId`;
+- desk/zone and identity-check method;
 - checked-in actor and time;
-- badge reference;
-- status and reversal reason.
+- active badge reference;
+- `status: checked_in | reversed`;
+- reversal actor/time/reason;
+- `version`.
 
-One active check-in exists per membership/event.
+One active venue check-in exists per membership/event. It proves staffed arrival and credential issue; it is not a current-presence or attendance-session record.
 
 ### `tables`
 
@@ -515,7 +519,180 @@ One active check-in exists per membership/event.
 
 One frozen assignment exists per team/round.
 
-## 6. Review setup
+## 6. Attendance and presence
+
+### `attendancePlanVersions`
+
+One immutable published plan for session interpretation.
+
+- `eventId`, version number;
+- typed session templates, cohort selectors, tracked-zone definitions, accepted credential methods, exception rules, and retention references;
+- default check-in/grace/late/away windows;
+- allowed duration/checkpoint result policies;
+- optional team review-readiness rule;
+- `status: draft | published | superseded`;
+- validation result, checksum, published actor/time.
+
+Publishing validates every zone, method, cohort rule, fallback, accessibility path, station capacity assumption, and retention reference. Active sessions keep their plan/version.
+
+### `attendanceSessions`
+
+- `eventId`, `planVersionId`, stable key;
+- participant-facing name and `kind: hacking | briefing | review_preparation | workshop | overnight | custom`;
+- expected cohort rule and frozen expectation-set version;
+- expectation-build state/count/checksum;
+- tracked zone IDs;
+- `requirement: required | optional | information_only`;
+- scheduled start/end and check-in-open/grace/late-close times;
+- accepted actual start/end;
+- away-alert duration;
+- result rule and optional team review-readiness rule;
+- `status: draft | scheduled | open | closing | closed | cancelled`;
+- finalisation job/state/count/checksum;
+- `version`, created/published/changed actor and time.
+
+Extending, closing early, or cancelling changes the session operational version. It never edits presence events.
+
+### `attendanceExpectations`
+
+One participant’s expected relationship to one session.
+
+- `eventId`, `sessionId`, `membershipId`;
+- `expectation: required | optional | not_expected | excused`;
+- source cohort/snapshot and reason code where exceptional;
+- effective time, actor, and `version`.
+
+The expectation set is frozen when the session opens. Later changes are explicit participant exceptions rather than an implicit cohort re-query.
+
+### `attendanceSessionJobs`
+
+Resumable internal batch work for one session.
+
+- `eventId`, `sessionId`;
+- `kind: build_expectations | finalize_results | recompute_results`;
+- plan/session interpretation version and fixed cutoff where applicable;
+- cursor, expected/processed/succeeded/needs-review counts;
+- `status: queued | running | blocked | complete | failed`;
+- attempt, last error code, next scheduled time;
+- requested actor/operation and created/started/completed times.
+
+Expectation building runs before session open. Finalisation moves a session from `closing` to `closed` only after every indexed participant batch and counter/checksum verification succeeds. Jobs never call an external provider.
+
+### `attendanceCredentials`
+
+- `eventId`, `membershipId`, badge reference;
+- `kind: nfc_badge | printed_badge_qr`;
+- credential version and hashed opaque bearer value;
+- optional tag family/security profile, never a trusted hardware UID identity;
+- `status: active | revoked | replaced | lost`;
+- issued device/operator/time;
+- revoked/replaced actor/time/reason;
+- replacement credential ID.
+
+Only one active credential of each physical kind exists for one membership. Replacement revokes the old credential before the new one becomes active.
+
+### `attendanceQrTokens`
+
+Short-lived portal QR bearer state.
+
+- `eventId`, optional `sessionId`, `membershipId`;
+- `scope: venue | session`;
+- credential version and nonce hash;
+- issued and expiry time;
+- `status: active | used | expired | revoked`;
+- used event/station/time.
+
+The raw nonce is returned once to the participant and is never stored or logged. Expiry cleanup is scheduled.
+
+### `scanStations`
+
+- `eventId`, device ID, zone ID;
+- `mode: venue_entry | venue_exit | session_confirm | zone_entry | zone_exit | roving`;
+- fixed direction where applicable and optional active session ID;
+- allowed credential kinds;
+- operator assignment/validity;
+- `status: active | paused | offline | retired`;
+- configuration `version`, heartbeat, last accepted operation ID.
+
+The device submits the expected station version. A stale assignment cannot select a direction or session.
+
+### `presenceEvents`
+
+Append-only server-evaluated scan ledger.
+
+- `eventId`, optional `sessionId` and `membershipId`;
+- station, device, operator, and optional resolved credential kind/reference/version;
+- client operation ID and device sequence;
+- device-captured time, server-received time, and accepted server order;
+- requested/derived transition;
+- `outcome: accepted | duplicate | rejected | reconciled`;
+- outcome code and related source event ID where applicable;
+- previous and resulting venue/session state when accepted;
+- optional manual-sheet/support/incident reference.
+
+Bearer values and hashes are not copied into the event. Accepted events are never edited. A correction is a new `reconciled` event pointing to the source or missing transition.
+
+### `presenceIntervals`
+
+- `eventId`, `sessionId`, `membershipId`, zone ID;
+- opening and closing presence-event IDs;
+- opened/closed server time;
+- optional device-captured bounds;
+- `closeKind: exit | session_close | reconciliation`;
+- duration and `status: open | closed | needs_review`.
+
+One open interval exists per participant/session/tracked zone. Duplicate scans cannot create another.
+
+### `participantPresence`
+
+One current projection per participant/event.
+
+- `eventId`, `membershipId`;
+- `venueState: not_arrived | inside | temporarily_out | departed | unknown`;
+- current zone;
+- latest accepted event and server time;
+- away-since time;
+- `confidence: confirmed | needs_review`;
+- current team ID for indexed operational grouping;
+- `version`.
+
+### `sessionAttendance`
+
+One derived result per participant/session.
+
+- `eventId`, `sessionId`, `membershipId`, expectation ID;
+- `currentState: not_expected | confirmation_due | present | temporarily_out | complete | excused | needs_review`;
+- first confirmation/entry and latest exit/return;
+- total present and away duration;
+- interval/checkpoint count;
+- `arrival: pending | on_time | late | excused | unknown`;
+- `result: pending | met | not_met | excused | needs_review`;
+- result-rule/session version used;
+- operational flags and `version`.
+
+Recalculation changes this projection only. It never rewrites the events or intervals used to derive it.
+
+Venue state is stored once in `participantPresence`. Every applicable or overlapping attendance session has its own `sessionAttendance` row.
+
+### `presenceCounterShards`
+
+- `eventId`, `sessionId`, optional zone/team ID;
+- state key and deterministic shard number;
+- count and `version`.
+
+The participant membership ID selects one of a fixed number of shards. A scan moves one participant between state shards in the same mutation as the individual projection. The attendance board sums the small shard set instead of contending on one event-wide counter or scanning every event.
+
+### `emergencyRollCalls`
+
+- `eventId`, optional attendance-session ID, incident/drill reference;
+- starting expectation/presence snapshot version and counts by zone/state;
+- `status: active | closed`;
+- started/closed actor and time;
+- live projection version and unresolved count.
+
+The frozen starting snapshot remains stable while live presence continues to change.
+
+## 7. Review setup
 
 ### `reviewerProfiles`
 
@@ -576,7 +753,7 @@ The routing query uses only active confirmed conflicts.
 
 An active reviewer cannot occupy overlapping panel seats in the same round.
 
-## 7. Live round state
+## 8. Live round state
 
 ### `teamRoundStates`
 
@@ -660,7 +837,7 @@ One presence record exists per session/reviewer.
 - entered by and confirmed time;
 - `version`.
 
-## 8. Scorecards
+## 9. Scorecards
 
 ### `scorecards`
 
@@ -717,7 +894,7 @@ The result is rebuilt from immutable scorecard versions after submission or corr
 
 No correction deletes a submitted version.
 
-## 9. Operations, incidents, and audit
+## 10. Operations, incidents, and audit
 
 ### `operationResults`
 
@@ -791,7 +968,7 @@ Append-only protected history.
 
 Indexes support event/time and target/time lookup.
 
-## 10. Integration tables
+## 11. Integration tables
 
 ### `teamIntegrations`
 
@@ -974,7 +1151,7 @@ Job payloads reference protected records instead of copying secrets into the job
 - sent/checked time;
 - terminal error and token-disable time.
 
-## 11. Synesthesia tables
+## 12. Synesthesia tables
 
 ### `synesthesiaWindows`
 
@@ -992,7 +1169,7 @@ One active record per request/person with created/removed time.
 
 Request, action `start | finish | skip | pause`, operator, provider reference, reason, and server time.
 
-## 12. Required indexes
+## 13. Required indexes
 
 | Index | Purpose |
 | --- | --- |
@@ -1020,6 +1197,26 @@ Request, action `start | finish | skip | pause`, operator, provider reference, r
 | `applicationReviews.by_application_reviewer` | One independent review per reviewer |
 | `applicationReviews.by_reviewer_state` | Application reviewer queue |
 | `admissionOffers.by_event_state_expiry` | Capacity and waitlist promotion |
+| `venueCheckIns.by_event_membership_status` | One staffed arrival record |
+| `attendancePlanVersions.by_event_status_version` | Resolve the published attendance policy |
+| `attendanceSessions.by_event_status_start` | Active/upcoming session board |
+| `attendanceExpectations.by_session_membership` | Resolve one participant’s session requirement |
+| `attendanceExpectations.by_session_expectation` | Expected/optional/excused lists |
+| `attendanceSessionJobs.by_session_kind_status` | Resume expectation/finalisation batches |
+| `attendanceSessionJobs.by_status_next_attempt` | Operate stalled internal work |
+| `attendanceCredentials.by_event_bearer_hash_status` | Resolve an opaque badge credential |
+| `attendanceCredentials.by_membership_kind_status` | Revoke/replace one physical method |
+| `attendanceQrTokens.by_nonce_hash_status` | Consume a short-lived portal QR |
+| `scanStations.by_event_device_status` | Authorize a provisioned scanner assignment |
+| `presenceEvents.by_device_operation` | Resolve ambiguous/offline scan replay |
+| `presenceEvents.by_membership_session_server_time` | Participant/session ledger |
+| `presenceIntervals.by_session_membership_status` | Enforce one open interval |
+| `participantPresence.by_event_membership` | Current participant projection |
+| `participantPresence.by_event_session_state_zone` | Indexed live attendance lists |
+| `sessionAttendance.by_session_membership` | One derived participant result |
+| `sessionAttendance.by_session_result` | Session exception/completeness board |
+| `presenceCounterShards.by_session_scope_state_shard` | Low-contention live counts |
+| `emergencyRollCalls.by_event_status` | One active roll-call view |
 | `reviewerConflicts.by_event_reviewer_team_status` | Remove ineligible assignments |
 | `reviewerClockIns.by_round_status` | Panel readiness and substitutes |
 | `panelMembers.by_round_reviewer_status` | Prevent overlapping panel seats |
@@ -1054,7 +1251,7 @@ Request, action `start | finish | skip | pause`, operator, provider reference, r
 
 “Unique” behaviour is enforced by querying the index and writing inside one Convex transaction. Concurrent mutations that read the same index range are retried by Convex.
 
-## 13. Realtime projections
+## 14. Realtime projections
 
 ### `viewer.bootstrap`
 
@@ -1062,7 +1259,11 @@ Returns person, active memberships/grants, event, required next step, device req
 
 ### `participant.home`
 
-Returns participant/team/project completion, application/admission state, official table, team QR reference, current `teamRoundState`, queue summary, commitments, and integration health.
+Returns participant/team/project completion, application/admission state, a compact current attendance summary, official table, team QR reference, current `teamRoundState`, queue summary, commitments, and integration health.
+
+### `participant.attendance`
+
+Returns only the caller’s venue state; applicable active/next sessions and per-session states; latest accepted scans; derived results; own venue/session dynamic-QR capability; and correction route. Team availability contains counts/coarse state only and excludes another member’s timeline or exception detail.
 
 ### `participant.intake`
 
@@ -1096,6 +1297,18 @@ Accepts only the checkpoint-set ID attached to the caller's assigned current/rec
 
 Returns round state, panel summaries, team-state counts, critical exceptions, and stale timestamps. Detail opens through separate indexed queries.
 
+### `attendance.scannerNow`
+
+Returns the registered device’s active station/configuration version, event/session/zone, fixed direction or roving confirmation requirement, allowed methods, recent result receipts, connection policy, and pending-replay limit. It returns no directory, bearer hash, or movement history.
+
+### `operations.attendanceBoard`
+
+Returns active/upcoming session configuration, sharded totals, indexed participant/team/zone exceptions, station health/throughput, projection freshness, and review-readiness impact. Exact participant history and sensitive exception detail require separate narrower queries.
+
+### `operations.emergencyRollCall`
+
+Returns the frozen opening snapshot plus live confirmed-inside, temporarily-out, departed, unknown, excused, and not-expected rows by zone. Starting, exporting, or closing requires the emergency-roll-call capability.
+
 ### `operations.integrationHealth`
 
 Returns one compact row per team/provider with active-resource count, aggregate state, topic/webhook coverage, provider/metadata/content ages, current job state, rate-limit wait, completeness, and next action. GitHub detail returns one child row per repository with kind, branch/root, topic, freshness, and job state. Detail queries expose event facts and metric buckets without returning credentials or raw artifacts.
@@ -1114,7 +1327,7 @@ Returns required/submitted scorecard and criterion counts plus flags. Score valu
 
 Subscriptions update only when records read by the query change. Screens use stable IDs and preserve local focus while data refreshes.
 
-## 14. Command surface
+## 15. Command surface
 
 | Area | Main commands |
 | --- | --- |
@@ -1122,7 +1335,8 @@ Subscriptions update only when records read by the query change. Screens use sta
 | Team/project | create/join/leave team, transfer lead, start/resume intake, save answer, skip generated question, accept fresh-project attestation, confirm tracks, confirm brief, submit version, start/confirm team integration, add/classify/reorder/archive/replace repository |
 | Intake configuration | draft/clone/validate/simulate/publish/retire track catalog, intake flow, prompt binding, and model config |
 | Admissions | assign application, submit own recommendation, request information, publish decision, send/respond/expire offer, promote waitlist |
-| Venue | check in participant, assign/freeze table, report mismatch |
+| Venue | staffed venue check-in/reversal, assign/freeze table, report mismatch |
+| Attendance | draft/validate/publish plan, schedule/open/extend/close/cancel session, issue/revoke/replace credential, mint own portal QR, assign/pause station, record scan, reconcile transition, excuse expectation, open/close roll call, purpose-limited export |
 | Round/panel | publish plan, clock in, mark unavailable, page substitute, accept/decline page |
 | Queue/review | set ready, route, call, hold, move, scan presence, start, extend, complete |
 | Score | save own draft, submit own scorecard, request/approve correction, resubmit, void |
@@ -1132,7 +1346,7 @@ Subscriptions update only when records read by the query change. Screens use sta
 
 Each command has one server implementation used by web and mobile. A mobile-specific API does not apply different judging rules.
 
-## 15. Concurrency cases
+## 16. Concurrency cases
 
 ### Two team joins
 
@@ -1158,6 +1372,26 @@ Confirming a different core track increments the session version, recomputes pha
 
 Publication changes only the event defaults for new sessions. Existing sessions keep pinned IDs. A migration is a separate previewed command with explicit key mappings and affected-session counts.
 
+### Simultaneous NFC and QR attendance scans
+
+Both commands resolve the same participant projection and open-interval index. One creates the accepted transition. The other retries, finds the accepted state, records/returns a duplicate outcome, and cannot add duration or move counters again.
+
+### Scan while attendance session closes
+
+The scan and close mutation serialize on the session/version and participant interval. A scan accepted first is included in close calculation. A later scan receives the closed session and can only become an authorised reconciliation.
+
+### Credential replacement versus old badge scan
+
+Replacement revokes the old credential and publishes the new credential in one mutation. An old scan that commits first remains a valid historical event; replacement commits after it. An old scan that retries after replacement is rejected and cannot change presence.
+
+### Offline exit and newer online return
+
+Replay keeps the device sequence and capture time but loads current server state. If accepting the older exit would contradict a newer transition, the replay becomes `needs_review`; it cannot rewrite the current projection. A compensating reconciliation may rebuild the interval after human review.
+
+### Session close with a large cohort
+
+The close command fixes the cutoff and interpretation version, moves the session to `closing`, and creates one idempotent finalisation job. Scheduled indexed batches close/reconcile intervals and calculate participant results. A retry resumes from the stored cursor; only verified completion changes the session to `closed`.
+
 ### Two substitute acceptances
 
 Both load the page chain and empty panel seat. The first fills it and closes the chain. The second retries against the filled seat and receives the accepted reviewer identity permitted for that screen.
@@ -1182,12 +1416,13 @@ The client queries `operationResults` with the original submission ID. It receiv
 
 The close mutation checks incomplete scorecards/corrections in the same transaction. A concurrent valid submission either commits first and is included, or sees the closing/closed state and follows policy.
 
-## 16. Data retention
+## 17. Data retention
 
 The event board must set exact periods. The schema supports separate policies:
 
 - auth sessions and expired intents;
 - participant contact/eligibility data;
+- attendance credential records, short-lived QR tokens, raw scan attempts, accepted presence events, intervals, derived results, roll calls, and identifiable exports as separate retention classes;
 - intake answer versions, generated questions, model interpretations, confirmed briefs, and submitted project versions;
 - provider credentials;
 - integration bindings, checkpoint sets, facts, snapshots, raw Figma artifacts, comments, previews, and short-lived GitHub blob cache;
@@ -1203,7 +1438,9 @@ The event privacy notice separately states that project text is sent to OpenAI f
 
 Operational judging records use status/versions rather than hard deletion during the event and complaint window.
 
-## 17. Schema acceptance
+Attendance QR tokens expire quickly. Encrypted scanner queues expire after their short recovery window. Exact movement events remain only through the approved event, safety-incident, attendance-correction, and complaint window; longer-lived attendance aggregates retain no bearer material or sensitive exception detail. Deletion of raw events happens only after any linked incident, support case, manual sheet, or audit hold has closed.
+
+## 18. Schema acceptance
 
 - Cross-event IDs fail authorization even when the caller has the same role in another event.
 - A published catalog contains the configured five core tracks, and every submitted project names exactly one published core-track version.
@@ -1216,6 +1453,17 @@ Operational judging records use status/versions rather than hard deletion during
 - A participant cannot hold two active team memberships.
 - One application reviewer cannot submit two active recommendations for the same application.
 - Active offered/confirmed admission records cannot reserve more participants than approved capacity.
+- One staffed venue check-in, current-presence projection, and session result have distinct ownership and cannot satisfy one another accidentally.
+- Every published attendance session freezes an expected participant set and preserves its plan/version.
+- Overlapping sessions store independent `sessionAttendance` state; one session transition cannot overwrite another.
+- A session cannot open before its expectation job completes or reach closed before finalisation/checksum verification.
+- NFC, printed QR, portal QR, and manual fallback converge on one participant-scoped scan command.
+- A bearer credential contains no personal data, is stored only as a hash, and fails immediately after online revocation/replacement.
+- Simultaneous, repeated, stale, and replayed scans cannot open duplicate intervals or increment totals twice.
+- A temporary exit and return preserve separate intervals and update participant, team, zone, session, and roll-call projections together.
+- Extending, closing early, or cancelling a session cannot edit the scan ledger.
+- A presence correction is a linked compensating event with actor/reason, never an edited timestamp.
+- Attendance cannot alter admission, project, integration evidence, rubric, scorecard, or evaluation records.
 - One team and one panel cannot enter two active review sessions.
 - One reviewer cannot occupy overlapping active seats.
 - One reviewer/session produces one scorecard with immutable submitted versions.

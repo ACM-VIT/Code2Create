@@ -5,15 +5,16 @@
 The event must expect:
 
 - crowded venue Wi-Fi and intermittent mobile data;
-- reviewer phones with low battery, denied permissions, or old builds;
+- reviewer/scanner phones with low battery, denied permissions, unsupported NFC, or old builds;
 - delayed or dropped push notifications;
 - stale dashboards opened on several staff laptops;
 - duplicate taps and lost network responses;
-- wrong table, wrong QR, or late reviewer;
+- wrong table, wrong session/station, expired QR, copied/lost badge, or late reviewer;
+- missed entry/exit scans, simultaneous NFC/QR scans, and an offline replay that conflicts with newer presence;
 - OpenAI, GitHub, Figma, Google, Expo, or Convex service trouble;
 - human mistakes during a fast round transition.
 
-The system protects judging records first. If it cannot safely start or finish a review, operations pauses the affected panel or round.
+The system protects judging records and emergency-accountability data first. If it cannot safely confirm attendance or start/finish a review, operations redirects scanning, marks presence uncertain, or pauses the affected session, panel, or round. It never invents acceptance to keep a queue moving.
 
 ## 2. Venue network
 
@@ -27,7 +28,7 @@ Before the final rehearsal, the event team must:
 - arrange backup cellular routers or managed hotspots;
 - provide charging points, power banks, and a labelled spare-device pool;
 - record the network owner and escalation contact;
-- repeat the QR, score-save, and queue tests on the venue network.
+- repeat NFC/QR attendance bursts, scanner replay, review QR, score-save, and queue tests on the venue network.
 
 The application should work on ordinary HTTPS/WebSocket access. It cannot assume access to local routers, static device IPs, or custom ports.
 
@@ -38,6 +39,7 @@ Convex stores the accepted event state.
 A client may show an optimistic control for low-risk actions such as a Synesthesia vote. It may not show these as accepted before a server response:
 
 - reviewer clock-in or page acceptance;
+- participant venue/session presence and credential replacement;
 - team ready;
 - table or panel assignment;
 - reviewer presence;
@@ -89,6 +91,18 @@ Clock-in blocks builds below the configured minimum. The reviewer installs the c
 
 Use the QR fallback code. Presence still requires server validation.
 
+### NFC unavailable
+
+The station switches to camera QR without changing the attendance session or participant record. NFC scanning is enabled only on a provisioned device/tag combination that passed the rehearsal.
+
+### Scanner connection loss
+
+The attendance scanner may collect a bounded encrypted pending queue. It shows **Pending**, not **Accepted**. On reconnect, each operation keeps its device sequence and operation ID; the server returns accepted, duplicate, rejected, or needs-review state. A queue beyond its age/size limit closes the station and directs participants to an online station or the incident procedure.
+
+### Lost or copied badge
+
+Operations revokes the credential version and issues a replacement. The old NFC and printed QR paths fail on the next online scan. Conflicting use at different stations creates an anomaly; it does not open two intervals.
+
 ### Notification permission denied
 
 Clock-in warns the reviewer and operations. Event policy decides whether a reviewer may work with in-app polling plus runner/call fallback.
@@ -106,12 +120,12 @@ On restart, the app restores the current session, fetches `reviewer.now`, opens 
 | Service | Effect | Event response |
 | --- | --- | --- |
 | Google/Better Auth | New sign-ins or fresh-session checks fail | Existing valid sessions continue; support moves signed-in staff/reviewer work to prepared devices where allowed |
-| Convex | Core reads/writes fail | Pause new reviews; current reviewer drafts stay local; start incident procedure |
+| Convex | Core reads/writes fail | Pause authoritative attendance acceptance and new reviews; scanner events remain visibly pending within limits; current reviewer drafts stay local; start incident procedure |
 | OpenAI | Intake interpretation is slow, refused, invalid, rate-limited, or unavailable | Keep the committed answer, follow the published deterministic question edge, and allow brief confirmation/submission without model output |
 | Expo Push | Background pages may not arrive | Dashboard, call, and runner fallback |
 | GitHub | Push delivery or one repository reconciliation fails | Keep every other repository current, retain the failed repository’s last verified checkpoint, show partial completeness, and accept live/manual evidence |
 | Figma | Metadata, full content, comments, or previews cannot refresh | Keep the last complete checkpoint, show each freshness time and missing part, accept live/manual evidence |
-| Vercel | Participant/dashboard web may fail | Reviewer app may continue if Convex is healthy; operations uses prepared access route and incident pack |
+| Vercel | Participant/dashboard web and dynamic attendance QR may fail | Issued NFC/printed badges and the Expo app may continue if Convex is healthy; operations uses prepared access route and incident pack |
 | Sentry | Crash reports delayed | Event functions continue; use Convex/operations logs |
 
 GitHub or Figma downtime does not block a review. The reviewer sees that evidence is stale and records what was demonstrated.
@@ -124,8 +138,9 @@ When the core backend cannot confirm state:
 2. the round controller pauses new review starts;
 3. active reviewers keep current drafts open and stop after the current team;
 4. the incident commander checks provider status, venue network, and a second connection;
-5. operations records affected panels and last confirmed server times;
-6. the incident commander chooses recovery, relocation to backup connectivity, or manual mode.
+5. attendance operations stop or redirect affected stations, preserve pending status, and record the last confirmed zone snapshot;
+6. operations records affected panels and last confirmed server times;
+7. the incident commander chooses recovery, relocation to backup connectivity, or manual mode.
 
 No staff member starts an unofficial spreadsheet while normal service may recover.
 
@@ -133,7 +148,17 @@ No staff member starts an unofficial spreadsheet while normal service may recove
 
 Manual mode requires the incident commander and one board member.
 
-Use numbered paper sheets from the printed incident pack. Each sheet records:
+Use numbered paper sheets from the printed incident pack.
+
+An attendance sheet records:
+
+- event, attendance session, zone, station/direction, and serial number;
+- participant badge reference;
+- entry, exit, or session-confirmation transition;
+- local time and operator initials;
+- replacement/correction reason where applicable.
+
+A review sheet records:
 
 - event, round, team, panel, table, and serial number;
 - all present reviewers and signatures;
@@ -142,7 +167,7 @@ Use numbered paper sheets from the printed incident pack. Each sheet records:
 - evidence, criteria, raw ratings, and commitments;
 - reason normal service was unavailable.
 
-After recovery, two staff members enter and verify each sheet. The application stores a scan of the source, both staff identities, and `manual_import` status. The original sheet goes into the event audit packet.
+After recovery, two staff members enter and verify each sheet. Attendance imports create linked compensating/reconciled events rather than backdating silent state changes. The application stores a scan of the source, both staff identities, and `manual_import` status. The original sheet goes into the event audit packet.
 
 Manual records never look like normal app submissions.
 
@@ -156,7 +181,7 @@ Required actions:
 - generate, upload, and checksum-verify the application export while each round is `closing`;
 - copy the round export to encrypted storage outside the Convex deployment;
 - record file size and SHA-256 checksum;
-- have a second staff member open and verify team/session/scorecard counts;
+- have a second staff member open and verify participant-presence, attendance-session, team, review-session, and scorecard counts;
 - take and download a final backup after the event;
 - rehearse a restore into staging before launch.
 
@@ -173,6 +198,8 @@ A production restore is destructive. The incident commander takes a new backup f
 - intake answer-save latency; intake Workpool depth/age; model success, refusal, invalid, question-policy rejection, timeout, rate-limit, stale, and fallback rates by configuration version;
 - web/reviewer crashes by release;
 - subscription reconnect rate;
+- attendance scan acceptance/duplicate/rejection latency, station heartbeat, pending queue age, replay result, and per-station throughput;
+- unexpected anti-passback transitions, repeated credential use across zones, and counter/projection drift;
 - GitHub signature failures, Figma passcode failures, duplicate deliveries, and oldest unprocessed provider event;
 - separate GitHub, Figma, push, and export Workpool depth, running count, retry count, and oldest-job age;
 - external API errors, provider rate-limit budget, and stored retry time;
@@ -183,6 +210,8 @@ A production restore is destructive. The incident commander takes a new backup f
 ### Event operation
 
 - unfilled panel seats;
+- attendance sessions with unknown participants, unsafe zone occupancy, long-away flags, or confirmation backlog;
+- offline/stale scan stations and pending operations near their recovery limit;
 - stale reviewer heartbeat;
 - unacknowledged pages;
 - long ready/queue waits;
@@ -200,6 +229,9 @@ Audit these actions:
 - role and roster changes;
 - application assignment, published admission decision, offer, expiry, and waitlist promotion;
 - event/rubric/panel-plan publication;
+- attendance-plan publication and attendance-session open/extend/close/cancel;
+- scan-station assignment/reconfiguration and credential issue/replacement/revocation;
+- attendance exception, manual reconciliation, emergency roll call, and identifiable attendance export;
 - track-catalog, intake-flow, intake-model-config publication and active-session migration;
 - after-freeze table changes;
 - manual routing or queue priority;
@@ -214,11 +246,15 @@ Audit these actions:
 
 Each record stores actor, event, action, target type/ID, server time, previous and new summary, reason, and related incident/support ID.
 
-Routine reads, timer ticks, and draft autosaves are not audit events. Submitted scorecard versions provide their own history.
+Routine accepted attendance scans live in the immutable presence ledger rather than the privileged audit log. Routine reads, timer ticks, and draft autosaves are not audit events. Submitted scorecard versions provide their own history.
 
-## 12. QR and webhook safety
+## 12. NFC, QR, and webhook safety
 
-- QR tokens are opaque, short-lived, round-bound, and revocable.
+- Team review QR tokens are opaque, short-lived, round-bound, and revocable.
+- Dynamic attendance QR tokens are participant/session-bound, short-lived, single-use, and invalid after credential replacement or session close.
+- Printed badge QR and NFC payloads are separate high-entropy, revocable bearer credentials containing no participant data. The server stores their hashes.
+- NFC hardware UID is not an identity key. Ordinary tags are treated as copyable; supervised stations, anti-passback, rapid revocation, and anomaly review are required.
+- Station direction and zone come from an authenticated versioned station assignment, not the scanned payload.
 - Codes use enough entropy to prevent venue guessing and are rate-limited by user/device.
 - GitHub webhooks validate `X-Hub-Signature-256` against the raw request body.
 - GitHub `X-GitHub-Delivery` values are deduplicated before enrichment is queued.
@@ -235,6 +271,7 @@ Routine reads, timer ticks, and draft autosaves are not audit events. Submitted 
 - Store one Figma authorization per Figma App/user grant and reference it from team-owned file bindings; never copy refresh tokens into team records.
 - Keep auth secrets, Google client secrets, GitHub private key, webhook secrets, Figma secret, Expo credentials, and backup credentials out of client bundles and source control.
 - Do not put project text, scores, phone numbers, or provider tokens in push payloads or error logs.
+- Do not put attendance bearer values, hashes, exact movement history, or sensitive exception reasons in logs, crash reports, analytics, push payloads, or ordinary exports.
 - Do not put intake answer text, generated brief text, OpenAI request content, or system instructions in job metadata, Sentry, or operational metrics.
 - Send only project text and published routing definitions required for interpretation; exclude identity, contact, auth, admission, provider-credential, reviewer, and score data.
 - Set OpenAI Responses requests to `store: false` and disclose the effective abuse-monitoring/data-retention policy; do not describe it as Zero Data Retention unless that control is approved and enabled.
@@ -242,12 +279,16 @@ Routine reads, timer ticks, and draft autosaves are not audit events. Submitted 
 - Store compressed Figma files, previews, and temporary GitHub source blobs in the private artifact bucket. Reviewers receive short-lived URLs only after assignment and snapshot checks.
 - Raw provider payloads and source/design artifacts follow explicit evidence-retention periods; derived judging records keep only the approved manifest and facts.
 - Exports containing personal data use restricted storage and an expiry date.
+- Presence collection is limited to configured venue-zone boundary and session-confirmation events. GPS, Bluetooth, Wi-Fi, and background participant-phone tracking are excluded.
+- Exact attendance events use a shorter approved operational/incident window; longer-lived aggregates contain only fields approved by event policy.
 - Data-retention and deletion periods require event-board approval before registration.
 
 ## 14. Launch gates
 
-- Venue network and backup connectivity tested on every review zone.
-- All reviewer devices pass sign-in, push, camera, secure storage, and minimum-build checks.
+- Venue network and backup connectivity tested at every review and attendance station under session-opening load.
+- All reviewer/scanner devices pass sign-in, station assignment, push where required, camera, NFC where enabled, secure storage, minimum-build, battery, and pending-replay checks.
+- The selected NFC tags and Android scanner fleet pass repeated-read, duplicate, replacement, wrong-session, copied-token, and offline-replay tests; QR remains a complete fallback.
+- Two full-population hacking-session transitions are rehearsed with multiple entry, exit, and roving stations, including temporary exits and an emergency roll call.
 - Duplicate-submit, stale-write, lost-response, and app-restart tests pass.
 - Manual-mode sheets and two-person reconciliation are rehearsed.
 - Convex backup download and staging restore are proven.
@@ -256,6 +297,7 @@ Routine reads, timer ticks, and draft autosaves are not audit events. Submitted 
 - Intake publication, generated-question bounds and wording policy, source attribution, prompt-injection fixtures, track changes, stale model output, timeout/refusal/invalid output, disabled-model fallback, and no-model submission are tested.
 - A provider-event burst cannot exhaust review writes or the scheduler; Workpool limits and alert thresholds are verified at event scale.
 - Operations can pause starts, page a substitute, move a table, handle a wrong QR, and close a round in the rehearsal.
+- Attendance operations can redirect an offline station, replace a lost badge, reconcile a missed exit, extend/cancel a session, and produce a zone roll call without rewriting scan history.
 - No known path can edit another reviewer’s submitted score or grant itself a staff role.
 
 ## References
@@ -263,3 +305,6 @@ Routine reads, timer ticks, and draft autosaves are not audit events. Submitted 
 - [Convex transaction behaviour](https://docs.convex.dev/database/advanced/occ)
 - [Convex backup and restore](https://docs.convex.dev/database/backup-restore)
 - [Expo push notifications](https://docs.expo.dev/push-notifications/overview/)
+- [Expo development builds and native libraries](https://docs.expo.dev/develop/development-builds/introduction/)
+- [Android NFC overview](https://developer.android.com/develop/connectivity/nfc)
+- [Apple Core NFC](https://developer.apple.com/documentation/CoreNFC)

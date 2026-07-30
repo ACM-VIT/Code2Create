@@ -7,7 +7,7 @@
 | Language | TypeScript |
 | Workspace | pnpm workspaces |
 | Participant/staff web | Next.js App Router and React |
-| Reviewer mobile | Expo, React Native, Expo Router |
+| Reviewer/attendance mobile | Expo, React Native, Expo Router |
 | Authentication | Better Auth, Google provider only |
 | Better Auth database/host | Convex component via `@convex-dev/better-auth` |
 | Application backend | Convex database, queries, mutations, actions, HTTP actions, scheduler, and file storage |
@@ -16,6 +16,7 @@
 | External job control | `@convex-dev/workpool` with separate bounded intake, GitHub, Figma, push, and export pools |
 | Provider integrations | GitHub App installation tokens/webhooks and Figma OAuth/Webhooks V2 |
 | Mobile camera | `expo-camera` |
+| Mobile NFC | `react-native-nfc-manager` behind an app-local adapter in custom EAS builds; repetitive scanning is qualified on provisioned Android devices |
 | Mobile notifications | `expo-notifications` and Expo Push Service |
 | Mobile protected storage | `expo-secure-store`; SQLCipher-backed `expo-sqlite` for one active draft |
 | Web hosting | Vercel |
@@ -54,8 +55,8 @@ Better Auth routes on Convex
 Next.js web <----------> Convex <--> bounded external Workpools
     ^                     ^
     |                     |
-    +---- participant     +---- Expo reviewer app
-          operations           camera / SecureStore / local active draft
+    +---- participant     +---- Expo event app
+          operations           camera / NFC / SecureStore / bounded local recovery
 
 Convex scheduled action --> Expo Push Service --> reviewer device
 Integration artifacts --> private S3 artifact bucket
@@ -77,6 +78,7 @@ convex/
   schema.ts               Application tables and indexes
   identity/               participant provisioning and roster claim
   teams/                  teams, projects, check-in, ready
+  attendance/             plans, sessions, credentials, stations, scan ledger, presence projections
   intake/                 versioned shell, question policy, track catalog, generated prompts, project brief
   admissions/             application review, decisions, offers, capacity
   reviews/                panels, queues, presence, sessions, scorecards
@@ -144,12 +146,16 @@ Clients subscribe to purpose-built queries such as:
 
 - `viewer.bootstrap`
 - `participant.home`
+- `participant.attendance`
 - `admissions.reviewQueue`
 - `admissions.capacity`
 - `participant.queueStatus`
 - `reviewer.now`
 - `reviewer.activeContext`
 - `operations.roundBoard`
+- `attendance.scannerNow`
+- `operations.attendanceBoard`
+- `operations.emergencyRollCall`
 - `operations.panelDetail`
 - `operations.scoreCompleteness`
 
@@ -182,6 +188,10 @@ Convex mutations handle state changes. A protected mutation:
 Do not perform GitHub, Figma, Expo, Sentry, or S3 network calls inside the database transaction.
 
 Low-risk draft saves can use a compact operation ID and expected version. A score submission, page acceptance, review start, move, correction, or round change must resolve an ambiguous response before the client sends a new command.
+
+Attendance scans use the same mutation discipline at higher write volume. `attendance.recordScan` validates the operator, registered device, station configuration, credential version, session, expectation, direction, and anti-passback state. One transaction records the attempt, opens/closes an interval when accepted, updates the individual projection, and moves the participant between counter shards. It does not call an external service.
+
+Attendance cohort creation and session close are not thousand-record mutations. `attendance.prepareSession` and `attendance.closeSession` create resumable internal jobs processed in indexed scheduled batches. Opening requires a complete expectation checksum. Closing fixes the cutoff/version, exposes `closing`, and reaches `closed` only after participant results and counters verify. These jobs do not use an external Workpool slot.
 
 ## 10. External I/O
 
@@ -247,6 +257,8 @@ Examples:
 - `pages.accept` changes reviewer Now, panel staffing, and the operations exception list.
 - `reviews.start` changes participant state, reviewer context, panel row, queue, and active-review board.
 - `scorecards.submit` changes the reviewer receipt and operations completeness; it does not reveal the value to other reviewers.
+- `attendance.recordScan` changes the participant status, scanner receipt, session/zone counts, team availability, and an active roll call. The raw scan ledger is not a dashboard subscription.
+- `attendance.closeSession` changes the session to closing immediately; small scheduled batches then publish final per-participant results and a verified closed state without blocking scans or reviews elsewhere.
 - A verified GitHub push changes that repository row and the team rollup before its slower enrichment job completes.
 - A Figma metadata version change marks content dirty, then a completed snapshot replaces the derived design view.
 
@@ -262,6 +274,8 @@ The reviewer app uses:
 - Convex client cache for current reactive data;
 - one SQLCipher database for the active review context, score draft, and pending operations;
 - ordinary component state for screen interaction.
+
+Attendance scanner mode additionally keeps one encrypted, size- and age-bounded pending operation queue containing opaque credential payload, station/configuration version, device sequence, capture time, and operation ID. It displays these records as pending until the server resolves them. Accepted replay removes them; rejected or contradictory replay remains visible for operator review. The queue contains no participant directory and is not used to calculate local attendance totals.
 
 No Redux store mirrors the backend. When the active review finishes and all operations are confirmed, the app deletes its local context and draft after the configured short recovery window.
 
@@ -289,7 +303,7 @@ Convex has separate development, staging, and production deployments. Production
 
 ### Mobile
 
-EAS uses separate staging and production profiles, schemes, Google client settings, and update channels. Native dependency/configuration changes require a signed build. EAS Update is used only for JavaScript changes compatible with the installed runtime.
+EAS uses separate staging and production profiles, schemes, Google client settings, NFC/camera configuration, and update channels. Native dependency/configuration changes require a signed build. EAS Update is used only for JavaScript changes compatible with the installed runtime. The scanner fleet records whether each installation passed the exact tag, camera, repeated-scan, background/resume, and offline-replay rehearsal.
 
 ## 16. Secrets
 
@@ -307,6 +321,8 @@ Figma OAuth grants are encrypted once per Figma App/user and referenced by team-
 - Google proves identity; application records grant event access.
 - Better Auth sessions prove the caller; Convex functions still check the current role.
 - Client-supplied event, team, reviewer, score, and role IDs are always checked against the caller.
+- Attendance credential bearer values contain no identity, are stored as hashes, and are accepted only through an authorised station/device command. NFC hardware UID is never identity.
+- Station mode, direction, zone, and attendance session are server-owned configuration. A badge or participant cannot select the transition.
 - Provider callbacks use exact allowlisted URLs and validated state.
 - Participant answers are untrusted model input; the OpenAI request has no tools, credentials, score data, or write capability.
 - GitHub webhook signatures are verified against the raw body before JSON parsing affects state.
@@ -321,6 +337,7 @@ Figma OAuth grants are encrypted once per Figma App/user and referenced by team-
 - Convex logs function errors, external-job attempts, and scheduled-work failures.
 - Intake diagnostics show model latency, timeout/refusal/schema-failure/question-policy-rejection/fallback rates, token usage, skips by purpose or fallback key, and config version without logging answer or generated-question text.
 - Integration diagnostics show Workpool backlog, provider rate-limit windows, webhook age, metadata age, full-snapshot age, and incomplete/truncated results.
+- Attendance diagnostics show scan latency/outcome, station heartbeat, pending replay age, credential anomalies, projection/counter consistency, and zone/session exception counts without logging bearer values.
 - The operations dashboard shows business failures such as missing presence, unacknowledged page, stale draft, and round blocker.
 - GitHub Actions records build/test/deploy results.
 
@@ -332,6 +349,10 @@ Business history stays in domain records and audit events. Sentry is not the jud
 - No Clerk package, environment, issuer, or user ID appears in the product repository.
 - An auth session alone cannot read event data without an active application grant.
 - Web and mobile see one accepted test mutation live.
+- NFC, printed QR, and dynamic portal QR reach one attendance command and produce the same participant-scoped transition.
+- A scan updates participant, scanner, operations, team-availability, zone, and roll-call views without scanning the raw event ledger.
+- Simultaneous credential methods, offline replay, badge replacement, and session close cannot create duplicate intervals or silently overwrite a newer presence state.
+- Overlapping optional/cohort sessions keep separate attendance rows, and large-cohort expectation/finalisation work is resumable after function failure.
 - A stale or duplicate high-impact write cannot create a second review, assignment, or scorecard.
 - External provider failure cannot hold open a Convex transaction.
 - An answer is durable before model work begins; OpenAI failure follows the configured fallback path and cannot block submission.
@@ -358,3 +379,8 @@ Business history stays in domain records and audit events. Sentry is not the jud
 - [OpenAI evaluation best practices](https://developers.openai.com/api/docs/guides/evaluation-best-practices)
 - [OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data)
 - [Expo push notification overview](https://docs.expo.dev/push-notifications/overview/)
+- [Expo development builds](https://docs.expo.dev/develop/development-builds/introduction/)
+- [Expo custom native code](https://docs.expo.dev/workflow/customizing/)
+- [React Native NFC Manager](https://github.com/revtel/react-native-nfc-manager)
+- [Android NFC overview](https://developer.android.com/develop/connectivity/nfc)
+- [Apple Core NFC](https://developer.apple.com/documentation/CoreNFC)

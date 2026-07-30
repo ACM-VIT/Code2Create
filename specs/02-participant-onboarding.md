@@ -335,9 +335,23 @@ Exceptional terminal states are `withdrawn` and `disqualified`.
 
 A state change happens on the server after it rechecks current policy and membership.
 
-## 9. Venue check-in
+## 9. Venue arrival and session attendance
 
-An event desk checks in each participant against the registered account and event badge process.
+An event desk checks in each participant against the registered account and event badge process. This one-time staffed venue check is separate from the participant’s repeated entry/exit events and hacking-session confirmations.
+
+After check-in, the portal shows:
+
+- current venue state: not arrived, inside, temporarily out, departed, or needs review;
+- the active or next attendance session, location, check-in window, and whether it is required;
+- the participant’s session state and latest accepted server time;
+- a short-lived personal attendance QR;
+- a correction/support action when the displayed state is wrong.
+
+Every expected participant confirms each configured hacking session individually with the issued NFC badge, printed badge QR, or dynamic portal QR. Someone who remains inside across a session boundary still sees **On site · confirmation due** until that session is confirmed.
+
+When the participant crosses a tracked-zone boundary during a session, an exit scan changes the state to **Temporarily out** and a return scan restores **Present**. Ordinary exits need no reason. Several exit/return intervals are valid, and a long-away alert is an operations prompt rather than an automatic penalty.
+
+Attendance is a participant record, even when team availability is summarised. It cannot change a score, track, project evidence, or admission recommendation. Full credential, state, failure, privacy, and recovery rules are defined in **Attendance and presence**.
 
 A team becomes venue-ready after:
 
@@ -353,6 +367,8 @@ Operations sets the official table. The team lead can confirm or report it as wr
 ## 10. Team QR
 
 The team home screen displays a server-issued QR for the current round.
+
+This is a review-presence credential for assigned reviewers to scan. It is not the participant’s attendance QR and cannot create a participant venue/session presence event.
 
 The payload contains an opaque token, not participant details. It is bound to:
 
@@ -422,6 +438,11 @@ Raw scores stay hidden until the event’s feedback policy releases them.
 - Submitting twice with the same operation ID creates one project version.
 - Application reviewers cannot see peer recommendations before submitting.
 - A selected team cannot check in until its offer is confirmed.
+- Venue check-in, venue presence, and hacking-session confirmation cannot satisfy one another accidentally.
+- A participant can use NFC, printed badge QR, or their current portal QR and receives the same server-owned attendance state.
+- A participant sees only their own movement history and no sensitive reason attached to another team member’s absence.
+- Leaving and returning during a session creates accurate intervals without removing the participant from the event or team.
+- A missing scan produces a correction route and never an automatic judging or eligibility decision.
 - Expiring an offer releases capacity without deleting the application decision.
 - GitHub/Figma disconnects are visible without deleting captured checkpoints.
 - A ready team appears in operations and participant queue views from the same accepted write.

@@ -20,10 +20,12 @@ The product is an event operating system for that review process. It connects pa
 
 | User | Needs |
 | --- | --- |
-| Participant | Clear registration, team state, project submission, review readiness, queue position, and review progress |
+| Participant | Clear registration, team state, project submission, session attendance, review readiness, queue position, and review progress |
 | Team lead | Control of team membership, project versions, tool connections, and ready state |
 | Application reviewer | A focused pre-event project application and an independent admission recommendation |
 | Admissions administrator | Eligibility, reviewer coverage, shortlist/waitlist decisions, offers, and venue capacity |
+| Attendance operator | Fast badge issue, NFC/QR scanning, mismatch recovery, and an unambiguous accepted/pending result |
+| Attendance lead | Configurable hacking sessions, live presence, scanner health, exceptions, and emergency roll call |
 | Reviewer | One current assignment, enough context, a timer, assigned criteria, an independent scorecard, and fast recovery |
 | Panel lead | Panel readiness and completion without access to edit another reviewer’s score |
 | Review operations | Live queues, absent reviewers, substitutes, panel coverage, and review exceptions |
@@ -37,17 +39,17 @@ One person may hold several event roles. Each role is granted for a named event 
 
 ### Participant portal
 
-A responsive web application handles Google sign-in, participant classification, team formation, a one-prompt-at-a-time project intake, fresh-project attestation and track confirmation, admission status, GitHub/Figma connections, check-in, team QR, readiness, queue status, review history, and Synesthesia.
+A responsive web application handles Google sign-in, participant classification, team formation, a one-prompt-at-a-time project intake, fresh-project attestation and track confirmation, admission status, GitHub/Figma connections, attendance status and dynamic QR, team QR, readiness, queue status, review history, and Synesthesia.
 
 Project intake begins with **Hello.** and **What is your project about?** The interface stays visually static and minimal while a server-side OpenAI layer identifies already answered fields and generates three to five short, relevant follow-up questions. Each question is designed to be answerable from the team's current intent without research or pitch preparation. The model produces no authoritative participant or judging state, and the same flow remains usable through deterministic fallback prompts when it is unavailable.
 
 ### Reviewer app
 
-A dedicated Expo application handles Google sign-in, device registration, clock-in, pages, QR scans, review context, score drafts, submission, and short connection loss. Review controls use large targets and little text.
+A dedicated Expo application handles Google sign-in, device registration, reviewer clock-in, pages, QR scans, review context, score drafts, submission, and short connection loss. Provisioned staff devices also expose a capability-gated attendance scanner using native NFC or the camera. Review and scan controls use large targets and little text.
 
 ### Operations dashboard
 
-A role-gated web application shows rounds, panels, tables, queues, reviewer presence, pages, live timers, missing scorecards, conflicts, and exceptions. It also exposes the protected commands used to correct event state.
+A role-gated web application shows attendance sessions, participant presence, scanner health, rounds, panels, tables, queues, reviewer presence, pages, live timers, missing scorecards, conflicts, and exceptions. It also exposes emergency roll call and the protected commands used to correct event state.
 
 ## 4. Event model
 
@@ -77,7 +79,7 @@ An operations user can handle a missing reviewer, team hold, table move, scan fa
 - participant, team, and project onboarding;
 - a fresh-project rule, configurable event checkpoints, sequential intake, five core-track positions, and optional sponsor-track eligibility;
 - pre-event application review, shortlist, waitlist, offer, and confirmation;
-- venue check-in and team QR;
+- one-time venue check-in, configurable hacking-session attendance, NFC/QR participant credentials, temporary exit/re-entry, and team QR;
 - reviewer expertise, conflicts, panels, and substitute paging;
 - table assignment, readiness, routing, and queues;
 - timed reviews and reviewer presence;
@@ -101,6 +103,9 @@ An operations user can handle a missing reviewer, team hold, table move, scan fa
 ## 6. Product rules
 
 - The server owns assignments, queues, review state, and submitted scores.
+- Attendance scans are participant-scoped facts. Session policy interprets them without editing the scan ledger.
+- Venue arrival, current zone presence, and hacking-session confirmation are distinct states.
+- A temporary exit, missing scan, or long break cannot change a judging score or automatically disqualify a participant.
 - Reviewers cannot see peer scores before the configured reveal point.
 - A reviewer scores only the criteria assigned to that reviewer.
 - A panel lead cannot replace the panel’s independent scorecards with one consensus number.
@@ -119,6 +124,7 @@ The venue count is confirmed. Final team and reviewer counts are not.
 Until registration closes, capacity tests use this provisional envelope:
 
 - 1,200 simultaneous live client connections;
+- 60 attendance scan attempts per second across provisioned stations during a session-opening burst;
 - 200–330 teams, depending on final team-size rules;
 - up to 60 reviews running at once;
 - a burst of 300 participant reconnects or ready/queue reads around a round start;
@@ -132,6 +138,8 @@ The launch is acceptable when:
 
 - every published admission decision can be traced to its project/policy versions and independent recommendations;
 - active offers and confirmations stay within approved venue capacity;
+- operations can distinguish who is confirmed present, temporarily out, departed, excused, or unresolved for each active hacking session;
+- NFC and QR scans update the same participant, team, zone, and emergency-roll-call projections without duplicate presence intervals;
 - operations can locate every clocked-in reviewer and see each unfilled panel seat;
 - a missing reviewer produces an acknowledged substitute or a visible unresolved exception;
 - every started review has the required presence record or a board override;
@@ -145,6 +153,6 @@ The launch is acceptable when:
 
 ## 9. Policy versus software
 
-The software must support versioned event configuration for team size, rounds, review duration, extension count, rubric, criterion coverage, queue policy, correction windows, track catalogs, event checkpoints, intake generation policy, track/checkpoint guidance, deterministic fallback prompts, and the bounded model contract.
+The software must support versioned event configuration for team size, attendance sessions and cohorts, check-in windows, tracked zones, temporary-exit alerts, excused attendance, rounds, review duration, extension count, rubric, criterion coverage, queue policy, correction windows, track catalogs, event checkpoints, intake generation policy, track/checkpoint guidance, deterministic fallback prompts, and the bounded model contract.
 
 Event owners must approve those values before production data opens. A missing policy remains a launch blocker; engineers do not choose it inside client code.
