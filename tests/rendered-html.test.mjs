@@ -125,7 +125,13 @@ test("server-renders the authenticated Code2Create handbook", async () => {
   assert.match(html, /presenceIntervals/);
   assert.match(html, /emergencyRollCalls/);
   assert.match(html, /Temporarily out/);
-  assert.match(html, /NFC hardware UID is not an identity key/);
+  assert.match(
+    html,
+    /Code2Create does not issue NFC tags to the full participant population/,
+  );
+  assert.match(html, /existing VIT ID card/);
+  assert.match(html, /event-scoped keyed fingerprint/);
+  assert.match(html, /external event-badge QR/);
   assert.doesNotMatch(
     html,
     /vinext-starter|Workspace Auth Headers|Sign in with ChatGPT|Clerk with Google-only|does not fetch full document content|does not read the full design document|one selected repository|grants one primary repository|binds one team to one repository|The required prompts are:|continuing_existing_project|new_for_event|Original Team Contribution|The model cannot invent an unreviewed question|next eligible question keys from the server-provided allowlist/i,

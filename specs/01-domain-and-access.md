@@ -89,7 +89,7 @@ An unmatched account sees a plain “not on the event roster” screen and a sup
 | Role grant | Application | Time-bound role with event and optional resource scope |
 | Roster entry | Application | Approved reviewer/staff invitation and first-sign-in claim |
 | Device | Application | Reviewer/scanner installation, app version, hardware capabilities, station assignment, notification token, and revocation state |
-| Attendance credential | Application | Revocable participant badge/QR reference; bearer values are stored only as hashes |
+| Attendance credential | Application | Event-scoped VIT ID card fingerprint binding, external badge QR, and short-lived portal QR state; raw card identifiers/bearers are not stored |
 | Provider authorization | Application security boundary | One encrypted Figma App/user grant or GitHub App installation reference used only by server jobs |
 | Team integration | Team | Selected provider resources, repository classifications, checkpoint sets, statistics, and review visibility |
 
@@ -197,7 +197,7 @@ Record these access events:
 - roster import, claim, unlink, and rejection;
 - role grant, scope change, expiry, and revocation;
 - reviewer/scanner device registration, station assignment, hardware-capability change, token replacement, minimum-build rejection, and revocation;
-- attendance credential issue, replacement, and revocation;
+- VIT ID card enrolment/suspension/rebinding and external badge issue/replacement/revocation;
 - privileged reauthentication failure;
 - identity repair and account suspension.
 
@@ -211,7 +211,8 @@ Normal page views are not written to the audit log.
 - A participant cannot call reviewer or operations functions.
 - A participant can mint only their own short-lived attendance QR and cannot choose its session, station direction, or membership.
 - An attendance operator can scan only through the currently assigned station and cannot read another session’s full movement history.
-- Revoking a scanner device, station assignment, or participant badge blocks the next online scan.
+- Revoking a scanner device/station, suspending a VIT card binding, or revoking an external badge blocks the next online scan.
+- A VIT card fingerprint cannot be bound to a second active event membership, and the card does not replace the Google-linked person as identity.
 - A rostered reviewer can sign in on a production-like Expo build and claim only their own row.
 - An unrostered Google account receives no reviewer data.
 - Revoking a role blocks the next protected call without waiting for session expiry.

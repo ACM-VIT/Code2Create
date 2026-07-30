@@ -493,12 +493,12 @@ Sending an offer reserves participant capacity in the same mutation. Confirmatio
 - `eventId`, `membershipId`;
 - desk/zone and identity-check method;
 - checked-in actor and time;
-- active badge reference;
+- active VIT-card binding or external-badge reference, as applicable;
 - `status: checked_in | reversed`;
 - reversal actor/time/reason;
 - `version`.
 
-One active venue check-in exists per membership/event. It proves staffed arrival and credential issue; it is not a current-presence or attendance-session record.
+One active venue check-in exists per membership/event. It proves staffed arrival and credential enrolment/issue; it is not a current-presence or attendance-session record.
 
 ### `tables`
 
@@ -580,16 +580,28 @@ Expectation building runs before session open. Finalisation moves a session from
 
 ### `attendanceCredentials`
 
-- `eventId`, `membershipId`, badge reference;
-- `kind: nfc_badge | printed_badge_qr`;
-- credential version and hashed opaque bearer value;
-- optional tag family/security profile, never a trusted hardware UID identity;
-- `status: active | revoked | replaced | lost`;
-- issued device/operator/time;
-- revoked/replaced actor/time/reason;
-- replacement credential ID.
+- `eventId`, `membershipId`;
+- `kind: vit_id_card | external_badge_qr`;
+- credential/binding version, card-key-set version where applicable, and event-scoped lookup fingerprint;
+- source `existing_vit_card | event_issued_qr`;
+- optional verified VIT registration/card-profile reference or external badge reference;
+- enrolment method `staffed_tap | approved_import | external_badge_issue`;
+- visual identity-check actor/time and scanner device;
+- `status: active | suspended | rebound | revoked | lost`;
+- suspended/rebound/revoked actor/time/reason;
+- successor credential ID.
 
-Only one active credential of each physical kind exists for one membership. Replacement revokes the old credential before the new one becomes active.
+For a VIT ID card, the lookup fingerprint is `HMAC-SHA-256(event lookup key, canonical(card-profile key, normalised phone-read identifier))`. It is a pseudonymous card lookup value, not a biometric. The raw identifier is never stored. For an external printed QR, the lookup value is derived from a random high-entropy bearer. One active lookup fingerprint maps to one event membership, and one active credential of each applicable kind exists per membership.
+
+### `attendanceCardKeySets`
+
+- `eventId`, monotonic key-set version;
+- random event lookup key encrypted with authenticated encryption under the server-held attendance wrapping key;
+- wrapping-key version, encryption nonce/tag, and non-secret key-check digest;
+- `status: staged | active | retired | compromised`;
+- created/activated/retired actor, time, and reason.
+
+The table is server-only and has no client query. The event lookup key becomes immutable when the first VIT card is enrolled. Rotating the environment-held wrapping key re-encrypts the event key without changing stored fingerprints. If an event lookup key itself is compromised, operations pauses VIT-card acceptance, activates a new key set, and requires staffed re-enrolment; the raw card values cannot be reconstructed or migrated. QR remains available during recovery.
 
 ### `attendanceQrTokens`
 
@@ -1204,8 +1216,9 @@ Request, action `start | finish | skip | pause`, operator, provider reference, r
 | `attendanceExpectations.by_session_expectation` | Expected/optional/excused lists |
 | `attendanceSessionJobs.by_session_kind_status` | Resume expectation/finalisation batches |
 | `attendanceSessionJobs.by_status_next_attempt` | Operate stalled internal work |
-| `attendanceCredentials.by_event_bearer_hash_status` | Resolve an opaque badge credential |
-| `attendanceCredentials.by_membership_kind_status` | Revoke/replace one physical method |
+| `attendanceCardKeySets.by_event_status_version` | Resolve the one active server-only VIT card lookup key set |
+| `attendanceCredentials.by_event_lookup_fingerprint_status` | Resolve a VIT card or external badge without storing the raw identifier |
+| `attendanceCredentials.by_membership_kind_status` | Suspend/rebind/revoke one physical method |
 | `attendanceQrTokens.by_nonce_hash_status` | Consume a short-lived portal QR |
 | `scanStations.by_event_device_status` | Authorize a provisioned scanner assignment |
 | `presenceEvents.by_device_operation` | Resolve ambiguous/offline scan replay |
@@ -1336,7 +1349,7 @@ Subscriptions update only when records read by the query change. Screens use sta
 | Intake configuration | draft/clone/validate/simulate/publish/retire track catalog, intake flow, prompt binding, and model config |
 | Admissions | assign application, submit own recommendation, request information, publish decision, send/respond/expire offer, promote waitlist |
 | Venue | staffed venue check-in/reversal, assign/freeze table, report mismatch |
-| Attendance | draft/validate/publish plan, schedule/open/extend/close/cancel session, issue/revoke/replace credential, mint own portal QR, assign/pause station, record scan, reconcile transition, excuse expectation, open/close roll call, purpose-limited export |
+| Attendance | draft/validate/publish plan, schedule/open/extend/close/cancel session, enrol/suspend/rebind VIT card, issue/revoke external badge, mint own portal QR, assign/pause station, record scan, reconcile transition, excuse expectation, open/close roll call, purpose-limited export |
 | Round/panel | publish plan, clock in, mark unavailable, page substitute, accept/decline page |
 | Queue/review | set ready, route, call, hold, move, scan presence, start, extend, complete |
 | Score | save own draft, submit own scorecard, request/approve correction, resubmit, void |
@@ -1372,7 +1385,7 @@ Confirming a different core track increments the session version, recomputes pha
 
 Publication changes only the event defaults for new sessions. Existing sessions keep pinned IDs. A migration is a separate previewed command with explicit key mappings and affected-session counts.
 
-### Simultaneous NFC and QR attendance scans
+### Simultaneous VIT-card and QR attendance scans
 
 Both commands resolve the same participant projection and open-interval index. One creates the accepted transition. The other retries, finds the accepted state, records/returns a duplicate outcome, and cannot add duration or move counters again.
 
@@ -1380,9 +1393,9 @@ Both commands resolve the same participant projection and open-interval index. O
 
 The scan and close mutation serialize on the session/version and participant interval. A scan accepted first is included in close calculation. A later scan receives the closed session and can only become an authorised reconciliation.
 
-### Credential replacement versus old badge scan
+### VIT card rebinding versus old-card scan
 
-Replacement revokes the old credential and publishes the new credential in one mutation. An old scan that commits first remains a valid historical event; replacement commits after it. An old scan that retries after replacement is rejected and cannot change presence.
+Rebinding suspends the previous VIT card binding and publishes the verified successor in one mutation. An old scan that commits first remains a valid historical event; rebinding commits after it. An old scan that retries after rebinding is rejected and cannot change presence. External badge replacement follows the same ordering.
 
 ### Offline exit and newer online return
 
@@ -1457,8 +1470,9 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - Every published attendance session freezes an expected participant set and preserves its plan/version.
 - Overlapping sessions store independent `sessionAttendance` state; one session transition cannot overwrite another.
 - A session cannot open before its expectation job completes or reach closed before finalisation/checksum verification.
-- NFC, printed QR, portal QR, and manual fallback converge on one participant-scoped scan command.
-- A bearer credential contains no personal data, is stored only as a hash, and fails immediately after online revocation/replacement.
+- Enrolled VIT cards, external-badge QR, portal QR, and manual fallback converge on one participant-scoped scan command.
+- A VIT card’s raw identifier is never stored and maps through an event-scoped keyed fingerprint only after staffed enrolment. An external badge contains no personal data and is stored only as a hash.
+- One VIT card fingerprint cannot bind to two active event memberships; suspension/rebinding takes effect on the next online scan.
 - Simultaneous, repeated, stale, and replayed scans cannot open duplicate intervals or increment totals twice.
 - A temporary exit and return preserve separate intervals and update participant, team, zone, session, and roll-call projections together.
 - Extending, closing early, or cancelling a session cannot edit the scan ledger.

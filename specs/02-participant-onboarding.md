@@ -337,7 +337,7 @@ A state change happens on the server after it rechecks current policy and member
 
 ## 9. Venue arrival and session attendance
 
-An event desk checks in each participant against the registered account and event badge process. This one-time staffed venue check is separate from the participant’s repeated entry/exit events and hacking-session confirmations.
+An event desk checks in each participant against the registered account and attendance-credential process. Staff enrol and verify the existing VIT ID card or issue/verify the external QR badge as applicable. This one-time staffed venue check is separate from the participant’s repeated entry/exit events and hacking-session confirmations.
 
 After check-in, the portal shows:
 
@@ -347,7 +347,7 @@ After check-in, the portal shows:
 - a short-lived personal attendance QR;
 - a correction/support action when the displayed state is wrong.
 
-Every expected participant confirms each configured hacking session individually with the issued NFC badge, printed badge QR, or dynamic portal QR. Someone who remains inside across a session boundary still sees **On site · confirmation due** until that session is confirmed.
+Every expected participant confirms each configured hacking session individually. A VIT student normally taps the enrolled existing VIT ID card against a staff scanner phone. An external participant uses the event-badge QR or dynamic portal QR; the portal QR is also the fallback for a VIT student whose card is forgotten or unreadable. Someone who remains inside across a session boundary still sees **On site · confirmation due** until that session is confirmed.
 
 When the participant crosses a tracked-zone boundary during a session, an exit scan changes the state to **Temporarily out** and a return scan restores **Present**. Ordinary exits need no reason. Several exit/return intervals are valid, and a long-away alert is an operations prompt rather than an automatic penalty.
 
@@ -439,7 +439,8 @@ Raw scores stay hidden until the event’s feedback policy releases them.
 - Application reviewers cannot see peer recommendations before submitting.
 - A selected team cannot check in until its offer is confirmed.
 - Venue check-in, venue presence, and hacking-session confirmation cannot satisfy one another accidentally.
-- A participant can use NFC, printed badge QR, or their current portal QR and receives the same server-owned attendance state.
+- A VIT ID card tap, external event-badge QR, or current portal QR produces the same server-owned attendance state.
+- A forgotten/unreadable VIT ID uses QR or staffed recovery and does not require Code2Create to issue another NFC credential.
 - A participant sees only their own movement history and no sensitive reason attached to another team member’s absence.
 - Leaving and returning during a session creates accurate intervals without removing the participant from the event or team.
 - A missing scan produces a correction route and never an automatic judging or eligibility decision.

@@ -348,35 +348,39 @@ Do not include team project text, score, phone number, or private reason.
 
 The 90-second page deadline is based on the page record, not the push ticket.
 
-## 7. Attendance scanner and badge release
+## 7. VIT ID scanner and QR release
 
-Attendance NFC is native application functionality, not a web integration.
+Reading a compatible VIT ID card is native application functionality, not a web integration. The participant website never promises browser NFC.
 
 The Expo app includes:
 
-- `expo-camera` for printed badge and dynamic portal QR;
-- `react-native-nfc-manager` behind an app-owned adapter;
+- `expo-camera` for external-badge and dynamic portal QR;
+- `react-native-nfc-manager` behind an app-owned VIT-card adapter;
 - a config plugin and required Android/iOS NFC declarations;
 - a custom development/preview/production build, never Expo Go;
 - secure auth/device registration and an encrypted pending-operation queue.
 
-The event qualifies one primary Android scanner model, one spare model, and the selected NFC tag family. The test covers repeated foreground reads, app resume, screen lock, camera/NFC switching, duplicate taps, tag removal, low battery, connection loss, and 30 minutes of continuous station operation. iOS remains a QR-capable reviewer/scanner client; iOS NFC is enabled only after the exact production build/tag combination passes the same throughput and recovery test.
+The event qualifies one primary Android scanner model, one spare model, and representative current VIT cards from every available campus/batch profile. The test covers first read, repeat read, stable identifier normalisation, app resume, screen lock, camera/NFC switching, duplicate taps, card removal, low battery, connection loss, and 30 minutes of continuous station operation. A card profile that does not pass uses QR. iOS remains a QR-capable reviewer/scanner client; iOS NFC is enabled only after the exact production build and VIT card profiles pass the same throughput and recovery test.
 
-Badge provisioning is a protected station workflow:
+VIT card enrolment is a protected staffed workflow:
 
-1. create separate random NFC and printed-QR bearer values;
-2. store their hashes and credential versions in Convex;
-3. encode the opaque NFC value as an NDEF record and print the separate QR;
-4. read both back before assignment;
-5. link the verified badge reference to the checked-in participant;
-6. destroy or revoke any failed/replaced values.
+1. require the participant’s active VIT event membership and a fresh Google-backed session;
+2. compare the visible card name, photo, and registration number with the participant record without capturing a card image;
+3. read the same card twice on the provisioned phone;
+4. send the phone-read identifier only to the protected backend command;
+5. derive an event-scoped keyed fingerprint server-side, discard the raw identifier, and bind the fingerprint to that event membership;
+6. read once more and show the resolved participant to the operator;
+7. suspend an incorrect or replaced binding through a lead-authorised, reasoned rebind rather than editing history.
 
-The app never derives identity from the tag UID. It never writes a name, registration number, team, email, or session into NFC/QR media.
+The VIT card is presentation evidence, not the account. Google identity and the event membership remain authoritative. The app never writes to the VIT card, never stores or logs its raw identifier, and never stores a card photo. One active fingerprint can bind to only one event membership.
+
+An external participant may receive an ordinary event badge with a random opaque QR. Convex stores only its hash and credential version. The printed value contains no name, registration number, team, email, or session. Revocation and replacement are protected station commands. Every participant can use a short-lived portal QR as the configured fallback; VIT students do not receive a replacement NFC tag.
 
 Production release inventory records:
 
 - scanner installation, model, OS, app/runtime build, camera/NFC capability, station, charger, and spare owner;
-- badge batch, tag family, encoder/print batch, read-back result, issued/revoked/replaced counts;
+- tested VIT campus/card-profile label, phone/card compatibility result, repeated-read count, identifier-normalisation version, and approved fallback;
+- external-badge print batch, read-back result, and issued/revoked/replaced counts;
 - session station layout, direction, expected throughput, backup network, and operator shift;
 - last successful online scan, pending queue age, and device heartbeat.
 
@@ -434,7 +438,7 @@ If VIT policy requires another provider/region, replace this decision before pro
 | Convex | developer deployment | rehearsal deployment | production deployment |
 | Better Auth | dev secret/clients | staging secret/clients | production secret/clients |
 | OpenAI | dev project/key and synthetic input | staging project/key and intake evals | production project/key and published model config |
-| Event app | dev build/scheme with synthetic tags | preview build/channel and rehearsal scanners | production build/channel and provisioned scanner/reviewer fleet |
+| Event app | dev build/scheme with synthetic card fixtures | preview build/channel, representative VIT cards, and rehearsal scanners | production build/channel and provisioned scanner/reviewer fleet |
 | GitHub | dev App | staging App/test repos | production App/team repos |
 | Figma | dev OAuth/webhook/test files | staging OAuth/webhook/test files | approved production OAuth App and webhook endpoint |
 | Push | test devices | reviewer training devices | registered event devices |
@@ -460,7 +464,7 @@ Pull requests run:
 Main-branch release candidates also run:
 
 - signed Expo staging build when native inputs changed;
-- Maestro smoke suite on at least Android and iOS plus physical-device NFC/QR smoke when attendance native inputs changed;
+- Maestro smoke suite on at least Android and iOS plus physical-device VIT-card/QR smoke when attendance native inputs changed;
 - database migration/backfill check;
 - load smoke test;
 - staging auth/integration health checks.
@@ -474,7 +478,7 @@ CI logs must not print environment values, cookies, webhook bodies, or provider 
 1. Deploy additive Convex schema/functions to staging.
 2. Run any backfill and verify counts.
 3. Deploy Vercel staging and event-app preview build/update.
-4. Run auth, deterministic/model intake, NFC/QR attendance, one-review, integration, push, export, and incident smoke tests.
+4. Run auth, deterministic/model intake, VIT-card/QR attendance, one-review, integration, push, export, and incident smoke tests.
 5. Publish the production event-app build and install it on reviewer and scanner devices.
 6. Set the minimum build only after installation/training is complete.
 
@@ -486,7 +490,7 @@ CI logs must not print environment values, cookies, webhook bodies, or provider 
 4. Create a staged Vercel production deployment and run route/auth checks.
 5. Promote the tested Vercel deployment.
 6. Publish a compatible EAS update only if needed and test a small device group first.
-7. Verify one synthetic OpenAI interpretation/fallback, one NFC and QR attendance transition, GitHub/Figma callbacks, one test push, export bucket write, Sentry release, and dashboard release IDs.
+7. Verify one synthetic OpenAI interpretation/fallback, one enrolled VIT-card and one QR attendance transition, GitHub/Figma callbacks, one test push, export bucket write, Sentry release, and dashboard release IDs.
 8. Record the release in event configuration.
 
 Do not change native dependencies, auth callback shape, rubric calculation, or destructive schema during a live round.
@@ -514,7 +518,7 @@ Roll back to the previous EAS Update on the same runtime. A native-runtime probl
 
 ### Attendance scanner
 
-Pause or redirect affected stations, retain pending operations, and move to the prepared previous signed build/spare fleet. Never downgrade a credential version or re-enable a revoked badge to match an old client. Reconcile pending scans only after the restored build passes one online NFC and QR test against the current station configuration.
+Pause or redirect affected stations, retain pending operations, and move to the prepared previous signed build/spare fleet. Never downgrade a credential version or re-enable a suspended VIT binding or revoked external badge to match an old client. Reconcile pending scans only after the restored build passes one online VIT-card and QR test against the current station configuration.
 
 ### Convex functions
 
@@ -544,11 +548,12 @@ Before launch, rehearse rotation for:
 - GitHub App private key and webhook secret;
 - Figma client secret and file-webhook passcodes;
 - token-encryption key;
+- attendance-key wrapping key;
 - Expo server credential;
 - S3 application credential;
 - Sentry auth token.
 
-Token-encryption key rotation keeps the previous decrypt key until all active Figma authorizations are re-encrypted. GitHub webhook-secret rotation may require an overlap or coordinated provider update. Figma passcode rotation updates each active webhook and verifies its new `PING` before discarding the old encrypted value.
+Token-encryption key rotation keeps the previous decrypt key until all active Figma authorizations are re-encrypted. Attendance-key wrapping rotation re-encrypts each event lookup key and verifies the authenticated ciphertext and key-check digest without changing a card fingerprint. A compromised event lookup key is different: pause VIT-card acceptance, create a new event key set, and require staffed card re-enrolment while QR remains available. GitHub webhook-secret rotation may require an overlap or coordinated provider update. Figma passcode rotation updates each active webhook and verifies its new `PING` before discarding the old encrypted value.
 
 ## 15. Release acceptance
 
@@ -571,8 +576,8 @@ Token-encryption key rotation keeps the previous decrypt key until all active Fi
 - Provider rate limits leave an explicit metadata/content age and completeness state instead of blocking a review.
 - Two team members see one shared integration, and any current lead can replace a revoked Figma authorizer.
 - Push ticket, receipt, reviewer acknowledgement, expiry, and fallback remain distinct.
-- NFC and QR scanning work in the signed production build on the provisioned fleet; the web portal makes no Web NFC promise.
-- NFC UID and tag payload contain no participant identity. A replaced badge is rejected online and historical events remain traceable to the old credential reference.
+- Representative VIT cards and QR scan successfully in the signed production build on the provisioned fleet; an incompatible card has a complete QR path, and the web portal makes no Web NFC promise.
+- A raw VIT card identifier is discarded after event-scoped fingerprinting and never becomes participant identity. A suspended prior binding or replaced external badge is rejected online, while historical events remain traceable to the old credential reference.
 - A repeated/simultaneous mixed-method scan creates one accepted transition; a connection loss remains pending and replays idempotently.
 - Two consecutive attendance sessions, temporary exits/returns, a session extension, and an emergency roll call update every live projection without rewriting presence events.
 - A compatible web/backend/mobile release survives rollback rehearsal.

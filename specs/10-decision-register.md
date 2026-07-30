@@ -37,7 +37,7 @@ This register separates source requirements from implementation choices and unre
 | C-029 | Event phases and track-dependent guidance require versioned event configuration rather than client-side hard-coding; the schedule assigns each phase. |
 | C-030 | After the opening description, the AI writes three to five short, relevant questions that are mostly easy to answer. Questions are validated and versioned; they do not come from a fixed questionnaire. |
 | C-031 | Every expected participant confirms presence individually for each configured hacking session, even when they remained inside the venue between sessions. |
-| C-032 | Participant attendance supports NFC and QR through the same realtime backend state. |
+| C-032 | VIT students present their existing VIT ID card to a provisioned staff phone for attendance. External participants and VIT fallbacks use QR; every method reaches the same realtime backend state. |
 | C-033 | Temporary exits and returns may happen repeatedly during a session and must update current participant presence accurately. |
 | C-034 | Attendance sessions and their enforcement are configurable; the scan ledger records facts without hard-coding one global attendance percentage or automatic punishment. |
 
@@ -69,8 +69,8 @@ This register separates source requirements from implementation choices and unre
 | T-022 | OpenAI Responses API with strict Structured Outputs, `store: false`, no tools, source-linked output, bounded free-text question generation, server validation, and deterministic fallbacks | Gives the intake genuinely adaptive questions without making model availability or output authoritative |
 | T-023 | Append-only answer versions and participant-confirmed source-linked brief versions | Reviewers can distinguish team evidence from model-assisted wording and edits cannot erase history |
 | T-024 | Append-only participant presence events plus materialised individual, interval, team, zone, session, and sharded-count projections | Live screens stay fast while policy changes and corrections cannot rewrite movement history |
-| T-025 | One provisioned Expo scanner mode using `react-native-nfc-manager` for NFC and `expo-camera` for QR, with repetitive NFC qualified on the Android staff fleet | Native NFC is not dependable as a browser feature; QR remains a complete method/fallback |
-| T-026 | Separate hashed, revocable NFC/printed-QR credentials and short-lived single-use portal QR tokens | Credentials contain no identity and a lost badge can be invalidated immediately |
+| T-025 | One provisioned Expo scanner mode using `react-native-nfc-manager` for compatible VIT ID cards and `expo-camera` for external-badge and portal QR, with actual cards qualified on the Android staff fleet | Native NFC is not dependable as a browser feature, card batches may differ, and QR must remain a complete fallback |
+| T-026 | Event-scoped keyed VIT card fingerprints, hashed revocable external-badge QR credentials, and short-lived single-use portal QR tokens | The raw VIT card identifier is never stored or treated as account identity, and every physical method can be suspended or revoked |
 | T-027 | Session-specific expectation snapshots and policy-derived results | Participant scans remain factual while required/optional status, grace, duration, checkpoints, and exceptions can vary by session |
 | T-028 | Encrypted bounded pending scan queue that never displays server acceptance before replay | Short network loss does not lose every scan or create a second attendance database |
 | T-029 | Resumable indexed expectation and finalisation jobs for each attendance session | Opening/closing a 1,000-person session does not exceed one transaction or claim partial completion |
@@ -91,7 +91,7 @@ This register separates source requirements from implementation choices and unre
 | A-010 | Better Auth sessions last seven days; event grants end six hours after event close. | Session and operations support settings change. |
 | A-011 | Each submitted application receives two independent admission recommendations. | Application-review workload and decision coverage change. |
 | A-012 | Several fixed and roving scanner stations will be available so 900–1,000 people do not form one session-opening queue. | Station count, staffing, session check-in window, and load target change. |
-| A-013 | Commodity NFC badges are supervised bearer credentials rather than clone-proof identity documents. | Cryptographic tag procurement, scanner compatibility, issue flow, and threat model change. |
+| A-013 | At least one current VIT ID card profile can be read repeatedly by the selected Android scanner fleet; no campus or card batch is assumed compatible until tested. | VIT participants use QR until another approved card-reading method passes the same qualification. |
 
 ## 4. Open policy
 
@@ -126,7 +126,7 @@ This register separates source requirements from implementation choices and unre
 | O-027 | OpenAI privacy notice, approved data controls, interpretation-record retention, and whether the organisation will seek MAM/ZDR | Event board + VIT policy owner | Before applications open |
 | O-028 | Final hacking-session schedule, overlaps, expected cohorts, required/optional status, check-in/grace/late windows, duration/checkpoint rules, and away-alert thresholds | Event operations + participant experience lead | Before attendance-plan publication |
 | O-029 | Tracked zone boundaries, station count/layout, entry/exit direction, table-sweep plan, safe occupancy, and emergency roll-call procedure | Venue operations + safety lead | Before full venue rehearsal |
-| O-030 | NFC badge/tag family, printed QR format, replacement process, scanner-device inventory, and whether clone-resistant tags are warranted | Engineering lead + venue operations | Before badge procurement |
+| O-030 | Actual VIT card technologies and identifier normalisation, representative campus/batch compatibility matrix, VIT approval, scanner-device inventory, and external-badge QR format | Engineering lead + VIT IT + venue operations | Before the full attendance rehearsal |
 | O-031 | Excused attendance, accessibility/manual confirmation, review-readiness minimum, missed-scan remedies, and any consequence after human review | Event board + participant experience lead | Before participant policy publication |
 | O-032 | Raw scan, interval, aggregate, roll-call, manual-sheet, and identifiable attendance-export retention/access | Event board + VIT policy owner | Before participant check-in opens |
 
@@ -159,10 +159,11 @@ This register separates source requirements from implementation choices and unre
 | X-023 | Unbounded or unvalidated model questions, or automatic phase/track selection | Rejected; question text may be generated only inside the published length, purpose, safety, count, versioning, and fallback contract |
 | X-024 | Make project submission depend on an OpenAI response | Rejected; every path has a deterministic fallback |
 | X-025 | One event-wide check-in used as proof for every hacking session | Rejected; venue arrival and session confirmation answer different questions |
-| X-026 | Trust the NFC hardware UID as participant identity | Rejected; use a random revocable credential and treat ordinary tags as supervised bearer media |
+| X-026 | Store or trust a raw VIT card identifier as a person’s account identity or global identifier | Rejected; bind an event-scoped keyed fingerprint only after staffed identity matching, and keep Google identity authoritative |
 | X-027 | Continuous GPS, Bluetooth, Wi-Fi, or background participant-phone tracking | Rejected; configured boundary/session scans are sufficient and materially less invasive |
 | X-028 | Add attendance hours, exits, or missed scans to judging scores or automatic disqualification | Rejected; attendance is an operations fact and any approved consequence requires human review |
 | X-029 | Let offline scanner state claim acceptance or overwrite a newer server transition | Rejected; offline work stays pending and contradictory replay becomes a review case |
+| X-030 | Issue Code2Create NFC tags or electronic badges to the full participant population | Rejected; VIT students use their existing VIT ID cards, while external participants and all fallbacks use QR |
 
 ## 6. Change procedure
 

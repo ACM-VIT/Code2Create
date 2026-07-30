@@ -15,7 +15,7 @@ The password on this handbook only protects the specifications. It has no connec
 - Reviewer and staff access comes from an approved event roster. Nobody can select an elevated role during sign-in.
 - Participants use a web portal. Reviewers use a dedicated Expo application on Android or iOS. Staff use a web operations dashboard.
 - The three clients read and write the same Convex deployment.
-- Every participant confirms presence for each configured hacking session. NFC badges, printed badge QR, and short-lived portal QR use one participant-scoped attendance system.
+- Every participant confirms presence for each configured hacking session. Staff phones read an enrolled existing VIT ID card for VIT students; external participants and all fallbacks use event-badge or short-lived portal QR.
 - Temporary exits and returns are recorded as boundary events. Attendance is not continuous tracking, a judging signal, or an automatic punishment.
 - Every planned panel member must scan the team QR before a normal review starts.
 - Reviews are timed. The working policy is 10 minutes with one two-minute extension.
@@ -40,7 +40,7 @@ The password on this handbook only protects the specifications. It has no connec
 | External job control | `@convex-dev/workpool` | Bounds intake, GitHub, Figma, push, and export work so external work does not block review traffic. |
 | Large artifacts | Private S3 in `ap-south-1` | Stores compressed Figma checkpoints/previews, short-lived GitHub blob cache, exports, and backups outside one-megabyte live records. |
 | Reviewer paging | Expo Notifications | Background attention signal, backed by an in-app assignment and an operations fallback. |
-| Attendance scanning | Capability-gated mode in the signed Expo build | Provisioned devices use native NFC or the camera; every accepted scan reaches the same Convex mutation. |
+| Attendance scanning | Capability-gated mode in the signed Expo build | Provisioned staff phones read compatible VIT ID cards through native NFC or scan QR; every accepted method reaches the same Convex mutation. |
 | Web hosting | Vercel | Preview, staging, and production Next.js deployments. |
 | Mobile delivery | EAS Build and Update | Signed reviewer builds and controlled release channels. |
 | Error reporting | Sentry | Web and mobile crash reports with release and environment tags. |
@@ -79,7 +79,7 @@ An open policy must live in versioned event configuration or remain blocked. Cli
 | Product brief | Event problem, scope, users, and outcomes |
 | Identity and access | Google sign-in, VIT classification, rosters, roles, and sessions |
 | Participant portal | Registration, teams, fresh-project attestation, sequential intake, tracks, application, admission, integrations, readiness, and queue experience |
-| Attendance and presence | Hacking sessions, NFC and QR credentials, temporary exits, realtime presence, scanner recovery, and privacy |
+| Attendance and presence | Hacking sessions, existing VIT ID cards, external/fallback QR, temporary exits, realtime presence, scanner recovery, and privacy |
 | Panels and queues | Reviewer staffing, routing, presence, timers, and substitutions |
 | Reviewer app | Native workflow, score drafts, push, and short connection loss |
 | Evaluation | Rubric, criterion coverage, aggregation, progress, and corrections |
@@ -101,7 +101,7 @@ An open policy must live in versioned event configuration or remain blocked. Cli
 - missed-call, hold, and queue re-entry rules;
 - reviewer and staff rosters;
 - data retention, provider-evidence retention, artifact access, and participant feedback;
-- attendance-session schedule, required/optional rules, grace and duration policy, tracked zones, badge hardware, excused absence, and presence-data retention;
+- attendance-session schedule, required/optional rules, grace and duration policy, tracked zones, VIT card compatibility/enrolment, external badge format, excused absence, and presence-data retention;
 - final core-track names/definitions, sponsor tracks, awards, event checkpoints, and the exact allowed pre-start setup policy;
 - OpenAI intake consent, effective data controls, and interpretation retention;
 - Synesthesia catalogue, playback source, and licensing.

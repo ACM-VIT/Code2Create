@@ -16,7 +16,7 @@
 | External job control | `@convex-dev/workpool` with separate bounded intake, GitHub, Figma, push, and export pools |
 | Provider integrations | GitHub App installation tokens/webhooks and Figma OAuth/Webhooks V2 |
 | Mobile camera | `expo-camera` |
-| Mobile NFC | `react-native-nfc-manager` behind an app-local adapter in custom EAS builds; repetitive scanning is qualified on provisioned Android devices |
+| Mobile NFC | `react-native-nfc-manager` behind an app-local adapter in custom EAS builds; real VIT ID card profiles are qualified on provisioned Android devices before use |
 | Mobile notifications | `expo-notifications` and Expo Push Service |
 | Mobile protected storage | `expo-secure-store`; SQLCipher-backed `expo-sqlite` for one active draft |
 | Web hosting | Vercel |
@@ -303,13 +303,13 @@ Convex has separate development, staging, and production deployments. Production
 
 ### Mobile
 
-EAS uses separate staging and production profiles, schemes, Google client settings, NFC/camera configuration, and update channels. Native dependency/configuration changes require a signed build. EAS Update is used only for JavaScript changes compatible with the installed runtime. The scanner fleet records whether each installation passed the exact tag, camera, repeated-scan, background/resume, and offline-replay rehearsal.
+EAS uses separate staging and production profiles, schemes, Google client settings, NFC/camera configuration, and update channels. Native dependency/configuration changes require a signed build. EAS Update is used only for JavaScript changes compatible with the installed runtime. The scanner fleet records whether each installation passed the representative VIT-card profiles, camera, repeated-scan, background/resume, and offline-replay rehearsal.
 
 ## 16. Secrets
 
 | Store | Secrets |
 | --- | --- |
-| Convex environment | Better Auth secret, Google secret, OpenAI API key, GitHub App private key/webhook secret, Figma client secret, token-encryption key, Expo server credential, S3 restricted credential |
+| Convex environment | Better Auth secret, Google secret, OpenAI API key, GitHub App private key/webhook secret, Figma client secret, token-encryption key, attendance-key wrapping key, Expo server credential, S3 restricted credential |
 | Vercel environment | Public Convex URLs, public site URL, Sentry DSN; no provider private key |
 | EAS secrets/config | Public backend/auth URLs, app scheme/client IDs, Sentry DSN, build credentials |
 | GitHub Actions | Vercel/Convex/EAS deploy credentials scoped by environment |
@@ -321,8 +321,9 @@ Figma OAuth grants are encrypted once per Figma App/user and referenced by team-
 - Google proves identity; application records grant event access.
 - Better Auth sessions prove the caller; Convex functions still check the current role.
 - Client-supplied event, team, reviewer, score, and role IDs are always checked against the caller.
-- Attendance credential bearer values contain no identity, are stored as hashes, and are accepted only through an authorised station/device command. NFC hardware UID is never identity.
-- Station mode, direction, zone, and attendance session are server-owned configuration. A badge or participant cannot select the transition.
+- A phone-read VIT card identifier is sent only to the authorised attendance command, converted into an event-scoped keyed fingerprint, and discarded. Raw identifiers never become account identity, records, logs, or exports.
+- External-badge QR bearers contain no identity and are stored only as hashes. Short-lived portal QR tokens resolve the already-authenticated event member.
+- Station mode, direction, zone, and attendance session are server-owned configuration. A card, badge, or participant cannot select the transition.
 - Provider callbacks use exact allowlisted URLs and validated state.
 - Participant answers are untrusted model input; the OpenAI request has no tools, credentials, score data, or write capability.
 - GitHub webhook signatures are verified against the raw body before JSON parsing affects state.
@@ -349,9 +350,9 @@ Business history stays in domain records and audit events. Sentry is not the jud
 - No Clerk package, environment, issuer, or user ID appears in the product repository.
 - An auth session alone cannot read event data without an active application grant.
 - Web and mobile see one accepted test mutation live.
-- NFC, printed QR, and dynamic portal QR reach one attendance command and produce the same participant-scoped transition.
+- An enrolled VIT ID card, external-badge QR, and dynamic portal QR reach one attendance command and produce the same participant-scoped transition.
 - A scan updates participant, scanner, operations, team-availability, zone, and roll-call views without scanning the raw event ledger.
-- Simultaneous credential methods, offline replay, badge replacement, and session close cannot create duplicate intervals or silently overwrite a newer presence state.
+- Simultaneous credential methods, offline replay, VIT card rebinding, external-badge replacement, and session close cannot create duplicate intervals or silently overwrite a newer presence state.
 - Overlapping optional/cohort sessions keep separate attendance rows, and large-cohort expectation/finalisation work is resumable after function failure.
 - A stale or duplicate high-impact write cannot create a second review, assignment, or scorecard.
 - External provider failure cannot hold open a Convex transaction.

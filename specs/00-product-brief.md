@@ -24,7 +24,7 @@ The product is an event operating system for that review process. It connects pa
 | Team lead | Control of team membership, project versions, tool connections, and ready state |
 | Application reviewer | A focused pre-event project application and an independent admission recommendation |
 | Admissions administrator | Eligibility, reviewer coverage, shortlist/waitlist decisions, offers, and venue capacity |
-| Attendance operator | Fast badge issue, NFC/QR scanning, mismatch recovery, and an unambiguous accepted/pending result |
+| Attendance operator | Fast VIT ID enrolment/tap, external/fallback QR scanning, mismatch recovery, and an unambiguous accepted/pending result |
 | Attendance lead | Configurable hacking sessions, live presence, scanner health, exceptions, and emergency roll call |
 | Reviewer | One current assignment, enough context, a timer, assigned criteria, an independent scorecard, and fast recovery |
 | Panel lead | Panel readiness and completion without access to edit another reviewer’s score |
@@ -79,7 +79,7 @@ An operations user can handle a missing reviewer, team hold, table move, scan fa
 - participant, team, and project onboarding;
 - a fresh-project rule, configurable event checkpoints, sequential intake, five core-track positions, and optional sponsor-track eligibility;
 - pre-event application review, shortlist, waitlist, offer, and confirmation;
-- one-time venue check-in, configurable hacking-session attendance, NFC/QR participant credentials, temporary exit/re-entry, and team QR;
+- one-time venue check-in, configurable hacking-session attendance, existing VIT ID card scanning, external/fallback QR, temporary exit/re-entry, and team QR;
 - reviewer expertise, conflicts, panels, and substitute paging;
 - table assignment, readiness, routing, and queues;
 - timed reviews and reviewer presence;
@@ -139,7 +139,7 @@ The launch is acceptable when:
 - every published admission decision can be traced to its project/policy versions and independent recommendations;
 - active offers and confirmations stay within approved venue capacity;
 - operations can distinguish who is confirmed present, temporarily out, departed, excused, or unresolved for each active hacking session;
-- NFC and QR scans update the same participant, team, zone, and emergency-roll-call projections without duplicate presence intervals;
+- VIT ID card and QR scans update the same participant, team, zone, and emergency-roll-call projections without duplicate presence intervals;
 - operations can locate every clocked-in reviewer and see each unfilled panel seat;
 - a missing reviewer produces an acknowledged substitute or a visible unresolved exception;
 - every started review has the required presence record or a board override;

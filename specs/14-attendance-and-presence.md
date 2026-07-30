@@ -38,7 +38,7 @@ An event publishes an immutable attendance-plan version before participant check
 - expected cohort, such as all admitted participants, selected tracks, volunteers, finalists, or an explicit list;
 - required, optional, or information-only status;
 - tracked zones and valid scan stations;
-- allowed methods: NFC badge, printed badge QR, portal QR, staffed confirmation, or manual exception;
+- allowed methods by participant class: VIT ID card tap, external event-badge QR, portal QR, staffed confirmation, or manual exception;
 - temporary-exit behaviour and the duration after which operations receives an away alert;
 - whether a minimum presence duration or one or more checkpoints are required;
 - whether team review readiness uses a configurable minimum number of currently available members;
@@ -55,37 +55,56 @@ Sessions may overlap for different cohorts or for an optional workshop inside a 
 
 ## 4. Participant credentials
 
-Venue operations issues a participant badge after the first staffed check-in. A production badge can carry:
+Code2Create does not issue NFC tags to the full participant population.
 
-- an NFC tag;
-- a printed QR fallback;
-- a short human-readable badge reference for support.
+### VIT students
 
-Each channel uses a separate, random, revocable credential. The encoded value contains no name, email, registration number, team, or attendance state. The backend stores a hash of the bearer value and resolves it only after an authenticated scanner submits it.
+A VIT student presents the VIT ID card they already carry. A provisioned staff phone reads the card using NFC when the actual card technology is compatible with the tested Android fleet.
 
-The system does not treat an NFC hardware UID as identity. Commodity NFC tags are convenient bearer credentials and can be copied; supervised scanning, anti-passback checks, visible badge matching, rapid revocation, and anomaly review provide the ordinary event control. If the event later requires clone-resistant badges, the credential policy may select compatible cryptographic tags after a device-and-tag proof, without changing the attendance domain model.
+The card is enrolled to the participant’s event membership at the first staffed venue check:
 
-The participant portal also offers a short-lived dynamic QR:
+1. the participant is already authenticated through the VIT Google path;
+2. staff compare the card’s visible name/photo and registration number with the participant record;
+3. the phone reads the machine identifier without displaying it;
+4. the backend normalises it with the approved card-profile adapter and computes an event-scoped keyed fingerprint;
+5. one active fingerprint is bound to one event membership;
+6. the scanner immediately reads the card again and verifies the resulting participant.
+
+The raw card identifier is not stored, logged, exported, or used as the person’s account identity. The Google-linked person and event membership remain authoritative. The card fingerprint is a pseudonymous server lookup value, not a biometric; it proves only that the enrolled physical card was presented to a supervised scanner.
+
+The same card cannot be actively bound to two people in one event. Rebinding after a replacement, damaged card, or incorrect enrolment requires an attendance lead, a fresh sign-in, a visual identity check, and a reason. The previous binding remains in history but cannot produce another accepted event.
+
+The production team must test real current VIT cards before making the tap path mandatory. The public handbook does not assume a particular card family, UID format, or NFC protocol. If a campus/batch card cannot be read reliably from the qualified phones, that participant uses QR without losing attendance access.
+
+### External participants and fallback
+
+External participants use:
+
+- a short-lived dynamic QR in the authenticated participant portal;
+- an opaque printed QR on an ordinary event badge when the event issues one;
+- staffed lookup/manual confirmation when neither is available.
+
+VIT students receive the same portal QR fallback for a forgotten, unreadable, or unavailable VIT ID. Code2Create does not print an electronic replacement for a VIT card.
+
+Dynamic QR state is:
 
 - bound to the event, participant, credential version, token scope, and attendance session when session-scoped;
 - opaque and free of personal data;
 - expired quickly and replaced automatically;
-- invalid after use, revocation, session close, or badge replacement.
+- invalid after use, revocation, session close, or account/credential repair.
 
-A screenshot or old printed portal QR does not become a permanent event credential. Participants without a working phone still have the issued badge and staffed support path.
-
-Replacing a lost badge revokes every prior physical credential in one server mutation. Historical presence events keep their original credential reference but the old badge cannot create another accepted event.
+A screenshot or old portal QR does not become a permanent event credential.
 
 ## 5. Scanner surfaces
 
 Attendance scanning is a capability-gated mode in the signed Expo event application. It uses:
 
-- the camera for printed and portal QR codes;
-- a native NFC reader module in production EAS builds;
+- the camera for external event-badge and portal QR codes;
+- a native NFC reader module for compatible VIT ID cards in production EAS builds;
 - secure session storage and registered-device checks;
 - an encrypted, bounded pending queue for short connection loss.
 
-NFC is not promised through the participant website or a browser API. Repetitive NFC scanning is operated on provisioned, tested Android devices. QR remains available on every scanner device with a working camera; iOS NFC is enabled only if the exact build and tag family pass the fleet rehearsal.
+NFC is not promised through the participant website or a browser API. Repetitive VIT ID scanning is operated on provisioned Android devices that passed the actual-card matrix. QR remains available on every scanner device with a working camera; iOS NFC is enabled only if the exact build and VIT card types pass the fleet rehearsal.
 
 Each scanner installation is assigned to a station configuration:
 
@@ -113,7 +132,7 @@ The screen never exposes the bearer token.
 
 1. Staff locate the participant’s confirmed event membership.
 2. They perform the approved identity and eligibility check.
-3. The server records venue check-in and issues or links the badge credentials.
+3. For a VIT student, staff enrol and verify the existing VIT ID card; for an external participant, staff verify or issue the configured QR badge.
 4. An entry scan places the participant inside the configured venue zone.
 5. The participant portal shows the accepted status, time, and next scheduled attendance session.
 
@@ -121,7 +140,7 @@ Venue check-in happens once unless it is reversed. Entry and exit presence event
 
 ### Session start
 
-The portal shows the next session, check-in window, location, and current status. Every expected participant confirms the session individually using NFC or QR.
+The portal shows the next session, check-in window, location, and current status. Every expected participant confirms the session individually: VIT students normally tap the enrolled VIT ID card, while external participants and fallbacks use QR.
 
 Confirmation can happen at:
 
@@ -190,12 +209,12 @@ Attendance duration and temporary exits never enter a judging score or GitHub/Fi
 
 ## 9. Scan command and realtime update
 
-NFC, printed QR, portal QR, and manual fallback all reach the same protected scan command.
+Enrolled VIT cards, external-badge QR, portal QR, and manual fallback all reach the same protected scan command.
 
 The request contains:
 
 - event, station, and expected configuration version;
-- credential kind and opaque bearer value;
+- credential kind and opaque QR value or phone-read VIT card identifier;
 - device installation and signed-in operator;
 - client operation ID and device sequence;
 - device-captured time and current connectivity state.
@@ -204,7 +223,7 @@ The server:
 
 1. authenticates the operator and registered device;
 2. checks the attendance capability and station assignment;
-3. resolves and validates the credential, event, membership, and revocation version;
+3. converts a VIT card identifier into its event-scoped keyed fingerprint, or resolves the QR token, then validates event, membership, and credential/binding state;
 4. resolves the applicable attendance session or sessions and expected participant records;
 5. applies station direction, anti-passback, duplicate, and time-window rules;
 6. records the scan attempt with accepted, duplicate, rejected, or reconciled outcome;
@@ -222,13 +241,13 @@ The working performance target on the venue network is:
 - affected participant and operations views updated within two seconds at the 95th percentile;
 - sustained event-wide bursts of at least 60 scan attempts per second without delaying review or score writes.
 
-The final target is signed off after testing with the chosen phones, tags, Wi-Fi, backup connection, and station layout.
+The final target is signed off after testing with the chosen phones, representative VIT card profiles, external-badge and portal QR, Wi-Fi, backup connection, and station layout.
 
 ## 10. Duplicate and conflict behaviour
 
 - Repeating the same client operation ID returns the first result.
 - The same credential and transition repeated within the deduplication window returns **Already recorded**.
-- Two near-simultaneous NFC and QR scans for one participant create one accepted transition and one duplicate result.
+- Two near-simultaneous VIT-card and portal-QR scans for one participant create one accepted transition and one duplicate result.
 - Two entry scans do not manufacture extra present time.
 - A stale station configuration is rejected with the current station mode.
 - A scan racing session close is evaluated against server order. An operator may reconcile a legitimate boundary case.
@@ -273,7 +292,7 @@ An online scanner shows **Accepted** only after the server response.
 
 During a short connection loss:
 
-- the scanner stores a small encrypted queue with operation ID, credential payload, station/configuration version, device time, and sequence;
+- the scanner stores a small encrypted queue with operation ID, credential payload, station/configuration version, device time, and sequence; raw VIT card identifiers in this queue are never logged and expire with the queue;
 - the screen shows **Pending**, never **Accepted**;
 - the operator can continue only within the configured queue and age limit;
 - backup connectivity or another online station remains the preferred recovery;
@@ -281,7 +300,7 @@ During a short connection loss:
 
 The queue is deleted after confirmed replay or its short recovery expiry. It is not another attendance database.
 
-If the scanner battery, NFC reader, or camera fails, staff switch method or device without changing the participant credential record. If the backend is unavailable beyond the incident threshold, operations uses numbered paper sheets containing badge reference, direction, station, device/operator, and local time. Two authorised staff reconcile the sheet after recovery.
+If the scanner battery, NFC reader, or camera fails, staff switch method or device. A VIT student may use the portal QR without changing the VIT card binding. If the backend is unavailable beyond the incident threshold, operations uses numbered paper sheets containing participant/event reference, direction, station, device/operator, and local time. Two authorised staff reconcile the sheet after recovery.
 
 ## 13. Privacy, accessibility, and fair use
 
@@ -292,7 +311,7 @@ If the scanner battery, NFC reader, or camera fails, staff switch method or devi
 - Team leads see only the team availability needed to regroup, not another member’s exception detail.
 - Attendance operators see the minimum identity needed to scan and resolve mismatches.
 - Exact movement events and identifiable exports use a shorter approved retention period than event membership.
-- Raw credentials, hashes, and bearer values never appear in logs, exports, analytics, or support screens.
+- Raw VIT card identifiers, card fingerprints, QR values, hashes, and bearer values never appear in logs, exports, analytics, or support screens.
 - Accessibility desks, manual confirmation, excused attendance, and authorised companions are first-class paths.
 - Attendance cannot modify a judging score, model prompt, track, GitHub/Figma statistic, or admission recommendation.
 - No participant is automatically disqualified from a missed scan, long break, unknown state, or device failure. Any consequence follows an approved policy and human review.
@@ -301,9 +320,9 @@ If the scanner battery, NFC reader, or camera fails, staff switch method or devi
 
 - Venue check-in, venue entry, and session confirmation remain distinct records.
 - The same participant can check into every configured hacking session without receiving a new account or badge.
-- NFC, printed badge QR, and portal QR produce the same accepted domain transition.
+- An enrolled VIT ID card, external event-badge QR, and portal QR produce the same accepted domain transition.
 - A portal QR cannot be used for another participant, event, session scope, or incompatible station; direction remains server-owned station configuration.
-- A revoked or replaced badge fails immediately on every online scanner.
+- A suspended/rebound VIT card or revoked external badge fails immediately on every online scanner.
 - Repeated and simultaneous scans produce one accepted transition and stable totals.
 - Temporary exit and return create separate intervals and update participant, team, zone, and dashboard views in realtime.
 - A participant already inside at the next session still appears as confirmation due until explicitly confirmed.
@@ -314,7 +333,7 @@ If the scanner battery, NFC reader, or camera fails, staff switch method or devi
 - A contradictory offline replay becomes needs review and cannot overwrite a newer accepted state.
 - A manual correction adds a linked compensating event with actor and reason.
 - An emergency roll call separates confirmed inside, temporarily out, departed, and unknown people.
-- A no-phone, broken-NFC, inaccessible-station, and lost-badge path each completes through a staffed fallback.
+- A no-phone, forgotten/unreadable VIT ID, broken-NFC, inaccessible-station, and lost external badge path each completes through QR or a staffed fallback.
 - Attendance data cannot be read through reviewer, application-reviewer, or unrelated participant access.
 - Attendance never appears in a judging score or progress metric.
-- The event-scale rehearsal scans the full registered population through several stations for two consecutive sessions, including exits, returns, duplicates, lost badges, offline replay, and a session extension.
+- The event-scale rehearsal scans the full registered population through several stations for two consecutive sessions, including representative VIT card batches/campuses, external QR, fallbacks, exits, returns, duplicates, card rebinding, offline replay, and a session extension.

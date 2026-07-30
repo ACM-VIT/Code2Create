@@ -24,7 +24,7 @@ The app talks to the same Convex backend as the participant portal and operation
 - `@better-auth/expo` for Google sign-in and secure cookie handling
 - Convex React client for live queries and writes
 - `expo-camera` for team QR scans
-- `react-native-nfc-manager` behind an app-owned adapter for attendance NFC in custom builds
+- `react-native-nfc-manager` behind an app-owned adapter for compatible existing VIT ID cards in custom builds
 - `expo-notifications` for pages and time warnings
 - `expo-secure-store` for the auth cookie and local encryption key
 - SQLCipher-backed `expo-sqlite` for the current review draft and unsent operations
@@ -293,7 +293,7 @@ Before the event:
 - every reviewer installs and opens the production candidate;
 - sign-in, push, camera, and SecureStore are tested on the actual device;
 - operations records a spare-device pool and charging plan;
-- attendance devices record NFC/camera capability, station assignment, selected tag compatibility, and a tested QR fallback;
+- attendance devices record NFC/camera capability, station assignment, tested VIT card batch/campus compatibility, and a tested QR fallback;
 - the minimum supported build is fixed after the final rehearsal;
 - a remote update is tested, but a new native build is not planned during the event.
 
@@ -305,7 +305,7 @@ On a device handover, operations revokes the old device, registers the spare, an
 - A stale push cannot accept a cancelled page.
 - The same reviewer cannot hold two accepted pages that overlap.
 - A scan for another panel or round is rejected.
-- An attendance credential cannot be submitted to the reviewer team-QR command, or vice versa.
+- A VIT ID card or attendance QR cannot be submitted to the reviewer team-QR command, or vice versa.
 - Attendance scanner routes require a current station assignment and never expose participant bearer values after parsing.
 - Timer remains correct after backgrounding and restart.
 - Peer scores never appear before the configured reveal point.

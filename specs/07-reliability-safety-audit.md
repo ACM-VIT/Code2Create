@@ -9,8 +9,8 @@ The event must expect:
 - delayed or dropped push notifications;
 - stale dashboards opened on several staff laptops;
 - duplicate taps and lost network responses;
-- wrong table, wrong session/station, expired QR, copied/lost badge, or late reviewer;
-- missed entry/exit scans, simultaneous NFC/QR scans, and an offline replay that conflicts with newer presence;
+- wrong table, wrong session/station, expired QR, unreadable/forgotten VIT ID, copied external badge, or late reviewer;
+- missed entry/exit scans, simultaneous VIT-card/QR scans, and an offline replay that conflicts with newer presence;
 - OpenAI, GitHub, Figma, Google, Expo, or Convex service trouble;
 - human mistakes during a fast round transition.
 
@@ -28,7 +28,7 @@ Before the final rehearsal, the event team must:
 - arrange backup cellular routers or managed hotspots;
 - provide charging points, power banks, and a labelled spare-device pool;
 - record the network owner and escalation contact;
-- repeat NFC/QR attendance bursts, scanner replay, review QR, score-save, and queue tests on the venue network.
+- repeat VIT-card/QR attendance bursts, scanner replay, review QR, score-save, and queue tests on the venue network.
 
 The application should work on ordinary HTTPS/WebSocket access. It cannot assume access to local routers, static device IPs, or custom ports.
 
@@ -39,7 +39,7 @@ Convex stores the accepted event state.
 A client may show an optimistic control for low-risk actions such as a Synesthesia vote. It may not show these as accepted before a server response:
 
 - reviewer clock-in or page acceptance;
-- participant venue/session presence and credential replacement;
+- participant venue/session presence and VIT-card/external-badge binding changes;
 - team ready;
 - table or panel assignment;
 - reviewer presence;
@@ -93,15 +93,17 @@ Use the QR fallback code. Presence still requires server validation.
 
 ### NFC unavailable
 
-The station switches to camera QR without changing the attendance session or participant record. NFC scanning is enabled only on a provisioned device/tag combination that passed the rehearsal.
+The station switches to portal/event-badge QR without changing the attendance session or participant record. VIT ID scanning is enabled only on a provisioned phone/card-batch combination that passed the rehearsal.
 
 ### Scanner connection loss
 
 The attendance scanner may collect a bounded encrypted pending queue. It shows **Pending**, not **Accepted**. On reconnect, each operation keeps its device sequence and operation ID; the server returns accepted, duplicate, rejected, or needs-review state. A queue beyond its age/size limit closes the station and directs participants to an online station or the incident procedure.
 
-### Lost or copied badge
+### Forgotten, replaced, or misused card
 
-Operations revokes the credential version and issues a replacement. The old NFC and printed QR paths fail on the next online scan. Conflicting use at different stations creates an anomaly; it does not open two intervals.
+A VIT student without a readable VIT ID uses the authenticated portal QR or staffed exception. If VIT replaces the card, attendance staff visually verify the participant, suspend the prior event binding, tap/read the replacement twice, and bind its event-scoped fingerprint. Conflicting presentation of one card at different stations creates an anomaly; it does not open two intervals.
+
+A lost external event badge is revoked and reprinted. The old QR fails on the next online scan.
 
 ### Notification permission denied
 
@@ -125,7 +127,7 @@ On restart, the app restores the current session, fetches `reviewer.now`, opens 
 | Expo Push | Background pages may not arrive | Dashboard, call, and runner fallback |
 | GitHub | Push delivery or one repository reconciliation fails | Keep every other repository current, retain the failed repository’s last verified checkpoint, show partial completeness, and accept live/manual evidence |
 | Figma | Metadata, full content, comments, or previews cannot refresh | Keep the last complete checkpoint, show each freshness time and missing part, accept live/manual evidence |
-| Vercel | Participant/dashboard web and dynamic attendance QR may fail | Issued NFC/printed badges and the Expo app may continue if Convex is healthy; operations uses prepared access route and incident pack |
+| Vercel | Participant/dashboard web and dynamic attendance QR may fail | Enrolled VIT ID cards, issued external badge QR, and the Expo app may continue if Convex is healthy; operations uses prepared access route and incident pack |
 | Sentry | Crash reports delayed | Event functions continue; use Convex/operations logs |
 
 GitHub or Figma downtime does not block a review. The reviewer sees that evidence is stale and records what was demonstrated.
@@ -153,7 +155,7 @@ Use numbered paper sheets from the printed incident pack.
 An attendance sheet records:
 
 - event, attendance session, zone, station/direction, and serial number;
-- participant badge reference;
+- participant event/registration or external badge reference;
 - entry, exit, or session-confirmation transition;
 - local time and operator initials;
 - replacement/correction reason where applicable.
@@ -230,7 +232,7 @@ Audit these actions:
 - application assignment, published admission decision, offer, expiry, and waitlist promotion;
 - event/rubric/panel-plan publication;
 - attendance-plan publication and attendance-session open/extend/close/cancel;
-- scan-station assignment/reconfiguration and credential issue/replacement/revocation;
+- scan-station assignment/reconfiguration, VIT card enrolment/suspension/rebinding, and external badge issue/replacement/revocation;
 - attendance exception, manual reconciliation, emergency roll call, and identifiable attendance export;
 - track-catalog, intake-flow, intake-model-config publication and active-session migration;
 - after-freeze table changes;
@@ -252,8 +254,10 @@ Routine accepted attendance scans live in the immutable presence ledger rather t
 
 - Team review QR tokens are opaque, short-lived, round-bound, and revocable.
 - Dynamic attendance QR tokens are participant/session-bound, short-lived, single-use, and invalid after credential replacement or session close.
-- Printed badge QR and NFC payloads are separate high-entropy, revocable bearer credentials containing no participant data. The server stores their hashes.
-- NFC hardware UID is not an identity key. Ordinary tags are treated as copyable; supervised stations, anti-passback, rapid revocation, and anomaly review are required.
+- A phone-read VIT card identifier is sent only to the protected backend, converted to an event-scoped keyed fingerprint, and discarded. It is not the Google/person identity and never appears in logs or exports.
+- One VIT card fingerprint maps to one active event membership. Enrolment/rebinding requires a supervised visible card/account match.
+- External event-badge QR is a high-entropy revocable bearer credential containing no participant data. The server stores only its hash.
+- VIT card and external QR media are treated as presentable/copyable evidence rather than cryptographic identity; supervised stations, anti-passback, rapid suspension/revocation, and anomaly review are required.
 - Station direction and zone come from an authenticated versioned station assignment, not the scanned payload.
 - Codes use enough entropy to prevent venue guessing and are rate-limited by user/device.
 - GitHub webhooks validate `X-Hub-Signature-256` against the raw request body.
@@ -287,7 +291,7 @@ Routine accepted attendance scans live in the immutable presence ledger rather t
 
 - Venue network and backup connectivity tested at every review and attendance station under session-opening load.
 - All reviewer/scanner devices pass sign-in, station assignment, push where required, camera, NFC where enabled, secure storage, minimum-build, battery, and pending-replay checks.
-- The selected NFC tags and Android scanner fleet pass repeated-read, duplicate, replacement, wrong-session, copied-token, and offline-replay tests; QR remains a complete fallback.
+- Representative current VIT ID cards from applicable campuses/batches and the Android scanner fleet pass card-technology detection, repeated-read, duplicate, rebinding, wrong-session, conflicting-use, and offline-replay tests; QR remains a complete fallback.
 - Two full-population hacking-session transitions are rehearsed with multiple entry, exit, and roving stations, including temporary exits and an emergency roll call.
 - Duplicate-submit, stale-write, lost-response, and app-restart tests pass.
 - Manual-mode sheets and two-person reconciliation are rehearsed.
@@ -297,7 +301,7 @@ Routine accepted attendance scans live in the immutable presence ledger rather t
 - Intake publication, generated-question bounds and wording policy, source attribution, prompt-injection fixtures, track changes, stale model output, timeout/refusal/invalid output, disabled-model fallback, and no-model submission are tested.
 - A provider-event burst cannot exhaust review writes or the scheduler; Workpool limits and alert thresholds are verified at event scale.
 - Operations can pause starts, page a substitute, move a table, handle a wrong QR, and close a round in the rehearsal.
-- Attendance operations can redirect an offline station, replace a lost badge, reconcile a missed exit, extend/cancel a session, and produce a zone roll call without rewriting scan history.
+- Attendance operations can redirect an offline station, enrol/rebind a VIT ID, replace a lost external badge, handle a forgotten/unreadable card through QR, reconcile a missed exit, extend/cancel a session, and produce a zone roll call without rewriting scan history.
 - No known path can edit another reviewer’s submitted score or grant itself a staff role.
 
 ## References

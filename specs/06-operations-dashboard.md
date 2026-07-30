@@ -158,7 +158,7 @@ Summary cards show:
 - online, stale, offline, and replaying stations;
 - accepted, duplicate, rejected, and pending throughput.
 
-The live participant table can be filtered by session, zone, team, track, participant class, state, or support flag. A row shows preferred name, badge reference, team, current state, latest accepted server time, station, and coarse exception state. Sensitive reason detail stays inside the linked support case.
+The live participant table can be filtered by session, zone, team, track, participant class, state, or support flag. A row shows preferred name, VIT registration or external event-badge reference where permitted, team, current state, latest accepted server time, station, and coarse exception state. Raw VIT card identifiers/fingerprints and sensitive reason detail never appear.
 
 The session panel shows:
 
@@ -175,7 +175,8 @@ Operators can:
 
 - open, extend, close, or cancel a session;
 - activate, reconfigure, or disable a station;
-- issue, revoke, or replace a participant credential;
+- enrol, suspend, or rebind a VIT ID card after a staffed identity check;
+- issue, revoke, or replace an external QR badge;
 - record an excused/accessibility exception;
 - add a compensating event for a missed or incorrect scan;
 - place or clear a short team review-readiness hold;
@@ -364,7 +365,8 @@ A support case links to the relevant server records but grants no extra permissi
 | Publish attendance plan | Attendance lead/event administrator | validation, impact preview, fresh session, and reason |
 | Open/extend/close/cancel attendance session | Attendance lead | current session version and consequence preview |
 | Reconfigure active scan station | Attendance lead | registered device, affected queue, and reason |
-| Replace participant credential | Attendance operator | participant match; old credentials revoked atomically |
+| Enrol/rebind VIT ID card | Attendance operator/lead | VIT membership, visible card/account match, uniqueness, repeat read; previous binding suspended atomically |
+| Replace external QR badge | Attendance operator | participant match; old bearer revoked atomically |
 | Reconcile participant presence | Attendance lead | fresh sign-in, linked source events, preview, and reason |
 | Start emergency roll call | Attendance lead/incident commander | named incident or drill and zone snapshot |
 | Export identifiable attendance | Event administrator/auditor scope | fresh sign-in, purpose, fields, and expiry |
@@ -387,7 +389,7 @@ Dashboard panels subscribe to small, indexed Convex queries. Attendance rows sub
 
 The client may show an action as pending. It shows accepted only after the mutation returns.
 
-Commands that can collide include a current record version. If another operator changed the target first, the server rejects the stale command and returns the new state. The UI asks the operator to review it rather than replaying the old action. Simultaneous NFC and QR scans for one participant return one accepted transition and one duplicate result.
+Commands that can collide include a current record version. If another operator changed the target first, the server rejects the stale command and returns the new state. The UI asks the operator to review it rather than replaying the old action. Simultaneous VIT ID and portal-QR scans for one participant return one accepted transition and one duplicate result.
 
 High-impact commands also carry a client operation ID. Repeating the same request after a timeout returns the first accepted result.
 
@@ -422,7 +424,7 @@ Manual incident records are reconciled after recovery under the reliability proc
 ## 19. Acceptance checks
 
 - Two dashboards receive the same panel/queue change without refresh.
-- NFC and QR scans update two attendance dashboards, the participant portal, and the relevant team/zone summary without refresh.
+- VIT ID card and QR scans update two attendance dashboards, the participant portal, and the relevant team/zone summary without refresh.
 - A duplicate or simultaneous scan creates one presence transition and stable counters.
 - Extending, closing early, or cancelling an attendance session preserves scan history and recalculates only derived results.
 - A session with 1,000 expected people opens/closes through resumable indexed batches and never claims completion from a partial job.
@@ -445,4 +447,4 @@ Manual incident records are reconciled after recovery under the reliability proc
 - A disconnected or stale dashboard cannot submit commands.
 - Participant, reviewer, and operations views agree on a team’s current integration snapshot and freshness.
 - A manual provider retry is deduplicated, respects stored backoff, and cannot alter an active review’s evidence.
-- No operations response or screen contains a GitHub installation token, Figma OAuth token, webhook secret, or raw credential record.
+- No operations response or screen contains a GitHub installation token, Figma OAuth token, webhook secret, raw VIT card identifier/fingerprint, or raw QR credential.

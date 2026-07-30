@@ -16,7 +16,7 @@ Deliver:
 - proof that the server can read and validate Google `sub`, verified email, and `hd`;
 - participant class and roster-claim prototypes;
 - one authorised Convex query and mutation from both clients;
-- one native NFC read and one QR scan from the signed Expo build on the proposed scanner hardware/tag family;
+- repeated reads of representative current VIT ID cards plus one QR scan from the signed Expo build on proposed staff phones;
 - one OpenAI Responses/Structured Outputs contract spike plus a complete deterministic no-model path;
 - release IDs and basic error reporting.
 
@@ -57,19 +57,19 @@ Use at least 30 synthetic participants, three scanner devices, two zones, and tw
 Deliver:
 
 - published attendance-plan version and frozen per-session expectation sets;
-- staffed venue check-in and dual NFC/printed-QR badge issue;
+- staffed VIT ID card enrolment/repeat-read verification and external event-badge QR issue;
 - participant portal current state, next session, recent scans, and short-lived dynamic QR;
 - provisioned station modes for entry, exit, session confirmation, and roving table sweep;
-- one server scan command for NFC, printed QR, portal QR, and manual fallback;
+- one server scan command for enrolled VIT cards, external-badge QR, portal QR, and manual fallback;
 - append-only scan outcomes, presence intervals, current projection, sharded counts, and team availability;
 - repeated temporary exit/return;
-- lost-badge revocation/replacement and anti-passback handling;
+- VIT card suspension/rebinding, external-badge revocation/replacement, and anti-passback handling;
 - encrypted bounded pending queue with explicit pending/replay results;
 - attendance operations board, credential support, correction, and emergency roll call;
 - resumable expectation-build and closing/finalisation batches for event-scale cohorts;
 - privacy/access controls and separate raw-event/aggregate retention.
 
-Exit when every synthetic participant confirms two sessions through mixed NFC/QR methods; an optional session overlaps one hacking block; some stay in the venue across the boundary; some leave and return more than once; one badge is replaced; two scans race; one station loses connectivity; the second session is extended; a finalisation worker restarts; and every participant/operations/roll-call view converges without a duplicate interval, partial close, or edited event.
+Exit when every synthetic participant confirms two sessions through mixed enrolled-VIT-card/QR methods; an optional session overlaps one hacking block; some stay in the venue across the boundary; some leave and return more than once; one VIT card is rebound and one external badge is replaced; two scans race; one station loses connectivity; the second session is extended; a finalisation worker restarts; and every participant/operations/roll-call view converges without a duplicate interval, partial close, or edited event.
 
 ## 5. Slice 3: one complete review
 
@@ -209,7 +209,7 @@ Production data is never copied into development. A staging seed uses generated 
 - duplicate operation ID resolution;
 - round-close blockers;
 - audit records for protected commands;
-- credential uniqueness/replacement, QR expiry/use, scan idempotency, one open interval, projection/counter transition, and compensating reconciliation;
+- VIT card fingerprint uniqueness/rebinding, external badge replacement, QR expiry/use, scan idempotency, one open interval, projection/counter transition, and compensating reconciliation;
 - resumable expectation/finalisation cursor, overlap isolation, closing-state visibility, and checksum-gated completion;
 - webhook deduplication;
 - stale interpretation rejection and answer/session optimistic concurrency;
@@ -221,7 +221,7 @@ Playwright covers participant registration, the minimal sequential intake, fresh
 
 ### Mobile
 
-Maestro and real-device tests cover Google sign-in, reviewer clock-in, page open, review QR, repeated NFC/attendance QR scanning, wrong station/session, badge replacement, camera/NFC fallback, scanner pending queue/replay, background timer, offline draft, reconnect, submit-time response loss, restart, and device revocation.
+Maestro and real-device tests cover Google sign-in, reviewer clock-in, page open, review QR, repeated VIT ID/attendance QR scanning, wrong station/session, card rebinding, external badge replacement, camera/NFC fallback, scanner pending queue/replay, background timer, offline draft, reconnect, submit-time response loss, restart, and device revocation.
 
 ### Integration
 
@@ -233,7 +233,7 @@ The provisional test envelope is:
 
 - 1,200 active live connections;
 - 300 reconnects over two minutes near round open;
-- 1,000 session confirmations over ten minutes with a peak of 60 mixed NFC/QR attempts per second, duplicate bursts, exits/returns, and 20 scanner subscriptions;
+- 1,000 session confirmations over ten minutes with a peak of 60 mixed VIT-card/QR attempts per second, duplicate bursts, exits/returns, and 20 scanner subscriptions;
 - expectation materialisation and finalisation for 1,000 participants, including a worker restart, while unrelated scans and review writes continue;
 - 330 near-simultaneous opening-answer saves and intake jobs, with the model pool saturated while deterministic next steps remain fast;
 - 60 simultaneous active reviews;
@@ -282,8 +282,8 @@ The final rehearsal includes:
 25. Round export and integration artifact are checked and restored into staging.
 26. A participant remains inside between hacking sessions but does not receive session credit until the new confirmation scan.
 27. One participant exits and returns three times; present/away totals and current state remain correct.
-28. NFC and portal QR are scanned nearly simultaneously for one participant; one transition is accepted.
-29. A lost badge is replaced while the old printed QR is tried at another station.
+28. An enrolled VIT ID and portal QR are scanned nearly simultaneously for one participant; one transition is accepted.
+29. A VIT student presents a replacement ID after the prior binding is suspended, while a lost external badge’s old QR is tried at another station.
 30. An exit scanner queues events offline while an online roving scanner confirms a newer state; replay creates a visible review case rather than overwriting it.
 31. A hacking session is extended and another is cancelled; scan history remains unchanged and results use the accepted actual bounds.
 32. An emergency roll call begins while people continue entering and leaving; the starting snapshot and live view remain distinct.
@@ -307,8 +307,8 @@ Every scenario has an owner, expected screen state, recovery action, and pass/fa
 ### Operations
 
 - attendance session open/extend/close/cancel and expectation impact;
-- station setup, direction, scanner result language, NFC/QR fallback, and queue redirection;
-- badge issue/replacement, duplicate/anti-passback result, pending replay, missing-scan reconciliation, and emergency roll call;
+- station setup, direction, scanner result language, VIT-card/QR fallback, and queue redirection;
+- VIT card enrolment/suspension/rebinding, external badge issue/replacement, duplicate/anti-passback result, pending replay, missing-scan reconciliation, and emergency roll call;
 - privacy, accessibility, excused absence, and the ban on attendance-as-score;
 - track, event-phase, question-policy, fallback, and model-config validation, simulation, publication, and rollback;
 - active-session migration preview and per-session result;
@@ -334,7 +334,7 @@ Every scenario has an owner, expected screen state, recovery action, and pass/fa
 - Product policy freezes before the final rehearsal.
 - Core/sponsor track definitions, event phases, generated-question policy, model configuration, consent, and deterministic fallbacks freeze before applications open.
 - Schema and auth changes freeze after the final rehearsal except for a launch-blocking defect.
-- Mobile native dependencies, NFC tag family, scanner hardware list, and station configuration freeze before production event-app installation.
+- Mobile native dependencies, verified VIT card compatibility matrix, scanner hardware list, external badge format, and station configuration freeze before production event-app installation.
 - EAS Update may ship a compatible JavaScript fix only after staging verification and release-owner approval.
 - Production seed/configuration is exported and reviewed before check-in.
 - A named release owner, incident commander, auth owner, reviewer-app owner, backend owner, and floor-operations owner are present for event windows.
