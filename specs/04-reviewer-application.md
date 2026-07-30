@@ -4,7 +4,7 @@
 
 Reviewers use a dedicated Expo application on Android or iOS. A browser/PWA is not the planned reviewer surface.
 
-The signed binary also contains a capability-gated attendance scanner for rostered SC/JC staff on provisioned devices. An External Judge never sees scanner routes; an SC or JC on attendance duty does not receive review context or scorecard routes.
+The signed binary also contains a permission-gated attendance scanner on provisioned devices. Scanner routes require station-scoped attendance grants; review context and scorecard routes require review-scoped grants. Role alone exposes neither, and one person may receive either or both sets regardless of role.
 
 The app is built for a reviewer standing at a venue table:
 
@@ -153,7 +153,7 @@ The evidence tab can open:
 - the Figma page/frame index, captured previews, layer properties, components, prototype flows, named versions, comment state, and changed-screen list;
 - freshness, completeness, truncation, rate-limit, and provider-access warnings.
 
-The review keeps the checkpoint-set ID chosen at start. If a repository is added, removed, reclassified, reordered, or refreshed later, the app may show **Newer evidence available** but cannot swap the scoring context. SC with review-operations duty must explicitly restart or replace the context when policy requires it.
+The review keeps the checkpoint-set ID chosen at start. If a repository is added, removed, reclassified, reordered, or refreshed later, the app may show **Newer evidence available** but cannot swap the scoring context. `review.evidence_context.replace` for that review must explicitly restart or replace the context when policy requires it.
 
 If the reviewer notices a conflict that was not declared, **Report conflict** freezes that reviewer’s scorecard and alerts operations.
 

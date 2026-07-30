@@ -46,6 +46,21 @@ Indexes:
 - unique-by-mutation `by_google_subject`
 - `by_verified_email`
 
+### `eventAccessSubjects`
+
+One person’s security boundary inside one event, whether they arrived as a participant, rostered staff/judge, or an explicitly invited account.
+
+Key fields:
+
+- `eventId`, `personId`;
+- copied display name and normalised verified email for event-scoped lookup, refreshed from the person record;
+- `status: active | suspended | closed`;
+- `linkedBy: participant_provisioning | roster_claim | access_invitation`;
+- source record ID, linked actor/time, validity ceiling, and suspension/closure reason;
+- monotonic `accessVersion`, incremented whenever a role label, grant, revocation, bundle application/migration, assignment-sourced grant set, or subject status changes.
+
+Every permission grant references an active event access subject. An account outside the event cannot receive a grant merely because its global person ID is known. Linking an existing account resolves one exact verified email without a browseable global directory. Linking, suspending, and reactivating use separate `access.subjects.invite`, `access.subjects.suspend`, and `access.subjects.reactivate` permissions with exact person/event scope. Suspension denies all grants; reactivation does not recreate expired or revoked grants.
+
 ### `authIntents`
 
 Short-lived participant selector state.
@@ -64,11 +79,11 @@ Store a nonce hash, not the bearer nonce.
 
 ### `eventMemberships`
 
-One person’s participation in one event.
+One event access subject’s participant state. Staff/judges who are not participants still have an `eventAccessSubject` but no participant membership.
 
 Key fields:
 
-- `eventId`, `personId`
+- `eventId`, `personId`, `eventAccessSubjectId`
 - `participantClass: vit_student | external | none`
 - `eligibilityStatus: pending | eligible | rejected | suspended`
 - `onboardingStatus`
@@ -77,24 +92,22 @@ Key fields:
 
 One active membership exists per event/person.
 
-### `roleGrants`
+### `eventRoles`
 
-Time-bound application authorization.
+One organisational label per event/person.
 
 Key fields:
 
-- `eventId`, `personId`
+- `eventId`, `personId`, `eventAccessSubjectId`
 - `role: supreme | board | sc | jc | external_judge`
 - `validFrom`, `validUntil`
-- `status: active | revoked | expired`
-- `sourceType: production_seed | roster | supreme | board`
+- `status: active | replaced | revoked | expired`
+- `sourceType: production_seed | roster | manual`
 - `sourceId`
-- `grantedByPersonId`
-- `revokedAt?`, `revokeReason?`
+- `assignedByPersonId`
+- `createdAt`, `replacedAt?`, `revokedAt?`, `reason?`
 
-One active staff/judging role exists per event/person. Participant and team-lead access does not use this enum. Supreme may grant or revoke Board, SC, and JC. Board may grant or revoke SC and JC. External Judge comes only from the approved judge roster. A role change replaces the active grant and keeps the previous record.
-
-The initial Supreme grants come only from a reviewed production seed with two-person verification. No ordinary role command may create the first Supreme, grant Supreme to its own caller, or remove the final active Supreme.
+Protected functions do not query this table to authorize a request. The role is used for roster grouping, display, training, and suggesting a default permission bundle. Changing it changes no grant. Applying the new suggestion or removing prior template-sourced grants is a separate, previewed, separately authorised batch.
 
 ### `rosterEntries`
 
@@ -106,7 +119,7 @@ Key fields:
 - `emailNormalized`
 - `displayName`
 - `role`
-- bounded `initialDuties?` entries containing duty, scope type/ID, and validity when the role is SC or JC
+- bounded initial permission-bundle references with exact scope bindings and validity;
 - optional External Judge profile seed containing domain tags and availability, but no panel assignment
 - `validFrom`, `validUntil`
 - `status: unclaimed | claimed | disabled`
@@ -114,24 +127,79 @@ Key fields:
 - `importBatchId`
 - `claimedAt?`
 
-Claiming an entry and creating its role grant happen in one mutation.
+Claiming an entry, creating its `eventRole`, and materialising every approved bundle into atomic permission grants happen in one mutation.
 
-### `dutyAssignments`
+### Code-owned permission catalog
 
-Time-bound internal work, without creating another role.
+Permissions are definitions in version-controlled server code, not editable database rows. Every definition contains:
+
+- one stable key and plain-language purpose;
+- allowed scope types and whether event-wide scope is legal;
+- a closed schema for optional constraints;
+- fresh-authentication, reason, device, and audit requirements;
+- the protected queries/commands allowed to require that key.
+
+Permission-key meaning is immutable. A newly protected operation or broader scope gets a new key rather than silently expanding existing grants. Safety constraints may narrow immediately; removing a key requires a migration that finds affected grants first.
+
+The build fails when a protected public function has no declared permission key, references an unknown key, or asks for a scope type the key does not allow. Runtime scope resolution loads the target and its indexed ancestors; it never trusts a client-provided parent, string prefix, or role. The catalog has no wildcard entry and accepts no runtime-created key.
+
+### `permissionBundleVersions`
+
+Versioned convenience templates. They never authorize directly.
 
 Key fields:
 
-- `eventId`, `personId`, `roleGrantId`
-- `duty: application_review | admissions | attendance | venue | review_operations | configuration | support | integrations_release | synesthesia | incident`
-- `scopeType: event | round | panel | team | station | synesthesia`
-- `scopeId?`
-- `validFrom`, `validUntil`
-- `status: active | revoked | expired`
-- `assignedByPersonId`
-- `reason?`, `revokedAt?`, `revokeReason?`
+- `eventId`, stable bundle key, label, optional default role label;
+- version and `status: draft | published | retired`;
+- ordered entries containing stable permission key, required scope type, scope placeholder, validity rule, and catalog-approved constraints;
+- checksum, created/published actor and time.
 
-Only Supreme, Board, SC, or JC can hold an internal duty. SC and JC commands require both the active role and matching duty/scope. An SC may assign or revoke JC duties only inside an SC duty they currently hold. Board or Supreme assigns SC duties and the named incident commander. External Judge work comes from panel/review assignments rather than this table.
+A bundle may describe common application-review, attendance-station, attendance-control, venue, review-operations, configuration, support, integration/release, Synesthesia, incident, team-member, team-lead, or panel-review access. Publishing validates every key against the code-owned permission catalog. Applying a bundle resolves every placeholder and creates one grant per entry. Updating a bundle changes nobody until an explicit migration is previewed and accepted.
+
+### `permissionGrantBatches`
+
+One audited permission operation.
+
+Key fields:
+
+- `eventId`, client operation ID;
+- `action: grant | revoke | replace | apply_bundle | migrate_bundle`;
+- actor person ID;
+- target person ID or bounded target-set reference;
+- source type/ID and optional bundle/version;
+- requested scope bindings, validity, reason, and fresh-auth time;
+- exact authorizing grant IDs and the access-version checked by the command;
+- preview checksum, created time, completed time, and result counts;
+- `status: previewed | applying | complete | partial | rejected`.
+
+Retries return the original result. Applying a bundle to one person is one transaction: every atomic grant is created or none is. A large multi-person migration is resumable and may be `partial` while running, but each target person changes atomically against their access version. A batch records convenience and provenance; authorization always reads the individual grants.
+
+### `permissionGrants`
+
+The only application authorization record used by protected functions.
+
+Key fields:
+
+- `eventId`, `personId`, `eventAccessSubjectId`;
+- stable `permissionKey`;
+- `scopeType: event | self | person | team | application | permission_bundle | configuration | track_catalog | intake_flow | round | panel | review | scorecard | attendance_plan | attendance_session | station | zone | attendance_credential | device | integration | repository_binding | figma_binding | evidence_checkpoint | support_case | incident | export | synesthesia_window | song_request`;
+- required `scopeId` except for intentional event scope;
+- catalog-validated bounded constraints, never executable rules;
+- `validFrom`, `validUntil`;
+- `status: scheduled | active | revoked | expired | superseded`;
+- `sourceType: production_seed | participant_membership | team_membership | team_lead | role_template | bundle | application_assignment | panel_assignment | station_assignment | incident_assignment | release_assignment | manual | delegated`;
+- `sourceId`, `grantBatchId`, `grantedByPersonId`, reason, and created time;
+- `revokedAt?`, `revokedByPersonId?`, `revokeBatchId?`, `revokeReason?`.
+
+Any event-linked person may hold any permission regardless of role. Several active grants may independently provide the same permission/scope; revoking one source does not remove access while another matching grant remains. Assignment teardown queries `sourceType + sourceId` and revokes only grants created by that assignment.
+
+`access.permissions.grant_any` is event-scoped and can grant any catalog key to any event-linked person. `access.permissions.revoke_any` separately revokes grants in that event; neither implies the other. Each `access.permissions.grant_scoped` or `access.permissions.revoke_scoped` row names one delegable permission key, one maximum resource scope, an exact target-person boundary or the explicit `any_event_person` value, and an expiry ceiling. Several delegation rows are required for several keys.
+
+Grant and revoke commands reject cross-event targets, unknown or wildcard keys, missing/foreign scopes, invalid constraint combinations, an excluded target person, expiry beyond the actor’s ceiling, and self-escalation. Reading another person’s grants, looking up event people, assigning a role label, importing a roster, publishing/applying/migrating bundles, granting, and revoking are independent permission checks.
+
+Grant authority never satisfies the underlying protected function. Scoped grant authority cannot issue any of the four grant/revoke-authority keys; issuing those requires `access.permissions.grant_any`.
+
+Scheduled internal mutations activate and expire grants and increment `accessVersion` so subscriptions refresh. Protected functions also compare server time to `validFrom`/`validUntil`; scheduler delay can make a UI stale but can never extend or start effective access early.
 
 ### `devices`
 
@@ -990,7 +1058,8 @@ Round close points to the verified manifest.
 Append-only protected history.
 
 - `eventId`
-- actor person/role/device;
+- actor person, optional role-label snapshot for display, and device;
+- authorizing permission key, matching grant IDs, resolved scope, and access version;
 - action;
 - target type/ID;
 - previous and next summary;
@@ -1018,7 +1087,7 @@ The ownership boundary for a team’s connected provider resources.
 - connected, replaced, or revoked actor/time;
 - late-baseline and shared-resource-override flags.
 
-One active integration exists per event/team/provider. Its GitHub integration owns an ordered set of active repository bindings; its Figma integration currently owns one active file binding. A resource-level uniqueness check prevents the same repository or file from being active for two teams in one event unless Board records an override.
+One active integration exists per event/team/provider. Its GitHub integration owns an ordered set of active repository bindings; its Figma integration currently owns one active file binding. A resource-level uniqueness check prevents the same repository or file from being active for two teams in one event unless a caller with `integration.resource.share_override` for both team integrations records the exception and reason.
 
 The GitHub integration is `degraded` when at least one active repository is missing, inaccessible, stale, or incomplete while another remains usable. The team integration does not contain a participant-owned token. Team members read one shared projection, a team lead changes the binding set, and a review session references one frozen evidence checkpoint set.
 
@@ -1207,11 +1276,21 @@ Request, action `start | finish | skip | pause`, operator, provider reference, r
 | Index | Purpose |
 | --- | --- |
 | `people.by_auth_user` | Resolve the current person |
+| `eventAccessSubjects.by_event_person_status` | Resolve the event security subject and access version |
+| `eventAccessSubjects.by_event_email_status` | Resolve an exact event-linked account without a cross-table scan |
+| `eventAccessSubjects.search_event_display_name` | Permission-gated event person search |
 | `authIntents.by_nonce_hash` | Consume one OAuth intent |
 | `eventMemberships.by_event_person` | Resolve participant access |
 | `rosterEntries.by_event_email_status` | First staff/reviewer claim |
-| `roleGrants.by_event_person_status` | Authorize a current request |
-| `dutyAssignments.by_event_person_duty_status` | Authorize scoped SC/JC work |
+| `eventRoles.by_event_person_status` | Resolve the organisational label; never authorize |
+| `permissionBundleVersions.by_event_key_status_version` | Resolve a published convenience bundle |
+| `permissionGrantBatches.by_event_operation` | Make grant/revoke operations idempotent |
+| `permissionGrantBatches.by_event_target_time` | Inspect one person’s access-change history |
+| `permissionGrants.by_event_person_permission_status` | Resolve candidate grants for a protected function |
+| `permissionGrants.by_event_person_permission_scope_status` | Resolve an exact permission/resource scope |
+| `permissionGrants.by_event_source_status` | Revoke only grants created by one membership/assignment/bundle |
+| `permissionGrants.by_status_valid_from` | Activate scheduled grants and refresh access projections |
+| `permissionGrants.by_status_valid_until` | Expire grants and refresh access projections |
 | `eventConfigVersions.by_event_kind_status` | Resolve published event policy |
 | `trackCatalogVersions.by_event_status_version` | Resolve or publish a catalog |
 | `trackVersions.by_catalog_type_status_order` | Show the exact core/sponsor track set |
@@ -1290,7 +1369,15 @@ Request, action `start | finish | skip | pause`, operator, provider reference, r
 
 ### `viewer.bootstrap`
 
-Returns person, active memberships/grants, event, required next step, device requirements, and allowed route. It does not return raw roster or provider records.
+Returns person, event access-subject status/version, optional role label, active memberships, a compact effective-route summary derived from current permission grants, event, required next step, and device requirements. It does not return raw roster, grant constraints, or provider records. The summary is navigation data, not authorization for a later function.
+
+### `access.personPermissions`
+
+Returns one target person’s role label, atomic active/future/revoked grants, effective permissions, source/batch, exact scope, validity, constraints, and grant/revoke history. Reading another person requires `access.permissions.read` scoped to that person or event. A person may inspect their own grants without receiving permission-management access.
+
+### `access.permissionCatalog`
+
+Returns stable permission definitions, legal scope types, catalog-defined constraints, and only the convenience bundles the caller may inspect. Grant controls require `access.permissions.grant_any` or a matching `access.permissions.grant_scoped`; revoke controls independently require `access.permissions.revoke_any` or matching `access.permissions.revoke_scoped`. The query returns separate grant and revoke ceilings so the UI cannot suggest an impossible action. Searching for a target person uses `access.people.lookup`; reading that person’s existing grants still uses `access.permissions.read`.
 
 ### `participant.home`
 
@@ -1310,7 +1397,7 @@ Returns the caller's team-owned GitHub repository set and Figma binding, reposit
 
 ### `admissions.reviewQueue`
 
-Returns only the current SC/JC member’s assigned application versions and own submitted recommendations while their application-review duty is active.
+Returns only application versions covered by the caller’s active `application.review.read` grants and their own submitted recommendations. Role is not read.
 
 ### `admissions.capacity`
 
@@ -1342,7 +1429,7 @@ Returns active/upcoming session configuration, sharded totals, indexed participa
 
 ### `operations.emergencyRollCall`
 
-Returns the frozen opening snapshot plus live confirmed-inside, temporarily-out, departed, unknown, excused, and not-expected rows by zone. Starting, exporting, or closing requires the emergency-roll-call capability.
+Returns the frozen opening snapshot plus live confirmed-inside, temporarily-out, departed, unknown, excused, and not-expected rows only for zones covered by `attendance.roll_call.read`. Starting, exporting, and closing require their own permission keys.
 
 ### `operations.integrationHealth`
 
@@ -1350,7 +1437,7 @@ Returns one compact row per team/provider with active-resource count, aggregate 
 
 ### `operations.intakeConfiguration`
 
-Returns draft/published catalog, event-phase, intake-shell, question-policy, guidance, fallback, and model-config summaries; publish validation/evaluation results; simulated paths; active-session counts by pinned version; and safe rollback targets. Editing and publication require event-configuration capability.
+Returns only the configuration sections covered by the caller’s read grants. Drafting, validation, simulation, publication, migration, and rollback use separate permission keys; possessing one never implies the others.
 
 ### `operations.intakeHealth`
 
@@ -1366,7 +1453,7 @@ Subscriptions update only when records read by the query change. Screens use sta
 
 | Area | Main commands |
 | --- | --- |
-| Identity | create auth intent, provision participant, claim roster, grant/revoke role, assign/revoke duty, register/revoke device |
+| Identity/access | create auth intent, provision participant, claim roster/access invitation, suspend/reactivate event subject, assign/replace role label, preview/apply permission bundle, grant/revoke one permission, batch grant/revoke, register/revoke device |
 | Team/project | create/join/leave team, transfer lead, start/resume intake, save answer, skip generated question, accept fresh-project attestation, confirm tracks, confirm brief, submit version, start/confirm team integration, add/classify/reorder/archive/replace repository |
 | Intake configuration | draft/clone/validate/simulate/publish/retire track catalog, intake flow, prompt binding, and model config |
 | Admissions | assign application, submit own recommendation, request information, publish decision, send/respond/expire offer, promote waitlist |
@@ -1382,6 +1469,18 @@ Subscriptions update only when records read by the query change. Screens use sta
 Each command has one server implementation used by web and mobile. A mobile-specific API does not apply different judging rules.
 
 ## 16. Concurrency cases
+
+### Permission grant versus revoke
+
+Both commands carry a client operation ID and the target’s current access version. Grant checks `access.permissions.grant_any` or one matching grant-scoped row; revoke checks the separate revoke permission. One commits; the stale command returns the new effective-access view instead of replaying an obsolete decision. Authorization checks read committed active grants on every protected call, so a revoked grant cannot survive in a role/session cache.
+
+### Assignment teardown versus manual grant
+
+Ending a panel, station, team, incident, or release assignment revokes grants by that assignment’s source ID. A concurrent manual grant has a different source and remains active. Re-running teardown cannot revoke it.
+
+### Bundle migration versus manual override
+
+A bundle migration compares the preview checksum and updates only grants sourced from the selected bundle/version. A manual grant or a newer bundle application is not silently removed. A stale migration stops and produces a new preview.
 
 ### Two team joins
 
@@ -1477,7 +1576,18 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 
 ## 18. Schema acceptance
 
-- Cross-event IDs fail authorization even when the caller has the same role in another event.
+- A role label alone authorizes no protected read or command.
+- Any event-linked person can receive an atomic permission regardless of role and can use it only inside its exact event/resource scope and validity window.
+- A person with no role label can use a manual permission after an explicit event access invitation; suspending their event subject blocks every grant without deleting history.
+- Cross-event and wrong-resource IDs fail even when the caller has the same permission key in another scope.
+- A route shown by a cached bootstrap fails after the underlying permission is revoked.
+- Applying a bundle creates individually inspectable grants; editing the bundle changes nobody until an explicit migration batch completes.
+- Changing a role label changes no permission grant; bundle application and removal require separate exact permissions and previews.
+- Revoking one of several matching grants preserves access until the final matching grant is revoked or expires.
+- Grant and revoke authority are independent, and both are event-scoped.
+- Grant authority does not execute the permission it may grant, and scoped grant authority cannot create another grant/revoke authority.
+- Each scoped delegation row covers one permission key, resource-scope ceiling, target-person boundary, and expiry ceiling; it cannot create broader delegation for its own caller.
+- Reading access, finding people, assigning role labels, importing rosters, managing bundles, granting, and revoking fail independently when their exact keys are absent.
 - A published catalog contains the configured five core tracks, and every submitted project names exactly one published core-track version.
 - Sponsor entries are optional, versioned, eligibility-checked, and cannot replace the core track or change rubric weights.
 - Every project is recorded as `fresh_for_event`; there is no continuation classification or participant-selected build stage.
@@ -1486,7 +1596,7 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - Every model-assisted brief field links to participant-written answer versions.
 - Editing an answer, changing a track, or publishing configuration cannot erase answer history or rewrite a submitted project version.
 - A participant cannot hold two active team memberships.
-- One SC/JC member cannot submit two active recommendations for the same application.
+- One person cannot submit two active recommendations for the same application, regardless of role or grant source.
 - Active offered/confirmed admission records cannot reserve more participants than approved capacity.
 - One staffed venue check-in, current-presence projection, and session result have distinct ownership and cannot satisfy one another accidentally.
 - Every published attendance session freezes an expected participant set and preserves its plan/version.

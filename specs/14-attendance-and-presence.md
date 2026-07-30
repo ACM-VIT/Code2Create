@@ -47,7 +47,7 @@ An event publishes an immutable attendance-plan version before participant check
 
 There is no global hard-coded attendance percentage. Different sessions can use different rules, and a session may simply record presence without enforcing a minimum.
 
-Before a session opens, an authorised operator may adjust its time, zones, or expected cohort. After it opens, an extension, early close, cancellation, or material policy change is recorded as a new operational version with an actor and reason. The scan ledger is never rewritten. Derived results are recalculated against the accepted session version and actual session bounds.
+Before a session opens, `attendance.session.configure` for that session may adjust its time, zones, or expected cohort. After it opens, an extension, early close, cancellation, or material policy change requires the corresponding session-scoped permission and is recorded as a new operational version with actor, grant, and reason. The scan ledger is never rewritten. Derived results are recalculated against the accepted session version and actual session bounds.
 
 The schedule may contain gaps, meals, rest periods, optional workshops, and overnight access. The software does not assume every minute of the 48-hour event is one continuous mandatory hacking block.
 
@@ -72,7 +72,7 @@ The card is enrolled to the participant’s event membership at the first staffe
 
 The raw card identifier is not stored, logged, exported, or used as the person’s account identity. The Google-linked person and event membership remain authoritative. The card fingerprint is a pseudonymous server lookup value, not a biometric; it proves only that the enrolled physical card was presented to a supervised scanner.
 
-The same card cannot be actively bound to two people in one event. Rebinding after a replacement, damaged card, or incorrect enrolment requires SC with attendance duty, a fresh sign-in, a visual identity check, and a reason. The previous binding remains in history but cannot produce another accepted event.
+The same card cannot be actively bound to two people in one event. Rebinding after a replacement, damaged card, or incorrect enrolment requires `attendance.credential.rebind` for that person/event, a fresh sign-in, a visual identity check, and a reason. The previous binding remains in history but cannot produce another accepted event.
 
 The production team must test real current VIT cards before making the tap path mandatory. The public handbook does not assume a particular card family, UID format, or NFC protocol. If a campus/batch card cannot be read reliably from the qualified phones, that participant uses QR without losing attendance access.
 
@@ -222,7 +222,7 @@ The request contains:
 The server:
 
 1. authenticates the operator and registered device;
-2. checks the attendance capability and station assignment;
+2. checks `attendance.scan.execute` for the exact station and the active station assignment;
 3. converts a VIT card identifier into its event-scoped keyed fingerprint, or resolves the QR token, then validates event, membership, and credential/binding state;
 4. resolves the applicable attendance session or sessions and expected participant records;
 5. applies station direction, anti-passback, duplicate, and time-window rules;
@@ -300,7 +300,7 @@ During a short connection loss:
 
 The queue is deleted after confirmed replay or its short recovery expiry. It is not another attendance database.
 
-If the scanner battery, NFC reader, or camera fails, staff switch method or device. A VIT student may use the portal QR without changing the VIT card binding. If the backend is unavailable beyond the incident threshold, operations uses numbered paper sheets containing participant/event reference, direction, station, device/operator, and local time. Two authorised staff reconcile the sheet after recovery.
+If the scanner battery, NFC reader, or camera fails, staff switch method or device. A VIT student may use the portal QR without changing the VIT card binding. If the backend is unavailable beyond the incident threshold, operations uses numbered paper sheets containing participant/event reference, direction, station, device/operator, and local time. Two different people with `attendance.manual_sheet.verify` for that event/session reconcile the sheet after recovery.
 
 ## 13. Privacy, accessibility, and fair use
 
@@ -309,7 +309,7 @@ If the scanner battery, NFC reader, or camera fails, staff switch method or devi
 - Sensitive exception details stay in the support case; attendance views use a coarse operational code.
 - Participants see their own current state, recent accepted scans, session result, and a correction-request route.
 - Team leads see only the team availability needed to regroup, not another member’s exception detail.
-- JC/SC members on attendance duty see the minimum identity needed to scan and resolve mismatches.
+- `attendance.station.read` shows only the minimum identity/current state needed for its exact station; role does not change the payload.
 - Exact movement events and identifiable exports use a shorter approved retention period than event membership.
 - Raw VIT card identifiers, card fingerprints, QR values, hashes, and bearer values never appear in logs, exports, analytics, or support screens.
 - Accessibility desks, manual confirmation, excused attendance, and authorised companions are first-class paths.

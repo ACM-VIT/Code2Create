@@ -77,6 +77,7 @@ convex/
   http.ts                 Auth routes and signed webhook endpoints
   schema.ts               Application tables and indexes
   identity/               participant provisioning and roster claim
+  access/                 role labels, permission catalog, grants, bundles, delegation, and effective-access queries
   teams/                  teams, projects, check-in, ready
   attendance/             plans, sessions, credentials, stations, scan ledger, presence projections
   intake/                 versioned shell, question policy, track catalog, generated prompts, project brief
@@ -86,7 +87,7 @@ convex/
   workpools/              bounded provider, push, and export work
   operations/             protected floor commands and projections
   synesthesia/            request, vote, moderation, playback
-  lib/                    capability, state, audit, and operation helpers
+  lib/                    permission, scope, state, audit, and operation helpers
 packages/
   domain/                 pure rubric, routing, queue, and state-transition rules
 ```
@@ -116,7 +117,7 @@ Configuration:
 - Web, iOS, and Android Google client IDs are configured as required by the final sign-in method.
 - `BETTER_AUTH_SECRET` and Google client secrets live in Convex environment variables.
 
-The application creates a `person` record after auth. It links the Better Auth user ID and the verified Google provider subject. Event roles and participant class stay in application tables.
+The application creates a `person` record after auth. It links the Better Auth user ID and the verified Google provider subject. Event access-subject state/version, participant class, organisational role labels, and atomic scoped permission grants stay in application tables. The auth session contains none of them.
 
 ## 6. Participant auth request
 
@@ -125,7 +126,7 @@ The application creates a `person` record after auth. It links the Better Auth u
 3. Google returns to the Better Auth callback on Convex.
 4. Better Auth validates the provider response and creates/resumes the session.
 5. The callback/provisioning hook records the verified Google `sub`, email, and `hd` needed by the application.
-6. `identity.provisionParticipant` consumes the intent, derives participant class, and creates/resumes event membership in one mutation.
+6. `identity.provisionParticipant` consumes the intent, derives participant class, creates/resumes the event access subject and participant membership, and materialises self-scoped membership permissions in one mutation.
 7. The web client subscribes to `viewer.bootstrap` and routes to the first unfinished participant task.
 
 The auth spike in Delivery and acceptance must prove step 5 on both web and Expo before registration work continues.
@@ -135,10 +136,10 @@ The auth spike in Delivery and acceptance must prove step 5 on both web and Expo
 1. User opens the staff web route or reviewer app.
 2. Better Auth completes Google sign-in.
 3. `identity.claimRoster` matches an unclaimed row by verified email for the first claim.
-4. The mutation links that row to the Better Auth user and Google subject, then creates the time-bound event grant.
-5. Later requests resolve current grants from the linked person ID.
+4. The mutation links that row to the Better Auth user and Google subject, creates/reuses the event access subject, stores its role label, and expands only the permission bundles explicitly approved on that roster row into atomic grants.
+5. Later protected requests resolve the exact current permission key and resource scope from the linked person ID.
 
-Next.js route guards and Expo navigation can hide inaccessible screens. Convex still checks the grant inside every protected query and write.
+Next.js route guards and Expo navigation can hide inaccessible screens. Convex still loads current grants inside every protected query and write; a cached route or role label never authorizes.
 
 ## 8. Reads
 
@@ -162,7 +163,7 @@ Clients subscribe to purpose-built queries such as:
 Each query:
 
 - resolves the current person;
-- checks the required event capability;
+- checks one required stable permission key and exact resource scope;
 - uses declared indexes;
 - returns only fields needed by that screen;
 - avoids secret tokens and unrelated personal data.
@@ -176,9 +177,9 @@ Do not expose generic “read any table” functions.
 Convex mutations handle state changes. A protected mutation:
 
 1. validates input;
-2. resolves identity and active grant;
+2. resolves identity, the active event access subject/access version, and every candidate active grant for the command’s exact permission key;
 3. loads the current records through indexes;
-4. checks conflict, scope, state, and expected version;
+4. checks event/resource scope containment, grant validity/constraints, assignment, conflict, state, device, and expected version;
 5. resolves a repeated operation ID when the command is high-impact;
 6. writes the domain change;
 7. writes a narrow audit event when required;
@@ -287,7 +288,7 @@ Convex file storage contains:
 - optional participant eligibility evidence if policy requires it;
 - generated round-export manifests before off-site copy.
 
-Access uses authorised functions. A Convex storage ID is never treated as permission, and a generated Convex file URL is a bearer URL rather than an expiring authorization token. Protected small files are served through an HTTP action after a capability check; artifacts that require expiring signed access use private S3.
+Access uses authorised functions. A Convex storage ID is never treated as permission, and a generated Convex file URL is a bearer URL rather than an expiring authorization token. Protected small files are served through an HTTP action after an exact permission/scope check; artifacts that require expiring signed access use private S3.
 
 Full Figma JSON and captured previews go to private S3 because they can exceed Convex document/HTTP-response limits and need expiring signed access. GitHub source is fetched from the selected repository at its pinned SHA when an assigned reviewer opens a file; only a short-lived encrypted blob cache may be stored. Convex keeps repository/checkpoint-set manifests, checksums, hashes, and derived metrics.
 
@@ -319,8 +320,12 @@ Figma OAuth grants are encrypted once per Figma App/user and referenced by team-
 ## 17. Security boundaries
 
 - Google proves identity; application records grant event access.
-- Better Auth sessions prove the caller; Convex functions still check the current role, duty, and scope.
-- Client-supplied event, team, judge, score, role, and duty IDs are always checked against the caller.
+- Better Auth sessions prove the caller; Convex functions authorize only from current atomic permission grants, never the role label.
+- The event access subject is the common per-person boundary. Suspension denies all grants; role removal alone does not.
+- Client-supplied event, person, team, application, round, panel, review, scorecard, station, integration, permission, role, and bundle IDs are loaded and checked against the caller and event.
+- Every protected function declares its catalogued permission key and scope resolver; compound flows call narrower helpers or require each additional key explicitly. CI fails on an unguarded public function, unknown key, illegal scope type, or wildcard.
+- Permission bundles and role templates authorize nothing directly; only their materialised grants do.
+- Grant and revoke are different permissions and commands. Each enforces its own delegation ceiling, exact resource and target-person scope, validity, source provenance, fresh authentication, reason, idempotency, and access-version check.
 - A phone-read VIT card identifier is sent only to the authorised attendance command, converted into an event-scoped keyed fingerprint, and discarded. Raw identifiers never become account identity, records, logs, or exports.
 - External-badge QR bearers contain no identity and are stored only as hashes. Short-lived portal QR tokens resolve the already-authenticated event member.
 - Station mode, direction, zone, and attendance session are server-owned configuration. A card, badge, or participant cannot select the transition.
@@ -349,6 +354,12 @@ Business history stays in domain records and audit events. Sentry is not the jud
 - Google sign-in works on Next.js and a signed Expo build through the same Better Auth instance.
 - No Clerk package, environment, issuer, or user ID appears in the product repository.
 - An auth session alone cannot read event data without an active application grant.
+- A role label alone cannot read event data; a person of any role can use a manually granted permission only inside its exact scope and validity.
+- A role-less explicitly invited account can receive one manual grant; a globally known person without an active event access subject cannot.
+- Revoking a permission blocks the next query/write while leaving unrelated grants intact.
+- Grant-only authority cannot revoke, revoke-only authority cannot grant, and a scoped delegator cannot act beyond its one key/resource/target/expiry ceiling.
+- Role assignment, roster import, person lookup, grant inspection, bundle publication/application/migration, granting, and revoking each fail independently without their own permission.
+- Applying or migrating a bundle produces inspectable atomic grants and cannot silently overwrite a concurrent manual grant.
 - Web and mobile see one accepted test mutation live.
 - An enrolled VIT ID card, external-badge QR, and dynamic portal QR reach one attendance command and produce the same participant-scoped transition.
 - A scan updates participant, scanner, operations, team-availability, zone, and roll-call views without scanning the raw event ledger.

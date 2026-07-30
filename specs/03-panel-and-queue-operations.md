@@ -4,13 +4,13 @@
 
 A panel is a group of reviewers assigned to one or more venue tables for a round. A queue contains teams that the panel can review.
 
-In the judging documents, “reviewer” means a person rostered with the External Judge role. Panel coordinator is a per-panel assignment, not another role.
+In the judging documents, “reviewer” normally means a person rostered as External Judge, but authorization comes from the panel/review permission grants. Any event-linked person with the same exact assignment grants can judge regardless of role. Panel coordinator is a per-panel assignment, not another role.
 
 The working panel size is three scoring reviewers. Final panel size and criterion-coverage rules remain event policy.
 
 ## 2. Reviewer profile
 
-SC with review-operations duty prepares each External Judge record before the event:
+A caller with `reviewer.profile.manage` prepares each reviewer record before the event:
 
 - approved Google email;
 - name and contact number;
@@ -186,7 +186,7 @@ The server checks:
 
 The presence record stores reviewer, device, scan time, token version, and result. A reviewer cannot scan for another reviewer.
 
-If the camera fails, the judge types the fallback code. If both methods fail, Board may waive one or more presence requirements. The override names each missing judge and records a reason.
+If the camera fails, the judge types the fallback code. If both methods fail, `review.presence.waive` for that review may waive one or more presence requirements. The override names each missing judge, grant, actor, and reason.
 
 ## 10. Starting the review
 
@@ -195,7 +195,7 @@ The server starts a review only when:
 - round is open;
 - team, panel, assignment, and table are current;
 - no other active review exists for the team or panel;
-- required reviewer presence is complete or a valid board override exists;
+- required reviewer presence is complete or a valid scoped presence waiver exists;
 - the configured minimum participant availability is met or an authorised attendance exception exists;
 - the rubric and criterion assignments are fixed;
 - required project and integration snapshots exist.
@@ -223,7 +223,7 @@ The working duration is 10 minutes. The working ordinary extension is one two-mi
 - The server checks the remaining allowance and updates `extensionSeconds`.
 - Operations sees the new end time immediately.
 - Expiry marks the review overdue; it does not auto-submit unfinished scorecards.
-- A further extension or forced close requires SC with review-operations duty or Board, as defined by event policy.
+- A further extension or forced close requires `review.timer.extend_exception` or `review.timer.force_close` for that review, as defined by event policy.
 
 Timer settings are frozen with the round configuration.
 
@@ -263,7 +263,7 @@ The panel coordinator may confirm completion. The coordinator cannot edit anothe
 - A push receipt alone never changes the assignment.
 - A team cannot have two active review sessions in one round.
 - A panel cannot run two active sessions at once.
-- A review cannot start without required presence or a recorded board override.
+- A review cannot start without required presence or a recorded waiver created through `review.presence.waive` for that review.
 - A temporarily out participant produces the configured regroup/hold flow rather than silently marking the team missed.
 - Participant attendance and reviewer QR presence cannot satisfy one another.
 - The participant and operations queue change after the same accepted server write.

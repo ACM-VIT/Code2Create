@@ -7,12 +7,12 @@ The connected GitHub repositories and Figma file belong to the Code2Create team 
 - A team lead adds, classifies, reorders, replaces, or disconnects a resource.
 - Every active team member can see the same repository set, connection health, progress facts, and captured checkpoints.
 - An assigned reviewer can see the immutable checkpoint attached to that review.
-- SC with integrations/release duty can see live connection health and job failures across teams.
+- `integration.health.read` exposes live connection health and job failures only for its event/team/integration scope.
 - Provider credentials never enter a participant, reviewer, or operations client.
 
 GitHub and Figma record evidence. They do not calculate effort, originality, technical quality, or score. Every fact is labelled with its provider time, capture time, completeness, and previous checkpoint. A missing, late, rate-limited, or stale integration stays visible and the review continues with live/manual evidence.
 
-Each GitHub repository and Figma file can be active for only one team in the same event. Board may override a genuine shared-resource case with a reason; the exception appears to every affected reviewer.
+Each GitHub repository and Figma file can be active for only one team in the same event. `integration.shared_resource.override` must cover every affected team/resource and include a reason; the exception appears to every affected reviewer.
 
 OpenAI, GitHub, Figma, Expo, S3, and Google calls happen outside Convex mutations. Every environment has separate credentials, and no external system owns authoritative event state.
 
@@ -314,7 +314,7 @@ Better Auth configuration:
 - seven-day session expiry and twelve-hour update age;
 - secure cookies;
 - account linking policy tested with two Google accounts;
-- session and role revocation test;
+- session and scoped-permission revocation test;
 - auth-intent nonce consumed once.
 
 The VIT domain list comes from event configuration after VIT IT confirms it.
@@ -370,7 +370,7 @@ VIT card enrolment is a protected staffed workflow:
 4. send the phone-read identifier only to the protected backend command;
 5. derive an event-scoped keyed fingerprint server-side, discard the raw identifier, and bind the fingerprint to that event membership;
 6. read once more and show the resolved participant to the operator;
-7. suspend an incorrect or replaced binding through a lead-authorised, reasoned rebind rather than editing history.
+7. suspend an incorrect or replaced binding through `attendance.credential.rebind` for that person/event with fresh authentication and a reason rather than editing history.
 
 The VIT card is presentation evidence, not the account. Google identity and the event membership remain authoritative. The app never writes to the VIT card, never stores or logs its raw identifier, and never stores a card photo. One active fingerprint can bind to only one event membership.
 

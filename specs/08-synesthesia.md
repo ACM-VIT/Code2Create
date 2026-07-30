@@ -11,8 +11,8 @@ It shares participant identity and event configuration with the main platform. I
 | Person | Access |
 | --- | --- |
 | Participant | Search/request an allowed track, vote once, remove own vote, report a request |
-| JC/SC with Synesthesia duty | Approve, reject, hide, schedule, add a reason, view the playback queue, and acknowledge start/finish/skip |
-| Board | Publish windows, vote policy, catalogue source, and moderation rules |
+| Person with scoped Synesthesia grants | Approve, reject, hide, schedule, add a reason, view the playback queue, or acknowledge start/finish/skip only as separately granted |
+| Person with Synesthesia configuration grants | Publish windows, vote policy, catalogue source, and moderation rules |
 
 ## 3. Request flow
 
@@ -52,7 +52,7 @@ Participant views show **Requested**, **Approved**, **Queued**, **Playing**, **P
 
 ## 6. Ambience windows
 
-Board can publish windows such as:
+`synesthesia.window.publish` can publish windows such as:
 
 - arrival;
 - working session;
@@ -78,7 +78,7 @@ Reject or hide a request for:
 
 A moderator action stores actor, reason, and time. Participants see a short public reason, not internal notes.
 
-Reports create support cases. Repeated abuse can suspend Synesthesia access without suspending the participant from the event unless Board chooses that separate action.
+Reports create support cases. Repeated abuse can suspend Synesthesia access without suspending the participant from the event; `participant.event.suspend` is a separate permission from `synesthesia.access.suspend`.
 
 ## 8. Playback integration
 

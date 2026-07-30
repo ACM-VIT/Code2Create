@@ -22,13 +22,13 @@ The product is an event operating system for that review process. It connects pa
 | --- | --- |
 | Participant | Clear registration, team state, project submission, session attendance, review readiness, queue position, and review progress |
 | Team lead | Control of team membership, project versions, tool connections, and ready state |
-| Supreme | Final event authority, internal-role control, destructive recovery approval, and exceptional release/override actions |
-| Board | Policy, configuration, admissions, rubric, results, protected exports, and named emergency decisions |
-| SC | Duty-scoped control of admissions review, attendance, venue, panels, queues, support, integrations, release, or Synesthesia |
-| JC | Duty-scoped station, table, queue, runner, support, verification, or playback work |
-| External Judge | One current panel assignment, enough context, a timer, assigned criteria, an independent scorecard, and fast recovery |
+| Supreme | Suggested permission-administration and broad event-governance bundle |
+| Board | Suggested policy, admissions, rubric, results, correction, export, and override bundle |
+| SC | Suggested workflow-management bundles for selected operational scopes |
+| JC | Suggested frontline station, table, queue, support, verification, runner, or playback bundles |
+| External Judge | Suggested assigned-panel context, presence, and own-scorecard bundle |
 
-These are the only staff/judging roles. Supreme, Board, SC, and JC are the four internal levels; External Judge is separate from that hierarchy. Work such as attendance control, application review, incident command, release ownership, panel coordination, and Synesthesia moderation is a temporary duty or assignment, not another role. Participant and team-lead access comes from event/team membership.
+These are the only staff/judging role labels. Supreme, Board, SC, and JC are the four internal labels; External Judge is separate. Roles never authorize a protected function. Every permission is an atomic grant to one person with an exact scope and validity window, and any event-linked person can receive a permission regardless of role. A specifically invited account may have no role label at all. Granting and revoking are separate scoped permissions. Operational bundles and assignments only materialise or revoke their own explicit grants.
 
 ## 3. Product surfaces
 
@@ -44,7 +44,7 @@ A dedicated Expo application handles Google sign-in, device registration, review
 
 ### Operations dashboard
 
-A role-gated web application shows attendance sessions, participant presence, scanner health, rounds, panels, tables, queues, reviewer presence, pages, live timers, missing scorecards, conflicts, and exceptions. It also exposes emergency roll call and the protected commands used to correct event state.
+A permission-gated web application shows attendance sessions, participant presence, scanner health, rounds, panels, tables, queues, reviewer presence, pages, live timers, missing scorecards, conflicts, and exceptions. It also exposes emergency roll call and the protected commands used to correct event state.
 
 ## 4. Event model
 
@@ -70,7 +70,7 @@ An operations user can handle a missing reviewer, team hold, table move, scan fa
 ### Included
 
 - Google sign-in and participant classification;
-- staff/reviewer roster claims and event roles;
+- staff/reviewer roster claims, role defaults, and person-specific scoped permission grants;
 - participant, team, and project onboarding;
 - a fresh-project rule, configurable event checkpoints, sequential intake, five core-track positions, and optional sponsor-track eligibility;
 - pre-event application review, shortlist, waitlist, offer, and confirmation;
@@ -137,7 +137,7 @@ The launch is acceptable when:
 - VIT ID card and QR scans update the same participant, team, zone, and emergency-roll-call projections without duplicate presence intervals;
 - operations can locate every clocked-in reviewer and see each unfilled panel seat;
 - a missing reviewer produces an acknowledged substitute or a visible unresolved exception;
-- every started review has the required presence record or a board override;
+- every started review has the required presence record or an explicitly permitted, reasoned presence waiver;
 - participants can see whether they are not ready, queued, called, held, in review, or complete;
 - a submitted scorecard can be recovered after an app restart or an ambiguous network response;
 - a round cannot close while required scorecards or criterion coverage are missing;

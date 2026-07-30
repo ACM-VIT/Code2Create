@@ -12,8 +12,8 @@ The password on this handbook only protects the specifications. It has no connec
 
 - Participants choose **VIT Student** or **External Participant**, then authenticate with Google.
 - VIT students must use the VIT student Google Workspace account.
-- Staff access comes from an approved roster with four internal levels: Supreme, Board, SC, and JC. External Judge is the only separate judging role. Nobody can select or promote a role during sign-in.
-- Attendance, admissions, review operations, configuration, support, release, incident, and Synesthesia work are scoped duties assigned to those internal roles, not additional account roles.
+- Staff access starts from an approved roster with four internal labels: Supreme, Board, SC, and JC. External Judge is the separate judging label. Nobody can select or promote a role during sign-in.
+- Roles suggest default permission bundles only; changing a role changes no grant. Every protected read and command checks an atomic, person-specific permission grant with an exact scope and validity window. Event-scoped grant administrators can give any permission to any event-linked user regardless of role—including a specifically invited role-less account—while revocation is a separate permission.
 - Participants use a web portal. Reviewers use a dedicated Expo application on Android or iOS. Staff use a web operations dashboard.
 - The three clients read and write the same Convex deployment.
 - Every participant confirms presence for each configured hacking session. Staff phones read an enrolled existing VIT ID card for VIT students; external participants and all fallbacks use event-badge or short-lived portal QR.
@@ -33,7 +33,7 @@ The password on this handbook only protects the specifications. It has no connec
 
 | Part | Choice | Reason |
 | --- | --- | --- |
-| Participant and staff web | Next.js App Router | One deployment can serve participant and role-gated staff routes. |
+| Participant and staff web | Next.js App Router | One deployment can serve participant and permission-gated staff routes. |
 | Reviewer mobile | Expo, React Native, Expo Router | Native camera, notifications, secure session storage, and controlled builds. |
 | Authentication | Better Auth with Google only | Runs on the Convex deployment through the Convex-maintained adapter and works with Next.js and Expo. |
 | Live backend | Convex | Transactions, reactive queries, HTTP endpoints, scheduled work, and small live records in one backend. |
@@ -78,7 +78,7 @@ An open policy must live in versioned event configuration or remain blocked. Cli
 | Document | Contents |
 | --- | --- |
 | Product brief | Event problem, scope, users, and outcomes |
-| Identity and access | Google sign-in, VIT classification, rosters, roles, and sessions |
+| Identity and access | Google sign-in, VIT classification, rosters, role defaults, atomic permissions, and sessions |
 | Participant portal | Registration, teams, fresh-project attestation, sequential intake, tracks, application, admission, integrations, readiness, and queue experience |
 | Attendance and presence | Hacking sessions, existing VIT ID cards, external/fallback QR, temporary exits, realtime presence, scanner recovery, and privacy |
 | Panels and queues | Reviewer staffing, routing, presence, timers, and substitutions |

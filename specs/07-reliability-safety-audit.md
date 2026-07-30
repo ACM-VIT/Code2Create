@@ -139,7 +139,7 @@ When the core backend cannot confirm state:
 1. operations posts an incident banner if the dashboard is available;
 2. the round controller pauses new review starts;
 3. active reviewers keep current drafts open and stop after the current team;
-4. the named incident commander, assigned from Supreme or Board for this incident, checks provider status, venue network, and a second connection;
+4. the named incident commander, whose assignment materialises incident-scoped permissions regardless of role, checks provider status, venue network, and a second connection;
 5. attendance operations stop or redirect affected stations, preserve pending status, and record the last confirmed zone snapshot;
 6. operations records affected panels and last confirmed server times;
 7. the named incident commander chooses recovery, relocation to backup connectivity, or manual mode.
@@ -148,7 +148,7 @@ No staff member starts an unofficial spreadsheet while normal service may recove
 
 ### Manual mode
 
-Manual mode requires the named incident commander and a second Supreme or Board member. One person cannot supply both approvals.
+Manual mode requires two different people holding `incident.manual_mode.approve` for that incident. One person cannot supply both approvals, and neither role label substitutes for the grant.
 
 Use numbered paper sheets from the printed incident pack.
 
@@ -189,7 +189,7 @@ Required actions:
 
 Convex backups contain table data and stored files, but not deployed code, environment variables, or pending scheduled functions. Source control and the secret inventory cover those separately.
 
-A production restore is destructive. The incident commander takes a new backup first when possible, records the chosen restore point, and follows the rehearsed runbook. Supreme approves the restore; if Supreme is unavailable, two Board members may approve the documented emergency path.
+A production restore is destructive. The incident commander takes a new backup first when possible, records the chosen restore point, and follows the rehearsed runbook. The restore requires `recovery.restore.approve` for that environment/event and the configured one- or two-person approval rule; role is not checked.
 
 ## 10. Monitoring
 
@@ -228,7 +228,7 @@ Alerts must identify an owner and next action. A metric that nobody watches duri
 
 Audit these actions:
 
-- role and roster changes;
+- person lookup/export where policy requires it; role and roster changes; bundle publication/application/migration; and every permission grant, delegation, expiry, and revocation with the exact authorizing grant;
 - application assignment, published admission decision, offer, expiry, and waitlist promotion;
 - event/rubric/panel-plan publication;
 - attendance-plan publication and attendance-session open/extend/close/cancel;
@@ -302,7 +302,7 @@ Routine accepted attendance scans live in the immutable presence ledger rather t
 - A provider-event burst cannot exhaust review writes or the scheduler; Workpool limits and alert thresholds are verified at event scale.
 - Operations can pause starts, page a substitute, move a table, handle a wrong QR, and close a round in the rehearsal.
 - Attendance operations can redirect an offline station, enrol/rebind a VIT ID, replace a lost external badge, handle a forgotten/unreadable card through QR, reconcile a missed exit, extend/cancel a session, and produce a zone roll call without rewriting scan history.
-- No known path can edit another reviewer’s submitted score or grant itself a staff role.
+- No known path can edit another reviewer’s submitted score, authorize from a role label, or grant itself a permission outside an already-held delegation ceiling.
 
 ## References
 

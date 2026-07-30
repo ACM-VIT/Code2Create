@@ -15,6 +15,7 @@ Deliver:
 - web and Expo Google callback flows;
 - proof that the server can read and validate Google `sub`, verified email, and `hd`;
 - participant class and roster-claim prototypes;
+- code-owned atomic permission catalog, role-default bundles, exact resource scopes, and a permission manager with separate per-user grant and revoke authority;
 - one authorised Convex query and mutation from both clients;
 - repeated reads of representative current VIT ID cards plus one QR scan from the signed Expo build on proposed staff phones;
 - one OpenAI Responses/Structured Outputs contract spike plus a complete deterministic no-model path;
@@ -25,7 +26,13 @@ Exit when:
 - VIT and personal Google test accounts produce the expected participant classes;
 - a rostered External Judge signs in on a real device;
 - an unrostered account receives no reviewer data;
-- a role revoked in the dashboard fails on the reviewer’s next protected write;
+- a role label with no grants receives no protected data;
+- one participant or JC receives a single manually granted permission outside the role default, uses it only for the named resource/time window, and loses it on immediate revocation;
+- one explicitly invited role-less account receives exactly one permission, while the same authenticated account before event linking receives no event data;
+- grant-only authority cannot revoke, revoke-only authority cannot grant, and both are event-scoped;
+- a scoped delegator cannot grant or revoke beyond its one permission key, resource scope, target-person boundary, or expiry ceiling;
+- person lookup, grant inspection, role assignment, roster import, bundle publication/application/migration, grant, and revoke controls each disappear and fail server-side when their own permission is absent;
+- a scoped permission revoked in the dashboard fails on the person’s next protected read/write while unrelated grants remain usable;
 - the same accepted mutation appears on web and mobile;
 - a saved answer survives OpenAI timeout, refusal, or invalid output and still reaches a submittable brief through configured prompts.
 
@@ -42,7 +49,7 @@ Deliver:
 - source-linked OpenAI interpretation with strict Structured Outputs and participant confirmation;
 - a deterministic fallback for every intake branch;
 - immutable answer, brief, catalog, flow, model-schema, and submitted project versions;
-- SC configuration-duty validation/simulation plus Board publication/rollback and safe active-session pinning;
+- separately granted configuration validation/simulation, publication/rollback, and safe active-session pinning;
 - application-review assignment and independent recommendation;
 - shortlist, waitlist, offer, confirmation, and capacity state;
 - registration support codes;
@@ -77,7 +84,7 @@ Use one team, one panel, and three reviewer devices.
 
 Deliver:
 
-- Supreme/Board/SC/JC and External Judge rosters, role grants, and internal duty assignments;
+- Supreme/Board/SC/JC and External Judge role labels, default bundle materialisation, and atomic scoped permission grants;
 - reviewer profile and panel plan;
 - clock-in;
 - table assignment;
@@ -195,7 +202,7 @@ Production data is never copied into development. A staging seed uses generated 
 - timer/extension policy;
 - rubric aggregation;
 - score completeness;
-- role, duty, and scope capability checks;
+- atomic permission-key, exact-scope, validity, delegation-ceiling, and assignment/state checks;
 - attendance-plan/session interpretation, expectation snapshot, anti-passback, duration/checkpoint result, and excused/unknown rules;
 - presence transition and interval calculation across repeated exits/returns and changed actual session bounds;
 - intake completion, the three-to-five generated-question bound, and deterministic fallback termination;
@@ -278,7 +285,7 @@ The final rehearsal includes:
 21. OpenAI times out after the opening answer; the answer stays saved and the team completes the deterministic route.
 22. A late interpretation arrives after the team changes its core track and is rejected as stale.
 23. A model returns an unknown track ID, a compound or overlong question, or follows participant prompt-injection text; the server rejects it and serves the pinned fallback without changing accepted answers.
-24. Board publishes a new track/flow version while a team is active; the team stays on its pinned version.
+24. A caller with `configuration.publish` publishes a new track/flow version while a team is active; the team stays on its pinned version.
 25. Round export and integration artifact are checked and restored into staging.
 26. A participant remains inside between hacking sessions but does not receive session credit until the new confirmation scan.
 27. One participant exits and returns three times; present/away totals and current state remain correct.
@@ -304,7 +311,7 @@ Every scenario has an owner, expected screen state, recovery action, and pass/fa
 - offline indicator and submission confirmation;
 - spare-device procedure.
 
-### SC and JC by assigned duty
+### Typical SC/JC operational bundles
 
 - attendance session open/extend/close/cancel and expectation impact;
 - station setup, direction, scanner result language, VIT-card/QR fallback, and queue redirection;
@@ -320,7 +327,7 @@ Every scenario has an owner, expected screen state, recovery action, and pass/fa
 - pause and incident mode;
 - support case ownership.
 
-### Board and Supreme
+### Typical Board/Supreme governance bundles
 
 - rubric publication;
 - correction/void;
@@ -337,7 +344,7 @@ Every scenario has an owner, expected screen state, recovery action, and pass/fa
 - Mobile native dependencies, verified VIT card compatibility matrix, scanner hardware list, external badge format, and station configuration freeze before production event-app installation.
 - EAS Update may ship a compatible JavaScript fix only after staging verification and release-owner approval.
 - Production seed/configuration is exported and reviewed before check-in.
-- Board names a release owner, auth owner, reviewer-app owner, backend owner, and floor-operations owner from Board or SC for each event window. Supreme or Board names the incident commander. These are shift assignments, not additional roles.
+- Event owners name a release owner, auth owner, reviewer-app owner, backend owner, floor-operations owner, and incident commander for each window. Each assignment materialises the exact scoped permissions it needs and may be given to any event-linked person regardless of role.
 
 ## 17. Definition of done
 

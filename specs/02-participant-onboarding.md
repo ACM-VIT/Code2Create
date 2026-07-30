@@ -261,7 +261,7 @@ Selected applications continue:
 
 ### Application review
 
-- An SC with admissions duty assigns each application to the configured number of SC/JC members on application-review duty.
+- A caller with `admissions.application.assign` assigns each application to the configured number of people. Each assignment materialises application-scoped review/read and own-recommendation grants regardless of assignee role.
 - Reviewers inspect the confirmed brief, its source answers, team composition allowed by policy, freshness attestation, starting-material disclosures, and confirmed track versions.
 - Each reviewer submits an independent recommendation: `select`, `waitlist`, `reject`, or `needs_information`, with reason codes and a short note.
 - Reviewers cannot see peer recommendations until their own is submitted.
@@ -272,7 +272,7 @@ An application returned for information opens only the named questions and recor
 
 ### Capacity and offers
 
-The admissions page shows team and participant counts against venue capacity. Board publishes selected, waitlisted, and rejected decisions after checking review coverage and eligibility; SC with admissions duty prepares the decision and capacity view.
+The admissions page shows team and participant counts against venue capacity. `admissions.decision.prepare` opens the decision/capacity workspace; `admissions.decision.publish` publishes selected, waitlisted, and rejected decisions after checking review coverage and eligibility.
 
 A selected team receives an offer with a confirmation deadline. Sending the offer reserves places for the team’s current active members; confirmation locks those members for event check-in. Membership changes after an offer require a capacity recheck. Expired or declined offers release places to the waitlist under the approved promotion rule.
 
@@ -315,7 +315,7 @@ The backend uses a file webhook when the authorizer can edit and the Figma plan 
 
 All submitted projects start at Code2Create. Teams disclose material general-purpose starting resources and any allowed pre-start setup. A sign of project-specific implementation or design before the official baseline is flagged for eligibility review rather than reclassified as a continuation. Integration activity is evidence of what changed after the baseline, not proof of quality or a score.
 
-If the project does not use GitHub or Figma, the team explicitly marks that provider as not used and describes the alternative evidence it will present. A repository added after the event baseline deadline is labelled late. The same repository or Figma file cannot be claimed by another event team without a Board-reviewed shared-resource exception.
+If the project does not use GitHub or Figma, the team explicitly marks that provider as not used and describes the alternative evidence it will present. A repository added after the event baseline deadline is labelled late. The same repository or Figma file cannot be claimed by another event team without `integration.shared_resource.override` for every affected team/resource scope.
 
 ## 8. Registration and project states
 
@@ -425,7 +425,7 @@ Raw scores stay hidden until the event’s feedback policy releases them.
 
 - Every blocked screen shows the failing condition and a support code.
 - A participant can report a wrong table, team-membership issue, integration disconnect, or queue problem.
-- SC/JC members with support duty see the same server state and can take only actions allowed by their role, duty, and scope.
+- Support staff see only the records covered by their person-specific support grants; role does not expand that view.
 - Refreshing, changing devices, or reinstalling a browser does not duplicate team membership or submissions.
 - If the venue network fails, participants keep their QR visible from a short-lived local cache, but review presence still waits for server validation or an authorised manual incident process.
 
@@ -436,7 +436,7 @@ Raw scores stay hidden until the event’s feedback policy releases them.
 - Two users cannot claim the same rostered/team identity through a duplicated invite.
 - The guided profile resumes at the first unfinished question after refresh.
 - Submitting twice with the same operation ID creates one project version.
-- SC/JC members on application-review duty cannot see peer recommendations before submitting.
+- An application-scoped review grant cannot expose peer recommendations before the assignee submits.
 - A selected team cannot check in until its offer is confirmed.
 - Venue check-in, venue presence, and hacking-session confirmation cannot satisfy one another accidentally.
 - A VIT ID card tap, external event-badge QR, or current portal QR produces the same server-owned attendance state.

@@ -119,14 +119,14 @@ Tie-breaks, round weighting, and final-round aggregation remain open decisions.
 
 A spread check flags a criterion when the highest and lowest ratings differ by at least two points. The threshold is configurable with the rubric.
 
-A flag does not change the numbers. Board can:
+A flag does not change the numbers. A caller with the relevant review/round-scoped permission can:
 
 - confirm that reviewers used the same rubric version;
 - ask for a short clarification of evidence;
 - identify a wrong criterion assignment or data-entry mistake;
 - open a correction before round lock.
 
-Board cannot ask a judge to move toward the panel average. Any correction keeps the original scorecard and the judge’s reason.
+No role or permission may ask a judge to move toward the panel average. Any correction keeps the original scorecard and the judge’s reason.
 
 ## 8. Progress between reviews
 
@@ -150,7 +150,7 @@ Provider statistics do not calculate or suggest a score. Commit, line, file, nod
 
 Attendance confirmations, present duration, temporary exits, missed scans, and excused absence are operations/safety records. They are not project progress evidence and never enter a criterion, reviewer context, score, tie-break, or award recommendation.
 
-The evidence context is immutable after the review starts. A later push, Figma refresh, or repository-set change may be visible as newer available evidence, but scoring remains tied to the recorded checkpoint-set ID unless SC with review-operations duty explicitly replaces the context and records why.
+The evidence context is immutable after the review starts. A later push, Figma refresh, or repository-set change may be visible as newer available evidence, but scoring remains tied to the recorded checkpoint-set ID unless `review.evidence_context.replace` for that review explicitly replaces it and records why.
 
 Adding a separate weighted progress criterion is an open decision. The system does not create bonus points without that decision.
 
@@ -172,7 +172,7 @@ No model receives admission recommendations, private reviewer notes, peer scores
 
 ## 10. Round close
 
-Board sees:
+`score.values.read` at the relevant round/review scope exposes:
 
 - teams expected and completed;
 - required scorecards present and missing;
@@ -185,7 +185,7 @@ Board sees:
 
 Round close is blocked until each unresolved item is fixed or handled by an approved exception policy.
 
-Moving a round to `closing` freezes its scorecard versions and starts the export. The final `closed` transition requires a verified export manifest. Reopening requires board capability, a fresh sign-in, and a reason.
+Moving a round to `closing` freezes its scorecard versions and starts the export. The final `closed` transition requires a verified export manifest. Reopening requires `round.reopen` for that round, a fresh sign-in, and a reason; the caller’s role is irrelevant.
 
 ## 11. Finalist and award decisions
 
@@ -206,11 +206,11 @@ Track participation does not guarantee a finalist place or prize.
 
 ### Correction
 
-A judge requests correction to their own submitted scorecard. Board checks that the correction window is open, records the reason, and opens a new scorecard version. The judge resubmits. The original remains read-only.
+A judge requests correction to their own submitted scorecard. A caller with `scorecard.correction.open` for that scorecard/review checks that the correction window is open, records the reason, and opens a new scorecard version. The judge resubmits. The original remains read-only.
 
 ### Administrative void
 
-Board may void a scorecard for duplicate session, confirmed conflict, wrong team, or judge ineligibility. The action requires evidence and may trigger a replacement review.
+`scorecard.void` for the exact scorecard/review may void it for duplicate session, confirmed conflict, wrong team, or judge ineligibility. The action requires evidence and may trigger a replacement review.
 
 ### Process complaint
 
