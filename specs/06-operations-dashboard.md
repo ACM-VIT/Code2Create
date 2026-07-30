@@ -10,6 +10,7 @@ The dashboard is the floor-control application for staff. It answers:
 - Where is every active review?
 - Which scorecards or criteria are missing?
 - Which exception needs a human decision now?
+- Which participant-intake, phase, and track configuration is currently published?
 
 Charts are secondary. The first screen is an ordered exception list and the live floor state.
 
@@ -40,14 +41,55 @@ Before the event, the admissions workspace shows:
 - eligibility blockers;
 - independent recommendations after each reviewer submits;
 - selected, waitlisted, rejected, and information-requested counts;
+- application and reserved-capacity counts by confirmed core-track version when track quotas are enabled;
 - offered and confirmed participant counts against venue capacity;
 - expiring offers and waitlist promotions.
 
 Admissions can assign applications, request named information, publish decisions, send/expire offers, and promote the waitlist. Every published decision keeps the application version, admission-policy version, reviewer recommendations, actor, and time.
 
+A submitted core-track change creates a new project version. If it affects reviewer assignment, a track quota, or an active offer, admissions receives a re-review/capacity blocker; the dashboard never moves the reservation silently.
+
 The venue judging rubric and score views do not appear in this workspace.
 
-## 4. Header
+## 4. Intake and track configuration
+
+Event administrators receive a configuration studio. It is not mixed into live floor controls.
+
+The studio has five related editors:
+
+1. **Track catalog** — exactly five core tracks in the working event policy, plus optional sponsor tracks, eligibility, disclosures, examples, domain tags, display order, and status.
+2. **Project maturity** — the versioned `idea`, `ideation`, `prototype`, `intermediate_build`, and `working_build` starting set, origin choices, descriptions, and allowed transitions.
+3. **Intake flow** — the opening, one-question-at-a-time base graph, checkpoint variants, question limits, answer fields, and deterministic edges.
+4. **Track bindings** — the small question overlays required for a core/sponsor track at a maturity or checkpoint.
+5. **Model contract** — approved model ID/snapshot, instruction/schema/evaluation versions, input/output limits, deadlines, retries, and no-tools/`store: false` requirements.
+
+The opening preview must show only **Hello.**, followed by **What is your project about?** and one text box. A preview that renders a long form, chat transcript, assistant persona, or PPT upload cannot publish.
+
+### Draft and publication
+
+- Published versions are immutable. An administrator clones one to make a draft.
+- The validator checks stable keys, track count/types, every reference, required-field reachability, cycles, maximum path length, sponsor eligibility, and deterministic fallback coverage.
+- The simulator runs every maturity/core-track combination and sponsor overlay at each checkpoint under model success, timeout, refusal, invalid output, and disabled-model conditions.
+- The diff lists participant-visible wording, routing, eligibility, submission requirements, retention/model settings, and the number of active sessions pinned to the previous version.
+- Publication uses a fresh session, named capability, summary, and reason. It updates defaults for new sessions only.
+- Moving an active session is a separate migration command with a previewed key mapping and per-session result. No bulk “use latest” switch is available.
+
+Track bindings can ask for domain evidence. They cannot edit rubric criteria/weights, decide admission, or grant an award. Track names and sponsor terms remain draft until the board approves them.
+
+### Intake diagnostics
+
+The health view shows:
+
+- answer-save latency and save failures;
+- active/complete/abandoned sessions by checkpoint and stable question key;
+- sessions by pinned catalog/flow/model version;
+- intake Workpool depth and oldest job;
+- model success, refusal, invalid-schema, timeout, rate-limit, stale-result, and deterministic-fallback rates;
+- median and tail latency and bounded token usage by configuration version.
+
+Diagnostics never show participant answer text, generated brief text, contact information, system instructions, provider payloads, or API keys. Support can open a participant-authorised project record through the ordinary scoped route when content inspection is actually required.
+
+## 5. Header
 
 Every screen shows:
 
@@ -55,13 +97,14 @@ Every screen shows:
 - server time;
 - dashboard connection state;
 - production release ID;
+- published track-catalog/intake-flow versions;
 - number of unresolved critical exceptions;
 - active incident banner;
 - signed-in role and scope.
 
 If the live subscription is stale, command controls disable and the page shows the last server update time.
 
-## 5. Round control
+## 6. Round control
 
 Round states are:
 
@@ -92,7 +135,7 @@ Opening a round validates all required configuration. Closing validates review a
 
 `closing` freezes judging writes and generates the round export. The round reaches `closed` only after the manifest is uploaded and verified. A failed export leaves a visible blocker and retry action.
 
-## 6. Floor and tables
+## 7. Floor and tables
 
 The floor view groups tables by venue zone.
 
@@ -115,7 +158,7 @@ Staff can:
 
 After table freeze, every change requires a reason and updates participant, reviewer, and operations views from the same server write.
 
-## 7. Reviewer and panel board
+## 8. Reviewer and panel board
 
 The panel board shows one row per panel:
 
@@ -144,7 +187,7 @@ Available actions:
 
 The UI never claims a substitute is assigned because a push was delivered.
 
-## 8. Queue board
+## 9. Queue board
 
 The queue board has columns for:
 
@@ -172,7 +215,7 @@ Dragging a card is a request to the server, not a local reorder. The server rech
 
 Manual priority requires a reason code and remains visible on the card until the team completes the review.
 
-## 9. Active reviews
+## 10. Active reviews
 
 The active-review view sorts by:
 
@@ -204,7 +247,7 @@ Protected actions:
 
 The dashboard does not expose live peer score values to floor operations.
 
-## 10. Integration evidence and health
+## 11. Integration evidence and health
 
 The integration view is team-scoped. Each row shows:
 
@@ -219,7 +262,7 @@ Participant, reviewer, and operations screens read the same materialised status 
 
 Event administrators can request an idempotent reconciliation, request a full checkpoint, send a reauthorization prompt, disable a binding, or approve a documented shared-resource exception. An operator cannot reveal a token, change the captured evidence for an active review, or bypass provider backoff. Every manual retry and binding replacement keeps its actor and reason.
 
-## 11. Scoring completeness
+## 12. Scoring completeness
 
 Review administrators receive a separate view containing:
 
@@ -236,7 +279,7 @@ The default view shows completeness, not a winner leaderboard during active revi
 
 An administrator can open a correction, void an invalid scorecard, or release scores under policy. They cannot type over a submitted score.
 
-## 12. Support desk
+## 13. Support desk
 
 Support cases can come from participant, reviewer, or staff screens.
 
@@ -251,15 +294,17 @@ A case contains:
 - state and timestamps;
 - actions taken.
 
-Categories include identity, team, table, integration, queue, reviewer device, scorecard, accessibility, and safety.
+Categories include identity, team, project intake, track/configuration, table, integration, queue, reviewer device, scorecard, accessibility, and safety.
 
 A support case links to the relevant server records but grants no extra permissions.
 
-## 13. Protected command rules
+## 14. Protected command rules
 
 | Command | Minimum capability | Extra check |
 | --- | --- | --- |
 | Publish application decision | Admissions administrator | admission policy, review coverage, and capacity |
+| Publish intake/track/model configuration | Event administrator | validation/evaluation pass, fresh session, diff, and reason |
+| Migrate active intake sessions | Event administrator + named configuration authority | dry-run mapping, affected-session list, and reason |
 | Promote waitlisted team | Admissions administrator | available confirmed-participant capacity |
 | Change table after freeze | Venue operations | reason |
 | Move queued team | Review operations | reason and current queue version |
@@ -274,7 +319,7 @@ A support case links to the relevant server records but grants no extra permissi
 
 High-impact commands show the current value, proposed value, affected records, and reason before submission.
 
-## 14. Live updates and conflicts
+## 15. Live updates and conflicts
 
 Dashboard panels subscribe to small, indexed Convex queries. A panel row updates when its reviewer, queue, page, review, or exception records change.
 
@@ -284,7 +329,7 @@ Commands that can collide include a current record version. If another operator 
 
 High-impact commands also carry a client operation ID. Repeating the same request after a timeout returns the first accepted result.
 
-## 15. Incident mode
+## 16. Incident mode
 
 An incident commander can post a banner with:
 
@@ -298,7 +343,7 @@ Round pause blocks new review starts but keeps active drafts available. The dash
 
 Manual incident records are reconciled after recovery under the reliability procedure.
 
-## 16. Privacy
+## 17. Privacy
 
 - Floor views use preferred names and event identifiers, not eligibility documents.
 - Phone numbers appear only to support/operations users who need to contact the person.
@@ -307,9 +352,13 @@ Manual incident records are reconciled after recovery under the reliability proc
 - Raw provider tokens and session details never appear in the dashboard.
 - Exports are purpose-labelled, time-limited, and logged.
 
-## 17. Acceptance checks
+## 18. Acceptance checks
 
 - Two dashboards receive the same panel/queue change without refresh.
+- A published catalog has five core tracks; optional sponsor entries do not replace a team's core track.
+- Every simulated intake path finishes when model output succeeds, times out, refuses, is invalid, or is disabled.
+- Publishing a new flow does not change an active session, and migration cannot run without an exact preview.
+- Intake diagnostics expose operational counts and versions without participant/model text.
 - An application reviewer cannot read an unassigned application or a peer recommendation before submission.
 - A published admission decision points to the reviewed project and admission-policy versions.
 - A stale dashboard cannot overwrite a newer table or queue update.

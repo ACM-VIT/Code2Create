@@ -12,7 +12,8 @@
 | Better Auth database/host | Convex component via `@convex-dev/better-auth` |
 | Application backend | Convex database, queries, mutations, actions, HTTP actions, scheduler, and file storage |
 | Live client updates | Convex reactive queries |
-| Provider job control | `@convex-dev/workpool` with separate bounded GitHub, Figma, push, and export pools |
+| Project-intake interpretation | OpenAI Responses API with strict Structured Outputs, called only from a Convex action |
+| External job control | `@convex-dev/workpool` with separate bounded intake, GitHub, Figma, push, and export pools |
 | Provider integrations | GitHub App installation tokens/webhooks and Figma OAuth/Webhooks V2 |
 | Mobile camera | `expo-camera` |
 | Mobile notifications | `expo-notifications` and Expo Push Service |
@@ -34,7 +35,7 @@ The event needs two client platforms and one shared live state.
 - Expo provides the native reviewer features requested in the planning discussion.
 - Better Auth runs on Convex, so authentication does not add a hosted auth vendor or second auth database.
 - Convex supplies transactions and reactive queries; a custom REST database and WebSocket service would repeat those jobs.
-- Workpool bounds provider concurrency and retries. A Figma outage or a burst of GitHub pushes cannot consume every scheduled-job slot.
+- Workpool bounds external concurrency and retries. Model or provider trouble cannot consume every scheduled-job slot.
 - Convex stores small live projections. Compressed Figma files, captured previews, round exports, and downloaded backups belong in private object storage rather than one-megabyte Convex documents.
 - Expo Push attracts reviewer attention. The assignment still lives in Convex.
 - pnpm workspaces are enough for two applications and one shared package. A build-orchestration framework can be added if measured CI time later warrants it.
@@ -46,10 +47,11 @@ Google OAuth
     |
     v
 Better Auth routes on Convex
+    |                         OpenAI Responses API
     |                         GitHub signed webhooks
     |                         Figma OAuth / passcode webhooks
     v                              |
-Next.js web <----------> Convex <--> bounded provider Workpools
+Next.js web <----------> Convex <--> bounded external Workpools
     ^                     ^
     |                     |
     +---- participant     +---- Expo reviewer app
@@ -75,6 +77,7 @@ convex/
   schema.ts               Application tables and indexes
   identity/               participant provisioning and roster claim
   teams/                  teams, projects, check-in, ready
+  intake/                 versioned prompt graph, track catalog, interpretations, project brief
   admissions/             application review, decisions, offers, capacity
   reviews/                panels, queues, presence, sessions, scorecards
   integrations/           team bindings, GitHub/Figma webhooks, snapshots, metrics
@@ -191,6 +194,7 @@ Convex HTTP actions receive:
 
 Convex actions call:
 
+- OpenAI Responses API for bounded intake interpretation;
 - GitHub repository, topic, commit, compare, tree, contents, language, and installation APIs;
 - Figma metadata, full file, version, comment, image, OAuth-token, and webhook APIs;
 - Expo Push Service;
@@ -200,7 +204,38 @@ A mutation writes a pending job record and enqueues an internal action in the re
 
 Retries use provider delivery IDs or an application deduplication key. Pools have explicit parallelism, exponential backoff with jitter, and a completion handler. A GitHub rate reset or Figma `Retry-After` overrides ordinary retry timing. Jobs have a maximum attempt count and appear on the operations/integration diagnostics screen.
 
-## 11. Live updates
+## 11. OpenAI intake interpretation
+
+The model is a stateless interpreter behind the participant screen. It is not a conversation store or an application authority.
+
+The write path is:
+
+1. `intake.saveAnswer` commits the participant’s verbatim answer version and advances the deterministic session version.
+2. The mutation creates a pending `intakeInterpretation` keyed by the answer-set hash, intake-flow version, track-catalog version, and model-config version.
+3. The bounded `intake_ai` Workpool calls `POST /v1/responses` from a Convex action.
+4. The request uses `store: false`, no tools, no web access, and strict JSON Schema through `text.format`.
+5. An internal mutation validates every returned key against the pinned published configuration and stores a source-linked draft only if the session still accepts that input version.
+6. The route query chooses the next configured question. The participant separately confirms maturity, origin, track selections, and final brief fields.
+
+The schema returns only candidate maturity/track keys, source-linked brief fields, field-completeness labels, and eligible next-question keys. Structured output does not remove application validation: unknown IDs, unavailable tracks, stale sources, oversized text, refusal, incomplete response, or a mismatched schema version make the interpretation unusable.
+
+Every `intakeModelConfigVersion` freezes:
+
+- the approved model ID or snapshot;
+- system-instruction, input-redaction, and JSON-Schema checksums;
+- allowed output enums derived from the paired published intake/track versions;
+- input/output character and token limits;
+- soft latency deadline, hard timeout, retry count, and Workpool priority;
+- `store: false` and the no-tools contract;
+- evaluation-suite version and publication actor.
+
+A new model or prompt is evaluated on staged synthetic/adversarial answers before publication. Active sessions remain pinned to their starting configuration unless an explicit migration maps every answer/question key and reports the effect.
+
+The participant never waits indefinitely for interpretation. When the soft deadline passes, the server returns the deterministic fallback edge. Late output may help a later unanswered step, but it cannot replace the question currently visible. A refusal, invalid schema, timeout, quota error, or OpenAI outage leaves the raw answer intact and the complete fallback intake usable.
+
+Only redacted project-intake text, source answer IDs, and published definitions are sent. Application-owned identifiers, contact details, auth data, admission state, provider credentials, reviewer material, and scores are excluded. A versioned deterministic preprocessor replaces common contact, registration-number, credential, and secret patterns inside free text; because free text cannot be guaranteed anonymous, the participant policy still discloses the processing and asks teams not to enter unnecessary personal data. API data is not used for model training, but `store: false` is not described to participants as zero retention: ordinary API abuse-monitoring logs can retain customer content for up to 30 days unless the organisation is approved and configured for Modified Abuse Monitoring or Zero Data Retention. The published consent/retention policy must state the effective account controls.
+
+## 12. Live updates
 
 Convex reactive queries keep affected screens current after a committed write.
 
@@ -218,7 +253,7 @@ Large boards subscribe to indexed summaries and paginated detail. They do not su
 
 Provider delivery and application realtime are separate. Convex updates clients after a committed event; GitHub usually sends pushes quickly, while Figma `FILE_UPDATE` may wait for editing inactivity. Every integration view shows the age of its metadata and full snapshot.
 
-## 12. Mobile local state
+## 13. Mobile local state
 
 The reviewer app uses:
 
@@ -229,7 +264,7 @@ The reviewer app uses:
 
 No Redux store mirrors the backend. When the active review finishes and all operations are confirmed, the app deletes its local context and draft after the configured short recovery window.
 
-## 13. Files
+## 14. Files
 
 Convex file storage contains:
 
@@ -241,7 +276,7 @@ Access uses authorised functions. A Convex storage ID is never treated as permis
 
 Full Figma JSON and captured previews go to private S3 because they can exceed Convex document/HTTP-response limits and need expiring signed access. GitHub source is fetched from the selected repository at its pinned SHA when an assigned reviewer opens a file; only a short-lived encrypted blob cache may be stored. Convex keeps repository/checkpoint-set manifests, checksums, hashes, and derived metrics.
 
-## 14. Deployment
+## 15. Deployment
 
 ### Web
 
@@ -255,40 +290,42 @@ Convex has separate development, staging, and production deployments. Production
 
 EAS uses separate staging and production profiles, schemes, Google client settings, and update channels. Native dependency/configuration changes require a signed build. EAS Update is used only for JavaScript changes compatible with the installed runtime.
 
-## 15. Secrets
+## 16. Secrets
 
 | Store | Secrets |
 | --- | --- |
-| Convex environment | Better Auth secret, Google secret, GitHub App private key/webhook secret, Figma client secret, token-encryption key, Expo server credential, S3 restricted credential |
+| Convex environment | Better Auth secret, Google secret, OpenAI API key, GitHub App private key/webhook secret, Figma client secret, token-encryption key, Expo server credential, S3 restricted credential |
 | Vercel environment | Public Convex URLs, public site URL, Sentry DSN; no provider private key |
 | EAS secrets/config | Public backend/auth URLs, app scheme/client IDs, Sentry DSN, build credentials |
 | GitHub Actions | Vercel/Convex/EAS deploy credentials scoped by environment |
 
 Figma OAuth grants are encrypted once per Figma App/user and referenced by team-owned file bindings. Figma webhook passcodes are random and stored encrypted or as verification hashes. GitHub installation tokens are minted when needed and not persisted after expiry.
 
-## 16. Security boundaries
+## 17. Security boundaries
 
 - Google proves identity; application records grant event access.
 - Better Auth sessions prove the caller; Convex functions still check the current role.
 - Client-supplied event, team, reviewer, score, and role IDs are always checked against the caller.
 - Provider callbacks use exact allowlisted URLs and validated state.
+- Participant answers are untrusted model input; the OpenAI request has no tools, credentials, score data, or write capability.
 - GitHub webhook signatures are verified against the raw body before JSON parsing affects state.
 - Figma webhook passcodes, webhook IDs, file keys, event timestamps, and deduplication keys are checked before a provider event changes state.
 - Logs redact cookies, authorization headers, provider tokens, participant phone numbers, and private notes.
 - Artifact/export credentials can write only to the event’s bucket prefixes.
 - Production support never edits Convex tables from the dashboard console as a normal operating method; protected maintenance functions record changes.
 
-## 17. Observability
+## 18. Observability
 
 - Sentry receives web/mobile exceptions, release ID, environment, route/screen, and non-sensitive event identifiers.
 - Convex logs function errors, external-job attempts, and scheduled-work failures.
+- Intake diagnostics show model latency, timeout/refusal/schema-failure/fallback rates, token usage, abandonment by stable question key, and config version without logging answer text.
 - Integration diagnostics show Workpool backlog, provider rate-limit windows, webhook age, metadata age, full-snapshot age, and incomplete/truncated results.
 - The operations dashboard shows business failures such as missing presence, unacknowledged page, stale draft, and round blocker.
 - GitHub Actions records build/test/deploy results.
 
 Business history stays in domain records and audit events. Sentry is not the judging ledger.
 
-## 18. Architecture acceptance
+## 19. Architecture acceptance
 
 - Google sign-in works on Next.js and a signed Expo build through the same Better Auth instance.
 - No Clerk package, environment, issuer, or user ID appears in the product repository.
@@ -296,6 +333,9 @@ Business history stays in domain records and audit events. Sentry is not the jud
 - Web and mobile see one accepted test mutation live.
 - A stale or duplicate high-impact write cannot create a second review, assignment, or scorecard.
 - External provider failure cannot hold open a Convex transaction.
+- An answer is durable before model work begins; OpenAI failure follows the configured fallback path and cannot block submission.
+- Model output cannot call a mutation, select a track, change a participant answer, publish a brief, or reach judging data.
+- Every generated brief field names its source answer versions and the exact intake, track, schema, and model-config versions.
 - A burst of provider events stays inside configured Workpool concurrency and does not starve review writes.
 - One team can add repositories from several GitHub App installations, classify and reorder them, and freeze all of them in one review checkpoint set.
 - Team integration access follows the team binding even when the Figma authorizer changes.
@@ -311,4 +351,7 @@ Business history stays in domain records and audit events. Sentry is not the jud
 - [Convex scheduling and durable function components](https://docs.convex.dev/scheduling/overview)
 - [Convex limits](https://docs.convex.dev/production/state/limits)
 - [Convex Workpool](https://github.com/get-convex/workpool)
+- [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses)
+- [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
+- [OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data)
 - [Expo push notification overview](https://docs.expo.dev/push-notifications/overview/)

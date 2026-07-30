@@ -153,7 +153,8 @@ Sensitive eligibility evidence, if required, is stored as a protected file refer
 - name, slug, timezone;
 - registration/check-in/event windows;
 - status;
-- active participant, project-form, admission, integration, security, retention, and Synesthesia configuration IDs;
+- active participant, intake-policy, admission, integration, security, retention, and Synesthesia configuration IDs;
+- active track-catalog, intake-flow, and intake-model-configuration version IDs;
 - hosted-domain allowlist;
 - active incident ID;
 - production release metadata.
@@ -163,14 +164,122 @@ Sensitive eligibility evidence, if required, is stored as a protected file refer
 Versioned non-round policy.
 
 - `eventId`;
-- `kind: participant_policy | project_form | admission_policy | integration_policy | security | retention | synesthesia`;
+- `kind: participant_policy | intake_policy | admission_policy | integration_policy | security | retention | synesthesia`;
 - version number;
 - typed configuration payload for that kind;
 - `status: draft | published | superseded`;
 - published actor/time;
 - checksum.
 
-The admission payload contains minimum application reviewers, venue/track capacity, waitlist ordering, offer expiry, and decision-publication rules. The project-form payload contains stable question keys and limits. The integration payload contains the active-repository cap, required topic, repository-kind enum version, checkpoint schedule, and refresh budgets. Published versions are immutable.
+The admission payload contains minimum application reviewers, overall and optional core-track capacity, track-change re-review rules, waitlist ordering, offer expiry, and decision-publication rules. The intake-policy payload contains editing/submission windows, answer limits, allowed checkpoint types, and the required core-track count. The integration payload contains the active-repository cap, required topic, repository-kind enum version, checkpoint schedule, and refresh budgets. Published versions are immutable.
+
+### `trackCatalogVersions`
+
+One immutable catalog release.
+
+- `eventId`, version number;
+- `status: draft | published | superseded | retired`;
+- required core-track count, initially five;
+- published actor/time;
+- checksum.
+
+A published catalog contains exactly the configured number of core tracks and zero or more sponsor tracks. New names, eligibility, or prompt bindings require a new catalog version.
+
+### `trackVersions`
+
+- `eventId`, `catalogVersionId`;
+- stable key, slug, display name, description, examples, and display order;
+- `type: core | sponsor`;
+- `status: draft | published | retired`;
+- eligibility rules and required disclosure keys;
+- allowed maturity/checkpoint keys;
+- domain/routing tags;
+- sponsor identity, required-tool/use condition, and award-policy reference when type is `sponsor`;
+- optional capacity-policy reference;
+- checksum.
+
+Stable keys are unique inside a catalog. Examples help a team understand an area; they are not mandatory problem statements. A track record contains no rubric weights.
+
+### `intakeFlowVersions`
+
+One versioned graph shared by application and later project updates.
+
+- `eventId`, version number, status;
+- ordered project-maturity definitions: `idea`, `ideation`, `prototype`, `intermediate_build`, and `working_build` in the initial version;
+- project-origin definitions;
+- ordered intake-stage definitions;
+- supported checkpoint bindings;
+- opening, first-answer, review, and terminal question keys;
+- maximum question count and graph-schema version;
+- published actor/time and checksum.
+
+The maturity definitions are data, not hard-coded UI enums. Project origin remains a separate dimension.
+
+### `intakeQuestionVersions`
+
+- `eventId`, `flowVersionId`;
+- stable question key and intake-stage key;
+- prompt and optional concise help text;
+- input type `information | short_text | long_text | single_choice | multi_choice | confirmation`;
+- answer limits and required state;
+- brief-field keys the answer may support;
+- allowed choice keys when applicable;
+- accessible progress label and display metadata;
+- deterministic fallback question key;
+- status and checksum.
+
+The opening information node contains **Hello.** The first answer node contains **What is your project about?** Published prompt wording is immutable.
+
+### `intakeRouteRules`
+
+- `eventId`, `flowVersionId`;
+- source question key;
+- ordered structured predicate over checkpoint, confirmed maturity/origin, confirmed track, and field presence;
+- allowed next-question keys;
+- deterministic next-question key;
+- whether a valid interpretation may choose among the allowed keys;
+- priority and status.
+
+This is a typed rule set, not executable administrator code. The publisher compiles and simulates it.
+
+### `trackPromptBindings`
+
+- `eventId`, `catalogVersionId`, `trackVersionId`, `flowVersionId`;
+- optional maturity and checkpoint keys;
+- question key;
+- insertion stage and order;
+- required/optional state;
+- eligibility/disclosure field key;
+- status.
+
+Bindings add targeted questions to the shared flow. They cannot add rubric criteria or model tools.
+
+### `intakeModelConfigVersions`
+
+- `eventId`, version number, status;
+- approved OpenAI model ID or snapshot;
+- system-instruction, input-redaction, Structured Output schema, and evaluation-suite versions/checksums;
+- paired flow and track-catalog version IDs;
+- input/output limits, soft deadline, hard timeout, retry count, and Workpool priority;
+- fixed `store: false`, background-off, and no-tools flags;
+- published actor/time and checksum.
+
+Published records are immutable. The publish command rejects a model configuration whose evaluation suite has not passed.
+
+### Configuration publication checks
+
+The server refuses publication unless:
+
+- stable keys and display orders are unique;
+- the catalog has exactly the configured five core tracks and valid sponsor entries;
+- every referenced maturity, checkpoint, track, question, brief field, and fallback exists in the paired versions;
+- every path begins at the opening node, reaches review/terminal nodes, and stays within the maximum question count;
+- every branch has a deterministic fallback and no required node is unreachable;
+- application paths can reach every required submission field for every allowed maturity/core-track combination;
+- sponsor eligibility/disclosure paths are reachable;
+- no track binding changes rubric weights or grants an award;
+- model enums match the paired published catalog/flow;
+- preview simulations for model success, timeout, refusal, and invalid output all terminate.
 
 ### `rounds`
 
@@ -234,12 +343,74 @@ The mutation that adds an active member first queries `by_event_membership_statu
 One mutable draft per team.
 
 - `eventId`, `teamId`
-- project-form configuration ID;
-- answer map keyed by stable question key;
-- selected track;
+- active intake-session ID;
+- confirmed project-maturity and origin keys;
+- confirmed core-track version ID and sponsor-track version IDs;
+- current confirmed project-brief-version ID;
 - declared tools/prior work;
 - current GitHub/Figma connection IDs;
 - `version`, last editor, updated time.
+
+### `intakeSessions`
+
+One team may have an application session and later checkpoint-update sessions.
+
+- `eventId`, `teamId`, `projectDraftId`;
+- checkpoint type and optional round ID;
+- pinned intake-policy, track-catalog, intake-flow, and intake-model-config version IDs;
+- `state: active | review_ready | submitted | superseded | abandoned`;
+- current and completed question keys;
+- confirmed maturity/origin keys;
+- confirmed core-track and sponsor-track version IDs;
+- active interpretation ID;
+- `version`, last editor, created/updated time.
+
+The session never silently adopts a newly published configuration.
+
+### `intakeAnswerVersions`
+
+Append-only participant-written answers.
+
+- `eventId`, `teamId`, `sessionId`;
+- question key;
+- answer version number and typed value;
+- supersedes answer-version ID when edited;
+- written by/time;
+- accepted session version and client operation ID;
+- status `active | superseded | inactive_for_route`.
+
+The active answer for a question is resolved through `by_session_question_version`. Changing a track may mark a track-only answer inactive for the current route, but never deletes it.
+
+### `intakeInterpretations`
+
+Model-produced, non-authoritative drafts.
+
+- `eventId`, `teamId`, `sessionId`;
+- exact input answer-version IDs and input checksum;
+- track-catalog, intake-flow, model-config, and output-schema version IDs;
+- `state: pending | running | succeeded | refused | invalid | timed_out | rate_limited | failed | stale`;
+- candidate maturity/track keys with source IDs and short reasons;
+- source-linked brief-field drafts;
+- answered/missing/ambiguous field keys;
+- eligible next-question keys;
+- provider request ID, model ID, token counts, latency, and non-sensitive failure category;
+- created/completed time.
+
+This record cannot become a track selection, participant answer, application decision, route assignment, or score without a separate authorised participant/server command. Raw answer text is not copied into job/error metadata.
+
+### `projectBriefVersions`
+
+Immutable confirmed or generated-draft brief snapshots.
+
+- `eventId`, `teamId`, `sessionId`;
+- version number and `state: generated_draft | participant_confirmed | submitted`;
+- structured fields `{ key, value, sourceAnswerVersionIds, origin: participant | model_assisted }`;
+- confirmed maturity/origin and track-version IDs;
+- intake/track/model-schema version IDs;
+- created by/time and confirmed by/time;
+- supersedes brief-version ID.
+
+`model_assisted` identifies wording proposed by the model. The participant may edit it; the resulting value still retains its source answer references.
 
 ### `projectVersions`
 
@@ -247,10 +418,10 @@ Immutable submission snapshots.
 
 - `eventId`, `teamId`
 - project version number;
-- copied answers/disclosures/links;
+- active answer-version IDs, confirmed project-brief-version ID, disclosures, and links;
 - ordered GitHub binding declarations `{ bindingId, kind, customKind?, purpose, trackedBranch, rootPath? }` and Figma binding ID;
-- track;
-- project-form, participant-policy, and integration-policy configuration IDs;
+- confirmed maturity/origin, core-track version ID, and sponsor-track version IDs;
+- intake-policy, track-catalog, intake-flow, intake-model-schema, participant-policy, and integration-policy configuration IDs;
 - source draft version;
 - submitted by/at;
 - supersedes project version ID when applicable.
@@ -288,6 +459,7 @@ One active review exists per application/reviewer. Peer recommendations stay out
 
 - `eventId`, `applicationId`, `teamId`;
 - offered participant count;
+- reserved core-track version ID when track capacity is enabled;
 - offer/promotion source;
 - sent and expiry time;
 - `state: offered | confirmed | declined | expired | revoked`;
@@ -331,7 +503,7 @@ One frozen assignment exists per team/round.
 ### `reviewerProfiles`
 
 - `eventId`, `personId`
-- domain and track tags;
+- domain tags and published track-version keys;
 - criterion keys;
 - languages;
 - reviewer type for staffing;
@@ -767,7 +939,7 @@ The raw node tree remains in compressed private object storage. These rows drive
 ### `externalJobs`
 
 - `eventId`
-- kind `github_enrich | github_reconcile | figma_metadata | figma_content | figma_render | figma_webhook_repair | push_send | push_receipt | artifact_upload | export_upload`;
+- kind `intake_interpret | github_enrich | github_reconcile | figma_metadata | figma_content | figma_render | figma_webhook_repair | push_send | push_receipt | artifact_upload | export_upload`;
 - deduplication key;
 - target reference;
 - Workpool name/work ID and priority;
@@ -813,7 +985,18 @@ Request, action `start | finish | skip | pause`, operator, provider reference, r
 | `rosterEntries.by_event_email_status` | First staff/reviewer claim |
 | `roleGrants.by_event_person_status` | Authorize a current request |
 | `eventConfigVersions.by_event_kind_status` | Resolve published event policy |
+| `trackCatalogVersions.by_event_status_version` | Resolve or publish a catalog |
+| `trackVersions.by_catalog_type_status_order` | Show the exact core/sponsor track set |
+| `intakeFlowVersions.by_event_status_version` | Resolve a published prompt graph |
+| `intakeQuestionVersions.by_flow_key` | Load one immutable prompt |
+| `intakeRouteRules.by_flow_source_priority` | Resolve the next eligible prompt without scans |
+| `trackPromptBindings.by_catalog_flow_track_stage` | Apply track/maturity overlays |
+| `intakeModelConfigVersions.by_event_status_version` | Resolve the approved model contract |
 | `teamMembers.by_event_membership_status` | Prevent two active teams |
+| `intakeSessions.by_team_checkpoint_state` | Resume one team/checkpoint flow |
+| `intakeAnswerVersions.by_session_question_version` | Resolve answer history and active text |
+| `intakeInterpretations.by_session_input_checksum` | Deduplicate and reject stale model work |
+| `projectBriefVersions.by_team_version` | Load exact source-linked brief history |
 | `projectVersions.by_team_version` | Load exact reviewer context |
 | `applications.by_event_state` | Admission queues and capacity |
 | `applicationReviews.by_application_reviewer` | One independent review per reviewer |
@@ -863,6 +1046,10 @@ Returns person, active memberships/grants, event, required next step, device req
 
 Returns participant/team/project completion, application/admission state, official table, team QR reference, current `teamRoundState`, queue summary, commitments, and integration health.
 
+### `participant.intake`
+
+Returns one current published prompt, accepted answer/save state, subtle stage/checkpoint progress, confirmed maturity/origin/tracks, brief-review state, and the next allowed participant action for the caller's team. It includes a model suggestion only when it matches the session's current input and configuration versions. It never returns the OpenAI request ID, system instruction, another team's text, model diagnostics, or an unconfirmed suggestion as selected state.
+
 ### `participant.integrationEvidence`
 
 Returns the caller's team-owned GitHub repository set and Figma binding, repository kinds/purposes, topic/webhook state, per-resource and team-rollup metrics, latest checkpoint-set summary, changed-frame/path lists, and freshness fields. Repositories are ordered by the team’s display order. It never returns an OAuth grant, installation token, S3 object key, or another team's provider resource.
@@ -895,6 +1082,14 @@ Returns round state, panel summaries, team-state counts, critical exceptions, an
 
 Returns one compact row per team/provider with active-resource count, aggregate state, topic/webhook coverage, provider/metadata/content ages, current job state, rate-limit wait, completeness, and next action. GitHub detail returns one child row per repository with kind, branch/root, topic, freshness, and job state. Detail queries expose event facts and metric buckets without returning credentials or raw artifacts.
 
+### `operations.intakeConfiguration`
+
+Returns draft/published catalog, maturity, graph, binding, and model-config summaries; publish validation results; simulated paths; active-session counts by pinned version; and safe rollback targets. Editing and publication require event-configuration capability.
+
+### `operations.intakeHealth`
+
+Returns answer-save and interpretation latency, Workpool depth/age, success/refusal/invalid/timeout/rate-limit/fallback counts, abandonment by stable question key, and affected configuration versions. It excludes answer text, generated brief text, contact data, and provider payloads.
+
 ### `operations.scoreCompleteness`
 
 Returns required/submitted scorecard and criterion counts plus flags. Score values and `evaluationResults` require another capability and query.
@@ -906,7 +1101,8 @@ Subscriptions update only when records read by the query change. Screens use sta
 | Area | Main commands |
 | --- | --- |
 | Identity | create auth intent, provision participant, claim roster, revoke grant, register/revoke device |
-| Team/project | create/join/leave team, transfer lead, save draft, submit version, start/confirm team integration, add/classify/reorder/archive/replace repository |
+| Team/project | create/join/leave team, transfer lead, start/resume intake, save answer, confirm maturity/origin/tracks, confirm brief, submit version, start/confirm team integration, add/classify/reorder/archive/replace repository |
+| Intake configuration | draft/clone/validate/simulate/publish/retire track catalog, intake flow, prompt binding, and model config |
 | Admissions | assign application, submit own recommendation, request information, publish decision, send/respond/expire offer, promote waitlist |
 | Venue | check in participant, assign/freeze table, report mismatch |
 | Round/panel | publish plan, clock in, mark unavailable, page substitute, accept/decline page |
@@ -923,6 +1119,22 @@ Each command has one server implementation used by web and mobile. A mobile-spec
 ### Two team joins
 
 Both mutations query active membership by event/person. One commits; the other retries and returns “already in a team.”
+
+### Two answer saves
+
+Both carry the expected intake-session version. One commits a new immutable answer version. The other retries against the changed session and returns the current prompt/answer instead of replacing it.
+
+### Late model interpretation
+
+The completion mutation compares session, active answer IDs, input checksum, and paired configuration versions. If any changed, it marks the interpretation stale. It cannot alter the current question or confirmed fields.
+
+### Track change during interpretation
+
+Confirming a different core track increments the session version, recomputes required bindings, and marks obsolete track-only answers inactive. Pending output for the prior track becomes stale; raw answers remain.
+
+### Config publication during an active session
+
+Publication changes only the event defaults for new sessions. Existing sessions keep pinned IDs. A migration is a separate previewed command with explicit key mappings and affected-session counts.
 
 ### Two substitute acceptances
 
@@ -954,7 +1166,7 @@ The event board must set exact periods. The schema supports separate policies:
 
 - auth sessions and expired intents;
 - participant contact/eligibility data;
-- project versions;
+- intake answer versions, model interpretations, confirmed briefs, and submitted project versions;
 - provider credentials;
 - integration bindings, checkpoint sets, facts, snapshots, raw Figma artifacts, comments, previews, and short-lived GitHub blob cache;
 - reviewer private notes;
@@ -965,11 +1177,19 @@ The event board must set exact periods. The schema supports separate policies:
 
 Provider credentials should be deleted soon after the last dependent team checkpoint and complaint window. Disconnecting one team removes its authorization reference and webhook; it does not revoke a shared Figma grant still used by another team. Revoking the provider grant marks every dependent binding for reauthorization. Historical snapshot manifests remain until their evidence-retention date, while GitHub blob cache expires after the review window.
 
+The event privacy notice separately states that project text is sent to OpenAI for interpretation. Requests use `store: false`; the event must not claim this means zero retention because ordinary API abuse-monitoring logs may retain content for up to 30 days unless approved OpenAI data controls apply. Internal interpretation records follow the approved project-record period and can be deleted without deleting participant-written answers or submitted brief versions.
+
 Operational judging records use status/versions rather than hard deletion during the event and complaint window.
 
 ## 17. Schema acceptance
 
 - Cross-event IDs fail authorization even when the caller has the same role in another event.
+- A published catalog contains the configured five core tracks, and every submitted project names exactly one published core-track version.
+- Sponsor entries are optional, versioned, eligibility-checked, and cannot replace the core track or change rubric weights.
+- Every intake route/track/maturity combination terminates through configured questions with a deterministic no-model fallback.
+- A model result with unknown IDs, stale answers, invalid schema, refusal, or late completion changes no authoritative project field.
+- Every model-assisted brief field links to participant-written answer versions.
+- Editing an answer, changing a track, or publishing configuration cannot erase answer history or rewrite a submitted project version.
 - A participant cannot hold two active team memberships.
 - One application reviewer cannot submit two active recommendations for the same application.
 - Active offered/confirmed admission records cannot reserve more participants than approved capacity.

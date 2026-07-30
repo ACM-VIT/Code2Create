@@ -96,8 +96,16 @@ test("server-renders the authenticated Code2Create handbook", async () => {
   assert.match(html, /maxActiveGitHubRepositoriesPerTeam/);
   assert.match(html, /backend_api/);
   assert.match(html, /evidenceCheckpointSets/);
+  assert.match(html, /What is your project about\?/);
+  assert.match(html, /OpenAI Responses API/);
+  assert.match(html, /Structured Outputs/);
+  assert.match(html, /store: false/);
+  assert.match(html, /trackCatalogVersions/);
+  assert.match(html, /intakeFlowVersions/);
+  assert.match(html, /intakeModelConfigVersions/);
+  assert.match(html, /deterministic fallback/i);
   assert.doesNotMatch(
     html,
-    /vinext-starter|Workspace Auth Headers|Sign in with ChatGPT|Clerk with Google-only|does not fetch full document content|does not read the full design document|one selected repository|grants one primary repository|binds one team to one repository/i,
+    /vinext-starter|Workspace Auth Headers|Sign in with ChatGPT|Clerk with Google-only|does not fetch full document content|does not read the full design document|one selected repository|grants one primary repository|binds one team to one repository|The required prompts are:/i,
   );
 });

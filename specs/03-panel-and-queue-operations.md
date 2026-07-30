@@ -15,7 +15,7 @@ Review operations prepares each reviewer record before the event:
 - reviewer type for staffing only;
 - technical domains;
 - product/user domains;
-- tracks the reviewer can assess;
+- published core/sponsor track-version keys the reviewer can assess;
 - rubric criteria the reviewer can score;
 - languages;
 - venue availability windows;
@@ -45,7 +45,7 @@ Publishing a plan creates a version. Later edits keep the previous version and r
 
 ## 4. Routing teams
 
-Panels are not fixed only by track. A cybersecurity project still needs product and communication coverage; a health project still needs technical and responsible-use coverage.
+Panels are not fixed only by track. The router reads the confirmed core-track version, any sponsor eligibility, the team-confirmed brief, and reviewer domain tags. It never reads an unconfirmed model suggestion. A security project still needs product and communication coverage; a health project still needs technical and responsible-use coverage.
 
 The routing function first removes ineligible panels:
 
@@ -58,7 +58,7 @@ The routing function first removes ineligible panels:
 
 It then ranks eligible panels using:
 
-1. team-domain match;
+1. confirmed core-track and team-domain match;
 2. rubric coverage;
 3. current queue length and observed review pace;
 4. continuity or rotation policy for the round;
@@ -66,6 +66,8 @@ It then ranks eligible panels using:
 6. number of recent manual exceptions.
 
 The ranker is deterministic code with a recorded rules version. It does not call a language model.
+
+A sponsor-track entry can require an eligible domain reviewer for sponsor-award evidence when that policy is published. It cannot remove ordinary rubric coverage, guarantee a sponsor judge, or route a team into a separate scoring formula by itself.
 
 Operations can auto-accept the top result for ordinary teams during a configured assignment window. A manual choice outside the top result requires a reason. Assignment becomes fixed when the team enters `queued`; later moves use the exception flow.
 

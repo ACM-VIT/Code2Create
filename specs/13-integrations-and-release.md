@@ -14,7 +14,63 @@ GitHub and Figma record evidence. They do not calculate effort, originality, tec
 
 Each GitHub repository and Figma file can be active for only one team in the same event. An administrator may override a genuine shared-resource case with a reason; the exception appears to every affected reviewer.
 
-## 2. GitHub App
+OpenAI, GitHub, Figma, Expo, S3, and Google calls happen outside Convex mutations. Every environment has separate credentials, and no external system owns authoritative event state.
+
+## 2. OpenAI intake interpretation
+
+Create a separate OpenAI API project and restricted service key for development, staging, and production. The key lives only in the corresponding Convex environment.
+
+The Convex action uses the Responses API as a single-turn extraction request:
+
+- `store: false`;
+- background mode off;
+- no built-in, function, web, file, or MCP tools;
+- an approved model ID or snapshot from the published `intakeModelConfigVersion`;
+- bounded input and output;
+- strict Structured Outputs through `text.format` and the versioned `c2c_intake_interpretation` JSON Schema.
+
+The request includes only:
+
+- the redacted copy of active project-answer text needed for the current route;
+- opaque source answer-version IDs;
+- published maturity and origin definitions;
+- published core/sponsor track definitions;
+- allowed brief fields and next-question keys.
+
+It excludes application-owned names, email, phone, registration number, Google claims, team invitations, auth/session data, admission state, GitHub/Figma credentials, reviewer context, and all score data. Before the request, a versioned deterministic filter replaces common contact, registration-number, URL-credential, and secret-token patterns inside participant free text. The original answer remains only in the project record; redacted request text is not copied into job or error logs.
+
+The output is a proposal. After schema parsing, application code still rejects unknown or unpublished IDs, stale answer references, ineligible track combinations, a question outside the supplied allowlist, and text beyond field limits. The result cannot call a Convex function. An internal mutation writes it only as an `intakeInterpretation` tied to exact input/config versions.
+
+### Prompt-injection and failure handling
+
+The system instruction states that participant text is untrusted project material and cannot modify the schema, allowed IDs, or product rules. Delimiter text alone is not treated as security. The actual boundary is no tools, a closed output schema, server-side enum validation, and no authoritative write path.
+
+Each answer-set/config tuple has one deduplicated job. The `intake_ai` Workpool has independent concurrency, queue-age alerts, a short soft deadline, one bounded retry for transient failure, and a hard timeout. It never retries a safety refusal as if it were a network error.
+
+The published route graph supplies a deterministic next question for every node. Timeout, refusal, incomplete or content-filtered output, invalid schema, quota/rate limit, or service outage records a non-sensitive failure category and follows that edge. Raw answers and submission remain available.
+
+### Model and prompt release
+
+A model configuration cannot move to `published` until its evaluation suite passes:
+
+- ordinary short and long project descriptions;
+- descriptions that already answer several fields;
+- vague, multilingual, typo-heavy, and code-mixed answers;
+- ideas at every configured maturity;
+- core-track ambiguity and sponsor eligibility;
+- prompt-injection attempts and fake IDs;
+- claims without evidence;
+- sensitive personal data pasted into a project answer;
+- redaction fixtures for email, phone, registration number, URL credentials, and common secret formats;
+- refusal, truncation, invalid output, timeout, and late-result fixtures.
+
+Assertions cover schema validity, source attribution, allowed question/track IDs, no invented evidence, no authoritative selection, and deterministic fallback. Model or prompt changes publish a new immutable version; they do not rewrite active sessions.
+
+### Data controls
+
+Production sends `store: false` and does not use OpenAI Conversations or background responses. This avoids the Responses API's ordinary stored application state, but it is not the same as Zero Data Retention. By default, API abuse-monitoring logs may contain prompts and responses for up to 30 days. Before registration opens, the event privacy owner must approve the disclosed use and effective retention controls, and decide whether to seek Modified Abuse Monitoring or Zero Data Retention.
+
+## 3. GitHub App
 
 ### Permissions and event topic
 
@@ -141,7 +197,7 @@ Counts are context. Squashes, generated files, rebases, pair programming, and Gi
 - Rate-limit responses pause that installation's Workpool lane until reset; live clients keep the last verified data and its age.
 - Removing or replacing a repository before freeze changes the active set and preserves earlier binding versions, snapshots, and checkpoint sets.
 
-## 3. Figma OAuth and full design evidence
+## 4. Figma OAuth and full design evidence
 
 ### Scopes
 
@@ -233,7 +289,7 @@ Figma does not expose keystrokes, edit duration, every autosave, or reliable per
 - When file-webhook capacity is exhausted, metadata heartbeat and checkpoints remain valid; the team is not blocked.
 - Disconnect removes the team's active authorization reference and webhook. Historical snapshots remain under the approved evidence-retention policy.
 
-## 4. Google and Better Auth setup
+## 5. Google and Better Auth setup
 
 Create separate Google OAuth configuration for development, staging, and production.
 
@@ -259,7 +315,7 @@ Better Auth configuration:
 
 The VIT domain list comes from event configuration after VIT IT confirms it.
 
-## 5. Expo notifications
+## 6. Expo notifications
 
 ### Registration
 
@@ -288,7 +344,7 @@ Do not include team project text, score, phone number, or private reason.
 
 The 90-second page deadline is based on the page record, not the push ticket.
 
-## 6. Private artifact and export bucket
+## 7. Private artifact and export bucket
 
 The selected baseline is a private AWS S3 bucket in Mumbai (`ap-south-1`) after data-policy approval. It holds immutable round exports, downloaded backups, compressed Figma checkpoints, captured Figma previews, and any short-lived GitHub blob cache. Live counters and searchable metadata stay in Convex.
 
@@ -332,13 +388,14 @@ Convex backup ZIP files use a separate `backups/` prefix. Restore access is not 
 
 If VIT policy requires another provider/region, replace this decision before production registration data exists.
 
-## 7. Environment matrix
+## 8. Environment matrix
 
 | Item | Development | Staging | Production |
 | --- | --- | --- | --- |
 | Web | local/preview | protected staging domain | event domain |
 | Convex | developer deployment | rehearsal deployment | production deployment |
 | Better Auth | dev secret/clients | staging secret/clients | production secret/clients |
+| OpenAI | dev project/key and synthetic input | staging project/key and intake evals | production project/key and published model config |
 | Reviewer app | dev build/scheme | preview build/channel | production build/channel |
 | GitHub | dev App | staging App/test repos | production App/team repos |
 | Figma | dev OAuth/webhook/test files | staging OAuth/webhook/test files | approved production OAuth App and webhook endpoint |
@@ -348,7 +405,7 @@ If VIT policy requires another provider/region, replace this decision before pro
 
 No callback URL, provider key, auth secret, user record, or push token is shared across staging and production.
 
-## 8. CI
+## 9. CI
 
 Pull requests run:
 
@@ -359,7 +416,7 @@ Pull requests run:
 5. Next.js build;
 6. Expo export/config validation;
 7. Playwright against an isolated seeded deployment;
-8. provider webhook fixture tests;
+8. OpenAI contract/fallback fixtures and provider webhook fixtures;
 9. secret scan.
 
 Main-branch release candidates also run:
@@ -372,14 +429,14 @@ Main-branch release candidates also run:
 
 CI logs must not print environment values, cookies, webhook bodies, or provider responses containing tokens.
 
-## 9. Production release
+## 10. Production release
 
 ### Before event freeze
 
 1. Deploy additive Convex schema/functions to staging.
 2. Run any backfill and verify counts.
 3. Deploy Vercel staging and reviewer preview build/update.
-4. Run auth, one-review, integration, push, export, and incident smoke tests.
+4. Run auth, deterministic/model intake, one-review, integration, push, export, and incident smoke tests.
 5. Publish the production reviewer build and install it on reviewer devices.
 6. Set the minimum build only after installation/training is complete.
 
@@ -391,12 +448,12 @@ CI logs must not print environment values, cookies, webhook bodies, or provider 
 4. Create a staged Vercel production deployment and run route/auth checks.
 5. Promote the tested Vercel deployment.
 6. Publish a compatible EAS update only if needed and test a small device group first.
-7. Verify GitHub/Figma callbacks, one test push, export bucket write, Sentry release, and dashboard release IDs.
+7. Verify one synthetic OpenAI interpretation/fallback, GitHub/Figma callbacks, one test push, export bucket write, Sentry release, and dashboard release IDs.
 8. Record the release in event configuration.
 
 Do not change native dependencies, auth callback shape, rubric calculation, or destructive schema during a live round.
 
-## 10. Compatibility and migrations
+## 11. Compatibility and migrations
 
 - Schema changes are additive through the event.
 - New required fields start optional, receive a backfill, then become required in code after verification.
@@ -404,8 +461,9 @@ Do not change native dependencies, auth callback shape, rubric calculation, or d
 - Every EAS Update has a runtime version compatible with the installed native build.
 - Changing a native dependency creates a new runtime/build.
 - Event/rubric/panel configuration is versioned; a code deploy does not rewrite an active round’s configuration.
+- Track catalogs, intake graphs, model prompts, and output schemas are immutable versions; active sessions do not silently move between them.
 
-## 11. Rollback
+## 12. Rollback
 
 ### Web
 
@@ -419,6 +477,10 @@ Roll back to the previous EAS Update on the same runtime. A native-runtime probl
 
 Redeploy the last compatible source commit. Additive schema changes stay in place. Do not restore the database for an ordinary code defect.
 
+### Intake model/config
+
+Point new sessions to the last published compatible model configuration. Sessions already pinned to a valid older version continue. If a configuration is unsafe, disable its model path so every affected session uses its already-published deterministic fallback; do not rewrite participant answers.
+
 ### Data
 
 Use protected repair mutations for a small known error. Use backup restore only for a confirmed broad data incident under the rehearsed destructive-restore procedure.
@@ -429,12 +491,13 @@ Restore the recorded previous secret/config version only if it is still secure. 
 
 Every rollback records owner, reason, affected release IDs, start/end time, and verification result.
 
-## 12. Secret rotation
+## 13. Secret rotation
 
 Before launch, rehearse rotation for:
 
 - Better Auth secret;
 - Google client secret;
+- OpenAI API key;
 - GitHub App private key and webhook secret;
 - Figma client secret and file-webhook passcodes;
 - token-encryption key;
@@ -444,9 +507,14 @@ Before launch, rehearse rotation for:
 
 Token-encryption key rotation keeps the previous decrypt key until all active Figma authorizations are re-encrypted. GitHub webhook-secret rotation may require an overlap or coordinated provider update. Figma passcode rotation updates each active webhook and verifies its new `PING` before discarding the old encrypted value.
 
-## 13. Release acceptance
+## 14. Release acceptance
 
 - Production auth callbacks accept only production origins/schemes.
+- The first intake frame is **Hello.**, followed by **What is your project about?**, with one text box and no form, chat, or PPT UI.
+- Every published maturity/track route terminates, has a deterministic fallback, and uses only published question keys.
+- OpenAI requests set `store: false`, expose no tools, exclude identity/judging fields, and accept only the strict versioned output schema.
+- A timeout, refusal, invalid output, quota error, or disabled model still lets a team finish and submit; a late result cannot replace the visible question.
+- Suggested maturity and track values remain unconfirmed until the team acts, and every generated brief field cites source answers.
 - GitHub App permission screen contains no write/admin permission.
 - A team can add repositories from different App installations and give each a required kind, purpose, branch/root, and order.
 - The portal verifies `code2create-7-0` on every active repository; a missing topic does not cause an Administration permission request.
@@ -465,6 +533,9 @@ Token-encryption key rotation keeps the previous decrypt key until all active Fi
 
 ## References
 
+- [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses)
+- [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
+- [OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data)
 - [GitHub App permissions](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app)
 - [GitHub installation access tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
 - [GitHub webhook signature validation](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)

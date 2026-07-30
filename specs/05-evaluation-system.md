@@ -154,15 +154,19 @@ Adding a separate weighted progress criterion is an open decision. The system do
 
 ## 9. AI boundary
 
-An optional server action may produce a three- or four-line summary from the team’s submitted answers. It must:
+The intake interpretation layer may identify fields already present in team-written answers, suggest published maturity/track values, choose among server-allowed follow-up question keys, and draft a compact source-linked project brief.
 
-- identify itself as generated;
-- link back to the submitted fields;
-- avoid a novelty verdict;
-- avoid predicted rank, score, or winner language;
-- never replace the reviewer’s access to the original answers.
+It must:
 
-No model receives peer scores to recommend an adjustment. Routing and criterion coverage use fixed rules.
+- label every model-assisted brief field and link it to participant-written answer versions;
+- leave maturity, origin, track, sponsor eligibility, and final wording unconfirmed until the participant acts;
+- avoid novelty verdicts and invented validation, users, progress, disclosures, or evidence;
+- avoid predicted admission, rank, score, or winner language;
+- never replace reviewer access to original answers.
+
+A track-specific intake overlay can request relevant evidence. It does not alter rubric weights or scoring anchors unless the board separately publishes a new rubric version.
+
+No model receives admission recommendations, private reviewer notes, peer scores, scorecards, evaluation results, or ranking data. No model output can call an admission, routing, score, award, or project-submission mutation. Reviewer/panel routing and criterion coverage use fixed rules.
 
 ## 10. Round close
 
@@ -249,6 +253,8 @@ CSV supports operations analysis. JSON preserves version and relationship detail
 - A spread flag never changes a score.
 - A correction keeps the original and corrected versions.
 - No AI function can call a score-write function.
+- A suggested track or model-assisted brief phrase cannot appear as participant-confirmed evidence until the participant accepts or edits it.
+- Track-specific intake prompts cannot change the rubric version or criterion weights.
 - Review 2 context contains the exact Review 1 commitments and checkpoint references.
 - Provider activity counts cannot write, prefill, weight, or recommend a criterion score.
 - A submitted scorecard can be traced to the exact repository snapshots and Figma snapshot inside the checkpoint set shown during that review.

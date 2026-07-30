@@ -10,7 +10,7 @@ The event must expect:
 - stale dashboards opened on several staff laptops;
 - duplicate taps and lost network responses;
 - wrong table, wrong QR, or late reviewer;
-- GitHub, Figma, Google, Expo, or Convex service trouble;
+- OpenAI, GitHub, Figma, Google, Expo, or Convex service trouble;
 - human mistakes during a fast round transition.
 
 The system protects judging records first. If it cannot safely start or finish a review, operations pauses the affected panel or round.
@@ -41,6 +41,7 @@ A client may show an optimistic control for low-risk actions such as a Synesthes
 - team ready;
 - table or panel assignment;
 - reviewer presence;
+- confirmed project maturity/origin/track and project submission;
 - review start or extension;
 - scorecard submission;
 - correction;
@@ -106,6 +107,7 @@ On restart, the app restores the current session, fetches `reviewer.now`, opens 
 | --- | --- | --- |
 | Google/Better Auth | New sign-ins or fresh-session checks fail | Existing valid sessions continue; support moves signed-in staff/reviewer work to prepared devices where allowed |
 | Convex | Core reads/writes fail | Pause new reviews; current reviewer drafts stay local; start incident procedure |
+| OpenAI | Intake interpretation is slow, refused, invalid, rate-limited, or unavailable | Keep the committed answer, follow the published deterministic question edge, and allow brief confirmation/submission without model output |
 | Expo Push | Background pages may not arrive | Dashboard, call, and runner fallback |
 | GitHub | Push delivery or one repository reconciliation fails | Keep every other repository current, retain the failed repository’s last verified checkpoint, show partial completeness, and accept live/manual evidence |
 | Figma | Metadata, full content, comments, or previews cannot refresh | Keep the last complete checkpoint, show each freshness time and missing part, accept live/manual evidence |
@@ -168,6 +170,7 @@ A production restore is destructive. The incident commander takes a new backup f
 
 - Convex function failures and latency;
 - failed auth callbacks and roster claims by reason;
+- intake answer-save latency; intake Workpool depth/age; model success, refusal, invalid, timeout, rate-limit, stale, and fallback rates by configuration version;
 - web/reviewer crashes by release;
 - subscription reconnect rate;
 - GitHub signature failures, Figma passcode failures, duplicate deliveries, and oldest unprocessed provider event;
@@ -197,6 +200,7 @@ Audit these actions:
 - role and roster changes;
 - application assignment, published admission decision, offer, expiry, and waitlist promotion;
 - event/rubric/panel-plan publication;
+- track-catalog, intake-flow, intake-model-config publication and active-session migration;
 - after-freeze table changes;
 - manual routing or queue priority;
 - substitute acceptance or operator assignment;
@@ -231,6 +235,9 @@ Routine reads, timer ticks, and draft autosaves are not audit events. Submitted 
 - Store one Figma authorization per Figma App/user grant and reference it from team-owned file bindings; never copy refresh tokens into team records.
 - Keep auth secrets, Google client secrets, GitHub private key, webhook secrets, Figma secret, Expo credentials, and backup credentials out of client bundles and source control.
 - Do not put project text, scores, phone numbers, or provider tokens in push payloads or error logs.
+- Do not put intake answer text, generated brief text, OpenAI request content, or system instructions in job metadata, Sentry, or operational metrics.
+- Send only project text and published routing definitions required for interpretation; exclude identity, contact, auth, admission, provider-credential, reviewer, and score data.
+- Set OpenAI Responses requests to `store: false` and disclose the effective abuse-monitoring/data-retention policy; do not describe it as Zero Data Retention unless that control is approved and enabled.
 - Redact auth headers and cookies before Sentry or structured logging.
 - Store compressed Figma files, previews, and temporary GitHub source blobs in the private artifact bucket. Reviewers receive short-lived URLs only after assignment and snapshot checks.
 - Raw provider payloads and source/design artifacts follow explicit evidence-retention periods; derived judging records keep only the approved manifest and facts.
@@ -246,6 +253,7 @@ Routine reads, timer ticks, and draft autosaves are not audit events. Submitted 
 - Convex backup download and staging restore are proven.
 - Multiple GitHub installations, repository kinds, add/archive/reorder, topic present/missing, duplicate/out-of-order push, fork overlap, partial access loss, and stale per-repository reconciliation are tested.
 - Figma PKCE, passcode webhook, view-only fallback, metadata/content divergence, rate-limit backoff, reauthorization, and artifact access are tested.
+- Intake graph publication, source attribution, prompt-injection fixtures, track changes, stale model output, timeout/refusal/invalid output, disabled-model fallback, and no-model submission are tested.
 - A provider-event burst cannot exhaust review writes or the scheduler; Workpool limits and alert thresholds are verified at event scale.
 - Operations can pause starts, page a substitute, move a table, handle a wrong QR, and close a round in the rehearsal.
 - No known path can edit another reviewer’s submitted score or grant itself a staff role.

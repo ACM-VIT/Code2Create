@@ -18,7 +18,10 @@ The password on this handbook only protects the specifications. It has no connec
 - Every planned panel member must scan the team QR before a normal review starts.
 - Reviews are timed. The working policy is 10 minutes with one two-minute extension.
 - Reviewers score independently. Seniority does not change score weight.
-- The system may summarise project material, but it may not generate, change, or recommend a judging score.
+- Project intake begins with **Hello.** and **What is your project about?**, then shows one configured prompt at a time instead of a form or PPT requirement.
+- The OpenAI layer structures team-written answers and suggests relevant follow-ups or tracks; the team confirms every authoritative field, and a deterministic path works without the model.
+- Five core-track positions are planned. Their definitions, prompt bindings, and any additional sponsor tracks are versioned event configuration, not hard-coded problem statements.
+- The system may structure or summarise project material, but it may not generate, change, or recommend a judging score.
 - Teams can connect several GitHub repositories, declare each repository’s kind and purpose, and connect a Figma file. Signed events, provider checks, frozen checkpoint sets, and derived statistics record progress without judging it.
 - The event is online-first. Bluetooth and peer-to-peer sync are not part of the build.
 
@@ -30,7 +33,8 @@ The password on this handbook only protects the specifications. It has no connec
 | Reviewer mobile | Expo, React Native, Expo Router | Native camera, notifications, secure session storage, and controlled builds. |
 | Authentication | Better Auth with Google only | Runs on the Convex deployment through the Convex-maintained adapter and works with Next.js and Expo. |
 | Live backend | Convex | Transactions, reactive queries, HTTP endpoints, scheduled work, and small live records in one backend. |
-| Provider job control | `@convex-dev/workpool` | Bounds GitHub, Figma, push, and export work so provider bursts do not block review traffic. |
+| Adaptive intake | OpenAI Responses API with Structured Outputs | Produces bounded, source-linked interpretations behind the sequential interface; it owns no participant or judging state. |
+| External job control | `@convex-dev/workpool` | Bounds intake, GitHub, Figma, push, and export work so external work does not block review traffic. |
 | Large artifacts | Private S3 in `ap-south-1` | Stores compressed Figma checkpoints/previews, short-lived GitHub blob cache, exports, and backups outside one-megabyte live records. |
 | Reviewer paging | Expo Notifications | Background attention signal, backed by an in-app assignment and an operations fallback. |
 | Web hosting | Vercel | Preview, staging, and production Next.js deployments. |
@@ -44,7 +48,7 @@ Clerk is not used. There is no second application database, custom WebSocket ser
 
 | Surface | Main jobs |
 | --- | --- |
-| Participant portal | Sign-in, profile, team, project application, admission result, GitHub/Figma connection, venue check-in, readiness, queue, review progress, and Synesthesia |
+| Participant portal | Sign-in, profile, team, sequential project intake, track confirmation, admission result, GitHub/Figma connection, venue check-in, readiness, queue, review progress, and Synesthesia |
 | Reviewer app | Google sign-in, clock-in, page acknowledgement, QR scan, project context, timed review, evidence, scoring, and short offline recovery |
 | Operations dashboard | Rounds, rosters, panels, tables, queues, substitutes, live reviews, scoring completeness, exceptions, and audit |
 
@@ -52,7 +56,7 @@ Clerk is not used. There is no second application database, custom WebSocket ser
 
 Convex stores event state and pushes changed query results to authorised clients. A client only shows a score submission, review start, assignment, or round change as accepted after the server confirms it.
 
-Push notifications wake a reviewer but do not assign them. Local mobile storage protects an unfinished scorecard during a short connection loss but cannot finish a review. GitHub and Figma events feed bounded background jobs; Convex publishes the resulting team state immediately. Reviews stay pinned to exact evidence snapshots, and neither integration judges the team.
+Push notifications wake a reviewer but do not assign them. Local mobile storage protects an unfinished scorecard during a short connection loss but cannot finish a review. OpenAI, GitHub, and Figma calls run as bounded background work; Convex publishes accepted team state immediately. The intake continues through an approved fallback graph when model work fails. Reviews stay pinned to exact project and evidence versions, and no external integration judges the team.
 
 ## Status language
 
@@ -70,7 +74,7 @@ An open policy must live in versioned event configuration or remain blocked. Cli
 | --- | --- |
 | Product brief | Event problem, scope, users, and outcomes |
 | Identity and access | Google sign-in, VIT classification, rosters, roles, and sessions |
-| Participant portal | Registration, teams, project application, admission, integrations, readiness, and queue experience |
+| Participant portal | Registration, teams, sequential intake, maturity/tracks, application, admission, integrations, readiness, and queue experience |
 | Panels and queues | Reviewer staffing, routing, presence, timers, and substitutions |
 | Reviewer app | Native workflow, score drafts, push, and short connection loss |
 | Evaluation | Rubric, criterion coverage, aggregation, progress, and corrections |
@@ -92,7 +96,8 @@ An open policy must live in versioned event configuration or remain blocked. Cli
 - missed-call, hold, and queue re-entry rules;
 - reviewer and staff rosters;
 - data retention, provider-evidence retention, artifact access, and participant feedback;
-- final tracks, awards, and sponsor track;
+- final core-track names/definitions, sponsor tracks, awards, and participant-facing maturity copy;
+- OpenAI intake consent, effective data controls, and interpretation retention;
 - Synesthesia catalogue, playback source, and licensing.
 
 These decisions have owners and deadlines in the decision register.

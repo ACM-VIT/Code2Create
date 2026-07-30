@@ -71,27 +71,118 @@ The server checks:
 
 Team-size bounds and mixed-team eligibility are open policy decisions. The backend reads them from event configuration.
 
-## 4. Guided project profile
+## 4. Guided project intake
 
-The project profile is a question-by-question flow. It does not ask for a PPT.
+This experience is the replacement for a project-application form and a forced PowerPoint presentation. It is sequential, quiet, and adaptive. It is not a chatbot and does not show a long questionnaire.
 
-The required prompts are:
+### Opening
 
-1. What problem are you solving?
-2. Who has this problem?
-3. What evidence tells you the problem is real?
-4. What are you building during Code2Create?
-5. What already existed before the event?
-6. What will your team build yourselves?
-7. What tools, datasets, APIs, templates, models, or previous code will you use?
-8. What is working now?
-9. What will you demonstrate at the next review?
-10. What risks involve privacy, safety, security, misuse, or accessibility?
-11. Which track best fits the project?
+The exact first frame is:
 
-Each answer has a clear length limit and autosaves after the user leaves the field. The portal shows **Saving**, **Saved**, or **Could not save** next to the active answer.
+> Hello.
 
-The product may later help shorten a team-written answer, but it cannot invent evidence, novelty, progress, or disclosures.
+The next frame asks:
+
+> What is your project about?
+
+It contains one multiline text box and one primary continue action. The screen has no chat bubbles, assistant avatar, sample pitch, dashboard, or visible form sections. A small back action, save state, and accessible progress label are the only secondary controls.
+
+The team writes naturally. The server saves that text verbatim before any model work starts.
+
+Before intake begins, the accepted participant policy explains that project-answer text may be sent to OpenAI for interpretation, states the effective retention controls, and asks teams not to enter contact, identity, credential, or other unnecessary personal data. If that policy is not approved, the event runs the same intake in deterministic-only mode.
+
+### Three separate kinds of phase
+
+The system does not overload one `phase` field:
+
+| Concept | Working values | Meaning |
+| --- | --- | --- |
+| Project maturity | `idea`, `ideation`, `prototype`, `intermediate_build`, `working_build` | Where the project is now |
+| Intake stage | `opening`, `idea`, `problem`, `approach`, `track`, `build`, `evidence`, `responsibility`, `review` | Which kind of prompt the participant is answering |
+| Event checkpoint | application, pre-event update, a configured round update, or final update | Why the intake is running now |
+
+Project origin is a separate confirmation: `new_for_event` or `continuing_existing_project`. A continuing project can be at any maturity. Maturity and origin help select relevant questions; they are not scores or admission decisions.
+
+The labels, descriptions, allowed transitions, and checkpoint bindings are published configuration. The values above are the production starting set, not client-side constants.
+
+### Adaptive sequence
+
+After the opening answer, the intake gathers only the missing information needed for the current checkpoint. A normal application path covers:
+
+- the maturity and origin the team confirms;
+- the problem, intended user, and evidence the team actually has;
+- the proposed experience or approach;
+- what exists now and what the team intends to build during Code2Create;
+- one core track and any optional sponsor-track entries;
+- prior work, repositories, designs, datasets, APIs, models, templates, and other third-party material;
+- what the team can demonstrate next;
+- material privacy, safety, security, misuse, and accessibility concerns;
+- a final structured brief assembled from confirmed answers.
+
+This is not a fixed eleven-question sequence. If the opening answer already explains the user and approach, the system should not ask the team to repeat them. If a claim is vague, it chooses an approved follow-up. Every visible question comes from the published intake configuration; the model cannot invent an unreviewed question.
+
+Before each later review, the same engine runs a short update path: what changed, what works now, what the team will demonstrate, what previous commitment remains open, and whether any disclosure or track eligibility changed. It links the configured GitHub/Figma checkpoint instead of asking the team to reproduce provider statistics.
+
+### OpenAI interpretation layer
+
+The OpenAI layer is behind the interface, not the interface itself. A server action sends the minimum project text plus the published maturity, track, field, and question definitions to the Responses API with Structured Outputs. It may return:
+
+- candidate maturity values and reasons;
+- candidate core and sponsor tracks and reasons;
+- brief-field drafts tied to source answer-version IDs;
+- fields that appear answered, missing, or ambiguous;
+- the next eligible question keys from the server-provided allowlist.
+
+The model receives no application-owned Google subject, email, phone, registration number, auth/session data, admission recommendation, reviewer note, or score. A deterministic preprocessor also replaces common email, phone, registration-number, URL-credential, and secret-token patterns found in free text before the request; the raw answer stays in Convex. It receives no tools, web access, database function, or provider credential. Participant text is treated as untrusted data, never as instructions to change the system contract.
+
+The model cannot:
+
+- select or change a track or maturity on the team’s behalf;
+- write an authoritative answer or silently alter the participant’s words;
+- invent validation, users, novelty, progress, disclosures, or evidence;
+- accept, reject, rank, route, or score a team;
+- choose a question outside the published allowlist.
+
+The participant confirms maturity, project origin, core track, sponsor-track entries, and the final brief. Each generated field remains visibly editable and keeps links to the answers it came from.
+
+The server saves an answer first, then starts interpretation in the bounded intake work pool. It gives the model a short latency budget. On timeout, refusal, invalid output, rate limit, or provider outage, the deterministic route graph immediately supplies the next approved fallback question. A late result cannot replace a question already on screen. Model availability never blocks draft completion or submission.
+
+### Tracks
+
+The working event model reserves five core-track positions and supports zero or more sponsor tracks. The event board has not approved the names or definitions, so the application must read the published catalog rather than ship placeholder tracks as policy.
+
+A team confirms exactly one core track before submission. It may also opt into any published sponsor tracks for which it meets the stated requirements. A sponsor track is additional eligibility, not a replacement for the core track.
+
+Each published track contains:
+
+- stable key, display name, type `core | sponsor`, description, and examples;
+- explicit eligibility and required disclosures;
+- optional sponsor/tool-use conditions;
+- applicable project maturities and event checkpoints;
+- domain tags used as one input to reviewer coverage;
+- track-specific intake-question bindings;
+- capacity or award-policy reference when approved;
+- status, display order, version, and checksum.
+
+Tracks describe areas of work. They do not impose mandatory problem statements. Track-specific questions may request relevant evidence, but they do not silently change the shared judging rubric or promise a finalist place or award.
+
+After the opening answer, the model may suggest up to three published tracks with a short source-based reason. The screen always offers **Browse all tracks** and **Not sure yet**. A suggestion is not a selection. The team confirms the core track itself.
+
+A lead may change the confirmed track until the configured submission freeze. The server preserves every raw answer, removes no disclosure, marks now-irrelevant track answers as inactive rather than deleting them, and computes the newly required questions. Submitted project versions keep the exact catalog and track-version IDs that reviewers saw.
+
+Changing the core track after application submission creates a new project version and follows the admission policy for re-review. If track capacity affected an existing offer, the change cannot take effect until admissions rechecks that reservation. A sponsor opt-in follows its own published freeze and eligibility rule.
+
+### Answer and brief behaviour
+
+- One prompt is visible at a time.
+- The active answer has a clear character limit.
+- The portal shows **Saving**, **Saved**, or **Could not save**.
+- Back/edit creates another answer version; it does not erase the earlier text.
+- A refresh or another authorised team device resumes at the same accepted session version.
+- A stale device cannot overwrite a newer answer.
+- The final screen is a plain project brief, not a generated deck.
+- Every brief field is editable and cites its source answer versions.
+- The lead submits only after confirming the brief, maturity, origin, core track, sponsor entries, and disclosures.
 
 ## 5. Project versions
 
@@ -99,14 +190,15 @@ The team lead can edit a draft until submission.
 
 Submitting creates a project version containing:
 
-- answers and disclosures;
-- track selection;
+- verbatim answer versions, confirmed brief fields, and disclosures;
+- confirmed project maturity and origin;
+- core-track and optional sponsor-track version IDs;
 - ordered repository set with declared kinds/purposes and the Figma link;
 - demo URL, if present;
 - version number;
 - submitting member;
 - server time;
-- policy and form-schema versions.
+- participant-policy, track-catalog, intake-flow, intake-model-schema, and integration-policy versions.
 
 The team continues updating explicitly live fields such as demo status and checkpoint links. Editing a submitted narrative creates a new version; it never overwrites the earlier reviewer context.
 
@@ -127,7 +219,7 @@ Selected applications continue:
 ### Application review
 
 - An admissions administrator assigns each application to the configured number of application reviewers.
-- Reviewers inspect project answers, team composition allowed by policy, disclosures, and track choice.
+- Reviewers inspect the confirmed brief, its source answers, team composition allowed by policy, disclosures, project maturity/origin, and confirmed track versions.
 - Each reviewer submits an independent recommendation: `select`, `waitlist`, `reject`, or `needs_information`, with reason codes and a short note.
 - Reviewers cannot see peer recommendations until their own is submitted.
 - Admissions uses a separate, approved admission policy. The venue judging rubric and scores do not apply.

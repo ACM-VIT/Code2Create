@@ -125,7 +125,9 @@ If the camera fails, the reviewer can type the fallback code. A backend rejectio
 
 When the review starts, the app caches the context required to finish that active review:
 
-- project summary written by the team;
+- confirmed project brief with team-written and model-assisted fields clearly distinguished;
+- the source participant answers behind every model-assisted brief field;
+- confirmed project maturity, origin, core-track version, and optional sponsor-track versions;
 - problem, user, and evidence;
 - declared pre-existing work and third-party tools;
 - current demo state;
@@ -136,6 +138,8 @@ When the review starts, the app caches the context required to finish that activ
 - timer start and end time.
 
 The app does not download another panel’s notes, private eligibility evidence, or peer score values.
+
+The reviewer can expand a brief field to its exact participant-written source answers. A generated phrase is convenience text, not evidence. The original answer, disclosure, demo, and integration checkpoint remain available, and no OpenAI suggestion or hidden candidate track appears in review context.
 
 The evidence tab can open:
 
