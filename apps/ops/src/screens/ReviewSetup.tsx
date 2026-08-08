@@ -170,11 +170,22 @@ export function ReviewSetup({
       {configuration ? (
         <section className="setup-section">
           <h2>Published rounds</h2>
+          <p className="muted section-note">
+            A round is published with its panels already built. After that, panel
+            membership only changes through a substitute on the board — so get the
+            panels right here first. Teams are not pre-assigned: the desk sends each
+            team to a panel when it is ready to be reviewed.
+          </p>
           <div className="published-rounds">
             {configuration.rounds.map((round) => (
-              <div key={round.id}>
-                <strong>{round.name}</strong>
-                <span>{stateName(round.status)} · {round.panelCount} panels · {round.reviewerCount} reviewers · {round.reserveCount} reserves</span>
+              <div className="published-round-row" key={round.id}>
+                <div>
+                  <strong>{round.name}</strong>
+                  <span>{stateName(round.status)} · {round.panelCount} panels · {round.reviewerCount} reviewers · {round.reserveCount} reserves</span>
+                </div>
+                <Link className="row-action" to={`/reviews/${round.id}`}>
+                  See its panels
+                </Link>
               </div>
             ))}
             {configuration.rounds.length === 0 ? <p className="muted">No round has been published.</p> : null}
@@ -651,7 +662,7 @@ function RoundPublisher({
 
   return (
     <section className="setup-section">
-      <h2>Publish a round</h2>
+      <h2><span className="step-number">1</span>Round timing and rules</h2>
       <p className="muted">Publishing locks the rubric, timing, panels, coordinators, and reviewer coverage.</p>
       <form className="review-publisher" onSubmit={publish}>
         <div className="form-grid">
@@ -794,7 +805,7 @@ function RoundPublisher({
         <section className="publisher-block">
           <div className="section-heading">
             <div>
-              <h2>Rubric</h2>
+              <h2><span className="step-number">2</span>Rubric</h2>
               <p className="muted">Integer weights must total 100. Every score uses its published 0–4 anchor.</p>
             </div>
             <button className="secondary" type="button" onClick={addCriterion}>Add criterion</button>
@@ -823,7 +834,7 @@ function RoundPublisher({
         <section className="publisher-block">
           <div className="section-heading">
             <div>
-              <h2>Panels</h2>
+              <h2><span className="step-number">3</span>Panels</h2>
               <p className="muted">Each reviewer can appear once. One coordinator is required per panel.</p>
             </div>
             <button className="secondary" type="button" onClick={addPanel}>Add panel</button>
@@ -860,7 +871,7 @@ function RoundPublisher({
         <section className="publisher-block">
           <div className="section-heading">
             <div>
-              <h2>Reserves</h2>
+              <h2><span className="step-number">4</span>Reserves</h2>
               <p className="muted">Only trained, qualified reviewers outside the fixed panels can be paged into an empty seat.</p>
             </div>
           </div>
@@ -894,7 +905,7 @@ function RoundPublisher({
         </section>
 
         <section className="publish-confirmation">
-          <h2>Final publication</h2>
+          <h2><span className="step-number">5</span>Publish</h2>
           <p className="muted">Publishing locks this round. Review every section before continuing.</p>
           <label className="field">
             <span>Publication reason</span>

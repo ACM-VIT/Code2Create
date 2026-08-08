@@ -1916,3 +1916,20 @@ label > span { color: var(--muted); font-size: .75rem; }
 .published-rounds span, .reviewer-profile-heading span { margin-top: 2px; font-size: .75rem; }
 .reviewer-profile-state { gap: 10px; }
 .reviewer-profile-state > span { color: var(--muted); font-size: .75rem; }
+
+/* Publishing a round is five steps, not five unrelated forms. */
+.step-number {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+  place-items: center;
+  color: var(--muted);
+  font-size: .6875rem;
+  background: var(--hover);
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.section-note { max-width: 640px; margin: 0 0 12px; font-size: .8125rem; }
+.published-round-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.published-round-row > div { display: grid; gap: 2px; min-width: 0; }
