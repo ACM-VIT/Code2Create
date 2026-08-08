@@ -233,12 +233,3 @@ export function sortAttentionRows(rows: readonly AttentionRow[]): AttentionRow[]
       left.subject.localeCompare(right.subject),
   );
 }
-
-/**
- * Health signals the named rows now report concretely. The Overview hides these
- * from its secondary system list so the same problem is not stated twice.
- */
-export const attentionCoveredSignalKeys = [
-  "panels_needing_reviewer",
-  "overdue_reviews",
-] as const;

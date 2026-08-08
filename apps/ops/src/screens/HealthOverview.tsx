@@ -7,6 +7,12 @@ import { eventSlug } from '../lib/config'
 
 const refreshIntervalMs = 30_000
 
+/**
+ * Health signals whose subjects the named rows above now report concretely.
+ * Showing the aggregate count as well would state one problem twice.
+ */
+const attentionCoveredSignalKeys = ['panels_needing_reviewer', 'overdue_reviews']
+
 function currentRefreshBucket() {
   return Math.floor(Date.now() / refreshIntervalMs)
 }
@@ -61,6 +67,9 @@ export function HealthOverview({
   }
 
   if (overview === undefined) return <p className="muted">Loading operational health…</p>
+  const systemSignals = overview.signals.filter(
+    (signal) => !attentionCoveredSignalKeys.some((covered) => covered === signal.key),
+  )
   const briefInProgress = brief?.state === 'pending' || brief?.state === 'dispatching' || brief?.state === 'accepted'
   const briefExpired = brief?.relevanceExpiresAt !== undefined && Date.now() >= brief.relevanceExpiresAt
   const currentActions = actionsForEvent(overview.event.status, actions)
@@ -125,16 +134,16 @@ export function HealthOverview({
       <section className="attention-section">
         <div className="section-heading">
           <h2>System checks</h2>
-          {overview.signals.length > 0 ? <span>{overview.signals.length}</span> : null}
+          {systemSignals.length > 0 ? <span>{systemSignals.length}</span> : null}
         </div>
-        {overview.signals.length === 0 ? (
+        {systemSignals.length === 0 ? (
           <div className="health-empty">
             <strong>No live issues.</strong>
             <span>Automated checks are clear.</span>
           </div>
         ) : (
           <div className="health-list">
-            {overview.signals.map((signal) => (
+            {systemSignals.map((signal) => (
               <article className={`health-row ${signal.severity}`} key={signal.key}>
                 <div className="health-row-main">
                   <div>
