@@ -29,16 +29,8 @@ export function OperationsLayout({
       data-account-email={accountEmail}
       data-app-surface="operations"
     >
-      <header className="topbar">
-        <Link className="wordmark" to="/">Code2Create</Link>
-        <div className="identity">
-          <span>{identity}</span>
-          <button className="text-button" type="button" onClick={() => void authClient.signOut()}>
-            Sign out
-          </button>
-        </div>
-      </header>
       <aside className="sidebar">
+        <Link className="sidebar-wordmark" to="/">Code2Create</Link>
         <nav aria-label="Operations">
           {nowItems.length > 0 ? (
             <section className="navigation-group" key="now">
@@ -62,6 +54,12 @@ export function OperationsLayout({
             </details>
           ) : null}
         </nav>
+        <div className="sidebar-identity">
+          <span title={accountEmail}>{identity}</span>
+          <button className="text-button" type="button" onClick={() => void authClient.signOut()}>
+            Sign out
+          </button>
+        </div>
       </aside>
       <main className="workspace">
         <IncidentBanner />
