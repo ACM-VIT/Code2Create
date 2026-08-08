@@ -45,6 +45,20 @@ The planner shows gaps before a panel can be published. It also estimates how ma
 
 Publishing a plan creates a version. Later edits keep the previous version and record who changed which seat.
 
+### Changing a seat after publication
+
+Panels are built when a round is published, and teams are never pre-assigned to them — the desk sends each team to a panel when it is ready. The operations dashboard must state that model where panels are built, because a screen full of forms with no account of how rounds, panels and routing relate cannot be used by someone who has not read this document.
+
+A published panel still has to be changeable. People go home sick, and waiting for a no-show to trigger the substitute chain is not a reasonable answer. An authorized operator can swap one reviewer for another on a live panel under its own exact permission, with the panel's current version, a reason, a fresh Google session, and an audit event.
+
+The command refuses in three cases:
+
+- a review is under way on that panel — presence records and criterion assignments are pinned to the seats that existed when it started, so changing them mid-review would invalidate both;
+- the change would leave the panel without a coordinator;
+- the joining reviewer already holds a seat on that panel.
+
+The leaving seat is marked replaced rather than deleted, so the round export can still explain who held it and when. The leaving reviewer's panel grants are revoked and the joining reviewer's are materialized in the same transaction; neither is hand-written.
+
 ## 4. Routing teams
 
 Panels are not fixed only by track. The router reads the confirmed core-track version, any sponsor eligibility, the team-confirmed brief, and reviewer domain tags. The router never reads an unconfirmed model suggestion. A security project still needs product and communication coverage. A health project still needs technical and responsible-use coverage.

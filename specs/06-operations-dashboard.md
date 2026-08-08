@@ -51,6 +51,16 @@ These are participant-facing or operator-facing product names. Internal names su
 
 A permission can remove one item or a complete group. The shell must not show a disabled destination that the person can never use. A direct URL still performs the same server permission check.
 
+The event state also decides what leads. Showing all fourteen destinations in every state gives an operator no sense of what today's work is, so the shell names the current stage and lists only the destinations that stage uses. Everything the person may still open stays one click away behind a disclosure; permission, not stage, is what removes a destination entirely.
+
+| Stage | What it is for | Leads with |
+| --- | --- | --- |
+| Setting up | Decide how teams apply, then open applications | Event setup, People and permissions, Test run |
+| Applications open | Review applications as they arrive and answer questions | Review applications, Help desk, Event setup |
+| Applications closed | Finish decisions and offers, then ready the venue | Review applications, Event setup, Test run |
+| Event running | Keep people checked in, teams routed, and reviews moving | Overview, Check-in, Hall, Review rounds, Help desk |
+| Event finished | Verify and close each round, then publish results | Results, Overview |
+
 ### Permission manager
 
 A user with `access.permissions.read` can inspect only the people covered by that grant. The deployed directory is paginated, and an event-wide reader may also look up one exact verified email. Event-scoped `access.permissions.grant_any` exposes every legal catalog/scope control. A matching `access.permissions.grant_scoped` exposes only its one permission, exact resource, covered target, and remaining expiry ceiling. Revoke controls independently use unrestricted or matching scoped revoke authority.
@@ -98,6 +108,14 @@ Closing applications immediately stops participant profile, team, intake, track,
 ### Overview
 
 The first route for a caller with event-scoped `operations.health.read` is **Overview**. It shows the event state, direct links to the common workspaces that the person can open, and a **Needs attention** list. If no signal needs action, it says **Nothing needs action**. It does not fill the page with empty cards or zero-value charts.
+
+It opens by saying where the event is and what stands between it and its next step. The lifecycle already computes what is missing before each transition and names it in plain words; the Overview shows that list, with each item linking to the screen that fixes it, rather than leaving an operator to infer readiness from a page of published-or-not settings.
+
+**Needs attention now** leads, above the aggregate signals. Its rows are not counts. Each row names the thing that is stuck — a panel and its table, a team, a station — states what is wrong in the words an operator would use, and carries the route to the screen where it gets fixed. A severity and a count answer neither of this page's two questions.
+
+A row exists only when the caller can open the workspace it links to, which follows from composing projections that already filter by grant. Holding the command as well is a second, finer distinction: a caller who may look but not act sees the row and an open link rather than the command verb.
+
+The current rows cover empty panel seats, overdue reviews, incomplete reviewer presence, teams below the round's participant minimum, held teams, expired calls, and long waits. The aggregate signals below catch classes of fault with no named subject — provider limits, webhook state, delivery ambiguity — and remain the input the operations brief reasons over. A signal whose subject a named row already reports concretely is omitted from the lower list, so one problem is never stated twice.
 
 The overview permission returns aggregate operational state only. It does not imply incident, participant, application, team, repository, Figma file, round, score, or music-detail access. A signal links to a focused workspace only when the person can open that workspace. The corrective command remains inside that focused workspace and performs its own permission check.
 
@@ -178,6 +196,8 @@ Before the event, the applications workspace groups records by the next real act
 - Offer expired or declined.
 
 The list row shows enough information to choose the next application. It does not expose model state, policy versions, delivery telemetry, or other implementation details as primary columns.
+
+Grouping only reads if the size of each group is visible. Every stage shows its count, an empty stage is visibly empty rather than merely unselected, and the workspace opens on the first stage that has anything in it. Filtering to one stage and defaulting to a stage that happens to be empty leaves an operator unable to tell whether nothing has been submitted or everything has already moved on.
 
 The application detail starts with the current state and the next action. It then shows the team, project, and track. The **Admission review** record contains the published policy guidance, structured AI recommendation, human reviews, and reviewer assignment. It is open while review work is active and collapsed after the application reaches a later stable state. This keeps the history available without making completed process detail compete with the current task.
 
