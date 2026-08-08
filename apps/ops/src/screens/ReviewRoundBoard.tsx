@@ -9,6 +9,7 @@ import { useMutation, useQuery } from 'convex/react'
 import { useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
+import { Icon } from '../components/Icon'
 import { ReviewManualRecovery } from '../components/ReviewManualRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
@@ -97,39 +98,66 @@ export function ReviewRoundBoard() {
       />
 
       <p className="board-section-label">Panels</p>
-      <div className="review-panel-list">
-        {board.panels.map((panel) => {
-          const substitutionPanel = substitutions.panels.find((candidate) => candidate.panelId === panel.id)
+      <div className="panel-list">
+        {[...board.panels].sort(byPanelUrgency(board)).map((panel) => {
+          const substitutionPanel = substitutions.panels.find(
+            (candidate) => candidate.panelId === panel.id,
+          )
+          const present = panel.reviewers.filter(
+            (reviewer) => reviewer.clockInStatus === 'present',
+          )
+          const away = panel.reviewers.filter(
+            (reviewer) => reviewer.clockInStatus !== 'present',
+          )
+          const short = panel.reviewers.length - present.length
           return (
-          <article className="review-panel-card" key={panel.id}>
-            <div className="review-panel-row">
-              <div>
-                <strong>{panel.tableLabel}</strong>
-                <span>{panel.name}</span>
-              </div>
-              <span>
-                {panel.reviewers.filter((reviewer) => reviewer.clockInStatus === 'present').length}/{panel.reviewers.length} present
+            <article className={`panel-row ${short > 0 ? 'short' : 'ready'}`} key={panel.id}>
+              <span className={`row-glyph ${short > 0 ? 'attention' : 'watch'}`}>
+                <Icon name={short > 0 ? 'alert' : 'seat'} />
               </span>
-            </div>
-            <div className="panel-reviewers">
-              {panel.reviewers.map((reviewer) => (
-                <div key={reviewer.personId}>
-                  <span>{reviewer.displayName}{reviewer.isCoordinator ? ' · coordinator' : ''}</span>
-                  <small>{reviewerState(reviewer, board.serverNow)}</small>
-                  {substitutionPanel ? (
-                    <ReviewerNoShow
-                      member={substitutionPanel.activeMembers.find((member) => member.personId === reviewer.personId)}
-                      panelVersion={substitutionPanel.panelVersion}
-                    />
-                  ) : null}
-                </div>
-              ))}
-            </div>
-            {substitutionPanel ? (
-              <SubstitutionControl panel={substitutionPanel} serverNow={substitutions.serverNow} />
-            ) : null}
-            {panel.canPause ? <PanelAvailability panel={panel} /> : null}
-          </article>
+              <div className="panel-row-text">
+                <strong>
+                  {panel.tableLabel}
+                  <span className="row-context"> · {panel.name}</span>
+                </strong>
+                <ul className="panel-reviewers">
+                  {panel.reviewers.map((reviewer) => {
+                    const state = reviewerState(reviewer, board.serverNow)
+                    return (
+                      <li className={reviewer.clockInStatus === 'present' ? '' : 'away'} key={reviewer.personId}>
+                        <span>
+                          {reviewer.displayName}
+                          {reviewer.isCoordinator ? ' · runs this panel' : ''}
+                        </span>
+                        {/* A reviewer who is at the table needs no commentary; a
+                            stale heartbeat is already a system check. */}
+                        {reviewer.clockInStatus === 'present' ? null : <small>{state}</small>}
+                        {reviewer.clockInStatus !== 'present' && substitutionPanel ? (
+                          <ReviewerNoShow
+                            member={substitutionPanel.activeMembers.find(
+                              (member) => member.personId === reviewer.personId,
+                            )}
+                            panelVersion={substitutionPanel.panelVersion}
+                          />
+                        ) : null}
+                      </li>
+                    )
+                  })}
+                </ul>
+                {short > 0 ? (
+                  <small className="panel-shortfall">
+                    {short === 1 ? 'One seat empty' : `${short} seats empty`} — reviews here cannot start
+                  </small>
+                ) : null}
+              </div>
+              <div className="panel-row-actions">
+                {substitutionPanel ? (
+                  <SubstitutionControl panel={substitutionPanel} serverNow={substitutions.serverNow} />
+                ) : null}
+                {panel.canPause ? <PanelAvailability panel={panel} /> : null}
+
+              </div>
+            </article>
           )
         })}
       </div>
@@ -158,7 +186,7 @@ export function ReviewRoundBoard() {
       ) : null}
 
       <details className="board-recovery">
-        <summary>Paper recovery and incidents</summary>
+        <summary>If the system goes down: paper recovery</summary>
         <ReviewManualRecovery roundId={board.round.id} />
       </details>
     </section>
@@ -183,6 +211,15 @@ function byDeskUrgency(left: Team, right: Team) {
     deskOrder[left.state] - deskOrder[right.state] ||
     left.teamName.localeCompare(right.teamName)
   )
+}
+
+/** Panels missing people come first; a full panel needs nothing from you. */
+function byPanelUrgency(board: Board) {
+  const shortfall = (panel: Panel) =>
+    panel.reviewers.length -
+    panel.reviewers.filter((reviewer) => reviewer.clockInStatus === 'present').length
+  return (left: Panel, right: Panel) =>
+    shortfall(right) - shortfall(left) || left.tableLabel.localeCompare(right.tableLabel)
 }
 
 function countTeams(board: Board, state: Team['state']) {
@@ -653,9 +690,16 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
             {team.tableLabel ? ` · ${team.tableLabel}` : ''}
           </span>
         </div>
-        <span className={`state-label ${team.state}`}>
-          {teamRoundStateOperatorLabels[team.state]}
-        </span>
+        <div className="review-team-meta">
+          {team.applicationId ? (
+            <Link className="row-action" to={`/admissions/${team.applicationId}`}>
+              See the project
+            </Link>
+          ) : null}
+          <span className={`state-label ${team.state}`}>
+            {teamRoundStateOperatorLabels[team.state]}
+          </span>
+        </div>
       </div>
 
       {/* Attendance only matters when it is blocking the call, or when someone
@@ -702,7 +746,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
       {team.state === 'queued' && assignedPanel?.canPrepareReview && !team.participantAvailability.isMet ? (
         team.participantAvailability.canWaive ? (
           <details className="team-exceptions">
-            <summary>Participant availability exception</summary>
+            <summary>Review without the whole team</summary>
             <div className="exception-form destructive-command">
               <p className="muted">
                 Keep the team queued unless staff have confirmed that this review should proceed with fewer people.
@@ -959,7 +1003,7 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
 
   return (
     <details className="team-exceptions" open={command !== null}>
-      <summary>Exception actions</summary>
+      <summary>Something went wrong</summary>
       <div className="exception-choice-row">
         {canHold ? <button className="secondary compact-link" type="button" onClick={() => choose('hold')}>Hold</button> : null}
         {canResume ? <button className="secondary compact-link" type="button" onClick={() => choose('resume')}>Return to queue</button> : null}
@@ -1058,7 +1102,7 @@ function PresenceWaiver({ review }: { review: NonNullable<Team['review']> }) {
 
   return (
     <details className="team-exceptions">
-      <summary>Presence waiver</summary>
+      <summary>Start without every reviewer</summary>
       <div className="exception-form destructive-command">
         <p className="muted">Use only after staff physically confirm the named reviewer at this table.</p>
         {missing.map((reviewer) => (
@@ -1141,7 +1185,7 @@ function ParticipantAvailabilityWaiver({
 
   return (
     <details className="team-exceptions">
-      <summary>Participant availability exception</summary>
+      <summary>Review without the whole team</summary>
       <div className="exception-form destructive-command">
         <p className="muted">
           Use this only after staff confirm the review should begin with fewer participants than the published minimum.

@@ -1825,3 +1825,69 @@ label > span { color: var(--muted); font-size: .75rem; }
 .review-team-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .review-team-actions .field { display: contents; }
 .review-team-actions .compact-select select { width: min(100%, 260px); }
+
+/* ---- Panels ----
+   A ragged three-up grid left an orphan card and a hole beside it, and
+   repeated every reviewer's heartbeat eleven times. Panels are a list: the
+   ones missing people first, the full roster behind a disclosure. */
+.panel-list {
+  overflow: hidden;
+  background: var(--surface);
+  border-radius: var(--radius-card);
+}
+.panel-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.panel-row:last-child { border-bottom: 0; }
+.panel-row:hover { background: var(--hover); }
+.panel-row-text { display: grid; gap: 2px; min-width: 0; }
+.panel-row-text strong { font-size: .8125rem; font-weight: 500; }
+.panel-row-text small { color: var(--muted); font-size: .8125rem; }
+.panel-row.short .panel-row-text small { color: var(--warn); }
+
+.panel-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.panel-roster > summary {
+  color: var(--muted);
+  font-size: .75rem;
+  cursor: pointer;
+  list-style: none;
+}
+.panel-roster > summary::-webkit-details-marker { display: none; }
+.panel-roster > summary:hover { color: var(--text); }
+.panel-roster[open] { flex: 1 1 100%; }
+.panel-roster .panel-reviewers {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.review-team-meta { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+
+/* Reviewers belong on the panel row, named. Only their state is conditional. */
+.panel-row .panel-reviewers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  border: 0;
+}
+.panel-row .panel-reviewers li { display: flex; align-items: baseline; gap: 6px; }
+.panel-row .panel-reviewers li > span { color: var(--muted); font-size: .8125rem; }
+.panel-row .panel-reviewers li.away > span { color: var(--warn); }
+.panel-row .panel-reviewers li small { color: var(--faint); font-size: .75rem; }
+.panel-shortfall { display: block; margin-top: 4px; color: var(--warn); font-size: .75rem; }

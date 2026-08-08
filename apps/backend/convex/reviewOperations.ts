@@ -503,6 +503,7 @@ export const roundBoard = query({
       v.object({
         stateId: v.optional(v.id("teamRoundStates")),
         teamId: v.id("teams"),
+        applicationId: v.optional(v.id("applications")),
         teamName: v.string(),
         trackName: v.string(),
         state: teamRoundState,
@@ -866,8 +867,13 @@ export async function buildRoundBoard(
           ]
         : [];
       const lastCallAt = state?.lastCallAttemptAt ?? state?.calledAt;
+      const application = await ctx.db
+        .query("applications")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .first();
       return {
         ...(state ? { stateId: state._id } : {}),
+        ...(application ? { applicationId: application._id } : {}),
         teamId: team._id,
         teamName: team.name,
         trackName: track.displayName,
