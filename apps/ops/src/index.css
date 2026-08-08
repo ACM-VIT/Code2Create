@@ -191,7 +191,7 @@ p { line-height: 1.55; font-size: .8125rem; }
 .rehearsal-create .secondary { justify-self: start; }
 .rehearsal-run-list { display: flex; gap: 8px; margin-top: 30px; padding-bottom: 12px; overflow-x: auto; border-bottom: 1px solid var(--border); }
 .rehearsal-run { display: flex; min-width: 220px; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 13px; color: var(--text); text-align: left; background: var(--surface); border: 0; border-radius: var(--radius-card); cursor: pointer; }
-.rehearsal-run.selected { border-color: var(--accent); }
+.rehearsal-run.selected { background: var(--hover); }
 .rehearsal-run strong, .rehearsal-run small { display: block; }
 .rehearsal-run strong { font-size: .8rem; }
 .rehearsal-run small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
@@ -203,7 +203,7 @@ p { line-height: 1.55; font-size: .8125rem; }
 .rehearsal-state.cancelled { opacity: .7; }
 .rehearsal-detail { margin-top: 34px; }
 .rehearsal-run-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
-.rehearsal-run-heading h2 { margin-bottom: 5px; font-size: 1.8rem; }
+.rehearsal-run-heading h2 { margin-bottom: 5px; font-size: 1rem; }
 .rehearsal-run-heading p { margin-bottom: 0; font-size: .72rem; }
 .rehearsal-counts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 26px 0 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .rehearsal-counts div { padding: 13px 12px 13px 0; }
@@ -481,7 +481,7 @@ textarea { min-height: 110px; padding: 11px; line-height: 1.5; resize: vertical;
 .capacity-line { color: var(--muted); font-size: .78rem; }
 .primary, .secondary { display: inline-flex; min-height: 30px; align-items: center; justify-content: center; padding: 0 12px; font-size: .8125rem; font-weight: 500; border-radius: var(--radius-control); cursor: pointer; }
 .primary { color: #181818; background: var(--text); border: 1px solid var(--text); }
-.secondary { color: var(--text); background: var(--surface); border: 0; border-radius: var(--radius-card); }
+.secondary { color: var(--text); background: transparent; border: 1px solid var(--border-strong); border-radius: var(--radius-control); }
 .secondary:hover { background: var(--hover); }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .text-button { padding: 2px 0; color: var(--muted); background: transparent; border: 0; text-decoration: none; cursor: pointer; }
@@ -511,7 +511,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .session-heading h2 { margin: 0; }
 .session-heading p { margin: 7px 0 0; font-size: .8rem; }
 .session-title-line { flex-wrap: wrap; }
-.compact-link { min-height: 34px; padding: 6px 10px; font-size: .76rem; text-decoration: none; }
+.compact-link { min-height: 28px; padding: 0 10px; font-size: .8125rem; text-decoration: none; }
 .attendance-counts { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin: 22px 0 0; background: var(--surface); border: 0; border-radius: var(--radius-card); }
 .attendance-counts div { padding: 12px; border-right: 1px solid var(--border); }
 .attendance-counts div:last-child { border-right: 0; }
@@ -1330,8 +1330,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   font-size: .8125rem;
   white-space: nowrap;
   text-decoration: none;
-  background: var(--surface);
-  border: 0;
+  background: transparent;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
 }
 .row-action:hover { background: var(--hover); }
@@ -1490,3 +1490,113 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .track-field-grid,
 .intake-policy-grid { gap: 14px; }
 label > span { color: var(--muted); font-size: .75rem; }
+
+/* An empty list is still a card, so its message needs the card's padding
+   rather than sitting in a bare strip. */
+.access-list > p,
+.bundle-list > p,
+.grant-list > p,
+.invitation-list > p,
+.queue-list > p,
+.rehearsal-run-list > p,
+.roster-list > p,
+.scorecard-list > p,
+.session-list > p,
+.station-list > p,
+.support-desk-list > p,
+.synesthesia-window-list > p {
+  margin: 0;
+  padding: 16px;
+  color: var(--muted);
+}
+.invitation-list { margin-top: 16px; border-top: 0; }
+
+/* Forms that stand alone on a page get the same surface as everything else. */
+.invite-form,
+.access-lookup,
+.roster-import,
+.emergency-pack-form,
+.rehearsal-create,
+.exception-form,
+.attendance-export-form {
+  padding: 18px 20px;
+  background: var(--surface);
+  border-radius: var(--radius-card);
+}
+
+/* Long directory lists scroll inside their card rather than running off. */
+.access-list { max-height: 60vh; overflow-y: auto; }
+
+/* Buttons are compact controls; inside a grid they were stretching to the
+   full column, which reads as a banner rather than an action. */
+.primary, .secondary, .row-action { justify-self: start; align-self: start; }
+.button-row .primary, .button-row .secondary { justify-self: auto; }
+
+/* A section heading and its description are two lines, not one run-on. */
+.manual-entry-heading, .manual-section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 20px;
+}
+.manual-entry-heading > *, .manual-section-heading > * { margin: 0; }
+.manual-entry-heading h2, .manual-entry-heading h3,
+.manual-section-heading h2, .manual-section-heading h3 { flex: 1 1 100%; font-size: .8125rem; }
+
+/* Title and description stack; they were rendering inline as one run-on line. */
+.manual-subheading > div,
+.manual-incident-summary > div,
+.manual-sheet-title > div,
+.manual-new-sheet > div,
+.intelligence-brief-heading > div,
+.section-heading > div,
+.page-heading > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.manual-new-sheet strong,
+.manual-subheading strong,
+.manual-sheet-title strong { font-size: .8125rem; font-weight: 500; }
+
+/* Bare text actions read as stray labels; give them a control's shape on hover
+   so a tappable thing looks tappable without competing with primary buttons. */
+.text-button {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 6px;
+  margin-inline: -6px;
+  border-radius: var(--radius-control);
+  font-size: .75rem;
+}
+.text-button:hover { color: var(--text); background: var(--hover); }
+
+.round-pause-open {
+  height: 28px;
+  padding: 0 10px;
+  margin: 0 0 4px;
+  color: var(--text);
+  font-size: .8125rem;
+  border: 1px solid var(--border-strong);
+}
+
+/* Panel cards size to their content instead of stretching to the tallest. */
+.review-panel-list { align-items: start; }
+.review-panel-card { display: grid; gap: 10px; }
+.panel-reviewers { display: grid; gap: 8px; }
+.panel-reviewers > div { display: grid; gap: 1px; }
+.panel-reviewers span { font-size: .8125rem; }
+.panel-reviewers small { color: var(--faint); font-size: .75rem; }
+
+/* Grids of cards are layout, not a surface; only the cards inside are raised. */
+.review-panel-list,
+.track-card-list,
+.phase-card-list,
+.session-editor-list,
+.configuration-card-stack {
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+}
