@@ -1627,3 +1627,70 @@ label > span { color: var(--muted); font-size: .75rem; }
 .stage-chip:disabled { opacity: .4; cursor: default; }
 .stage-chip > span { color: var(--faint); font-variant-numeric: tabular-nums; }
 .stage-chip.active > span { color: var(--muted); }
+
+/* Stat strips: label above value, columns divided, like the reference's
+   usage row. Used by every screen that opens on a few key numbers. */
+.catalog-summary,
+.score-summary-grid,
+.governance-summary,
+.health-summary,
+.phase-summary,
+.draft-summary,
+.admission-summary,
+.application-state-summary,
+.floor-draft-summary {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0;
+  margin: 0 0 20px;
+}
+.catalog-summary > div,
+.score-summary-grid > div,
+.governance-summary > div,
+.health-summary > div,
+.phase-summary > div,
+.draft-summary > div,
+.admission-summary > div,
+.application-state-summary > div,
+.floor-draft-summary > div {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-left: 1px solid var(--border);
+}
+.catalog-summary > div:first-child,
+.score-summary-grid > div:first-child,
+.governance-summary > div:first-child,
+.health-summary > div:first-child,
+.phase-summary > div:first-child,
+.draft-summary > div:first-child,
+.admission-summary > div:first-child,
+.application-state-summary > div:first-child,
+.floor-draft-summary > div:first-child { border-left: 0; }
+.catalog-summary dt, .score-summary-grid dt, .governance-summary dt,
+.health-summary dt, .phase-summary dt, .draft-summary dt,
+.admission-summary dt, .application-state-summary dt, .floor-draft-summary dt {
+  color: var(--muted);
+  font-size: .75rem;
+}
+.catalog-summary dd, .score-summary-grid dd, .governance-summary dd,
+.health-summary dd, .phase-summary dd, .draft-summary dd,
+.admission-summary dd, .application-state-summary dd, .floor-draft-summary dd {
+  margin: 0;
+  font-size: .9375rem;
+}
+
+/* Team updates: three columns — who, what they wrote, when. */
+.checkpoint-operations-row {
+  display: grid;
+  grid-template-columns: minmax(150px, .8fr) minmax(0, 2fr) minmax(140px, auto);
+  gap: 20px;
+  align-items: start;
+}
+.checkpoint-operations-row > div:first-child { display: grid; gap: 2px; }
+.checkpoint-operations-row strong { font-size: .8125rem; font-weight: 500; }
+.checkpoint-operations-row span { color: var(--muted); font-size: .75rem; }
+.checkpoint-operations-answer p { margin: 0; font-size: .8125rem; }
+.checkpoint-operations-answer small { display: block; margin-top: 4px; color: var(--faint); font-size: .75rem; }
+.checkpoint-operations-row > small { color: var(--faint); font-size: .75rem; text-align: right; }
