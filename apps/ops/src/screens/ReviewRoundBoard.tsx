@@ -10,6 +10,7 @@ import { useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { ReviewManualRecovery } from '../components/ReviewManualRecovery'
+import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 
@@ -50,7 +51,14 @@ export function ReviewRoundBoard() {
     overview === undefined ||
     (visibleRound && (board === undefined || substitutions === undefined || incidents === undefined))
   ) {
-    return <p className="muted">Loading round board…</p>
+    return (
+      <section className="review-shell">
+        <LoadingLabel>Loading the round board</LoadingLabel>
+        <SkeletonStats columns={6} />
+        <SkeletonCard lines={4} />
+        <SkeletonList rows={4} />
+      </section>
+    )
   }
   if (!visibleRound) {
     return <p className="notice error">This round is not visible to your permission scope.</p>
@@ -73,12 +81,22 @@ export function ReviewRoundBoard() {
         <span className="state-label">{formatWindow(board.round.startsAt, board.round.endsAt)}</span>
       </header>
 
+      <dl className="catalog-summary">
+        <div><dt>Waiting for the desk</dt><dd>{countTeams(board, 'unassigned')}</dd></div>
+        <div><dt>Queued</dt><dd>{countTeams(board, 'queued')}</dd></div>
+        <div><dt>Called</dt><dd>{countTeams(board, 'called')}</dd></div>
+        <div><dt>In review</dt><dd>{countTeams(board, 'in_review')}</dd></div>
+        <div><dt>Complete</dt><dd>{countTeams(board, 'completed')}</dd></div>
+        <div><dt>Held</dt><dd>{countTeams(board, 'held')}</dd></div>
+      </dl>
+
       <RoundPauseControl
         key={`${board.round.version}:${board.round.pause?.version ?? 0}`}
         incidents={reviewIncidents}
         round={board.round}
       />
 
+      <p className="board-section-label">Panels</p>
       <div className="review-panel-list">
         {board.panels.map((panel) => {
           const substitutionPanel = substitutions.panels.find((candidate) => candidate.panelId === panel.id)
@@ -139,9 +157,16 @@ export function ReviewRoundBoard() {
         <p className="empty">No team is eligible for this round yet.</p>
       ) : null}
 
-      <ReviewManualRecovery roundId={board.round.id} />
+      <details className="board-recovery">
+        <summary>Paper recovery and incidents</summary>
+        <ReviewManualRecovery roundId={board.round.id} />
+      </details>
     </section>
   )
+}
+
+function countTeams(board: Board, state: Team['state']) {
+  return board.teams.filter((team) => team.state === state).length
 }
 
 function RoundPauseControl({ round, incidents }: { round: Board['round']; incidents: ActiveIncident[] }) {

@@ -1694,3 +1694,81 @@ label > span { color: var(--muted); font-size: .75rem; }
 .checkpoint-operations-answer p { margin: 0; font-size: .8125rem; }
 .checkpoint-operations-answer small { display: block; margin-top: 4px; color: var(--faint); font-size: .75rem; }
 .checkpoint-operations-row > small { color: var(--faint); font-size: .75rem; text-align: right; }
+
+/* ---- Loading shells ---- */
+@keyframes skeleton-sweep {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.skeleton-line,
+.skeleton-block,
+.skeleton-card {
+  background:
+    linear-gradient(90deg,
+      rgba(240, 240, 240, .04) 25%,
+      rgba(240, 240, 240, .09) 37%,
+      rgba(240, 240, 240, .04) 63%);
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+.skeleton-line {
+  display: block;
+  height: 9px;
+  border-radius: 4px;
+}
+.skeleton-block { border-radius: 7px; }
+.skeleton-action { width: 96px; height: 28px; border-radius: var(--radius-control); }
+.skeleton-row:hover { background: transparent; }
+.skeleton-card {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+  background-color: var(--surface);
+  border-radius: var(--radius-card);
+}
+.skeleton-card .skeleton-line { animation-delay: .1s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-line, .skeleton-block, .skeleton-card { animation: none; }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- Round board ---- */
+.board-section-label {
+  margin: 24px 0 8px;
+  color: var(--muted);
+  font-size: .75rem;
+  font-weight: 500;
+}
+.review-team-row {
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.review-team-row:first-of-type { border-radius: var(--radius-card) var(--radius-card) 0 0; }
+.review-team-row:last-of-type { border-bottom: 0; border-radius: 0 0 var(--radius-card) var(--radius-card); }
+.review-team-state { text-align: right; font-size: .8125rem; }
+.review-team-state strong { display: block; font-size: .8125rem; font-weight: 500; }
+
+/* Recovery is for the day something breaks; it should not own a third of the
+   screen used to move teams through their reviews. */
+.board-recovery { margin-top: 32px; }
+.board-recovery > summary {
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: .8125rem;
+  cursor: pointer;
+}
+.board-recovery > summary:hover { color: var(--text); }

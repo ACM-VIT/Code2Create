@@ -7,6 +7,7 @@ import {
 import { useMutation, useQuery } from 'convex/react'
 
 import { Icon, type IconName } from '../components/Icon'
+import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -66,7 +67,15 @@ export function HealthOverview({
     }
   }
 
-  if (overview === undefined) return <p className="muted">Loading operational health…</p>
+  if (overview === undefined) {
+    return (
+      <section className="health-shell">
+        <LoadingLabel>Loading the event overview</LoadingLabel>
+        <SkeletonCard lines={3} />
+        <SkeletonList rows={5} />
+      </section>
+    )
+  }
   const systemSignals = overview.signals.filter(
     (signal) => !attentionCoveredSignalKeys.some((covered) => covered === signal.key),
   )
@@ -95,7 +104,7 @@ export function HealthOverview({
           {attention && attention.rows.length > 0 ? <span>{attention.rows.length}</span> : null}
         </div>
         {attention === undefined ? (
-          <p className="muted">Checking the floor…</p>
+          <SkeletonList rows={4} />
         ) : attention.rows.length === 0 ? (
           <div className="health-empty">
             <strong>Nothing needs action.</strong>

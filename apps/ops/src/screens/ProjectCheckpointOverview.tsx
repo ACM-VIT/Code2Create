@@ -2,6 +2,7 @@ import { api } from '@code2create/backend/api'
 import { usePaginatedQuery, useQuery } from 'convex/react'
 import { useState } from 'react'
 
+import { LoadingLabel, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 
 type CheckpointKey = 'ideation' | 'intermediate_update' | 'final_update'
@@ -26,7 +27,15 @@ export function ProjectCheckpointOverview() {
     { initialNumItems: 40 },
   )
 
-  if (eventState === undefined) return <p className="muted">Loading team updates…</p>
+  if (eventState === undefined) {
+    return (
+      <section className="integration-health-shell">
+        <LoadingLabel>Loading team updates</LoadingLabel>
+        <SkeletonStats columns={4} />
+        <SkeletonList rows={5} />
+      </section>
+    )
+  }
 
   const checkpoint = eventState.checkpoints.find(
     (candidate) => candidate.checkpointKey === checkpointKey,
@@ -85,6 +94,7 @@ export function ProjectCheckpointOverview() {
             </div>
           ) : null}
 
+          {teams.status === 'LoadingFirstPage' ? <SkeletonList rows={5} /> : null}
           <div className="checkpoint-operations-list">
             {rows.map((team) => (
               <article className="checkpoint-operations-row" key={team.teamId}>
@@ -109,9 +119,7 @@ export function ProjectCheckpointOverview() {
                 </small>
               </article>
             ))}
-            {teams.status === 'LoadingFirstPage' ? (
-              <p className="muted">Loading teams…</p>
-            ) : null}
+
             {rows.length === 0 && teams.status !== 'LoadingFirstPage' ? (
               <p className="muted">No team is expected to give this update.</p>
             ) : null}
