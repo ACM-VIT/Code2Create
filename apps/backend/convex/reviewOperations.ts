@@ -190,7 +190,7 @@ async function latestFigmaSnapshot(
     .first();
 }
 
-async function createEvidenceCheckpoint(
+export async function createEvidenceCheckpoint(
   ctx: MutationCtx,
   args: {
     eventId: Id<"events">;

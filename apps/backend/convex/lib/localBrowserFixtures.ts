@@ -1,3 +1,5 @@
+import { ConvexError } from "convex/values";
+
 type LocalBrowserFixtureOrigins = {
   auth: string;
   participant: string;
@@ -27,6 +29,15 @@ export function localBrowserFixtureOrigins(): LocalBrowserFixtureOrigins | null 
   const handbook = localOrigin(process.env.HANDBOOK_SITE_URL);
   if (!auth || !participant || !operations || !handbook) return null;
   return { auth, participant, operations, handbook };
+}
+
+export function requireLocalDeployment() {
+  if (process.env.LOCAL_DEVELOPMENT_SEED_ENABLED !== "true") {
+    throw new ConvexError({
+      code: "LOCAL_ONLY",
+      message: "The development seed can run only against a local Convex deployment.",
+    });
+  }
 }
 
 export function localProviderFixturesEnabled() {

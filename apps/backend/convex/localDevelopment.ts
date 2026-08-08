@@ -39,7 +39,10 @@ import {
   normalizeOperationsIntelligencePolicy,
   operationsIntelligencePolicyChecksum,
 } from "./lib/operationsIntelligencePolicy";
-import { localBrowserFixtureOrigins } from "./lib/localBrowserFixtures";
+import {
+  localBrowserFixtureOrigins,
+  requireLocalDeployment,
+} from "./lib/localBrowserFixtures";
 import {
   defaultParticipantPolicy,
   normalizeParticipantPolicy,
@@ -238,7 +241,7 @@ const localAttendanceZones = [
   { stableKey: "main_hall", name: "Main hack hall", safeCapacity: 500 },
 ] as const;
 
-const localAttendanceSessions = [
+const localAttendanceSessionPlans = [
   {
     stableKey: "hacking_1",
     name: "Hacking session 1",
@@ -246,10 +249,10 @@ const localAttendanceSessions = [
     requirement: "required",
     expectedCohort: { kind: "all_admitted" },
     zoneKey: "main_hall",
-    startsAt: localEventStartsAt + hour,
-    endsAt: localEventStartsAt + 9 * hour,
-    checkInOpensAt: localEventStartsAt + 0.5 * hour,
-    checkInClosesAt: localEventStartsAt + 2 * hour,
+    startsAfterHours: 1,
+    endsAfterHours: 9,
+    checkInOpensAfterHours: 0.5,
+    checkInClosesAfterHours: 2,
     awayAlertAfterMinutes: 20,
   },
   {
@@ -259,10 +262,10 @@ const localAttendanceSessions = [
     requirement: "optional",
     expectedCohort: { kind: "all_admitted" },
     zoneKey: "main_hall",
-    startsAt: localEventStartsAt + 10 * hour,
-    endsAt: localEventStartsAt + 22 * hour,
-    checkInOpensAt: localEventStartsAt + 9.5 * hour,
-    checkInClosesAt: localEventStartsAt + 12 * hour,
+    startsAfterHours: 10,
+    endsAfterHours: 22,
+    checkInOpensAfterHours: 9.5,
+    checkInClosesAfterHours: 12,
     awayAlertAfterMinutes: 25,
   },
   {
@@ -272,10 +275,10 @@ const localAttendanceSessions = [
     requirement: "required",
     expectedCohort: { kind: "all_admitted" },
     zoneKey: "main_hall",
-    startsAt: localEventStartsAt + 24 * hour,
-    endsAt: localEventStartsAt + 34 * hour,
-    checkInOpensAt: localEventStartsAt + 23.5 * hour,
-    checkInClosesAt: localEventStartsAt + 25 * hour,
+    startsAfterHours: 24,
+    endsAfterHours: 34,
+    checkInOpensAfterHours: 23.5,
+    checkInClosesAfterHours: 25,
     awayAlertAfterMinutes: 20,
   },
   {
@@ -285,10 +288,10 @@ const localAttendanceSessions = [
     requirement: "optional",
     expectedCohort: { kind: "all_admitted" },
     zoneKey: "main_hall",
-    startsAt: localEventStartsAt + 35 * hour,
-    endsAt: localEventStartsAt + 46 * hour,
-    checkInOpensAt: localEventStartsAt + 34.5 * hour,
-    checkInClosesAt: localEventStartsAt + 37 * hour,
+    startsAfterHours: 35,
+    endsAfterHours: 46,
+    checkInOpensAfterHours: 34.5,
+    checkInClosesAfterHours: 37,
     awayAlertAfterMinutes: 25,
   },
   {
@@ -298,13 +301,29 @@ const localAttendanceSessions = [
     requirement: "required",
     expectedCohort: { kind: "all_admitted" },
     zoneKey: "main_hall",
-    startsAt: localEventStartsAt + 46 * hour,
-    endsAt: localEventEndsAt,
-    checkInOpensAt: localEventStartsAt + 45.5 * hour,
-    checkInClosesAt: localEventStartsAt + 47 * hour,
+    startsAfterHours: 46,
+    endsAfterHours: 48,
+    checkInOpensAfterHours: 45.5,
+    checkInClosesAfterHours: 47,
     awayAlertAfterMinutes: 15,
   },
 ] as const;
+
+function localAttendanceSessions(eventStartsAt: number) {
+  return localAttendanceSessionPlans.map((session) => ({
+    stableKey: session.stableKey,
+    name: session.name,
+    kind: session.kind,
+    requirement: session.requirement,
+    expectedCohort: session.expectedCohort,
+    zoneKey: session.zoneKey,
+    startsAt: eventStartsAt + session.startsAfterHours * hour,
+    endsAt: eventStartsAt + session.endsAfterHours * hour,
+    checkInOpensAt: eventStartsAt + session.checkInOpensAfterHours * hour,
+    checkInClosesAt: eventStartsAt + session.checkInClosesAfterHours * hour,
+    awayAlertAfterMinutes: session.awayAlertAfterMinutes,
+  }));
+}
 
 const localAttendanceStations = [
   {
@@ -321,7 +340,7 @@ const localAttendanceStations = [
     mode: "venue_exit",
     allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"],
   },
-  ...localAttendanceSessions.flatMap((session) => [1, 2].map((stationNumber) => ({
+  ...localAttendanceSessionPlans.flatMap((session) => [1, 2].map((stationNumber) => ({
     stableKey: `${session.stableKey}_scanner_${stationNumber}`,
     name: `${session.name} scanner ${stationNumber}`,
     zoneKey: session.zoneKey,
@@ -330,6 +349,30 @@ const localAttendanceStations = [
     allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"] as const,
   }))),
 ] as const;
+
+export function localAttendancePlanContent(eventStartsAt: number) {
+  return {
+    name: "Code2Create hacking sessions",
+    vitBarcodeSymbologies: ["code128" as const],
+    vitBarcodeNormalizationVersion: "trim-v1",
+    offlineQueueMaxScans: 8,
+    offlineQueueMaxAgeSeconds: 180,
+    zones: localAttendanceZones,
+    sessions: localAttendanceSessions(eventStartsAt),
+    stations: localAttendanceStations,
+  };
+}
+
+export function localIntegrationPolicy(eventStartsAt: number) {
+  return {
+    policyVersion: "local-development-v1",
+    requiredGitHubTopic: "code2create-7-0",
+    maxActiveGitHubRepositoriesPerTeam: 5,
+    maxActiveFigmaFilesPerTeam: 5,
+    githubFreezeAt: eventStartsAt + 46 * hour,
+    figmaFreezeAt: eventStartsAt + 46 * hour,
+  };
+}
 
 const localFloorZones = [
   { stableKey: "east", name: "East", displayOrder: 0 },
@@ -349,15 +392,6 @@ const localFloorSpots = localFloorZones.flatMap((zone, zoneIndex) =>
     displayOrder: zoneIndex * 8 + spotIndex,
   })),
 );
-
-function requireLocalDeployment() {
-  if (process.env.LOCAL_DEVELOPMENT_SEED_ENABLED !== "true") {
-    throw new ConvexError({
-      code: "LOCAL_ONLY",
-      message: "The development seed can run only against a local Convex deployment.",
-    });
-  }
-}
 
 const localActors = {
   vitParticipant: {
@@ -1048,16 +1082,7 @@ export const seedEvent = mutation({
         publishedAt: now,
       },
     );
-    const attendancePlanContent = {
-      name: "Code2Create hacking sessions",
-      vitBarcodeSymbologies: ["code128" as const],
-      vitBarcodeNormalizationVersion: "trim-v1",
-      offlineQueueMaxScans: 8,
-      offlineQueueMaxAgeSeconds: 180,
-      zones: localAttendanceZones,
-      sessions: localAttendanceSessions,
-      stations: localAttendanceStations,
-    };
+    const attendancePlanContent = localAttendancePlanContent(localEventStartsAt);
     const attendancePlanVersionId = await ctx.db.insert("attendancePlanVersions", {
       eventId,
       version: 1,
@@ -1083,7 +1108,7 @@ export const seedEvent = mutation({
       attendanceZoneIds.set(zone.stableKey, zoneId);
     }
     const attendanceSessionIds = new Map<string, Id<"attendanceSessions">>();
-    for (const session of localAttendanceSessions) {
+    for (const session of attendancePlanContent.sessions) {
       const zoneId = attendanceZoneIds.get(session.zoneKey);
       if (!zoneId) throw new Error("The local attendance session has no zone.");
       const sessionId = await ctx.db.insert("attendanceSessions", {
@@ -1178,14 +1203,7 @@ export const seedEvent = mutation({
         createdAt: now,
       });
     }
-    const integrationPolicy = {
-      policyVersion: "local-development-v1",
-      requiredGitHubTopic: "code2create-7-0",
-      maxActiveGitHubRepositoriesPerTeam: 5,
-      maxActiveFigmaFilesPerTeam: 5,
-      githubFreezeAt: localEventStartsAt + 46 * hour,
-      figmaFreezeAt: localEventStartsAt + 46 * hour,
-    };
+    const integrationPolicy = localIntegrationPolicy(localEventStartsAt);
     const integrationPolicyVersionId = await ctx.db.insert("integrationPolicyVersions", {
       eventId,
       version: 1,

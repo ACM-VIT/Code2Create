@@ -25,29 +25,34 @@ for (const args of environmentCommands) {
   if (result.status !== 0) process.exit(result.status ?? 1)
 }
 
-const seedArgs = [
-  ...backend,
-  'run',
-  'localDevelopment:seedEvent',
-  '{"confirmation":"seed-code2create-local"}',
-]
 let waitingForFunctions = false
-for (let attempt = 0; attempt < 120; attempt += 1) {
-  const result = spawnSync('pnpm', seedArgs, { encoding: 'utf8' })
-  if (result.status === 0) {
-    process.stdout.write(result.stdout)
-    process.exit(0)
+
+async function runBackendFunction(functionName, functionArgs) {
+  const args = [...backend, 'run', functionName, JSON.stringify(functionArgs)]
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const result = spawnSync('pnpm', args, { encoding: 'utf8' })
+    if (result.status === 0) {
+      process.stdout.write(result.stdout)
+      return
+    }
+    const output = `${result.stdout}${result.stderr}`
+    const functionsAreStarting =
+      output.includes('Could not find function for') || output.includes('No functions found')
+    if (!functionsAreStarting || attempt === 119) {
+      process.stderr.write(output)
+      process.exit(result.status ?? 1)
+    }
+    if (!waitingForFunctions) {
+      waitingForFunctions = true
+      process.stdout.write('Waiting for local Convex functions to finish starting…\n')
+    }
+    await delay(500)
   }
-  const output = `${result.stdout}${result.stderr}`
-  const functionsAreStarting =
-    output.includes('Could not find function for') || output.includes('No functions found')
-  if (!functionsAreStarting || attempt === 119) {
-    process.stderr.write(output)
-    process.exit(result.status ?? 1)
-  }
-  if (!waitingForFunctions) {
-    waitingForFunctions = true
-    process.stdout.write('Waiting for local Convex functions to finish starting…\n')
-  }
-  await delay(500)
 }
+
+await runBackendFunction('localDevelopment:seedEvent', {
+  confirmation: 'seed-code2create-local',
+})
+await runBackendFunction('localDemoSeed:seedDemoState', {
+  confirmation: 'seed-code2create-demo',
+})

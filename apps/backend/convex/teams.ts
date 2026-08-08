@@ -229,7 +229,7 @@ async function requireNoActiveTeam(
   }
 }
 
-async function addTeamMemberGrants(
+export async function addTeamMemberGrants(
   ctx: MutationCtx,
   args: {
     event: Doc<"events">;

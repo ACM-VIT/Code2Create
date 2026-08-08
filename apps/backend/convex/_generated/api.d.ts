@@ -125,6 +125,7 @@ import type * as lib_supportCases from "../lib/supportCases.js";
 import type * as lib_synesthesia from "../lib/synesthesia.js";
 import type * as lib_trackCatalog from "../lib/trackCatalog.js";
 import type * as lib_venueCheckInLifecycle from "../lib/venueCheckInLifecycle.js";
+import type * as localDemoSeed from "../localDemoSeed.js";
 import type * as localDevelopment from "../localDevelopment.js";
 import type * as manualReviewRecordActions from "../manualReviewRecordActions.js";
 import type * as manualReviewRecords from "../manualReviewRecords.js";
@@ -298,6 +299,7 @@ declare const fullApi: ApiFromModules<{
   "lib/synesthesia": typeof lib_synesthesia;
   "lib/trackCatalog": typeof lib_trackCatalog;
   "lib/venueCheckInLifecycle": typeof lib_venueCheckInLifecycle;
+  localDemoSeed: typeof localDemoSeed;
   localDevelopment: typeof localDevelopment;
   manualReviewRecordActions: typeof manualReviewRecordActions;
   manualReviewRecords: typeof manualReviewRecords;
