@@ -202,12 +202,29 @@ export function ReviewSetup({
 }
 
 function ReviewerProfiles({ access, candidates }: { access: Access; candidates: Candidate[] }) {
+  const ready = candidates.filter(
+    (candidate) => candidate.profile?.trainingStatus === 'complete',
+  ).length
+  const outstanding = candidates.length - ready
+  // Reviewers who still need setting up come first; the ones already done are
+  // not what you opened this page for.
+  const ordered = [...candidates].sort((left, right) => {
+    const leftReady = left.profile?.trainingStatus === 'complete'
+    const rightReady = right.profile?.trainingStatus === 'complete'
+    if (leftReady !== rightReady) return leftReady ? 1 : -1
+    return left.displayName.localeCompare(right.displayName)
+  })
+
   return (
     <section className="setup-section">
       <h2>Reviewers</h2>
-      <p className="muted">Complete training, then mark what each reviewer is ready to assess.</p>
+      <p className="muted">
+        {outstanding === 0
+          ? `All ${candidates.length} reviewers are ready to judge.`
+          : `${outstanding} of ${candidates.length} reviewers still need setting up before they can judge.`}
+      </p>
       <div className="reviewer-profile-list">
-        {candidates.map((candidate) => (
+        {ordered.map((candidate) => (
           <ReviewerProfileRow
             candidate={candidate}
             canManage={canManageProfile(access, candidate.personId)}

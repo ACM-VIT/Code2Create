@@ -1891,3 +1891,28 @@ label > span { color: var(--muted); font-size: .75rem; }
 .panel-row .panel-reviewers li.away > span { color: var(--warn); }
 .panel-row .panel-reviewers li small { color: var(--faint); font-size: .75rem; }
 .panel-shortfall { display: block; margin-top: 4px; color: var(--warn); font-size: .75rem; }
+
+/* Setup lists were left out of the surface pass. */
+.published-rounds,
+.reviewer-profile-list,
+.criterion-editors,
+.panel-editors {
+  overflow: hidden;
+  margin-top: 0;
+  background: var(--surface);
+  border-top: 0;
+  border-radius: var(--radius-card);
+}
+.published-rounds > div,
+.reviewer-profile-row {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background 120ms ease;
+}
+.published-rounds > div:last-child,
+.reviewer-profile-row:last-child { border-bottom: 0; }
+.reviewer-profile-row:hover { background: var(--hover); }
+.published-rounds strong, .reviewer-profile-heading strong { font-size: .8125rem; font-weight: 500; }
+.published-rounds span, .reviewer-profile-heading span { margin-top: 2px; font-size: .75rem; }
+.reviewer-profile-state { gap: 10px; }
+.reviewer-profile-state > span { color: var(--muted); font-size: .75rem; }

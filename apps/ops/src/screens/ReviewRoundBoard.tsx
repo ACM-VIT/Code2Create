@@ -99,15 +99,12 @@ export function ReviewRoundBoard() {
 
       <p className="board-section-label">Panels</p>
       <div className="panel-list">
-        {[...board.panels].sort(byPanelUrgency(board)).map((panel) => {
+        {[...board.panels].sort(byPanelUrgency).map((panel) => {
           const substitutionPanel = substitutions.panels.find(
             (candidate) => candidate.panelId === panel.id,
           )
           const present = panel.reviewers.filter(
             (reviewer) => reviewer.clockInStatus === 'present',
-          )
-          const away = panel.reviewers.filter(
-            (reviewer) => reviewer.clockInStatus !== 'present',
           )
           const short = panel.reviewers.length - present.length
           return (
@@ -214,12 +211,18 @@ function byDeskUrgency(left: Team, right: Team) {
 }
 
 /** Panels missing people come first; a full panel needs nothing from you. */
-function byPanelUrgency(board: Board) {
-  const shortfall = (panel: Panel) =>
+function panelShortfall(panel: Panel) {
+  return (
     panel.reviewers.length -
     panel.reviewers.filter((reviewer) => reviewer.clockInStatus === 'present').length
-  return (left: Panel, right: Panel) =>
-    shortfall(right) - shortfall(left) || left.tableLabel.localeCompare(right.tableLabel)
+  )
+}
+
+function byPanelUrgency(left: Panel, right: Panel) {
+  return (
+    panelShortfall(right) - panelShortfall(left) ||
+    left.tableLabel.localeCompare(right.tableLabel)
+  )
 }
 
 function countTeams(board: Board, state: Team['state']) {
