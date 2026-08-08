@@ -405,6 +405,14 @@ export const reviewRoundStatus = v.union(
   v.literal("closed"),
 );
 
+export const reviewPanelStatus = v.union(
+  v.literal("draft"),
+  v.literal("ready"),
+  v.literal("needs_reviewer"),
+  v.literal("paused"),
+  v.literal("closed"),
+);
+
 export const teamRoundState = v.union(
   v.literal("unassigned"),
   v.literal("queued"),

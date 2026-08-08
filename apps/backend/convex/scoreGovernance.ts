@@ -13,6 +13,7 @@ import {
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
+import { reviewRoundStatus } from "./values";
 
 type ReadCtx = QueryCtx | MutationCtx;
 type ScorecardAdministrationPermission =
@@ -33,7 +34,7 @@ const roundSummary = v.object({
   id: v.id("reviewRounds"),
   name: v.string(),
   sequence: v.number(),
-  status: v.string(),
+  status: reviewRoundStatus,
   startsAt: v.number(),
   endsAt: v.number(),
   version: v.number(),
@@ -188,7 +189,7 @@ export const rounds = query({
       id: Id<"reviewRounds">;
       name: string;
       sequence: number;
-      status: string;
+      status: Doc<"reviewRounds">["status"];
       startsAt: number;
       endsAt: number;
       version: number;

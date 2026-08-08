@@ -23,13 +23,19 @@ import {
 import { activeRoundPause as findActiveRoundPause } from "./lib/reviewRoundPauses";
 import { computeReviewEvaluation } from "./lib/reviewScores";
 import { normalizedText } from "./lib/strings";
+import {
+  reviewPanelStatus,
+  reviewRoundStatus,
+  reviewSessionStatus,
+  teamRoundState,
+} from "./values";
 
 const liveReviewStatuses = ["awaiting_presence", "active", "overdue"] as const;
 type EvidenceCompleteness = "complete" | "partial" | "missing";
 type OverviewRoundView = {
   id: Id<"reviewRounds">;
   name: string;
-  status: string;
+  status: Doc<"reviewRounds">["status"];
   startsAt: number;
   endsAt: number;
   version: number;
@@ -39,7 +45,7 @@ type OverviewRoundView = {
     id: Id<"reviewPanels">;
     name: string;
     tableLabel: string;
-    status: string;
+    status: Doc<"reviewPanels">["status"];
     queuedCount: number;
     activeReviewCount: number;
   }>;
@@ -54,7 +60,7 @@ type OverviewRoundView = {
 };
 type RoundBoardReviewView = {
   id: Id<"reviewSessions">;
-  status: string;
+  status: Doc<"reviewSessions">["status"];
   version: number;
   startedAt?: number;
   plannedEndAt?: number;
@@ -312,7 +318,7 @@ export const overview = query({
       v.object({
         id: v.id("reviewRounds"),
         name: v.string(),
-        status: v.string(),
+        status: reviewRoundStatus,
         startsAt: v.number(),
         endsAt: v.number(),
         version: v.number(),
@@ -323,7 +329,7 @@ export const overview = query({
             id: v.id("reviewPanels"),
             name: v.string(),
             tableLabel: v.string(),
-            status: v.string(),
+            status: reviewPanelStatus,
             queuedCount: v.number(),
             activeReviewCount: v.number(),
           }),
@@ -440,7 +446,7 @@ export const roundBoard = query({
     round: v.object({
       id: v.id("reviewRounds"),
       name: v.string(),
-      status: v.string(),
+      status: reviewRoundStatus,
       version: v.number(),
       startsAt: v.number(),
       endsAt: v.number(),
@@ -466,7 +472,7 @@ export const roundBoard = query({
         id: v.id("reviewPanels"),
         name: v.string(),
         tableLabel: v.string(),
-        status: v.string(),
+        status: reviewPanelStatus,
         version: v.number(),
         canManageQueue: v.boolean(),
         canPrepareReview: v.boolean(),
@@ -493,7 +499,7 @@ export const roundBoard = query({
         teamId: v.id("teams"),
         teamName: v.string(),
         trackName: v.string(),
-        state: v.string(),
+        state: teamRoundState,
         version: v.number(),
         queuedAt: v.optional(v.number()),
         panelId: v.optional(v.id("reviewPanels")),
@@ -517,7 +523,7 @@ export const roundBoard = query({
           v.null(),
           v.object({
             id: v.id("reviewSessions"),
-            status: v.string(),
+            status: reviewSessionStatus,
             version: v.number(),
             startedAt: v.optional(v.number()),
             plannedEndAt: v.optional(v.number()),

@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { reviewRoundStatusLabels } from '@code2create/domain'
 import { useMutation, useQuery } from 'convex/react'
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -69,7 +70,8 @@ export function ReviewOverview({ showSetup }: { showSetup: boolean }) {
                 <div className="session-title-line">
                   <h2>{round.name}</h2>
                   <span className="state-label">
-                    {stateName(round.status)}{round.isPaused ? ' · new reviews paused' : ''}
+                    {reviewRoundStatusLabels[round.status]}
+                    {round.isPaused ? ' · new reviews paused' : ''}
                   </span>
                 </div>
                 <p className="muted">{formatWindow(round.startsAt, round.endsAt)}</p>
@@ -121,10 +123,6 @@ export function ReviewOverview({ showSetup }: { showSetup: boolean }) {
 
 function Count({ label, value }: { label: string; value: number }) {
   return <div><dt>{label}</dt><dd>{value}</dd></div>
-}
-
-function stateName(value: string) {
-  return value.replaceAll('_', ' ')
 }
 
 function formatWindow(startsAt: number, endsAt: number) {

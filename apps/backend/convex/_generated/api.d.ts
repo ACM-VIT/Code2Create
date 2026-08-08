@@ -94,6 +94,7 @@ import type * as lib_grantScopes from "../lib/grantScopes.js";
 import type * as lib_identity from "../lib/identity.js";
 import type * as lib_intakePolicy from "../lib/intakePolicy.js";
 import type * as lib_intakeQuestions from "../lib/intakeQuestions.js";
+import type * as lib_labelContract from "../lib/labelContract.js";
 import type * as lib_localBrowserFixtures from "../lib/localBrowserFixtures.js";
 import type * as lib_novelty from "../lib/novelty.js";
 import type * as lib_operations from "../lib/operations.js";
@@ -268,6 +269,7 @@ declare const fullApi: ApiFromModules<{
   "lib/identity": typeof lib_identity;
   "lib/intakePolicy": typeof lib_intakePolicy;
   "lib/intakeQuestions": typeof lib_intakeQuestions;
+  "lib/labelContract": typeof lib_labelContract;
   "lib/localBrowserFixtures": typeof lib_localBrowserFixtures;
   "lib/novelty": typeof lib_novelty;
   "lib/operations": typeof lib_operations;

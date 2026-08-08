@@ -1,4 +1,9 @@
 import { api } from '@code2create/backend/api'
+import {
+  reviewRoundStatusLabels,
+  reviewSessionStatusLabels,
+  teamRoundStateOperatorLabels,
+} from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { useRef, useState, type FormEvent } from 'react'
@@ -61,7 +66,7 @@ export function ReviewRoundBoard() {
       <Link className="back-link" to="/reviews">← Reviews</Link>
       <header className="page-heading">
         <div>
-          <p className="eyebrow">{stateName(board.round.status)}</p>
+          <p className="eyebrow">{reviewRoundStatusLabels[board.round.status]}</p>
           <h1>{board.round.name}</h1>
           <p className="muted">Panels, queues, and active reviews stay in sync here.</p>
         </div>
@@ -589,7 +594,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
           <span>{team.trackName}</span>
         </div>
         <div className="review-team-state">
-          <strong>{stateName(team.state)}</strong>
+          <strong>{teamRoundStateOperatorLabels[team.state]}</strong>
           <span>{team.tableLabel ?? 'No table yet'}</span>
         </div>
       </div>
@@ -607,7 +612,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
           {review.requiresSharedCommitments ? (
             <div><dt>Shared notes</dt><dd>{review.sharedNotesComplete ? 'Ready' : 'Missing'}</dd></div>
           ) : null}
-          <div><dt>Session</dt><dd>{stateName(review.status)}</dd></div>
+          <div><dt>Session</dt><dd>{reviewSessionStatusLabels[review.status]}</dd></div>
         </dl>
       ) : null}
 

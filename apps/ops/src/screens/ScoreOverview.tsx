@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { reviewRoundStatusLabels } from '@code2create/domain'
 import { useQuery } from 'convex/react'
 import { Link } from 'react-router-dom'
 
@@ -26,7 +27,7 @@ export function ScoreOverview() {
               <div>
                 <div className="session-title-line">
                   <h2>{round.name}</h2>
-                  <span className="state-label">{stateName(round.status)}</span>
+                  <span className="state-label">{reviewRoundStatusLabels[round.status]}</span>
                 </div>
                 <p className="muted">{formatWindow(round.startsAt, round.endsAt)}</p>
               </div>
