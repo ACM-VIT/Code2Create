@@ -58,6 +58,26 @@ The **Now** screen can show only one primary action:
 - Submit scorecard
 - No current assignment
 
+### Visual direction
+
+The reviewer application does not share the operations dashboard's design. The dashboard is a dense work surface for someone sitting down with a screen; the reviewer application is used standing up, one-handed, in a loud hall, often at three in the morning, by a volunteer who was briefed once. It is closer to a child's learning app than to an operations console: few words, large icons, generous targets, and colour carrying meaning.
+
+The single primary action fills the screen. It is a large tappable target with an icon and two or three words, not a row in a list — the reference point is a running app's start button rather than a settings page. A reviewer should be able to tell what to do next from across a table without reading.
+
+Colour identifies the kind of action rather than decorating it, and each action keeps its colour everywhere it appears, so the mapping can be learned once:
+
+| Action | Reads as |
+| --- | --- |
+| Respond to page | Urgent — the panel is waiting on this person |
+| Go to table, Scan team | Move or scan — a physical step |
+| Continue review, Submit scorecard | The work itself |
+| Complete device check, Clock in | Setup, before judging can begin |
+| No current assignment | Resting — nothing is required |
+
+Supporting detail — the team name, the table, the round — sits under the action in small type. Anything a reviewer does not need in order to take the next step belongs on History or Profile, not here.
+
+What a reviewer sees follows from their grants, as everywhere else in the product. A person who holds only review grants never sees the scanner, floor mapping, or support surfaces, and the shell does not hint that they exist.
+
 ## 4. Sign-in and device check
 
 Google sign-in opens the system browser and returns through a production app deep link. Better Auth stores the resulting session cookie in SecureStore.
