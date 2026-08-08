@@ -149,7 +149,7 @@ export function ReviewRoundBoard() {
       ) : null}
 
       <div className="review-team-list">
-        {board.teams.map((team) => (
+        {[...board.teams].sort(byDeskUrgency).map((team) => (
           <TeamRow board={board} key={team.stateId ?? team.teamId} team={team} />
         ))}
       </div>
@@ -162,6 +162,26 @@ export function ReviewRoundBoard() {
         <ReviewManualRecovery roundId={board.round.id} />
       </details>
     </section>
+  )
+}
+
+/** Order the desk works in: things it must act on, then live, then done. */
+const deskOrder: Record<Team['state'], number> = {
+  unassigned: 0,
+  called: 1,
+  held: 2,
+  missed: 3,
+  queued: 4,
+  at_table: 5,
+  in_review: 6,
+  completed: 7,
+  withdrawn: 8,
+}
+
+function byDeskUrgency(left: Team, right: Team) {
+  return (
+    deskOrder[left.state] - deskOrder[right.state] ||
+    left.teamName.localeCompare(right.teamName)
   )
 }
 
@@ -610,25 +630,43 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
     : false
   const participantAvailabilityReady =
     team.participantAvailability.isMet || team.participantAvailability.isWaived
+  // What is standing between this team and its next step, said once.
+  const blocker =
+    review?.status === 'awaiting_presence' && !allReviewersPresent
+      ? `Waiting for reviewers to scan in · ${review.reviewerPresenceCount} of ${review.reviewerCount} done`
+      : review?.status === 'awaiting_presence' && !participantAvailabilityReady
+        ? 'Waiting for the team to regroup at the table'
+        : (review?.status === 'active' || review?.status === 'overdue') && !allScorecardsSubmitted
+          ? `Waiting for scorecards · ${review.submittedScorecardCount} of ${review.reviewerCount} submitted`
+          : (review?.status === 'active' || review?.status === 'overdue') &&
+              !review.sharedNotesComplete
+            ? 'Waiting for the panel to agree shared notes'
+            : null
 
   return (
     <article className="review-team-row">
       <div className="review-team-heading">
         <div>
           <strong>{team.teamName}</strong>
-          <span>{team.trackName}</span>
+          <span>
+            {team.trackName}
+            {team.tableLabel ? ` · ${team.tableLabel}` : ''}
+          </span>
         </div>
-        <div className="review-team-state">
-          <strong>{teamRoundStateOperatorLabels[team.state]}</strong>
-          <span>{team.tableLabel ?? 'No table yet'}</span>
-        </div>
+        <span className={`state-label ${team.state}`}>
+          {teamRoundStateOperatorLabels[team.state]}
+        </span>
       </div>
 
-      <p className="muted">
-        {team.participantAvailability.availableCount}/{team.participantAvailability.activeCount} members inside
-        {' · '}{team.participantAvailability.requiredCount} required
-        {team.participantAvailability.isWaived ? ' · exception recorded' : ''}
-      </p>
+      {/* Attendance only matters when it is blocking the call, or when someone
+          has already waived it; otherwise it is the same line on every row. */}
+      {participantAvailabilityReady && !team.participantAvailability.isWaived ? null : (
+        <p className="muted">
+          {team.participantAvailability.isWaived
+            ? `Called with an exception · ${team.participantAvailability.availableCount} of ${team.participantAvailability.requiredCount} needed were inside`
+            : `Only ${team.participantAvailability.availableCount} of the team is in the hall; this round needs ${team.participantAvailability.requiredCount}.`}
+        </p>
+      )}
 
       {review ? (
         <dl className="review-progress">
@@ -644,7 +682,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
       {team.state === 'unassigned' && manageablePanels.length > 0 ? (
         <div className="review-team-actions">
           <label className="field compact-select">
-            <span>Panel</span>
+            <span className="visually-hidden">Panel</span>
             <select value={selectedPanel?.id ?? ''} onChange={(event) => setSelectedPanelId(event.target.value)}>
               {manageablePanels.map((panel) => (
                 <option key={panel.id} value={panel.id}>{panel.tableLabel} · {panel.name}</option>
@@ -710,38 +748,29 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
           <p className="notice">The team needs to regroup before it can be called.</p>
         )
       ) : null}
-      {review?.status === 'awaiting_presence' && review.canStart ? (
+      {review?.status === 'awaiting_presence' && review.canStart && !blocker ? (
         <button
           className="primary"
           type="button"
-          disabled={busy !== null || !allReviewersPresent || !participantAvailabilityReady}
+          disabled={busy !== null}
           onClick={() => void runStart()}
         >
-          {busy === 'start'
-            ? 'Starting…'
-            : !allReviewersPresent
-              ? 'Waiting for reviewer scans'
-              : !participantAvailabilityReady
-                ? 'Waiting for the team to regroup'
-                : 'Start review'}
+          {busy === 'start' ? 'Starting…' : 'Start review'}
         </button>
       ) : null}
-      {(review?.status === 'active' || review?.status === 'overdue') && review.canComplete ? (
+      {(review?.status === 'active' || review?.status === 'overdue') &&
+      review.canComplete &&
+      !blocker ? (
         <button
           className="primary"
           type="button"
-          disabled={busy !== null || !allScorecardsSubmitted || !review.sharedNotesComplete}
+          disabled={busy !== null}
           onClick={() => void runComplete()}
         >
-          {busy === 'complete'
-            ? 'Completing…'
-            : !allScorecardsSubmitted
-              ? 'Waiting for scorecards'
-              : !review.sharedNotesComplete
-                ? 'Waiting for shared notes'
-                : 'Complete review'}
+          {busy === 'complete' ? 'Completing…' : 'Complete review'}
         </button>
       ) : null}
+      {blocker ? <p className="review-blocked">{blocker}</p> : null}
       {review?.status === 'awaiting_presence' && review.canWaivePresence ? (
         <PresenceWaiver review={review} />
       ) : null}

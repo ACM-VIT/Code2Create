@@ -1772,3 +1772,56 @@ label > span { color: var(--muted); font-size: .75rem; }
   cursor: pointer;
 }
 .board-recovery > summary:hover { color: var(--text); }
+
+/* Group headings inside the disclosure were reading at the same weight as the
+   destinations under them, so the list looked flat. */
+.navigation-rest .navigation-group { margin-top: 12px; }
+.navigation-rest .navigation-group:first-of-type { margin-top: 4px; }
+.navigation-rest .navigation-group > p {
+  margin: 0 10px 4px;
+  color: var(--faint);
+  font-size: .6875rem;
+  opacity: .8;
+}
+.navigation-rest .navigation-group > p::after {
+  content: '';
+  display: block;
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+/* ---- Round board team rows ---- */
+.review-team-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.review-team-heading > div { display: grid; gap: 2px; min-width: 0; }
+.review-team-heading strong { font-size: .8125rem; font-weight: 500; }
+.review-team-heading span { color: var(--muted); font-size: .75rem; }
+.review-team-row .state-label { flex: 0 0 auto; }
+.review-team-row .state-label.in_review { color: var(--text); }
+.review-team-row .state-label.held,
+.review-team-row .state-label.missed { color: var(--warn); }
+.review-team-row > p.muted { margin: 0; font-size: .8125rem; }
+
+/* A blocked step says what is missing instead of showing a dead button. */
+.review-blocked {
+  margin: 0;
+  color: var(--faint);
+  font-size: .8125rem;
+}
+
+/* Progress reads as a quiet inline row, not a card inside a card. */
+.review-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.review-progress div { display: flex; gap: 6px; padding: 0; }
+.review-progress dt { color: var(--faint); font-size: .75rem; }
+.review-progress dd { margin: 0; font-size: .75rem; }
+
+/* Placing a team is one line: which panel, and go. */
+.review-team-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.review-team-actions .field { display: contents; }
+.review-team-actions .compact-select select { width: min(100%, 260px); }
