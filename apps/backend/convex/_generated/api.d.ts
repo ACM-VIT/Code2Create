@@ -98,6 +98,7 @@ import type * as lib_labelContract from "../lib/labelContract.js";
 import type * as lib_localBrowserFixtures from "../lib/localBrowserFixtures.js";
 import type * as lib_novelty from "../lib/novelty.js";
 import type * as lib_operations from "../lib/operations.js";
+import type * as lib_operationsAttention from "../lib/operationsAttention.js";
 import type * as lib_operationsHealth from "../lib/operationsHealth.js";
 import type * as lib_operationsIntelligencePolicy from "../lib/operationsIntelligencePolicy.js";
 import type * as lib_operationsIntelligenceValidators from "../lib/operationsIntelligenceValidators.js";
@@ -132,6 +133,7 @@ import type * as manualReviewRecordActions from "../manualReviewRecordActions.js
 import type * as manualReviewRecords from "../manualReviewRecords.js";
 import type * as novelty from "../novelty.js";
 import type * as noveltyConfiguration from "../noveltyConfiguration.js";
+import type * as operationsAttention from "../operationsAttention.js";
 import type * as operationsHealth from "../operationsHealth.js";
 import type * as operationsIntelligence from "../operationsIntelligence.js";
 import type * as operationsIntelligenceActions from "../operationsIntelligenceActions.js";
@@ -273,6 +275,7 @@ declare const fullApi: ApiFromModules<{
   "lib/localBrowserFixtures": typeof lib_localBrowserFixtures;
   "lib/novelty": typeof lib_novelty;
   "lib/operations": typeof lib_operations;
+  "lib/operationsAttention": typeof lib_operationsAttention;
   "lib/operationsHealth": typeof lib_operationsHealth;
   "lib/operationsIntelligencePolicy": typeof lib_operationsIntelligencePolicy;
   "lib/operationsIntelligenceValidators": typeof lib_operationsIntelligenceValidators;
@@ -307,6 +310,7 @@ declare const fullApi: ApiFromModules<{
   manualReviewRecords: typeof manualReviewRecords;
   novelty: typeof novelty;
   noveltyConfiguration: typeof noveltyConfiguration;
+  operationsAttention: typeof operationsAttention;
   operationsHealth: typeof operationsHealth;
   operationsIntelligence: typeof operationsIntelligence;
   operationsIntelligenceActions: typeof operationsIntelligenceActions;

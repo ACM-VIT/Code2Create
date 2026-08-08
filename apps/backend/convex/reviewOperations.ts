@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
@@ -345,99 +345,105 @@ export const overview = query({
       }),
     ),
   }),
-  handler: async (ctx, args) => {
-    const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { person } = await requireCurrentPerson(ctx);
-    const subject = await requireEventSubject(ctx, event._id, person._id);
-    const [rounds, eventTeams] = await Promise.all([
-      ctx.db
-        .query("reviewRounds")
-        .withIndex("by_event_status_start", (index) => index.eq("eventId", event._id))
-        .collect(),
-      ctx.db
-        .query("teams")
-        .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
-        .collect(),
-    ]);
-    const reviewableTeams = eventTeams.filter(isReviewableTeam);
-    const visible: OverviewRoundView[] = [];
-    for (const round of rounds) {
-      const grants = await matchingPermissionGrantIds(ctx, {
+  handler: (ctx, args) => buildReviewOverview(ctx, args.eventSlug),
+});
+
+export async function buildReviewOverview(
+  ctx: QueryCtx,
+  eventSlug: string,
+): Promise<{ rounds: OverviewRoundView[] }> {
+  const event = await requireEventBySlug(ctx, eventSlug);
+  const { person } = await requireCurrentPerson(ctx);
+  const subject = await requireEventSubject(ctx, event._id, person._id);
+  const [rounds, eventTeams] = await Promise.all([
+    ctx.db
+      .query("reviewRounds")
+      .withIndex("by_event_status_start", (index) => index.eq("eventId", event._id))
+      .collect(),
+    ctx.db
+      .query("teams")
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
+      .collect(),
+  ]);
+  const reviewableTeams = eventTeams.filter(isReviewableTeam);
+  const visible: OverviewRoundView[] = [];
+  for (const round of rounds) {
+    const grants = await matchingPermissionGrantIds(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "round.read",
+      scopeType: "round",
+      scopeId: round._id,
+    });
+    if (grants.length === 0) continue;
+    const [manageGrants, panels, states, pause] = await Promise.all([
+      matchingPermissionGrantIds(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
-        permissionKey: "round.read",
+        permissionKey: "round.manage",
         scopeType: "round",
         scopeId: round._id,
-      });
-      if (grants.length === 0) continue;
-      const [manageGrants, panels, states, pause] = await Promise.all([
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "round.manage",
-          scopeType: "round",
-          scopeId: round._id,
-        }),
-        ctx.db
-          .query("reviewPanels")
-          .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
-          .collect(),
-        ctx.db
-          .query("teamRoundStates")
-          .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
-          .collect(),
-        findActiveRoundPause(ctx, round._id),
-      ]);
-      const panelRows = await Promise.all(
-        panels.map(async (panel) => {
-          const [queued, sessions] = await Promise.all([
-            ctx.db
-              .query("teamRoundStates")
-              .withIndex("by_panel_state_priority_queued", (index) =>
-                index.eq("panelId", panel._id),
-              )
-              .collect(),
-            ctx.db
-              .query("reviewSessions")
-              .withIndex("by_panel_status", (index) => index.eq("panelId", panel._id))
-              .collect(),
-          ]);
-          return {
-            id: panel._id,
-            name: panel.name,
-            tableLabel: panel.tableLabel,
-            status: panel.status,
-            queuedCount: queued.filter((state) => state.state === "queued").length,
-            activeReviewCount: sessions.filter((session) => isLiveReviewStatus(session.status)).length,
-          };
-        }),
-      );
-      const stateTeamIds = new Set(states.map((state) => state.teamId));
-      visible.push({
-        id: round._id,
-        name: round.name,
-        status: round.status,
-        startsAt: round.startsAt,
-        endsAt: round.endsAt,
-        version: round.version,
-        canManage: manageGrants.length > 0,
-        isPaused: pause !== null,
-        panels: panelRows,
-        stateCounts: {
-          unassigned:
-            states.filter((state) => state.state === "unassigned").length +
-            reviewableTeams.filter((team) => !stateTeamIds.has(team._id)).length,
-          queued: states.filter((state) => state.state === "queued").length,
-          called: states.filter((state) => state.state === "called" || state.state === "at_table").length,
-          inReview: states.filter((state) => state.state === "in_review").length,
-          completed: states.filter((state) => state.state === "completed").length,
-          held: states.filter((state) => state.state === "held").length,
-        },
-      });
-    }
-    return { rounds: visible.sort((left, right) => left.startsAt - right.startsAt) };
-  },
-});
+      }),
+      ctx.db
+        .query("reviewPanels")
+        .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
+        .collect(),
+      ctx.db
+        .query("teamRoundStates")
+        .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
+        .collect(),
+      findActiveRoundPause(ctx, round._id),
+    ]);
+    const panelRows = await Promise.all(
+      panels.map(async (panel) => {
+        const [queued, sessions] = await Promise.all([
+          ctx.db
+            .query("teamRoundStates")
+            .withIndex("by_panel_state_priority_queued", (index) =>
+              index.eq("panelId", panel._id),
+            )
+            .collect(),
+          ctx.db
+            .query("reviewSessions")
+            .withIndex("by_panel_status", (index) => index.eq("panelId", panel._id))
+            .collect(),
+        ]);
+        return {
+          id: panel._id,
+          name: panel.name,
+          tableLabel: panel.tableLabel,
+          status: panel.status,
+          queuedCount: queued.filter((state) => state.state === "queued").length,
+          activeReviewCount: sessions.filter((session) => isLiveReviewStatus(session.status)).length,
+        };
+      }),
+    );
+    const stateTeamIds = new Set(states.map((state) => state.teamId));
+    visible.push({
+      id: round._id,
+      name: round.name,
+      status: round.status,
+      startsAt: round.startsAt,
+      endsAt: round.endsAt,
+      version: round.version,
+      canManage: manageGrants.length > 0,
+      isPaused: pause !== null,
+      panels: panelRows,
+      stateCounts: {
+        unassigned:
+          states.filter((state) => state.state === "unassigned").length +
+          reviewableTeams.filter((team) => !stateTeamIds.has(team._id)).length,
+        queued: states.filter((state) => state.state === "queued").length,
+        called: states.filter((state) => state.state === "called" || state.state === "at_table").length,
+        inReview: states.filter((state) => state.state === "in_review").length,
+        completed: states.filter((state) => state.state === "completed").length,
+        held: states.filter((state) => state.state === "held").length,
+      },
+    });
+  }
+  return { rounds: visible.sort((left, right) => left.startsAt - right.startsAt) };
+}
+
 
 export const roundBoard = query({
   args: { eventSlug: v.string(), roundId: v.id("reviewRounds") },
@@ -547,376 +553,383 @@ export const roundBoard = query({
       }),
     ),
   }),
-  handler: async (ctx, args) => {
-    const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { person } = await requireCurrentPerson(ctx);
-    const subject = await requireEventSubject(ctx, event._id, person._id);
-    const round = await ctx.db.get(args.roundId);
-    if (!round || round.eventId !== event._id) {
-      throw new ConvexError({ code: "ROUND_NOT_FOUND", message: "That review round is unavailable." });
-    }
-    await requirePermission(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "round.read",
-      scopeType: "round",
-      scopeId: round._id,
-    });
-    const [panels, states, actorGrants, eventTeams, activePause] = await Promise.all([
-      ctx.db
-        .query("reviewPanels")
-        .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
-        .collect(),
-      ctx.db
-        .query("teamRoundStates")
-        .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
-        .collect(),
-      ctx.db
-        .query("permissionGrants")
-        .withIndex("by_subject_permission_status", (index) =>
-          index.eq("eventAccessSubjectId", subject._id),
-        )
-        .collect(),
-      ctx.db
-        .query("teams")
-        .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
-        .collect(),
-      findActiveRoundPause(ctx, round._id),
-    ]);
-    const statesByTeamId = new Map<Id<"teams">, Doc<"teamRoundStates">>();
-    for (const state of states) {
-      if (statesByTeamId.has(state.teamId)) {
-        throw new Error("A team has more than one state in this review round.");
-      }
-      statesByTeamId.set(state.teamId, state);
-    }
-    const roundTeams = eventTeams.filter(
-      (team) => statesByTeamId.has(team._id) || isReviewableTeam(team),
-    );
-    const now = Date.now();
-    const activeActorGrants = actorGrants.filter(
-      (grant) =>
-        grant.eventId === event._id &&
-        grant.status === "active" &&
-        grant.validFrom <= now &&
-        (grant.validUntil === undefined || grant.validUntil > now),
-    );
-    const allows = (
-      permissionKey: string,
-      scopes: ReadonlyArray<{ type: Doc<"permissionGrants">["scopeType"]; id: string }>,
-    ) =>
-      activeActorGrants.some(
-        (grant) =>
-          grant.permissionKey === permissionKey &&
-          (grant.scopeType === "event" ||
-            scopes.some(
-              (scope) => grant.scopeType === scope.type && grant.scopeId === scope.id,
-            )),
-      );
-    let pauseView: {
-      id: Id<"reviewRoundPauses">;
-      version: number;
-      pausedAt: number;
-      incidentTitle?: string;
-      reason?: string;
-      canResume: boolean;
-    } | null = null;
-    if (activePause) {
-      const incident = await ctx.db.get("incidents", activePause.incidentId);
-      const incidentReadGrants = incident
-        ? await matchingPermissionGrantIds(ctx, {
-            eventId: event._id,
-            eventAccessSubjectId: subject._id,
-            permissionKey: "incident.read",
-            scopeType: "incident",
-            scopeId: incident._id,
-          })
-        : [];
-      pauseView = {
-        id: activePause._id,
-        version: activePause.version,
-        pausedAt: activePause.pausedAt,
-        ...(incident && incidentReadGrants.length > 0
-          ? { incidentTitle: incident.title, reason: activePause.reason }
-          : {}),
-        canResume: allows("review.round.resume", [{ type: "round", id: round._id }]),
-      };
-    }
-    const panelViews = await Promise.all(
-      panels.map(async (panel) => {
-        const [queueGrants, prepareGrants, members] = await Promise.all([
-          matchingPermissionGrantIds(ctx, {
-            eventId: event._id,
-            eventAccessSubjectId: subject._id,
-            permissionKey: "queue.manage",
-            scopeType: "panel",
-            scopeId: panel._id,
-          }),
-          matchingPermissionGrantIds(ctx, {
-            eventId: event._id,
-            eventAccessSubjectId: subject._id,
-            permissionKey: "review.prepare",
-            scopeType: "panel",
-            scopeId: panel._id,
-          }),
-          ctx.db
-            .query("reviewPanelMembers")
-            .withIndex("by_panel_status", (index) =>
-              index.eq("panelId", panel._id).eq("status", "active"),
-            )
-            .collect(),
-        ]);
-        const reviewers = await Promise.all(
-          members.map(async (member) => {
-            const [person, clockIn, devices] = await Promise.all([
-              ctx.db.get(member.personId),
-              ctx.db
-                .query("reviewerClockIns")
-                .withIndex("by_round_person", (index) =>
-                  index
-                    .eq("roundId", round._id)
-                    .eq("reviewerPersonId", member.personId),
-                )
-                .unique(),
-              ctx.db
-                .query("reviewerDevices")
-                .withIndex("by_event_person_status", (index) =>
-                  index
-                    .eq("eventId", event._id)
-                    .eq("personId", member.personId)
-                    .eq("status", "active"),
-                )
-                .collect(),
-            ]);
-            if (!person) throw new Error("A review panel member no longer resolves to a person.");
-            const device = devices.sort((left, right) => right.lastSeenAt - left.lastSeenAt)[0];
-            return {
-              personId: person._id,
-              displayName: person.displayName,
-              isCoordinator: member.isCoordinator,
-              clockInStatus: clockIn?.status ?? "not_clocked_in",
-              ...(clockIn?.unavailableReason !== undefined
-                ? { unavailableReason: clockIn.unavailableReason }
-                : {}),
-              ...(clockIn?.expectedReturnAt !== undefined
-                ? { expectedReturnAt: clockIn.expectedReturnAt }
-                : {}),
-              ...(clockIn?.lastHeartbeatAt !== undefined
-                ? { lastHeartbeatAt: clockIn.lastHeartbeatAt }
-                : {}),
-              ...(device
-                ? {
-                    appBuild: device.appBuild,
-                    encryptedDraftReady: device.encryptedDraftReady,
-                    deviceLastSeenAt: device.lastSeenAt,
-                  }
-                : {}),
-            };
-          }),
-        );
-        return {
-          id: panel._id,
-          name: panel.name,
-          tableLabel: panel.tableLabel,
-          status: panel.status,
-          version: panel.version,
-          canManageQueue: queueGrants.length > 0,
-          canPrepareReview: prepareGrants.length > 0 && activePause === null,
-          canPause: allows("review.panel.pause", [{ type: "panel", id: panel._id }]),
-          reviewers,
-        };
-      }),
-    );
-    const teamRows = await Promise.all(
-      roundTeams.map(async (team) => {
-        const state = statesByTeamId.get(team._id);
-        if (!team.lockedProjectVersionId) {
-          throw new Error("A review queue row references an invalid team.");
-        }
-        const project = await ctx.db.get(team.lockedProjectVersionId);
-        if (!project) throw new Error("A review queue team has no locked project.");
-        const track = await ctx.db.get(project.coreTrackVersionId);
-        if (!track) throw new Error("A review queue team has no published track.");
-        const sessions = await ctx.db
-          .query("reviewSessions")
-          .withIndex("by_round_team_status", (index) =>
-            index.eq("roundId", round._id).eq("teamId", team._id),
-          )
-          .collect();
-        const review =
-          sessions.find((session) => isLiveReviewStatus(session.status)) ??
-          sessions
-            .filter((session) => session.status === "completed")
-            .sort((left, right) => right.createdAt - left.createdAt)[0] ??
-          null;
-        const [participantAvailability, participantAvailabilityWaiver] = await Promise.all([
-          readReviewParticipantAvailability(ctx, {
-            eventId: event._id,
-            teamId: team._id,
-          }),
-          review
-            ? findReviewParticipantAvailabilityWaiver(ctx, review._id)
-            : Promise.resolve(null),
-        ]);
-        let reviewView: RoundBoardReviewView | null = null;
-        if (review) {
-          const [assignments, presences, scorecards, startGrants, completeGrants, waiveGrants] =
-            await Promise.all([
-              ctx.db
-                .query("reviewAssignments")
-                .withIndex("by_session_person", (index) =>
-                  index.eq("reviewSessionId", review._id),
-                )
-                .collect(),
-              ctx.db
-                .query("reviewPresence")
-                .withIndex("by_session_reviewer", (index) =>
-                  index.eq("reviewSessionId", review._id),
-                )
-                .collect(),
-              ctx.db
-                .query("scorecards")
-                .withIndex("by_session_status", (index) =>
-                  index.eq("reviewSessionId", review._id),
-                )
-                .collect(),
-              matchingPermissionGrantIds(ctx, {
-                eventId: event._id,
-                eventAccessSubjectId: subject._id,
-                permissionKey: "review.start",
-                scopeType: "review",
-                scopeId: review._id,
-              }),
-              matchingPermissionGrantIds(ctx, {
-                eventId: event._id,
-                eventAccessSubjectId: subject._id,
-                permissionKey: "review.complete",
-                scopeType: "review",
-                scopeId: review._id,
-              }),
-              matchingPermissionGrantIds(ctx, {
-                eventId: event._id,
-                eventAccessSubjectId: subject._id,
-                permissionKey: "review.presence.waive",
-                scopeType: "review",
-                scopeId: review._id,
-              }),
-            ]);
-          const assigned = assignments.filter((assignment) => assignment.status === "assigned");
-          const reviewerRows = [];
-          for (const assignment of assigned) {
-            const reviewer = await ctx.db.get(assignment.reviewerPersonId);
-            if (!reviewer) throw new Error("A fixed review assignment references a missing reviewer.");
-            const presence = presences.find(
-              (row) => row.reviewerPersonId === assignment.reviewerPersonId,
-            );
-            reviewerRows.push({
-              personId: reviewer._id,
-              displayName: reviewer.displayName,
-              ...(presence ? { presenceMethod: presence.method } : {}),
-            });
-          }
-          reviewView = {
-            id: review._id,
-            status: review.status,
-            version: review.version,
-            ...(review.startedAt !== undefined ? { startedAt: review.startedAt } : {}),
-            ...(review.plannedEndAt !== undefined
-              ? { plannedEndAt: review.plannedEndAt }
-              : {}),
-            reviewerPresenceCount: assigned.filter((assignment) =>
-              presences.some(
-                (presence) => presence.reviewerPersonId === assignment.reviewerPersonId,
-              ),
-            ).length,
-            reviewerCount: assigned.length,
-            submittedScorecardCount: scorecards.filter(
-              (scorecard) => scorecard.status === "submitted",
-            ).length,
-            requiresSharedCommitments: round.requiresSharedCommitments,
-            sharedNotesComplete:
-              !round.requiresSharedCommitments ||
-              Boolean(review.sharedFindings?.trim() && review.sharedCommitments?.trim()),
-            canStart: startGrants.length > 0 && activePause === null,
-            canComplete: completeGrants.length > 0,
-            canWaivePresence: waiveGrants.length > 0,
-            reviewers: reviewerRows,
-          };
-        }
-        const exceptionScopes = state
-          ? [
-              { type: "team" as const, id: state.teamId },
-              { type: "round" as const, id: state.roundId },
-              ...(state.panelId
-                ? [{ type: "panel" as const, id: state.panelId }]
-                : []),
-            ]
-          : [];
-        const lastCallAt = state?.lastCallAttemptAt ?? state?.calledAt;
-        return {
-          ...(state ? { stateId: state._id } : {}),
-          teamId: team._id,
-          teamName: team.name,
-          trackName: track.displayName,
-          state: state?.state ?? "unassigned",
-          version: state?.version ?? 0,
-          ...(state?.queuedAt !== undefined ? { queuedAt: state.queuedAt } : {}),
-          ...(state?.panelId !== undefined ? { panelId: state.panelId } : {}),
-          ...(state?.tableLabel !== undefined ? { tableLabel: state.tableLabel } : {}),
-          ...(state?.holdReason !== undefined ? { holdReason: state.holdReason } : {}),
-          callAttemptCount: state?.callAttemptCount ?? 0,
-          ...(lastCallAt !== undefined
-            ? { missedEligibleAt: lastCallAt + round.missedCallGraceSeconds * 1_000 }
-            : {}),
-          canHold: state !== undefined && allows("review.queue.hold", exceptionScopes),
-          canResume: state !== undefined && allows("review.queue.resume", exceptionScopes),
-          canMarkMissed: state !== undefined && allows("review.queue.miss", exceptionScopes),
-          canMove: state !== undefined && allows("review.queue.move", exceptionScopes),
-          participantAvailability: {
-            ...participantAvailability,
-            requiredCount: round.minimumPresentParticipants,
-            isMet:
-              participantAvailability.availableCount >= round.minimumPresentParticipants,
-            isWaived: participantAvailabilityWaiver !== null,
-            canWaive: allows("review.participant_availability.waive", [
-              { type: "team", id: team._id },
-              ...(review ? [{ type: "review" as const, id: review._id }] : []),
-            ]),
-          },
-          review: reviewView,
-        };
-      }),
-    );
-    return {
-      serverNow: Date.now(),
-      round: {
-        id: round._id,
-        name: round.name,
-        status: round.status,
-        version: round.version,
-        startsAt: round.startsAt,
-        endsAt: round.endsAt,
-        missedCallGraceSeconds: round.missedCallGraceSeconds,
-        requiredCallAttempts: round.requiredCallAttempts,
-        missedReentryPolicy: round.missedReentryPolicy,
-        minimumPresentParticipants: round.minimumPresentParticipants,
-        canPause:
-          round.status === "open" &&
-          activePause === null &&
-          allows("review.round.pause", [{ type: "round", id: round._id }]),
-        pause: pauseView,
-      },
-      panels: panelViews,
-      teams: teamRows.sort(
-        (left, right) =>
-          Number(right.state === "unassigned") - Number(left.state === "unassigned") ||
-          (left.queuedAt ?? Number.MAX_SAFE_INTEGER) -
-            (right.queuedAt ?? Number.MAX_SAFE_INTEGER) ||
-          left.teamName.localeCompare(right.teamName),
-      ),
-    };
-  },
+  handler: (ctx, args) => buildRoundBoard(ctx, args.eventSlug, args.roundId),
 });
+
+export async function buildRoundBoard(
+  ctx: QueryCtx,
+  eventSlug: string,
+  roundId: Id<"reviewRounds">,
+) {
+  const event = await requireEventBySlug(ctx, eventSlug);
+  const { person } = await requireCurrentPerson(ctx);
+  const subject = await requireEventSubject(ctx, event._id, person._id);
+  const round = await ctx.db.get(roundId);
+  if (!round || round.eventId !== event._id) {
+    throw new ConvexError({ code: "ROUND_NOT_FOUND", message: "That review round is unavailable." });
+  }
+  await requirePermission(ctx, {
+    eventId: event._id,
+    eventAccessSubjectId: subject._id,
+    permissionKey: "round.read",
+    scopeType: "round",
+    scopeId: round._id,
+  });
+  const [panels, states, actorGrants, eventTeams, activePause] = await Promise.all([
+    ctx.db
+      .query("reviewPanels")
+      .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
+      .collect(),
+    ctx.db
+      .query("teamRoundStates")
+      .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
+      .collect(),
+    ctx.db
+      .query("permissionGrants")
+      .withIndex("by_subject_permission_status", (index) =>
+        index.eq("eventAccessSubjectId", subject._id),
+      )
+      .collect(),
+    ctx.db
+      .query("teams")
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
+      .collect(),
+    findActiveRoundPause(ctx, round._id),
+  ]);
+  const statesByTeamId = new Map<Id<"teams">, Doc<"teamRoundStates">>();
+  for (const state of states) {
+    if (statesByTeamId.has(state.teamId)) {
+      throw new Error("A team has more than one state in this review round.");
+    }
+    statesByTeamId.set(state.teamId, state);
+  }
+  const roundTeams = eventTeams.filter(
+    (team) => statesByTeamId.has(team._id) || isReviewableTeam(team),
+  );
+  const now = Date.now();
+  const activeActorGrants = actorGrants.filter(
+    (grant) =>
+      grant.eventId === event._id &&
+      grant.status === "active" &&
+      grant.validFrom <= now &&
+      (grant.validUntil === undefined || grant.validUntil > now),
+  );
+  const allows = (
+    permissionKey: string,
+    scopes: ReadonlyArray<{ type: Doc<"permissionGrants">["scopeType"]; id: string }>,
+  ) =>
+    activeActorGrants.some(
+      (grant) =>
+        grant.permissionKey === permissionKey &&
+        (grant.scopeType === "event" ||
+          scopes.some(
+            (scope) => grant.scopeType === scope.type && grant.scopeId === scope.id,
+          )),
+    );
+  let pauseView: {
+    id: Id<"reviewRoundPauses">;
+    version: number;
+    pausedAt: number;
+    incidentTitle?: string;
+    reason?: string;
+    canResume: boolean;
+  } | null = null;
+  if (activePause) {
+    const incident = await ctx.db.get("incidents", activePause.incidentId);
+    const incidentReadGrants = incident
+      ? await matchingPermissionGrantIds(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "incident.read",
+          scopeType: "incident",
+          scopeId: incident._id,
+        })
+      : [];
+    pauseView = {
+      id: activePause._id,
+      version: activePause.version,
+      pausedAt: activePause.pausedAt,
+      ...(incident && incidentReadGrants.length > 0
+        ? { incidentTitle: incident.title, reason: activePause.reason }
+        : {}),
+      canResume: allows("review.round.resume", [{ type: "round", id: round._id }]),
+    };
+  }
+  const panelViews = await Promise.all(
+    panels.map(async (panel) => {
+      const [queueGrants, prepareGrants, members] = await Promise.all([
+        matchingPermissionGrantIds(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "queue.manage",
+          scopeType: "panel",
+          scopeId: panel._id,
+        }),
+        matchingPermissionGrantIds(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "review.prepare",
+          scopeType: "panel",
+          scopeId: panel._id,
+        }),
+        ctx.db
+          .query("reviewPanelMembers")
+          .withIndex("by_panel_status", (index) =>
+            index.eq("panelId", panel._id).eq("status", "active"),
+          )
+          .collect(),
+      ]);
+      const reviewers = await Promise.all(
+        members.map(async (member) => {
+          const [person, clockIn, devices] = await Promise.all([
+            ctx.db.get(member.personId),
+            ctx.db
+              .query("reviewerClockIns")
+              .withIndex("by_round_person", (index) =>
+                index
+                  .eq("roundId", round._id)
+                  .eq("reviewerPersonId", member.personId),
+              )
+              .unique(),
+            ctx.db
+              .query("reviewerDevices")
+              .withIndex("by_event_person_status", (index) =>
+                index
+                  .eq("eventId", event._id)
+                  .eq("personId", member.personId)
+                  .eq("status", "active"),
+              )
+              .collect(),
+          ]);
+          if (!person) throw new Error("A review panel member no longer resolves to a person.");
+          const device = devices.sort((left, right) => right.lastSeenAt - left.lastSeenAt)[0];
+          return {
+            personId: person._id,
+            displayName: person.displayName,
+            isCoordinator: member.isCoordinator,
+            clockInStatus: clockIn?.status ?? "not_clocked_in",
+            ...(clockIn?.unavailableReason !== undefined
+              ? { unavailableReason: clockIn.unavailableReason }
+              : {}),
+            ...(clockIn?.expectedReturnAt !== undefined
+              ? { expectedReturnAt: clockIn.expectedReturnAt }
+              : {}),
+            ...(clockIn?.lastHeartbeatAt !== undefined
+              ? { lastHeartbeatAt: clockIn.lastHeartbeatAt }
+              : {}),
+            ...(device
+              ? {
+                  appBuild: device.appBuild,
+                  encryptedDraftReady: device.encryptedDraftReady,
+                  deviceLastSeenAt: device.lastSeenAt,
+                }
+              : {}),
+          };
+        }),
+      );
+      return {
+        id: panel._id,
+        name: panel.name,
+        tableLabel: panel.tableLabel,
+        status: panel.status,
+        version: panel.version,
+        canManageQueue: queueGrants.length > 0,
+        canPrepareReview: prepareGrants.length > 0 && activePause === null,
+        canPause: allows("review.panel.pause", [{ type: "panel", id: panel._id }]),
+        reviewers,
+      };
+    }),
+  );
+  const teamRows = await Promise.all(
+    roundTeams.map(async (team) => {
+      const state = statesByTeamId.get(team._id);
+      if (!team.lockedProjectVersionId) {
+        throw new Error("A review queue row references an invalid team.");
+      }
+      const project = await ctx.db.get(team.lockedProjectVersionId);
+      if (!project) throw new Error("A review queue team has no locked project.");
+      const track = await ctx.db.get(project.coreTrackVersionId);
+      if (!track) throw new Error("A review queue team has no published track.");
+      const sessions = await ctx.db
+        .query("reviewSessions")
+        .withIndex("by_round_team_status", (index) =>
+          index.eq("roundId", round._id).eq("teamId", team._id),
+        )
+        .collect();
+      const review =
+        sessions.find((session) => isLiveReviewStatus(session.status)) ??
+        sessions
+          .filter((session) => session.status === "completed")
+          .sort((left, right) => right.createdAt - left.createdAt)[0] ??
+        null;
+      const [participantAvailability, participantAvailabilityWaiver] = await Promise.all([
+        readReviewParticipantAvailability(ctx, {
+          eventId: event._id,
+          teamId: team._id,
+        }),
+        review
+          ? findReviewParticipantAvailabilityWaiver(ctx, review._id)
+          : Promise.resolve(null),
+      ]);
+      let reviewView: RoundBoardReviewView | null = null;
+      if (review) {
+        const [assignments, presences, scorecards, startGrants, completeGrants, waiveGrants] =
+          await Promise.all([
+            ctx.db
+              .query("reviewAssignments")
+              .withIndex("by_session_person", (index) =>
+                index.eq("reviewSessionId", review._id),
+              )
+              .collect(),
+            ctx.db
+              .query("reviewPresence")
+              .withIndex("by_session_reviewer", (index) =>
+                index.eq("reviewSessionId", review._id),
+              )
+              .collect(),
+            ctx.db
+              .query("scorecards")
+              .withIndex("by_session_status", (index) =>
+                index.eq("reviewSessionId", review._id),
+              )
+              .collect(),
+            matchingPermissionGrantIds(ctx, {
+              eventId: event._id,
+              eventAccessSubjectId: subject._id,
+              permissionKey: "review.start",
+              scopeType: "review",
+              scopeId: review._id,
+            }),
+            matchingPermissionGrantIds(ctx, {
+              eventId: event._id,
+              eventAccessSubjectId: subject._id,
+              permissionKey: "review.complete",
+              scopeType: "review",
+              scopeId: review._id,
+            }),
+            matchingPermissionGrantIds(ctx, {
+              eventId: event._id,
+              eventAccessSubjectId: subject._id,
+              permissionKey: "review.presence.waive",
+              scopeType: "review",
+              scopeId: review._id,
+            }),
+          ]);
+        const assigned = assignments.filter((assignment) => assignment.status === "assigned");
+        const reviewerRows = [];
+        for (const assignment of assigned) {
+          const reviewer = await ctx.db.get(assignment.reviewerPersonId);
+          if (!reviewer) throw new Error("A fixed review assignment references a missing reviewer.");
+          const presence = presences.find(
+            (row) => row.reviewerPersonId === assignment.reviewerPersonId,
+          );
+          reviewerRows.push({
+            personId: reviewer._id,
+            displayName: reviewer.displayName,
+            ...(presence ? { presenceMethod: presence.method } : {}),
+          });
+        }
+        reviewView = {
+          id: review._id,
+          status: review.status,
+          version: review.version,
+          ...(review.startedAt !== undefined ? { startedAt: review.startedAt } : {}),
+          ...(review.plannedEndAt !== undefined
+            ? { plannedEndAt: review.plannedEndAt }
+            : {}),
+          reviewerPresenceCount: assigned.filter((assignment) =>
+            presences.some(
+              (presence) => presence.reviewerPersonId === assignment.reviewerPersonId,
+            ),
+          ).length,
+          reviewerCount: assigned.length,
+          submittedScorecardCount: scorecards.filter(
+            (scorecard) => scorecard.status === "submitted",
+          ).length,
+          requiresSharedCommitments: round.requiresSharedCommitments,
+          sharedNotesComplete:
+            !round.requiresSharedCommitments ||
+            Boolean(review.sharedFindings?.trim() && review.sharedCommitments?.trim()),
+          canStart: startGrants.length > 0 && activePause === null,
+          canComplete: completeGrants.length > 0,
+          canWaivePresence: waiveGrants.length > 0,
+          reviewers: reviewerRows,
+        };
+      }
+      const exceptionScopes = state
+        ? [
+            { type: "team" as const, id: state.teamId },
+            { type: "round" as const, id: state.roundId },
+            ...(state.panelId
+              ? [{ type: "panel" as const, id: state.panelId }]
+              : []),
+          ]
+        : [];
+      const lastCallAt = state?.lastCallAttemptAt ?? state?.calledAt;
+      return {
+        ...(state ? { stateId: state._id } : {}),
+        teamId: team._id,
+        teamName: team.name,
+        trackName: track.displayName,
+        state: state?.state ?? "unassigned",
+        version: state?.version ?? 0,
+        ...(state?.queuedAt !== undefined ? { queuedAt: state.queuedAt } : {}),
+        ...(state?.panelId !== undefined ? { panelId: state.panelId } : {}),
+        ...(state?.tableLabel !== undefined ? { tableLabel: state.tableLabel } : {}),
+        ...(state?.holdReason !== undefined ? { holdReason: state.holdReason } : {}),
+        callAttemptCount: state?.callAttemptCount ?? 0,
+        ...(lastCallAt !== undefined
+          ? { missedEligibleAt: lastCallAt + round.missedCallGraceSeconds * 1_000 }
+          : {}),
+        canHold: state !== undefined && allows("review.queue.hold", exceptionScopes),
+        canResume: state !== undefined && allows("review.queue.resume", exceptionScopes),
+        canMarkMissed: state !== undefined && allows("review.queue.miss", exceptionScopes),
+        canMove: state !== undefined && allows("review.queue.move", exceptionScopes),
+        participantAvailability: {
+          ...participantAvailability,
+          requiredCount: round.minimumPresentParticipants,
+          isMet:
+            participantAvailability.availableCount >= round.minimumPresentParticipants,
+          isWaived: participantAvailabilityWaiver !== null,
+          canWaive: allows("review.participant_availability.waive", [
+            { type: "team", id: team._id },
+            ...(review ? [{ type: "review" as const, id: review._id }] : []),
+          ]),
+        },
+        review: reviewView,
+      };
+    }),
+  );
+  return {
+    serverNow: Date.now(),
+    round: {
+      id: round._id,
+      name: round.name,
+      status: round.status,
+      version: round.version,
+      startsAt: round.startsAt,
+      endsAt: round.endsAt,
+      missedCallGraceSeconds: round.missedCallGraceSeconds,
+      requiredCallAttempts: round.requiredCallAttempts,
+      missedReentryPolicy: round.missedReentryPolicy,
+      minimumPresentParticipants: round.minimumPresentParticipants,
+      canPause:
+        round.status === "open" &&
+        activePause === null &&
+        allows("review.round.pause", [{ type: "round", id: round._id }]),
+      pause: pauseView,
+    },
+    panels: panelViews,
+    teams: teamRows.sort(
+      (left, right) =>
+        Number(right.state === "unassigned") - Number(left.state === "unassigned") ||
+        (left.queuedAt ?? Number.MAX_SAFE_INTEGER) -
+          (right.queuedAt ?? Number.MAX_SAFE_INTEGER) ||
+        left.teamName.localeCompare(right.teamName),
+    ),
+  };
+}
+
 
 export const openRound = mutation({
   args: {

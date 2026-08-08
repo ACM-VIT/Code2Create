@@ -35,6 +35,7 @@ export function HealthOverview({
   }, [])
 
   const overview = useQuery(api.operationsHealth.overview, { eventSlug, refreshBucket })
+  const attention = useQuery(api.operationsAttention.overview, { eventSlug, refreshBucket })
   const brief = useQuery(
     api.operationsIntelligence.latest,
     canReadIntelligence ? { eventSlug } : 'skip',
@@ -87,7 +88,43 @@ export function HealthOverview({
 
       <section className="attention-section">
         <div className="section-heading">
-          <h2>Live issues</h2>
+          <h2>Needs attention now</h2>
+          {attention && attention.rows.length > 0 ? <span>{attention.rows.length}</span> : null}
+        </div>
+        {attention === undefined ? (
+          <p className="muted">Checking the floor…</p>
+        ) : attention.rows.length === 0 ? (
+          <div className="health-empty">
+            <strong>Nothing needs action.</strong>
+            <span>No panel is short, no review is overdue, and no team is stuck.</span>
+          </div>
+        ) : (
+          <div className="health-list">
+            {attention.rows.map((row) => (
+              <article className={`health-row ${row.severity}`} key={row.key}>
+                <div className="health-row-main">
+                  <div>
+                    <span className="health-severity">{severityLabel(row.severity)}</span>
+                    <h2>{row.subject}</h2>
+                    {row.context ? <small className="muted">{row.context}</small> : null}
+                  </div>
+                </div>
+                <p>{row.statement}</p>
+                <div className="health-action">
+                  <Link to={row.route}>{row.canAct ? row.actionLabel : 'Open the board'} →</Link>
+                  {row.since !== undefined ? (
+                    <small className="muted">Since {formatDateTime(row.since)}</small>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="attention-section">
+        <div className="section-heading">
+          <h2>System checks</h2>
           {overview.signals.length > 0 ? <span>{overview.signals.length}</span> : null}
         </div>
         {overview.signals.length === 0 ? (

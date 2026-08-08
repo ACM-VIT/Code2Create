@@ -35,6 +35,9 @@ afterAll(() => {
   process.env.HANDBOOK_SITE_URL = originalEnvironment.handbook;
 });
 
+/** The seed writes several thousand rows; the 5s default is not enough. */
+const seedTestTimeoutMs = 120_000;
+
 function seededBackend() {
   const backend = convexTest(schema, modules);
   backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
@@ -89,7 +92,7 @@ test("the demo seed materialises a live event with teams across every queue stat
       new Set(["queued", "called", "in_review", "completed", "held"]),
     );
   });
-});
+}, seedTestTimeoutMs);
 
 test("teams are in the hall, and exactly one is held below the round minimum", async () => {
   const backend = seededBackend();
@@ -120,7 +123,7 @@ test("teams are in the hall, and exactly one is held below the round minimum", a
       expect(row.insideMemberCount).toBe(row.activeMemberCount);
     }
   });
-});
+}, seedTestTimeoutMs);
 
 test("running the demo seed twice changes nothing", async () => {
   const backend = seededBackend();
@@ -143,4 +146,4 @@ test("running the demo seed twice changes nothing", async () => {
 
   // The sentinel guard in each step is what makes `pnpm dev` safe to re-run.
   expect(await countRows()).toEqual(before);
-});
+}, seedTestTimeoutMs);
