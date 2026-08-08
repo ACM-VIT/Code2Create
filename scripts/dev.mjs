@@ -74,6 +74,9 @@ try {
   const applications = start([
     '--parallel',
     '--stream',
+    // Without this one application failing to boot takes the whole local stack
+    // with it, so a transient Worker crash costs you the backend as well.
+    '--no-bail',
     '--filter',
     '@code2create/web',
     '--filter',

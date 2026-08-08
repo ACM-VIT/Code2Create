@@ -309,38 +309,38 @@ function Operations({
     {
       label: 'Now',
       items: [
-        ...(canViewHealth ? [{ label: 'Overview', to: '/' }] : []),
-        ...(canViewSupport ? [{ label: 'Help desk', to: '/support' }] : []),
+        ...(canViewHealth ? [{ label: 'Overview', to: '/', icon: 'home' as const }] : []),
+        ...(canViewSupport ? [{ label: 'Help desk', to: '/support', icon: 'lifebuoy' as const }] : []),
       ],
     },
     {
       label: 'Applications',
-      items: canViewAdmissions ? [{ label: 'Review applications', to: '/admissions' }] : [],
+      items: canViewAdmissions ? [{ label: 'Review applications', to: '/admissions', icon: 'inbox' as const }] : [],
     },
     {
       label: 'Event day',
       items: [
-        ...(canViewAttendance ? [{ label: 'Check-in', to: '/attendance' }] : []),
-        ...(canReadFloorLocations ? [{ label: 'Hall', to: '/floor' }] : []),
-        ...(canViewSynesthesia ? [{ label: 'Music desk', to: '/synesthesia' }] : []),
+        ...(canViewAttendance ? [{ label: 'Check-in', to: '/attendance', icon: 'scan' as const }] : []),
+        ...(canReadFloorLocations ? [{ label: 'Hall', to: '/floor', icon: 'map' as const }] : []),
+        ...(canViewSynesthesia ? [{ label: 'Music desk', to: '/synesthesia', icon: 'music' as const }] : []),
       ],
     },
     {
       label: 'Judging',
       items: [
-        ...(canViewReviews ? [{ label: 'Review rounds', to: '/reviews' }] : []),
-        ...(canViewScores ? [{ label: 'Results', to: '/scores' }] : []),
-        ...(canViewProjectCheckpoints ? [{ label: 'Team updates', to: '/checkpoints' }] : []),
-        ...(canViewIntegrations ? [{ label: 'Code and design', to: '/integrations' }] : []),
+        ...(canViewReviews ? [{ label: 'Review rounds', to: '/reviews', icon: 'gavel' as const }] : []),
+        ...(canViewScores ? [{ label: 'Results', to: '/scores', icon: 'chart' as const }] : []),
+        ...(canViewProjectCheckpoints ? [{ label: 'Team updates', to: '/checkpoints', icon: 'notes' as const }] : []),
+        ...(canViewIntegrations ? [{ label: 'Code and design', to: '/integrations', icon: 'code' as const }] : []),
       ],
     },
     {
       label: 'Manage',
       items: [
-        ...(configurationPath ? [{ label: 'Event setup', to: configurationPath }] : []),
-        ...(canViewAccess ? [{ label: 'People and permissions', to: '/access' }] : []),
-        ...(canViewRehearsal ? [{ label: 'Test run', to: '/rehearsal' }] : []),
-        ...(canViewEmergencyPack ? [{ label: 'Recovery', to: '/emergency-pack' }] : []),
+        ...(configurationPath ? [{ label: 'Event setup', to: configurationPath, icon: 'sliders' as const }] : []),
+        ...(canViewAccess ? [{ label: 'People and permissions', to: '/access', icon: 'users' as const }] : []),
+        ...(canViewRehearsal ? [{ label: 'Test run', to: '/rehearsal', icon: 'flask' as const }] : []),
+        ...(canViewEmergencyPack ? [{ label: 'Recovery', to: '/emergency-pack', icon: 'shield' as const }] : []),
       ],
     },
   ].filter((group) => group.items.length > 0)

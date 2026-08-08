@@ -5,6 +5,8 @@ import {
   eventStageGuidance,
 } from '@code2create/domain'
 import { useMutation, useQuery } from 'convex/react'
+
+import { Icon, type IconName } from '../components/Icon'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -102,21 +104,24 @@ export function HealthOverview({
         ) : (
           <div className="health-list">
             {attention.rows.map((row) => (
-              <article className={`health-row ${row.severity}`} key={row.key}>
-                <div className="health-row-main">
-                  <div>
-                    <span className="health-severity">{severityLabel(row.severity)}</span>
-                    <h2>{row.subject}</h2>
-                    {row.context ? <small className="muted">{row.context}</small> : null}
-                  </div>
+              <article className={`list-row ${row.severity}`} key={row.key}>
+                <span className={`row-glyph ${row.severity}`}>
+                  <Icon name={severityIcon(row.severity)} />
+                </span>
+                <div className="row-text">
+                  <strong>
+                    {row.subject}
+                    {row.context ? <span className="row-context"> · {row.context}</span> : null}
+                  </strong>
+                  <small>
+                    {row.statement}
+                    {row.since !== undefined ? ` · since ${formatDateTime(row.since)}` : ''}
+                  </small>
                 </div>
-                <p>{row.statement}</p>
-                <div className="health-action">
-                  <Link to={row.route}>{row.canAct ? row.actionLabel : 'Open the board'} →</Link>
-                  {row.since !== undefined ? (
-                    <small className="muted">Since {formatDateTime(row.since)}</small>
-                  ) : null}
-                </div>
+                <Link className="row-action" to={row.route}>
+                  {row.canAct ? row.actionLabel : 'Open'}
+                  <Icon name="arrow" size={13} />
+                </Link>
               </article>
             ))}
           </div>
@@ -136,24 +141,18 @@ export function HealthOverview({
         ) : (
           <div className="health-list">
             {systemSignals.map((signal) => (
-              <article className={`health-row ${signal.severity}`} key={signal.key}>
-                <div className="health-row-main">
-                  <div>
-                    <span className="health-severity">{severityLabel(signal.severity)}</span>
-                    <h2>{signal.title}</h2>
-                  </div>
-                  <strong className="health-count">
-                    {signal.count}{signal.atLeast ? '+' : ''}
-                  </strong>
+              <article className={`list-row ${signal.severity}`} key={signal.key}>
+                <span className={`row-glyph ${signal.severity}`}>
+                  <Icon name={severityIcon(signal.severity)} />
+                </span>
+                <div className="row-text">
+                  <strong>{signal.title}</strong>
+                  <small>
+                    {signal.detail} {signal.owner} handles this
+                    {signal.oldestAt !== undefined ? `, oldest ${formatDateTime(signal.oldestAt)}` : ''}.
+                  </small>
                 </div>
-                <p>{signal.detail}</p>
-                <dl className="health-action">
-                  <div><dt>Owner</dt><dd>{signal.owner}</dd></div>
-                  <div><dt>Next action</dt><dd>{signal.nextAction}</dd></div>
-                  {signal.oldestAt !== undefined ? (
-                    <div><dt>Waiting since</dt><dd>{formatDateTime(signal.oldestAt)}</dd></div>
-                  ) : null}
-                </dl>
+                <span className="row-count">{signal.count}{signal.atLeast ? '+' : ''}</span>
               </article>
             ))}
           </div>
@@ -278,6 +277,12 @@ function statusLabel(value: 'healthy' | 'watch' | 'attention' | 'critical') {
   if (value === 'watch') return 'Watch'
   if (value === 'attention') return 'Needs attention'
   return 'Critical'
+}
+
+function severityIcon(value: 'watch' | 'attention' | 'critical'): IconName {
+  if (value === 'critical') return 'alert'
+  if (value === 'attention') return 'clock'
+  return 'pause'
 }
 
 function severityLabel(value: 'watch' | 'attention' | 'critical') {

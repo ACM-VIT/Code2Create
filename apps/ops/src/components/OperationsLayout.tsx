@@ -2,6 +2,7 @@ import { Link, NavLink } from 'react-router-dom'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import type { ReactNode } from 'react'
 
+import { Icon, type IconName } from './Icon'
 import { IncidentBanner } from './IncidentBanner'
 
 export function OperationsLayout({
@@ -36,7 +37,10 @@ export function OperationsLayout({
             <section className="navigation-group" key="now">
               <p>{stageLabel}</p>
               {nowItems.map((item) => (
-                <NavLink end={item.to === '/'} key={item.to} to={item.to}>{item.label}</NavLink>
+                <NavLink end={item.to === '/'} key={item.to} to={item.to}>
+                  <Icon name={item.icon} />
+                  <span>{item.label}</span>
+                </NavLink>
               ))}
             </section>
           ) : null}
@@ -47,7 +51,10 @@ export function OperationsLayout({
                 <section className="navigation-group" key={group.label}>
                   <p>{group.label}</p>
                   {group.items.map((item) => (
-                    <NavLink end={item.to === '/'} key={item.to} to={item.to}>{item.label}</NavLink>
+                    <NavLink end={item.to === '/'} key={item.to} to={item.to}>
+                  <Icon name={item.icon} />
+                  <span>{item.label}</span>
+                </NavLink>
                   ))}
                 </section>
               ))}
@@ -77,4 +84,5 @@ export type OperationsNavigationGroup = {
 export type OperationsNavigationItem = {
   label: string
   to: string
+  icon: IconName
 }
