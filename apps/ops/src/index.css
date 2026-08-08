@@ -1600,3 +1600,30 @@ label > span { color: var(--muted); font-size: .75rem; }
   border-radius: 0;
   padding: 0;
 }
+
+/* Stage filter: a row of chips carrying their own counts, so the size of each
+   group is visible without selecting it. */
+.stage-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 18px 0 14px;
+}
+.stage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: .8125rem;
+  background: var(--surface);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.stage-chip:hover:not(:disabled) { color: var(--text); background: var(--hover); }
+.stage-chip.active { color: var(--text); border-color: var(--border-strong); }
+.stage-chip:disabled { opacity: .4; cursor: default; }
+.stage-chip > span { color: var(--faint); font-variant-numeric: tabular-nums; }
+.stage-chip.active > span { color: var(--muted); }

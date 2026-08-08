@@ -1,6 +1,7 @@
 import { api } from '@code2create/backend/api'
+import { applicationStateLabels } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
-import { usePaginatedQuery } from 'convex/react'
+import { usePaginatedQuery, useQuery } from 'convex/react'
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
 
@@ -66,8 +67,28 @@ export function AdmissionsQueue({ access }: { access: Access }) {
   )
 }
 
+/** Stages in the order an application moves through them. */
+const stageOrder: QueueState[] = [
+  'submitted',
+  'under_review',
+  'needs_information',
+  'accepted',
+  'offer_sent',
+  'confirmed',
+  'waitlisted',
+  'declined',
+  'offer_expired',
+  'withdrawn',
+]
+
 function ApplicationList() {
-  const [state, setState] = useState<QueueState>('submitted')
+  const counts = useQuery(api.admissions.stageCounts, { eventSlug })
+  const countByState = new Map((counts ?? []).map((row) => [row.state, row.count]))
+  // Open on the first stage that has anything in it, so the queue never lands
+  // on an empty screen while applications are waiting somewhere else.
+  const busiest = stageOrder.find((candidate) => (countByState.get(candidate) ?? 0) > 0)
+  const [chosen, setState] = useState<QueueState | null>(null)
+  const state = chosen ?? busiest ?? 'submitted'
   const { results, status, loadMore } = usePaginatedQuery(
     api.admissions.list,
     { eventSlug, state },
@@ -76,23 +97,24 @@ function ApplicationList() {
 
   return (
     <>
-      <div className="queue-toolbar">
-        <label className="filter">
-          <span>Stage</span>
-          <select value={state} onChange={(event) => setState(parseQueueState(event.target.value))}>
-            <option value="submitted">Needs review</option>
-            <option value="under_review">Review in progress</option>
-            <option value="needs_information">Waiting for team</option>
-            <option value="accepted">Accepted, offer not sent</option>
-            <option value="waitlisted">Waitlisted</option>
-            <option value="offer_sent">Waiting for confirmation</option>
-            <option value="confirmed">Confirmed teams</option>
-            <option value="declined">Not selected</option>
-            <option value="offer_expired">Offer expired</option>
-            <option value="withdrawn">Offer declined</option>
-          </select>
-        </label>
-      </div>
+      <nav className="stage-filter" aria-label="Application stage">
+        {stageOrder.map((candidate) => {
+          const count = countByState.get(candidate) ?? 0
+          return (
+            <button
+              aria-current={candidate === state}
+              className={candidate === state ? 'stage-chip active' : 'stage-chip'}
+              disabled={count === 0 && candidate !== state}
+              key={candidate}
+              type="button"
+              onClick={() => setState(candidate)}
+            >
+              {applicationStateLabels[candidate]}
+              <span>{count}</span>
+            </button>
+          )
+        })}
+      </nav>
       <div className="queue-list">
         {results.map((application) => (
           <Link className="queue-row" key={application.id} to={`/admissions/${application.id}`}>
@@ -110,7 +132,13 @@ function ApplicationList() {
         ))}
         {status === 'LoadingFirstPage' ? <p className="muted">Loading applications…</p> : null}
         {status !== 'LoadingFirstPage' && results.length === 0 ? (
-          <p className="empty">No applications at this stage.</p>
+          <p className="empty">
+            {countByState.size === 0
+              ? 'No team has applied yet.'
+              : `Nothing at this stage. ${[...countByState.entries()]
+                  .map(([key, value]) => `${value} ${applicationStateLabels[key].toLowerCase()}`)
+                  .join(', ')}.`}
+          </p>
         ) : null}
       </div>
       {status === 'CanLoadMore' ? (
@@ -165,22 +193,6 @@ function AssignmentList() {
       ) : null}
     </>
   )
-}
-
-function parseQueueState(value: string): QueueState {
-  if (
-    value === 'submitted' ||
-    value === 'under_review' ||
-    value === 'needs_information' ||
-    value === 'accepted' ||
-    value === 'waitlisted' ||
-    value === 'declined' ||
-    value === 'offer_sent' ||
-    value === 'confirmed' ||
-    value === 'offer_expired' ||
-    value === 'withdrawn'
-  ) return value
-  return 'submitted'
 }
 
 function parseAssignmentState(value: string): AssignmentState {

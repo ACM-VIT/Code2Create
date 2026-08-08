@@ -71,6 +71,33 @@ const listItem = v.object({
   version: v.number(),
 });
 
+/**
+ * How many applications sit at each stage.
+ *
+ * The queue filters by one stage at a time, so without these an operator who
+ * lands on an empty stage cannot tell whether there are no applications at all
+ * or simply none here. specs/06:169 asks the workspace to group records by the
+ * next real action; that only reads if the sizes of the groups are visible.
+ */
+export const stageCounts = query({
+  args: { eventSlug: v.string() },
+  returns: v.array(v.object({ state: applicationState, count: v.number() })),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    await requireEventSubject(ctx, event._id, person._id);
+    const applications = await ctx.db
+      .query("applications")
+      .withIndex("by_event_state_submitted", (index) => index.eq("eventId", event._id))
+      .collect();
+    const counts = new Map<Doc<"applications">["state"], number>();
+    for (const application of applications) {
+      counts.set(application.state, (counts.get(application.state) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([state, count]) => ({ state, count }));
+  },
+});
+
 export const list = query({
   args: {
     eventSlug: v.string(),
