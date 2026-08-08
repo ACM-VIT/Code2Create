@@ -1155,3 +1155,31 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .first-event-setup .form-grid.two-columns, .first-event-setup .form-grid.four-columns, .bootstrap-track { grid-template-columns: 1fr; }
   .first-event-setup .span-two { grid-column: auto; }
 }
+
+/* Where the event is, and what stands between it and the next step. */
+.stage-block {
+  border-left: 2px solid var(--line, #34322e);
+  padding: 0 0 0 16px;
+  margin: 8px 0 28px;
+  display: grid;
+  gap: 6px;
+}
+.stage-block p { margin: 0; }
+.stage-blockers {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+/* Destinations this stage of the event does not routinely need. */
+.navigation-rest > summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  padding: 14px 0 4px;
+}
+.navigation-rest[open] > summary { opacity: 0.8; }

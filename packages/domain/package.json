@@ -7,9 +7,11 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test src/eventStage.test.ts"
   },
   "devDependencies": {
+    "@types/node": "^24.13.3",
     "typescript": "~6.0.2"
   }
 }

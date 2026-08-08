@@ -1,11 +1,16 @@
 import { api } from '@code2create/backend/api'
+import { type EventStage, eventStageGuidance } from '@code2create/domain'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import type { FunctionReturnType } from 'convex/server'
 import { AuthLoading, Authenticated, Unauthenticated, useAction, useMutation, useQuery } from 'convex/react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { lazy, Suspense, useState } from 'react'
 
-import { OperationsLayout, type OperationsNavigationGroup } from './components/OperationsLayout'
+import {
+  OperationsLayout,
+  type OperationsNavigationGroup,
+  type OperationsNavigationItem,
+} from './components/OperationsLayout'
 import type { ConfigurationTabsVisibility } from './components/ConfigurationTabs'
 import { eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
@@ -125,14 +130,20 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
       </Unauthenticated>
       <Authenticated>
         {publicState.event
-          ? <Operations authClient={authClient} />
+          ? <Operations authClient={authClient} eventStatus={publicState.event.status} />
           : <InitialEventSetup authClient={authClient} />}
       </Authenticated>
     </>
   )
 }
 
-function Operations({ authClient }: { authClient: Code2CreateAuthClient }) {
+function Operations({
+  authClient,
+  eventStatus,
+}: {
+  authClient: Code2CreateAuthClient
+  eventStatus: EventStage
+}) {
   const access = useQuery(api.access.mine, { eventSlug })
   const invitation = useQuery(api.accessInvitations.mine, { eventSlug })
   const roster = useQuery(api.rosters.mine, { eventSlug })
@@ -333,30 +344,20 @@ function Operations({ authClient }: { authClient: Code2CreateAuthClient }) {
       ],
     },
   ].filter((group) => group.items.length > 0)
-  const homeActions = {
-    complete: [
-      ...(canViewScores ? [{ label: 'Open results', to: '/scores' }] : []),
-      ...(canViewReviews ? [{ label: 'Review judging', to: '/reviews' }] : []),
-      ...(canViewSupport ? [{ label: 'Open help desk', to: '/support' }] : []),
-    ],
-    draft: [
-      ...(configurationPath ? [{ label: 'Set up the event', to: configurationPath }] : []),
-      ...(canViewAccess ? [{ label: 'Add event staff', to: '/access' }] : []),
-      ...(canViewRehearsal ? [{ label: 'Run a test', to: '/rehearsal' }] : []),
-    ],
-    live: [
-      ...(canViewAttendance ? [{ label: 'Run check-in', to: '/attendance' }] : []),
-      ...(canReadFloorLocations ? [{ label: 'Open hall', to: '/floor' }] : []),
-      ...(canViewReviews ? [{ label: 'Run judging', to: '/reviews' }] : []),
-      ...(canViewSupport ? [{ label: 'Open help desk', to: '/support' }] : []),
-    ],
-    registration: [
-      ...(canViewAdmissions ? [{ label: 'Review applications', to: '/admissions' }] : []),
-      ...(configurationPath ? [{ label: 'Manage event setup', to: configurationPath }] : []),
-      ...(canViewAccess ? [{ label: 'Manage event staff', to: '/access' }] : []),
-      ...(canViewSupport ? [{ label: 'Open help desk', to: '/support' }] : []),
-    ],
-  }
+  // The event moves through stages and only a few destinations matter in each.
+  // Showing all fourteen at once is what makes the shell unreadable, so this
+  // stage's destinations come first and the rest stay one click away.
+  const stage = eventStageGuidance[eventStatus]
+  const allItems = navigation.flatMap((group) => group.items)
+  const nowItems = stage.primaryPaths
+    .map((path) => allItems.find((item) => item.to === path || item.to.startsWith(`${path}/`)))
+    .filter((item): item is OperationsNavigationItem => item !== undefined)
+  const restGroups = navigation
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !nowItems.includes(item)),
+    }))
+    .filter((group) => group.items.length > 0)
   const defaultPath = firstAvailablePath(
     [canViewHealth, '/'],
     [canViewAdmissions, '/admissions'],
@@ -382,7 +383,9 @@ function Operations({ authClient }: { authClient: Code2CreateAuthClient }) {
       accountEmail={session?.user.email ?? ''}
       authClient={authClient}
       identity={session?.user.name || session?.user.email || 'Signed in'}
-      navigation={navigation}
+      navigation={restGroups}
+      nowItems={nowItems}
+      stageLabel={stage.label}
     >
       <Suspense fallback={<p className="muted" role="status">Loading workspace…</p>}>
         <Routes>
@@ -391,7 +394,6 @@ function Operations({ authClient }: { authClient: Code2CreateAuthClient }) {
             path="/"
             element={(
               <HealthOverview
-                actions={homeActions}
                 canGenerateIntelligence={canGenerateIntelligence}
                 canReadIntelligence={canReadIntelligence}
               />

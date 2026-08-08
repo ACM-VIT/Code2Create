@@ -18,16 +18,9 @@ import {
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import { eventStatus } from "./values";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
-
-const eventStatus = v.union(
-  v.literal("draft"),
-  v.literal("registration_open"),
-  v.literal("registration_closed"),
-  v.literal("live"),
-  v.literal("complete"),
-);
 
 const lifecycleBlocker = v.object({ key: v.string(), label: v.string() });
 

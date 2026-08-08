@@ -9,12 +9,18 @@ export function OperationsLayout({
   authClient,
   identity,
   navigation,
+  nowItems,
+  stageLabel,
   children,
 }: {
   accountEmail: string
   authClient: Code2CreateAuthClient
   identity: string
+  /** Everything this stage of the event does not routinely need. */
   navigation: OperationsNavigationGroup[]
+  /** The destinations this stage actually uses, most important first. */
+  nowItems: OperationsNavigationItem[]
+  stageLabel: string
   children: ReactNode
 }) {
   return (
@@ -34,14 +40,27 @@ export function OperationsLayout({
       </header>
       <aside className="sidebar">
         <nav aria-label="Operations">
-          {navigation.map((group) => (
-            <section className="navigation-group" key={group.label}>
-              <p>{group.label}</p>
-              {group.items.map((item) => (
+          {nowItems.length > 0 ? (
+            <section className="navigation-group" key="now">
+              <p>{stageLabel}</p>
+              {nowItems.map((item) => (
                 <NavLink end={item.to === '/'} key={item.to} to={item.to}>{item.label}</NavLink>
               ))}
             </section>
-          ))}
+          ) : null}
+          {navigation.length > 0 ? (
+            <details className="navigation-rest">
+              <summary>Everything else</summary>
+              {navigation.map((group) => (
+                <section className="navigation-group" key={group.label}>
+                  <p>{group.label}</p>
+                  {group.items.map((item) => (
+                    <NavLink end={item.to === '/'} key={item.to} to={item.to}>{item.label}</NavLink>
+                  ))}
+                </section>
+              ))}
+            </details>
+          ) : null}
         </nav>
       </aside>
       <main className="workspace">
@@ -57,7 +76,7 @@ export type OperationsNavigationGroup = {
   items: OperationsNavigationItem[]
 }
 
-type OperationsNavigationItem = {
+export type OperationsNavigationItem = {
   label: string
   to: string
 }

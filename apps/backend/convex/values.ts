@@ -405,6 +405,14 @@ export const reviewRoundStatus = v.union(
   v.literal("closed"),
 );
 
+export const eventStatus = v.union(
+  v.literal("draft"),
+  v.literal("registration_open"),
+  v.literal("registration_closed"),
+  v.literal("live"),
+  v.literal("complete"),
+);
+
 export const reviewPanelStatus = v.union(
   v.literal("draft"),
   v.literal("ready"),

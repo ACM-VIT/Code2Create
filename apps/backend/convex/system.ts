@@ -37,7 +37,7 @@ import type { PermissionKey } from "./lib/permissionCatalog";
 import { fingerprintText, normalizeEmail, normalizedText } from "./lib/strings";
 import { loadPublishedPhaseSchedule } from "./lib/phaseSchedule";
 import { normalizeTrackCatalog } from "./lib/trackCatalog";
-import { eventPhaseKey } from "./values";
+import { eventPhaseKey, eventStatus } from "./values";
 
 const publicTrack = v.object({
   id: v.id("trackVersions"),
@@ -103,7 +103,7 @@ export const getPublicState = query({
         slug: v.string(),
         name: v.string(),
         timezone: v.string(),
-        status: v.string(),
+        status: eventStatus,
         registrationOpen: v.boolean(),
         teamMinSize: v.number(),
         teamMaxSize: v.number(),

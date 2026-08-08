@@ -1,4 +1,9 @@
 import { api } from '@code2create/backend/api'
+import {
+  activeWorkBlockerKeys,
+  eventBlockerPaths,
+  eventStageGuidance,
+} from '@code2create/domain'
 import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -18,18 +23,11 @@ function currentRefreshBucket() {
 }
 
 type HealthOverviewProps = {
-  actions: {
-    complete: { label: string; to: string }[]
-    draft: { label: string; to: string }[]
-    live: { label: string; to: string }[]
-    registration: { label: string; to: string }[]
-  }
   canGenerateIntelligence: boolean
   canReadIntelligence: boolean
 }
 
 export function HealthOverview({
-  actions,
   canGenerateIntelligence,
   canReadIntelligence,
 }: HealthOverviewProps) {
@@ -72,7 +70,6 @@ export function HealthOverview({
   )
   const briefInProgress = brief?.state === 'pending' || brief?.state === 'dispatching' || brief?.state === 'accepted'
   const briefExpired = brief?.relevanceExpiresAt !== undefined && Date.now() >= brief.relevanceExpiresAt
-  const currentActions = actionsForEvent(overview.event.status, actions)
 
   return (
     <section className="health-shell">
@@ -80,7 +77,6 @@ export function HealthOverview({
         <div>
           <p className="eyebrow">{overview.event.name}</p>
           <h1>Overview</h1>
-          <p className="muted">{eventState(overview.event.status)}</p>
         </div>
         <div className={`health-current ${overview.summary.status}`}>
           <span>System health</span>
@@ -89,11 +85,7 @@ export function HealthOverview({
         </div>
       </header>
 
-      {currentActions.length > 0 ? (
-        <nav className="home-actions" aria-label="Current work">
-          {currentActions.map((action) => <Link key={action.to} to={action.to}>{action.label}<span>→</span></Link>)}
-        </nav>
-      ) : null}
+      <StageBlock />
 
       <section className="attention-section">
         <div className="section-heading">
@@ -232,22 +224,53 @@ export function HealthOverview({
   )
 }
 
-function actionsForEvent(
-  status: 'complete' | 'draft' | 'live' | 'registration_closed' | 'registration_open',
-  actions: HealthOverviewProps['actions'],
-) {
-  if (status === 'draft') return actions.draft
-  if (status === 'live') return actions.live
-  if (status === 'complete') return actions.complete
-  return actions.registration
-}
+/**
+ * Where the event is, and what stands between it and the next step.
+ *
+ * The backend already computes exactly what is missing before each transition;
+ * until now nothing showed it, so an operator faced twelve settings with no way
+ * to tell which were required, which were optional, and whether they were done.
+ */
+function StageBlock() {
+  const lifecycle = useQuery(api.eventLifecycle.current, { eventSlug })
+  if (lifecycle === undefined) return null
 
-function eventState(value: 'complete' | 'draft' | 'live' | 'registration_closed' | 'registration_open') {
-  if (value === 'draft') return 'Setup in progress'
-  if (value === 'registration_open') return 'Applications are open'
-  if (value === 'registration_closed') return 'Applications are closed'
-  if (value === 'live') return 'The event is live'
-  return 'The event is complete'
+  const stage = eventStageGuidance[lifecycle.status]
+  const nextTransition = stage.nextStatus
+    ? lifecycle.transitions.find((transition) => transition.targetStatus === stage.nextStatus)
+    : undefined
+  const blockers = nextTransition?.blockers ?? []
+  const isActiveWork = blockers.some((blocker) => activeWorkBlockerKeys.includes(blocker.key))
+
+  return (
+    <section className="stage-block">
+      <p className="eyebrow">{stage.label}</p>
+      <p>{stage.goal}</p>
+      {stage.nextStep === null ? null : blockers.length === 0 ? (
+        <p className="muted">
+          Nothing is blocking you. When you are ready, the next step is <strong>{stage.nextStep.toLowerCase()}</strong>.
+        </p>
+      ) : (
+        <>
+          <p className="muted">
+            {isActiveWork
+              ? `You cannot ${stage.nextStep.toLowerCase()} while this is still running:`
+              : `Before you can ${stage.nextStep.toLowerCase()}, ${blockers.length === 1 ? 'one thing is' : `${blockers.length} things are`} missing:`}
+          </p>
+          <ul className="stage-blockers">
+            {blockers.map((blocker) => {
+              const to = eventBlockerPaths[blocker.key]
+              return (
+                <li key={blocker.key}>
+                  {to ? <Link to={to}>{blocker.label} →</Link> : <span>{blocker.label}</span>}
+                </li>
+              )
+            })}
+          </ul>
+        </>
+      )}
+    </section>
+  )
 }
 
 function statusLabel(value: 'healthy' | 'watch' | 'attention' | 'critical') {
