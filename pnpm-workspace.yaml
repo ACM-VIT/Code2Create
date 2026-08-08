@@ -1,0 +1,28 @@
+packages:
+  - "."
+  - "apps/*"
+  - "packages/*"
+allowBuilds:
+  '@firebase/util': false
+  '@google/genai': false
+  '@sentry/cli': true
+  core-js-pure: false
+  esbuild: true
+  protobufjs: false
+  sharp: true
+  unrs-resolver: true
+  workerd: true
+minimumReleaseAgeExclude:
+  - '@expo/cli@57.0.13'
+  - '@expo/config-plugins@57.0.7'
+  - babel-preset-expo@57.0.6
+  - expo-asset@57.0.9
+  - expo-file-system@57.0.2
+  - expo-modules-core@57.0.10
+  - expo@57.0.11
+  - expo-notifications@57.0.9
+  - expo-router@57.0.11
+  - expo-symbols@57.0.2
+  - '@cloudflare/vite-plugin@1.51.1'
+  - miniflare@5.20260801.1-alpha
+  - wrangler@4.120.0

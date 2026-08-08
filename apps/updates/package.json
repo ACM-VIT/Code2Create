@@ -1,0 +1,37 @@
+{
+  "name": "@code2create/updates",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/wrangler.ts deploy --config wrangler.jsonc --env staging --dry-run",
+    "dev": "node scripts/wrangler.ts dev --config wrangler.jsonc --env staging --port 8792 --inspector-port 9239",
+    "bucket:create:staging": "node scripts/wrangler.ts r2 bucket create code2create-updates-staging --location apac --config wrangler.jsonc",
+    "bucket:create:production": "node scripts/wrangler.ts r2 bucket create code2create-updates --location apac --config wrangler.jsonc",
+    "configure:staging": "node scripts/configure.ts staging",
+    "configure:production": "node scripts/configure.ts production",
+    "deploy:staging": "node scripts/wrangler.ts deploy --config wrangler.jsonc --env staging --strict",
+    "deploy:production": "node scripts/wrangler.ts deploy --config wrangler.jsonc --env production --strict",
+    "publish:staging": "node scripts/publish.ts staging",
+    "publish:production": "node scripts/publish.ts production",
+    "rollback:staging": "node scripts/publish.ts staging --rollback",
+    "rollback:production": "node scripts/publish.ts production --rollback",
+    "lint": "oxlint src scripts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "mime": "^4.1.0",
+    "structured-headers": "^2.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260804.1",
+    "@expo/multipart-body-parser": "^2.0.0",
+    "@types/node": "^24.13.3",
+    "oxlint": "^1.75.0",
+    "typescript": "~6.0.3",
+    "vitest": "4.1.10",
+    "wrangler": "^4.120.0"
+  }
+}

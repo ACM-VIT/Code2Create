@@ -11,16 +11,12 @@
 !.yarn/versions
 
 # testing
-/coverage
-
-# next.js
-/.next/
-/.vinext/
-/out/
+coverage/
 
 # misc
 .DS_Store
 *.pem
+!apps/reviewer/certs/certificate.pem
 
 # debug
 npm-debug.log*
@@ -30,14 +26,19 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!apps/web/.env.development
+!apps/ops/.env.development
+!apps/handbook/.env.development
 
-# vercel
-.vercel
+# build output and local tool state, at any workspace depth
+dist/
+.wrangler/
+.expo/
+.vinext/
+*.tsbuildinfo
 
-# typescript
-next-env.d.ts
-/dist/
-/.wrangler/
 /outputs/
 /work/
 /.playwright-mcp/
+
+node_modules

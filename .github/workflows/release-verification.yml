@@ -1,0 +1,82 @@
+name: Staging release verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-release-verification
+  cancel-in-progress: false
+
+jobs:
+  browser:
+    name: Browser surfaces
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: staging
+    env:
+      C2C_E2E_ENVIRONMENT: staging
+      C2C_E2E_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      C2C_EVENT_SLUG: ${{ vars.EVENT_SLUG }}
+      C2C_OPERATIONS_ACCOUNT_EMAIL: ${{ vars.RELEASE_OPERATIONS_EMAIL }}
+      C2C_OPERATIONS_STORAGE_STATE_BASE64: ${{ secrets.RELEASE_OPERATIONS_STORAGE_STATE_BASE64 }}
+      C2C_OPERATIONS_STORAGE_STATE_PATH: ${{ runner.temp }}/code2create-auth/operations.json
+      C2C_OPERATIONS_URL: ${{ vars.OPERATIONS_SITE_URL }}
+      C2C_PARTICIPANT_ACCOUNT_EMAIL: ${{ vars.RELEASE_PARTICIPANT_EMAIL }}
+      C2C_PARTICIPANT_STORAGE_STATE_BASE64: ${{ secrets.RELEASE_PARTICIPANT_STORAGE_STATE_BASE64 }}
+      C2C_PARTICIPANT_STORAGE_STATE_PATH: ${{ runner.temp }}/code2create-auth/participant.json
+      C2C_PARTICIPANT_URL: ${{ vars.PARTICIPANT_SITE_URL }}
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm, Node.js, and dependencies
+        uses: pnpm/setup@c9883cc79df532ad1a7b81bf9ab944ceb090d65c
+        with:
+          runtime: node@24
+          cache: true
+
+      - name: Verify scoped staging fixtures
+        run: pnpm --filter @code2create/backend browser-fixtures:check:staging
+
+      - name: Write protected browser sessions
+        run: pnpm --filter @code2create/e2e auth:write
+
+      - name: Install Chromium
+        run: pnpm --filter @code2create/e2e install:browser:ci
+
+      - name: Verify participant and operations staging surfaces
+        run: pnpm --filter @code2create/e2e test:release
+
+  providers:
+    name: Live providers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: staging
+    env:
+      C2C_PROVIDER_ENVIRONMENT: staging
+      C2C_PROVIDER_FIGMA_ACCESS_TOKEN: ${{ secrets.RELEASE_FIGMA_ACCESS_TOKEN }}
+      C2C_PROVIDER_FIGMA_FILE_KEY: ${{ vars.RELEASE_FIGMA_FILE_KEY }}
+      C2C_PROVIDER_GITHUB_INSTALLATION_ID: ${{ vars.RELEASE_GITHUB_INSTALLATION_ID }}
+      C2C_PROVIDER_GITHUB_OWNER: ${{ vars.RELEASE_GITHUB_OWNER }}
+      C2C_PROVIDER_GITHUB_REPOSITORY: ${{ vars.RELEASE_GITHUB_REPOSITORY }}
+      C2C_PROVIDER_GITHUB_REPOSITORY_ID: ${{ vars.RELEASE_GITHUB_REPOSITORY_ID }}
+      C2C_PROVIDER_INTELLIGENCE_URL: ${{ vars.INTELLIGENCE_WORKER_URL }}
+      GITHUB_APP_CLIENT_ID: ${{ vars.GITHUB_APP_CLIENT_ID }}
+      GITHUB_APP_CLIENT_SECRET: ${{ secrets.GITHUB_APP_CLIENT_SECRET }}
+      GITHUB_APP_ID: ${{ vars.GITHUB_APP_ID }}
+      GITHUB_APP_PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm, Node.js, and dependencies
+        uses: pnpm/setup@c9883cc79df532ad1a7b81bf9ab944ceb090d65c
+        with:
+          runtime: node@24
+          cache: true
+
+      - name: Verify read-only staging provider paths
+        run: pnpm --filter @code2create/backend providers:check:staging

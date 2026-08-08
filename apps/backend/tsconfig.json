@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "strict": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "target": "ESNext",
+    "lib": ["ESNext", "DOM"],
+    "types": ["node", "vite/client"],
+    "skipLibCheck": true,
+    "noEmit": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true
+  },
+  "include": ["convex/**/*.ts", "scripts/**/*.ts"]
+}

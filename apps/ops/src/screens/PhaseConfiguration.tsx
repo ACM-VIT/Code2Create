@@ -1,0 +1,369 @@
+import { api } from '@code2create/backend/api'
+import { TZDateMini } from '@date-fns/tz'
+import type { FunctionReturnType } from 'convex/server'
+import { useMutation, useQuery } from 'convex/react'
+import { useEffect, useState, type FormEvent } from 'react'
+
+import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { eventSlug } from '../lib/config'
+import { readableError } from '../lib/errors'
+
+type Configuration = FunctionReturnType<typeof api.phaseConfiguration.current>
+type Schedule = NonNullable<Configuration['publishedSchedule']>
+type SchedulePhase = Schedule['phases'][number]
+type PhaseKey = SchedulePhase['phaseKey']
+
+type EditorPhase = {
+  phaseKey: PhaseKey
+  displayName: string
+  description: string
+  startsAt: string
+  endsAt: string
+}
+
+const phaseDefaults = [
+  {
+    phaseKey: 'introduction',
+    displayName: 'Introduction',
+    description: 'Welcome, orientation, and event setup.',
+  },
+  {
+    phaseKey: 'ideation',
+    displayName: 'Ideation',
+    description: 'Teams refine the problem, users, and approach.',
+  },
+  {
+    phaseKey: 'build',
+    displayName: 'Build',
+    description: 'The main hacking window.',
+  },
+  {
+    phaseKey: 'intermediate_update',
+    displayName: 'Intermediate update',
+    description: 'Teams record a short progress checkpoint.',
+  },
+  {
+    phaseKey: 'final_update',
+    displayName: 'Final update',
+    description: 'Teams complete the final project checkpoint.',
+  },
+] as const satisfies readonly {
+  phaseKey: PhaseKey
+  displayName: string
+  description: string
+}[]
+
+export function PhaseConfiguration({
+  tabs,
+}: {
+  tabs: ConfigurationTabsVisibility
+}) {
+  const configuration = useQuery(api.phaseConfiguration.current, { eventSlug })
+  const createDraft = useMutation(api.phaseConfiguration.createDraft)
+  const publish = useMutation(api.phaseConfiguration.publish)
+  const validation = useQuery(
+    api.phaseConfiguration.validateDraft,
+    configuration?.canValidate && configuration.draftSchedule
+      ? { eventSlug, draftScheduleId: configuration.draftSchedule.id }
+      : 'skip',
+  )
+  const [phases, setPhases] = useState<EditorPhase[]>([])
+  const [loadedSchedule, setLoadedSchedule] = useState('')
+  const [draftReason, setDraftReason] = useState('Aligned with the event run sheet')
+  const [publishReason, setPublishReason] = useState('Checked and approved for participant display')
+  const [publishArmed, setPublishArmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!configuration) return
+    const schedule = configuration.draftSchedule ?? configuration.publishedSchedule
+    const sourceKey = schedule
+      ? `${schedule.id}:${schedule.checksum}`
+      : `empty:${configuration.timezone}`
+    if (sourceKey === loadedSchedule) return
+    setPhases(
+      schedule
+        ? schedule.phases.map((phase) => toEditorPhase(phase, configuration.timezone))
+        : phaseDefaults.map((phase) => ({ ...phase, startsAt: '', endsAt: '' })),
+    )
+    setLoadedSchedule(sourceKey)
+    setPublishArmed(false)
+  }, [configuration, loadedSchedule])
+
+  if (configuration === undefined) {
+    return <p className="muted">Loading event phases…</p>
+  }
+
+  const updatePhase = (phaseKey: PhaseKey, patch: Partial<EditorPhase>) => {
+    setPhases((current) => current.map((phase) => (
+      phase.phaseKey === phaseKey ? { ...phase, ...patch } : phase
+    )))
+  }
+
+  const saveDraft = async (event: FormEvent) => {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      await createDraft({
+        eventSlug,
+        phases: phases.map((phase) => ({
+          phaseKey: phase.phaseKey,
+          displayName: phase.displayName,
+          description: phase.description,
+          startsAt: zonedTimestamp(
+            phase.startsAt,
+            configuration.timezone,
+            `${phase.displayName} start`,
+          ),
+          endsAt: zonedTimestamp(
+            phase.endsAt,
+            configuration.timezone,
+            `${phase.displayName} end`,
+          ),
+        })),
+        expectedEventVersion: configuration.eventVersion,
+        ...(configuration.draftSchedule
+          ? { expectedDraftScheduleId: configuration.draftSchedule.id }
+          : {}),
+        reason: draftReason,
+        clientOperationId: crypto.randomUUID(),
+      })
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const publishDraft = async () => {
+    const draft = configuration.draftSchedule
+    if (!draft || !validation?.valid) return
+    setBusy(true)
+    setError(null)
+    try {
+      await publish({
+        eventSlug,
+        draftScheduleId: draft.id,
+        expectedDraftChecksum: draft.checksum,
+        expectedEventVersion: configuration.eventVersion,
+        reason: publishReason,
+        clientOperationId: crypto.randomUUID(),
+      })
+      setPublishArmed(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="phase-config-shell">
+      <ConfigurationTabs visibility={tabs} />
+      <header className="page-heading track-config-heading">
+        <div>
+          <p className="eyebrow">Event flow</p>
+          <h1>Event schedule</h1>
+          <p className="muted">
+            Five participant-visible windows in {configuration.timezone}. Gaps are allowed; overlaps are not.
+          </p>
+        </div>
+      </header>
+
+      <dl className="catalog-summary phase-summary">
+        <div>
+          <dt>Status</dt>
+          <dd>{configuration.publishedSchedule ? 'Ready' : 'Not published'}</dd>
+        </div>
+        <div><dt>Timezone</dt><dd>{configuration.timezone}</dd></div>
+        <div><dt>Phases</dt><dd>5</dd></div>
+      </dl>
+
+      {configuration.publishedSchedule ? (
+        <ol className="published-phase-list">
+          {configuration.publishedSchedule.phases.map((phase) => (
+            <li key={phase.phaseKey}>
+              <div><strong>{phase.displayName}</strong><span>{phase.description}</span></div>
+              <time>{formatWindow(phase.startsAt, phase.endsAt, configuration.timezone)}</time>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="notice">No phase schedule is participant-visible yet.</p>
+      )}
+
+      {configuration.draftSchedule ? (
+        <section className="catalog-review">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Draft changes</p>
+              <h2>Before publishing</h2>
+            </div>
+            {configuration.canPublish && validation?.valid && !publishArmed ? (
+              <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>
+                Publish draft
+              </button>
+            ) : null}
+          </div>
+          {configuration.canValidate ? (
+            validation === undefined ? (
+              <p className="muted">Validating draft…</p>
+            ) : (
+              <>
+                <ul className="catalog-change-list">
+                  {validation.changes.map((change) => <li key={change}>{change}</li>)}
+                </ul>
+                {validation.issues.length > 0 ? (
+                  <ul className="catalog-issue-list">
+                    {validation.issues.map((issue) => <li key={issue}>{issue}</li>)}
+                  </ul>
+                ) : (
+                  <p className="notice">Valid at {formatTime(validation.evaluatedAt, configuration.timezone)}.</p>
+                )}
+              </>
+            )
+          ) : (
+            <p className="notice">You do not have permission to check this draft.</p>
+          )}
+        </section>
+      ) : null}
+
+      {configuration.draftSchedule && configuration.canPublish && validation?.valid && publishArmed ? (
+        <section className="publish-confirmation catalog-publish">
+          <h2>Publish this event schedule?</h2>
+          <p className="muted">
+            Participants will receive the new schedule immediately. Completed phases cannot be changed later; a phase already in progress can only change its future end time.
+          </p>
+          <label className="field">
+            <span>Why this changed</span>
+            <textarea required value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
+          </label>
+          <div className="button-row">
+            <button className="primary" disabled={busy || publishReason.trim().length < 5} type="button" onClick={() => void publishDraft()}>
+              {busy ? 'Publishing…' : 'Publish schedule'}
+            </button>
+            <button className="secondary" disabled={busy} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
+          </div>
+        </section>
+      ) : null}
+
+      {configuration.canDraft ? (
+        <form className="phase-editor" onSubmit={saveDraft}>
+          <div className="track-editor-heading">
+            <div>
+              <p className="eyebrow">{configuration.draftSchedule ? 'Replace current draft' : 'Create a draft'}</p>
+              <h2>Schedule</h2>
+              <p className="muted">Times below use {configuration.timezone}, not the browser timezone.</p>
+            </div>
+          </div>
+          <div className="phase-card-list">
+            {phases.map((phase, index) => (
+              <article className="phase-card" key={phase.phaseKey}>
+                <header>
+                  <span>Phase {index + 1}</span>
+                  <strong>{phase.displayName}</strong>
+                </header>
+                <div className="phase-field-grid">
+                  <label className="field">
+                    <span>Name</span>
+                    <input required value={phase.displayName} onChange={(event) => updatePhase(phase.phaseKey, { displayName: event.target.value })} />
+                  </label>
+                  <label className="field">
+                    <span>Start · {configuration.timezone}</span>
+                    <input required type="datetime-local" value={phase.startsAt} onChange={(event) => updatePhase(phase.phaseKey, { startsAt: event.target.value })} />
+                  </label>
+                  <label className="field">
+                    <span>End · {configuration.timezone}</span>
+                    <input required type="datetime-local" value={phase.endsAt} onChange={(event) => updatePhase(phase.phaseKey, { endsAt: event.target.value })} />
+                  </label>
+                </div>
+                <label className="field">
+                  <span>Participant description</span>
+                  <textarea required value={phase.description} onChange={(event) => updatePhase(phase.phaseKey, { description: event.target.value })} />
+                </label>
+              </article>
+            ))}
+          </div>
+          <section className="track-save">
+            <label className="field">
+              <span>Why this changed</span>
+              <textarea required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} />
+            </label>
+            <button className="primary" disabled={busy || phases.length !== phaseDefaults.length} type="submit">
+              {busy ? 'Saving…' : configuration.draftSchedule ? 'Replace draft' : 'Save draft'}
+            </button>
+          </section>
+        </form>
+      ) : null}
+
+      {error ? <p className="notice error" role="alert">{error}</p> : null}
+    </section>
+  )
+}
+
+function toEditorPhase(phase: SchedulePhase, timezone: string): EditorPhase {
+  return {
+    phaseKey: phase.phaseKey,
+    displayName: phase.displayName,
+    description: phase.description,
+    startsAt: timestampInput(phase.startsAt, timezone),
+    endsAt: timestampInput(phase.endsAt, timezone),
+  }
+}
+
+function timestampInput(timestamp: number, timezone: string) {
+  const date = new TZDateMini(timestamp, timezone)
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+  ].join('-') + `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function zonedTimestamp(value: string, timezone: string, label: string) {
+  const [datePart, timePart] = value.split('T')
+  const datePieces = datePart?.split('-')
+  const timePieces = timePart?.split(':')
+  const year = Number(datePieces?.[0])
+  const month = Number(datePieces?.[1])
+  const day = Number(datePieces?.[2])
+  const hour = Number(timePieces?.[0])
+  const minute = Number(timePieces?.[1])
+  if ([year, month, day, hour, minute].some((part) => !Number.isInteger(part))) {
+    throw new Error(`${label} is incomplete.`)
+  }
+  const date = new TZDateMini(year, month - 1, day, hour, minute, timezone)
+  if (
+    !Number.isFinite(date.getTime()) ||
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day ||
+    date.getHours() !== hour ||
+    date.getMinutes() !== minute
+  ) {
+    throw new Error(`${label} is not a valid local time in ${timezone}.`)
+  }
+  return date.getTime()
+}
+
+function formatWindow(startsAt: number, endsAt: number, timezone: string) {
+  const format = new Intl.DateTimeFormat(undefined, {
+    timeZone: timezone,
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  })
+  return `${format.format(startsAt)} – ${format.format(endsAt)}`
+}
+
+function formatTime(timestamp: number, timezone: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone: timezone,
+    timeStyle: 'short',
+  }).format(timestamp)
+}
+
+function pad(value: number) {
+  return String(value).padStart(2, '0')
+}

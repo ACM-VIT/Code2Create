@@ -31,31 +31,31 @@ Each rubric criterion also has examples for 0, 2, and 4. Reviewer training uses 
 
 ## 3. Criterion guidance
 
-### Problem & User Fit
+### Problem and user fit
 
 Review the user definition, observed need, urgency, alternatives, and evidence. A broad market statement without a specific user or observation does not earn a high score.
 
-### Working Solution
+### Working solution
 
 Score what the team demonstrates. Separate a functioning flow from a slide, video, static mock-up, or verbal promise. The evidence checklist records what was shown.
 
-### Event Build Contribution
+### Event build contribution
 
 Consider the official event baseline, disclosed general-purpose starting resources, repository/design checkpoints, third-party services, generated code, templates, datasets, and what changed during Code2Create. Using tools is allowed. Admissions handles any project-specific implementation or design from before the baseline; reviewers do not offset it with a lower or higher score.
 
-### Technical Execution
+### Technical execution
 
 Review architecture, implementation depth, reliability, security, and fit to the problem. Do not reward complexity by itself.
 
-### User Readiness
+### User readiness
 
 Review task clarity, interaction, accessibility, error handling, and whether an intended user could complete the main flow. The “interface” may be a GUI, CLI, API, hardware control, data output, or another form appropriate to the project. Do not turn this into a visual-design score.
 
-### Trust & Responsible Use
+### Trust and responsible use
 
 Review data collection, consent, permissions, model/tool disclosure, unsafe failure modes, abuse prevention, and accessibility concerns relevant to the project.
 
-### Communication & Evidence
+### Communication and evidence
 
 Review whether the team explained the problem, decisions, limitations, and progress with evidence. Presentation polish cannot replace a working result.
 
@@ -106,7 +106,7 @@ Example: scores 3 and 4 for a 20-point criterion produce a mean of 3.5 and 17.5 
 The following do not occur:
 
 - seniority multipliers;
-- automatic score normalisation across panels;
+- automatic score normalization across panels;
 - hidden panel-specific offsets;
 - replacement of independent scores with a consensus score;
 - AI-written or AI-recommended ratings.
@@ -148,27 +148,35 @@ Progress is required evidence. The current rubric has no separate progress weigh
 
 Provider statistics do not calculate or suggest a score. Commit, line, file, node, version, and comment counts can help a reviewer locate change, but they cannot establish quality, effort, originality, or individual contribution. GitHub authors and Figma version/comment handles are observations from provider records, not a member-attribution system.
 
+Rendered Figma frames are derived views of the exact provider version stored in the review checkpoint. A render set may move from pending to ready/partial after review assignment, but it cannot change the pinned source version or substitute the current file. Missing or failed renders are evidence-availability facts, never a score penalty or score suggestion.
+
+The explicit progress comparison joins the current review checkpoint to the latest earlier judging checkpoint for the same team. It does not compare against an intervening webhook or participant refresh. Stored named versions, comments, and side-by-side renders help a reviewer find what to inspect. The system labels an incomplete bounded capture as uncertain. None of these observations becomes a score, effort estimate, or member-attribution claim.
+
 Attendance confirmations, present duration, temporary exits, missed scans, and excused absence are operations/safety records. They are not project progress evidence and never enter a criterion, reviewer context, score, tie-break, or award recommendation.
 
-The evidence context is immutable after the review starts. A later push, Figma refresh, or repository-set change may be visible as newer available evidence, but scoring remains tied to the recorded checkpoint-set ID unless `review.evidence_context.replace` for that review explicitly replaces it and records why.
+A submitted sponsor-track selection is shown as project context with its published requirement. It does not change rubric weights, assign a sponsor award, prove eligibility, or recommend a score. A reviewer may inspect relevant evidence under an approved sponsor-award policy, but ordinary hackathon scoring remains the shared published rubric.
+
+The evidence context is immutable after the review starts. The app can show a later push, Figma refresh, or repository-set change as newer available evidence. Scoring remains tied to the recorded checkpoint-set ID. Only `review.evidence_context.replace` for that review can replace it, and the command must record a reason.
 
 Adding a separate weighted progress criterion is an open decision. The system does not create bonus points without that decision.
 
 ## 9. AI boundary
 
-The intake interpretation layer may identify fields already present in team-written answers, generate a bounded follow-up question, suggest published tracks, and draft a compact source-linked project brief.
+The intake interpretation layer may identify covered purposes in team-written answers, generate one bounded follow-up question, and recommend one published core track.
 
 It must:
 
-- label every model-assisted brief field and link it to participant-written answer versions;
-- leave track, sponsor eligibility, freshness attestation, and final wording unconfirmed until the participant acts;
+- cite the exact active answer versions used for a question or track recommendation;
+- leave core-track choice, sponsor-track selection, freshness attestation, and every submitted answer to the participant;
 - avoid novelty verdicts and invented validation, users, progress, disclosures, or evidence;
-- avoid predicted admission, rank, score, or winner language;
+- avoid admission recommendations, rank, score, or winner language;
 - never replace reviewer access to original answers.
 
 A track-specific intake overlay can request relevant evidence. It does not alter rubric weights or scoring anchors unless the board separately publishes a new rubric version.
 
-No model receives admission recommendations, private reviewer notes, peer scores, scorecards, evaluation results, or ranking data. No model output can call an admission, routing, score, award, or project-submission mutation. Reviewer/panel routing and criterion coverage use fixed rules.
+A separate pre-event admission-analysis contract may read the redacted submitted application, deterministic year/study band, and published admission rubric and return a structured `accept | waitlist | decline | needs_information` recommendation. It receives no human admission recommendation, private reviewer note, judging rubric, peer score, scorecard, evaluation result, ranking, attendance history, or provider-activity count. Its result is visibly advisory, has no numeric score, and cannot call an admission or project mutation. A human with the exact permission publishes the application decision and records whether the AI record was used, cleared, or overridden.
+
+No model can generate, change, normalize, predict, or recommend a hackathon judging score, award, rank, or winner. Admission-analysis output is never supplied to venue judges or judging functions. Reviewer/panel routing and criterion coverage use fixed rules.
 
 ## 10. Round close
 
@@ -183,11 +191,31 @@ No model receives admission recommendations, private reviewer notes, peer scores
 - manual incident records;
 - totals computed from the published rubric version.
 
-Round close is blocked until each unresolved item is fixed or handled by an approved exception policy.
+The server blocks round close until each team has one explicit outcome. The outcome must be one valid completed result, one approved exclusion, or `withdrawn`. The server also requires resolution of every live review, pending paper record, and correction.
 
-Moving a round to `closing` freezes its scorecard versions and starts the export. The final `closed` transition requires a verified export manifest. Reopening requires `round.reopen` for that round, a fresh sign-in, and a reason; the caller’s role is irrelevant.
+`round.close` for the exact round does not close it directly. One fresh-authenticated mutation checks the expected round version, freezes a normalized close snapshot, moves the round from `open` to `closing`, and schedules the export. Each snapshot entry names the team and its selected result/evaluation, approved exclusion, or withdrawal. Canceled and superseded review attempts remain in the database and backup, but do not become a team’s adjudicated round outcome.
 
-## 11. Finalist and award decisions
+The bounded export worker reproduces every selected result from the immutable submitted scorecard versions, fixed rubric checksum, fixed aggregation formula, criterion weights, and spread threshold. A mismatch fails the export. It writes one detailed JSON audit/recovery file and one formula-injection-safe CSV analysis file to the private, KMS-encrypted, versioned Mumbai S3 bucket. The manifest records the exact S3 object version, byte count, and SHA-256 for both files, and the worker reads those exact versions back before marking the export `uploaded`. Failure leaves the round visibly `closing`; `round.export.retry` for that exact round retries the same frozen snapshot.
+
+A different person must hold both `round.export.read` and `round.export.verify` for that exact round, use a fresh Google session, download/open both files, compare the displayed counts, and give a reason. Verification reads the exact S3 object versions again and checks both hashes before one version-checked mutation changes the export to `verified` and the round to `closed`. There is no other ordinary path to `closed`.
+
+`round.reopen` is independent authority for that exact round. A reopen must occur before participant feedback is released and before a later round moves beyond draft. The caller must have fresh authentication and give a reason. The reopen marks the verified export `superseded` without deleting its files or audit history. It clears the active close pointers and returns the round to `open`. A later close produces a new revision. A released round or a round with downstream activity needs an incident-specific remedy instead of this ordinary command. The caller’s role is irrelevant throughout.
+
+## 11. Paper review recovery
+
+Paper recovery is limited to a review that the backend had already started. An outage does not authorize staff to invent a new review, panel, assignment, score, or evidence snapshot.
+
+Operations opens a `review_backend` incident. Two different fresh-authenticated holders of `incident.manual_mode.approve` must approve that exact incident. The first recovery operator needs `review.manual_record.read` and `review.manual_record.enter` for the exact review. They copy the numbered sheet’s start/end time, outage reason, every assigned reviewer’s signature and raw ratings, evidence notes, private note when present, shared findings, and commitments. The record pins the round, review, panel/table, rubric, evidence-checkpoint set, assignments, and current scorecard versions.
+
+The numbered original comes from a current restricted emergency pack prepared and printed under separate event-scoped permissions. It is prefilled for the current non-closed panel with its table, reviewers, rubric, and criteria; a spare remains available when the plan changed after the snapshot. Preparing or printing the pack does not open an incident, approve paper mode, create a review, or grant either manual-record command.
+
+Saving the draft blocks ordinary draft and submit commands for those scorecards. The operator attaches one browser-compressed private JPEG under 900 KB. A different person needs both `review.manual_record.verify` and `review.manual_record.source.read` for the exact review. That person also needs a reason and a Google session created within the last 15 minutes. The person must attest that the numbered original is filed in the event audit packet.
+
+Verification rechecks the source manifest and every pinned version. Import then creates one immutable scorecard version for each named reviewer, tagged with the manual-review record, computes the ordinary evaluation, and completes the existing review and team-round state in one Convex transaction. The verifier does not become the reviewer, and the backend does not fill a blank score. A changed assignment, scorecard, panel, rubric, evidence set, review, or round rejects the import. The verifier may reject the record so a corrected serial revision can be entered.
+
+A draft or submitted paper review blocks ordinary review completion, incident resolution, and round close. Imported paper scorecard versions appear as paper imports in score-value views and remain eligible for the normal append-only correction process.
+
+## 12. Finalist and award decisions
 
 The system can prepare a ranked view after Board approves:
 
@@ -202,7 +230,7 @@ The ranking view always shows the underlying criterion totals and any missing/ex
 
 Track participation does not guarantee a finalist place or prize.
 
-## 12. Corrections and complaints
+## 13. Corrections and complaints
 
 ### Correction
 
@@ -218,7 +246,7 @@ A participant may report a process problem such as missing panel member, wrong t
 
 The correction deadline, complaint window, and remedies are open decisions.
 
-## 13. Participant feedback
+## 14. Participant feedback
 
 The release policy decides whether participants receive:
 
@@ -230,22 +258,22 @@ The release policy decides whether participants receive:
 
 Private reviewer notes, conflict reports, other teams’ results, and staff audit details are never participant feedback.
 
-## 14. Exports
+## 15. Exports
 
 Each round export contains:
 
-- event, round, and rubric versions;
-- teams and eligibility state;
-- review sessions and panel membership;
-- raw scorecard versions;
-- computed criterion means and totals;
-- missing coverage and spread flags;
-- correction and override references;
-- generation time and export checksum.
+- event, closing-round, close-snapshot, fixed rubric, criterion, aggregation-formula, spread-threshold, panel, and panel-member versions;
+- every team’s adjudicated disposition, application context, submitted project version, and confirmed core track;
+- the selected review session and frozen integration-evidence checkpoint for each result or approved exclusion;
+- assignments, reviewer identities, every scorecard record, every immutable scorecard version, and the exact versions used by the selected result;
+- saved and independently recomputed criterion inputs, means, weighted points, spread flags, total, and checksums;
+- correction/void cases and paper-review records for the selected review, including links to imported scorecard versions;
+- explicit rows for excluded and withdrawn teams;
+- deterministic generation time, counts, file sizes, exact S3 object-version IDs, and SHA-256 checksums.
 
-CSV supports operations analysis. JSON preserves version and relationship detail for audit and recovery.
+JSON preserves the relationship and version history needed to audit or reproduce the adjudicated result. CSV contains one row per active result rating plus explicit excluded/withdrawn markers for practical analysis. Neither file is a database backup: unrelated canceled review attempts, attendance/presence, provider credentials, and other event domains remain in Convex backups. Both downloads are protected and audited.
 
-## 15. Acceptance checks
+## 16. Acceptance checks
 
 - A reviewer cannot score an unassigned criterion.
 - Peer values remain hidden during independent scoring.
@@ -254,10 +282,17 @@ CSV supports operations analysis. JSON preserves version and relationship detail
 - The formula reproduces totals from raw scores and the saved rubric version.
 - A spread flag never changes a score.
 - A correction keeps the original and corrected versions.
+- A paper record cannot import unless it covers the complete current panel, every reviewer signature and assigned criterion is present, the source manifest matches, and a different authorized person verifies it.
+- A paper import creates ordinary immutable scorecard versions attributed to the signed reviewers, marks the review as a paper import, computes one result, and cannot race a digital draft, submit, review completion, incident resolution, or round close.
 - No AI function can call a score-write function.
-- A suggested track or model-assisted brief phrase cannot appear as participant-confirmed evidence until the participant accepts or edits it.
+- An admission recommendation cannot appear in reviewer judging context, route a panel, set a score, or publish an admission decision.
+- A suggested track cannot appear as the participant's choice unless the participant selects it. Generated question text remains context; only the participant's answer is participant evidence.
 - Track-specific intake prompts cannot change the rubric version or criterion weights.
 - Review 2 context contains the exact Review 1 commitments and checkpoint references.
 - Provider activity counts cannot write, prefill, weight, or recommend a criterion score.
 - Attendance state, duration, exit count, or exception cannot write, prefill, weight, or recommend a criterion score.
 - A submitted scorecard can be traced to the exact repository snapshots and Figma snapshot inside the checkpoint set shown during that review.
+- Starting close cannot jump directly from `open` to `closed`; it freezes one outcome per team and immediately blocks score, correction, paper-import, and review-completion writes through the round state.
+- Export generation fails if a selected total, input checksum, criterion input-version list, rubric formula, rating bound, or displayed count cannot be reproduced from the frozen records.
+- Only a different person with independently granted read and verify authority can close the round, after both exact S3 object versions pass byte-count and SHA-256 verification.
+- Reopen preserves and supersedes the verified export, cannot run after participant feedback or downstream round activity, and forces a later close to create a higher revision.

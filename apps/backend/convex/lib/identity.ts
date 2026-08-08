@@ -1,0 +1,228 @@
+import { ConvexError } from "convex/values";
+
+import type { Doc } from "../_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { authComponent, createAuth } from "../auth";
+import { normalizeEmail } from "./strings";
+
+type ReadCtx = QueryCtx | MutationCtx;
+
+export const sensitiveCommandSessionMaxAgeMs = 15 * 60 * 1_000;
+
+export function authSessionCreatedAtMs(value: unknown) {
+  if (value instanceof Date) {
+    const timestamp = value.getTime();
+    if (Number.isFinite(timestamp)) return timestamp;
+  }
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const timestamp = Date.parse(value);
+    if (Number.isFinite(timestamp)) return timestamp;
+  }
+  throw new Error("Better Auth returned an invalid session creation time.");
+}
+
+export async function requireAuthUser(ctx: ReadCtx) {
+  const user = await authComponent.getAuthUser(ctx);
+  if (!user.emailVerified) {
+    throw new ConvexError({
+      code: "EMAIL_NOT_VERIFIED",
+      message: "Google must verify the email address before it can be used.",
+    });
+  }
+  return user;
+}
+
+export async function findCurrentPerson(ctx: ReadCtx) {
+  const user = await authComponent.safeGetAuthUser(ctx);
+  if (!user) return null;
+  return ctx.db
+    .query("people")
+    .withIndex("by_auth_user", (query) => query.eq("authUserId", user._id))
+    .unique();
+}
+
+export async function requireCurrentPerson(ctx: ReadCtx) {
+  const user = await requireAuthUser(ctx);
+  const person = await ctx.db
+    .query("people")
+    .withIndex("by_auth_user", (query) => query.eq("authUserId", user._id))
+    .unique();
+  if (!person || person.status !== "active") {
+    throw new ConvexError({
+      code: "PERSON_NOT_ACTIVE",
+      message: "This account is not active in Code2Create.",
+    });
+  }
+  return { user, person };
+}
+
+export async function requireVerifiedGoogleIdentity(ctx: ReadCtx) {
+  const user = await requireAuthUser(ctx);
+  const googleIdentity = await ctx.db
+    .query("googleIdentityClaims")
+    .withIndex("by_auth_user", (query) => query.eq("authUserId", user._id))
+    .unique();
+  if (!googleIdentity || googleIdentity.verifiedEmail !== normalizeEmail(user.email)) {
+    throw new ConvexError({
+      code: "GOOGLE_IDENTITY_REQUIRED",
+      message: "Sign out and complete Google authentication again before continuing.",
+    });
+  }
+  return { user, googleIdentity };
+}
+
+export async function requireFreshAuthSession(
+  ctx: ReadCtx,
+  maximumAgeMs: number,
+) {
+  const { auth, headers } = await authComponent.getAuth(createAuth, ctx);
+  const current = await auth.api.getSession({ headers });
+  if (!current) {
+    throw new ConvexError({
+      code: "FRESH_AUTH_REQUIRED",
+      message: "Sign in with Google again before performing this sensitive action.",
+    });
+  }
+  const createdAt = authSessionCreatedAtMs(current.session.createdAt);
+  if (Date.now() - createdAt >= maximumAgeMs) {
+    throw new ConvexError({
+      code: "FRESH_AUTH_REQUIRED",
+      message: "Sign out and sign in with Google again before performing this sensitive action.",
+    });
+  }
+  return { sessionId: current.session.id, createdAt };
+}
+
+export async function ensurePerson(
+  ctx: MutationCtx,
+): Promise<{
+  user: Awaited<ReturnType<typeof requireAuthUser>>;
+  person: Doc<"people">;
+  googleIdentity: Doc<"googleIdentityClaims">;
+}> {
+  const { user, googleIdentity } = await requireVerifiedGoogleIdentity(ctx);
+  const existing = await ctx.db
+    .query("people")
+    .withIndex("by_auth_user", (query) => query.eq("authUserId", user._id))
+    .unique();
+  const now = Date.now();
+  const verifiedEmail = normalizeEmail(user.email);
+
+  if (existing) {
+    if (existing.status !== "active") {
+      throw new ConvexError({
+        code: "PERSON_NOT_ACTIVE",
+        message: "This account is not active in Code2Create.",
+      });
+    }
+    if (existing.googleSubject !== googleIdentity.googleSubject) {
+      throw new ConvexError({
+        code: "GOOGLE_IDENTITY_CONFLICT",
+        message: "This account is linked to another Google identity.",
+      });
+    }
+    if (existing.verifiedEmail !== verifiedEmail || existing.displayName !== user.name) {
+      await ctx.db.patch(existing._id, {
+        verifiedEmail,
+        displayName: user.name,
+        updatedAt: now,
+      });
+      return {
+        user,
+        person: { ...existing, verifiedEmail, displayName: user.name, updatedAt: now },
+        googleIdentity,
+      };
+    }
+    return { user, person: existing, googleIdentity };
+  }
+
+  const subjectOwner = await ctx.db
+    .query("people")
+    .withIndex("by_google_subject", (query) =>
+      query.eq("googleSubject", googleIdentity.googleSubject),
+    )
+    .unique();
+  if (subjectOwner) {
+    throw new ConvexError({
+      code: "IDENTITY_LINK_REQUIRED",
+      message: "This Google identity is already linked to another account.",
+    });
+  }
+
+  const emailOwner = await ctx.db
+    .query("people")
+    .withIndex("by_verified_email", (query) => query.eq("verifiedEmail", verifiedEmail))
+    .unique();
+  if (emailOwner) {
+    throw new ConvexError({
+      code: "IDENTITY_LINK_REQUIRED",
+      message: "This verified email is already linked to another account.",
+    });
+  }
+
+  const personId = await ctx.db.insert("people", {
+    authUserId: user._id,
+    googleSubject: googleIdentity.googleSubject,
+    verifiedEmail,
+    displayName: user.name,
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const person = await ctx.db.get(personId);
+  if (!person) throw new Error("Person creation did not persist.");
+  return { user, person, googleIdentity };
+}
+
+export async function requireEventSubject(
+  ctx: ReadCtx,
+  eventId: Doc<"events">["_id"],
+  personId: Doc<"people">["_id"],
+) {
+  const subject = await ctx.db
+    .query("eventAccessSubjects")
+    .withIndex("by_event_person", (query) =>
+      query.eq("eventId", eventId).eq("personId", personId),
+    )
+    .unique();
+  if (!subject || subject.status !== "active") {
+    throw new ConvexError({
+      code: "EVENT_ACCESS_REQUIRED",
+      message: "This account does not have active access to the event.",
+    });
+  }
+  return subject;
+}
+
+export async function requireMembership(
+  ctx: ReadCtx,
+  eventId: Doc<"events">["_id"],
+  personId: Doc<"people">["_id"],
+) {
+  const membership = await ctx.db
+    .query("eventMemberships")
+    .withIndex("by_event_person", (query) =>
+      query.eq("eventId", eventId).eq("personId", personId),
+    )
+    .unique();
+  if (!membership || membership.eligibilityStatus === "suspended") {
+    throw new ConvexError({
+      code: "PARTICIPANT_MEMBERSHIP_REQUIRED",
+      message: "An active participant membership is required.",
+    });
+  }
+  return membership;
+}
+
+export function requireEligibleMembership(membership: Doc<"eventMemberships">) {
+  if (membership.eligibilityStatus !== "eligible") {
+    throw new ConvexError({
+      code: "PARTICIPANT_NOT_ELIGIBLE",
+      message: "An eligible participant membership is required.",
+    });
+  }
+  return membership;
+}

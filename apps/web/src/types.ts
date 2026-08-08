@@ -1,0 +1,26 @@
+import { api } from '@code2create/backend/api'
+import type { FunctionReturnType } from 'convex/server'
+
+export type PublicState = FunctionReturnType<typeof api.system.getPublicState>
+export type ParticipantMe = NonNullable<FunctionReturnType<typeof api.participants.me>>
+export type CurrentTeam = NonNullable<FunctionReturnType<typeof api.teams.current>>
+export type CurrentIntake = NonNullable<FunctionReturnType<typeof api.intake.current>>
+export type CurrentGitHubIntegration = NonNullable<
+  FunctionReturnType<typeof api.githubIntegrations.current>
+>
+export type AvailableGitHubRepository =
+  FunctionReturnType<typeof api.githubActions.listAvailableRepositories>[number]
+export type GitHubConnectionResult = FunctionReturnType<
+  typeof api.githubActions.completeConnection
+>
+export type CurrentFigmaIntegration = NonNullable<
+  FunctionReturnType<typeof api.figmaIntegrations.current>
+>
+export type FigmaConnectionResult = FunctionReturnType<
+  typeof api.figmaActions.completeConnection
+>
+export type SubmissionPreview = NonNullable<
+  FunctionReturnType<typeof api.intake.submissionPreview>
+>
+
+export type ParticipantClass = 'vit_student' | 'external_participant'

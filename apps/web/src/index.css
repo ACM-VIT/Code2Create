@@ -1,0 +1,105 @@
+:root {
+  font-family: "Avenir Next", Avenir, "Helvetica Neue", Arial, sans-serif;
+  color: #e7e4de;
+  background: #0a0a09;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --background: #0a0a09;
+  --surface: #10100f;
+  --surface-raised: #151513;
+  --text: #e7e4de;
+  --muted: #9d9991;
+  --faint: #68655f;
+  --border: #2b2a27;
+  --border-strong: #46433e;
+  --accent: #d3a0a7;
+  --accent-soft: #281e20;
+  --danger: #d58e8e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--background);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+a {
+  color: inherit;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1,
+h2 {
+  color: var(--text);
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400;
+}
+
+h1 {
+  margin-bottom: 16px;
+  font-size: clamp(2.25rem, 6vw, 4rem);
+  line-height: 1.02;
+  letter-spacing: -0.045em;
+}
+
+h2 {
+  margin-bottom: 8px;
+  font-size: 1.4rem;
+  line-height: 1.2;
+}
+
+p {
+  line-height: 1.6;
+}
+
+::selection {
+  color: #0a0a09;
+  background: var(--accent);
+}
+
+.released-feedback-list { display: grid; border-top: 1px solid var(--border); }
+.released-feedback-list article { display: grid; gap: 15px; padding: 22px 0; border-bottom: 1px solid var(--border); }
+.feedback-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; }
+.feedback-heading strong { font-size: .92rem; }
+.feedback-heading span, .released-feedback-list small { color: var(--muted); font-size: .7rem; }
+.feedback-total { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 2rem; }
+.feedback-total span { color: var(--muted); font-family: "Avenir Next", Avenir, "Helvetica Neue", Arial, sans-serif; font-size: .8rem; }
+.feedback-copy { display: grid; gap: 5px; }
+.feedback-copy span { color: var(--muted); font-size: .72rem; }
+.feedback-copy p { margin: 0; white-space: pre-wrap; }

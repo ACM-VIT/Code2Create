@@ -1,0 +1,42 @@
+{
+  "name": "@code2create/web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "badges:generate": "node --experimental-strip-types scripts/generateAttendanceBadges.ts",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:release": "node ../backend/scripts/release/webEnvironment.ts participant build && pnpm build",
+    "deploy": "pnpm build:release && pnpm deploy:built",
+    "deploy:built": "node ../backend/scripts/release/webEnvironment.ts participant deploy && wrangler deploy --env \"$CLOUDFLARE_ENV\" --strict --message \"$VITE_RELEASE_ID\"",
+    "lint": "oxlint",
+    "test": "node --experimental-strip-types --test scripts/generateAttendanceBadges.test.ts",
+    "typecheck": "tsc -b",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@code2create/backend": "workspace:*",
+    "@code2create/client-observability": "workspace:*",
+    "@code2create/domain": "workspace:*",
+    "@code2create/web-auth": "workspace:*",
+    "@convex-dev/better-auth": "^0.12.5",
+    "better-auth": "~1.6.25",
+    "convex": "^1.43.0",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.2"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.51.1",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "oxlint": "^1.75.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.0",
+    "wrangler": "^4.120.0"
+  }
+}

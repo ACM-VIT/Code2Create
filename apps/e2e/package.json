@@ -1,0 +1,21 @@
+{
+  "name": "@code2create/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "auth:write": "node --experimental-strip-types src/write-auth-state.ts",
+    "install:browser": "playwright install chromium",
+    "install:browser:ci": "playwright install --with-deps chromium",
+    "lint": "oxlint",
+    "test": "node --experimental-strip-types --test src/environment.test.ts src/storage-state.test.ts",
+    "test:release": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^24.13.3",
+    "oxlint": "^1.76.0",
+    "typescript": "~6.0.3"
+  }
+}

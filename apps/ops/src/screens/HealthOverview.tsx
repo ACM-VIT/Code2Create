@@ -1,0 +1,231 @@
+import { api } from '@code2create/backend/api'
+import { useMutation, useQuery } from 'convex/react'
+import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+
+import { eventSlug } from '../lib/config'
+
+const refreshIntervalMs = 30_000
+
+function currentRefreshBucket() {
+  return Math.floor(Date.now() / refreshIntervalMs)
+}
+
+type HealthOverviewProps = {
+  actions: {
+    complete: { label: string; to: string }[]
+    draft: { label: string; to: string }[]
+    live: { label: string; to: string }[]
+    registration: { label: string; to: string }[]
+  }
+  canGenerateIntelligence: boolean
+  canReadIntelligence: boolean
+}
+
+export function HealthOverview({
+  actions,
+  canGenerateIntelligence,
+  canReadIntelligence,
+}: HealthOverviewProps) {
+  const [refreshBucket, setRefreshBucket] = useState(currentRefreshBucket)
+
+  useEffect(() => {
+    const interval = setInterval(() => setRefreshBucket(currentRefreshBucket()), refreshIntervalMs)
+    return () => clearInterval(interval)
+  }, [])
+
+  const overview = useQuery(api.operationsHealth.overview, { eventSlug, refreshBucket })
+  const brief = useQuery(
+    api.operationsIntelligence.latest,
+    canReadIntelligence ? { eventSlug } : 'skip',
+  )
+  const requestBrief = useMutation(api.operationsIntelligence.request)
+  const operationRef = useRef<string | null>(null)
+  const [requestingBrief, setRequestingBrief] = useState(false)
+  const [briefError, setBriefError] = useState<string | null>(null)
+
+  async function generateBrief() {
+    const clientOperationId = operationRef.current ?? crypto.randomUUID()
+    operationRef.current = clientOperationId
+    setRequestingBrief(true)
+    setBriefError(null)
+    try {
+      await requestBrief({ eventSlug, clientOperationId })
+      operationRef.current = null
+    } catch (error) {
+      setBriefError(error instanceof Error ? error.message : 'Could not request the brief.')
+    } finally {
+      setRequestingBrief(false)
+    }
+  }
+
+  if (overview === undefined) return <p className="muted">Loading operational health…</p>
+  const briefInProgress = brief?.state === 'pending' || brief?.state === 'dispatching' || brief?.state === 'accepted'
+  const briefExpired = brief?.relevanceExpiresAt !== undefined && Date.now() >= brief.relevanceExpiresAt
+  const currentActions = actionsForEvent(overview.event.status, actions)
+
+  return (
+    <section className="health-shell">
+      <header className="health-heading">
+        <div>
+          <p className="eyebrow">{overview.event.name}</p>
+          <h1>Overview</h1>
+          <p className="muted">{eventState(overview.event.status)}</p>
+        </div>
+        <div className={`health-current ${overview.summary.status}`}>
+          <span>System health</span>
+          <strong>{statusLabel(overview.summary.status)}</strong>
+          <small>Updated {formatTime(overview.generatedAt)}</small>
+        </div>
+      </header>
+
+      {currentActions.length > 0 ? (
+        <nav className="home-actions" aria-label="Current work">
+          {currentActions.map((action) => <Link key={action.to} to={action.to}>{action.label}<span>→</span></Link>)}
+        </nav>
+      ) : null}
+
+      <section className="attention-section">
+        <div className="section-heading">
+          <h2>Live issues</h2>
+          {overview.signals.length > 0 ? <span>{overview.signals.length}</span> : null}
+        </div>
+        {overview.signals.length === 0 ? (
+          <div className="health-empty">
+            <strong>No live issues.</strong>
+            <span>Automated checks are clear.</span>
+          </div>
+        ) : (
+          <div className="health-list">
+            {overview.signals.map((signal) => (
+              <article className={`health-row ${signal.severity}`} key={signal.key}>
+                <div className="health-row-main">
+                  <div>
+                    <span className="health-severity">{severityLabel(signal.severity)}</span>
+                    <h2>{signal.title}</h2>
+                  </div>
+                  <strong className="health-count">
+                    {signal.count}{signal.atLeast ? '+' : ''}
+                  </strong>
+                </div>
+                <p>{signal.detail}</p>
+                <dl className="health-action">
+                  <div><dt>Owner</dt><dd>{signal.owner}</dd></div>
+                  <div><dt>Next action</dt><dd>{signal.nextAction}</dd></div>
+                  {signal.oldestAt !== undefined ? (
+                    <div><dt>Waiting since</dt><dd>{formatDateTime(signal.oldestAt)}</dd></div>
+                  ) : null}
+                </dl>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {canReadIntelligence || canGenerateIntelligence ? (
+        <section className="intelligence-brief" aria-labelledby="intelligence-brief-heading">
+          <div className="intelligence-brief-heading">
+            <div>
+              <h2 id="intelligence-brief-heading">Operations brief</h2>
+              <p className="muted">Current issues, owners, and next actions.</p>
+            </div>
+            {canGenerateIntelligence ? (
+              <button
+                type="button"
+                className="secondary"
+                disabled={requestingBrief || briefInProgress}
+                onClick={() => void generateBrief()}
+              >
+                {requestingBrief || briefInProgress ? 'Preparing…' : brief ? 'Refresh' : 'Prepare brief'}
+              </button>
+            ) : null}
+          </div>
+          {briefError ? <p className="notice error">{briefError}</p> : null}
+          {canReadIntelligence ? (
+            brief === undefined ? (
+              <p className="muted">Loading the latest brief…</p>
+            ) : brief === null ? (
+              <p className="muted">No brief has been prepared yet.</p>
+            ) : brief.state === 'succeeded' ? (
+              <div className="intelligence-brief-result">
+                <p className="eyebrow">
+                  {brief.origin === 'automation' ? 'Prepared automatically' : 'Requested by an operator'} · Source checked {brief.sourceGeneratedAt ? formatDateTime(brief.sourceGeneratedAt) : 'recently'}
+                </p>
+                {briefExpired ? <p className="notice">This brief is outside its configured relevance window. Use the current signals below.</p> : null}
+                <h3>{brief.headline}</h3>
+                <p>{brief.summary}</p>
+                {brief.accountableOwner ? <p className="intelligence-owner">Accountable owner: {brief.accountableOwner}</p> : null}
+                {brief.priorities.length > 0 ? (
+                  <ol className="intelligence-priorities">
+                    {brief.priorities.map((priority) => (
+                      <li key={priority.signalKeys.join(':')}>
+                        <span className="health-severity">{severityLabel(priority.severity)}</span>
+                        <h4>{priority.title}</h4>
+                        <p>{priority.why}</p>
+                        <dl className="health-action">
+                          <div><dt>Owner</dt><dd>{priority.owner}</dd></div>
+                          <div><dt>Next</dt><dd>{priority.nextAction}</dd></div>
+                        </dl>
+                      </li>
+                    ))}
+                  </ol>
+                ) : null}
+              </div>
+            ) : brief.state === 'failed' ? (
+              <p className="muted">The brief could not be prepared. The health signals below remain authoritative.</p>
+            ) : (
+              <p className="muted">Preparing from a frozen copy of the current health signals…</p>
+            )
+          ) : (
+            <p className="muted">This account may request a brief but cannot read its result.</p>
+          )}
+        </section>
+      ) : null}
+
+    </section>
+  )
+}
+
+function actionsForEvent(
+  status: 'complete' | 'draft' | 'live' | 'registration_closed' | 'registration_open',
+  actions: HealthOverviewProps['actions'],
+) {
+  if (status === 'draft') return actions.draft
+  if (status === 'live') return actions.live
+  if (status === 'complete') return actions.complete
+  return actions.registration
+}
+
+function eventState(value: 'complete' | 'draft' | 'live' | 'registration_closed' | 'registration_open') {
+  if (value === 'draft') return 'Setup in progress'
+  if (value === 'registration_open') return 'Applications are open'
+  if (value === 'registration_closed') return 'Applications are closed'
+  if (value === 'live') return 'The event is live'
+  return 'The event is complete'
+}
+
+function statusLabel(value: 'healthy' | 'watch' | 'attention' | 'critical') {
+  if (value === 'healthy') return 'Clear'
+  if (value === 'watch') return 'Watch'
+  if (value === 'attention') return 'Needs attention'
+  return 'Critical'
+}
+
+function severityLabel(value: 'watch' | 'attention' | 'critical') {
+  if (value === 'attention') return 'Needs attention'
+  if (value === 'critical') return 'Critical'
+  return 'Watch'
+}
+
+function formatTime(value: number) {
+  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatDateTime(value: number) {
+  return new Date(value).toLocaleString([], {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}

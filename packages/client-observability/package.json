@@ -1,0 +1,26 @@
+{
+  "name": "@code2create/client-observability",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.tsx",
+    "./environment": "./src/environment.ts",
+    "./privacy": "./src/privacy.ts",
+    "./vite": "./src/vite.ts"
+  },
+  "scripts": {
+    "test": "node --test src/privacy.test.ts src/vite.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sentry/react": "^10.69.0",
+    "@sentry/vite-plugin": "^5.4.0",
+    "react": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "typescript": "^6.0.3"
+  }
+}

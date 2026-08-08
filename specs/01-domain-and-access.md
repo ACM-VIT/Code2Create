@@ -17,17 +17,11 @@ The first screen has two choices:
 
 After the choice, the user selects **Authenticate with Google**.
 
-### Authentication intent
+### Participant-type selection
 
-The server creates a short-lived `authIntent` containing:
+The browser keeps the choice only for the current sign-in tab. If the choice is missing after the Google redirect, the portal asks for it again before provisioning.
 
-- random nonce;
-- selected participant class;
-- event ID;
-- return route;
-- creation and expiry time.
-
-The OAuth state carries the nonce. The server consumes an intent once after the Google callback. A client cannot change the selected class or event by editing a return URL.
+This choice improves the sign-in instructions. It grants no authority and does not decide the stored participant class. Better Auth owns OAuth state and validates the Google callback. The provisioning mutation identifies the event from its server-loaded slug and derives the participant class from the verified Google identity. Editing browser storage or a return URL cannot create a VIT membership.
 
 ### Server classification
 
@@ -57,36 +51,37 @@ Email suffix matching is not enough. Google documents `sub` as the stable user i
 
 Reviewer and staff routes do not show the VIT/External selector.
 
-Before the event, a caller holding `access.roster.import` for the event imports roster rows containing:
+Before the event, an operator with event-scoped `access.roster.import` uploads one UTF-8 CSV whose exact headers are `email,name,role`. A logical row contains the verified Google email expected at claim, the person's display name, and one organizational label: `supreme`, `board`, `sc`, `jc`, or `external_judge`. The browser accepts at most 256 KB and the server accepts at most 200 non-empty rows per import. It rejects malformed addresses, duplicate normalized emails, duplicate/invalid source row numbers, unknown roles, and extra columns.
 
-- event;
-- verified Google email expected at first claim;
-- person name;
-- one organisational role label: `supreme`, `board`, `sc`, `jc`, or `external_judge`;
-- optional versioned permission bundles and their exact scopes;
-- optional External Judge domain and availability seed;
-- active-from and active-until times;
-- roster source and importer.
+The operator also supplies a source name, the source filename when present, an audited reason, one shared access-validity window, and up to eight optional current published permission-bundle versions. The event end must already be configured, the window must end in the future, and it cannot outlive the event. A roster bundle may contain event scope, target-person scope, or reviewer-device self scope. A bundle that needs a participant membership or a named resource binding is excluded; panels, stations, rounds, and other resource assignments happen through their own scoped workflows.
 
-On first Google sign-in:
+Preview is read-only. It pins the validity window and bundle content checksums, then classifies every row as new, replacement for a pending/expired row, unchanged pending, or already claimed. Confirmation recomputes that preview, requires a Google session created within the last 15 minutes, and writes one immutable import plus its new pending rows in one idempotent Convex mutation. Replaced pending rows become `superseded` or `expired`; unchanged pending and already-claimed rows are not rewritten. A later import can never silently alter a claimed person's role or grants.
 
-1. the backend looks for an unclaimed active roster row with the exact normalised verified email;
-2. it checks that the row belongs to the current event;
-3. it links the roster row to the Better Auth user and Google provider subject;
-4. it creates or reuses the event access subject;
-5. it creates the organisational role assignment;
-6. it expands each permission bundle explicitly named on the roster row into person-specific grants;
-7. later sign-ins use the linked user ID rather than repeating an email match.
+After Google sign-in, the exact matching verified account sees a short claim screen. Claiming:
+
+1. reloads the pending row, its import, pinned bundle checksums, event, version, and claim window;
+2. links the row to the Better Auth user and Google provider subject;
+3. creates or reuses the active event access subject;
+4. creates the organizational role assignment unless the same label already exists, and stops on a conflicting active label;
+5. expands only the pinned compatible bundle versions into separately inspectable person-specific grants with the roster validity window;
+6. marks the row claimed and records the role, grant batches, identity link, operation, and audit event atomically;
+7. uses the linked person on later sign-ins instead of repeating an email match.
+
+The account may claim before the grants' `validFrom`; those grants remain ineffective until server time reaches the window. The pending row itself cannot be claimed after `validUntil`. An exact operation retry returns the prior result. Concurrent claim, revoke, replacement, or expiry produces one winner through the row version and Convex transaction conflict detection.
 
 A participant may also be rostered staff or an External Judge. The user keeps one account. Participant/team access and manually granted event permissions coexist on that person without changing the role label. An External Judge can use any verified Google account if that address is on the roster.
 
-Roster normalisation trims whitespace and lowercases the address for lookup. It does not remove `+tags`, dots, or apply provider-specific alias rules.
+Roster normalization trims whitespace and lowercases the address for lookup. It does not remove `+tags`, dots, or apply provider-specific alias rules.
 
-An unmatched account sees a plain “not on the event roster” screen and a support code. It receives no staff data.
+An unmatched account receives no staff data. A pending row can be revoked before claim by `access.roster.revoke` scoped to that exact row or the event; this requires fresh Google authentication and a reason. Correcting a pending name, role, email, window, or bundle set means previewing and confirming another import. Correcting a claimed identity or role uses the separately authorized identity-repair or role workflow.
 
-The first permission administrators are part of the reviewed production seed. The seed lists every access key separately and normally includes event-scoped `access.people.lookup`, `access.permissions.read`, `access.permissions.grant_any`, `access.permissions.revoke_any`, and `access.subjects.invite`. Their role label is normally Supreme, but none of this authority comes from the word `supreme`. No dashboard command can create the first grant-any or revoke-any authority. A later holder may grant either permission to another event-linked person through the ordinary audited path.
+The first permission administrators are part of the reviewed production seed. The seed lists every access key separately and includes event-scoped `access.permissions.read`, `access.permissions.grant_any`, `access.permissions.revoke_any`, and `access.subjects.invite`. Their role label is normally Supreme, but none of this authority comes from the word `supreme`. No dashboard command can create the first grant-any or revoke-any authority. A later holder may grant either permission to another event-linked person through the ordinary audited path.
 
-An already authenticated Google user can also be linked to the event through an explicit access invitation. Creating, suspending, and reactivating that link use separate person-scoped permissions; the invite does not assign a role or grant protected access by itself. The link command resolves one exact verified email and does not expose a global user directory. This permits a permission administrator to grant one capability to a specific user who has no staff/judging role.
+An event-scoped `access.subjects.invite` holder can create a pending invitation for one exact normalized Google email without browsing the global account directory. The claim window is explicit and must be between five minutes and 30 days. Creation and revocation require a Google session created within the last 15 minutes plus a reason.
+
+After Google sign-in, the matching verified account sees one claim screen. Claiming atomically creates or reuses the person and active event access subject, marks the invitation claimed, and records the identity-authorized change. It assigns no role and no permission. A separate grant administrator can then give that role-less account one exact capability. Claim, revoke, scheduled expiry, and duplicate create attempts are versioned and idempotent; only one transition can win. Subject suspension and reactivation are separate commands and never happen through invitation claim.
+
+The deployed account-lifecycle commands require independent `access.subjects.suspend` or `access.subjects.reactivate` authority for the exact target person. An explicit event-wide grant can also satisfy this requirement. The commands also require the current `accessVersion`, a reason, and a Google session created within the last 15 minutes. Suspension immediately denies every grant without rewriting it. Reactivation restores the subject boundary. Only grant rows that remain active and unexpired work again. Revoked or expired grants never return. A user cannot suspend their own event account. Another authorized administrator must perform that action.
 
 ## 4. Account records
 
@@ -95,14 +90,16 @@ An already authenticated Google user can also be linked to the event through an 
 | Better Auth user/account/session | Better Auth component | Google identity link and session lifecycle |
 | Person | Application | Display name, verified contact, status, and auth-user reference |
 | Event access subject | Application | Active/suspended event security boundary and monotonic access version for any event-linked person |
+| Event access invitation | Application | Expiring exact-email authorization to create or reuse one role-less event access subject on Google claim |
 | Event membership | Application | Participant class and event participation state |
-| Event role | Application | Organisational Supreme, Board, SC, JC, or External Judge label; never an authorization decision by itself |
+| Event role | Application | Organizational Supreme, Board, SC, JC, or External Judge label; never an authorization decision by itself |
 | Permission grant | Application | One atomic permission for one person, one event/resource scope, and one validity window |
 | Permission bundle | Application | Versioned convenience template expanded into atomic grants |
 | Permission grant batch | Application | One audited manual, roster, membership, assignment, or bundle operation that created/revoked grants |
 | Roster entry | Application | Approved reviewer/staff invitation and first-sign-in claim |
 | Device | Application | Reviewer/scanner installation, app version, hardware capabilities, station assignment, notification token, and revocation state |
-| Attendance credential | Application | Event-scoped VIT ID card fingerprint binding, external badge QR, and short-lived portal QR state; raw card identifiers/bearers are not stored |
+| Attendance credential | Application | Event-scoped VIT ID barcode fingerprint binding, external badge QR, and short-lived portal QR state; raw barcode values/bearers are not stored |
+| Support case | Reporter plus separately scoped event operations | Diagnostic context and append-only actions; ownership or a linked resource grants no authority |
 | Provider authorization | Application security boundary | One encrypted Figma App/user grant or GitHub App installation reference used only by server jobs |
 | Team integration | Team | Selected provider resources, repository classifications, checkpoint sets, statistics, and review visibility |
 
@@ -110,14 +107,14 @@ The application does not copy session secrets or raw Google access tokens into i
 
 ## 5. Roles, permission grants, and bundles
 
-The event keeps five organisational labels:
+The event keeps five organizational labels:
 
 | Role | Suggested default permission template |
 | --- | --- |
 | Supreme | Permission administration and broad event-governance defaults |
 | Board | Policy, admissions, rubric, results, correction, export, and override defaults |
 | SC | Workflow-management defaults for selected operational scopes |
-| JC | Frontline execution defaults for selected station, table, queue, support, verification, or playback scopes |
+| JC | Frontline execution defaults for selected station, floor-zone, queue, support, verification, or playback scopes |
 | External Judge | Assigned-panel context, presence, and own-scorecard defaults |
 
 Roles exist for roster grouping, display, sensible starting bundles, and training. A protected Convex function never authorizes from the role string. There is no hard role ceiling.
@@ -133,6 +130,8 @@ Any authenticated person linked to the event may receive any permission regardle
 
 Permission keys are atomic. Examples include:
 
+- `event.lifecycle.read`
+- `event.lifecycle.manage`
 - `access.permissions.read`
 - `access.permissions.grant_any`
 - `access.permissions.revoke_any`
@@ -142,31 +141,80 @@ Permission keys are atomic. Examples include:
 - `access.roster.import`
 - `access.subjects.invite`
 - `access.subjects.suspend`
+- `access.subjects.reactivate`
+- `access.permission_bundles.read`
+- `access.permission_bundles.publish`
 - `access.permission_bundles.apply`
+- `access.permission_bundles.migrate`
+- `configuration.participant.read`
+- `configuration.participant.draft.create`
+- `configuration.participant.validate`
+- `configuration.participant.publish`
+- `configuration.admission.read`
+- `configuration.admission.draft.create`
+- `configuration.admission.validate`
+- `configuration.admission.publish`
 - `attendance.scan.execute`
 - `attendance.presence.reconcile`
+- `attendance.remedy.read`
+- `attendance.remedy.open`
+- `attendance.remedy.decide`
+- `attendance.roll_call.read`
+- `attendance.roll_call.start`
+- `attendance.roll_call.close`
+- `attendance.export.identifiable`
+- `floor.plan.create`
+- `floor.plan.publish`
+- `floor.plan.freeze`
+- `floor.location.read`
+- `floor.location.map`
+- `floor.location.override`
+- `support.case.create`
+- `support.case.read`
+- `support.case.reply`
+- `support.case.manage`
+- `rehearsal.read`
+- `rehearsal.manage`
+- `rehearsal.execute`
+- `rehearsal.complete`
 - `review.scorecard.submit`
+- `review.participant_availability.waive`
 - `review.presence.waive`
 - `round.close`
-- `records.export.identifiable`
+- `round.export.read`
+- `round.export.verify`
+- `round.export.retry`
+- `round.reopen`
 
 There is no `admin`, `all`, or `*` permission checked by application functions. Event-wide scope is explicit and visible; it is not inferred from Supreme or Board.
 
 ### Arbitrary per-user grants
 
-A person with event-scoped `access.permissions.grant_any` can grant any catalog permission to any event-linked person at any time, regardless of either person’s role. Event-scoped `access.permissions.revoke_any` independently allows revocation. Holding one never implies the other. The permission-management screen requires the actor to choose the permission, scope, start/end time, constraints, and reason and previews the target’s effective access before committing.
+A person with event-scoped `access.permissions.grant_any` can grant any catalog permission to any event-linked person at any time, regardless of either person’s role. Event-scoped `access.permissions.revoke_any` independently allows revocation. Holding one never implies the other. The direct permission screen requires the actor to choose the permission, scope, optional expiry, constraints, and reason. Roster imports separately provide a shared start/end window for the grants they create.
 
-Each `access.permissions.grant_scoped` grant delegates one named permission key inside one maximum resource scope, target-person boundary, and expiry ceiling. `access.permissions.revoke_scoped` is a separate grant with the same shape. Several rows are required to delegate several permissions. A scoped delegator cannot cross into another event, omit a required scope, act on an excluded target, exceed the ceiling, or manufacture broader delegation for themselves.
+Each event-scoped `access.permissions.grant_scoped` row carries one non-administrative permission key, one exact legal resource scope, an exact active target person or the explicit `any_event_person` boundary, and a required expiry. The row's expiry is both the lifetime of the delegation and the latest expiry it may issue. `access.permissions.revoke_scoped` is a separate row with the same key/resource/target boundary and its own lifetime. Several rows are required for several keys or resources. Target-owned self, reviewer-page, and reviewer-owned scorecard scopes require one exact target; they cannot use `any_event_person`. A scoped grant delegator cannot act on themselves, cross events, omit or change the resource, act on an excluded target, issue a grant without an expiry, exceed the ceiling, or manufacture broader delegation.
 
-Grant authority is not execution authority. A person who can grant `round.close` but does not hold `round.close` cannot close a round; they must create a separate, visible grant first. Scoped grant authority cannot issue `access.permissions.grant_any`, `access.permissions.revoke_any`, `access.permissions.grant_scoped`, or `access.permissions.revoke_scoped`; only `grant_any` can issue grant-authority keys.
+Grant authority is not execution authority. A person who can grant `round.close` but does not hold it cannot start the close or export. A person who starts it still cannot download, verify, retry, or reopen without each separate key. Scoped grant or revoke authority cannot create or revoke `access.permissions.grant_any`, `access.permissions.revoke_any`, `access.permissions.grant_scoped`, or `access.permissions.revoke_scoped`. Those rows require unrestricted grant or revoke authority. Scoped authority is created only as an explicit person-specific grant. A convenience bundle cannot create it.
 
 Access administration is decomposed like every other area. Looking up event people, reading another person’s grants, assigning a role label, importing a roster, publishing a permission bundle, applying a bundle, migrating existing bundle-sourced grants, granting, and revoking use separate keys. A person may hold any subset. For example, `access.permission_bundles.apply` can be scoped to one bundle and constrained to named targets without permitting bundle editing, role changes, or direct manual grants.
 
 Applying a suggested role-default template or operational bundle is only a separate shortcut. It creates `permissionGrants` rows tied to one `permissionGrantBatch`. Assigning or changing a role label never applies, removes, or migrates a bundle. Editing a bundle later also changes nobody until a previewed migration or new grant/revoke batch runs.
 
-Team membership, team lead, panel assignment, scanner-station assignment, incident command, and release ownership use the same model: each assignment materialises narrowly scoped permissions and revokes only the grants sourced from that assignment when it ends.
+The deployed bundle manager keeps one stable bundle identity. It has at most one editable draft and one current published version. Draft saves use the current bundle version and draft revision. Publication validates every entry against the code-owned catalog. It retires the prior published version and records the content checksum and diff. It requires exact bundle read and publish authority. It also requires a Google session created within the last 15 minutes. Published versions are immutable.
 
-No shared Supreme or Board account is permitted. A role, grant, or seniority never permits editing another person’s submitted scorecard, bypassing a conflict/state/device check, or changing captured evidence unless a separate, explicit override permission exists for that exact action and scope.
+Application is separately authorized. The caller must be able to read the exact target person's access. The caller must also be able to read and apply the exact bundle to that person. An explicit event-wide grant can satisfy each boundary. The preview resolves every `event`, bundle-target, or named-resource binding on the server. It proves that each resource belongs to the event. It applies the requested expiry and binds the result to the target's current `accessVersion`. Confirmation requires a fresh Google session. One mutation creates all missing source-attributed grants and one completed grant batch, or it creates nothing. An exact retry returns the first result. A different resource binding or expiry has distinct provenance. Existing grants from another source appear as coverage. The bundle does not rewrite or adopt them.
+
+Publishing a new version remains non-retroactive. The deployed migration flow selects one retired version and one to five completed application batches from that version, then compares them with the current published version of the same stable bundle. The caller needs bundle read and migrate authority for the exact bundle plus access read and migrate authority for every exact target person. Apply, publish, direct grant, direct revoke, role, and roster authority are not implied.
+
+The server resolves destination bindings again, suggests an old binding only when the binding key and resource type still match, and preserves each source application's expiry subject to the current event end. Preview identifies every add, replacement, removal, already-current grant, and preserved exception. Confirmation rechecks the immutable version checksums, exact source batches and grant states, target `accessVersion` values, destination-source history, bindings, and actor authority. One fresh-authenticated, idempotent Convex mutation either migrates all selected targets or none. It supersedes only current grants attributed to those selected old applications. Manual grants, grants from another bundle application, and permissions explicitly revoked in either the old application or an existing application of the destination version are never silently restored or removed.
+
+The deployed role-label command accepts only Supreme, Board, SC, JC, External Judge, or no label. It requires `access.roles.assign` for the exact target person (or an explicit event-wide grant), the target's current `accessVersion`, a Google session created within the last 15 minutes, and a reason. Replacement or removal ends the prior role row and writes a new active row only when a label remains. It never writes `permissionGrants`.
+
+Team membership, team lead, panel assignment, scanner-station assignment, floor-zone mapping duty, incident command, and release ownership use the same model. Each assignment materializes narrowly scoped permissions. When the assignment ends, it revokes only the active or scheduled grants from that assignment. Creating one logical grant group advances the affected person’s `accessVersion` once, and only when the operation added at least one row. An exact retry that finds every row does not change the version. Source teardown follows the same rule for revocation. `floor_plan` and `floor_zone` are first-class grant scopes. Mapping one zone never implies another. A frozen correction uses a different key from ordinary mapping.
+
+A grant whose `validFrom` is in the future is stored as `scheduled`. Creation schedules exact start and end transitions. A bounded 15-second sweep repairs missed work through lifecycle indexes and immediately continues when a batch has more rows. Every transition reloads the grant inside the mutation; a revoked or superseded row is a no-op and can never be revived by a stale job. Expiry remains enforced from server time on every protected call even before its history row is materialized.
+
+No shared Supreme or Board account is permitted. A role, grant, or seniority does not permit a user to edit another person’s submitted scorecard. It does not permit a user to bypass a conflict, state, or device check. It does not permit changes to captured evidence. Each exception requires a separate explicit override permission for that exact action and scope.
 
 ### Capability checks
 
@@ -184,42 +232,46 @@ Each public Convex function checks:
 
 The role label is not part of this decision. The web route guard and cached client bootstrap improve navigation only; neither replaces the permission lookup inside Convex.
 
-Each permission definition states whether an ancestor grant may cover a child resource. The backend proves containment by loading indexed records—for example, that a panel belongs to the granted round—never by trusting an ID prefix or client claim. Sensitive keys may forbid event-wide or ancestor scope and require the exact leaf record. A grant for one resource type is never coerced into another.
+Each permission definition states whether an ancestor grant can cover a child resource. The backend proves containment by loading indexed records. For example, the backend verifies that a panel belongs to the granted round. The backend never trusts an ID prefix or client claim. Sensitive keys can forbid event-wide or ancestor scope and require the exact leaf record. The backend never converts a grant for one resource type into a grant for another type.
 
 ## 6. Data visibility
 
 ### Participant and team grants
 
-Participant provisioning materialises self-scoped permissions for the participant’s profile, attendance status, dynamic QR, correction route, and event configuration. Joining a team materialises team-scoped permissions for its members, intake, brief, tracks, project material, integrations, table, readiness, queue, review progress, and released feedback. Team-lead assignment adds only the lead’s team-management permissions.
+Participant provisioning materializes self-scoped permissions for the participant’s class-aware profile, attendance status, dynamic QR, finalized-result review status/request, and event configuration. Joining a team materializes team-scoped read permissions for its live roster, intake, brief, tracks, project material, integrations, table, staff-managed queue, review progress, and released feedback. Team-lead assignment adds only the lead’s team-management, accepted-transfer, final-preview, and final-submit permissions. Final submission revokes or state-blocks ordinary join/leave/remove/lead-transfer/core-track-edit grants; read, integration, and later-event grants remain usable. No participant or team-lead grant can place a team into a review round or panel queue.
 
 Those grants never include another team’s private submission, unreleased judge identity, score, panel note, conflict, staff location, or another participant’s detailed presence history. Leaving or being removed from a team revokes the grants sourced from that team membership without touching unrelated manual grants.
 
 ### Application-review grants
 
-An application assignment materialises `application.review.read` and `application.recommendation.submit_own` for that application and person. It exposes only the confirmed project brief, approved source answers, fresh-project attestation, confirmed tracks, permitted team fields, and the caller’s own recommendation. It does not expose hidden model suggestions, peer recommendations before submission, or the venue judging rubric. The assignee’s role is irrelevant.
+`application.assign` routes one application to an exact active event account. The transaction creates a separate `admissionReviewAssignments` row and source-attributed exact-application `application.review.read` and `application.review` grants. It does not use the target's role. Canceling pending work revokes only those assignment-sourced grants; an independent manual grant remains active. Completion changes the routing row to `completed` and preserves its read/write grants so the reviewer can inspect the resulting record. A person who receives the same exact grants manually can review without an assignment.
+
+Assignment-scoped read exposes the confirmed project brief, approved source answers, fresh-project attestation, confirmed tracks, permitted team fields, and the caller's own recommendation. Peer recommendations remain hidden until that caller submits a current-version recommendation. `application.profile_context.read` separately exposes participant class, year/institution context, the deterministic experience band, and its band-specific policy guidance. `application.ai_recommendation.read` separately exposes the structured AI record. Neither permission follows from assignment.
+
+The deployed admissions boundary now uses `application.read`, `application.review.read`, `application.review`, `application.assign`, `application.profile_context.read`, `application.ai_recommendation.read`, `application.decide`, and `application.offer.manage`, each at exact-application or explicit event scope. The locked lead’s `application.offer.respond` grant is exact-team only and cannot manage or send an offer. Reading analysis cannot publish a decision; publishing a decision does not reserve capacity; sending/revoking an offer cannot impersonate the team’s response; and none of these grants implies access to contact/eligibility evidence or judging data. Manual AI-run, information-request, and waitlist-promotion keys stay out of the code-owned catalog until their protected functions and exact scope resolvers ship.
 
 ### Judging grants
 
-A panel/review assignment materialises only the permissions needed for that judge and review: clock-in/page response where applicable, assigned project context, the frozen evidence checkpoint, released previous findings/commitments, presence, and the caller’s own scorecard. The permissions are scoped to the round, panel, review session, and person.
+A panel/review assignment materializes only the permissions needed for that judge and review: clock-in/page response where applicable, assigned project context, the frozen evidence checkpoint, released previous findings/commitments, presence, and the caller’s own scorecard. The permissions are scoped to the round, panel, review session, and person.
 
 The ordinary assignment bundle does not include peer score values, unrelated teams, hidden participant data, staff audit history, or another judge’s scorecard. Although External Judge is the normal role label, the same exact grants can be issued manually to another role when required.
 
 ### Operations grants
 
-Operations screens are assembled from granular read permissions. A station grant may expose only the identity/current state needed to scan at that station; another grant may expose panel completeness without score values; another may expose one integration’s health. Exact movement history, sensitive exceptions, emergency roll call, score values, and identifiable exports each require separate permissions and scopes. No permission exposes raw provider tokens, VIT card identifiers/fingerprints, session cookies, or QR bearers.
+Operations screens are assembled from granular read permissions. `event.lifecycle.read` reveals only the current state and legal next transitions. `event.lifecycle.manage` changes the event state but does not reveal it by itself. A station grant may expose only the identity/current state needed to scan at that station; it cannot record staffed arrival. `attendance.venue_check_in.read`, `.record`, `.override_identity`, and `.reverse` are independent person-scoped keys with an explicit event-wide option. The identity exception and reversal additionally require fresh authentication and a reason. `review.participant_availability.waive` resolves only for the exact team or pending review (or an explicit event-wide grant), requires fresh authentication and a reason, and changes no attendance state. Another grant may expose panel completeness without score values; another may expose one integration’s health. Support create, read, reply, and manage are independent: self grants cover only cases reported by that person, while staff read/manage use the exact `support_case` or explicit event scope. Rehearsal read, management, scenario execution, and final completion are independent exact-`rehearsal_run` or explicit event grants. Workstream ownership routes responsibility but creates no grant. Assigning a support owner likewise creates no grant. Reading a closed-session result remedy, opening one, and deciding one are three independent exact-session permissions. An open/decide grant alone does not reveal the roster or evidence. Exact movement history, sensitive exceptions, emergency roll call, score values, identifiable exports, and the emergency pack each require separate permissions and scopes. `emergency_pack.prepare`, `.read`, and `.print` are independent event-scoped keys; preparing does not reveal another pack, reading cannot mint a print URL, and printing grants no incident/manual-mode command. `operations.intelligence.read` returns only the latest validated event brief, while `operations.intelligence.generate` can request one from the frozen aggregate health projection. Neither implies the other, `operations.health.read`, a drill-down permission, or any corrective command. No permission exposes raw provider tokens, VIT ID barcode values/fingerprints, session cookies, QR bearers, or internal support notes outside a covered case.
 
 ## 7. Sessions and devices
 
-- Better Auth sessions expire after seven days and may refresh after twelve hours of activity.
+- Better Auth sessions expire after seven days and can refresh after twelve hours of activity. Deployed sensitive commands also require a session created within the last 15 minutes. These commands include direct permission grant or revoke, event-invitation create or revoke, role-label change, and event-account suspension or reactivation. They also include venue identity exception or reversal, live attendance reconciliation, staff-opened post-session review, and attendance-remedy decision. Roll-call start or close, identifiable-attendance export request or download, and emergency-pack preparation or print have the same requirement.
 - Permission grants have explicit validity windows and cannot outlive the configured event/access ceiling.
 - Revoking a permission affects the next protected backend call even if the Google session and role label remain valid.
-- Changing a role label changes no grant. Removing prior template-sourced access or applying the new role’s suggested bundle requires separate, explicitly authorised operations.
+- Changing a role label changes no grant. Removing prior template-sourced access or applying the new role’s suggested bundle requires separate, explicitly authorized operations.
 - Web sessions use secure, HTTP-only, same-site cookies.
 - The Expo Better Auth client stores session cookies in `expo-secure-store`.
-- The Expo app registers one device record with platform, build number, camera/NFC capability, notification token, last-seen time, and revocation state.
+- The Expo app registers one device record with platform, build number, camera capability, notification token, last-seen time, and revocation state.
 - Reviewer clock-in and attendance scanning reject a revoked device or an app below the configured minimum build.
 - A scanner must also have an active station assignment whose event, mode, zone, direction, and validity match the command.
-- Grant/revoke operations, overrides, attendance-history reconciliation, post-lock score corrections, role-template migrations, and raw exports require a session created within the previous 30 minutes. An older session is sent through Google sign-in again.
+- Any later override, post-lock correction, migration, or raw export uses the same 15-minute fresh-session boundary unless the published security policy makes it stricter. An older session is sent through Google sign-in again.
 
 The exact session settings live in security configuration and must be tested on real web and mobile builds.
 
@@ -229,7 +281,7 @@ The exact session settings live in security configuration and must be tested on 
 - If a provider subject changes or a rostered email was wrong, a caller with `identity.repair.open` for that person/event opens an identity-repair case.
 - The repair records the old link, new link, evidence, actor, and reason.
 - A claimed roster row cannot be claimed by another person until the first link is revoked.
-- A suspended person cannot create a new event membership through a fresh auth intent.
+- A suspended person cannot create a new event membership through a fresh participant-provisioning request.
 - Revoking Google identity, a GitHub installation, or a Figma authorization does not delete team-owned judging records already captured from it.
 
 ## 9. Audit
@@ -241,8 +293,9 @@ Record these access events:
 - roster import, claim, unlink, and rejection;
 - role assignment and permission grant/batch creation, scope/constraint change, expiry, and revocation;
 - reviewer/scanner device registration, station assignment, hardware-capability change, token replacement, minimum-build rejection, and revocation;
-- VIT ID card enrolment/suspension/rebinding and external badge issue/replacement/revocation;
+- VIT ID barcode enrollment/suspension/rebinding and external badge issue/replacement/revocation;
 - privileged reauthentication failure;
+- emergency-pack preparation and every print-document open, with the exact snapshot/artifact checksums and authorizing grants;
 - identity repair and account suspension.
 
 Normal page views are not written to the audit log.
@@ -252,24 +305,50 @@ Normal page views are not written to the audit log.
 - A VIT Workspace account reaches VIT onboarding from either selector path.
 - A personal Google account cannot complete the VIT path.
 - A personal Google account can complete External onboarding.
+- A participant can read/write only their own policy-approved profile; the intake/admission-model paths cannot obtain name, contact, registration number, or raw eligibility evidence through that grant.
 - A participant with only membership-derived grants cannot call judging or operations functions.
+- Participant provisioning and approved roster claim create revocable self support grants; an access-invitation-only account remains grantless until an explicit grant command runs.
+- Self support read/reply cannot expose another reporter's case, and owning or linking a case cannot satisfy exact-case/event staff read or manage.
 - Any event-linked person can receive one manually scoped permission regardless of role and can use only that permission’s exact scope.
-- A specifically invited account can receive a permission without a role label; the same Google identity has no event access before claiming the invitation.
+- A pending invitation is visible only to its exact verified Google email, expires on server time, and can be revoked before claim.
+- A specifically invited account can receive a permission without a role label; the same Google identity has no event access before claiming the invitation, and claim itself grants nothing.
+- Concurrent invitation claim, revocation, and scheduled expiry produce one version-checked winner and cannot create two event subjects.
+- Suspending an account blocks its next protected read or write without deleting grants, roles, membership, or audit history.
+- Reactivation fails without its independently granted exact-person permission and never restores a revoked or expired grant.
+- A user cannot self-suspend and leave the event without an accountable second administrator.
 - A role label without an active permission grant authorizes no protected read or command.
+- Assigning, replacing, or removing a role label leaves every permission grant unchanged and preserves the ended role row.
 - A participant can mint only their own short-lived attendance QR and cannot choose its session, station direction, or membership.
+- Minting a new attendance QR revokes every older active code for that membership. A successful attendance use or staffed-participant resolution consumes the presented code in the same transaction.
+- Staffed resolution binds independent venue and physical-credential action slots to the exact operator, assigned phone, station, and member. A credential begin/single-step command claims its slot, and its second scan cannot move to another action, credential, operator, phone, station, or member.
 - A person with `attendance.scan.execute` for one station can scan only through that station and cannot read another session’s full movement history.
-- Revoking a scanner device/station, suspending a VIT card binding, or revoking an external badge blocks the next online scan.
-- A VIT card fingerprint cannot be bound to a second active event membership, and the card does not replace the Google-linked person as identity.
+- Initial VIT ID enrollment is station-scoped. Suspending and rebinding an existing VIT ID are independent exact-person permissions; each also requires the assigned current-plan phone, station-read access, visible identity confirmation, a recent Google session, and the current credential version.
+- `attendance.badge.issue`, `attendance.badge.replace`, and `attendance.badge.revoke` are independent exact-person permissions. An assigned phone and station-read grant are additionally required but confer none of those participant-scoped powers.
+- `attendance.venue_check_in.read`, `.record`, `.override_identity`, and `.reverse` fail independently at exact-person and event scope. A role, credential permission, station assignment, or venue-presence permission cannot substitute; exception and reversal also reject a stale Google session.
+- Revoking a scanner device/station, suspending a VIT ID barcode binding, or revoking an external badge blocks the next online scan.
+- A VIT ID barcode fingerprint cannot be bound to a second active event membership, and the card does not replace the Google-linked person as identity.
 - A rostered reviewer can sign in on a production-like Expo build and claim only their own row.
 - An unrostered Google account receives no reviewer data.
+- A malformed or duplicate CSV row rejects the whole preview, and preview alone creates no import, role, or grant.
+- Confirmation fails when the row state, current bundle contents, event window, or preview checksum changed; an exact operation retry returns the original import.
+- Reimport leaves an already-claimed row untouched and only supersedes the exact pending row it previewed.
+- Claiming one exact row creates or reuses one event subject, at most one compatible role label, and all pinned bundle grants atomically; a competing claim, revoke, replacement, or expiry cannot partially win.
+- `access.roster.read`, `access.roster.import`, and `access.roster.revoke` expose and authorize different operations, and exact-row read/revoke grants do not become event-wide.
 - Revoking the exact permission blocks the next protected call without waiting for session expiry.
+- A future grant is ineffective before `validFrom`, becomes active through one state-checked transition, and advances the subject access version.
+- Revocation racing a scheduled start always leaves the grant revoked; a delayed start or repair job cannot restore it.
+- A grant is ineffective at `validUntil` even if its expiry job has not run, and the repair sweep later records `expiredAt` without extending access.
+- A panel, review, team, reserve, page, or scanner grant group advances its target access version once when it adds rows and not at all on an idempotent retry.
 - Applying a bundle creates individually inspectable grants; changing the bundle changes nobody until a previewed grant/revoke migration runs.
 - `access.permissions.grant_scoped` and `access.permissions.revoke_scoped` cannot act outside their one permission key, resource-scope, target-person, or expiry constraints.
 - Grant and revoke authority are independent: `access.permissions.grant_any` cannot revoke, and `access.permissions.revoke_any` cannot grant.
 - Grant authority alone cannot execute the permission it is allowed to grant.
+- Operations-health read, intelligence-brief read, and intelligence-brief generation fail independently; generating a brief grants no access to its result or any action it names.
+- Application review, profile/year context, AI recommendation read/run, human decision preparation/publication, and judging context each fail independently without their exact scoped permission.
+- Admission-configuration read, draft replacement, validation, and publication fail independently at event scope. None grants application read, AI-recommendation read, human decision, offer, capacity-reservation, or judging authority.
 - Reading another person’s access, assigning their role label, applying a bundle, and importing a roster each fail without their own exact permission.
 - Cross-event, wrong-team, wrong-round, wrong-panel, wrong-review, wrong-station, and expired grants fail even when the permission key matches.
-- A duplicated callback cannot consume an auth intent twice or create two memberships.
+- A duplicated callback or retried provisioning request cannot create two memberships for one person and event.
 - A member leaving a team or revoking Figma cannot erase the team’s captured checkpoints; a current lead can replace the authorizer.
 - Two teams cannot claim the same provider resource in one event without an audited shared-resource exception.
 

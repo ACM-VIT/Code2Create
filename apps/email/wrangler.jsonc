@@ -1,0 +1,43 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "code2create-email",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-08",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true
+  },
+  "env": {
+    "staging": {
+      "name": "code2create-email-staging",
+      "queues": {
+        "consumers": [
+          {
+            "queue": "code2create-email-events-staging",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_retries": 5,
+            "retry_delay": 30,
+            "dead_letter_queue": "code2create-email-events-staging-dlq"
+          }
+        ]
+      }
+    },
+    "production": {
+      "name": "code2create-email",
+      "queues": {
+        "consumers": [
+          {
+            "queue": "code2create-email-events",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_retries": 5,
+            "retry_delay": 30,
+            "dead_letter_queue": "code2create-email-events-dlq"
+          }
+        ]
+      }
+    }
+  }
+}

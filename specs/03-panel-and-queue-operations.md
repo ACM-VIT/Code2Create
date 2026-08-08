@@ -47,7 +47,7 @@ Publishing a plan creates a version. Later edits keep the previous version and r
 
 ## 4. Routing teams
 
-Panels are not fixed only by track. The router reads the confirmed core-track version, any sponsor eligibility, the team-confirmed brief, and reviewer domain tags. It never reads an unconfirmed model suggestion. A security project still needs product and communication coverage; a health project still needs technical and responsible-use coverage.
+Panels are not fixed only by track. The router reads the confirmed core-track version, any sponsor eligibility, the team-confirmed brief, and reviewer domain tags. The router never reads an unconfirmed model suggestion. A security project still needs product and communication coverage. A health project still needs technical and responsible-use coverage.
 
 The routing function first removes ineligible panels:
 
@@ -64,7 +64,7 @@ It then ranks eligible panels using:
 2. rubric coverage;
 3. current queue length and observed review pace;
 4. continuity or rotation policy for the round;
-5. venue distance when the floor map contains zones;
+5. venue distance from the team's current mapped hall spot to the panel table;
 6. number of recent manual exceptions.
 
 The ranker is deterministic code with a recorded rules version. It does not call a language model.
@@ -73,20 +73,33 @@ A sponsor-track entry can require an eligible domain reviewer for sponsor-award 
 
 Operations can auto-accept the top result for ordinary teams during a configured assignment window. A manual choice outside the top result requires a reason. Assignment becomes fixed when the team enters `queued`; later moves use the exception flow.
 
-## 5. Table preparation
+## 5. Hall mapping and panel tables
 
-Operations records team-to-table assignments roughly 90 minutes before the review window and freezes them 30–60 minutes before routing.
+The team’s hacking location and the review panel’s table are different resources. A `reviewPanel.tableLabel` tells a called team where to go for judging. A `teamFloorLocation` tells routing where the team is currently seated in the hall.
+
+Operations publishes a versioned hall plan from a checked CSV of zones and spots. Each spot has one stable key, human label, zone, percentage coordinates for the simple map, accessibility flag, and open/closed state. The plan remains replaceable only until the first team location is saved.
+
+Roving floor staff record locations roughly 90 minutes before the review window:
+
+1. the mapper selects one zone covered by their exact grant;
+2. the team opens the hall-location QR on its own dashboard;
+3. the mapper scans it while standing with the team;
+4. the app shows the team and any current location;
+5. the mapper taps the physical spot and waits for server confirmation.
+
+No QR is attached to a table. The team credential identifies the team. The mapper identifies the spot from the published plan. The scan consumes one short-lived token and creates an operator-owned claim before the spot write. The server serializes replay, two mappers scanning one code, two teams claiming one spot, and two claims for one team. These actions cannot overwrite each other.
+
+Operations freezes the hall map 30–60 minutes before routing. The server rejects the freeze until every currently confirmed/checked-in/active team has one location. A selected or offer-pending team is not yet mapping-eligible. A later physical correction requires the separate override permission for every affected zone and a reason. The correction supersedes history. It does not edit history.
 
 Before freeze, the dashboard lists:
 
 - unassigned teams;
-- duplicate table claims;
-- inaccessible or closed tables;
-- teams whose reported table differs from the operations table;
+- occupied or closed spots;
+- inaccessible placements that need correction;
 - panels without a table;
 - zone capacity.
 
-The official table comes from the server. Participant confirmation reports a mismatch but does not silently change it.
+The official hall spot and panel table both come from the server. Participants may show a fresh code for correction but cannot silently change either record.
 
 ## 6. Reviewer clock-in
 
@@ -122,7 +135,7 @@ When a required seat is empty or a reviewer becomes unavailable:
 6. a declined or expired page advances to the next candidate;
 7. operations sees the entire page chain and can select a different eligible reviewer.
 
-The working acknowledgement window is 90 seconds and remains configurable.
+The working acknowledgment window is 90 seconds and remains configurable.
 
 A delivered push does not count as acceptance. Only an authenticated in-app action can accept the page. If no candidate responds, operations calls the reviewer or sends a floor runner while the exception stays visible.
 
@@ -130,26 +143,29 @@ A delivered push does not count as acceptance. Only an authenticated in-app acti
 
 ### States
 
-`not_ready → ready → queued → called → at_table → in_review → completed`
+There is no participant transition into a review round. Before staff placement, no team/round row is required. `queue.manage` for the selected panel creates the row directly as:
+
+`queued → called → at_table → in_review → completed`
+
+`unassigned` is an operations-only state used when a conflict or manual exception requires a new panel choice. Staff can route it back to `queued`; participants cannot cause this transition.
 
 Exceptional states are:
 
 - `held`
 - `missed`
 - `withdrawn`
-- `moved`
 
-Every exceptional state stores a reason and the actor.
+A panel move preserves `queued` and records the previous panel, new panel, actor, reason, and version. Every exceptional state stores a reason and the actor.
 
 ### Ordering
 
 Within the set of teams an eligible panel can review, the default order is:
 
-1. earliest accepted `readyAt`;
+1. earliest accepted `queuedAt`;
 2. teams returning from an approved hold;
 3. tie-break by stable team ID.
 
-Routing and conflict constraints may create different visible queues per panel. Operations can reprioritise a team only with a reason code such as accessibility, hardware incident, venue safety, or correction of an earlier operations error.
+Routing and conflict constraints may create different visible queues per panel. Operations can reprioritize a team only with a reason code such as accessibility, hardware incident, venue safety, or correction of an earlier operations error.
 
 ### Participant display
 
@@ -160,21 +176,30 @@ Participants see:
 - their current ordinal and the ordinal now being called;
 - number of teams ahead;
 - a coarse time window;
+- whether staff have paused new review calls and starts;
 - a clear action when called or held.
 
-The ordinal is derived from the current eligible queue and may change after an approved hold or move; the UI explains the change. The estimate uses active review start times and recent panel duration. It updates when a review starts, completes, extends, or changes panel. It never promises an exact minute.
+The server derives the ordinal from the current eligible queue. It can change after an approved hold or move. The UI explains the change. The estimate uses the current review's remaining planned time and a bounded panel pace. Pace begins with the configured duration. After three samples, it uses the median of up to nine recent valid completions. The server widens the result and rounds it to five-minute buckets. It updates the estimate when a review starts, completes, extends, changes panel, or changes queue position. The server withholds the estimate during a round pause. The estimate never promises an exact minute.
 
 ### Calling a team
 
 The panel or operations user calls the next eligible team. The server records `calledAt` and the expected table.
 
-Before calling, the server reads the current participant-attendance team summary. When the round policy names a minimum currently available member count, a team below it remains queued or receives a short visible hold. One temporarily out member does not automatically mark the team missed or remove its ready time. The portal asks the team to regroup; operations may continue, hold, or record the approved exception.
+The live board shows each team's active-member count, currently-inside count, and the round minimum. Before calling, the server reads those current participant venue projections in the same transaction as the queue transition. A team below the published minimum remains queued; the failed call creates no review, assignment, scorecard, or evidence checkpoint. One temporarily out member does not automatically mark the team missed or remove its queue time. Operations can wait or apply the separately authorized hold flow.
+
+An exceptional call requires `review.participant_availability.waive` for that exact team or an explicit event-wide grant. It also requires a reason, the same idempotent call operation, and a Google session created within the last 15 minutes. Before the transaction creates the called review, it records an immutable waiver. The waiver contains the observed and required counts, authorizing grant IDs, actor, and time. If availability drops after the call, the same permission can cover that exact review or team. The system records the waiver against the current pending-review version. A waiver never changes attendance and cannot be copied to another review. The team portal only asks members to regroup. It does not show the exception reason or identify the person who is away.
 
 The final missed-call grace period, number of calls, and re-entry position are open decisions. The dashboard must not implement a hidden default.
 
+### Round-wide incident pause
+
+An authorized operator can pause new calls and starts for one open round only after choosing an active review-backend incident that they may read. The pause is a separate versioned record, not another round lifecycle state. Teams already in a panel queue keep their position, and a review already active or overdue can keep saving and finish normally.
+
+`review.round.pause` and `review.round.resume` are independent exact-round permissions. Both commands require a Google session created within the last 15 minutes, the current round and pause versions, a reason, and a stable operation ID. The pause mutation increments the round version, so a concurrent call, start, or close either commits first or retries against the pause and fails. An incident cannot resolve while one of its round pauses remains active.
+
 ## 9. Reviewer presence
 
-Each assigned reviewer scans the team QR from their signed-in device.
+Each assigned reviewer scans the review-presence team QR from their signed-in device.
 
 The server checks:
 
@@ -193,10 +218,11 @@ If the camera fails, the judge types the fallback code. If both methods fail, `r
 The server starts a review only when:
 
 - round is open;
+- no active round-wide incident pause exists;
 - team, panel, assignment, and table are current;
 - no other active review exists for the team or panel;
 - required reviewer presence is complete or a valid scoped presence waiver exists;
-- the configured minimum participant availability is met or an authorised attendance exception exists;
+- the current configured minimum participant availability is met in the transactionally maintained team projection, or an immutable `review.participant_availability.waive` record exists for this review;
 - the rubric and criterion assignments are fixed;
 - required project and integration snapshots exist.
 
@@ -212,7 +238,7 @@ One accepted start creates:
 
 All clients calculate elapsed time from `startedAt`. They do not send one write per second.
 
-The start response also includes `serverNow`. Each client calculates remaining time from the observed server offset and advances it with a monotonic device clock. A live update resynchronises the offset after foregrounding or reconnect.
+The start response also includes `serverNow`. Each client calculates remaining time from the observed server offset and advances it with a monotonic device clock. A live update resynchronizes the offset after foregrounding or reconnect.
 
 ## 11. Timer and extension
 
@@ -248,12 +274,13 @@ The panel coordinator may confirm completion. The coordinator cannot edit anothe
 | Reviewer does not arrive | Page substitutes; keep panel visibly blocked until accepted |
 | Reviewer phone dies | Move the reviewer to a spare registered device or replace the reviewer |
 | Push is late | In-app assignment and dashboard stay current; call or runner is the fallback |
-| Team is at the wrong table | Hold, correct the official table, then reroute or resume |
+| Team is at the wrong panel table | Hold, correct the panel destination, then reroute or resume |
 | QR expired | Refresh the participant QR; do not reuse an old token |
 | Duplicate review start | Return the existing active session |
 | Two operators move the same team | Accept one current-version command; reject the stale command with the new state |
 | Review runs over | Mark overdue and require an explicit extension or close decision |
 | Required scorecard missing | Keep the review and round incomplete; page the reviewer or start the approved missing-reviewer process |
+| Review incident pauses the round | Keep queue positions and active scorecards; reject new calls, starts, and round close until authorized resume |
 
 ## 14. Acceptance checks
 
@@ -264,8 +291,11 @@ The panel coordinator may confirm completion. The coordinator cannot edit anothe
 - A team cannot have two active review sessions in one round.
 - A panel cannot run two active sessions at once.
 - A review cannot start without required presence or a recorded waiver created through `review.presence.waive` for that review.
+- A team below the published participant minimum cannot be called or started unless a freshly authenticated holder of `review.participant_availability.waive` records one immutable exception for that exact team/review; the exception changes no attendance state.
 - A temporarily out participant produces the configured regroup/hold flow rather than silently marking the team missed.
 - Participant attendance and reviewer QR presence cannot satisfy one another.
 - The participant and operations queue change after the same accepted server write.
 - Timer reloads calculate the same end time on every client.
 - Queue moves, holds, overrides, extensions, and forced closes retain actor and reason.
+- A round pause racing a call, start, incident resolution, or round close has one transactionally consistent winner.
+- Participant and reviewer clients show the generic pause state without receiving the internal incident summary unless they independently hold incident read access.

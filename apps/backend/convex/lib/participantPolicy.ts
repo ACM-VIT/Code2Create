@@ -1,0 +1,330 @@
+import { ConvexError, v } from "convex/values";
+
+import type { Doc, Id } from "../_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { fingerprintText, normalizedLongText, normalizedText } from "./strings";
+
+type ReadCtx = QueryCtx | MutationCtx;
+
+export const profileFieldMode = v.union(
+  v.literal("not_collected"),
+  v.literal("optional"),
+  v.literal("required"),
+);
+
+export type ProfileFieldMode = "not_collected" | "optional" | "required";
+
+export const participantPolicyInput = v.object({
+  label: v.string(),
+  teamMinimumSize: v.number(),
+  teamMaximumSize: v.number(),
+  mixedParticipantClassesAllowed: v.boolean(),
+  phoneField: profileFieldMode,
+  vitRegistrationNumberField: profileFieldMode,
+  vitProgrammeField: profileFieldMode,
+  vitCampusField: profileFieldMode,
+  externalCityField: profileFieldMode,
+  externalCountryField: profileFieldMode,
+  profileNotice: v.string(),
+  projectTextNotice: v.string(),
+  privacyNoticeUrl: v.string(),
+  freshProjectAttestation: v.string(),
+  finalSubmissionWarning: v.string(),
+});
+
+export type ParticipantPolicy = {
+  label: string;
+  teamMinimumSize: number;
+  teamMaximumSize: number;
+  mixedParticipantClassesAllowed: boolean;
+  phoneField: ProfileFieldMode;
+  vitRegistrationNumberField: ProfileFieldMode;
+  vitProgrammeField: ProfileFieldMode;
+  vitCampusField: ProfileFieldMode;
+  externalCityField: ProfileFieldMode;
+  externalCountryField: ProfileFieldMode;
+  profileNotice: string;
+  projectTextNotice: string;
+  privacyNoticeUrl: string;
+  freshProjectAttestation: string;
+  finalSubmissionWarning: string;
+};
+
+export const freshProjectAttestation =
+  "We will begin project-specific implementation and design after Code2Create's official start.";
+
+export const defaultParticipantPolicy: ParticipantPolicy = {
+  label: "Participant policy · 1",
+  teamMinimumSize: 1,
+  teamMaximumSize: 4,
+  mixedParticipantClassesAllowed: true,
+  phoneField: "optional",
+  vitRegistrationNumberField: "required",
+  vitProgrammeField: "required",
+  vitCampusField: "required",
+  externalCityField: "optional",
+  externalCountryField: "required",
+  profileNotice:
+    "We use these details to establish event eligibility, contact you about operations, and run Code2Create.",
+  projectTextNotice:
+    "Project answers may be processed by the published intake and novelty services. Do not include contact details, credentials, or other unnecessary personal information.",
+  privacyNoticeUrl: "https://code2create.in/privacy",
+  freshProjectAttestation,
+  finalSubmissionWarning:
+    "Submitting locks this exact team, core track, and selected sponsor tracks. Review every item before you continue.",
+};
+
+function invalidPolicy(message: string): never {
+  throw new ConvexError({ code: "INVALID_PARTICIPANT_POLICY", message });
+}
+
+function wholeNumber(value: number, label: string, minimum: number, maximum: number) {
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    invalidPolicy(`${label} must be a whole number from ${minimum} through ${maximum}.`);
+  }
+  return value;
+}
+
+function normalizedHttpsUrl(value: string, label: string) {
+  const normalized = normalizedText(value, label, 8, 500);
+  let url: URL;
+  try {
+    url = new URL(normalized);
+  } catch {
+    invalidPolicy(`${label} must be a complete HTTPS URL.`);
+  }
+  if (url.protocol !== "https:" || url.username || url.password) {
+    invalidPolicy(`${label} must be a complete HTTPS URL without embedded credentials.`);
+  }
+  return url.toString();
+}
+
+export function normalizeParticipantPolicy(input: ParticipantPolicy): ParticipantPolicy {
+  const teamMinimumSize = wholeNumber(input.teamMinimumSize, "Minimum team size", 1, 12);
+  const teamMaximumSize = wholeNumber(input.teamMaximumSize, "Maximum team size", 1, 12);
+  if (teamMaximumSize < teamMinimumSize) {
+    invalidPolicy("Maximum team size cannot be smaller than minimum team size.");
+  }
+  const freshAttestation = normalizedLongText(
+    input.freshProjectAttestation,
+    "Fresh-project attestation",
+    40,
+    240,
+  );
+  if (freshAttestation !== freshProjectAttestation) {
+    invalidPolicy("The fresh-project attestation must preserve the event's fixed fresh-build rule.");
+  }
+  const finalSubmissionWarning = normalizedLongText(
+    input.finalSubmissionWarning,
+    "Final-submission warning",
+    40,
+    400,
+  );
+  const warningText = finalSubmissionWarning.toLocaleLowerCase("en");
+  if (!["team", "track", "lock"].every((term) => warningText.includes(term))) {
+    invalidPolicy("The final-submission warning must plainly say that the team and track lock.");
+  }
+  return {
+    label: normalizedText(input.label, "Policy label", 3, 80),
+    teamMinimumSize,
+    teamMaximumSize,
+    mixedParticipantClassesAllowed: input.mixedParticipantClassesAllowed,
+    phoneField: input.phoneField,
+    vitRegistrationNumberField: input.vitRegistrationNumberField,
+    vitProgrammeField: input.vitProgrammeField,
+    vitCampusField: input.vitCampusField,
+    externalCityField: input.externalCityField,
+    externalCountryField: input.externalCountryField,
+    profileNotice: normalizedLongText(input.profileNotice, "Profile notice", 20, 600),
+    projectTextNotice: normalizedLongText(
+      input.projectTextNotice,
+      "Project-text notice",
+      20,
+      800,
+    ),
+    privacyNoticeUrl: normalizedHttpsUrl(input.privacyNoticeUrl, "Privacy notice URL"),
+    freshProjectAttestation: freshAttestation,
+    finalSubmissionWarning,
+  };
+}
+
+export function participantPolicyChecksum(policy: ParticipantPolicy) {
+  return fingerprintText(JSON.stringify(normalizeParticipantPolicy(policy)));
+}
+
+export function participantPolicyFromDocument(
+  policy: Doc<"participantPolicyVersions">,
+): ParticipantPolicy {
+  return {
+    label: policy.label,
+    teamMinimumSize: policy.teamMinimumSize,
+    teamMaximumSize: policy.teamMaximumSize,
+    mixedParticipantClassesAllowed: policy.mixedParticipantClassesAllowed,
+    phoneField: policy.phoneField,
+    vitRegistrationNumberField: policy.vitRegistrationNumberField,
+    vitProgrammeField: policy.vitProgrammeField,
+    vitCampusField: policy.vitCampusField,
+    externalCityField: policy.externalCityField,
+    externalCountryField: policy.externalCountryField,
+    profileNotice: policy.profileNotice,
+    projectTextNotice: policy.projectTextNotice,
+    privacyNoticeUrl: policy.privacyNoticeUrl,
+    freshProjectAttestation: policy.freshProjectAttestation,
+    finalSubmissionWarning: policy.finalSubmissionWarning,
+  };
+}
+
+export async function loadPublishedParticipantPolicy(ctx: ReadCtx, event: Doc<"events">) {
+  const policyId = event.publishedParticipantPolicyId;
+  const policy = policyId ? await ctx.db.get(policyId) : null;
+  if (!policy || policy.eventId !== event._id || policy.status !== "published") {
+    throw new ConvexError({
+      code: "PARTICIPANT_POLICY_UNAVAILABLE",
+      message: "Participant registration policy is not configured for this event.",
+    });
+  }
+  const normalized = normalizeParticipantPolicy(participantPolicyFromDocument(policy));
+  if (participantPolicyChecksum(normalized) !== policy.checksum) {
+    throw new Error("The published participant-policy checksum is invalid.");
+  }
+  return { policy, normalized };
+}
+
+function requiredValue(mode: ProfileFieldMode, value: string | undefined) {
+  return mode !== "required" || value !== undefined;
+}
+
+export function isProfileCompleteForPolicy(
+  profile: Doc<"participantProfiles"> | null,
+  membership: Doc<"eventMemberships">,
+  policy: Doc<"participantPolicyVersions">,
+) {
+  if (
+    !profile ||
+    profile.membershipId !== membership._id ||
+    profile.participantClass !== membership.participantClass ||
+    !membership.acceptedParticipantPolicyVersionIds.includes(policy._id) ||
+    profile.fullName.length === 0 ||
+    profile.institution.length === 0 ||
+    !requiredValue(policy.phoneField, profile.phone)
+  ) {
+    return false;
+  }
+  if (profile.participantClass === "vit_student") {
+    return (
+      profile.yearOfStudy !== "not_applicable" &&
+      requiredValue(policy.vitRegistrationNumberField, profile.vitRegistrationNumber) &&
+      requiredValue(policy.vitProgrammeField, profile.vitProgramme) &&
+      requiredValue(policy.vitCampusField, profile.vitCampus)
+    );
+  }
+  return (
+    (profile.yearOfStudy !== "not_applicable" || profile.currentRole !== undefined) &&
+    requiredValue(policy.externalCityField, profile.externalCity) &&
+    requiredValue(policy.externalCountryField, profile.externalCountry)
+  );
+}
+
+export function participantClassesMeetPolicy(
+  participantClasses: readonly ("vit_student" | "external_participant")[],
+  policy: ParticipantPolicy,
+) {
+  return policy.mixedParticipantClassesAllowed || new Set(participantClasses).size <= 1;
+}
+
+export async function saveParticipantPolicyDraft(
+  ctx: MutationCtx,
+  args: {
+    event: Doc<"events">;
+    actorPersonId: Id<"people">;
+    policy: ParticipantPolicy;
+    expectedDraftPolicyId?: Id<"participantPolicyVersions">;
+    now: number;
+  },
+) {
+  const normalized = normalizeParticipantPolicy(args.policy);
+  const checksum = participantPolicyChecksum(normalized);
+  const currentDraft = await ctx.db
+    .query("participantPolicyVersions")
+    .withIndex("by_event_status", (index) =>
+      index.eq("eventId", args.event._id).eq("status", "draft"),
+    )
+    .unique();
+  if (currentDraft?._id !== args.expectedDraftPolicyId) {
+    throw new ConvexError({
+      code: "PARTICIPANT_POLICY_DRAFT_CHANGED",
+      message: "The participant-policy draft changed in another session.",
+    });
+  }
+  if (currentDraft?.checksum === checksum) {
+    return {
+      policyVersionId: currentDraft._id,
+      policyVersion: currentDraft.version,
+      checksum,
+      changed: false,
+    };
+  }
+  const latest = await ctx.db
+    .query("participantPolicyVersions")
+    .withIndex("by_event_version", (index) => index.eq("eventId", args.event._id))
+    .order("desc")
+    .first();
+  if (currentDraft) await ctx.db.patch(currentDraft._id, { status: "retired" });
+  const policyVersion = (latest?.version ?? 0) + 1;
+  const policyVersionId = await ctx.db.insert("participantPolicyVersions", {
+    eventId: args.event._id,
+    version: policyVersion,
+    status: "draft",
+    ...normalized,
+    checksum,
+    createdByPersonId: args.actorPersonId,
+    createdAt: args.now,
+  });
+  return { policyVersionId, policyVersion, checksum, changed: true };
+}
+
+export async function publishParticipantPolicy(
+  ctx: MutationCtx,
+  args: {
+    event: Doc<"events">;
+    draftPolicyId: Id<"participantPolicyVersions">;
+    expectedDraftChecksum: string;
+    now: number;
+  },
+) {
+  const draft = await ctx.db.get(args.draftPolicyId);
+  const currentDraft = await ctx.db
+    .query("participantPolicyVersions")
+    .withIndex("by_event_status", (index) =>
+      index.eq("eventId", args.event._id).eq("status", "draft"),
+    )
+    .unique();
+  if (
+    !draft ||
+    draft.eventId !== args.event._id ||
+    currentDraft?._id !== draft._id ||
+    draft.checksum !== args.expectedDraftChecksum
+  ) {
+    throw new ConvexError({
+      code: "PARTICIPANT_POLICY_DRAFT_CHANGED",
+      message: "The participant-policy draft changed in another session.",
+    });
+  }
+  const normalized = normalizeParticipantPolicy(participantPolicyFromDocument(draft));
+  if (participantPolicyChecksum(normalized) !== draft.checksum) {
+    throw new Error("The participant-policy draft checksum does not match its content.");
+  }
+  const previousId = args.event.publishedParticipantPolicyId;
+  const previous = previousId ? await ctx.db.get(previousId) : null;
+  if (!previous || previous.eventId !== args.event._id || previous.status !== "published") {
+    throw new Error("The event's published participant policy is invalid.");
+  }
+  await ctx.db.patch(previous._id, { status: "superseded" });
+  await ctx.db.patch(draft._id, { status: "published", publishedAt: args.now });
+  await ctx.db.patch(args.event._id, {
+    publishedParticipantPolicyId: draft._id,
+    version: args.event.version + 1,
+    updatedAt: args.now,
+  });
+  return { policyVersionId: draft._id, policyVersion: draft.version };
+}

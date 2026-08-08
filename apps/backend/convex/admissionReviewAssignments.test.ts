@@ -1,0 +1,596 @@
+import { convexTest, type TestConvex } from "convex-test";
+import { describe, expect, test } from "vitest";
+
+import type { Id } from "./_generated/dataModel.js";
+import type { MutationCtx } from "./_generated/server.js";
+import {
+  cancelAdmissionReviewAssignment,
+  createAdmissionReviewAssignment,
+  saveAdmissionHumanReview,
+} from "./admissions.ts";
+import { permissionCatalog } from "./lib/permissionCatalog.ts";
+import {
+  defaultParticipantPolicy,
+  participantPolicyChecksum,
+} from "./lib/participantPolicy.ts";
+import { insertPermissionGrant } from "./lib/permissions.ts";
+import schema from "./schema.ts";
+
+const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
+type BackendTest = TestConvex<typeof schema>;
+
+describe("admission review assignments", () => {
+  test("keeps routing, profile context, and AI analysis behind separate exact scopes", () => {
+    expect(permissionCatalog["application.review.read"]).toEqual({
+      scopes: ["application"],
+      eventWide: true,
+    });
+    expect(permissionCatalog["application.review"]).toEqual({
+      scopes: ["application"],
+      eventWide: true,
+    });
+    expect(permissionCatalog["application.assign"]).toEqual({
+      scopes: ["application"],
+      eventWide: true,
+    });
+    expect(permissionCatalog["application.profile_context.read"]).toEqual({
+      scopes: ["application"],
+      eventWide: true,
+    });
+    expect(permissionCatalog["application.ai_recommendation.read"]).toEqual({
+      scopes: ["application"],
+      eventWide: true,
+    });
+  });
+
+  test("assigning one active event account creates only exact review access", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedAssignmentFixture(backend);
+
+    const result = await backend.run(async (ctx) => {
+      const [application, reviewerSubject] = await Promise.all([
+        ctx.db.get(fixture.applicationId),
+        ctx.db.get(fixture.reviewerSubjectId),
+      ]);
+      if (!application || !reviewerSubject) throw new Error("Assignment fixture is incomplete.");
+      return createAdmissionReviewAssignment(ctx, {
+        application,
+        expectedApplicationVersion: 1,
+        reviewerSubject,
+        assignedByPersonId: fixture.managerPersonId,
+        now: fixture.now,
+      });
+    });
+
+    const state = await assignmentState(backend, fixture, result.assignmentId);
+    expect(result).toEqual({
+      assignmentId: result.assignmentId,
+      assignmentVersion: 1,
+      applicationVersion: 2,
+    });
+    expect(state.application).toMatchObject({
+      state: "under_review",
+      assignedReviewCount: 1,
+      completedReviewCount: 0,
+      version: 2,
+    });
+    expect(state.assignment).toMatchObject({
+      reviewerPersonId: fixture.reviewerPersonId,
+      state: "active",
+      version: 1,
+    });
+    expect(state.assignmentGrants).toHaveLength(2);
+    expect(state.assignmentGrants.map((grant) => grant.permissionKey).sort()).toEqual([
+      "application.review",
+      "application.review.read",
+    ]);
+    expect(
+      state.assignmentGrants.every(
+        (grant) =>
+          grant.status === "active" &&
+          grant.scopeType === "application" &&
+          grant.scopeId === fixture.applicationId,
+      ),
+    ).toBe(true);
+    expect(state.reviewerSubject?.accessVersion).toBe(2);
+  });
+
+  test("cancelling pending work revokes only assignment-sourced grants", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedAssignmentFixture(backend);
+    const assignment = await backend.run(async (ctx) => {
+      const [application, reviewerSubject] = await Promise.all([
+        ctx.db.get(fixture.applicationId),
+        ctx.db.get(fixture.reviewerSubjectId),
+      ]);
+      if (!application || !reviewerSubject) throw new Error("Assignment fixture is incomplete.");
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.reviewerPersonId,
+        eventAccessSubjectId: fixture.reviewerSubjectId,
+        permissionKey: "application.review",
+        scopeType: "application",
+        scopeId: fixture.applicationId,
+        sourceType: "manual",
+        sourceId: "fixture-manual-review",
+        grantedByPersonId: fixture.managerPersonId,
+        reason: "Independent direct grant",
+      });
+      return createAdmissionReviewAssignment(ctx, {
+        application,
+        expectedApplicationVersion: 1,
+        reviewerSubject,
+        assignedByPersonId: fixture.managerPersonId,
+        now: fixture.now,
+      });
+    });
+
+    await backend.run(async (ctx) => {
+      const [application, assignmentRow] = await Promise.all([
+        ctx.db.get(fixture.applicationId),
+        ctx.db.get(assignment.assignmentId),
+      ]);
+      if (!application || !assignmentRow) throw new Error("Assignment fixture is incomplete.");
+      await cancelAdmissionReviewAssignment(ctx, {
+        application,
+        expectedApplicationVersion: 2,
+        assignment: assignmentRow,
+        expectedAssignmentVersion: 1,
+        cancelledByPersonId: fixture.managerPersonId,
+        reason: "Reviewer is unavailable",
+        now: fixture.now + 1,
+      });
+    });
+
+    const state = await assignmentState(backend, fixture, assignment.assignmentId);
+    expect(state.application).toMatchObject({
+      assignedReviewCount: 0,
+      completedReviewCount: 0,
+      version: 3,
+    });
+    expect(state.assignment).toMatchObject({
+      state: "cancelled",
+      version: 2,
+      cancellationReason: "Reviewer is unavailable",
+    });
+    expect(state.assignmentGrants.every((grant) => grant.status === "revoked")).toBe(true);
+    expect(state.manualGrants).toHaveLength(1);
+    expect(state.manualGrants[0]).toMatchObject({
+      permissionKey: "application.review",
+      status: "active",
+    });
+    expect(state.reviewerSubject?.accessVersion).toBe(3);
+  });
+
+  test("saving and replacing a review keeps one completion and preserves routed read access", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedAssignmentFixture(backend);
+    const assigned = await assignFixtureReviewer(
+      backend,
+      fixture,
+      fixture.reviewerSubjectId,
+    );
+
+    const firstReview = await backend.run(async (ctx) => {
+      const application = await ctx.db.get(fixture.applicationId);
+      if (!application) throw new Error("Assignment fixture is incomplete.");
+      return saveAdmissionHumanReview(ctx, {
+        application,
+        expectedApplicationContentVersion: 1,
+        reviewerPersonId: fixture.reviewerPersonId,
+        recommendation: "accept",
+        reasonCode: "clear_intent",
+        note: "The intent is clear.",
+        now: fixture.now + 1,
+      });
+    });
+    await backend.run(async (ctx) => {
+      const application = await ctx.db.get(fixture.applicationId);
+      if (!application) throw new Error("Assignment fixture is incomplete.");
+      await saveAdmissionHumanReview(ctx, {
+        application,
+        expectedApplicationContentVersion: 1,
+        reviewerPersonId: fixture.reviewerPersonId,
+        recommendation: "waitlist",
+        reasonCode: "clear_intent",
+        note: "The intent is clear, but one detail remains.",
+        now: fixture.now + 2,
+      });
+    });
+
+    const state = await assignmentState(backend, fixture, assigned.assignmentId);
+    expect(state.assignment).toMatchObject({
+      state: "completed",
+      version: 2,
+      completedAt: fixture.now + 1,
+    });
+    expect(state.assignmentGrants.every((grant) => grant.status === "active")).toBe(true);
+    expect(state.application).toMatchObject({
+      assignedReviewCount: 1,
+      completedReviewCount: 1,
+      version: 4,
+    });
+    const reviews = await backend.run((ctx) =>
+      ctx.db
+        .query("admissionHumanReviews")
+        .withIndex("by_application_reviewer_status", (index) =>
+          index
+            .eq("applicationId", fixture.applicationId)
+            .eq("reviewerPersonId", fixture.reviewerPersonId),
+        )
+        .collect(),
+    );
+    expect(reviews).toHaveLength(2);
+    expect(reviews.find((review) => review._id === firstReview.reviewId)?.status).toBe(
+      "superseded",
+    );
+    expect(reviews.find((review) => review.status === "active")).toMatchObject({
+      recommendation: "waitlist",
+      applicationContentVersion: 1,
+    });
+  });
+
+  test("two stale managers cannot both cross one application version", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedAssignmentFixture(backend);
+    const attempts = await Promise.allSettled([
+      assignFixtureReviewer(backend, fixture, fixture.reviewerSubjectId),
+      assignFixtureReviewer(backend, fixture, fixture.secondReviewerSubjectId),
+    ]);
+
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
+    const state = await backend.run(async (ctx) => ({
+      application: await ctx.db.get(fixture.applicationId),
+      assignments: await ctx.db
+        .query("admissionReviewAssignments")
+        .withIndex("by_application_state_assigned", (index) =>
+          index.eq("applicationId", fixture.applicationId).eq("state", "active"),
+        )
+        .collect(),
+    }));
+    expect(state.application).toMatchObject({ assignedReviewCount: 1, version: 2 });
+    expect(state.assignments).toHaveLength(1);
+  });
+
+  test("independent reviewers can submit together without losing a completion", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedAssignmentFixture(backend);
+    await assignFixtureReviewer(backend, fixture, fixture.reviewerSubjectId, 1);
+    await assignFixtureReviewer(backend, fixture, fixture.secondReviewerSubjectId, 2);
+
+    await Promise.all([
+      saveFixtureReview(backend, fixture, fixture.reviewerPersonId, "accept"),
+      saveFixtureReview(backend, fixture, fixture.secondReviewerPersonId, "waitlist"),
+    ]);
+
+    const state = await backend.run(async (ctx) => ({
+      application: await ctx.db.get(fixture.applicationId),
+      assignments: await ctx.db
+        .query("admissionReviewAssignments")
+        .withIndex("by_application_state_assigned", (index) =>
+          index.eq("applicationId", fixture.applicationId).eq("state", "completed"),
+        )
+        .collect(),
+      reviews: await ctx.db
+        .query("admissionHumanReviews")
+        .withIndex("by_application_status", (index) =>
+          index.eq("applicationId", fixture.applicationId).eq("status", "active"),
+        )
+        .collect(),
+    }));
+    expect(state.application).toMatchObject({
+      assignedReviewCount: 2,
+      completedReviewCount: 2,
+      version: 5,
+    });
+    expect(state.assignments).toHaveLength(2);
+    expect(state.reviews).toHaveLength(2);
+  });
+});
+
+type AssignmentFixture = Awaited<ReturnType<typeof seedAssignmentFixture>>;
+
+async function assignFixtureReviewer(
+  backend: BackendTest,
+  fixture: AssignmentFixture,
+  reviewerSubjectId: Id<"eventAccessSubjects">,
+  expectedApplicationVersion = 1,
+) {
+  return backend.run(async (ctx) => {
+    const [application, reviewerSubject] = await Promise.all([
+      ctx.db.get(fixture.applicationId),
+      ctx.db.get(reviewerSubjectId),
+    ]);
+    if (!application || !reviewerSubject) throw new Error("Assignment fixture is incomplete.");
+    return createAdmissionReviewAssignment(ctx, {
+      application,
+      expectedApplicationVersion,
+      reviewerSubject,
+      assignedByPersonId: fixture.managerPersonId,
+      now: fixture.now,
+    });
+  });
+}
+
+async function saveFixtureReview(
+  backend: BackendTest,
+  fixture: AssignmentFixture,
+  reviewerPersonId: Id<"people">,
+  recommendation: "accept" | "waitlist",
+) {
+  return backend.run(async (ctx) => {
+    const application = await ctx.db.get(fixture.applicationId);
+    if (!application) throw new Error("Assignment fixture is incomplete.");
+    return saveAdmissionHumanReview(ctx, {
+      application,
+      expectedApplicationContentVersion: 1,
+      reviewerPersonId,
+      recommendation,
+      reasonCode: "clear_intent",
+      now: fixture.now + 1,
+    });
+  });
+}
+
+async function assignmentState(
+  backend: BackendTest,
+  fixture: AssignmentFixture,
+  assignmentId: Id<"admissionReviewAssignments">,
+) {
+  return backend.run(async (ctx) => ({
+    application: await ctx.db.get(fixture.applicationId),
+    assignment: await ctx.db.get(assignmentId),
+    reviewerSubject: await ctx.db.get(fixture.reviewerSubjectId),
+    assignmentGrants: await ctx.db
+      .query("permissionGrants")
+      .withIndex("by_source", (index) =>
+        index
+          .eq("eventId", fixture.eventId)
+          .eq("sourceType", "application_assignment")
+          .eq("sourceId", assignmentId),
+      )
+      .collect(),
+    manualGrants: await ctx.db
+      .query("permissionGrants")
+      .withIndex("by_source", (index) =>
+        index
+          .eq("eventId", fixture.eventId)
+          .eq("sourceType", "manual")
+          .eq("sourceId", "fixture-manual-review"),
+      )
+      .collect(),
+  }));
+}
+
+async function seedAssignmentFixture(backend: BackendTest) {
+  const now = Date.UTC(2027, 1, 2, 3, 4, 5);
+  return backend.run(async (ctx) => {
+    const eventId = await ctx.db.insert("events", {
+      slug: `assignment-${now}`,
+      name: "Assignment fixture",
+      timezone: "Asia/Kolkata",
+      status: "registration_closed",
+      vitEmailDomains: ["vitstudent.ac.in"],
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const managerPersonId = await insertPerson(ctx, "manager", now);
+    const reviewerPersonId = await insertPerson(ctx, "reviewer", now);
+    const secondReviewerPersonId = await insertPerson(ctx, "reviewer-two", now);
+    const leadPersonId = await insertPerson(ctx, "lead", now);
+    const participantPolicyId = await ctx.db.insert("participantPolicyVersions", {
+      eventId,
+      version: 1,
+      status: "published",
+      ...defaultParticipantPolicy,
+      checksum: participantPolicyChecksum(defaultParticipantPolicy),
+      createdByPersonId: managerPersonId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    await ctx.db.patch(eventId, { publishedParticipantPolicyId: participantPolicyId });
+    const reviewerSubjectId = await insertSubject(
+      ctx,
+      eventId,
+      reviewerPersonId,
+      "reviewer",
+      now,
+    );
+    const secondReviewerSubjectId = await insertSubject(
+      ctx,
+      eventId,
+      secondReviewerPersonId,
+      "reviewer-two",
+      now,
+    );
+    const leadSubjectId = await insertSubject(ctx, eventId, leadPersonId, "lead", now);
+    const membershipId = await ctx.db.insert("eventMemberships", {
+      eventId,
+      personId: leadPersonId,
+      eventAccessSubjectId: leadSubjectId,
+      participantClass: "external_participant",
+      eligibilityStatus: "eligible",
+      onboardingStatus: "submitted",
+      acceptedParticipantPolicyVersionIds: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    const teamId = await ctx.db.insert("teams", {
+      eventId,
+      name: "Assigned team",
+      publicCode: "ASSIGNED1",
+      leadMembershipId: membershipId,
+      status: "submitted",
+      membershipLocked: true,
+      trackLocked: true,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const teamMemberId = await ctx.db.insert("teamMembers", {
+      eventId,
+      teamId,
+      membershipId,
+      role: "lead",
+      status: "active",
+      joinedAt: now,
+      source: "created",
+    });
+    const intakePolicyId = await ctx.db.insert("intakePolicyVersions", {
+      eventId,
+      version: 1,
+      status: "published",
+      openingText: "Hello.",
+      initialPrompt: "What is your project about?",
+      initialHelpText: "Describe the project.",
+      initialIdeaMinLength: 1,
+      initialIdeaMaxLength: 1_000,
+      followUpAnswerMinLength: 1,
+      followUpAnswerMaxLength: 500,
+      minimumFollowUpCount: 1,
+      maximumFollowUpCount: 2,
+      deterministicFollowUpCount: 1,
+      questionMaxLength: 160,
+      allowedPurposeKeys: ["user"],
+      fallbackQuestions: [],
+      blockedTerms: [],
+      commonIdeaPatterns: [],
+      model: { mode: "deterministic" },
+      checksum: "intake-checksum",
+      createdByPersonId: managerPersonId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    const catalogId = await ctx.db.insert("trackCatalogVersions", {
+      eventId,
+      version: 1,
+      status: "published",
+      requiredCoreTrackCount: 1,
+      checksum: "track-checksum",
+      createdByPersonId: managerPersonId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    const trackId = await ctx.db.insert("trackVersions", {
+      eventId,
+      catalogVersionId: catalogId,
+      stableKey: "fixture",
+      slug: "fixture",
+      displayName: "Fixture track",
+      description: "Fixture track",
+      examples: [],
+      displayOrder: 1,
+      type: "core",
+      status: "published",
+      createdAt: now,
+    });
+    const policyId = await ctx.db.insert("admissionPolicyVersions", {
+      eventId,
+      version: "admission-v1",
+      status: "published",
+      aiRecommendationMode: "disabled",
+      minimumHumanReviews: 1,
+      overallParticipantCapacity: 100,
+      criteria: [],
+      decisionReasonCodes: [
+        {
+          key: "clear_intent",
+          label: "Clear intent",
+          allowedDecisions: ["accept", "waitlist", "decline", "needs_information"],
+        },
+      ],
+      checksum: "admission-checksum",
+      createdByPersonId: managerPersonId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    const projectId = await ctx.db.insert("projectVersions", {
+      eventId,
+      teamId,
+      version: 1,
+      initialIdea: "A fixture project.",
+      intakePolicyVersionId: intakePolicyId,
+      intakeResponses: [],
+      coreTrackVersionId: trackId,
+      sponsorTrackVersionIds: [],
+      lockedTeamMemberIds: [teamMemberId],
+      lockedLeadMembershipId: membershipId,
+      freshForEventAttestation: {
+        participantPolicyVersionId: participantPolicyId,
+        acceptedByMembershipId: membershipId,
+        acceptedAt: now,
+      },
+      finalConfirmation: {
+        participantPolicyVersionId: participantPolicyId,
+        previewedDraftVersion: 1,
+        previewedTeamVersion: 1,
+        previewedTrackVersionId: trackId,
+        previewedSponsorTrackVersionIds: [],
+        confirmedByMembershipId: membershipId,
+        confirmedAt: now,
+      },
+      participantPolicyVersionId: participantPolicyId,
+      admissionPolicyVersionId: policyId,
+      sourceDraftVersion: 1,
+      submittedByMembershipId: membershipId,
+      submittedAt: now,
+    });
+    const applicationId = await ctx.db.insert("applications", {
+      eventId,
+      teamId,
+      submittedProjectVersionId: projectId,
+      admissionPolicyVersionId: policyId,
+      state: "submitted",
+      experienceBand: "mixed_or_external",
+      assignedReviewCount: 0,
+      completedReviewCount: 0,
+      contentVersion: 1,
+      version: 1,
+      submittedAt: now,
+    });
+    return {
+      now,
+      eventId,
+      applicationId,
+      managerPersonId,
+      reviewerPersonId,
+      reviewerSubjectId,
+      secondReviewerPersonId,
+      secondReviewerSubjectId,
+    };
+  });
+}
+
+function insertPerson(ctx: MutationCtx, key: string, now: number) {
+  return ctx.db.insert("people", {
+    authUserId: `auth-${key}`,
+    googleSubject: `google-${key}`,
+    verifiedEmail: `${key}@example.test`,
+    displayName: key,
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+function insertSubject(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+  personId: Id<"people">,
+  key: string,
+  now: number,
+) {
+  return ctx.db.insert("eventAccessSubjects", {
+    eventId,
+    personId,
+    emailNormalized: `${key}@example.test`,
+    displayName: key,
+    status: "active",
+    linkedBy: "access_invitation",
+    accessVersion: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+}

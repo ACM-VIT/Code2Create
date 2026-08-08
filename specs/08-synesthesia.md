@@ -1,115 +1,159 @@
 # Synesthesia
 
-## 1. Purpose
+## 1. Release boundary
 
-Synesthesia lets participants request and upvote music during the event while event staff keep control of safety, ambience, timing, and playback.
+Synesthesia is the shared-room music request system. Participants choose tracks from an event-owned catalog. They can request tracks, vote, and report a request. Event staff moderate the queue. Staff also record what the operator starts, finishes, or skips in a separate licensed playback application.
 
-It shares participant identity and event configuration with the main platform. Its records and failures do not block registration, reviews, scoring, or round close.
+The platform does not stream or store audio. It does not scrape a provider or hold a participant streaming token. It does not promise that a request will play. A Synesthesia failure does not block registration, attendance, reviews, scoring, or round close.
 
-## 2. Access
+## 2. Eligibility
 
-| Person | Access |
+A caller can use the participant surface only when all of these are true:
+
+- the event account and participant membership are active;
+- eligibility is `eligible`;
+- the caller belongs to one active team in `admitted`, `confirmed`, `checked_in`, `active`, or `completed` state;
+- the caller has no active staff/judge role for the event;
+- the participant's Synesthesia-only access is not suspended;
+- one published ambience window is active at server time.
+
+Suspending Synesthesia access blocks requests, votes, and reports. The suspension does not suspend the event account. It does not alter the team, attendance, admission, project, or judging state.
+
+## 3. Permission boundary
+
+Role labels never authorize this surface. Each protected read or command checks its own grant and exact event resource.
+
+| Permission | Valid scope |
 | --- | --- |
-| Participant | Search/request an allowed track, vote once, remove own vote, report a request |
-| Person with scoped Synesthesia grants | Approve, reject, hide, schedule, add a reason, view the playback queue, or acknowledge start/finish/skip only as separately granted |
-| Person with Synesthesia configuration grants | Publish windows, vote policy, catalogue source, and moderation rules |
+| `synesthesia.catalog.read` | event |
+| `synesthesia.catalog.manage` | event |
+| `synesthesia.window.read` | event or exact `synesthesia_window` |
+| `synesthesia.window.manage` | event or exact `synesthesia_window` |
+| `synesthesia.window.publish` | event or exact `synesthesia_window` |
+| `synesthesia.queue.read` | event or exact `synesthesia_window` |
+| `synesthesia.request.moderate` | event or exact `song_request` |
+| `synesthesia.queue.schedule` | event or exact `song_request` |
+| `synesthesia.playback.acknowledge` | event or exact `song_request` |
+| `synesthesia.playback.pause` | event or exact `synesthesia_window` |
+| `synesthesia.report.read` | event or exact `song_request` |
+| `synesthesia.report.resolve` | event or exact `song_request` |
+| `synesthesia.access.suspend` | event or exact person |
+| `synesthesia.access.restore` | event or exact person |
 
-## 3. Request flow
+Queue read does not reveal internal moderation notes without request-moderation authority. Report counts do not reveal report text without report-read authority. Permission to read a window does not grant permission to change it.
 
-1. Participant searches the approved catalogue or enters the supported track identifier.
-2. The server checks event window, participant status, duplicate track, request limit, and moderation rules.
-3. If the track already exists in the active window, the participant is offered a vote.
-4. Otherwise the request enters `pending` or `approved` according to moderation policy.
-5. Participant sees the request state and any plain rejection reason.
+## 4. Catalog
 
-Free-form text is limited to a short optional note. It is not sent to the playback provider as a search query without validation.
+An authorized operator enters the provider ID and provider track ID. The operator also enters the title, artist, optional album, duration, explicit-content flag, and one short energy tag. Provider and energy tags use normalized lowercase identifiers. A track is `active` or `disabled`. Disabling a track removes it from future participant searches. Disabling a track does not rewrite requests that already captured its metadata.
 
-## 4. Voting
+The first release supports at most 500 catalog tracks per event. Participant search returns at most 20 active tracks. Each returned track must satisfy the current window's duration, explicit-content, and energy-tag policy. The system never sends free-form participant text to a playback provider.
 
-- One active vote per participant per request.
-- Repeating the same vote operation does not add another vote.
-- Removing a vote subtracts it once.
-- Vote totals update live.
-- Staff and playback accounts do not vote.
-- A participant may not vote while suspended.
+The final catalog and playback account remain an event policy decision. The catalog owner must verify that every entry exists in the licensed source used at the venue.
 
-The event can set per-window request and vote limits.
+## 5. Ambience windows
 
-## 5. Playback queue
+An ambience window contains:
 
-Approved requests receive a priority from:
+- name and kind: arrival, working session, late night, morning reset, judging, closing, or a named custom kind;
+- start and end, no more than 24 hours apart;
+- request-open and voting-open flags;
+- manual or automatic approval for catalog-valid requests;
+- per-participant request and vote limits;
+- total request limit;
+- maximum track duration;
+- explicit-content and allowed-energy policy;
+- a plain label for the licensed catalog source.
 
-- vote count;
-- age;
-- ambience window;
-- recently played artist/track limits;
-- moderator scheduling;
-- explicit event override.
+The event can hold at most 64 windows. Staff can edit drafts. Publication checks the expected version and the exact publish permission. Publication also checks the event schedule when configured, the future end time, and overlap with every other published window. Published policy is immutable. Staff may pause playback or close the window with a reason. Staff cannot close the window while a request is marked `playing`.
 
-The normal queue order is computed from published rules. A moderator can pin, defer, or skip an item with a reason.
+## 6. Participant flow
 
-Participant views show **Requested**, **Approved**, **Queued**, **Playing**, **Played**, **Skipped**, or **Rejected**. They do not promise an exact play time.
+1. The portal subscribes to the active window and live queue.
+2. The participant searches the allowed catalog and may add a note of at most 160 characters.
+3. The server rechecks eligibility and suspension. It also rechecks the active window, track policy, total limit, and participant limit.
+4. A new request enters `pending` or `approved` according to the published window.
+5. If the track already has a visible request in the window, the server returns that request. The participant can then vote instead of creating a duplicate request.
+6. A rejected or hidden track cannot be requested again in that window.
 
-## 6. Ambience windows
+Pending requests are visible. This visibility lets another requester find and vote on the existing item. A rejected request remains visible only to its requester and includes the public reason. Participants cannot see hidden requests.
 
-`synesthesia.window.publish` can publish windows such as:
+The participant view uses these plain states: waiting for review, approved, in the queue, playing now, played, skipped, or not added. The view does not show an exact play time.
 
-- arrival;
-- working session;
-- late night;
-- morning reset;
-- judging;
-- closing.
+## 7. Voting and reports
 
-A window can change allowed energy/explicit-content tags, maximum duration, request limits, and whether participant voting is open.
+- One vote row exists per participant/request.
+- Adding or removing the same vote again is idempotent.
+- The active vote limit is enforced inside the same transaction that changes the request count.
+- Voting is allowed only for pending, approved, or queued requests while the window permits it.
+- One report exists per participant/request.
+- A report stores a short reason and increments the request's open-report count in the same transaction.
+- Resolving or dismissing one report decrements that count in the same transaction and records public and optional internal resolution text.
 
-Judging and announcements can pause playback without deleting the queue.
+Votes guide the operator. They are not engagement points, a participant ranking, project evidence, or a judging input.
 
-## 7. Moderation and safety
+## 8. Moderation and ordering
 
-Reject or hide a request for:
+A request moves through:
 
-- explicit content outside the configured window;
-- harassment or targeted message;
-- unsafe or prohibited media;
-- duplicate/spam behaviour;
-- licensing or catalogue restriction;
-- event direction.
+```text
+pending -> approved -> queued -> playing -> played
+              |          |          |
+              +----------+----------+-> skipped
+pending/approved/queued -> rejected | hidden
+```
 
-A moderator action stores actor, reason, and time. Participants see a short public reason, not internal notes.
+Approval, rejection, hiding, normal queueing, pinning, and deferral are separate commands. Playback acknowledgment, report resolution, and requester-access changes are also separate commands. Each command carries a client operation ID. A command that changes an existing request, window, or report also carries the expected version.
 
-Reports create support cases. Repeated abuse can suspend Synesthesia access without suspending the participant from the event; `participant.event.suspend` is a separate permission from `synesthesia.access.suspend`.
+The queue order is:
 
-## 8. Playback integration
+1. playing;
+2. queued, with pinned items first and deferred times respected;
+3. approved;
+4. pending;
+5. completed or rejected states.
 
-The playback source and licensing are open decisions.
+Votes break ties before request age. An operator may change the mode to normal, pinned, or deferred. The operator must give a reason. A deferral must specify a future server-valid time inside the window.
 
-The first release can use an operator-driven queue:
+Rejection or hiding requires a short participant-facing reason. Only a caller with the moderation permission can access internal moderation notes. A caller can read and resolve a report only through its independent grants.
 
-1. dashboard shows the next approved item;
-2. operator starts it in the licensed playback application;
-3. operator acknowledges **Playing**;
-4. operator marks **Played** or **Skipped**.
+## 9. Playback operation
 
-Direct provider control should be added only after confirming API terms, venue licensing, account ownership, and failure behaviour. The platform must not scrape a streaming service or store audio.
+The first release is operator-driven:
 
-## 9. Data model
+1. the dashboard shows the live queue;
+2. the operator starts the chosen track in the licensed playback application;
+3. the operator marks that exact request `playing`;
+4. the operator marks it `played` or `skipped` with a reason.
 
-Core records:
+Only one request can be playing in a window. The server rejects a start outside the published time. It also rejects a start while playback is paused, before a deferred time, or while another request is playing. The server rejects pause and close commands while a request is playing. This rule prevents an operational boundary from stranding an active item.
 
-- `synesthesiaWindows`
-- `songRequests`
-- `songVotes`
-- `playbackEvents`
-- moderation audit events
+Direct provider control is deferred. The Board must first approve the provider terms, venue licence, account owner, token handling, rate limits, and manual fallback. Direct provider control must not replace operator acknowledgements or store audio.
 
-Requests store provider track ID and display metadata, not media files.
+## 10. Data and limits
 
-## 10. Acceptance checks
+The live release uses:
 
-- A participant can hold at most one vote on a request.
-- Duplicate requests resolve to the existing active request.
-- Moderation changes appear in participant and playback views without refresh.
-- A moderator override records a reason.
-- Closing a voting window blocks new requests/votes but keeps the playback queue.
-- Synesthesia outage does not affect any review or score function.
+- `synesthesiaCatalogTracks` for event-owned catalog metadata;
+- `synesthesiaWindows` for draft/published/closed policy;
+- `songRequests` for immutable track snapshots and current queue state;
+- `songVotes` for one participant/request vote;
+- `synesthesiaReports` for one participant/request report;
+- `synesthesiaPlaybackEvents` for append-only start/played/skipped acknowledgements;
+- `synesthesiaAccessStates` for participant-specific music access.
+
+One window holds at most 200 requests. Every list and participant search is bounded. Each list and search uses a declared index or search index. Convex transactions serialize duplicate requests and votes. They also serialize the one-playing invariant, expected-version writes, report counters, and access-state changes.
+
+## 11. Acceptance checks
+
+- Two concurrent requests for one track create one request.
+- A second participant sees a pending duplicate and can vote instead of losing the action.
+- A rejected or hidden track cannot create an invisible duplicate request.
+- One participant can hold at most one active vote per request and cannot exceed the published window vote limit.
+- Participant, queue, vote, report, pause, and playback states update across authorized clients without refresh.
+- Event-wide and exact-resource grants produce the same command only inside their permitted scope; losing the grant blocks the next read/write.
+- A moderation note or report reason never appears through queue-read alone.
+- A stale moderation, schedule, playback, report, catalog, window, or access write changes nothing.
+- Two start commands cannot create two playing requests.
+- Pause or close cannot strand a playing request.
+- A participant music suspension changes no event-account, attendance, project, admission, or judging record.
+- Synesthesia unavailability leaves registration, attendance, reviews, scores, and round close usable.

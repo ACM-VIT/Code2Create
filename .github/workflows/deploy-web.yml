@@ -1,0 +1,74 @@
+name: Deploy web surfaces
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub and Cloudflare release environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-release-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ENV: ${{ inputs.environment }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+      VITE_CONVEX_SITE_URL: ${{ vars.CONVEX_SITE_URL }}
+      VITE_CONVEX_URL: ${{ vars.CONVEX_URL }}
+      VITE_DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
+      VITE_EVENT_SLUG: ${{ vars.EVENT_SLUG }}
+      VITE_RELEASE_ID: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm, Node.js, and dependencies
+        uses: pnpm/setup@c9883cc79df532ad1a7b81bf9ab944ceb090d65c
+        with:
+          runtime: node@24
+          cache: true
+
+      - name: Build participant portal
+        run: pnpm --filter @code2create/web build:release
+        env:
+          SENTRY_PROJECT: ${{ vars.PARTICIPANT_SENTRY_PROJECT }}
+          VITE_SENTRY_DSN: ${{ vars.PARTICIPANT_SENTRY_DSN }}
+
+      - name: Build operations dashboard
+        run: pnpm --filter @code2create/ops build:release
+        env:
+          SENTRY_PROJECT: ${{ vars.OPERATIONS_SENTRY_PROJECT }}
+          VITE_SENTRY_DSN: ${{ vars.OPERATIONS_SENTRY_DSN }}
+
+      - name: Build handbook
+        run: pnpm --filter @code2create/handbook build:release
+
+      - name: Build intelligence Worker
+        run: pnpm --filter @code2create/intelligence build
+
+      - name: Deploy participant portal
+        run: pnpm --filter @code2create/web deploy:built
+
+      - name: Deploy operations dashboard
+        run: pnpm --filter @code2create/ops deploy:built
+
+      - name: Deploy handbook
+        run: pnpm --filter @code2create/handbook deploy:built
+
+      - name: Deploy intelligence Worker
+        run: pnpm --filter @code2create/intelligence deploy:built

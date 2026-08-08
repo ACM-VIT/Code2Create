@@ -4,7 +4,7 @@
 
 Reviewers use a dedicated Expo application on Android or iOS. A browser/PWA is not the planned reviewer surface.
 
-The signed binary also contains a permission-gated attendance scanner on provisioned devices. Scanner routes require station-scoped attendance grants; review context and scorecard routes require review-scoped grants. Role alone exposes neither, and one person may receive either or both sets regardless of role.
+The signed binary also contains a permission-gated attendance scanner on provisioned devices. Scanner routes require station-scoped attendance grants. Review context and scorecard routes require review-scoped grants. A role alone exposes neither set. One person can receive either or both sets regardless of role.
 
 The app is built for a reviewer standing at a venue table:
 
@@ -23,12 +23,12 @@ The app talks to the same Convex backend as the participant portal and operation
 - Expo with React Native and Expo Router
 - `@better-auth/expo` for Google sign-in and secure cookie handling
 - Convex React client for live queries and writes
-- `expo-camera` for team QR scans
-- `react-native-nfc-manager` behind an app-owned adapter for compatible existing VIT ID cards in custom builds
-- `expo-notifications` for pages and time warnings
+- `expo-camera` for review-presence team QR scans
+- explicit camera modes for existing VIT IDs, external badges, attendance portal QR, review-presence QR, and hall-location QR
+- `expo-notifications` for native APNs/FCM registration, pages, and time warnings
 - `expo-secure-store` for the auth cookie and local encryption key
 - SQLCipher-backed `expo-sqlite` for the current review draft and unsent operations
-- EAS development, staging, and production builds
+- local Expo prebuilds with signed Gradle/Xcode staging and production artifacts
 
 Reviewer testing uses development builds. Expo Go does not represent the production auth callback, notification, camera, or encrypted-database setup.
 
@@ -43,6 +43,8 @@ The bottom-level route set stays small:
 3. **Profile**
 
 Sign-in, page response, scan, and active review are focused screens outside normal navigation.
+
+**Support** is a secondary event-app surface whenever the account retains its self-scoped support create/read/reply grants. It lists only cases reported by that person and accepts a short category, description, and reply. It is never placed inside the scorecard and cannot change the current review, queue, attendance, device registration, or access state.
 
 The **Now** screen can show only one primary action:
 
@@ -70,7 +72,7 @@ Before clock-in, the app checks:
 - camera permission;
 - local encrypted database can open;
 - current Convex connection;
-- reviewer profile and training acknowledgement.
+- reviewer profile and training acknowledgment.
 
 The device record stores no Google password or raw OAuth token.
 
@@ -100,7 +102,7 @@ A substitute or reassignment page includes:
 
 The screen has **Accept** and **Decline**. Decline asks for one short reason.
 
-Opening a notification fetches the current page from the server. A stale or cancelled page cannot be accepted from an old notification.
+Opening a notification fetches the current page from the server. A stale or canceled page cannot be accepted from an old notification.
 
 The page states are:
 
@@ -108,7 +110,7 @@ The page states are:
 
 or:
 
-`sent → declined | expired | cancelled`
+`sent → declined | expired | canceled`
 
 ## 7. Team presence
 
@@ -130,8 +132,8 @@ If the camera fails, the reviewer can type the fallback code. A backend rejectio
 
 When the review starts, the app caches the context required to finish that active review:
 
-- confirmed project brief with team-written and model-assisted fields clearly distinguished;
-- the source participant answers behind every model-assisted brief field;
+- submitted initial idea and ordered follow-up question/answer snapshots written by the team;
+- the immutable intake-policy and generated-question references behind that submitted sequence;
 - server-assigned event phase, fresh-project attestation, core-track version, and optional sponsor-track versions;
 - problem, user, and evidence;
 - disclosed general-purpose starting resources and allowed pre-start setup;
@@ -144,16 +146,22 @@ When the review starts, the app caches the context required to finish that activ
 
 The app does not download another panel’s notes, private eligibility evidence, or peer score values.
 
-The reviewer can expand a brief field to its exact participant-written source answers. A generated phrase is convenience text, not evidence. The original answer, disclosure, demo, and integration checkpoint remain available, and no OpenAI suggestion or hidden candidate track appears in review context.
+The reviewer can expand a brief field to its exact participant-written source answers. A generated phrase is convenience text, not evidence. The original answer, disclosure, demo, and integration checkpoint remain available, and neither the intake track recommendation nor the admission-analysis recommendation appears in judging context.
 
 The evidence tab can open:
 
 - the ordered GitHub repository index with kind, purpose, topic, branch/root, baseline/head, freshness, and completeness;
-- per-repository activity charts, changed paths, commit facts, captured tree, and an authorised text file at that repository’s fixed SHA;
+- per-repository activity charts, changed paths, commit facts, captured tree, and an authorized text file at that repository’s fixed SHA;
 - the Figma page/frame index, captured previews, layer properties, components, prototype flows, named versions, comment state, and changed-screen list;
 - freshness, completeness, truncation, rate-limit, and provider-access warnings.
 
 The review keeps the checkpoint-set ID chosen at start. If a repository is added, removed, reclassified, reordered, or refreshed later, the app may show **Newer evidence available** but cannot swap the scoring context. `review.evidence_context.replace` for that review must explicitly restart or replace the context when policy requires it.
+
+The current milestone implements exact-SHA GitHub browsing plus checksummed Figma artifact access. An assigned reviewer can page through the complete tree in the pinned raw snapshot. The reviewer can open any layer. The reviewer can inspect bounded dimensions, position, layout, sizing, constraints, appearance counts, text preview, style references, component metadata, flow starting points, and prototype interactions. The reviewer can filter the captured frame set to new or changed screens. Available frame previews use one-minute URLs for the exact captured version. The layer action reads the immutable private artifact instead of spending another Figma Tier 1 request.
+
+The same boundary exposes the bounded named-version and comment facts stored with that exact snapshot. The system never calls Figma while a reviewer opens the activity view. Version history is ordered by provider creation time and carries an explicit completeness flag. Comments record the state observed when the snapshot was captured because Figma's comment endpoint is not version-addressable. The UI does not imply that a later comment belonged to an earlier file version. Handles and comment text are collaboration context. They do not prove authorship or effort.
+
+The visual comparison follows the current checkpoint set's `previousCheckpointSetId`. It compares the two judging contexts. It does not use the webhook or manual provider snapshot that happened immediately before the current one. The comparison joins stored frame facts by Figma node ID. It uses semantic hashes for changed or unchanged state. It opens only the stored renders on each side. If either 48-frame selection was truncated, an absent frame is **Uncertain**. The system does not report a false addition or removal.
 
 If the reviewer notices a conflict that was not declared, **Report conflict** freezes that reviewer’s scorecard and alerts operations.
 
@@ -163,7 +171,7 @@ The workspace has four parts.
 
 ### Timer
 
-The start/query response includes `serverNow`, `startedAt`, and approved extension seconds. The app derives the remaining duration from the server offset, then advances it with a monotonic device clock. It resynchronises after foregrounding or reconnect so a wrong device wall clock cannot change the official timer.
+The start/query response includes `serverNow`, `startedAt`, and approved extension seconds. The app derives the remaining duration from the server offset, then advances it with a monotonic device clock. It resynchronizes after foregrounding or reconnect so a wrong device wall clock cannot change the official timer.
 
 ### Evidence
 
@@ -213,7 +221,7 @@ The server returns the new draft version. The app then shows **Saved**.
 If the connection drops:
 
 - edits continue in the encrypted local draft;
-- the header changes to **Offline — not yet saved**;
+- the header changes to **Offline: not yet saved**;
 - pending changes keep their operation IDs;
 - reconnect sends changes in order;
 - a stale server version opens a comparison screen instead of overwriting either copy.
@@ -262,7 +270,7 @@ Blocked while offline:
 
 If the active scorecard cannot sync, the reviewer stays on that review. Operations moves the reviewer to a spare device/hotspot or pauses the panel. The system does not copy state over Bluetooth.
 
-## 13. Notification behaviour
+## 13. Notification behavior
 
 Push is used for:
 
@@ -276,10 +284,12 @@ The payload contains a page or event ID and a route, not private project text or
 
 The app fetches current state after opening. Provider delivery tickets are logged, invalid tokens are disabled, and an unacknowledged critical page becomes an operations exception.
 
+The current panel and reserve projection also carries the round-wide pause bit. The app says that new reviews are paused, suppresses the coordinator’s start control while the pause is active, and keeps an already-active scorecard usable. It does not expose the incident title, summary, or operator reason through reviewer access.
+
 ## 14. Ergonomics and accessibility
 
 - primary controls are at least 48 device-independent pixels;
-- score controls include number and text, not colour alone;
+- score controls include number and text, not color alone;
 - the app supports system text scaling without hiding submit or timer state;
 - scanning has manual-code and screen-reader paths;
 - destructive or final actions require a confirmation screen;
@@ -293,7 +303,7 @@ Before the event:
 - every reviewer installs and opens the production candidate;
 - sign-in, push, camera, and SecureStore are tested on the actual device;
 - operations records a spare-device pool and charging plan;
-- attendance devices record NFC/camera capability, station assignment, tested VIT card batch/campus compatibility, and a tested QR fallback;
+- attendance devices record camera capability, station assignment, tested VIT ID barcode formats, and a tested QR fallback;
 - the minimum supported build is fixed after the final rehearsal;
 - a remote update is tested, but a new native build is not planned during the event.
 
@@ -302,16 +312,22 @@ On a device handover, operations revokes the old device, registers the spare, an
 ## 16. Acceptance checks
 
 - An unrostered user receives no reviewer context.
-- A stale push cannot accept a cancelled page.
+- A stale push cannot accept a canceled page.
 - The same reviewer cannot hold two accepted pages that overlap.
 - A scan for another panel or round is rejected.
-- A VIT ID card or attendance QR cannot be submitted to the reviewer team-QR command, or vice versa.
+- A VIT ID barcode or attendance QR cannot be submitted to the reviewer team-QR command, or vice versa.
 - Attendance scanner routes require a current station assignment and never expose participant bearer values after parsing.
 - Timer remains correct after backgrounding and restart.
 - Peer scores never appear before the configured reveal point.
 - A short offline edit survives app restart and syncs once.
 - An ambiguous submit response resolves to one submitted scorecard.
 - Logout or device revocation removes access and prevents queued operations from gaining authority.
+- The support surface can create, list, open, and reply to only the signed-in person's cases; retrying after an ambiguous response adds no duplicate, and internal support actions never appear.
 - A provider credential never enters the mobile cache, logs, or an evidence response.
 - An assigned reviewer can inspect only repository files and Figma artifacts listed in that review’s evidence checkpoint set.
+- A Figma layer page is returned only after the compressed size, decoded size, SHA-256, recorded provider version, assignment, evidence grant, checkpoint, binding, snapshot, and artifact manifest all agree.
+- More than 60 direct Figma children paginate without changing the selected node or mixing a newer file version into the review.
+- Named-version and comment activity comes only from the snapshot pinned by that review, reports bounded/incomplete capture honestly, and never becomes a contribution or effort score.
+- A side-by-side Figma comparison follows the previous judging checkpoint set, never an intervening provider refresh, and returns **Uncertain** instead of claiming an addition or removal outside an incomplete frame set.
 - A newer provider snapshot or changed repository set cannot silently replace the evidence fixed when the review started.
+- A round pause removes the start control on every connected reviewer device without interrupting an already-active review or its draft.

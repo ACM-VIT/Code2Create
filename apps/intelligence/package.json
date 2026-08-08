@@ -1,0 +1,34 @@
+{
+	"name": "@code2create/intelligence",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev --port 8791 --strictPort",
+		"build": "vite build",
+		"deploy": "pnpm build && pnpm deploy:built",
+		"deploy:built": "wrangler deploy --env \"$CLOUDFLARE_ENV\" --strict --message \"$VITE_RELEASE_ID\"",
+		"deploy:check": "wrangler deploy --env staging --strict --dry-run",
+		"lint": "oxlint src",
+		"test": "vitest run --config vitest.config.ts && node --test tests/local-development.test.mjs",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@code2create/domain": "workspace:*",
+		"@flue/runtime": "^2.0.3",
+		"hono": "^4.7.0",
+		"valibot": "^1.1.0"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "^1.51.1",
+		"@cloudflare/workers-types": "^5.20260804.1",
+		"@flue/cli": "^2.0.3",
+		"@flue/vite": "^2.0.3",
+		"@types/node": "^24.13.3",
+		"oxlint": "^1.75.0",
+		"typescript": "~6.0.3",
+		"vite": "^8.2.0",
+		"vitest": "4.1.10",
+		"wrangler": "^4.120.0"
+	}
+}
