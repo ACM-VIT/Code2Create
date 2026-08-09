@@ -302,7 +302,7 @@ export function Synesthesia() {
             <p>Nothing is running at this desk yet.</p>
             <p className="muted">
               {overview.canCreateWindow
-                ? 'Participants cannot request a song until a window exists and has been published, and there is no queue until then. Creating the first window is the whole of the work below.'
+                ? 'Create and publish the first window below. Nothing else on this desk works until one exists.'
                 : 'No music window is assigned to this account, so there is nothing to run from here.'}
             </p>
           </>
@@ -346,7 +346,6 @@ export function Synesthesia() {
         <div className="section-heading">
           <div>
             <h2 id="synesthesia-queue-title">Live queue</h2>
-            <p className="muted">Requests, moderation, reports, and what is playing update in every portal live.</p>
           </div>
           {queueWindows.length > 1 ? (
             <label className="filter">
@@ -369,8 +368,8 @@ export function Synesthesia() {
         </div>
 
         <p className="section-note">
-          Every request belongs to one window. Each one arrives here needing a decision: approve it, then add it to
-          the queue, then mark it playing and played as it goes out over the room speakers.
+          Each request needs a decision: approve it, add it to the queue, then mark it playing and played as it
+          goes out over the room speakers.
         </p>
 
         {queueWindows.length === 0 ? (
@@ -378,7 +377,7 @@ export function Synesthesia() {
             <strong>There is no queue to work yet.</strong>
             <span>
               {overview.windows.length === 0
-                ? 'A queue belongs to a window, so create a window first. Requests can only arrive once that window is published.'
+                ? 'A queue belongs to a window, so create and publish one first.'
                 : 'None of the windows visible to this account includes queue access, so requests cannot be read or moderated from here.'}
             </span>
           </div>
@@ -570,7 +569,6 @@ function WindowSection({ overview }: { overview: Overview }) {
       <div className="section-heading">
         <div>
           <h2 id="synesthesia-windows-title">Ambience windows</h2>
-          <p className="muted">Set when participants can request songs. Pause or close a window as the room changes.</p>
         </div>
         {overview.canCreateWindow && editor === null ? (
           <button type="button" className="secondary" onClick={() => setEditor({ mode: 'create', values: initialWindowValues() })}>
@@ -580,10 +578,8 @@ function WindowSection({ overview }: { overview: Overview }) {
       </div>
 
       <p className="section-note">
-        A window is a stretch of time when participants may request songs, and it carries its own limits, its own
-        allowed tracks and its own queue. Saving a window creates a draft that nobody outside this desk can see;
-        publishing it is what lets requests start arriving. Nothing can be requested, queued or played outside a
-        published window.
+        A window is a stretch of time with its own limits, allowed tracks and queue. Saving one creates a draft
+        only this desk can see. Publishing it is what lets requests start arriving.
       </p>
 
       <div className="synesthesia-window-list">
@@ -651,7 +647,7 @@ function WindowSection({ overview }: { overview: Overview }) {
             <strong>No window exists, so the desk has nothing to run.</strong>
             <span>
               {overview.canCreateWindow
-                ? 'Create one for each period you want music open — arrival, the working session, late night. Until a window is published, participants have no way to request a song and the queue below stays empty.'
+                ? 'Create one for each period you want music open: arrival, the working session, late night.'
                 : 'No music window is assigned to this account. An organizer with window access has to create one before anything can run from here.'}
             </span>
           </div>
@@ -841,7 +837,6 @@ function CatalogSection({
       <div className="section-heading">
         <div>
           <h2 id="synesthesia-catalog-title">Available tracks</h2>
-          <p className="muted">The tracks staff may play from the event’s licensed music service.</p>
         </div>
         {canManage && editor === null ? (
           <button type="button" className="secondary" onClick={() => { setEditor({ mode: 'create', values: emptyCatalogValues() }); setError(null) }}>Add track</button>
