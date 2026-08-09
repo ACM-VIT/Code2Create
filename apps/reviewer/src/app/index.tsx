@@ -8,7 +8,10 @@ import { ScannerPanel } from '@/components/ScannerPanel'
 import { ReviewPanel } from '@/components/ReviewPanel'
 import { FloorMappingPanel } from '@/components/FloorMappingPanel'
 import { SupportPanel } from '@/components/SupportPanel'
+import { DutyHome, type DutyHeadline, type DutyTile } from '@/components/DutyHome'
+import { DutyIcon, type DutyIconName } from '@/components/DutyIcon'
 import { reviewerRuntime, type ReviewerRuntime } from '@/lib/runtime'
+import { duty, type DutyKey } from '@/theme'
 
 export default function HomeScreen() {
   if (!reviewerRuntime) return <ConfigurationNeeded />
@@ -27,7 +30,7 @@ function ConfiguredHome({ runtime }: { runtime: ReviewerRuntime }) {
   const createNativeSession = useAction(api.localDevelopment.createNativeSession)
   const [authError, setAuthError] = useState<string | null>(null)
   const [authBusy, setAuthBusy] = useState(false)
-  const [surface, setSurface] = useState<'reviews' | 'attendance' | 'floor' | 'support'>('reviews')
+  const [openDuty, setOpenDuty] = useState<'reviews' | 'attendance' | 'floor' | 'support' | null>(null)
   const grants = access?.grants ?? []
   const hasAttendanceAccess = grants.some(
     (grant) =>
@@ -63,10 +66,6 @@ function ConfiguredHome({ runtime }: { runtime: ReviewerRuntime }) {
     ...(hasFloorMappingAccess ? ['floor' as const] : []),
     ...(hasSupportAccess ? ['support' as const] : []),
   ]
-
-  const visibleSurface = availableSurfaces.includes(surface)
-    ? surface
-    : availableSurfaces[0] ?? surface
 
   if (
     sessionPending ||
@@ -154,72 +153,78 @@ function ConfiguredHome({ runtime }: { runtime: ReviewerRuntime }) {
     )
   }
 
+  // Home is the duty grid; opening a duty replaces the screen with it, so a
+  // person mid-scan is never one mistap from the floor mapper.
+  if (openDuty === null) {
+    if (availableSurfaces.length === 0) {
+      return (
+        <Page>
+          <View style={styles.hero}>
+            <Text style={styles.title}>Nothing assigned yet</Text>
+            <Text style={styles.body}>
+              You are signed in, but no event work has been given to this account.
+            </Text>
+          </View>
+          <Action label="Sign out" onPress={signOut} secondary />
+        </Page>
+      )
+    }
+    return (
+      <DutyHome
+        headline={dutyHeadline(availableSurfaces, session.user.name || session.user.email)}
+        tiles={availableSurfaces.map((option) => dutyTile(option, () => setOpenDuty(option)))}
+      />
+    )
+  }
+
   return (
     <Page>
       <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.kicker}>Code2Create</Text>
-          <Text style={styles.title}>
-            {availableSurfaces.length > 0 ? surfaceName(visibleSurface) : 'No tasks assigned'}
-          </Text>
-          <Text style={styles.meta}>
-            {session.user.name || session.user.email}
-            {' · '}
-            {access.role ? roleName(access.role) : 'Scoped access'}
-          </Text>
-        </View>
+        <Pressable accessibilityRole="button" hitSlop={12} onPress={() => setOpenDuty(null)}>
+          <Text style={styles.textButton}>← All duties</Text>
+        </Pressable>
         <Pressable accessibilityRole="button" onPress={signOut} hitSlop={12}>
           <Text style={styles.textButton}>Sign out</Text>
         </Pressable>
       </View>
-      {availableSurfaces.length > 1 ? (
-        <View style={styles.surfaceTabs}>
-          {availableSurfaces.map((option) => (
-            <Pressable
-              accessibilityRole="button"
-              key={option}
-              onPress={() => setSurface(option)}
-              style={[styles.surfaceTab, visibleSurface === option ? styles.surfaceTabSelected : null]}
-            >
-              <Text style={visibleSurface === option ? styles.surfaceTabTextSelected : styles.surfaceTabText}>
-                {surfaceName(option)}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
-      {availableSurfaces.length === 0 ? (
-        <Text style={styles.body}>Your account is signed in, but no event work is assigned to it.</Text>
-      ) : null}
-      {visibleSurface === 'reviews' && hasReviewAccess ? <ReviewPanel runtime={runtime} /> : null}
-      {visibleSurface === 'attendance' && hasAttendanceAccess ? <ScannerPanel runtime={runtime} /> : null}
-      {visibleSurface === 'floor' && hasFloorMappingAccess ? <FloorMappingPanel runtime={runtime} /> : null}
-      {visibleSurface === 'support' && hasSupportAccess ? <SupportPanel canCreate={canCreateSupport} runtime={runtime} /> : null}
+      {openDuty === 'reviews' && hasReviewAccess ? <ReviewPanel runtime={runtime} /> : null}
+      {openDuty === 'attendance' && hasAttendanceAccess ? <ScannerPanel runtime={runtime} /> : null}
+      {openDuty === 'floor' && hasFloorMappingAccess ? <FloorMappingPanel runtime={runtime} /> : null}
+      {openDuty === 'support' && hasSupportAccess ? <SupportPanel canCreate={canCreateSupport} runtime={runtime} /> : null}
     </Page>
   )
 }
 
-function surfaceName(surface: 'reviews' | 'attendance' | 'floor' | 'support') {
-  if (surface === 'reviews') return 'Reviews'
-  if (surface === 'attendance') return 'Attendance'
-  if (surface === 'floor') return 'Hall map'
-  return 'Support'
+type Surface = 'reviews' | 'attendance' | 'floor' | 'support'
+
+const dutyMeta: Record<Surface, { key: DutyKey; label: string; icon: DutyIconName }> = {
+  reviews: { key: 'judging', label: 'Judging', icon: 'judging' },
+  attendance: { key: 'door', label: 'Door', icon: 'door' },
+  floor: { key: 'hall', label: 'Hall map', icon: 'hall' },
+  support: { key: 'help', label: 'Help', icon: 'help' },
 }
 
-function roleName(role: string) {
-  switch (role) {
-    case 'sc':
-      return 'Senior committee'
-    case 'jc':
-      return 'Junior committee'
-    case 'external_judge':
-      return 'External judge'
-    case 'supreme':
-      return 'Supreme'
-    case 'board':
-      return 'Board'
-    default:
-      return 'Scoped access'
+function dutyTile(surface: Surface, onPress: () => void): DutyTile {
+  const meta = dutyMeta[surface]
+  return {
+    key: meta.key,
+    label: meta.label,
+    status: 'Open',
+    resting: true,
+    icon: <DutyIcon color={duty[meta.key].accent} name={meta.icon} />,
+    onPress,
+  }
+}
+
+function dutyHeadline(surfaces: Surface[], who: string): DutyHeadline {
+  const lead = surfaces[0] ?? 'support'
+  return {
+    value: String(surfaces.length),
+    unit: surfaces.length === 1 ? 'duty' : 'duties',
+    context: who,
+    summary: 'Pick what you are doing',
+    accent: duty[dutyMeta[lead].key].accent,
+    ghost: String(surfaces.length),
   }
 }
 
