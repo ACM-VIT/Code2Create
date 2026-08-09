@@ -123,7 +123,11 @@ function teamNote(team: IntegrationTeam) {
       ? 'GitHub is not reading properly'
       : 'Figma is not reading properly'
   }
-  if (isDisconnected(team)) return null
+  // A team with nothing connected is the reason this screen exists, so its row
+  // says what is missing rather than leaving the only line blank.
+  if (isDisconnected(team)) return 'No repository and no design file'
+  if (team.github.health === 'not_connected') return 'No repository'
+  if (team.figma.health === 'not_connected') return 'No design file'
   const latest = activityTime(
     Math.max(team.github.lastActivityAt ?? 0, team.figma.lastActivityAt ?? 0) || undefined,
   )
@@ -205,9 +209,14 @@ export function IntegrationOverview() {
                   <Icon name="users" />
                 </span>
                 <div className="row-text">
+                  {/* The ordinary status repeated on every row taught nothing.
+                      It appears only when it changes whether the missing work
+                      still matters. */}
                   <strong>
                     {team.teamName}
-                    <span className="row-context"> · {teamStatusLabels[team.teamStatus]}</span>
+                    {team.teamStatus === 'confirmed' ? null : (
+                      <span className="row-context"> · {teamStatusLabels[team.teamStatus]}</span>
+                    )}
                   </strong>
                   {note === null ? null : <small>{note}</small>}
                 </div>

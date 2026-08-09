@@ -64,7 +64,6 @@ export function PermissionBundles() {
       <Link className="back-link" to="/access">← People and permissions</Link>
       <header className="page-heading">
         <div>
-          <p className="eyebrow">People and permissions</p>
           <h1>Reusable access</h1>
           <p className="muted">
             A saved list of permissions you can give to several people at once.
