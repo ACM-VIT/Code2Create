@@ -17,8 +17,21 @@ import {
   type BarcodeType,
 } from 'expo-camera'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppState, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { AppState, Platform, StyleSheet, View } from 'react-native'
 
+import {
+  Action,
+  Body,
+  Card,
+  ChipRow,
+  Field,
+  Heading,
+  Meta,
+  Nothing,
+  Problem,
+  QuietAction,
+  Section,
+} from '@/components/ui'
 import {
   clearScannerDevice,
   createScannerDevice,
@@ -34,8 +47,10 @@ import {
   pendingAttendanceSummary,
   removePendingAttendanceScan,
   type PendingAttendanceSummary,
+  type ScanTransition,
 } from '@/lib/pending-attendance-scans'
 import type { ReviewerRuntime } from '@/lib/runtime'
+import { palette } from '@/theme'
 
 type StationOption = FunctionReturnType<typeof api.attendanceScanner.availableStations>[number]
 type ScannerAssignment = NonNullable<FunctionReturnType<typeof api.attendanceScanner.current>>
@@ -55,12 +70,6 @@ type ActiveVenueCheckInView = {
   checkedInAt: number
   stationName?: string
 }
-type RovingTransition =
-  | 'venue_entry'
-  | 'venue_exit'
-  | 'session_confirm'
-  | 'zone_entry'
-  | 'zone_exit'
 type ScanCredential =
   | AttendanceQr
   | { kind: 'vit_id_barcode'; rawBarcodeValue: string; symbology: BarcodeSymbology }
@@ -68,7 +77,8 @@ type DeviceState =
   | { status: 'loading' }
   | { status: 'ready'; record: ScannerDeviceRecord | null }
   | { status: 'error'; message: string }
-type ScannerMode = 'attendance' | 'staffed'
+/** What this phone is being used for right now. Nothing to do with the station. */
+type ScannerTask = 'presence' | 'staffed'
 type HeartbeatState =
   | { status: 'checking' }
   | { status: 'online' }
@@ -135,25 +145,19 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
 
   if (!platform) {
     return (
-      <Panel>
-        <Text style={styles.title}>Attendance scanner</Text>
-        <Text style={styles.body}>Open this mode on a provisioned Android or iPhone.</Text>
-      </Panel>
+      <Section title="Attendance scanner">
+        <Body>Open this duty on a provisioned Android phone or iPhone.</Body>
+      </Section>
     )
   }
   if (deviceState.status === 'loading' || availableStations === undefined) {
-    return (
-      <Panel>
-        <Text style={styles.body}>Loading scanner setup…</Text>
-      </Panel>
-    )
+    return <Meta>Loading the scanner setup…</Meta>
   }
   if (deviceState.status === 'error') {
     return (
-      <Panel>
-        <Text style={styles.title}>Scanner setup needs attention</Text>
-        <Text style={styles.error}>{deviceState.message}</Text>
-      </Panel>
+      <Section title="Scanner setup needs attention">
+        <Problem>{deviceState.message}</Problem>
+      </Section>
     )
   }
 
@@ -198,32 +202,27 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
 
   if (!deviceState.record) {
     return (
-      <Panel>
-        <Text style={styles.title}>Assign this phone</Text>
-        <Text style={styles.body}>Choose the station this phone will operate.</Text>
+      <Section lead="Choose the station this phone will operate." title="Assign this phone">
         {availableStations.length === 0 ? (
-          <Text style={styles.muted}>No unassigned station is available to this account.</Text>
+          <Nothing>No unassigned station is available to this account.</Nothing>
         ) : (
           availableStations.map((station) => (
-            <StationButton
+            <Card
               key={station.id}
-              station={station}
-              disabled={registrationBusy}
-              onPress={() => provision(station)}
-            />
+              {...(registrationBusy ? {} : { onPress: () => void provision(station) })}
+            >
+              <Heading>{station.name}</Heading>
+              <Meta>{station.zoneName}</Meta>
+            </Card>
           ))
         )}
-        {registrationError ? <Text style={styles.error}>{registrationError}</Text> : null}
-      </Panel>
+        {registrationError ? <Problem>{registrationError}</Problem> : null}
+      </Section>
     )
   }
   const deviceRecord = deviceState.record
   if (current === undefined) {
-    return (
-      <Panel>
-        <Text style={styles.body}>Checking this phone’s station…</Text>
-      </Panel>
-    )
+    return <Meta>Checking this phone’s station…</Meta>
   }
   if (!current) {
     const pendingStation = availableStations.find(
@@ -246,30 +245,27 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
       }
     }
     return (
-      <Panel>
-        <Text style={styles.title}>Scanner setup is not active</Text>
-        <Text style={styles.body}>
+      <Section title="Scanner setup is not active">
+        <Body>
           {pendingStation
             ? `Retry ${pendingStation.name} if setup was interrupted, or clear the old setup after operations disabled it.`
             : 'The saved station is no longer available. Clear the old setup and any unsent scans before assigning this phone again.'}
-        </Text>
-        <View style={styles.buttonStack}>
-          {pendingStation ? (
-            <Button
-              label={registrationBusy ? 'Assigning…' : 'Retry assignment'}
-              disabled={registrationBusy}
-              onPress={() => register(deviceRecord, pendingStation)}
-            />
-          ) : null}
-          <Button
-            label={registrationBusy ? 'Clearing…' : 'Clear old setup'}
+        </Body>
+        {pendingStation ? (
+          <Action
+            accent={palette.door}
             disabled={registrationBusy}
-            secondary
-            onPress={clearOldSetup}
+            label={registrationBusy ? 'Assigning…' : 'Retry assignment'}
+            onPress={() => register(deviceRecord, pendingStation)}
           />
-        </View>
-        {registrationError ? <Text style={styles.error}>{registrationError}</Text> : null}
-      </Panel>
+        ) : null}
+        <QuietAction
+          disabled={registrationBusy}
+          label={registrationBusy ? 'Clearing…' : 'Clear old setup'}
+          onPress={clearOldSetup}
+        />
+        {registrationError ? <Problem>{registrationError}</Problem> : null}
+      </Section>
     )
   }
 
@@ -326,7 +322,7 @@ function ScannerSurface({
   const serverOffsetRef = useRef(0)
   const [busy, setBusy] = useState(false)
   const [replaying, setReplaying] = useState(false)
-  const [mode, setMode] = useState<ScannerMode>('attendance')
+  const [task, setTask] = useState<ScannerTask>('presence')
   const [credentialSetup, setCredentialSetup] = useState<CredentialSetupState>({
     step: 'participant',
   })
@@ -350,20 +346,26 @@ function ScannerSurface({
     status: 'checking',
   })
   const [appIsActive, setAppIsActive] = useState(AppState.currentState === 'active')
-  const [rovingTransition, setRovingTransition] = useState<RovingTransition | null>(null)
+  const [chosenTransition, setChosenTransition] = useState<ScanTransition | null>(null)
+  const sessionIsOpen = assignment.openSession !== null
   const barcodeTypes = useMemo(
     () => scannerBarcodeTypes(assignment),
     [assignment],
   )
   const availableTransitions = useMemo(
-    () => rovingTransitions(assignment),
-    [assignment],
+    () => scanTransitions(sessionIsOpen),
+    [sessionIsOpen],
   )
-  const staffedParticipantModeAvailable =
-    assignment.station.mode === 'venue_entry' ||
-    assignment.station.allowedCredentialKinds.some(
-      (kind) => kind === 'vit_id_barcode' || kind === 'badge_qr',
-    )
+  /**
+   * A door is a door: the same phone marks the person arriving or leaving, and
+   * the direction rides on the scan rather than on how the station was set up.
+   * Arriving is the default because it is the overwhelmingly common scan and
+   * the only one that cannot be wrong at the start of a shift.
+   */
+  const transition: ScanTransition =
+    chosenTransition && availableTransitions.includes(chosenTransition)
+      ? chosenTransition
+      : 'venue_entry'
   const definitelyOffline =
     networkState.isConnected === false || networkState.isInternetReachable === false
   const latestReplayReceipt = assignment.recentReceipts.find(
@@ -415,9 +417,7 @@ function ScannerSurface({
             deviceInstallationId: assignment.device.id,
             deviceSecret: deviceRecord.deviceSecret,
             credential: operation.credential,
-            ...(operation.rovingTransition
-              ? { rovingTransition: operation.rovingTransition }
-              : {}),
+            transition: operation.transition,
             clientOperationId: operation.clientOperationId,
             deviceSequence: operation.deviceSequence,
             capturedAt: operation.capturedAt,
@@ -555,24 +555,20 @@ function ScannerSurface({
 
   const handleBarcode = async (scan: BarcodeScanningResult) => {
     if (busyRef.current || replayingRef.current || receipt || pendingConfirmation) return
-    if (mode === 'attendance' && assignment.station.mode === 'roving' && !rovingTransition) {
-      setScanError('Choose what this station is recording before scanning.')
-      return
-    }
     busyRef.current = true
     setBusy(true)
     setScanError(null)
     try {
-      if (mode === 'staffed') {
+      if (task === 'staffed') {
         await handleCredentialBarcode(scan)
       } else {
-        await handleAttendanceBarcode(scan)
+        await handlePresenceBarcode(scan)
       }
     } catch (error) {
       setScanError(
         errorMessage(
           error,
-          mode === 'staffed'
+          task === 'staffed'
             ? 'The staffed participant flow could not continue.'
             : 'The scan could not be recorded.',
         ),
@@ -583,16 +579,8 @@ function ScannerSurface({
     }
   }
 
-  const handleAttendanceBarcode = async (scan: BarcodeScanningResult) => {
+  const handlePresenceBarcode = async (scan: BarcodeScanningResult) => {
     const parsedAttendanceQr = parseAttendanceQrPayload(scan.data)
-    if (
-      parsedAttendanceQr &&
-      !assignment.station.allowedCredentialKinds.some(
-        (kind) => kind === parsedAttendanceQr.kind,
-      )
-    ) {
-      throw new Error('This QR method is not enabled for this station.')
-    }
     const symbology = findBarcodeSymbology(scan.type)
     const vitSymbology = parsedAttendanceQr ? null : allowedVitBarcode(symbology, assignment)
     const credential: ScanCredential | null =
@@ -614,13 +602,15 @@ function ScannerSurface({
     onDeviceRecord(reserved)
     const capturedAt = Math.round(Date.now() + serverOffsetRef.current)
     const clientOperationId = randomUUID()
+    // The direction is queued with the scan, so a replay records exactly what
+    // the operator marked at the door rather than re-deciding it later.
     const queuedOperation = {
       eventSlug,
       installationId: reserved.installationId,
       stationStableKey: assignment.station.stableKey,
       expectedConfigurationVersion: assignment.station.configurationVersion,
       credential,
-      ...(rovingTransition ? { rovingTransition } : {}),
+      transition,
       clientOperationId,
       deviceSequence: reserved.lastIssuedSequence,
       capturedAt,
@@ -645,7 +635,7 @@ function ScannerSurface({
         deviceInstallationId: assignment.device.id,
         deviceSecret: reserved.deviceSecret,
         credential,
-        ...(rovingTransition ? { rovingTransition } : {}),
+        transition,
         clientOperationId,
         deviceSequence: reserved.lastIssuedSequence,
         capturedAt,
@@ -1017,109 +1007,78 @@ function ScannerSurface({
     }
   }
 
-  if (!permission) {
-    return (
-      <Panel>
-        <Text style={styles.body}>Checking camera access…</Text>
-      </Panel>
-    )
+  const startTask = (next: ScannerTask) => {
+    setTask(next)
+    setCredentialSetup({ step: 'participant' })
+    setCredentialReason('')
+    setVenueReason('')
+    setVenueCheckInReceipt(null)
+    setReceipt(null)
+    setPendingConfirmation(null)
+    setScanError(null)
   }
+
+  if (!permission) return <Meta>Checking camera access…</Meta>
   if (!permission.granted) {
     return (
-      <Panel>
-        <Text style={styles.title}>Camera access</Text>
-        <Text style={styles.body}>The camera is used only to decode VIT ID barcodes and event QR codes.</Text>
-        <Button
-          label="Allow camera"
+      <Section title="Camera access">
+        <Body>The camera is used only to decode VIT ID barcodes and event QR codes.</Body>
+        <Action
+          accent={palette.door}
+          label="Allow the camera"
           onPress={async () => {
             await requestPermission()
           }}
         />
-      </Panel>
+      </Section>
     )
   }
 
   return (
-    <View style={styles.scanner}>
-      <View style={styles.stationHeader}>
-        <View style={styles.grow}>
-          <Text style={styles.title}>{assignment.station.name}</Text>
-          <Text style={styles.muted}>
-            {assignment.station.zoneName}
-            {assignment.station.session ? ` · ${assignment.station.session.name}` : ''}
-          </Text>
-        </View>
-        <Text style={displayedHeartbeatState.status === 'error' ? styles.error : styles.live}>
-          {displayedHeartbeatState.status === 'checking'
-            ? 'Checking'
-            : displayedHeartbeatState.status === 'online'
-              ? 'Online'
-              : 'Connection issue'}
-        </Text>
-      </View>
-      {displayedHeartbeatState.status === 'error' ? (
-        <Text style={styles.error}>{displayedHeartbeatState.message}</Text>
-      ) : null}
-      {staffedParticipantModeAvailable ? (
-        <View style={styles.modeRow}>
-          <ModeButton
-            label="Record presence"
-            selected={mode === 'attendance'}
-            onPress={() => {
-              setMode('attendance')
-              setCredentialSetup({ step: 'participant' })
-              setCredentialReason('')
-              setVenueReason('')
-              setVenueCheckInReceipt(null)
-              setReceipt(null)
-              setPendingConfirmation(null)
+    <>
+      <Card>
+        <Heading>{assignment.station.name}</Heading>
+        <Meta>
+          {assignment.station.zoneName}
+          {assignment.openSession ? ` · ${assignment.openSession.name}` : ''}
+        </Meta>
+        {displayedHeartbeatState.status === 'error' ? (
+          <Problem>{displayedHeartbeatState.message}</Problem>
+        ) : (
+          <Meta>
+            {displayedHeartbeatState.status === 'checking' ? 'Checking the connection…' : 'Online'}
+          </Meta>
+        )}
+      </Card>
+
+      <ChipRow
+        accent={palette.door}
+        onSelect={startTask}
+        options={[
+          ['presence', 'Record presence'],
+          ['staffed', 'Arrival and credentials'],
+        ]}
+        selected={task}
+      />
+
+      {task === 'presence' ? (
+        <>
+          {/* One door, both directions. Marking the next scan is one tap and
+              the sentence underneath says exactly what it will write. */}
+          <ChipRow
+            accent={palette.door}
+            onSelect={(option) => {
+              setChosenTransition(option)
               setScanError(null)
             }}
+            options={availableTransitions.map(
+              (option) => [option, transitionName(option)] as const,
+            )}
+            selected={transition}
           />
-          <ModeButton
-            label={assignment.station.mode === 'venue_entry' ? 'Arrival desk' : 'Credential setup'}
-            selected={mode === 'staffed'}
-            onPress={() => {
-              setMode('staffed')
-              setCredentialSetup({ step: 'participant' })
-              setCredentialReason('')
-              setVenueReason('')
-              setVenueCheckInReceipt(null)
-              setReceipt(null)
-              setPendingConfirmation(null)
-              setScanError(null)
-            }}
-          />
-        </View>
-      ) : null}
-      {mode === 'attendance' && assignment.station.mode === 'roving' ? (
-        <View style={styles.transitionRow}>
-          {availableTransitions.map((transition) => (
-            <Pressable
-              accessibilityRole="button"
-              key={transition}
-              onPress={() => {
-                setRovingTransition(transition)
-                setScanError(null)
-              }}
-              style={[
-                styles.transition,
-                rovingTransition === transition ? styles.transitionSelected : null,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.transitionText,
-                  rovingTransition === transition ? styles.transitionTextSelected : null,
-                ]}
-              >
-                {transitionName(transition)}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
-      {mode === 'staffed' ? (
+          <Meta>{transitionStatement(transition, assignment.openSession)}</Meta>
+        </>
+      ) : (
         <CredentialSetupInstructions
           credentialSetup={credentialSetup}
           reason={credentialReason}
@@ -1163,28 +1122,37 @@ function ScannerSurface({
             setScanError(null)
           }}
         />
-      ) : null}
-      {mode === 'attendance' && pendingSummary.count > 0 ? (
-        <View style={styles.pendingQueue}>
-          <Text style={styles.receiptTitle}>
-            {pendingSummary.count} pending {pendingSummary.count === 1 ? 'scan' : 'scans'}
-          </Text>
-          <Text style={styles.body}>Encrypted on this phone. None is shown as accepted until the server returns a receipt.</Text>
-          <Button
-            label={replaying ? 'Retrying…' : 'Retry now'}
+      )}
+
+      {task === 'presence' && pendingSummary.count > 0 ? (
+        <Section
+          title={`${pendingSummary.count} pending ${pendingSummary.count === 1 ? 'scan' : 'scans'}`}
+        >
+          <Body>
+            Encrypted on this phone. None is shown as accepted until the server returns a receipt.
+          </Body>
+          <QuietAction
             disabled={replaying || definitelyOffline}
-            secondary
+            label={replaying ? 'Retrying…' : 'Retry now'}
             onPress={() => void replayPending()}
           />
-        </View>
+        </Section>
       ) : null}
-      {replayStatus ? <Text style={styles.muted}>{replayStatus}</Text> : null}
+      {replayStatus ? <Meta>{replayStatus}</Meta> : null}
       {latestReplayReceipt ? (
-        <Text style={latestReplayReceipt.outcome === 'needs_review' ? styles.error : styles.live}>
-          Latest queued result · {outcomeName(latestReplayReceipt.outcome)}
-          {latestReplayReceipt.participantName ? ` · ${latestReplayReceipt.participantName}` : ''}
-        </Text>
+        latestReplayReceipt.outcome === 'needs_review' ? (
+          <Problem>
+            Latest queued result · {outcomeName(latestReplayReceipt.outcome)}
+            {latestReplayReceipt.participantName ? ` · ${latestReplayReceipt.participantName}` : ''}
+          </Problem>
+        ) : (
+          <Meta>
+            Latest queued result · {outcomeName(latestReplayReceipt.outcome)}
+            {latestReplayReceipt.participantName ? ` · ${latestReplayReceipt.participantName}` : ''}
+          </Meta>
+        )
       ) : null}
+
       <View style={styles.cameraFrame}>
         <CameraView
           barcodeScannerSettings={{ barcodeTypes }}
@@ -1194,58 +1162,59 @@ function ScannerSurface({
             replaying ||
             receipt ||
             pendingConfirmation ||
-            !scannerReady(mode, credentialSetup)
+            !scannerReady(task, credentialSetup)
               ? undefined
               : handleBarcode
           }
           style={StyleSheet.absoluteFill}
         />
-        <View pointerEvents="none" style={styles.guide} />
+        <View pointerEvents="none" style={styles.cameraGuide} />
       </View>
-      {busy ? <Text style={styles.body}>Checking…</Text> : null}
-      {mode === 'attendance' && receipt ? (
-        <View style={styles.receipt}>
-          <Text style={receipt.outcome === 'accepted' ? styles.accepted : styles.receiptTitle}>
-            {outcomeName(receipt.outcome)}
-          </Text>
+      {busy ? <Meta>Checking…</Meta> : null}
+
+      {task === 'presence' && receipt ? (
+        <Section title={outcomeName(receipt.outcome)}>
           {receipt.participant ? (
             <>
-              <Text style={styles.participant}>{receipt.participant.displayName}</Text>
-              {receipt.participant.teamName ? (
-                <Text style={styles.muted}>{receipt.participant.teamName}</Text>
-              ) : null}
+              <Heading>{receipt.participant.displayName}</Heading>
+              {receipt.participant.teamName ? <Meta>{receipt.participant.teamName}</Meta> : null}
             </>
           ) : null}
-          <Text style={styles.body}>{reasonName(receipt.reasonCode)}</Text>
-          <Button
+          {receipt.outcome === 'accepted' ? (
+            <Body>{reasonName(receipt.reasonCode)}</Body>
+          ) : (
+            <Problem>{reasonName(receipt.reasonCode)}</Problem>
+          )}
+          <Action
+            accent={palette.door}
             label="Scan next"
             onPress={() => {
               setReceipt(null)
               setScanError(null)
             }}
           />
-        </View>
+        </Section>
       ) : null}
-      {mode === 'attendance' && pendingConfirmation ? (
-        <View style={styles.receipt}>
-          <Text style={styles.receiptTitle}>Pending</Text>
-          <Text style={styles.body}>{pendingConfirmation}</Text>
-          <Button
+      {task === 'presence' && pendingConfirmation ? (
+        <Section title="Pending">
+          <Body>{pendingConfirmation}</Body>
+          <Action
+            accent={palette.door}
             label="Scan next"
             onPress={() => {
               setPendingConfirmation(null)
               setScanError(null)
             }}
           />
-        </View>
+        </Section>
       ) : null}
       {scanError ? (
-        <View style={styles.receipt}>
-          <Text style={styles.error}>{scanError}</Text>
-          <Button label="Try again" onPress={() => setScanError(null)} />
-        </View>
+        <Section title="Not recorded">
+          <Problem>{scanError}</Problem>
+          <QuietAction label="Try again" onPress={() => setScanError(null)} />
+        </Section>
       ) : null}
-    </View>
+    </>
   )
 }
 
@@ -1281,11 +1250,7 @@ function CredentialSetupInstructions({
   onReset: () => void
 }) {
   if (credentialSetup.step === 'participant') {
-    return (
-      <Text style={styles.body}>
-        Ask the participant to show their current portal attendance QR.
-      </Text>
-    )
+    return <Body>Ask the participant to show their current portal attendance QR.</Body>
   }
   if (credentialSetup.step === 'identity') {
     const participant = credentialSetup.participant
@@ -1300,16 +1265,16 @@ function CredentialSetupInstructions({
             ? credential.canIssue
             : credential.canReplace)
     return (
-      <View style={styles.identityCard}>
-        <Text style={styles.participant}>{participant.displayName}</Text>
-        <Text style={styles.muted}>{participant.teamName} · {participant.institution}</Text>
+      <Card>
+        <Heading>{participant.displayName}</Heading>
+        <Meta>{participant.teamName} · {participant.institution}</Meta>
         {participant.vitRegistrationNumber ? (
-          <Text style={styles.body}>{participant.vitRegistrationNumber}</Text>
+          <Body>{participant.vitRegistrationNumber}</Body>
         ) : null}
         {credential.kind === 'badge_qr' && credential.state === 'active' ? (
-          <Text style={styles.body}>Active badge {credential.badgeReference}</Text>
+          <Body>Active badge {credential.badgeReference}</Body>
         ) : null}
-        <Text style={styles.body}>
+        <Body>
           {credential.kind === 'vit_id_barcode'
             ? credential.state === 'suspended'
               ? 'This VIT ID is suspended and cannot record attendance. Bind a different card with two matching scans.'
@@ -1319,48 +1284,43 @@ function CredentialSetupInstructions({
             : credential.state === 'not_issued'
                 ? 'Confirm the participant matches these details, then choose one unused printed badge.'
                 : 'Confirm the participant matches these details before replacing or revoking the active badge.'}
-        </Text>
+        </Body>
         {needsReason ? (
-          <TextInput
-            accessibilityLabel="Reason for changing the attendance credential"
+          <Field
+            label={credential.kind === 'vit_id_barcode' ? 'Why this ID binding is changing' : 'Why this badge is changing'}
             maxLength={300}
             multiline
             onChangeText={onReason}
-            placeholder={credential.kind === 'vit_id_barcode' ? 'Why is this ID binding changing?' : 'Why is this badge changing?'}
-            placeholderTextColor="#625f5a"
-            style={styles.reasonInput}
+            placeholder="Reason for operations"
             value={reason}
           />
         ) : null}
-        <View style={styles.buttonStack}>
-          {canChangeCredential ? (
-            <Button
-              label={credentialSetupActionLabel(credential)}
-              disabled={needsReason && reason.trim().length < 5}
-              onPress={onConfirmIdentity}
-            />
-          ) : null}
-          {credential.kind === 'badge_qr' &&
-          credential.state === 'active' &&
-          credential.canRevoke ? (
-            <Button
-              label="Revoke active badge"
-              disabled={reason.trim().length < 5}
-              onPress={onRevoke}
-              secondary
-            />
-          ) : null}
-          {credential.kind === 'vit_id_barcode' &&
-          credential.state === 'active' &&
-          credential.canSuspend ? (
-            <Button
-              label="Suspend current VIT ID"
-              disabled={reason.trim().length < 5}
-              onPress={onSuspend}
-              secondary
-            />
-          ) : null}
-        </View>
+        {canChangeCredential ? (
+          <Action
+            accent={palette.door}
+            disabled={needsReason && reason.trim().length < 5}
+            label={credentialSetupActionLabel(credential)}
+            onPress={onConfirmIdentity}
+          />
+        ) : null}
+        {credential.kind === 'badge_qr' &&
+        credential.state === 'active' &&
+        credential.canRevoke ? (
+          <QuietAction
+            disabled={reason.trim().length < 5}
+            label="Revoke active badge"
+            onPress={onRevoke}
+          />
+        ) : null}
+        {credential.kind === 'vit_id_barcode' &&
+        credential.state === 'active' &&
+        credential.canSuspend ? (
+          <QuietAction
+            disabled={reason.trim().length < 5}
+            label="Suspend current VIT ID"
+            onPress={onSuspend}
+          />
+        ) : null}
         <VenueCheckInControls
           participant={participant}
           receipt={venueCheckInReceipt}
@@ -1370,50 +1330,50 @@ function CredentialSetupInstructions({
           onException={onVenueIdentityException}
           onReverse={onVenueCheckInReversal}
         />
-        <Button label="Cancel" onPress={onReset} secondary />
-      </View>
+        <QuietAction label="Cancel" onPress={onReset} />
+      </Card>
     )
   }
   if (credentialSetup.step === 'first_scan') {
     return (
-      <Text style={styles.body}>
+      <Body>
         {credentialSetup.participant.credential.kind === 'badge_qr'
           ? 'Scan the QR on the unused printed badge.'
           : 'Scan the printed barcode on the VIT ID.'}
-      </Text>
+      </Body>
     )
   }
   if (credentialSetup.step === 'second_scan_ready') {
     return (
-      <View style={styles.identityCard}>
+      <Card>
         {credentialSetup.badgeReference ? (
           <>
-            <Text style={styles.muted}>Printed reference</Text>
-            <Text style={styles.participant}>{credentialSetup.badgeReference}</Text>
+            <Meta>Printed reference</Meta>
+            <Heading>{credentialSetup.badgeReference}</Heading>
           </>
         ) : null}
-        <Text style={styles.body}>
+        <Body>
           {credentialSetup.badgeReference
             ? 'Check this matches the text on the physical badge. Move it away, then scan it once more.'
             : 'First scan matched. Move the card away, then verify it once more.'}
-        </Text>
-        <Button label="Start verification scan" onPress={onSecondScan} />
-      </View>
+        </Body>
+        <Action accent={palette.door} label="Start verification scan" onPress={onSecondScan} />
+      </Card>
     )
   }
   if (credentialSetup.step === 'second_scan') {
     return (
-      <Text style={styles.body}>
+      <Body>
         {credentialSetup.badgeReference
           ? `Scan badge ${credentialSetup.badgeReference} again.`
           : 'Scan the same VIT ID barcode again.'}
-      </Text>
+      </Body>
     )
   }
   return (
-    <View style={styles.identityCard}>
-      <Text style={styles.accepted}>{credentialSetupOutcomeLabel(credentialSetup.outcome)}</Text>
-      <Text style={styles.participant}>{credentialSetup.participant.displayName}</Text>
+    <Card>
+      <Heading>{credentialSetupOutcomeLabel(credentialSetup.outcome)}</Heading>
+      <Body>{credentialSetup.participant.displayName}</Body>
       <VenueCheckInControls
         participant={credentialSetup.participant}
         receipt={venueCheckInReceipt}
@@ -1423,8 +1383,8 @@ function CredentialSetupInstructions({
         onException={onVenueIdentityException}
         onReverse={onVenueCheckInReversal}
       />
-      <Button label="Set up next participant" onPress={onReset} />
-    </View>
+      <Action accent={palette.door} label="Set up next participant" onPress={onReset} />
+    </Card>
   )
 }
 
@@ -1448,70 +1408,65 @@ function VenueCheckInControls({
   const activeCheckIn = currentVenueCheckIn(participant, receipt)
   if (activeCheckIn) {
     return (
-      <View style={styles.arrivalBlock}>
-        <Text style={styles.accepted}>Venue check-in recorded</Text>
-        <Text style={styles.muted}>
+      <View style={styles.block}>
+        <Body>Venue check-in recorded</Body>
+        <Meta>
           {new Date(activeCheckIn.checkedInAt).toLocaleTimeString([], {
             hour: 'numeric',
             minute: '2-digit',
           })}
           {activeCheckIn.stationName ? ` · ${activeCheckIn.stationName}` : ''}
-        </Text>
+        </Meta>
         {participant.canReverseVenueCheckIn && receipt === null ? (
           <>
-            <TextInput
-              accessibilityLabel="Reason for reversing venue check-in"
+            <Field
+              label="Why this check-in is wrong"
               maxLength={300}
               multiline
               onChangeText={onReason}
-              placeholder="Why is this check-in wrong?"
-              placeholderTextColor="#625f5a"
-              style={styles.reasonInput}
+              placeholder="Reason for operations"
               value={reason}
             />
-            <Button
-              label="Reverse check-in"
+            <QuietAction
               disabled={reason.trim().length < 5}
+              label="Reverse check-in"
               onPress={onReverse}
-              secondary
             />
-            <Text style={styles.muted}>Presence scans and session attendance do not change.</Text>
+            <Meta>Presence scans and session attendance do not change.</Meta>
           </>
         ) : receipt?.status === 'checked_in' ? (
-          <Text style={styles.muted}>Scan a fresh portal QR to reverse this check-in.</Text>
+          <Meta>Scan a fresh portal QR to reverse this check-in.</Meta>
         ) : null}
       </View>
     )
   }
   if (receipt?.status === 'reversed') {
     return (
-      <View style={styles.arrivalBlock}>
-        <Text style={styles.receiptTitle}>Venue check-in reversed</Text>
-        <Text style={styles.muted}>Scan a fresh portal QR before recording another arrival.</Text>
+      <View style={styles.block}>
+        <Body>Venue check-in reversed</Body>
+        <Meta>Scan a fresh portal QR before recording another arrival.</Meta>
       </View>
     )
   }
-  const wasReversed =
-    participant.venueCheckIn?.status === 'reversed'
+  const wasReversed = participant.venueCheckIn?.status === 'reversed'
   if (!participant.canRecordVenueCheckIn && !participant.canOverrideVenueIdentity) {
     return (
-      <View style={styles.arrivalBlock}>
-        <Text style={styles.muted}>
+      <View style={styles.block}>
+        <Meta>
           {wasReversed ? 'Venue check-in was reversed.' : 'Venue check-in not recorded.'}
-        </Text>
+        </Meta>
       </View>
     )
   }
   return (
-    <View style={styles.arrivalBlock}>
-      <Text style={styles.receiptTitle}>
-        {wasReversed ? 'Venue check-in was reversed' : 'Venue check-in'}
-      </Text>
-      <Text style={styles.body}>
+    <View style={styles.block}>
+      <Body>{wasReversed ? 'Venue check-in was reversed' : 'Venue check-in'}</Body>
+      <Meta>
         Confirm the visible {participant.participantClass === 'vit_student' ? 'VIT ID' : 'photo ID'} matches these details.
-      </Text>
+      </Meta>
       {participant.canRecordVenueCheckIn ? (
-        <Button
+        <Action
+          accent={palette.door}
           label={participant.participantClass === 'vit_student'
             ? 'Identity matches; check in'
             : 'Photo ID matches; check in'}
@@ -1520,25 +1475,22 @@ function VenueCheckInControls({
       ) : null}
       {participant.canOverrideVenueIdentity ? (
         <>
-          <TextInput
-            accessibilityLabel="Reason for approved identity exception"
+          <Field
+            label="Approved no-ID exception"
             maxLength={300}
             multiline
             onChangeText={onReason}
-            placeholder="Approved no-ID exception reason"
-            placeholderTextColor="#625f5a"
-            style={styles.reasonInput}
+            placeholder="Who approved it, and why"
             value={reason}
           />
-          <Button
-            label="Check in under approved exception"
+          <QuietAction
             disabled={reason.trim().length < 5}
+            label="Check in under approved exception"
             onPress={onException}
-            secondary
           />
         </>
       ) : null}
-      <Text style={styles.muted}>This does not mark them inside or record session attendance.</Text>
+      <Meta>This does not mark them inside or record session attendance.</Meta>
     </View>
   )
 }
@@ -1595,34 +1547,12 @@ function credentialSetupOutcomeLabel(outcome: Extract<CredentialSetupState, { st
   return 'Badge revoked'
 }
 
-function scannerReady(mode: ScannerMode, credentialSetup: CredentialSetupState) {
-  if (mode === 'attendance') return true
+function scannerReady(task: ScannerTask, credentialSetup: CredentialSetupState) {
+  if (task === 'presence') return true
   return (
     credentialSetup.step === 'participant' ||
     credentialSetup.step === 'first_scan' ||
     credentialSetup.step === 'second_scan'
-  )
-}
-
-function ModeButton({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string
-  selected: boolean
-  onPress: () => void
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={[styles.modeButton, selected ? styles.modeButtonSelected : null]}
-    >
-      <Text style={[styles.modeButtonText, selected ? styles.modeButtonTextSelected : null]}>
-        {label}
-      </Text>
-    </Pressable>
   )
 }
 
@@ -1634,10 +1564,7 @@ function scannerPlatform(): ScannerPlatform | null {
 
 function scannerBarcodeTypes(assignment: ScannerAssignment) {
   const barcodeTypes: BarcodeType[] = [...assignment.station.barcodeSymbologies]
-  const usesQr = assignment.station.allowedCredentialKinds.some(
-    (kind) => kind === 'badge_qr' || kind === 'portal_qr' || kind === 'vit_id_barcode',
-  )
-  if (usesQr && !barcodeTypes.includes('qr')) barcodeTypes.push('qr')
+  if (!barcodeTypes.includes('qr')) barcodeTypes.push('qr')
   return barcodeTypes
 }
 
@@ -1645,85 +1572,41 @@ function allowedVitBarcode(
   symbology: BarcodeSymbology | null,
   assignment: ScannerAssignment,
 ): BarcodeSymbology | null {
-  return (
-    symbology &&
-    assignment.station.allowedCredentialKinds.some((kind) => kind === 'vit_id_barcode') &&
+  return symbology &&
     assignment.station.barcodeSymbologies.some((allowed) => allowed === symbology)
-      ? symbology
-      : null
-  )
+    ? symbology
+    : null
 }
 
-function rovingTransitions(assignment: ScannerAssignment): RovingTransition[] {
-  return assignment.station.session
-    ? ['session_confirm', 'zone_entry', 'zone_exit']
+/**
+ * Every station can record every direction. The session transitions only appear
+ * once a session is actually open in this area, because those are the only
+ * moments the server can resolve one.
+ */
+function scanTransitions(sessionIsOpen: boolean): ScanTransition[] {
+  return sessionIsOpen
+    ? ['venue_entry', 'venue_exit', 'session_confirm', 'zone_entry', 'zone_exit']
     : ['venue_entry', 'venue_exit']
 }
 
-function StationButton({
-  station,
-  disabled,
-  onPress,
-}: {
-  station: StationOption
-  disabled: boolean
-  onPress: () => void | Promise<void>
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={disabled}
-      onPress={onPress}
-      style={[styles.stationButton, disabled ? styles.disabled : null]}
-    >
-      <Text style={styles.stationName}>{station.name}</Text>
-      <Text style={styles.muted}>
-        {station.zoneName}
-        {station.session ? ` · ${station.session.name}` : ''}
-      </Text>
-    </Pressable>
-  )
+function transitionName(transition: ScanTransition) {
+  if (transition === 'venue_entry') return 'Arriving'
+  if (transition === 'venue_exit') return 'Leaving'
+  if (transition === 'session_confirm') return 'Session'
+  if (transition === 'zone_entry') return 'Back in'
+  return 'Stepped out'
 }
 
-function Panel({ children }: { children: React.ReactNode }) {
-  return <View style={styles.panel}>{children}</View>
-}
-
-function Button({
-  label,
-  onPress,
-  disabled = false,
-  secondary = false,
-}: {
-  label: string
-  onPress: () => void | Promise<void>
-  disabled?: boolean
-  secondary?: boolean
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={disabled}
-      onPress={onPress}
-      style={[
-        styles.button,
-        secondary ? styles.secondaryButton : null,
-        disabled ? styles.disabled : null,
-      ]}
-    >
-      <Text style={[styles.buttonText, secondary ? styles.secondaryButtonText : null]}>
-        {label}
-      </Text>
-    </Pressable>
-  )
-}
-
-function transitionName(transition: RovingTransition) {
-  if (transition === 'venue_entry') return 'Venue in'
-  if (transition === 'venue_exit') return 'Venue out'
-  if (transition === 'session_confirm') return 'Confirm'
-  if (transition === 'zone_entry') return 'Return'
-  return 'Exit'
+function transitionStatement(
+  transition: ScanTransition,
+  openSession: ScannerAssignment['openSession'],
+) {
+  if (transition === 'venue_entry') return 'The next scan marks them arriving at the venue.'
+  if (transition === 'venue_exit') return 'The next scan marks them leaving the venue.'
+  const session = openSession ? openSession.name : 'the open session'
+  if (transition === 'session_confirm') return `The next scan confirms them present for ${session}.`
+  if (transition === 'zone_entry') return `The next scan marks them back in ${session}.`
+  return `The next scan marks them stepped out of ${session}.`
 }
 
 function outcomeName(outcome: ScanReceipt['outcome']) {
@@ -1748,8 +1631,9 @@ function reasonName(reason: string) {
     portal_qr_used: 'This portal QR has already been used.',
     participant_not_active: 'This participant is not active for the event.',
     participant_not_expected: 'This participant is not assigned to this session.',
-    session_not_open: 'This session is not open.',
+    session_not_open: 'No session is open in this area right now.',
     outside_check_in_window: 'The session check-in window is closed.',
+    offline_scan_needs_reconciliation: 'No session was open when this queued scan replayed. Operations will reconcile it.',
     offline_replay_conflicts_with_newer_state: 'A newer scan is already authoritative. Operations will review this queued scan.',
   }
   return names[reason] ?? 'The server recorded this result for operations review.'
@@ -1760,127 +1644,19 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 const styles = StyleSheet.create({
-  panel: {
-    borderWidth: 1,
-    borderColor: '#2c2a27',
-    borderRadius: 8,
-    padding: 18,
-    gap: 12,
-  },
-  scanner: { gap: 14 },
-  stationHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  grow: { flex: 1, gap: 3 },
-  title: { color: '#f1eee8', fontFamily: 'Georgia', fontSize: 23, lineHeight: 29 },
-  body: { color: '#aaa69f', fontSize: 15, lineHeight: 22 },
-  muted: { color: '#77736d', fontSize: 13, lineHeight: 19 },
-  error: { color: '#e3a4a4', fontSize: 14, lineHeight: 21 },
-  live: { color: '#d6a0aa', fontSize: 13 },
-  stationButton: {
-    borderWidth: 1,
-    borderColor: '#34322f',
-    borderRadius: 7,
-    padding: 14,
-    gap: 4,
-  },
-  stationName: { color: '#f1eee8', fontSize: 16 },
-  button: {
-    minHeight: 46,
-    borderRadius: 7,
-    backgroundColor: '#eee9e0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-  },
-  buttonText: { color: '#11110f', fontSize: 15, fontWeight: '600' },
-  secondaryButton: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: '#34322f',
-  },
-  secondaryButtonText: { color: '#f1eee8' },
-  buttonStack: { gap: 8 },
-  disabled: { opacity: 0.5 },
-  modeRow: { flexDirection: 'row', gap: 8 },
-  modeButton: {
-    flex: 1,
-    minHeight: 42,
-    borderWidth: 1,
-    borderColor: '#34322f',
-    borderRadius: 7,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-  },
-  modeButtonSelected: { backgroundColor: '#eee9e0', borderColor: '#eee9e0' },
-  modeButtonText: { color: '#aaa69f', fontSize: 13 },
-  modeButtonTextSelected: { color: '#11110f' },
-  transitionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  transition: {
-    borderWidth: 1,
-    borderColor: '#34322f',
-    borderRadius: 20,
-    paddingHorizontal: 13,
-    paddingVertical: 8,
-  },
-  transitionSelected: { backgroundColor: '#eee9e0', borderColor: '#eee9e0' },
-  transitionText: { color: '#aaa69f', fontSize: 13 },
-  transitionTextSelected: { color: '#11110f' },
-  cameraFrame: {
-    aspectRatio: 0.78,
-    overflow: 'hidden',
-    borderRadius: 8,
-    backgroundColor: '#11110f',
-  },
-  guide: {
+  /* The viewfinder is the subject of the screen, so it gets real height and the
+     guide is the only thing drawn over it. */
+  cameraFrame: { height: 300, overflow: 'hidden', backgroundColor: '#000' },
+  cameraGuide: {
     position: 'absolute',
-    left: 32,
-    right: 32,
-    top: '35%',
-    height: 120,
-    borderWidth: 1,
-    borderColor: '#eee9e0',
-    borderRadius: 8,
+    top: 56,
+    right: 40,
+    bottom: 56,
+    left: 40,
+    borderWidth: 2,
+    borderColor: palette.door,
   },
-  receipt: {
-    borderWidth: 1,
-    borderColor: '#34322f',
-    borderRadius: 8,
-    padding: 16,
-    gap: 7,
-  },
-  pendingQueue: {
-    borderWidth: 1,
-    borderColor: '#5a5040',
-    borderRadius: 8,
-    padding: 14,
-    gap: 8,
-  },
-  accepted: { color: '#b8c9ad', fontSize: 18, fontWeight: '600' },
-  receiptTitle: { color: '#f1eee8', fontSize: 18, fontWeight: '600' },
-  participant: { color: '#f1eee8', fontFamily: 'Georgia', fontSize: 25, lineHeight: 31 },
-  identityCard: {
-    gap: 9,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#34322f',
-    borderRadius: 7,
-  },
-  arrivalBlock: {
-    gap: 8,
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#34322f',
-  },
-  reasonInput: {
-    minHeight: 72,
-    padding: 11,
-    color: '#f1eee8',
-    fontSize: 14,
-    lineHeight: 20,
-    textAlignVertical: 'top',
-    borderWidth: 1,
-    borderColor: '#34322f',
-    borderRadius: 7,
-  },
+
+  /* A run of related controls inside a card, set off from the identity above. */
+  block: { gap: 10, paddingTop: 12, borderTopWidth: 1, borderTopColor: palette.strong },
 })

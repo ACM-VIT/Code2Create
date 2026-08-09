@@ -116,7 +116,7 @@ An operations user can handle a missing reviewer, team hold, table move, scan fa
 - audit history, round exports, backups, and incident procedures;
 - one scoped release-rehearsal record covering every required scenario and final sign-off;
 - two-person paper recovery for an already-started review, preserving each signed reviewer scorecard and the fixed review context;
-- a restricted, expiring emergency pack that freezes the current participant/presence roster, stations, active sessions, panel tables, and uniquely numbered paper-recovery forms;
+- a restricted, expiring emergency pack that freezes the current participant/presence roster, stations, active sessions, panels, and uniquely numbered paper-recovery forms;
 - Synesthesia requests, voting, moderation, and playback control.
 
 ### Excluded from the first production release

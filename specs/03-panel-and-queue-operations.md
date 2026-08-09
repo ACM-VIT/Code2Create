@@ -78,7 +78,7 @@ It then ranks eligible panels using:
 2. rubric coverage;
 3. current queue length and observed review pace;
 4. continuity or rotation policy for the round;
-5. venue distance from the team's current mapped hall spot to the panel table;
+5. venue distance from the panel's current position to the team's mapped hall spot;
 6. number of recent manual exceptions.
 
 The ranker is deterministic code with a recorded rules version. It does not call a language model.
@@ -87,9 +87,9 @@ A sponsor-track entry can require an eligible domain reviewer for sponsor-award 
 
 Operations can auto-accept the top result for ordinary teams during a configured assignment window. A manual choice outside the top result requires a reason. Assignment becomes fixed when the team enters `queued`; later moves use the exception flow.
 
-## 5. Hall mapping and panel tables
+## 5. Hall mapping
 
-The team’s hacking location and the review panel’s table are different resources. A `reviewPanel.tableLabel` tells a called team where to go for judging. A `teamFloorLocation` tells routing where the team is currently seated in the hall.
+A panel has no table. A panel is a group of reviewers who walk to whichever team they are reviewing, so the only location in a review is the team's own. Two records describe it. A `teamFloorLocation` is where the team is seated in the hall, recorded by roving floor staff and used for routing. `teamRoundStates.tableLabel` is the label of that spot captured for the round, and it is what a called reviewer is told to walk to.
 
 Operations publishes a versioned hall plan from a checked CSV of zones and spots. Each spot has one stable key, human label, zone, percentage coordinates for the simple map, accessibility flag, and open/closed state. The plan remains replaceable only until the first team location is saved.
 
@@ -110,10 +110,9 @@ Before freeze, the dashboard lists:
 - unassigned teams;
 - occupied or closed spots;
 - inaccessible placements that need correction;
-- panels without a table;
 - zone capacity.
 
-The official hall spot and panel table both come from the server. Participants may show a fresh code for correction but cannot silently change either record.
+The official hall spot comes from the server. Participants may show a fresh code for correction but cannot silently change the record.
 
 ## 6. Reviewer clock-in
 
@@ -288,7 +287,7 @@ The panel coordinator may confirm completion. The coordinator cannot edit anothe
 | Reviewer does not arrive | Page substitutes; keep panel visibly blocked until accepted |
 | Reviewer phone dies | Move the reviewer to a spare registered device or replace the reviewer |
 | Push is late | In-app assignment and dashboard stay current; call or runner is the fallback |
-| Team is at the wrong panel table | Hold, correct the panel destination, then reroute or resume |
+| The team is not where the map says | Hold, correct the team's hall location, then resume |
 | QR expired | Refresh the participant QR; do not reuse an old token |
 | Duplicate review start | Return the existing active session |
 | Two operators move the same team | Accept one current-version command; reject the stale command with the new state |

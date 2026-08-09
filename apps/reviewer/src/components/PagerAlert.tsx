@@ -110,6 +110,11 @@ export function PagerAlert({
 
   const answerable = page.state === 'opened' && !expired && busy === null
 
+  const destination = page.team?.tableLabel ?? page.team?.name ?? page.panel.name
+  const beneath = page.team
+    ? `${page.panel.name} · ${page.round.name}`
+    : `A seat on ${page.panel.name} · ${page.round.name}`
+
   return (
     <Modal animationType="fade" statusBarTranslucent transparent={false} visible>
       <View style={styles.root}>
@@ -144,11 +149,13 @@ export function PagerAlert({
             />
           </Host>
 
-          <Text style={styles.table}>{page.panel.tableLabel}</Text>
-          <Text style={styles.where}>
-            {page.panel.name} · {page.round.name}
-          </Text>
-          {page.teamName ? <Text style={styles.team}>{page.teamName}</Text> : null}
+          {/* Largest is wherever the person has to walk. A panel walks to the
+              team, so the team's table is the real destination; without one the
+              team's name is the next most useful thing to shout, and a page
+              raised before a session exists can only name the seat. */}
+          <Text style={styles.table}>{destination}</Text>
+          <Text style={styles.where}>{beneath}</Text>
+          {page.team?.tableLabel ? <Text style={styles.team}>{page.team.name}</Text> : null}
 
           <Text style={styles.reason}>{page.reason}</Text>
           {page.criteria.length > 0 ? (

@@ -337,7 +337,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
           <Text style={styles.eyebrow}>Project reviews</Text>
           <Text style={styles.heading}>{assignment?.round.name ?? review?.round.name}</Text>
         </View>
-        {current.panel ? <Text style={styles.table}>{current.panel.tableLabel}</Text> : null}
+        {review?.team.tableLabel ? <Text style={styles.table}>{review.team.tableLabel}</Text> : null}
       </View>
 
       {current.panel ? (
@@ -898,7 +898,9 @@ function ReviewQrScanner({
 function ReviewHeading({ review, serverNow }: { review: ActiveReview; serverNow: number }) {
   return (
     <View style={styles.reviewHeading}>
-      <Text style={styles.eyebrow}>{review.panel.tableLabel}</Text>
+      {/* Spot labels come verbatim from the operator's floor plan and often
+          already read "Table 12", so they are never prefixed. */}
+      <Text style={styles.eyebrow}>{review.team.tableLabel ?? 'No table yet'}</Text>
       <Text style={styles.reviewTitle}>{review.team.name}</Text>
       <Text style={styles.body}>{review.project.trackName}</Text>
       {review.project.sponsorTracks.length > 0 ? (

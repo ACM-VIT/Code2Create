@@ -437,9 +437,9 @@ The board does not rank participants by hours or label an ordinary temporary exi
 
 Overlapping sessions are separate rows and per-participant states. A workshop confirmation cannot replace the broader hacking-session confirmation. The dashboard blocks open until expectation materialization completes and keeps close visibly in progress until every resumable finalization batch and count check succeeds.
 
-## 8. Hall map and panel tables
+## 8. Hall map
 
-The hall view is a live projection of the published floor plan. It groups physical team spots by venue zone and keeps them separate from judging panel tables.
+The hall view is a live projection of the published floor plan. It groups physical team spots by venue zone. A panel has no spot of its own: panels walk to whichever team they are reviewing, so a team's spot is the only place a review happens.
 
 Each hall spot shows:
 
@@ -776,7 +776,7 @@ The dedicated emergency-pack workspace creates one fixed print document before a
 - every `ready | open | closing` attendance session; and
 - every `published | open | closing` review round with its rubric and panel/table plan.
 
-The workspace rejects a roster above 1,200 participants. It also rejects more than 400 represented teams, more than 100 stations, more than ten current rounds, or more than 400 current panel tables. It does not silently truncate the pack.
+The workspace rejects a roster above 1,200 participants. It also rejects more than 400 represented teams, more than 100 stations, more than ten current rounds, or more than 400 current panels. It does not silently truncate the pack.
 
 Generation runs in the bounded export worker. The self-contained print-first HTML and its source snapshot each receive a SHA-256 checksum. The HTML is written to private KMS-encrypted, versioned S3, read back by exact object version, and becomes `ready` only when byte count and digest match. The record expires four hours after request. Its history projection exposes counts and checksums but never participant rows or storage coordinates.
 

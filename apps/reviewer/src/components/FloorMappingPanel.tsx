@@ -6,7 +6,17 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'ex
 import { useRef, useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 
+import {
+  Action,
+  Body,
+  ChipRow,
+  Meta,
+  Problem,
+  QuietAction,
+  Section,
+} from '@/components/ui'
 import type { ReviewerRuntime } from '@/lib/runtime'
+import { palette } from '@/theme'
 
 type FloorState = NonNullable<FunctionReturnType<typeof api.floorMapping.available>>
 type FloorZone = FloorState['zones'][number]
@@ -28,22 +38,13 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  if (floor === undefined) {
-    return <Panel><Text style={styles.body}>Loading hall map…</Text></Panel>
-  }
-  if (!floor) {
-    return (
-      <Panel>
-        <Text style={styles.title}>Hall mapping</Text>
-        <Text style={styles.body}>No current floor plan or exact mapping permission is available to this account.</Text>
-      </Panel>
-    )
-  }
+  if (floor === undefined) return <Meta>Loading the hall plan…</Meta>
+  if (!floor) return <Body>There is no hall plan yet, so there is nothing to map.</Body>
 
   const selectedZone = floor.zones.find((zone) => zone.id === selectedZoneId) ?? floor.zones[0]
-  if (!selectedZone) {
-    return <Panel><Text style={styles.body}>No mapped zone is assigned to this account.</Text></Panel>
-  }
+  if (!selectedZone) return <Body>No zone of the hall has been assigned to you.</Body>
+
+  const freeSpots = selectedZone.spots.filter((spot) => spot.occupiedBy === null).length
 
   const claimCredential = async (credential: string) => {
     if (busyRef.current || claim || receipt) return
@@ -107,38 +108,37 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
   }
 
   return (
-    <Panel>
-      <View style={styles.headingRow}>
-        <View style={styles.grow}>
-          <Text style={styles.eyebrow}>Hall mapping</Text>
-          <Text style={styles.title}>{floor.plan.name}</Text>
-        </View>
-        <Text style={floor.mode === 'override' ? styles.overrideState : styles.liveState}>
-          {floor.mode === 'override' ? 'Frozen' : 'Open'}
-        </Text>
-      </View>
-      <Text style={styles.body}>
-        Scan the QR on the team’s dashboard, then tap the spot where they are sitting. There are no table QR stickers.
-      </Text>
+    <>
+      {/* Lead with how much of the hall is still unmapped, which is the whole
+          reason anyone opens this screen. */}
+      <Body>
+        {freeSpots === 0
+          ? `Every spot in ${selectedZone.name} is mapped.`
+          : `${freeSpots} ${freeSpots === 1 ? 'spot is' : 'spots are'} still empty in ${selectedZone.name}.`}
+      </Body>
+      <Meta>
+        {floor.mode === 'override'
+          ? 'The map is frozen, so a change needs a reason.'
+          : 'Scan the QR on the team’s own dashboard, then tap where they are sitting.'}
+      </Meta>
 
       {!claim && !receipt ? (
         <>
-          <View style={styles.zoneRow}>
-            {floor.zones.map((zone) => (
-              <Pressable
-                accessibilityRole="button"
-                disabled={busy}
-                key={zone.id}
-                onPress={() => setSelectedZoneId(zone.id)}
-                style={[styles.zoneButton, zone.id === selectedZone.id ? styles.zoneButtonSelected : null]}
-              >
-                <Text style={zone.id === selectedZone.id ? styles.zoneTextSelected : styles.zoneText}>{zone.name}</Text>
-              </Pressable>
-            ))}
-          </View>
-          {!permission ? <Text style={styles.body}>Checking camera access…</Text> : null}
+          {floor.zones.length > 1 ? (
+            <ChipRow
+              accent={palette.hall}
+              onSelect={setSelectedZoneId}
+              options={floor.zones.map((zone) => [zone.id, zone.name] as const)}
+              selected={selectedZone.id}
+            />
+          ) : null}
+          {!permission ? <Meta>Checking camera access…</Meta> : null}
           {permission && !permission.granted ? (
-            <Button label="Allow camera" onPress={async () => { await requestPermission() }} />
+            <Action
+              accent={palette.hall}
+              label="Allow the camera"
+              onPress={async () => { await requestPermission() }}
+            />
           ) : null}
           {permission?.granted ? (
             <View style={styles.cameraFrame}>
@@ -151,67 +151,69 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
               <View pointerEvents="none" style={styles.cameraGuide} />
             </View>
           ) : null}
+          {/* The typed code is the fallback for a QR that will not read, so it
+              sits under the camera rather than competing with it. */}
           <View style={styles.manualRow}>
             <TextInput
               autoCapitalize="characters"
               editable={!busy}
               onChangeText={setManualCode}
-              placeholder="Fallback code"
-              placeholderTextColor="#716d66"
+              placeholder="Type the team's code instead"
+              placeholderTextColor={palette.faint}
               style={styles.input}
               value={manualCode}
             />
-            <Button
-              compact
+            <Pressable
+              accessibilityRole="button"
               disabled={busy || manualCode.trim().length < 10}
-              label={busy ? 'Checking…' : 'Open'}
-              onPress={() => claimCredential(manualCode)}
-            />
+              onPress={() => void claimCredential(manualCode)}
+              style={[styles.openButton, busy || manualCode.trim().length < 10 ? styles.disabled : null]}
+            >
+              <Text style={styles.openButtonText}>{busy ? '…' : 'Open'}</Text>
+            </Pressable>
           </View>
         </>
       ) : null}
 
       {claim ? (
-        <View style={styles.claimCard}>
-          <Text style={styles.eyebrow}>Scanned team</Text>
-          <Text style={styles.teamName}>{claim.team.name}</Text>
-          <Text style={styles.body}>
+        <Section title={claim.team.name}>
+          <Meta>
             {claim.currentLocation
-              ? `Currently ${claim.currentLocation.zoneName} · ${claim.currentLocation.spotLabel}.`
-              : 'No hall location is recorded yet.'}
-          </Text>
+              ? `Currently at ${claim.currentLocation.zoneName}, ${claim.currentLocation.spotLabel}.`
+              : 'Nowhere on the map yet.'}
+          </Meta>
           {claim.mode === 'override' ? (
             <TextInput
               multiline
               onChangeText={setOverrideReason}
               placeholder="Why is this frozen location changing?"
-              placeholderTextColor="#716d66"
+              placeholderTextColor={palette.faint}
               style={[styles.input, styles.reasonInput]}
               value={overrideReason}
             />
           ) : null}
-          <Text style={styles.label}>Tap their exact spot in {selectedZone.name}</Text>
+          <Meta>Tap where they are sitting in {selectedZone.name}</Meta>
           <FloorCanvas
             claim={claim}
             disabled={busy || (claim.mode === 'override' && overrideReason.trim().length < 5)}
             onSelect={assignSpot}
             zone={selectedZone}
           />
-          <Button label="Scan again" secondary disabled={busy} onPress={reset} />
-        </View>
+          <QuietAction disabled={busy} label="Scan a different team" onPress={reset} />
+        </Section>
       ) : null}
 
       {receipt ? (
-        <View style={styles.receipt}>
-          <Text style={styles.saved}>Saved</Text>
-          <Text style={styles.teamName}>{receipt.teamName}</Text>
-          <Text style={styles.body}>{receipt.zoneName} · {receipt.spotLabel}</Text>
-          <Button label="Scan next team" onPress={reset} />
-        </View>
+        <Section title="Saved">
+          <Body>
+            {receipt.teamName} is at {receipt.zoneName}, {receipt.spotLabel}.
+          </Body>
+          <Action accent={palette.hall} label="Scan the next team" onPress={reset} />
+        </Section>
       ) : null}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-    </Panel>
+      {error ? <Problem>{error}</Problem> : null}
+    </>
   )
 }
 
@@ -244,45 +246,16 @@ function FloorCanvas({
               occupiedByAnotherTeam ? styles.mapSpotDisabled : null,
             ]}
           >
-            <Text numberOfLines={1} style={styles.mapSpotText}>{spot.label}</Text>
+            <Text
+              numberOfLines={1}
+              style={[styles.mapSpotText, spot.occupiedBy ? styles.mapSpotTextOccupied : null]}
+            >
+              {spot.label}
+            </Text>
           </Pressable>
         )
       })}
     </View>
-  )
-}
-
-function Panel({ children }: { children: React.ReactNode }) {
-  return <View style={styles.panel}>{children}</View>
-}
-
-function Button({
-  label,
-  onPress,
-  disabled = false,
-  secondary = false,
-  compact = false,
-}: {
-  label: string
-  onPress: () => void | Promise<void>
-  disabled?: boolean
-  secondary?: boolean
-  compact?: boolean
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={disabled}
-      onPress={onPress}
-      style={[
-        styles.button,
-        secondary ? styles.secondaryButton : null,
-        compact ? styles.compactButton : null,
-        disabled ? styles.disabled : null,
-      ]}
-    >
-      <Text style={[styles.buttonText, secondary ? styles.secondaryButtonText : null]}>{label}</Text>
-    </Pressable>
   )
 }
 
@@ -292,39 +265,53 @@ function errorMessage(value: unknown, fallback: string) {
 }
 
 const styles = StyleSheet.create({
-  panel: { gap: 16, paddingVertical: 22, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#34322e' },
-  headingRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 },
-  grow: { flex: 1 },
-  eyebrow: { color: '#a6a19a', fontSize: 12, marginBottom: 5 },
-  title: { color: '#f1eee8', fontFamily: 'Georgia', fontSize: 25, lineHeight: 31 },
-  body: { color: '#aaa69f', fontSize: 14, lineHeight: 21 },
-  label: { color: '#aaa69f', fontSize: 12 },
-  liveState: { color: '#b8c8ad', fontSize: 12 },
-  overrideState: { color: '#d6a0aa', fontSize: 12 },
-  zoneRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  zoneButton: { paddingHorizontal: 12, paddingVertical: 9, borderWidth: 1, borderColor: '#34322e', borderRadius: 6 },
-  zoneButtonSelected: { backgroundColor: '#eee9e0', borderColor: '#eee9e0' },
-  zoneText: { color: '#aaa69f', fontSize: 13 },
-  zoneTextSelected: { color: '#11110f', fontSize: 13 },
-  cameraFrame: { height: 250, overflow: 'hidden', backgroundColor: '#11110f', borderRadius: 8 },
-  cameraGuide: { position: 'absolute', top: 45, right: 45, bottom: 45, left: 45, borderWidth: 1, borderColor: '#eee9e0', borderRadius: 8 },
+  /* The viewfinder is the screen's subject, so it gets real height and the
+     guide is the only thing drawn over it. */
+  cameraFrame: { height: 280, overflow: 'hidden', backgroundColor: '#000' },
+  cameraGuide: {
+    position: 'absolute',
+    top: 48,
+    right: 48,
+    bottom: 48,
+    left: 48,
+    borderWidth: 2,
+    borderColor: palette.hall,
+  },
+
   manualRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  input: { flex: 1, minHeight: 46, paddingHorizontal: 12, color: '#f1eee8', backgroundColor: '#11110f', borderWidth: 1, borderColor: '#34322e', borderRadius: 6 },
-  reasonInput: { minHeight: 76, paddingTop: 11, textAlignVertical: 'top' },
-  claimCard: { gap: 14 },
-  teamName: { color: '#f1eee8', fontSize: 20, fontWeight: '600' },
-  map: { position: 'relative', width: '100%', aspectRatio: 1.45, backgroundColor: '#11110f', borderWidth: 1, borderColor: '#34322e', borderRadius: 8 },
-  mapSpot: { position: 'absolute', minWidth: 38, maxWidth: 74, paddingHorizontal: 5, paddingVertical: 5, backgroundColor: '#eee9e0', borderRadius: 4, transform: [{ translateX: -19 }, { translateY: -13 }] },
-  mapSpotOccupied: { backgroundColor: '#d6a0aa' },
-  mapSpotDisabled: { opacity: 0.38 },
-  mapSpotText: { color: '#11110f', fontSize: 10, fontWeight: '700', textAlign: 'center' },
-  receipt: { gap: 12, padding: 16, backgroundColor: '#11110f', borderWidth: 1, borderColor: '#34322e', borderRadius: 8 },
-  saved: { color: '#b8c8ad', fontSize: 14, fontWeight: '700' },
-  button: { minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, backgroundColor: '#eee9e0', borderRadius: 7 },
-  compactButton: { minHeight: 46 },
-  buttonText: { color: '#11110f', fontSize: 14, fontWeight: '600' },
-  secondaryButton: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#46433e' },
-  secondaryButtonText: { color: '#ddd9d1' },
-  disabled: { opacity: 0.45 },
-  error: { color: '#e3a4a4', fontSize: 13, lineHeight: 19 },
+  input: {
+    flex: 1,
+    height: 50,
+    paddingHorizontal: 14,
+    color: palette.text,
+    fontSize: 16,
+    backgroundColor: palette.tile,
+  },
+  reasonInput: { height: 90, paddingTop: 13, textAlignVertical: 'top' },
+  openButton: {
+    height: 50,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.hall,
+  },
+  openButtonText: { color: palette.onHall, fontSize: 16, fontWeight: '600' },
+  disabled: { opacity: 0.4 },
+
+  /* Spots are tap targets before they are a diagram: big enough to hit while
+     standing, and colour-coded so a full zone reads at a glance. */
+  map: { position: 'relative', width: '100%', aspectRatio: 1.45, backgroundColor: palette.tile },
+  mapSpot: {
+    position: 'absolute',
+    minWidth: 44,
+    maxWidth: 78,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+    backgroundColor: palette.hall,
+    transform: [{ translateX: -22 }, { translateY: -16 }],
+  },
+  mapSpotOccupied: { backgroundColor: palette.strong },
+  mapSpotDisabled: { opacity: 0.35 },
+  mapSpotText: { color: palette.onHall, fontSize: 11, fontWeight: '700', textAlign: 'center' },
+  mapSpotTextOccupied: { color: palette.text },
 })

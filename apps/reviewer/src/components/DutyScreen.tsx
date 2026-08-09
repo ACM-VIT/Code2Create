@@ -31,7 +31,8 @@ export function DutyScreen({
         options={{
           headerShown: true,
           title,
-          headerBackTitle: 'Duties',
+          // Chevron only. The previous screen's title beside it is noise.
+          headerBackButtonDisplayMode: 'minimal',
           ...(back
             ? {
                 headerLargeTitle: true,
@@ -65,5 +66,5 @@ export function DutyScreen({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: palette.background },
   scroll: { flex: 1 },
-  content: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 44, gap: 16 },
+  content: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 120, gap: 16 },
 })

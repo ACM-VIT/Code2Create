@@ -8,6 +8,7 @@ export default function AccountLayout() {
     <Stack
       screenOptions={{
         headerLargeTitle: true,
+        headerBackButtonDisplayMode: 'minimal',
         headerTransparent: true,
         headerBlurEffect: 'systemChromeMaterialDark',
         headerStyle: { backgroundColor: 'transparent' },

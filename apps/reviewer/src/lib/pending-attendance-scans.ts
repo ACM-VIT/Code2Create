@@ -16,7 +16,7 @@ const pendingCredentialSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('badge_qr'), bearer: z.string().regex(bearerPattern) }).strict(),
   z.object({ kind: z.literal('portal_qr'), bearer: z.string().regex(bearerPattern) }).strict(),
 ])
-const rovingTransitionSchema = z.enum([
+const scanTransitionSchema = z.enum([
   'venue_entry',
   'venue_exit',
   'session_confirm',
@@ -31,7 +31,7 @@ const pendingAttendanceScanSchema = z
     stationStableKey: z.string().regex(/^[a-z0-9]+(?:_[a-z0-9]+)*$/u),
     expectedConfigurationVersion: z.number().int().positive(),
     credential: pendingCredentialSchema,
-    rovingTransition: rovingTransitionSchema.optional(),
+    transition: scanTransitionSchema,
     clientOperationId: z.uuid(),
     deviceSequence: z.number().int().positive(),
     capturedAt: z.number().int().positive(),
@@ -41,6 +41,7 @@ const pendingAttendanceScanSchema = z
 const countRowSchema = z.object({ count: z.number().int().nonnegative() })
 const payloadRowSchema = z.object({ payload: z.string() })
 
+export type ScanTransition = z.infer<typeof scanTransitionSchema>
 export type PendingAttendanceScan = z.infer<typeof pendingAttendanceScanSchema>
 export type PendingAttendanceScanInput = Omit<PendingAttendanceScan, 'version' | 'expiresAt'>
 export type PendingAttendanceSummary = {
