@@ -1,4 +1,14 @@
 import { api } from '@code2create/backend/api'
+import {
+  reviewEvaluationStateLabels,
+  reviewRoundStatusLabels,
+  reviewSessionStatusLabels,
+  roundExportStateLabels,
+  scorecardCorrectionCategoryLabels,
+  scorecardCorrectionKindLabels,
+  scorecardCorrectionStateLabels,
+  scorecardStatusLabels,
+} from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { useRef, useState } from 'react'
@@ -6,6 +16,7 @@ import { Link, useParams } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { LoadingLabel, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { RoundExportControl } from '../components/RoundExportControl'
 
 type Completeness = FunctionReturnType<typeof api.scoreGovernance.completeness>
@@ -32,21 +43,62 @@ export function ScoreRound() {
 
   if (!roundId) return <p className="notice error">Round ID is missing.</p>
   if (rounds === undefined || (visibleRound && completeness === undefined)) {
-    return <p className="muted">Loading results…</p>
+    return (
+      <section className="review-shell">
+        <LoadingLabel>Loading this round’s results</LoadingLabel>
+        <SkeletonStats columns={4} />
+        <SkeletonList rows={5} />
+      </section>
+    )
   }
   if (!visibleRound) {
     return <p className="notice error">This results round is not visible to this account.</p>
   }
-  if (!completeness) return <p className="muted">Loading results…</p>
+  if (!completeness) {
+    return (
+      <section className="review-shell">
+        <LoadingLabel>Loading this round’s results</LoadingLabel>
+        <SkeletonStats columns={4} />
+        <SkeletonList rows={5} />
+      </section>
+    )
+  }
+
+  const openCorrections = completeness.reviews.reduce(
+    (total, review) => total + review.cases.filter(
+      (entry) => entry.state === 'requested' || entry.state === 'open',
+    ).length,
+    0,
+  )
+  // Teams whose result cannot be counted yet come first; settled ones sink. A
+  // round is read to find what is still missing, not to admire what is done.
+  const ordered = [...completeness.reviews].sort(
+    (left, right) => reviewRank(left) - reviewRank(right) || left.teamName.localeCompare(right.teamName),
+  )
+  const blocked = ordered.filter((review) => reviewRank(review) === 0)
+  // unresolvedTeamCount counts every team in the round without a countable
+  // result, including teams no panel ever sat down with. Those never appear in
+  // `reviews`, so the difference is the number nobody has judged at all.
+  const unjudged = Math.max(0, completeness.unresolvedTeamCount - blocked.length)
 
   return (
     <section className="review-shell">
       <Link className="back-link" to="/scores">← Results</Link>
       <header className="page-heading">
         <div>
-          <p className="eyebrow">{stateName(completeness.round.status)}</p>
+          <p className="eyebrow">{reviewRoundStatusLabels[completeness.round.status]}</p>
           <h1>{completeness.round.name}</h1>
-          <p className="muted">Submitted scores are never overwritten. A correction keeps the original record.</p>
+          <p className="muted">
+            {completeness.unresolvedTeamCount === 0
+              ? 'Every team in this round has a countable result. Submitted scores are never overwritten; a correction keeps the original.'
+              : `${completeness.unresolvedTeamCount} ${completeness.unresolvedTeamCount === 1 ? 'team has' : 'teams have'} no countable result, so this round cannot close.` +
+                (blocked.length > 0
+                  ? ` ${blocked.length} ${blocked.length === 1 ? 'is' : 'are'} short of scores and listed first below.`
+                  : '') +
+                (unjudged > 0
+                  ? ` ${unjudged} ${unjudged === 1 ? 'has' : 'have'} no review session at all — no panel has sat down with ${unjudged === 1 ? 'it' : 'them'}.`
+                  : '')}
+          </p>
         </div>
         {completeness.canReadValues ? (
           <button className="secondary" type="button" onClick={() => setShowValues((current) => !current)}>
@@ -56,28 +108,27 @@ export function ScoreRound() {
       </header>
 
       <dl className="score-summary-grid governance-summary">
-        <Summary label="Reviews" value={completeness.reviews.length} />
-        <Summary label="Unresolved teams" value={completeness.unresolvedTeamCount} />
-        <Summary label="Pending paper reviews" value={completeness.pendingManualReviewCount} />
-        <Summary
-          label="Open corrections"
-          value={completeness.reviews.reduce(
-            (total, review) => total + review.cases.filter((entry) => entry.state === 'requested' || entry.state === 'open').length,
-            0,
-          )}
-        />
+        <Summary label="Teams with a session" value={completeness.reviews.length} />
+        <Summary label="Teams with no result" value={completeness.unresolvedTeamCount} />
+        <Summary label="Paper sheets to enter" value={completeness.pendingManualReviewCount} />
+        <Summary label="Corrections to decide" value={openCorrections} />
         <Summary
           label="Round export"
-          value={completeness.exportState ? stateName(completeness.exportState) : 'Not started'}
+          value={completeness.exportState ? roundExportStateLabels[completeness.exportState] : 'Not started'}
         />
       </dl>
 
       {showValues ? (
-        values === undefined ? <p className="muted">Opening numeric values…</p> : <NumericValues values={values} />
+        values === undefined ? (
+          <>
+            <LoadingLabel>Opening the numeric values</LoadingLabel>
+            <SkeletonList rows={4} />
+          </>
+        ) : <NumericValues values={values} />
       ) : null}
 
       <div className="score-review-list">
-        {completeness.reviews.map((review) => (
+        {ordered.map((review) => (
           <ReviewCompleteness
             criteria={completeness.criteria}
             key={review.id}
@@ -88,7 +139,10 @@ export function ScoreRound() {
       </div>
 
       {completeness.reviews.length === 0 ? (
-        <p className="empty">No review session has been created for this round.</p>
+        <p className="empty">
+          No panel has been given a team to judge in this round, so there is nothing to score yet.
+          Set the round up under Review rounds before it opens.
+        </p>
       ) : null}
 
       <RoundExportControl roundId={completeness.round.id} />
@@ -109,8 +163,17 @@ function ReviewCompleteness({
 }: {
   review: Review
   criteria: Completeness['criteria']
-  roundStatus: string
+  roundStatus: Completeness['round']['status']
 }) {
+  const short = review.coverage.filter(
+    (coverage) => coverage.submittedCount < coverage.requiredCount,
+  )
+  const disagreeing = review.coverage.filter((coverage) => coverage.spreadFlag)
+  // Reviewers who have not submitted come first: they are the reason the
+  // result is missing, and the finished cards are only here as evidence.
+  const scorecards = [...review.scorecards].sort(
+    (left, right) => Number(left.status !== 'draft') - Number(right.status !== 'draft'),
+  )
   return (
     <article className="score-review-row">
       <div className="review-team-heading">
@@ -119,33 +182,40 @@ function ReviewCompleteness({
           <span>{review.panelName} · {review.tableLabel}</span>
         </div>
         <div className="review-team-state">
-          <strong>{stateName(review.status)}</strong>
+          <strong>{reviewSessionStatusLabels[review.status]}</strong>
           <span>
-            {review.evaluationState ? `result ${stateName(review.evaluationState)}` : 'no result'}
-            {review.manualReviewRecordId ? ' · paper import' : ''}
+            {review.evaluationState
+              ? reviewEvaluationStateLabels[review.evaluationState]
+              : 'No result yet'}
+            {review.manualReviewRecordId ? ' · entered from paper' : ''}
           </span>
         </div>
       </div>
 
+      <p className="review-team-shortfall">
+        {short.length === 0
+          ? disagreeing.length > 0
+            ? `Fully scored, but the reviewers are far apart on ${listNames(disagreeing.map((coverage) => criterionLabel(criteria, coverage.criterionId)))}. Check before the round closes.`
+            : 'Every criterion has the scores it needs.'
+          : `${listNames(short.map((coverage) => criterionLabel(criteria, coverage.criterionId)))} ${short.length === 1 ? 'is' : 'are'} short of the ${short[0]?.requiredCount ?? 0} scores needed. This team gets no result until they are in.`}
+      </p>
+
       <div className="coverage-strip">
-        {review.coverage.map((coverage) => {
-          const criterion = criteria.find((candidate) => candidate.id === coverage.criterionId)
-          return (
-            <span className={coverage.submittedCount < coverage.requiredCount ? 'needs-attention' : ''} key={coverage.criterionId}>
-              {criterion?.label ?? 'Criterion'} · {coverage.submittedCount}/{coverage.requiredCount}
-              {coverage.spreadFlag ? ' · spread' : ''}
-            </span>
-          )
-        })}
+        {review.coverage.map((coverage) => (
+          <span className={coverage.submittedCount < coverage.requiredCount ? 'needs-attention' : ''} key={coverage.criterionId}>
+            {criterionLabel(criteria, coverage.criterionId)} · {coverage.submittedCount} of {coverage.requiredCount}
+            {coverage.spreadFlag ? ' · far apart' : ''}
+          </span>
+        ))}
       </div>
 
       <div className="scorecard-list">
-        {review.scorecards.map((scorecard) => (
+        {scorecards.map((scorecard) => (
           <div className="scorecard-row" key={scorecard.id}>
             <div>
               <strong>{scorecard.reviewerName}</strong>
               <span>
-                {stateName(scorecard.status)}
+                {scorecardStatusLabels[scorecard.status]}
                 {scorecard.submittedAt ? ` · ${formatTime(scorecard.submittedAt)}` : ''}
               </span>
             </div>
@@ -163,12 +233,18 @@ function ReviewCompleteness({
 
       {review.cases.length > 0 ? (
         <details className="case-history">
-          <summary>{review.cases.length} correction or void record{review.cases.length === 1 ? '' : 's'}</summary>
+          <summary>
+            {review.cases.length === 1
+              ? 'One scorecard was corrected or voided'
+              : `${review.cases.length} scorecards were corrected or voided`}
+          </summary>
           <ul>
             {review.cases.map((entry) => (
               <li key={entry.id}>
-                <strong>{stateName(entry.kind)} · {stateName(entry.state)}</strong>
-                <span>{stateName(entry.category)} · {entry.reason}</span>
+                <strong>
+                  {scorecardCorrectionKindLabels[entry.kind]} · {scorecardCorrectionStateLabels[entry.state]}
+                </strong>
+                <span>{scorecardCorrectionCategoryLabels[entry.category]} · {entry.reason}</span>
               </li>
             ))}
           </ul>
@@ -484,7 +560,13 @@ function NumericValues({ values }: { values: Values }) {
         <details key={review.reviewSessionId}>
           <summary>
             <span>{review.teamName}</span>
-            <strong>{review.evaluation?.state === 'complete' ? formatScore(review.evaluation.totalPoints) : stateName(review.evaluation?.state ?? 'incomplete')}</strong>
+            <strong>
+              {review.evaluation?.state === 'complete'
+                ? formatScore(review.evaluation.totalPoints)
+                : review.evaluation
+                  ? reviewEvaluationStateLabels[review.evaluation.state]
+                  : 'No result'}
+            </strong>
           </summary>
           {review.evaluation?.state === 'complete' ? (
             <dl className="numeric-criteria">
@@ -492,7 +574,7 @@ function NumericValues({ values }: { values: Values }) {
                 const criterion = values.criteria.find((candidate) => candidate.id === result.criterionId)
                 return (
                   <div key={result.criterionId}>
-                    <dt>{criterion?.label ?? 'Criterion'}{result.spreadFlag ? ' · spread' : ''}</dt>
+                    <dt>{criterion?.label ?? 'Criterion'}{result.spreadFlag ? ' · reviewers far apart' : ''}</dt>
                     <dd>{formatScore(result.meanScore)} average · {formatScore(result.weightedPoints)} weighted</dd>
                   </div>
                 )
@@ -504,7 +586,7 @@ function NumericValues({ values }: { values: Values }) {
               <div key={`${review.reviewSessionId}-${scorecard.reviewerName}-${scorecard.version}`}>
                 <strong>
                   {scorecard.reviewerName} · submission {scorecard.version}
-                  {scorecard.manualReviewRecordId ? ' · paper import' : ''}
+                  {scorecard.manualReviewRecordId ? ' · entered from paper' : ''}
                 </strong>
                 {scorecard.ratings.map((rating) => {
                   const criterion = values.criteria.find((candidate) => candidate.id === rating.criterionId)
@@ -547,8 +629,23 @@ function Summary({ label, value }: { label: string; value: number | string }) {
   return <div><dt>{label}</dt><dd>{value}</dd></div>
 }
 
-function stateName(value: string) {
-  return value.replaceAll('_', ' ')
+/**
+ * Teams with no countable result sort first, then teams whose result is
+ * disputed, then everything settled.
+ */
+function reviewRank(review: Review) {
+  if (review.evaluationState !== 'complete') return 0
+  if (review.cases.some((entry) => entry.state === 'requested' || entry.state === 'open')) return 1
+  return 2
+}
+
+function criterionLabel(criteria: Completeness['criteria'], criterionId: string) {
+  return criteria.find((candidate) => candidate.id === criterionId)?.label ?? 'A criterion'
+}
+
+function listNames(values: string[]) {
+  if (values.length <= 1) return values[0] ?? 'Nothing'
+  return `${values.slice(0, -1).join(', ')} and ${values[values.length - 1]}`
 }
 
 function formatTime(value: number) {

@@ -1517,11 +1517,13 @@ export const roundStatus = query({
           }),
         ),
         canStartPage: v.boolean(),
+        canSwapMembers: v.boolean(),
       }),
     ),
     reserves: v.array(
       v.object({
         reserveId: v.id("reviewRoundReserves"),
+        personId: v.id("people"),
         displayName: v.string(),
         status: v.string(),
         clockInStatus: v.string(),
@@ -1708,12 +1710,21 @@ export const roundStatus = query({
           };
         }
         const pendingSession = sessions.find((session) => session.status === "awaiting_presence");
-        const permission = await substituteScope(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          panelId: panel._id,
-          ...(pendingSession ? { reviewSessionId: pendingSession._id } : {}),
-        });
+        const [permission, assignGrantIds] = await Promise.all([
+          substituteScope(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            panelId: panel._id,
+            ...(pendingSession ? { reviewSessionId: pendingSession._id } : {}),
+          }),
+          matchingPermissionGrantIds(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            permissionKey: "review.substitute.assign",
+            scopeType: "panel",
+            scopeId: panel._id,
+          }),
+        ]);
         return {
           panelId: panel._id,
           panelVersion: panel.version,
@@ -1725,6 +1736,14 @@ export const roundStatus = query({
             panel.status === "needs_reviewer" &&
             vacancy !== null &&
             activeChain === undefined,
+          canSwapMembers:
+            assignGrantIds.length > 0 &&
+            ["ready", "needs_reviewer", "paused"].includes(panel.status) &&
+            ["published", "open"].includes(round.status) &&
+            activeChain === undefined &&
+            !sessions.some((session) =>
+              liveReviewStatuses.some((status) => status === session.status),
+            ),
         };
       }),
     );
@@ -1746,6 +1765,7 @@ export const roundStatus = query({
           if (!reviewer) throw new Error("A reserve reviewer no longer resolves to a person.");
           return {
             reserveId: reserve._id,
+            personId: reviewer._id,
             displayName: reviewer.displayName,
             status: reserve.status,
             clockInStatus: clockIn?.status ?? "not_clocked_in",

@@ -15,7 +15,7 @@
     "dev:once": "pnpm generate:handbook && convex dev --once",
     "recovery:backup": "node scripts/recovery/backup.ts",
     "recovery:rehearse": "node scripts/recovery/rehearse.ts",
-    "test": "pnpm test:recovery && pnpm test:release-environment && pnpm test:release-providers && pnpm test:release-fixtures && pnpm test:providers && pnpm test:identity && pnpm test:permissions && pnpm test:permission-writes && pnpm test:permission-lifecycle && pnpm test:bootstrap && pnpm test:event-lifecycle && pnpm test:intake-configuration && pnpm test:participant-policy && pnpm test:admission-configuration && pnpm test:admission-information && pnpm test:novelty && pnpm test:communications && pnpm test:attendance-stations && pnpm test:attendance-sessions && pnpm test:attendance-credentials && pnpm test:attendance-replay && pnpm test:admission-routing && pnpm test:offers && pnpm test:intelligence && pnpm test:push && pnpm test:github-repositories && pnpm test:figma-evidence && pnpm test:figma-comparison && pnpm test:queue-estimate && pnpm test:emergency-pack && pnpm test:operations-health && pnpm test:support && pnpm test:rehearsal && pnpm test:operations-attention && pnpm test:demo-seed",
+    "test": "pnpm test:recovery && pnpm test:release-environment && pnpm test:release-providers && pnpm test:release-fixtures && pnpm test:providers && pnpm test:identity && pnpm test:permissions && pnpm test:permission-writes && pnpm test:permission-lifecycle && pnpm test:bootstrap && pnpm test:event-lifecycle && pnpm test:intake-configuration && pnpm test:participant-policy && pnpm test:admission-configuration && pnpm test:admission-information && pnpm test:novelty && pnpm test:communications && pnpm test:attendance-stations && pnpm test:attendance-sessions && pnpm test:attendance-credentials && pnpm test:attendance-replay && pnpm test:admission-routing && pnpm test:offers && pnpm test:intelligence && pnpm test:push && pnpm test:github-repositories && pnpm test:figma-evidence && pnpm test:figma-comparison && pnpm test:queue-estimate && pnpm test:emergency-pack && pnpm test:operations-health && pnpm test:support && pnpm test:rehearsal && pnpm test:operations-attention && pnpm test:panel-membership && pnpm test:demo-seed",
     "test:recovery": "node --test scripts/recovery/recovery.test.ts",
     "test:release-environment": "node --test scripts/release/webEnvironment.test.ts",
     "test:release-providers": "node --test scripts/release/providerEnvironment.test.ts",
@@ -52,6 +52,7 @@
     "test:support": "node --test convex/lib/supportCases.test.ts",
     "test:rehearsal": "node --test convex/lib/rehearsal.test.ts",
     "test:operations-attention": "node --test convex/lib/operationsAttention.test.ts",
+    "test:panel-membership": "vitest run convex/reviewPanelMembership.test.ts",
     "test:demo-seed": "vitest run convex/localDemoSeed.test.ts",
     "typecheck": "tsc --noEmit"
   },

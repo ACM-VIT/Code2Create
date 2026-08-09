@@ -13,7 +13,16 @@ import {
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
-import { reviewRoundStatus } from "./values";
+import {
+  reviewEvaluationState,
+  reviewRoundStatus,
+  reviewSessionStatus,
+  roundExportState,
+  scorecardCorrectionCategory,
+  scorecardCorrectionKind,
+  scorecardCorrectionState,
+  scorecardStatus,
+} from "./values";
 
 type ReadCtx = QueryCtx | MutationCtx;
 type ScorecardAdministrationPermission =
@@ -288,9 +297,9 @@ export const rounds = query({
 
 const completenessCase = v.object({
   id: v.id("scorecardCorrectionCases"),
-  kind: v.string(),
-  category: v.string(),
-  state: v.string(),
+  kind: scorecardCorrectionKind,
+  category: scorecardCorrectionCategory,
+  state: scorecardCorrectionState,
   reason: v.string(),
   requestedAt: v.number(),
   version: v.number(),
@@ -302,7 +311,7 @@ export const completeness = query({
     round: v.object({
       id: v.id("reviewRounds"),
       name: v.string(),
-      status: v.string(),
+      status: reviewRoundStatus,
       version: v.number(),
       minimumScorersPerCriterion: v.number(),
     }),
@@ -316,8 +325,8 @@ export const completeness = query({
         teamName: v.string(),
         panelName: v.string(),
         tableLabel: v.string(),
-        status: v.string(),
-        evaluationState: v.optional(v.string()),
+        status: reviewSessionStatus,
+        evaluationState: v.optional(reviewEvaluationState),
         evaluationVersion: v.optional(v.number()),
         manualReviewRecordId: v.optional(v.id("manualReviewRecords")),
         coverage: v.array(
@@ -332,7 +341,7 @@ export const completeness = query({
           v.object({
             id: v.id("scorecards"),
             reviewerName: v.string(),
-            status: v.string(),
+            status: scorecardStatus,
             version: v.number(),
             submittedAt: v.optional(v.number()),
             currentCase: v.optional(completenessCase),
@@ -348,7 +357,7 @@ export const completeness = query({
     canReadValues: v.boolean(),
     canStartClose: v.boolean(),
     canRelease: v.boolean(),
-    exportState: v.optional(v.string()),
+    exportState: v.optional(roundExportState),
     exportRevision: v.optional(v.number()),
     releasedAt: v.optional(v.number()),
   }),

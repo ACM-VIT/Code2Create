@@ -325,3 +325,228 @@ export const eventRoleLabels: Record<EventRole, string> = {
   jc: "Junior Core",
   external_judge: "External judge",
 };
+
+/**
+ * Music desk vocabulary.
+ *
+ * The desk used to print the stored key with its underscores swapped for
+ * spaces, so a window read "published" and a song read "queued" — words that
+ * describe rows in a table rather than what the operator is looking at.
+ */
+export type SynesthesiaWindowStatus = "draft" | "published" | "closed";
+
+export const synesthesiaWindowStatusLabels: Record<SynesthesiaWindowStatus, string> = {
+  draft: "Draft, participants cannot see it",
+  published: "Open to participants",
+  closed: "Closed",
+};
+
+export type SynesthesiaWindowKind =
+  | "arrival"
+  | "working_session"
+  | "late_night"
+  | "morning_reset"
+  | "judging"
+  | "closing"
+  | "custom";
+
+export const synesthesiaWindowKindLabels: Record<SynesthesiaWindowKind, string> = {
+  arrival: "Arrival",
+  working_session: "Working session",
+  late_night: "Late night",
+  morning_reset: "Morning reset",
+  judging: "Judging",
+  closing: "Closing",
+  custom: "Custom",
+};
+
+export type SynesthesiaCatalogTrackStatus = "active" | "disabled";
+
+export const synesthesiaCatalogTrackStatusLabels: Record<
+  SynesthesiaCatalogTrackStatus,
+  string
+> = {
+  active: "Participants can request it",
+  disabled: "Withdrawn, nobody can request it",
+};
+
+export type SongRequestState =
+  | "pending"
+  | "approved"
+  | "queued"
+  | "playing"
+  | "played"
+  | "skipped"
+  | "rejected"
+  | "hidden";
+
+export const songRequestStateLabels: Record<SongRequestState, string> = {
+  pending: "Waiting for your decision",
+  approved: "Approved, not in the queue yet",
+  queued: "In the queue",
+  playing: "Playing now",
+  played: "Played",
+  skipped: "Skipped",
+  rejected: "Declined",
+  hidden: "Hidden from participants",
+};
+
+/**
+ * Test-run vocabulary.
+ *
+ * A rehearsal run and its checks were shown as `draft`/`active` and
+ * `pending`/`blocked`, which says nothing about whether a person is meant to
+ * do something about them.
+ */
+export type RehearsalRunState = "draft" | "active" | "completed" | "cancelled";
+
+export const rehearsalRunStateLabels: Record<RehearsalRunState, string> = {
+  draft: "Being set up",
+  active: "Under way",
+  completed: "Signed off",
+  cancelled: "Cancelled",
+};
+
+export type RehearsalScenarioState =
+  | "pending"
+  | "running"
+  | "passed"
+  | "failed"
+  | "blocked";
+
+export const rehearsalScenarioStateLabels: Record<RehearsalScenarioState, string> = {
+  pending: "Not tried yet",
+  running: "Being tried now",
+  passed: "Worked",
+  failed: "Did not work",
+  blocked: "Could not be tried",
+};
+
+export type RehearsalWorkstream =
+  | "auth_access"
+  | "intake_admissions"
+  | "communications"
+  | "attendance"
+  | "floor"
+  | "reviewer_app"
+  | "review_operations"
+  | "integrations"
+  | "reliability"
+  | "synesthesia"
+  | "support";
+
+/** The part of the event a rehearsal check belongs to, named as staff say it. */
+export const rehearsalWorkstreamLabels: Record<RehearsalWorkstream, string> = {
+  auth_access: "Sign-in and access",
+  intake_admissions: "Intake and admissions",
+  communications: "Communications",
+  attendance: "Attendance",
+  floor: "Hall operations",
+  reviewer_app: "Reviewer app",
+  review_operations: "Review operations",
+  integrations: "GitHub and Figma",
+  reliability: "Reliability",
+  synesthesia: "Music desk",
+  support: "Support",
+};
+
+/**
+ * Paper-backup vocabulary.
+ *
+ * `expired` is not stored: the backup list derives it from the four-hour
+ * lifetime, and an operator needs to be told the pack is no longer usable
+ * rather than shown the word.
+ */
+export type EmergencyPackStatus = "pending" | "ready" | "failed" | "expired";
+
+export const emergencyPackStatusLabels: Record<EmergencyPackStatus, string> = {
+  pending: "Being prepared",
+  ready: "Ready to print",
+  failed: "Could not be prepared",
+  expired: "Too old to use",
+};
+
+/**
+ * Hall vocabulary.
+ *
+ * `setup`, `open` and `frozen` decide whether floor staff can pin a team to a
+ * spot at all, so each label says what is possible rather than naming a state.
+ */
+export type FloorMappingState = "setup" | "open" | "frozen";
+
+export const floorMappingStateLabels: Record<FloorMappingState, string> = {
+  setup: "Not open for mapping yet",
+  open: "Open for mapping",
+  frozen: "Locations frozen",
+};
+
+export type FloorSpotStatus = "available" | "closed";
+
+export const floorSpotStatusLabels: Record<FloorSpotStatus, string> = {
+  available: "Usable",
+  closed: "Closed off, do not seat a team here",
+};
+
+/**
+ * Score governance vocabulary.
+ *
+ * The round board printed these by swapping underscores for spaces, so an
+ * operator read "awaiting presence", "correction open" and "judge ineligible"
+ * — the server's words, in the server's grammar, in the middle of a sentence.
+ */
+export type ReviewEvaluationState = "complete" | "void";
+
+export const reviewEvaluationStateLabels: Record<ReviewEvaluationState, string> = {
+  complete: "Result counted",
+  void: "Result voided",
+};
+
+export type RoundExportState =
+  | "generating"
+  | "uploaded"
+  | "verified"
+  | "failed"
+  | "superseded";
+
+export const roundExportStateLabels: Record<RoundExportState, string> = {
+  generating: "Being written",
+  uploaded: "Waiting to be checked",
+  verified: "Checked by a second person",
+  failed: "Could not be written",
+  superseded: "Replaced by a newer export",
+};
+
+export type ScorecardCorrectionKind = "correction" | "void";
+
+export const scorecardCorrectionKindLabels: Record<ScorecardCorrectionKind, string> = {
+  correction: "Correction",
+  void: "Void",
+};
+
+export type ScorecardCorrectionState = "requested" | "open" | "rejected" | "closed";
+
+export const scorecardCorrectionStateLabels: Record<ScorecardCorrectionState, string> = {
+  requested: "Waiting for a decision",
+  open: "Reviewer is redoing it",
+  rejected: "Declined",
+  closed: "Settled",
+};
+
+export type ScorecardCorrectionCategory =
+  | "reviewer_error"
+  | "technical_error"
+  | "wrong_team"
+  | "duplicate_review"
+  | "confirmed_conflict"
+  | "judge_ineligible"
+  | "other";
+
+export const scorecardCorrectionCategoryLabels: Record<ScorecardCorrectionCategory, string> = {
+  reviewer_error: "Reviewer made a mistake",
+  technical_error: "Something in the app went wrong",
+  wrong_team: "Scored the wrong team",
+  duplicate_review: "The same review twice",
+  confirmed_conflict: "Reviewer had a conflict of interest",
+  judge_ineligible: "Reviewer should not have judged this",
+  other: "Something else",
+};

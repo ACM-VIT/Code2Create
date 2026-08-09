@@ -247,6 +247,35 @@ export const teamStatus = v.union(
   v.literal("disqualified"),
 );
 
+export const reviewEvaluationState = v.union(v.literal("complete"), v.literal("void"));
+
+export const roundExportState = v.union(
+  v.literal("generating"),
+  v.literal("uploaded"),
+  v.literal("verified"),
+  v.literal("failed"),
+  v.literal("superseded"),
+);
+
+export const scorecardCorrectionKind = v.union(v.literal("correction"), v.literal("void"));
+
+export const scorecardCorrectionCategory = v.union(
+  v.literal("reviewer_error"),
+  v.literal("technical_error"),
+  v.literal("wrong_team"),
+  v.literal("duplicate_review"),
+  v.literal("confirmed_conflict"),
+  v.literal("judge_ineligible"),
+  v.literal("other"),
+);
+
+export const scorecardCorrectionState = v.union(
+  v.literal("requested"),
+  v.literal("open"),
+  v.literal("rejected"),
+  v.literal("closed"),
+);
+
 export const applicationState = v.union(
   v.literal("submitted"),
   v.literal("under_review"),

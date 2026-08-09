@@ -881,6 +881,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .governance-summary { margin-top: 30px; }
 .score-review-list { display: grid; margin-top: 32px; border-top: 1px solid var(--border); }
 .score-review-row { display: grid; gap: 17px; padding: 24px 2px; border-bottom: 1px solid var(--border); }
+/* The sentence the coverage chips add up to, stated before the chips. */
+.review-team-shortfall { max-width: 720px; margin: 10px 0 12px; color: var(--muted); font-size: .78rem; }
 .coverage-strip { display: flex; flex-wrap: wrap; gap: 7px; }
 .coverage-strip span { padding: 5px 7px; color: var(--muted); font-size: .7rem; background: var(--surface); border: 0; border-radius: var(--radius-card); }
 .coverage-strip .needs-attention { color: var(--danger); border-color: var(--border-strong); }

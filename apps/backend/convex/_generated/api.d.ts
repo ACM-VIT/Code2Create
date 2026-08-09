@@ -160,6 +160,7 @@ import type * as reviewEvidence from "../reviewEvidence.js";
 import type * as reviewEvidenceActions from "../reviewEvidenceActions.js";
 import type * as reviewExceptions from "../reviewExceptions.js";
 import type * as reviewOperations from "../reviewOperations.js";
+import type * as reviewPanelMembership from "../reviewPanelMembership.js";
 import type * as reviewPush from "../reviewPush.js";
 import type * as reviewPushState from "../reviewPushState.js";
 import type * as reviewRoundPauses from "../reviewRoundPauses.js";
@@ -337,6 +338,7 @@ declare const fullApi: ApiFromModules<{
   reviewEvidenceActions: typeof reviewEvidenceActions;
   reviewExceptions: typeof reviewExceptions;
   reviewOperations: typeof reviewOperations;
+  reviewPanelMembership: typeof reviewPanelMembership;
   reviewPush: typeof reviewPush;
   reviewPushState: typeof reviewPushState;
   reviewRoundPauses: typeof reviewRoundPauses;
