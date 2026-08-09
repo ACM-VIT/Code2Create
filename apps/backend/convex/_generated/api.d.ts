@@ -100,6 +100,7 @@ import type * as lib_novelty from "../lib/novelty.js";
 import type * as lib_operations from "../lib/operations.js";
 import type * as lib_operationsAttention from "../lib/operationsAttention.js";
 import type * as lib_operationsAttentionDetectors from "../lib/operationsAttentionDetectors.js";
+import type * as lib_operationsAttentionProposals from "../lib/operationsAttentionProposals.js";
 import type * as lib_operationsHealth from "../lib/operationsHealth.js";
 import type * as lib_operationsIntelligencePolicy from "../lib/operationsIntelligencePolicy.js";
 import type * as lib_operationsIntelligenceValidators from "../lib/operationsIntelligenceValidators.js";
@@ -280,6 +281,7 @@ declare const fullApi: ApiFromModules<{
   "lib/operations": typeof lib_operations;
   "lib/operationsAttention": typeof lib_operationsAttention;
   "lib/operationsAttentionDetectors": typeof lib_operationsAttentionDetectors;
+  "lib/operationsAttentionProposals": typeof lib_operationsAttentionProposals;
   "lib/operationsHealth": typeof lib_operationsHealth;
   "lib/operationsIntelligencePolicy": typeof lib_operationsIntelligencePolicy;
   "lib/operationsIntelligenceValidators": typeof lib_operationsIntelligenceValidators;

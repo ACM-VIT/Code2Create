@@ -13,13 +13,15 @@
  */
 
 import {
-  attentionProposalLifetimeMs,
   countPhrase,
   durationPhrase,
   joinNames,
-  type AttentionProposal,
   type DetectedAttentionItem,
 } from "./operationsAttention.ts";
+import {
+  proposeCommand,
+  type AttentionProposal,
+} from "./operationsAttentionProposals.ts";
 import { observedPace } from "./queueEstimate.ts";
 import type { AttentionSeverity } from "../values.ts";
 
@@ -153,7 +155,6 @@ export type TeamProjection = {
 };
 
 export type ReviewFloorProjection = Clock & {
-  eventSlug: string;
   roundId: string;
   roundName: string;
   roundEndsAt: number;
@@ -199,7 +200,6 @@ export function reviewFloorItems(input: ReviewFloorProjection): DetectedAttentio
     scopeType: "round" as const,
     scopeId: input.roundId,
   };
-  const proposalExpiresAt = input.now + attentionProposalLifetimeMs;
   const items: DetectedAttentionItem[] = [];
   const teamsByPanelId = new Map<string, number>();
   for (const team of input.teams) {
@@ -225,19 +225,16 @@ export function reviewFloorItems(input: ReviewFloorProjection): DetectedAttentio
         panel.vacantPanelMemberId !== undefined &&
         !panel.hasActivePageChain &&
         !panel.hasRunningReview
-          ? {
-              commandName: "reviewSubstitutions.startPageChain",
-              permissionKey: "review.substitute.page",
-              scopeType: "panel",
-              scopeId: panel.panelId,
-              argsJson: JSON.stringify({
-                eventSlug: input.eventSlug,
+          ? proposeCommand(
+              {
+                name: "reviewSubstitutions.startPageChain",
                 missingPanelMemberId: panel.vacantPanelMemberId,
                 expectedPanelVersion: panel.version,
                 reason: `${panel.name} is short ${countPhrase(shortBy, "reviewer", "reviewers")} with ${countPhrase(queuedCount, "team", "teams")} queued.`,
-              }),
-              expiresAt: proposalExpiresAt,
-            }
+              },
+              { scopeType: "panel", scopeId: panel.panelId },
+              input.now,
+            )
           : undefined;
       items.push({
         detectorKey: "panel_seat_empty",
@@ -271,20 +268,17 @@ export function reviewFloorItems(input: ReviewFloorProjection): DetectedAttentio
         if (!risk) continue;
         const proposal: AttentionProposal | undefined =
           panel.status === "ready" && !panel.hasRunningReview
-            ? {
-                commandName: "reviewSubstitutions.markNoShow",
-                permissionKey: "review.reviewer.no_show",
-                scopeType: "round",
-                scopeId: input.roundId,
-                argsJson: JSON.stringify({
-                  eventSlug: input.eventSlug,
+            ? proposeCommand(
+                {
+                  name: "reviewSubstitutions.markNoShow",
                   panelMemberId: member.panelMemberId,
                   expectedPanelVersion: panel.version,
                   expectedClockInVersion: member.clockInVersion,
                   reason: `${member.displayName} ${risk.reasonFragment}`,
-                }),
-                expiresAt: proposalExpiresAt,
-              }
+                },
+                { scopeType: "round", scopeId: input.roundId },
+                input.now,
+              )
             : undefined;
         items.push({
           detectorKey: "seat_at_risk",
@@ -331,19 +325,16 @@ export function reviewFloorItems(input: ReviewFloorProjection): DetectedAttentio
       const overdueBy =
         review.plannedEndAt === undefined ? 0 : input.now - review.plannedEndAt;
       const proposal: AttentionProposal | undefined = review.canExtend
-        ? {
-            commandName: "reviewOperations.extendReview",
-            permissionKey: "review.timer.extend",
-            scopeType: "review",
-            scopeId: review.reviewSessionId,
-            argsJson: JSON.stringify({
-              eventSlug: input.eventSlug,
+        ? proposeCommand(
+            {
+              name: "reviewOperations.extendReview",
               reviewSessionId: review.reviewSessionId,
               expectedVersion: review.version,
               reason: `${team.teamName} ran past the end of its review window at ${at}.`,
-            }),
-            expiresAt: proposalExpiresAt,
-          }
+            },
+            { scopeType: "review", scopeId: review.reviewSessionId },
+            input.now,
+          )
         : undefined;
       items.push({
         detectorKey: "review_overdue",
@@ -445,19 +436,16 @@ export function reviewFloorItems(input: ReviewFloorProjection): DetectedAttentio
           ...(team.holdReason === undefined ? {} : { holdReason: team.holdReason }),
         }),
         scopes: teamScopes,
-        proposal: {
-          commandName: "reviewExceptions.resumeTeam",
-          permissionKey: "review.queue.resume",
-          scopeType: "team",
-          scopeId: team.teamId,
-          argsJson: JSON.stringify({
-            eventSlug: input.eventSlug,
+        proposal: proposeCommand(
+          {
+            name: "reviewExceptions.resumeTeam",
             teamRoundStateId: team.teamRoundStateId,
             expectedVersion: team.version,
             reason: `${team.teamName} has been on hold for ${durationPhrase(input.now - team.heldAt)}.`,
-          }),
-          expiresAt: proposalExpiresAt,
-        },
+          },
+          { scopeType: "team", scopeId: team.teamId },
+          input.now,
+        ),
       });
     }
 
@@ -482,19 +470,16 @@ export function reviewFloorItems(input: ReviewFloorProjection): DetectedAttentio
           missedEligibleAt: team.missedEligibleAt,
         }),
         scopes: teamScopes,
-        proposal: {
-          commandName: "reviewExceptions.markMissed",
-          permissionKey: "review.queue.miss",
-          scopeType: "team",
-          scopeId: team.teamId,
-          argsJson: JSON.stringify({
-            eventSlug: input.eventSlug,
+        proposal: proposeCommand(
+          {
+            name: "reviewExceptions.markMissed",
             teamRoundStateId: team.teamRoundStateId,
             expectedVersion: team.version,
             reason: `${team.teamName} did not arrive at ${at} within the grace period.`,
-          }),
-          expiresAt: proposalExpiresAt,
-        },
+          },
+          { scopeType: "team", scopeId: team.teamId },
+          input.now,
+        ),
       });
     }
 
@@ -683,20 +668,17 @@ export function roundForecastItems(input: ReviewFloorProjection): DetectedAttent
   )[0];
   const proposal: AttentionProposal | undefined =
     lastQueued !== undefined && earliest.panel.status === "ready"
-      ? {
-          commandName: "reviewExceptions.moveQueuedTeam",
-          permissionKey: "review.queue.move",
-          scopeType: "panel",
-          scopeId: slowest.panel.panelId,
-          argsJson: JSON.stringify({
-            eventSlug: input.eventSlug,
+      ? proposeCommand(
+          {
+            name: "reviewExceptions.moveQueuedTeam",
             teamRoundStateId: lastQueued.teamRoundStateId,
             targetPanelId: earliest.panel.panelId,
             expectedVersion: lastQueued.version,
             reason: `${slowest.panel.name} finishes ${durationPhrase(behindBy)} after the middle of the round; ${earliest.panel.name} finishes first.`,
-          }),
-          expiresAt: input.now + attentionProposalLifetimeMs,
-        }
+          },
+          { scopeType: "panel", scopeId: slowest.panel.panelId },
+          input.now,
+        )
       : undefined;
 
   items.push({

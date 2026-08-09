@@ -415,6 +415,26 @@ const demoTeams = [
   },
 ] as const;
 
+/**
+ * What a called reviewer is told to walk to. No table in this hall is
+ * numbered, so the demo board shows the same kind of sentence the floor
+ * mappers actually produce.
+ */
+const demoHallLocations = [
+  "North-east corner of East wing, near the windows",
+  "South side of East wing, near the side doors",
+  "Middle of Centre, near the help desk",
+  "North-west corner of Centre, near the food counter",
+  "West side of West wing, near the power wall",
+  "South side of West wing, near the main entrance",
+] as const;
+
+function demoHallLocation(teamIndex: number) {
+  const location = demoHallLocations[teamIndex % demoHallLocations.length];
+  if (location === undefined) throw new Error("The demo hall location list is empty.");
+  return location;
+}
+
 const demoQueuePlacements = [
   {
     teamIndex: 2,
@@ -1564,7 +1584,7 @@ export const seedQueueStates = internalMutation({
         teamId: team._id,
         panelId: panel._id,
         state: placement.state,
-        tableLabel: `Table ${placement.teamIndex + 1}`,
+        tableLabel: demoHallLocation(placement.teamIndex),
         queuedAt: now - placement.queuedMinutesAgo * minute,
         ...(calledAt === null ? {} : { calledAt, lastCallAttemptAt: calledAt }),
         callAttemptCount: calledAt === null ? 0 : 1,

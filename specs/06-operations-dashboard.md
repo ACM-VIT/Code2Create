@@ -439,27 +439,28 @@ Overlapping sessions are separate rows and per-participant states. A workshop co
 
 ## 8. Hall map
 
-The hall view is a live projection of the published floor plan. It groups physical team spots by venue zone. A panel has no spot of its own: panels walk to whichever team they are reviewing, so a team's spot is the only place a review happens.
+The hall view is a live projection of the published floor plan. Each venue zone is drawn as one rectangle at the proportions of the real room, with its published landmarks marked and every recorded team position drawn on it at once. A panel has no place of its own: panels walk to whichever team they are reviewing, so where the team is sitting is the only place a review happens.
 
-Each hall spot shows:
+Each zone shows:
 
-- stable label and plan coordinates;
-- accessibility and open/closed state;
+- the rectangle, its size in paced metres, and its landmarks;
+- a dot per team at the position floor staff recorded, with the team name;
+- how many teams are in each of the zone's nine parts, so a crowded corner is visible before anyone walks into it;
 - mapped team, mapper, and last mapped time when authorized;
-- whether the team is queued, called, in review, or held when the caller also has the relevant queue read.
+- whether a team is queued, called, in review, or held when the caller also has the relevant queue read.
 
 Staff can:
 
-- create a bounded draft plan by pasting checked zone/spot CSV rows;
+- create a bounded draft plan by pasting checked zone/landmark CSV rows;
 - publish the plan before mapping begins;
-- see mapped, available, confirmed-team, and unmapped counts update live;
+- see placed, confirmed-team, and unlocated counts and the busiest part of the hall update live;
 - map a team in the event app after scanning the QR on that team's dashboard;
 - freeze only after every currently eligible team is mapped;
 - make a reasoned, separately authorized correction after freeze.
 
 There are no table QR stickers and no participant location-write button. `floor.plan.create`, `.publish`, `.freeze`, `floor.location.read`, `.map`, and `.override` are independent permissions. Plan commands use event or exact-plan scope. Location commands use event or exact `floor_zone` scope; a cross-zone move requires authority over origin and destination.
 
-Panel tables remain under review configuration. Moving a panel does not move the team's hall spot, and correcting a hall spot does not silently reroute or call the team. After floor freeze, an accepted correction updates participant, event-app, routing, and operations projections from the same append-and-supersede transaction.
+Moving a panel does not move the team's recorded hall location, and correcting a hall location does not silently reroute or call the team. After floor freeze, an accepted correction updates participant, event-app, routing, and operations projections from the same append-and-supersede transaction.
 
 ## 9. Reviewer and panel board
 
@@ -770,7 +771,7 @@ The dedicated emergency-pack workspace creates one fixed print document before a
 
 - the accepted participant roster;
 - permitted phone and VIT reference fields;
-- each participant's active team and mapped hall spot;
+- each participant's active team and recorded hall location;
 - the last accepted venue state;
 - the full published station list;
 - every `ready | open | closing` attendance session; and

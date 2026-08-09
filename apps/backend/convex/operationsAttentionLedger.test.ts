@@ -238,9 +238,8 @@ describe("operations attention ledger", () => {
     );
     const row = withCommand.rows.find((entry) => entry.detectorKey === "panel_seat_empty");
     expect(row?.canAct).toBe(true);
-    expect(row?.proposal?.commandName).toBe("reviewSubstitutions.startPageChain");
-    expect(JSON.parse(row?.proposal?.argsJson ?? "{}")).toMatchObject({
-      eventSlug: fixture.eventSlug,
+    expect(row?.proposal?.command).toMatchObject({
+      name: "reviewSubstitutions.startPageChain",
       missingPanelMemberId: fixture.removedPanelMemberId,
       expectedPanelVersion: 2,
     });

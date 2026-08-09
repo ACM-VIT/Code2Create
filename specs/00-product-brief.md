@@ -106,7 +106,7 @@ An operations user can handle a missing reviewer, team hold, table move, scan fa
 - pre-event human application review, a structured year-adjusted AI recommendation, a one-or-two-question locked-lead information loop, shortlist, waitlist, capacity-backed offer, locked-lead confirmation, selected-team next steps, Discord handoff, and participant notifications;
 - one-time venue check-in, configurable hacking-session attendance, existing VIT ID barcode scanning, external/fallback QR, temporary exit/re-entry, review-presence QR, and hall-location QR;
 - reviewer expertise, conflicts, panels, and substitute paging;
-- a published hall plan, staff-scanned team-to-spot mapping, panel-table assignment, staff-controlled routing, and queues;
+- a published hall plan, staff-scanned team-location mapping, staff-controlled routing, and queues;
 - timed reviews and reviewer presence;
 - versioned rubrics, criterion assignments, scorecards, and progress commitments;
 - team-scoped multi-repository GitHub/Figma resources, declared repository kinds, live progress facts, full checkpoint sets, exact-version private frame previews, and reviewer evidence views;

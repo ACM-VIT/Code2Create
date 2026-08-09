@@ -294,7 +294,7 @@ The platform does not use Clerk. It does not have a second application database,
 
 | Surface | Main jobs |
 | --- | --- |
-| Participant portal | Sign-in, profile, live team area, sequential project intake, core-track choice, optional sponsor-track choice, final lock confirmation, admission result, team-lead offer response, next steps, shared phase updates, GitHub and Figma connection, attendance status and QR, team-owned hall-location QR and mapped spot, staff-managed queue status, support cases, review progress, and Synesthesia |
+| Participant portal | Sign-in, profile, live team area, sequential project intake, core-track choice, optional sponsor-track choice, final lock confirmation, admission result, team-lead offer response, next steps, shared phase updates, GitHub and Figma connection, attendance status and QR, team-owned hall-location QR and recorded place in the hall, staff-managed queue status, support cases, review progress, and Synesthesia |
 | Event mobile app | Reviewer workflow, self-service support cases, and separate capability-gated camera modes for attendance, review presence, and hall-location mapping |
 | Operations dashboard | Event lifecycle, event health, bounded briefs, configuration, support, project updates, release rehearsal, exact-person access, permissions, attendance, roll call, emergency packs, hall mapping, Synesthesia, rounds, rosters, panels, queues, substitutes, reviews, score completeness, exceptions, and audit |
 | Canonical handbook mirror | Read-only Markdown navigation at [code2create-specs.theg1239.chatgpt.site](https://code2create-specs.theg1239.chatgpt.site), protected by a simple planning password. Repository Markdown remains authoritative. |
@@ -351,7 +351,7 @@ An open policy must exist in versioned event configuration or remain blocked. Cl
 - Final rubric text, aggregation, ties, and missing-score policy.
 - Conflict-of-interest rules.
 - Missed-call, hold, and queue re-entry rules.
-- Final hall zones and spots, accessible placements, floor-mapping crew, and freeze time before review routing.
+- Final hall zones, zone sizes, published landmarks, floor-mapping crew, and freeze time before review routing.
 - Reviewer and staff rosters.
 - Data retention, provider-evidence retention, artifact access, and participant feedback.
 - Attendance schedule, required or optional rules, grace and duration policy, tracked zones, VIT ID barcode format and enrollment, external badge format, excused absence, and presence-data retention.

@@ -807,31 +807,34 @@ The event points to one published version. A draft is a bounded replacement, not
 
 - `eventId`, `planVersionId`;
 - stable key, name, and display order;
+- `widthMeters`, `depthMeters` — the proportions of the real room, so a phone draws a long thin hall long and thin;
 - created time.
 
 A `floor_zone` is the exact resource boundary for reading, ordinary mapping, and post-freeze override. A cross-zone move checks the caller against both zones.
 
-### `floorSpots`
+### `floorLandmarks`
 
 - `eventId`, `planVersionId`, `zoneId`;
-- stable key and short human label;
-- `x`, `y` percentage coordinates for the minimal map;
-- accessibility flag;
-- `status: available | closed`;
+- stable key and short name;
+- `x`, `y` percentage coordinates in the zone rectangle;
 - display order and created time.
 
-The published plan is immutable. There is no table QR or bearer value on a spot.
+Landmarks are the fixed things in the room: the stage, the windows, the food counter, the main entrance. They are what a mapper aligns the drawn rectangle against and what an operator names when sending a reviewer over. Every zone must publish at least one. Tables are never landmarks; participants move those.
+
+The published plan is immutable. Nothing in it is addressable seating, so there is no spot to print, claim, or attach a QR to.
 
 ### `teamFloorLocations`
 
-- `eventId`, `planVersionId`, `teamId`, `zoneId`, `spotId`;
+- `eventId`, `planVersionId`, `teamId`, `zoneId`;
+- `x`, `y` percentage coordinates in the zone rectangle;
+- `area`, one of nine: `north_west | north | north_east | west | centre | east | south_west | south | south_east`;
 - `state: active | superseded`;
 - `method: team_qr_scan | override`;
 - optional prior/successor location IDs;
 - optimistic version;
 - mapper/time and override reason when required.
 
-One active location exists per team and one active team exists per spot. A move inserts the new record and supersedes the exact old version in one transaction. The location is event-level, not round-level. `teamRoundStates.tableLabel` captures the label of that spot for one round, which is what a called reviewer is told to walk to.
+The point is where the mapper's finger landed; the area is derived from it by the server at write time and is the granularity anybody is asked to believe. One active location exists per team. Nothing is exclusive: two teams sitting beside each other produce two nearby points and no conflict, so no index enforces occupancy and no mapper is ever told a place is taken. Every accepted scan inserts a new record and supersedes the exact old version in one transaction, because a rescan is a fresh sighting rather than an edit. The location is event-level, not round-level. `teamRoundStates.tableLabel` captures that place written out for one round — the area, plus the nearest published landmark within a few paces — which is what a called reviewer is told to walk to.
 
 ### `floorTeamQrTokens`
 
@@ -842,7 +845,7 @@ One active location exists per team and one active team exists per spot. A move 
 - issuing participant membership and time;
 - use time.
 
-Only active team members can mint under exact-team `floor.team_qr.mint`. Minting supersedes the previous active token. The QR is shown on the participant dashboard and scanned by floor staff; nothing is printed on the physical spot.
+Only active team members can mint under exact-team `floor.team_qr.mint`. Minting supersedes the previous active token. The QR is shown on the participant dashboard and scanned by floor staff; nothing is printed and stuck to a table.
 
 ### `floorMappingClaims`
 
@@ -853,7 +856,7 @@ Only active team members can mint under exact-team `floor.team_qr.mint`. Minting
 - `active | completed | expired`, version, three-minute expiry, and timestamps;
 - resulting location ID after completion.
 
-Claiming and assigning are separate mutations. Claiming consumes the token and returns only the team/current location to that mapper. Assignment rechecks claim ownership/expiry, plan state, spot occupancy, exact current-location version, and destination/origin grants before one write. It cannot create attendance, reviewer presence, a queue row, or a panel assignment.
+Claiming and assigning are separate mutations. Claiming consumes the token and returns only the team and its current location to that mapper. Assignment rechecks claim ownership/expiry, plan state, the exact current-location version, and destination/origin grants, then writes one record from the point the mapper touched. It cannot create attendance, reviewer presence, a queue row, or a panel assignment.
 
 ## 6. Attendance and presence
 
@@ -1124,7 +1127,7 @@ There is no exported-row table and no paginated snapshot assembler. Generation r
 - one logical snapshot time and SHA-256 plus participant, represented-team, station, active-session, current-round, panel, attendance-sheet, and review-sheet counts;
 - opaque private-S3 key, exact object-version ID, approved region/bucket, byte count, document SHA-256, and completion time when ready.
 
-The generated roster comes only from participant memberships whose onboarding state is `accepted`; applicants do not become an incident contact export. One internal query reads the accepted profile, active team, current hall spot, last accepted venue state, full published station set, current attendance sessions, and current round/panel/rubric plan. It rejects more than 1,200 accepted participants, 400 represented teams, 100 stations, ten current rounds, or 400 current panels rather than truncating them. The fixed HTML contains prefilled uniquely numbered forms plus requested spares and at least one attendance/review form of each kind.
+The generated roster comes only from participant memberships whose onboarding state is `accepted`; applicants do not become an incident contact export. One internal query reads the accepted profile, active team, current recorded hall location, last accepted venue state, full published station set, current attendance sessions, and current round/panel/rubric plan. It rejects more than 1,200 accepted participants, 400 represented teams, 100 stations, ten current rounds, or 400 current panels rather than truncating them. The fixed HTML contains prefilled uniquely numbered forms plus requested spares and at least one attendance/review form of each kind.
 
 The source snapshot and generated bytes have separate checksums. Generation writes and immediately reads back the exact KMS-encrypted S3 object version before setting `ready`. Pack history never returns the HTML, roster, storage location, serial prefix, or URL. A print action independently rechecks the ready/unexpired record, event-scoped print grant, Google session age, version, and both checksums before returning an audited exact-version signed URL lasting no more than 60 seconds or the remaining pack lifetime. Pack state has no manual-mode flag.
 
@@ -1171,7 +1174,7 @@ The routing query uses only active confirmed conflicts.
 ### `panels`
 
 - `eventId`, `roundId`, `panelPlanId`
-- label, table/zone;
+- label, venue zone;
 - lead reviewer;
 - `status: planned | ready | needs_reviewer | active | paused | retired`;
 - current active session ID;
@@ -2004,11 +2007,11 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `floorPlanVersions.by_event_status` | Resolve one draft or published hall plan without scanning history |
 | `floorPlanVersions.by_event_number` | Allocate and inspect monotonic plan revisions |
 | `floorZones.by_plan_order` | Render zones from one exact plan |
-| `floorSpots.by_plan_order` | Render one exact plan without per-spot reads |
-| `floorSpots.by_zone_order` | Render one mapper-authorized zone |
-| `teamFloorLocations.by_team_state` | Enforce and read one active spot for a team |
-| `teamFloorLocations.by_spot_state` | Enforce one active team at a spot |
-| `teamFloorLocations.by_plan_state` | Render and freeze the active plan projection |
+| `floorLandmarks.by_plan_order` | Draw one exact plan's fixed points without per-landmark reads |
+| `floorLandmarks.by_zone_order` | Name the landmark nearest one recorded position |
+| `teamFloorLocations.by_team_state` | Enforce and read one active location for a team |
+| `teamFloorLocations.by_plan_state` | Render every recorded position at once and freeze the plan projection |
+| `teamFloorLocations.by_zone_state` | Draw and count one zone's teams for the crowding view |
 | `floorTeamQrTokens.by_digest` | Consume one opaque dashboard QR without exposing its bearer |
 | `floorTeamQrTokens.by_manual_digest` | Resolve the camera-failure code through the same claim command |
 | `floorMappingClaims.by_team_state` | Diagnose bounded in-flight mapper claims for one team |
@@ -2599,7 +2602,7 @@ The first updates queue and team-round versions. The second expected-version che
 
 Minting a hall-location QR reads and supersedes the team's prior active token before inserting the next token version. Two concurrent mints conflict and retry, leaving only the later token active. Claiming a token checks `active` and marks it `used` in the same mutation as the operator-owned claim, so two phones cannot both consume the same presentation.
 
-Assignment reads the claim, published plan/mapping state, exact expected team location, and active spot occupant. Two teams racing for one spot both initially see the same index range; Convex retries the later writer, which then sees the committed occupant and fails. Two claims racing to move one team behave the same way through `teamFloorLocations.by_team_state` and the frozen expected location ID/version. A successful move inserts one active successor and supersedes the prior record in the same transaction. Freeze reads the full eligible-team set and active plan projection; it either commits before a mapper, causing that ordinary map to fail against `frozen`, or retries after the map and includes it.
+Assignment reads the claim, published plan/mapping state, and the exact expected team location. Two teams recorded near each other never contend, because no record claims a place; the only serialized race is two claims moving one team, which resolves through `teamFloorLocations.by_team_state` and the frozen expected location ID/version. A successful move inserts one active successor and supersedes the prior record in the same transaction. Freeze reads the full eligible-team set and active plan projection; it either commits before a mapper, causing that ordinary map to fail against `frozen`, or retries after the map and includes it.
 
 ### Score draft from old device
 
@@ -2760,10 +2763,10 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - Two due evaluations of one scheduler version leave one signal and one brief. Unchanged signals, cooldown, active work, daily limit, recovery, and relevance expiry are decided from committed server state and cannot create a domain action.
 - A panel has no table; it walks to the team it is reviewing. A location change cannot call, route, start, or complete a review.
 - A team hall-location QR comes from the participant dashboard, never a physical table sticker, and cannot be accepted by attendance or reviewer-presence commands.
-- One published floor plan has at most one active location per team and one active team per available spot. A stale or concurrent mapper cannot overwrite either boundary.
+- One published floor plan has at most one active location per team, and that location is a point in a zone rectangle rather than a claim on a seat. Two teams recorded next to each other is a valid reading; a stale or concurrent mapper still cannot overwrite the one-location-per-team boundary.
 - Ordinary mapping requires exact destination-zone authority and, for a cross-zone move, exact origin-zone authority. Frozen mapping rejects the ordinary key and requires the separate override key plus a reason.
 - Floor-plan freeze fails while any currently confirmed/checked-in/active team is unmapped. A selected or offer-pending team is not yet mapping-eligible. Freeze does not rewrite location history.
-- Participant, mapper, and operations hall views derive from the same location records and update without refresh.
+- Participant, mapper, and operations hall views derive from the same location records, draw every recorded position on the zone rectangle at once with per-area counts, and update without refresh.
 - A participant queue estimate is absent outside a queued state or during a round pause, uses configured duration before three valid panel samples, and remains a widened five-minute window rather than an appointment.
 - Participant provisioning and approved roster claim create independently revocable self support create/read/reply grants. Revoking one is effective immediately, reusing the subject never silently recreates it, and invitation-only account creation remains grantless.
 - A reporter can create, list, open, and reply to only their own support cases; internal notes and ownership actions are absent from that view. A closed case rejects reporter replies.

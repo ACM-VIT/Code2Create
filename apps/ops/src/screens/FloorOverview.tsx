@@ -1,5 +1,5 @@
 import { api } from '@code2create/backend/api'
-import { floorMappingStateLabels, floorSpotStatusLabels } from '@code2create/domain'
+import { floorAreaLabels, floorMappingStateLabels } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import Papa from 'papaparse'
@@ -11,20 +11,19 @@ import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 
 type FloorOverviewResult = NonNullable<FunctionReturnType<typeof api.floorOperations.overview>>
+type FloorZoneView = FloorOverviewResult['zones'][number]
 type CsvRow = Record<string, string | undefined>
-type ZoneInput = { stableKey: string; name: string; displayOrder: number }
-type SpotInput = {
+type LandmarkInput = { stableKey: string; name: string; x: number; y: number; displayOrder: number }
+type ZoneInput = {
   stableKey: string
-  zoneKey: string
-  label: string
-  x: number
-  y: number
-  accessible: boolean
-  status: 'available' | 'closed'
+  name: string
+  widthMeters: number
+  depthMeters: number
   displayOrder: number
+  landmarks: LandmarkInput[]
 }
 
-const csvHeader = 'zone_key,zone_name,spot_key,spot_label,x,y,accessible,status'
+const csvHeader = 'zone_key,zone_name,zone_width_m,zone_depth_m,landmark_key,landmark_name,x,y'
 
 export function FloorOverview({
   canReadLocations,
@@ -82,12 +81,10 @@ export function FloorOverview({
     setBusy(true)
     setError(null)
     try {
-      const parsed = parseFloorCsv(csv)
       await createDraft({
         eventSlug,
         name: planName,
-        zones: parsed.zones,
-        spots: parsed.spots,
+        zones: parseFloorCsv(csv),
         expectedEventVersion: configuration.eventVersion,
         reason: draftReason,
         clientOperationId: crypto.randomUUID(),
@@ -149,8 +146,8 @@ export function FloorOverview({
           <h1>{view === 'operations' ? 'Hall' : 'Hall layout'}</h1>
           <p className="muted">
             {view === 'operations'
-              ? 'Floor staff scan the QR on each team’s dashboard, then pin the team to its real spot.'
-              : 'Define the zones and team spots that floor staff will use.'}
+              ? 'Floor staff scan the QR on each team’s dashboard, then touch roughly where the team is sitting.'
+              : 'Define each zone’s size and the fixed landmarks floor staff steer by. Tables move; landmarks do not.'}
           </p>
         </div>
         {view === 'operations' && canReadConfiguration ? (
@@ -176,7 +173,7 @@ export function FloorOverview({
             </details>
           ) : null}
 
-          {/* "Teams with no spot" and "Teams expecting a spot" were separate
+          {/* "Teams not yet placed" and "Teams expecting a place" were separate
               columns showing the same 14 until somebody was placed, because
               placed plus unplaced is the eligible total. Placement now reads as
               one ratio, which leaves the work left as the only bare number. */}
@@ -192,11 +189,11 @@ export function FloorOverview({
                   : `${overview.visibleMappedCount} of ${overview.eligibleTeamCount}`}
               </dd>
             </div>
-            <div><dt>Spots still free</dt><dd>{freeSpotCount(overview)}</dd></div>
+            <div><dt>Busiest part of the hall</dt><dd>{busiestArea(overview)}</dd></div>
           </dl>
           <p className="floor-state">
             {overview.plan.mappingState === 'frozen'
-              ? `${floorMappingStateLabels.frozen}. Correcting a spot now needs the override permission.`
+              ? `${floorMappingStateLabels.frozen}. Correcting a location now needs the override permission.`
               : floorMappingStateLabels.open}
           </p>
 
@@ -207,55 +204,18 @@ export function FloorOverview({
             && overview.unmappedTeams
             && overview.unmappedTeams.length > 0 ? (
             <p className="notice">
-              The map cannot be frozen yet: {overview.unmappedTeams.length}{' '}
-              {overview.unmappedTeams.length === 1 ? 'team has' : 'teams have'} no spot.
+              The map cannot be frozen yet: nobody has recorded where {overview.unmappedTeams.length}{' '}
+              {overview.unmappedTeams.length === 1 ? 'team is' : 'teams are'} sitting.
             </p>
           ) : null}
 
           <div className="floor-zone-list">
-            {overview.zones.map((zone) => {
-              const placed = zone.spots.filter((spot) => spot.team).length
-              const usable = zone.spots.filter((spot) => spot.status === 'available').length
-              return (
-                <article className="floor-zone" key={zone.id}>
-                  <div className="floor-zone-heading">
-                    <h2>{zone.name}</h2>
-                    <span>
-                      {placed === usable
-                        ? `All ${usable} spots have a team`
-                        : `${placed} of ${usable} spots have a team`}
-                    </span>
-                  </div>
-                  <div className="floor-map" aria-label={`${zone.name} team locations`}>
-                    {zone.spots.map((spot) => (
-                      <div
-                        className={`floor-map-spot ${spot.team ? 'occupied' : ''} ${spot.status === 'closed' ? 'closed' : ''}`}
-                        key={spot.id}
-                        style={{ left: `${spot.x}%`, top: `${spot.y}%` }}
-                        title={
-                          spot.team
-                            ? `${spot.label}: ${spot.team.name}`
-                            : spot.status === 'closed'
-                              ? `${spot.label}: ${floorSpotStatusLabels.closed}`
-                              : `${spot.label}: free`
-                        }
-                      >
-                        <strong>{spot.label}</strong>
-                        {spot.team ? <span>{spot.team.name}</span> : null}
-                      </div>
-                    ))}
-                    {zone.spots.length === 0 ? (
-                      <p className="empty">This zone has no spots, so no team can be placed in it.</p>
-                    ) : null}
-                  </div>
-                </article>
-              )
-            })}
+            {overview.zones.map((zone) => <FloorZoneMap key={zone.id} zone={zone} />)}
           </div>
         </>
       ) : view === 'operations' && canReadLocations ? (
         <div className="health-empty">
-          <strong>No hall layout is published, so floor staff have nothing to pin teams to.</strong>
+          <strong>No hall layout is published, so floor staff have no room to place teams in.</strong>
           <span>
             {canReadConfiguration
               ? 'Scanning a team’s QR fails until a layout is published.'
@@ -270,7 +230,7 @@ export function FloorOverview({
             <p className="eyebrow">Published</p>
             <h2>{configuration.publishedPlan.name}</h2>
             <p className="muted">
-              {configuration.publishedPlan.zoneCount} zones · {configuration.publishedPlan.spotCount} team spots · {configuration.publishedPlan.mappingState === 'frozen' ? floorMappingStateLabels.frozen : configuration.publishedPlan.mappingState === 'open' ? floorMappingStateLabels.open : floorMappingStateLabels.setup}
+              {configuration.publishedPlan.zoneCount} zones · {configuration.publishedPlan.landmarkCount} landmarks · {floorMappingStateLabels[configuration.publishedPlan.mappingState]}
             </p>
           </div>
         </section>
@@ -282,7 +242,7 @@ export function FloorOverview({
             <p className="eyebrow">Draft plan {configuration.draftPlan.planNumber}</p>
             <h2>{configuration.draftPlan.name}</h2>
             <p className="muted">
-              {configuration.draftPlan.zoneCount} zones · {configuration.draftPlan.spotCount} spots · floor staff cannot use it until it is published
+              {configuration.draftPlan.zoneCount} zones · {configuration.draftPlan.landmarkCount} landmarks · floor staff cannot use it until it is published
             </p>
           </div>
           {configuration.canPublish && !publishArmed ? (
@@ -308,7 +268,7 @@ export function FloorOverview({
           <section className="publish-confirmation floor-freeze">
             <h2>Freeze team locations?</h2>
             <p className="muted">
-              Correcting a spot afterwards needs the override permission and a written reason.
+              Correcting a location afterwards needs the override permission and a written reason.
             </p>
             <label className="field"><span>Reason</span><textarea value={freezeReason} onChange={(event) => setFreezeReason(event.target.value)} /></label>
             <div className="button-row">
@@ -324,7 +284,7 @@ export function FloorOverview({
       {view === 'configuration' && configuration?.canCreate ? (
         <form className="floor-setup" onSubmit={saveDraft}>
           <div>
-            <p className="eyebrow">Hall spots</p>
+            <p className="eyebrow">Hall zones</p>
             <h2>
               {configuration.draftPlan
                 ? 'Replace draft'
@@ -333,15 +293,20 @@ export function FloorOverview({
                   : 'Create hall layout'}
             </h2>
             <p className="section-note">
-              One row per spot. Rows sharing a zone_key become one zone, and x and y are percentages of that zone.
+              One row per landmark. Rows sharing a zone_key become one zone, and x and y are
+              percentages across and along that zone’s rectangle.
             </p>
           </div>
           <label className="field"><span>Plan name</span><input required value={planName} onChange={(event) => setPlanName(event.target.value)} /></label>
           <label className="field">
-            <span>Hall spots · spreadsheet rows</span>
+            <span>Zones and landmarks · spreadsheet rows</span>
             <textarea className="floor-csv" required spellCheck={false} value={csv} onChange={(event) => setCsv(event.target.value)} />
           </label>
-          <p className="fine-print">Columns: zone_key, zone_name, spot_key, spot_label, x, y, accessible, status. Status is available or closed.</p>
+          <p className="fine-print">
+            Columns: zone_key, zone_name, zone_width_m, zone_depth_m, landmark_key, landmark_name, x, y.
+            Width and depth are paced metres. Every zone needs at least one landmark, because a mapper
+            holding a blank rectangle cannot tell which way it faces.
+          </p>
           <label className="field"><span>Why this changed</span><textarea value={draftReason} onChange={(event) => setDraftReason(event.target.value)} /></label>
           <button className="primary" disabled={busy || csv.trim() === csvHeader} type="submit">{busy ? 'Saving…' : 'Save draft'}</button>
         </form>
@@ -353,8 +318,66 @@ export function FloorOverview({
 }
 
 /**
- * The one sentence the numbers add up to. A team with no spot is a team no
- * runner, judge or medic can be sent to, which is the whole point of the map.
+ * One zone drawn at the proportions of the real room, with its landmarks and a
+ * dot for every team in it. Two dots close together is two teams sitting near
+ * each other, which is what the hall looks like.
+ */
+function FloorZoneMap({ zone }: { zone: FloorZoneView }) {
+  const crowded = [...zone.areas].sort((left, right) => right.teamCount - left.teamCount)[0]
+  return (
+    <article className="floor-zone">
+      <div className="floor-zone-heading">
+        <h2>{zone.name}</h2>
+        <span>
+          {zone.teams.length === 0
+            ? `No team placed yet · about ${zone.widthMeters}m by ${zone.depthMeters}m`
+            : `${zone.teams.length} ${zone.teams.length === 1 ? 'team' : 'teams'} · busiest ${
+                crowded && crowded.teamCount > 0 ? floorAreaLabels[crowded.area].toLocaleLowerCase('en-IN') : 'nowhere yet'
+              }`}
+        </span>
+      </div>
+      <div
+        className="floor-map"
+        aria-label={`${zone.name} team locations`}
+        style={{ aspectRatio: `${zone.widthMeters} / ${zone.depthMeters}` }}
+      >
+        {zone.areas.map((area) => (
+          <div
+            className="floor-map-area"
+            key={area.area}
+            data-load={loadBand(area.teamCount, zone.teams.length)}
+            title={`${floorAreaLabels[area.area]}: ${area.teamCount} ${area.teamCount === 1 ? 'team' : 'teams'}`}
+          >
+            <span>{floorAreaLabels[area.area]}</span>
+          </div>
+        ))}
+        {zone.landmarks.map((landmark) => (
+          <div
+            className="floor-map-landmark"
+            key={landmark.id}
+            style={{ left: `${landmark.x}%`, top: `${landmark.y}%` }}
+          >
+            {landmark.name}
+          </div>
+        ))}
+        {zone.teams.map((team) => (
+          <div
+            className="floor-map-team"
+            key={team.teamId}
+            style={{ left: `${team.x}%`, top: `${team.y}%` }}
+            title={`${team.teamName}: ${floorAreaLabels[team.area]}`}
+          >
+            <span>{team.teamName}</span>
+          </div>
+        ))}
+      </div>
+    </article>
+  )
+}
+
+/**
+ * The one sentence the numbers add up to. A team nobody has located is a team
+ * no runner, judge or medic can be sent to, which is the whole point of the map.
  */
 function FloorLead({ overview }: { overview: FloorOverviewResult }) {
   const unmapped = overview.unmappedTeams?.length
@@ -383,10 +406,10 @@ function FloorLead({ overview }: { overview: FloorOverviewResult }) {
   if (unmapped === 0) {
     return (
       <>
-        <p>All {overview.eligibleTeamCount} teams have a spot.</p>
+        <p>All {overview.eligibleTeamCount} teams have a recorded place in the hall.</p>
         <p className="muted">
           {overview.plan.mappingState === 'frozen'
-            ? 'The map is frozen. Changing a spot needs the override permission.'
+            ? 'The map is frozen. Changing a location needs the override permission.'
             : 'Freeze the map to stop it drifting.'}
         </p>
       </>
@@ -396,51 +419,62 @@ function FloorLead({ overview }: { overview: FloorOverviewResult }) {
     <>
       <p>
         {unmapped === overview.eligibleTeamCount
-          ? `Not one of the ${overview.eligibleTeamCount} teams has a spot on this map yet, so floor staff cannot find any of them.`
-          : `${unmapped} of the ${overview.eligibleTeamCount} teams have no spot on this map, so floor staff cannot find them.`}
+          ? `Nobody has recorded where any of the ${overview.eligibleTeamCount} teams are sitting, so floor staff cannot find any of them.`
+          : `${unmapped} of the ${overview.eligibleTeamCount} teams have no recorded place in the hall, so floor staff cannot find them.`}
       </p>
     </>
   )
 }
 
-/** Spots a team could still be put in: not closed off and nobody in them. */
-function freeSpotCount(overview: FloorOverviewResult) {
-  return overview.zones.reduce(
-    (total, zone) =>
-      total + zone.spots.filter((spot) => spot.status === 'available' && !spot.team).length,
-    0,
-  )
+/** The part of the hall a runner should expect to push through. */
+function busiestArea(overview: FloorOverviewResult) {
+  const ranked = overview.zones
+    .flatMap((zone) => zone.areas.map((area) => ({ zoneName: zone.name, ...area })))
+    .sort((left, right) => right.teamCount - left.teamCount)[0]
+  if (!ranked || ranked.teamCount === 0) return 'Nowhere yet'
+  return `${floorAreaLabels[ranked.area]}, ${ranked.zoneName} · ${ranked.teamCount}`
 }
 
-function parseFloorCsv(source: string): { zones: ZoneInput[]; spots: SpotInput[] } {
+/** Three bands is all a glance can read, so crowding is coarse on purpose. */
+function loadBand(teamCount: number, zoneTeamCount: number): 'empty' | 'some' | 'busy' {
+  if (teamCount === 0) return 'empty'
+  return teamCount * 9 >= zoneTeamCount * 2 ? 'busy' : 'some'
+}
+
+function parseFloorCsv(source: string): ZoneInput[] {
   const result = Papa.parse<CsvRow>(source, { header: true, skipEmptyLines: 'greedy' })
   const parseError = result.errors[0]
   if (parseError) throw new Error(`CSV row ${parseError.row === undefined ? '?' : parseError.row + 2}: ${parseError.message}`)
-  if (result.data.length === 0) throw new Error('Add at least one hall spot.')
+  if (result.data.length === 0) throw new Error('Add at least one hall landmark.')
   const zonesByKey = new Map<string, ZoneInput>()
-  const spots = result.data.map((row, index): SpotInput => {
+  result.data.forEach((row, index) => {
     const rowNumber = index + 2
-    const zoneKey = requiredCell(row, 'zone_key', rowNumber)
-    const zoneName = requiredCell(row, 'zone_name', rowNumber)
-    const priorZone = zonesByKey.get(zoneKey)
-    if (priorZone && priorZone.name !== zoneName) {
-      throw new Error(`CSV row ${rowNumber}: zone ${zoneKey} has more than one name.`)
+    const stableKey = requiredCell(row, 'zone_key', rowNumber)
+    const name = requiredCell(row, 'zone_name', rowNumber)
+    const widthMeters = metres(row, 'zone_width_m', rowNumber)
+    const depthMeters = metres(row, 'zone_depth_m', rowNumber)
+    const priorZone = zonesByKey.get(stableKey)
+    if (
+      priorZone &&
+      (priorZone.name !== name ||
+        priorZone.widthMeters !== widthMeters ||
+        priorZone.depthMeters !== depthMeters)
+    ) {
+      throw new Error(`CSV row ${rowNumber}: zone ${stableKey} is described two different ways.`)
     }
-    if (!priorZone) {
-      zonesByKey.set(zoneKey, { stableKey: zoneKey, name: zoneName, displayOrder: zonesByKey.size })
-    }
-    return {
-      stableKey: requiredCell(row, 'spot_key', rowNumber),
-      zoneKey,
-      label: requiredCell(row, 'spot_label', rowNumber),
+    const zone =
+      priorZone ??
+      { stableKey, name, widthMeters, depthMeters, displayOrder: zonesByKey.size, landmarks: [] }
+    zone.landmarks.push({
+      stableKey: requiredCell(row, 'landmark_key', rowNumber),
+      name: requiredCell(row, 'landmark_name', rowNumber),
       x: percentage(row, 'x', rowNumber),
       y: percentage(row, 'y', rowNumber),
-      accessible: booleanCell(row, 'accessible', rowNumber),
-      status: statusCell(row, rowNumber),
-      displayOrder: index,
-    }
+      displayOrder: zone.landmarks.length,
+    })
+    zonesByKey.set(stableKey, zone)
   })
-  return { zones: [...zonesByKey.values()], spots }
+  return [...zonesByKey.values()]
 }
 
 function requiredCell(row: CsvRow, key: string, rowNumber: number) {
@@ -457,15 +491,10 @@ function percentage(row: CsvRow, key: string, rowNumber: number) {
   return value
 }
 
-function booleanCell(row: CsvRow, key: string, rowNumber: number) {
-  const value = requiredCell(row, key, rowNumber).toLowerCase()
-  if (value === 'true' || value === 'yes' || value === '1') return true
-  if (value === 'false' || value === 'no' || value === '0') return false
-  throw new Error(`CSV row ${rowNumber}: ${key} must be true or false.`)
-}
-
-function statusCell(row: CsvRow, rowNumber: number): 'available' | 'closed' {
-  const value = requiredCell(row, 'status', rowNumber).toLowerCase()
-  if (value === 'available' || value === 'closed') return value
-  throw new Error(`CSV row ${rowNumber}: status must be available or closed.`)
+function metres(row: CsvRow, key: string, rowNumber: number) {
+  const value = Number(requiredCell(row, key, rowNumber))
+  if (!Number.isFinite(value) || value < 2 || value > 300) {
+    throw new Error(`CSV row ${rowNumber}: ${key} must be from 2 through 300 metres.`)
+  }
+  return value
 }

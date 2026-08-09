@@ -1,3 +1,4 @@
+import { floorAreaAt } from "@code2create/domain";
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -7,33 +8,67 @@ import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import {
   activeTeamFloorLocation,
+  describeTeamFloorLocation,
+  floorAreaLoad,
+  floorCoordinate,
   floorDigest,
+  floorLocationDescription,
+  nearestLandmarkName,
+  placedTeamsInZone,
   publishedFloorPlan,
   teamCanBeMapped,
+  zoneLandmarks,
 } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { normalizedText } from "./lib/strings";
+import { floorActiveMappingState, floorArea, floorMappingMode } from "./values";
 
-const mappingMode = v.union(v.literal("map"), v.literal("override"));
+const landmarkView = v.object({
+  id: v.id("floorLandmarks"),
+  name: v.string(),
+  x: v.number(),
+  y: v.number(),
+});
+
+const placedTeamView = v.object({
+  teamId: v.id("teams"),
+  teamName: v.string(),
+  x: v.number(),
+  y: v.number(),
+  area: floorArea,
+  mappedAt: v.number(),
+});
+
+/** How many teams are sitting in each part of a zone, in reading order. */
+const areaLoadView = v.object({ area: floorArea, teamCount: v.number() });
 
 const claimView = v.object({
   id: v.id("floorMappingClaims"),
   version: v.number(),
   expiresAt: v.number(),
-  mode: mappingMode,
+  mode: floorMappingMode,
   team: v.object({ id: v.id("teams"), name: v.string() }),
   currentLocation: v.union(
     v.null(),
     v.object({
       id: v.id("teamFloorLocations"),
+      zoneId: v.id("floorZones"),
       zoneName: v.string(),
-      spotLabel: v.string(),
+      x: v.number(),
+      y: v.number(),
+      area: floorArea,
+      description: v.string(),
     }),
   ),
 });
 
+/**
+ * Everything the mapper's screen draws: the shape of each zone the caller may
+ * map into, the landmarks that tell them which way it faces, every team
+ * already placed in it, and how many teams are in each part of it.
+ */
 export const available = query({
   args: { eventSlug: v.string() },
   returns: v.union(
@@ -43,26 +78,18 @@ export const available = query({
         id: v.id("floorPlanVersions"),
         name: v.string(),
         version: v.number(),
-        mappingState: v.union(v.literal("open"), v.literal("frozen")),
+        mappingState: floorActiveMappingState,
       }),
-      mode: mappingMode,
+      mode: floorMappingMode,
       zones: v.array(
         v.object({
           id: v.id("floorZones"),
           name: v.string(),
-          spots: v.array(
-            v.object({
-              id: v.id("floorSpots"),
-              label: v.string(),
-              x: v.number(),
-              y: v.number(),
-              accessible: v.boolean(),
-              occupiedBy: v.union(
-                v.null(),
-                v.object({ teamId: v.id("teams"), teamName: v.string() }),
-              ),
-            }),
-          ),
+          widthMeters: v.number(),
+          depthMeters: v.number(),
+          landmarks: v.array(landmarkView),
+          teams: v.array(placedTeamView),
+          areas: v.array(areaLoadView),
         }),
       ),
     }),
@@ -92,9 +119,9 @@ export const available = query({
     );
     const visibleZones = zones.filter((_, index) => (grantsByZone[index]?.length ?? 0) > 0);
     if (visibleZones.length === 0) return null;
-    const [spots, locations, teams] = await Promise.all([
+    const [landmarks, locations, teams] = await Promise.all([
       ctx.db
-        .query("floorSpots")
+        .query("floorLandmarks")
         .withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id))
         .collect(),
       ctx.db
@@ -106,37 +133,29 @@ export const available = query({
         .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
         .collect(),
     ]);
-    const locationBySpot = new Map(locations.map((location) => [location.spotId, location]));
     const teamById = new Map(teams.map((team) => [team._id, team]));
     return {
       plan: { id: plan._id, name: plan.name, version: plan.version, mappingState: plan.mappingState },
       mode,
-      zones: await Promise.all(
-        visibleZones.map(async (zone) => {
-          return {
-            id: zone._id,
-            name: zone.name,
-            spots: spots
-                .filter((spot) => spot.status === "available")
-                .filter((spot) => spot.zoneId === zone._id)
-                .map((spot) => {
-                  const location = locationBySpot.get(spot._id);
-                  const team = location ? teamById.get(location.teamId) : undefined;
-                  return {
-                    id: spot._id,
-                    label: spot.label,
-                    x: spot.x,
-                    y: spot.y,
-                    accessible: spot.accessible,
-                    occupiedBy:
-                      location && team
-                        ? { teamId: team._id, teamName: team.name }
-                        : null,
-                  };
-                }),
-          };
-        }),
-      ),
+      zones: visibleZones.map((zone) => {
+        const placed = placedTeamsInZone(locations, teamById, zone._id);
+        return {
+          id: zone._id,
+          name: zone.name,
+          widthMeters: zone.widthMeters,
+          depthMeters: zone.depthMeters,
+          landmarks: landmarks
+            .filter((landmark) => landmark.zoneId === zone._id)
+            .map((landmark) => ({
+              id: landmark._id,
+              name: landmark.name,
+              x: landmark.x,
+              y: landmark.y,
+            })),
+          teams: placed,
+          areas: floorAreaLoad(placed),
+        };
+      }),
     };
   },
 });
@@ -281,11 +300,17 @@ export const claimTeamQr = mutation({
   },
 });
 
+/**
+ * Records where the mapper's finger landed on the zone rectangle. There is no
+ * spot to take, so this never fails because somebody else is already there;
+ * the only race it serializes is two people recording the same team.
+ */
 export const assignClaim = mutation({
   args: {
     eventSlug: v.string(),
     claimId: v.id("floorMappingClaims"),
-    spotId: v.id("floorSpots"),
+    x: v.number(),
+    y: v.number(),
     expectedClaimVersion: v.number(),
     reason: v.optional(v.string()),
     clientOperationId: v.string(),
@@ -294,15 +319,21 @@ export const assignClaim = mutation({
     locationId: v.id("teamFloorLocations"),
     teamName: v.string(),
     zoneName: v.string(),
-    spotLabel: v.string(),
+    x: v.number(),
+    y: v.number(),
+    area: floorArea,
+    description: v.string(),
     unchanged: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
+    const x = floorCoordinate(args.x, "Position across the zone");
+    const y = floorCoordinate(args.y, "Position along the zone");
     const requestFingerprint = operationFingerprint([
       args.claimId,
-      args.spotId,
+      x,
+      y,
       args.expectedClaimVersion,
       args.reason ?? "",
     ]);
@@ -335,9 +366,8 @@ export const assignClaim = mutation({
     if (claim.expiresAt <= now) {
       throw new ConvexError({ code: "FLOOR_CLAIM_EXPIRED", message: "This mapping step expired. Scan the team code again." });
     }
-    const [plan, spot, zone, team] = await Promise.all([
+    const [plan, zone, team] = await Promise.all([
       ctx.db.get(claim.planVersionId),
-      ctx.db.get(args.spotId),
       ctx.db.get(claim.destinationZoneId),
       ctx.db.get(claim.teamId),
     ]);
@@ -351,19 +381,14 @@ export const assignClaim = mutation({
       throw new ConvexError({ code: "FLOOR_PLAN_CHANGED", message: "The floor plan changed. Scan the team code again." });
     }
     if (
-      !spot ||
       !zone ||
       !team ||
-      spot.eventId !== event._id ||
-      spot.planVersionId !== plan._id ||
-      spot.zoneId !== zone._id ||
       zone.eventId !== event._id ||
       zone.planVersionId !== plan._id ||
       team.eventId !== event._id ||
-      !teamCanBeMapped(team.status) ||
-      spot.status !== "available"
+      !teamCanBeMapped(team.status)
     ) {
-      throw new ConvexError({ code: "FLOOR_SPOT_UNAVAILABLE", message: "Choose an available spot in the selected zone." });
+      throw new ConvexError({ code: "FLOOR_ZONE_UNAVAILABLE", message: "Choose a zone in the current floor plan." });
     }
     const permissionKey = claim.mode === "map" ? "floor.location.map" : "floor.location.override";
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -395,45 +420,41 @@ export const assignClaim = mutation({
       });
       grantIds = [...new Set([...destinationGrantIds, ...originGrantIds])];
     }
-    const occupied = await ctx.db
-      .query("teamFloorLocations")
-      .withIndex("by_spot_state", (index) => index.eq("spotId", spot._id).eq("state", "active"))
-      .unique();
-    if (occupied && occupied.teamId !== team._id) {
-      throw new ConvexError({ code: "FLOOR_SPOT_OCCUPIED", message: "Another team was just mapped to that spot. Choose another." });
-    }
     const reason =
       claim.mode === "override"
         ? normalizedText(args.reason ?? "", "Override reason", 5, 300)
         : undefined;
-    let locationId: Id<"teamFloorLocations">;
-    let unchanged = false;
-    if (currentLocation && currentLocation.spotId === spot._id) {
-      locationId = currentLocation._id;
-      unchanged = true;
-    } else {
-      locationId = await ctx.db.insert("teamFloorLocations", {
-        eventId: event._id,
-        planVersionId: plan._id,
-        teamId: team._id,
-        zoneId: zone._id,
-        spotId: spot._id,
-        state: "active",
-        method: claim.mode === "map" ? "team_qr_scan" : "override",
-        ...(currentLocation ? { supersedesLocationId: currentLocation._id } : {}),
-        version: 1,
-        mappedByPersonId: person._id,
-        mappedAt: now,
-        ...(reason !== undefined ? { reason } : {}),
+    const area = floorAreaAt(x, y);
+    // Every accepted scan is a fresh sighting of the team, so it always
+    // becomes a new record. "Unchanged" only means nobody would describe the
+    // team differently afterwards, which is what the mapper is told.
+    const unchanged =
+      currentLocation !== null &&
+      currentLocation.zoneId === zone._id &&
+      currentLocation.area === area;
+    const locationId: Id<"teamFloorLocations"> = await ctx.db.insert("teamFloorLocations", {
+      eventId: event._id,
+      planVersionId: plan._id,
+      teamId: team._id,
+      zoneId: zone._id,
+      x,
+      y,
+      area,
+      state: "active",
+      method: claim.mode === "map" ? "team_qr_scan" : "override",
+      ...(currentLocation ? { supersedesLocationId: currentLocation._id } : {}),
+      version: 1,
+      mappedByPersonId: person._id,
+      mappedAt: now,
+      ...(reason !== undefined ? { reason } : {}),
+    });
+    if (currentLocation) {
+      await ctx.db.patch(currentLocation._id, {
+        state: "superseded",
+        version: currentLocation.version + 1,
+        supersededAt: now,
+        supersededByLocationId: locationId,
       });
-      if (currentLocation) {
-        await ctx.db.patch(currentLocation._id, {
-          state: "superseded",
-          version: currentLocation.version + 1,
-          supersededAt: now,
-          supersededByLocationId: locationId,
-        });
-      }
     }
     await ctx.db.patch(claim._id, {
       state: "completed",
@@ -462,10 +483,18 @@ export const assignClaim = mutation({
       targetType: "team_floor_location",
       targetId: locationId,
       ...(currentLocation
-        ? { previousSummary: JSON.stringify({ locationId: currentLocation._id, zoneId: currentLocation.zoneId, spotId: currentLocation.spotId }) }
+        ? {
+            previousSummary: JSON.stringify({
+              locationId: currentLocation._id,
+              zoneId: currentLocation.zoneId,
+              area: currentLocation.area,
+              x: currentLocation.x,
+              y: currentLocation.y,
+            }),
+          }
         : {}),
-      nextSummary: JSON.stringify({ locationId, teamId: team._id, zoneId: zone._id, spotId: spot._id, unchanged }),
-      reason: reason ?? "Floor mapper confirmed the physical team location from the team's QR",
+      nextSummary: JSON.stringify({ locationId, teamId: team._id, zoneId: zone._id, area, x, y, unchanged }),
+      reason: reason ?? "Floor mapper confirmed where the team is sitting from the team's QR",
     });
     const completedClaim = await ctx.db.get(claim._id);
     if (!completedClaim) throw new Error("Completed mapping claim is unavailable.");
@@ -479,9 +508,7 @@ async function claimResult(ctx: MutationCtx, claim: Doc<"floorMappingClaims">) {
   const currentLocation = claim.expectedLocationId
     ? await ctx.db.get(claim.expectedLocationId)
     : null;
-  const [zone, spot] = currentLocation
-    ? await Promise.all([ctx.db.get(currentLocation.zoneId), ctx.db.get(currentLocation.spotId)])
-    : [null, null];
+  const described = currentLocation ? await describeTeamFloorLocation(ctx, currentLocation) : null;
   return {
     id: claim._id,
     version: 1,
@@ -489,8 +516,16 @@ async function claimResult(ctx: MutationCtx, claim: Doc<"floorMappingClaims">) {
     mode: claim.mode,
     team: { id: team._id, name: team.name },
     currentLocation:
-      currentLocation && zone && spot
-        ? { id: currentLocation._id, zoneName: zone.name, spotLabel: spot.label }
+      currentLocation && described
+        ? {
+            id: currentLocation._id,
+            zoneId: described.zone._id,
+            zoneName: described.zone.name,
+            x: currentLocation.x,
+            y: currentLocation.y,
+            area: currentLocation.area,
+            description: described.description,
+          }
         : null,
   };
 }
@@ -502,14 +537,28 @@ async function assignmentResult(
 ) {
   const [location, team] = await Promise.all([ctx.db.get(locationId), ctx.db.get(claim.teamId)]);
   if (!location || !team) throw new Error("Floor assignment result is incomplete.");
-  const [zone, spot] = await Promise.all([ctx.db.get(location.zoneId), ctx.db.get(location.spotId)]);
-  if (!zone || !spot) throw new Error("Floor assignment labels are unavailable.");
+  const [zone, landmarks, superseded] = await Promise.all([
+    ctx.db.get(location.zoneId),
+    zoneLandmarks(ctx, location.zoneId),
+    location.supersedesLocationId ? ctx.db.get(location.supersedesLocationId) : Promise.resolve(null),
+  ]);
+  if (!zone) throw new Error("The recorded team location has no zone.");
   return {
     locationId,
     teamName: team.name,
     zoneName: zone.name,
-    spotLabel: spot.label,
-    unchanged: claim.expectedLocationId === locationId,
+    x: location.x,
+    y: location.y,
+    area: location.area,
+    description: floorLocationDescription(
+      zone.name,
+      location.area,
+      nearestLandmarkName(zone, landmarks, location.x, location.y),
+    ),
+    unchanged:
+      superseded !== null &&
+      superseded.zoneId === location.zoneId &&
+      superseded.area === location.area,
   };
 }
 

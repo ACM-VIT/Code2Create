@@ -32,7 +32,7 @@ const snapshot: EmergencyPackSnapshot = {
       attendanceZoneName: "North hall",
       attendanceUpdatedAt: Date.UTC(2026, 7, 6, 1, 25),
       hallZoneName: "North",
-      hallSpotLabel: "N-12",
+      hallLocation: "North-east corner of North, near the windows",
     },
   ],
   sessions: [

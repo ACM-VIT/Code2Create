@@ -13,7 +13,7 @@ It answers four different questions:
 
 The system supports emergency roll calls, session planning, and accurate floor operations. It does not score productivity, track continuous location, or disqualify a participant automatically.
 
-Reviewer presence and team hall mapping are separate workflows. A reviewer scans the review-presence team QR for one review session. A floor mapper scans the hall-location team QR and selects one published physical spot. A participant presents an attendance credential for venue and hacking-session presence. Each command rejects the QR prefix from another workflow.
+Reviewer presence and team hall mapping are separate workflows. A reviewer scans the review-presence team QR for one review session. A floor mapper scans the hall-location team QR and records roughly where in the hall the team is sitting. A participant presents an attendance credential for venue and hacking-session presence. Each command rejects the QR prefix from another workflow.
 
 ## 2. Operating concepts
 

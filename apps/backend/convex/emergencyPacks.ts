@@ -7,6 +7,7 @@ import { internalMutation, internalQuery, mutation, query } from "./_generated/s
 import { writeAuditEvent } from "./lib/audit";
 import { loadPublishedCommunicationsPolicy } from "./lib/communicationsPolicy";
 import { requireEventBySlug } from "./lib/events";
+import { floorLocationDescription, nearestLandmarkName } from "./lib/floor";
 import {
   requireCurrentPerson,
   requireEventSubject,
@@ -44,7 +45,7 @@ const rosterRow = v.object({
   attendanceZoneName: v.optional(v.string()),
   attendanceUpdatedAt: v.optional(v.number()),
   hallZoneName: v.optional(v.string()),
-  hallSpotLabel: v.optional(v.string()),
+  hallLocation: v.optional(v.string()),
 });
 
 const stationSnapshot = v.object({
@@ -261,7 +262,7 @@ async function buildSnapshot(
     : [];
   const attendanceZonesById = mapById(attendanceZones);
 
-  const [floorZones, floorSpots, floorLocations] = floorPlanId
+  const [floorZones, floorLandmarks, floorLocations] = floorPlanId
     ? await Promise.all([
         ctx.db
           .query("floorZones")
@@ -270,7 +271,7 @@ async function buildSnapshot(
           )
           .collect(),
         ctx.db
-          .query("floorSpots")
+          .query("floorLandmarks")
           .withIndex("by_plan_order", (index) =>
             index.eq("planVersionId", floorPlanId),
           )
@@ -286,7 +287,6 @@ async function buildSnapshot(
       ])
     : [[], [], []];
   const floorZonesById = mapById(floorZones);
-  const floorSpotsById = mapById(floorSpots);
   const floorLocationByTeam = new Map(
     floorLocations.map((location) => [location.teamId, location]),
   );
@@ -299,7 +299,19 @@ async function buildSnapshot(
         ? attendanceZonesById.get(venueState.zoneId)
         : undefined;
       const hallZone = location ? floorZonesById.get(location.zoneId) : undefined;
-      const hallSpot = location ? floorSpotsById.get(location.spotId) : undefined;
+      const hallLocation =
+        location && hallZone
+          ? floorLocationDescription(
+              hallZone.name,
+              location.area,
+              nearestLandmarkName(
+                hallZone,
+                floorLandmarks.filter((landmark) => landmark.zoneId === hallZone._id),
+                location.x,
+                location.y,
+              ),
+            )
+          : undefined;
       return {
         participantReference: membership._id,
         name: profile?.preferredName ?? profile?.fullName ?? "Profile incomplete",
@@ -320,7 +332,7 @@ async function buildSnapshot(
         ...(attendanceZone ? { attendanceZoneName: attendanceZone.name } : {}),
         ...(venueState ? { attendanceUpdatedAt: venueState.updatedAt } : {}),
         ...(hallZone ? { hallZoneName: hallZone.name } : {}),
-        ...(hallSpot ? { hallSpotLabel: hallSpot.label } : {}),
+        ...(hallLocation !== undefined ? { hallLocation } : {}),
       };
     })
     .sort(

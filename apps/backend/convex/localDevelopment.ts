@@ -355,27 +355,44 @@ export function localIntegrationPolicy(eventStartsAt: number) {
   };
 }
 
+// Three halves of a hall, each with the fixed things a mapper aligns against.
+// Nothing here is a table: participants drag those around all weekend.
 const localFloorZones = [
-  { stableKey: "east", name: "East", displayOrder: 0 },
-  { stableKey: "centre", name: "Centre", displayOrder: 1 },
-  { stableKey: "west", name: "West", displayOrder: 2 },
+  {
+    stableKey: "east",
+    name: "East wing",
+    widthMeters: 28,
+    depthMeters: 18,
+    displayOrder: 0,
+    landmarks: [
+      { stableKey: "east_stage", name: "the stage", x: 50, y: 4, displayOrder: 0 },
+      { stableKey: "east_windows", name: "the windows", x: 96, y: 50, displayOrder: 1 },
+      { stableKey: "east_doors", name: "the side doors", x: 4, y: 88, displayOrder: 2 },
+    ],
+  },
+  {
+    stableKey: "centre",
+    name: "Centre",
+    widthMeters: 24,
+    depthMeters: 24,
+    displayOrder: 1,
+    landmarks: [
+      { stableKey: "centre_help_desk", name: "the help desk", x: 50, y: 50, displayOrder: 0 },
+      { stableKey: "centre_food", name: "the food counter", x: 10, y: 12, displayOrder: 1 },
+    ],
+  },
+  {
+    stableKey: "west",
+    name: "West wing",
+    widthMeters: 28,
+    depthMeters: 18,
+    displayOrder: 2,
+    landmarks: [
+      { stableKey: "west_entrance", name: "the main entrance", x: 50, y: 96, displayOrder: 0 },
+      { stableKey: "west_power", name: "the power wall", x: 6, y: 40, displayOrder: 1 },
+    ],
+  },
 ] as const;
-
-const localFloorSpots = localFloorZones.flatMap((zone, zoneIndex) =>
-  Array.from({ length: 8 }, (_, spotIndex) => ({
-    stableKey: `${zone.stableKey}_${spotIndex + 1}`,
-    zoneKey: zone.stableKey,
-    label: `${zone.name.slice(0, 1)}-${String(spotIndex + 1).padStart(2, "0")}`,
-    // Laid out as a grid inside the zone, because the reviewer app draws one
-    // zone at a time: a single y per zone put every spot of that zone on one
-    // line and the hall read as a row of labels rather than a room.
-    x: 18 + (spotIndex % 4) * 22,
-    y: 26 + Math.floor(spotIndex / 4) * 34,
-    accessible: spotIndex === 0,
-    status: "available" as const,
-    displayOrder: zoneIndex * 8 + spotIndex,
-  })),
-);
 
 const localActors = {
   vitParticipant: {
@@ -1143,7 +1160,6 @@ export const seedEvent = mutation({
       checksum: floorConfigurationChecksum({
         name: floorPlanName,
         zones: localFloorZones,
-        spots: localFloorSpots,
       }),
       version: 2,
       createdByPersonId: seedPerson._id,
@@ -1151,32 +1167,30 @@ export const seedEvent = mutation({
       publishedByPersonId: seedPerson._id,
       publishedAt: now,
     });
-    const floorZoneIds = new Map<string, Id<"floorZones">>();
     for (const zone of localFloorZones) {
       const zoneId = await ctx.db.insert("floorZones", {
         eventId,
         planVersionId: floorPlanVersionId,
-        ...zone,
+        stableKey: zone.stableKey,
+        name: zone.name,
+        widthMeters: zone.widthMeters,
+        depthMeters: zone.depthMeters,
+        displayOrder: zone.displayOrder,
         createdAt: now,
       });
-      floorZoneIds.set(zone.stableKey, zoneId);
-    }
-    for (const spot of localFloorSpots) {
-      const zoneId = floorZoneIds.get(spot.zoneKey);
-      if (!zoneId) throw new Error("The local floor spot has no zone.");
-      await ctx.db.insert("floorSpots", {
-        eventId,
-        planVersionId: floorPlanVersionId,
-        zoneId,
-        stableKey: spot.stableKey,
-        label: spot.label,
-        x: spot.x,
-        y: spot.y,
-        accessible: spot.accessible,
-        status: spot.status,
-        displayOrder: spot.displayOrder,
-        createdAt: now,
-      });
+      for (const landmark of zone.landmarks) {
+        await ctx.db.insert("floorLandmarks", {
+          eventId,
+          planVersionId: floorPlanVersionId,
+          zoneId,
+          stableKey: landmark.stableKey,
+          name: landmark.name,
+          x: landmark.x,
+          y: landmark.y,
+          displayOrder: landmark.displayOrder,
+          createdAt: now,
+        });
+      }
     }
     const integrationPolicy = localIntegrationPolicy(localEventStartsAt);
     const integrationPolicyVersionId = await ctx.db.insert("integrationPolicyVersions", {

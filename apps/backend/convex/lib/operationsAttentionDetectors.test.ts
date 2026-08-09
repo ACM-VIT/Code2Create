@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { AttentionCommand } from "./operationsAttentionProposals";
+
 import {
   reviewFloorItems,
   roundForecastItems,
@@ -17,7 +19,6 @@ const now = 1_770_000_000_000;
 function floor(overrides: Partial<ReviewFloorProjection> = {}): ReviewFloorProjection {
   return {
     now,
-    eventSlug: "code2create",
     roundId: "round1",
     roundName: "Review 1",
     roundEndsAt: now + 60 * minute,
@@ -83,6 +84,13 @@ function only(items: ReturnType<typeof reviewFloorItems>, key: string) {
 
 /* ---------------- panel seats ---------------- */
 
+/** One field of whichever command a proposal carries, or undefined. */
+function commandField(command: AttentionCommand | undefined, field: string) {
+  if (command === undefined) return undefined;
+  const entries: Record<string, unknown> = { ...command };
+  return entries[field];
+}
+
 test("a full, quiet panel produces nothing", () => {
   assert.deepEqual(reviewFloorItems(floor({ panels: [panel()], teams: [team()] })), []);
 });
@@ -142,11 +150,11 @@ test("a vacancy carries a prefilled substitute page, with the panel version", ()
     }),
   );
   const proposal = only(items, "panel_seat_empty")[0]?.proposal;
-  assert.equal(proposal?.commandName, "reviewSubstitutions.startPageChain");
+  assert.equal(proposal?.command.name, "reviewSubstitutions.startPageChain");
   assert.equal(proposal?.permissionKey, "review.substitute.page");
   assert.equal(proposal?.scopeType, "panel");
-  assert.deepEqual(JSON.parse(proposal?.argsJson ?? "{}"), {
-    eventSlug: "code2create",
+  assert.deepEqual(proposal?.command, {
+    name: "reviewSubstitutions.startPageChain",
     missingPanelMemberId: "gone",
     expectedPanelVersion: 4,
     reason: "Panel D is short one reviewer with one team queued.",
@@ -267,9 +275,9 @@ test("a late return names the time the reviewer gave, and proposes a confirmatio
   );
   const risk = only(items, "seat_at_risk")[0];
   assert.match(risk?.statement ?? "", /12m past the time they gave for coming back/);
-  assert.equal(risk?.proposal?.commandName, "reviewSubstitutions.markNoShow");
-  assert.deepEqual(JSON.parse(risk?.proposal?.argsJson ?? "{}"), {
-    eventSlug: "code2create",
+  assert.equal(risk?.proposal?.command.name, "reviewSubstitutions.markNoShow");
+  assert.deepEqual(risk?.proposal?.command, {
+    name: "reviewSubstitutions.markNoShow",
     panelMemberId: "m1",
     expectedPanelVersion: 4,
     expectedClockInVersion: 3,
@@ -377,8 +385,8 @@ test("an overdue review says how far past it is and offers the extension", () =>
   const overdue = only(items, "review_overdue")[0];
   assert.equal(overdue?.severity, "critical");
   assert.match(overdue?.statement ?? "", /Nightshift at Review 1 · Table 2 is 6m past/);
-  assert.equal(overdue?.proposal?.commandName, "reviewOperations.extendReview");
-  assert.equal(JSON.parse(overdue?.proposal?.argsJson ?? "{}").expectedVersion, 5);
+  assert.equal(overdue?.proposal?.command.name, "reviewOperations.extendReview");
+  assert.equal(commandField(overdue?.proposal?.command, "expectedVersion"), 5);
 });
 
 test("a review out of extensions is reported without a proposal", () => {
@@ -497,8 +505,8 @@ test("a hold shows its reason once it has lasted, and offers the resume", () => 
   assert.deepEqual(only(held(now - 2 * minute), "team_held"), []);
   const item = only(held(now - 9 * minute), "team_held")[0];
   assert.match(item?.statement ?? "", /on hold for 9m: Two members are at the clinic\./);
-  assert.equal(item?.proposal?.commandName, "reviewExceptions.resumeTeam");
-  assert.equal(JSON.parse(item?.proposal?.argsJson ?? "{}").expectedVersion, 2);
+  assert.equal(item?.proposal?.command.name, "reviewExceptions.resumeTeam");
+  assert.equal(commandField(item?.proposal?.command, "expectedVersion"), 2);
 });
 
 test("a call past its grace period offers the missed mark", () => {
@@ -516,7 +524,7 @@ test("a call past its grace period offers the missed mark", () => {
   );
   const item = only(items, "team_call_overdue")[0];
   assert.match(item?.statement ?? "", /grace period ran out 4m ago/);
-  assert.equal(item?.proposal?.commandName, "reviewExceptions.markMissed");
+  assert.equal(item?.proposal?.command.name, "reviewExceptions.markMissed");
 });
 
 test("waiting is only flagged past two reviews' worth of time", () => {
@@ -637,10 +645,9 @@ test("the bottleneck panel is named and offered a move to the panel that finishe
   assert.equal(bottleneck?.subjectId, "p3");
   assert.match(bottleneck?.statement ?? "", /Panel C finishes 1h after the middle of the round/);
   assert.match(bottleneck?.statement ?? "", /Panel A finishes first/);
-  const args = JSON.parse(bottleneck?.proposal?.argsJson ?? "{}");
-  assert.equal(bottleneck?.proposal?.commandName, "reviewExceptions.moveQueuedTeam");
-  assert.equal(args.targetPanelId, "p1");
-  assert.equal(args.teamRoundStateId, "p3-s8");
+  assert.equal(bottleneck?.proposal?.command.name, "reviewExceptions.moveQueuedTeam");
+  assert.equal(commandField(bottleneck?.proposal?.command, "targetPanelId"), "p1");
+  assert.equal(commandField(bottleneck?.proposal?.command, "teamRoundStateId"), "p3-s8");
 });
 
 test("panels within a quarter hour of each other have no bottleneck", () => {

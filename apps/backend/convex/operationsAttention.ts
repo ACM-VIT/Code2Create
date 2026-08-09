@@ -22,7 +22,7 @@ import { assertPermissionKey, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
 import {
   attentionDetectorKey,
-  attentionScopeType,
+  attentionProposal,
   attentionSeverity,
   attentionSubjectType,
 } from "./values";
@@ -43,15 +43,7 @@ const attentionRow = v.object({
   version: v.number(),
   /** False when the caller may look but holds no command grant for the fix. */
   canAct: v.boolean(),
-  proposal: v.optional(
-    v.object({
-      commandName: v.string(),
-      scopeType: attentionScopeType,
-      scopeId: v.string(),
-      argsJson: v.string(),
-      expiresAt: v.number(),
-    }),
-  ),
+  proposal: v.optional(attentionProposal),
 });
 
 type ActiveGrant = Doc<"permissionGrants">;
@@ -151,13 +143,7 @@ export const overview = query({
         ...(proposal === undefined
           ? {}
           : {
-              proposal: {
-                commandName: proposal.commandName,
-                scopeType: proposal.scopeType,
-                scopeId: proposal.scopeId,
-                argsJson: proposal.argsJson,
-                expiresAt: proposal.expiresAt,
-              },
+              proposal,
             }),
       };
     });

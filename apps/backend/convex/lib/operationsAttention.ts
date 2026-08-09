@@ -15,27 +15,13 @@
  * and version. Nothing here holds authority.
  */
 
+import type { AttentionProposal } from "./operationsAttentionProposals";
 import type {
   AttentionDetectorKey,
   AttentionScopeType,
   AttentionSeverity,
   AttentionSubjectType,
 } from "../values";
-
-/**
- * A prefilled command. `argsJson` is the argument object the ordinary mutation
- * takes, minus the operation ID the confirming client mints. It carries the
- * target's current version so a stale proposal fails against current state the
- * same way a stale operator command does.
- */
-export type AttentionProposal = {
-  commandName: string;
-  permissionKey: string;
-  scopeType: AttentionScopeType;
-  scopeId: string;
-  argsJson: string;
-  expiresAt: number;
-};
 
 /** The grant that lets a caller see the item at all, checked on every read. */
 export type AttentionVisibility = {
@@ -81,9 +67,6 @@ export const severityRank: Record<AttentionSeverity, number> = {
  * already holds rather than from a counter this layer would have to keep.
  */
 export const attentionClearDelayMs = 90_000;
-
-/** How long a prefilled command stays offered before the desk must re-derive it. */
-export const attentionProposalLifetimeMs = 10 * 60 * 1_000;
 
 /**
  * A high-severity item suppresses the low-severity ones it causes.

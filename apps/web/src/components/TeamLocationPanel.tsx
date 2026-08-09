@@ -55,11 +55,11 @@ export function TeamLocationPanel() {
       <div>
         <p className="eyebrow">Team location</p>
         <h2 id="team-location-heading">
-          {floor.location ? `${floor.location.zoneName} · ${floor.location.spotLabel}` : 'Waiting to be mapped'}
+          {floor.location ? floor.location.description : 'Waiting to be mapped'}
         </h2>
         <p className="muted review-queue-copy">
           {floor.location
-            ? 'This is your recorded place in the hall. Ask floor staff to rescan your code if it is wrong.'
+            ? 'This is roughly where staff recorded your team. Ask floor staff to rescan your code if you have moved.'
             : 'When floor staff reach your team, open this code for them. Nothing is attached to the table.'}
         </p>
       </div>

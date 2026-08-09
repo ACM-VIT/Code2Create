@@ -34,8 +34,9 @@ import {
   type ReviewProjection,
   type TeamProjection,
 } from "./lib/operationsAttentionDetectors";
+import type { AttentionProposal } from "./lib/operationsAttentionProposals";
 import { findReviewParticipantAvailabilityWaiver } from "./lib/reviewParticipantAvailability";
-import type { AttentionDetectorKey } from "./values";
+import type { AttentionDetectorKey, StoredAttentionCommand } from "./values";
 
 /** Enough completed reviews for a median, and few enough to track the floor. */
 const paceSampleLimit = 9;
@@ -395,7 +396,6 @@ async function readRound(
   return {
     floor: {
       now,
-      eventSlug: event.slug,
       roundId: round._id,
       roundName: round.name,
       roundEndsAt: round.endsAt,
@@ -482,6 +482,69 @@ async function findVacantSeat(ctx: MutationCtx, panel: Doc<"reviewPanels">) {
   return latest?._id ?? null;
 }
 
+/**
+ * Turns a detector's proposal into the stored one.
+ *
+ * Detectors are pure functions over plain projections, so they carry ids as
+ * strings. `normalizeId` is the only cast-free way back to a typed document id,
+ * and a target that no longer parses means the row keeps its statement and
+ * loses the shortcut rather than offering a command that cannot run.
+ */
+/** The resolved proposal, or nothing when its target no longer parses. */
+function resolvedProposal(ctx: MutationCtx, proposal: AttentionProposal | undefined) {
+  if (proposal === undefined) return undefined;
+  return storedProposal(ctx, proposal) ?? undefined;
+}
+
+/** Spread form, so an absent proposal is an absent key under exactOptionalPropertyTypes. */
+function proposalFields(ctx: MutationCtx, proposal: AttentionProposal | undefined) {
+  const resolved = resolvedProposal(ctx, proposal);
+  return resolved === undefined ? {} : { proposal: resolved };
+}
+
+function storedProposal(
+  ctx: MutationCtx,
+  proposal: AttentionProposal,
+): { permissionKey: string; scopeType: AttentionProposal["scopeType"]; scopeId: string; expiresAt: number; command: StoredAttentionCommand } | null {
+  const command = proposal.command;
+  const stored = ((): StoredAttentionCommand | null => {
+    switch (command.name) {
+      case "reviewSubstitutions.startPageChain": {
+        const target = ctx.db.normalizeId("reviewPanelMembers", command.missingPanelMemberId);
+        return target === null ? null : { ...command, missingPanelMemberId: target };
+      }
+      case "reviewSubstitutions.markNoShow": {
+        const target = ctx.db.normalizeId("reviewPanelMembers", command.panelMemberId);
+        return target === null ? null : { ...command, panelMemberId: target };
+      }
+      case "reviewOperations.extendReview": {
+        const target = ctx.db.normalizeId("reviewSessions", command.reviewSessionId);
+        return target === null ? null : { ...command, reviewSessionId: target };
+      }
+      case "reviewExceptions.resumeTeam":
+      case "reviewExceptions.markMissed": {
+        const target = ctx.db.normalizeId("teamRoundStates", command.teamRoundStateId);
+        return target === null ? null : { ...command, teamRoundStateId: target };
+      }
+      case "reviewExceptions.moveQueuedTeam": {
+        const target = ctx.db.normalizeId("teamRoundStates", command.teamRoundStateId);
+        const panel = ctx.db.normalizeId("reviewPanels", command.targetPanelId);
+        return target === null || panel === null
+          ? null
+          : { ...command, teamRoundStateId: target, targetPanelId: panel };
+      }
+    }
+  })();
+  if (stored === null) return null;
+  return {
+    permissionKey: proposal.permissionKey,
+    scopeType: proposal.scopeType,
+    scopeId: proposal.scopeId,
+    expiresAt: proposal.expiresAt,
+    command: stored,
+  };
+}
+
 /* ------------------------------------------------------------------ *
  * Ledger reconciliation
  * ------------------------------------------------------------------ */
@@ -534,7 +597,7 @@ async function reconcile(
         actionLabel: detection.actionLabel,
         visibility: detection.visibility,
         evidenceJson: detection.evidenceJson,
-        proposal: detection.proposal,
+        proposal: resolvedProposal(ctx, detection.proposal),
         lastObservedAt: args.now,
         clearedSince: undefined,
         version: row.version + 1,
@@ -578,7 +641,7 @@ async function reconcile(
       actionLabel: detection.actionLabel,
       visibility: detection.visibility,
       evidenceJson: detection.evidenceJson,
-      ...(detection.proposal === undefined ? {} : { proposal: detection.proposal }),
+      ...proposalFields(ctx, detection.proposal),
       state: "open",
       recurrenceCount: previous === null ? 1 : previous.recurrenceCount + 1,
       firstObservedAt: args.now,

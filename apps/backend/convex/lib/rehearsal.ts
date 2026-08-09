@@ -100,7 +100,7 @@ export const releaseRehearsalTemplate = [
     "floor",
     "Two operators move the same team concurrently",
     "One versioned location change commits and the stale operator receives the current location.",
-    "Refresh the map, confirm the physical spot, and apply one reasoned correction if still needed.",
+    "Refresh the map, confirm where the team is actually sitting, and apply one reasoned correction if still needed.",
   ),
   scenario(
     11,

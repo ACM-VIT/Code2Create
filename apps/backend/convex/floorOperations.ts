@@ -2,10 +2,22 @@ import { ConvexError, v } from "convex/values";
 
 import { query } from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
-import { publishedFloorPlan, teamCanBeMapped } from "./lib/floor";
+import {
+  floorAreaLoad,
+  placedTeamsInZone,
+  publishedFloorPlan,
+  teamCanBeMapped,
+} from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds } from "./lib/permissions";
+import { floorActiveMappingState, floorArea } from "./values";
 
+/**
+ * The hall as operations sees it: one rectangle per zone, the landmarks that
+ * make it recognisable, a dot for every team currently sitting in it, and a
+ * count for each part of the room so a busy corner is visible before anyone
+ * walks into it.
+ */
 export const overview = query({
   args: { eventSlug: v.string() },
   returns: v.union(
@@ -15,12 +27,11 @@ export const overview = query({
         id: v.id("floorPlanVersions"),
         name: v.string(),
         planNumber: v.number(),
-        mappingState: v.union(v.literal("open"), v.literal("frozen")),
+        mappingState: floorActiveMappingState,
         version: v.number(),
       }),
       canSeeAll: v.boolean(),
       visibleMappedCount: v.number(),
-      visibleSpotCount: v.number(),
       eligibleTeamCount: v.optional(v.number()),
       unmappedTeams: v.optional(v.array(v.object({ id: v.id("teams"), name: v.string() }))),
       lastMappedAt: v.optional(v.number()),
@@ -28,24 +39,27 @@ export const overview = query({
         v.object({
           id: v.id("floorZones"),
           name: v.string(),
-          spots: v.array(
+          widthMeters: v.number(),
+          depthMeters: v.number(),
+          landmarks: v.array(
             v.object({
-              id: v.id("floorSpots"),
-              label: v.string(),
+              id: v.id("floorLandmarks"),
+              name: v.string(),
               x: v.number(),
               y: v.number(),
-              accessible: v.boolean(),
-              status: v.union(v.literal("available"), v.literal("closed")),
-              team: v.union(
-                v.null(),
-                v.object({
-                  id: v.id("teams"),
-                  name: v.string(),
-                  mappedAt: v.number(),
-                }),
-              ),
             }),
           ),
+          teams: v.array(
+            v.object({
+              teamId: v.id("teams"),
+              teamName: v.string(),
+              x: v.number(),
+              y: v.number(),
+              area: floorArea,
+              mappedAt: v.number(),
+            }),
+          ),
+          areas: v.array(v.object({ area: floorArea, teamCount: v.number() })),
         }),
       ),
     }),
@@ -83,9 +97,9 @@ export const overview = query({
     if (visibleZones.length === 0) {
       throw new ConvexError({ code: "ACCESS_DENIED", message: "This account cannot read a floor-plan zone." });
     }
-    const [spots, locations, teams] = await Promise.all([
+    const [landmarks, locations, teams] = await Promise.all([
       ctx.db
-        .query("floorSpots")
+        .query("floorLandmarks")
         .withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id))
         .collect(),
       ctx.db
@@ -98,9 +112,7 @@ export const overview = query({
         .collect(),
     ]);
     const visibleZoneIds = new Set(visibleZones.map((zone) => zone._id));
-    const visibleSpots = spots.filter((spot) => visibleZoneIds.has(spot.zoneId));
     const visibleLocations = locations.filter((location) => visibleZoneIds.has(location.zoneId));
-    const locationBySpot = new Map(visibleLocations.map((location) => [location.spotId, location]));
     const teamById = new Map(teams.map((team) => [team._id, team]));
     const eligibleTeams = teams.filter((team) => teamCanBeMapped(team.status));
     const mappedTeamIds = new Set(locations.map((location) => location.teamId));
@@ -115,7 +127,6 @@ export const overview = query({
       },
       canSeeAll,
       visibleMappedCount: visibleLocations.length,
-      visibleSpotCount: visibleSpots.filter((spot) => spot.status === "available").length,
       ...(canSeeAll
         ? {
             eligibleTeamCount: eligibleTeams.length,
@@ -127,28 +138,25 @@ export const overview = query({
       ...(visibleLocations.length > 0
         ? { lastMappedAt: Math.max(...visibleLocations.map((location) => location.mappedAt)) }
         : {}),
-      zones: visibleZones.map((zone) => ({
-        id: zone._id,
-        name: zone.name,
-        spots: visibleSpots
-          .filter((spot) => spot.zoneId === zone._id)
-          .map((spot) => {
-            const location = locationBySpot.get(spot._id);
-            const team = location ? teamById.get(location.teamId) : undefined;
-            return {
-              id: spot._id,
-              label: spot.label,
-              x: spot.x,
-              y: spot.y,
-              accessible: spot.accessible,
-              status: spot.status,
-              team:
-                location && team
-                  ? { id: team._id, name: team.name, mappedAt: location.mappedAt }
-                  : null,
-            };
-          }),
-      })),
+      zones: visibleZones.map((zone) => {
+        const placed = placedTeamsInZone(visibleLocations, teamById, zone._id);
+        return {
+          id: zone._id,
+          name: zone.name,
+          widthMeters: zone.widthMeters,
+          depthMeters: zone.depthMeters,
+          landmarks: landmarks
+            .filter((landmark) => landmark.zoneId === zone._id)
+            .map((landmark) => ({
+              id: landmark._id,
+              name: landmark.name,
+              x: landmark.x,
+              y: landmark.y,
+            })),
+          teams: placed,
+          areas: floorAreaLoad(placed),
+        };
+      }),
     };
   },
 });

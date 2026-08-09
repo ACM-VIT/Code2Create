@@ -669,7 +669,63 @@ export const attentionScopeType = v.union(
   v.literal("person"),
 );
 
+/**
+ * The closed set of commands an attention item may propose, with the exact
+ * arguments the ordinary mutation takes and the target version that makes a
+ * stale proposal fail like any stale operator command. `eventSlug` and
+ * `clientOperationId` are absent because the confirming client owns both.
+ */
+export const attentionCommand = v.union(
+  v.object({
+    name: v.literal("reviewSubstitutions.startPageChain"),
+    missingPanelMemberId: v.id("reviewPanelMembers"),
+    expectedPanelVersion: v.number(),
+    reason: v.string(),
+  }),
+  v.object({
+    name: v.literal("reviewSubstitutions.markNoShow"),
+    panelMemberId: v.id("reviewPanelMembers"),
+    expectedPanelVersion: v.number(),
+    expectedClockInVersion: v.number(),
+    reason: v.string(),
+  }),
+  v.object({
+    name: v.literal("reviewOperations.extendReview"),
+    reviewSessionId: v.id("reviewSessions"),
+    expectedVersion: v.number(),
+    reason: v.string(),
+  }),
+  v.object({
+    name: v.literal("reviewExceptions.resumeTeam"),
+    teamRoundStateId: v.id("teamRoundStates"),
+    expectedVersion: v.number(),
+    reason: v.string(),
+  }),
+  v.object({
+    name: v.literal("reviewExceptions.markMissed"),
+    teamRoundStateId: v.id("teamRoundStates"),
+    expectedVersion: v.number(),
+    reason: v.string(),
+  }),
+  v.object({
+    name: v.literal("reviewExceptions.moveQueuedTeam"),
+    teamRoundStateId: v.id("teamRoundStates"),
+    targetPanelId: v.id("reviewPanels"),
+    expectedVersion: v.number(),
+    reason: v.string(),
+  }),
+);
+
+export const attentionProposal = v.object({
+  permissionKey: v.string(),
+  scopeType: attentionScopeType,
+  scopeId: v.string(),
+  expiresAt: v.number(),
+  command: attentionCommand,
+});
+
 export type AttentionSeverity = Infer<typeof attentionSeverity>;
+export type StoredAttentionCommand = Infer<typeof attentionCommand>;
 export type AttentionDetectorKey = Infer<typeof attentionDetectorKey>;
 export type AttentionSubjectType = Infer<typeof attentionSubjectType>;
 export type AttentionItemState = Infer<typeof attentionItemState>;

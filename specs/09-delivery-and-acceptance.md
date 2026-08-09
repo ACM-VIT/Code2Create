@@ -359,7 +359,7 @@ Current review-availability milestone:
 
 Deliver:
 
-- published zone/spot hall plan from bounded CSV;
+- published zone/landmark hall plan from bounded CSV;
 - participant-dashboard hall-location QR and fallback code, with no physical table QR;
 - zone-scoped floor mapper mode in the event app;
 - realtime operations map, mapped/unmapped counts, and participant location;
@@ -375,7 +375,7 @@ Deliver:
 - bounded operations support queue with exact-case/event read, separate manage authority, append-only public/internal timeline, optimistic state changes, and owner routing that grants no authority;
 - protected overrides and audit.
 
-Exit when two concurrent attempts cannot map two teams to one spot. The attempts must not overwrite a changed team location. Both sides must enforce cross-zone authority. Freeze must reject an unmapped accepted team. A used or expired code must not map again. The participant, mapper, and operations map must converge without refresh. The queue estimate must use the configured pace until enough valid panel samples exist.
+Exit when two concurrent attempts to move one team cannot overwrite each other's changed team location. Two teams recorded beside each other must both be accepted, because nothing in the hall is exclusive. Both sides must enforce cross-zone authority. Freeze must reject an unmapped accepted team. A used or expired code must not map again. The participant, mapper, and operations map must converge without refresh. The queue estimate must use the configured pace until enough valid panel samples exist.
 
 Exit after a dry run with at least five panels where staff handle a no-show, stale push, wrong table, expired QR, overrun, and simultaneous operator conflict.
 

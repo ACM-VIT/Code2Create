@@ -6,6 +6,7 @@ import { requireEventBySlug } from "./lib/events";
 import {
   activeTeamFloorLocation,
   currentTeamForMembership,
+  describeTeamFloorLocation,
   floorDigest,
   publishedFloorPlan,
   randomFloorManualCode,
@@ -19,6 +20,7 @@ import {
   requireMembership,
 } from "./lib/identity";
 import { requirePermission } from "./lib/permissions";
+import { floorActiveMappingState, floorArea } from "./values";
 
 export const current = query({
   args: { eventSlug: v.string() },
@@ -28,17 +30,17 @@ export const current = query({
       teamId: v.id("teams"),
       teamName: v.string(),
       planName: v.string(),
-      mappingState: v.union(v.literal("open"), v.literal("frozen")),
+      mappingState: floorActiveMappingState,
       canMintQr: v.boolean(),
       location: v.union(
         v.null(),
         v.object({
           id: v.id("teamFloorLocations"),
           zoneName: v.string(),
-          spotLabel: v.string(),
+          area: floorArea,
+          description: v.string(),
           x: v.number(),
           y: v.number(),
-          accessible: v.boolean(),
           mappedAt: v.number(),
         }),
       ),
@@ -69,10 +71,8 @@ export const current = query({
     if (location && location.planVersionId !== plan._id) {
       throw new Error("The active team location belongs to a different floor plan.");
     }
-    const [zone, spot] = location
-      ? await Promise.all([ctx.db.get(location.zoneId), ctx.db.get(location.spotId)])
-      : [null, null];
-    if (location && (!zone || !spot || zone.eventId !== event._id || spot.eventId !== event._id)) {
+    const described = location ? await describeTeamFloorLocation(ctx, location) : null;
+    if (described && described.zone.eventId !== event._id) {
       throw new Error("The active team location is incomplete.");
     }
     return {
@@ -82,14 +82,14 @@ export const current = query({
       mappingState: plan.mappingState,
       canMintQr: true,
       location:
-        location && zone && spot
+        location && described
           ? {
               id: location._id,
-              zoneName: zone.name,
-              spotLabel: spot.label,
-              x: spot.x,
-              y: spot.y,
-              accessible: spot.accessible,
+              zoneName: described.zone.name,
+              area: location.area,
+              description: described.description,
+              x: location.x,
+              y: location.y,
               mappedAt: location.mappedAt,
             }
           : null,

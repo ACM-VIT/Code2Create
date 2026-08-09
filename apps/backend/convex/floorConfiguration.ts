@@ -1,11 +1,12 @@
 import { ConvexError, v } from "convex/values";
 
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import {
   floorConfigurationChecksum,
+  floorCoordinate,
   floorStableKey,
   teamCanBeMapped,
 } from "./lib/floor";
@@ -14,33 +15,41 @@ import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { normalizedText } from "./lib/strings";
+import { floorMappingState, floorPlanStatus } from "./values";
+
+/**
+ * A published plan is no longer a seating chart. The tables in this hall are
+ * dragged around by the people using them and carry no numbers, so a plan of
+ * addressable spots would be a list of places nobody can point at. What the
+ * plan publishes instead is the shape of each zone and the fixed things inside
+ * it, which is all a mapper needs to align a drawn rectangle with the room.
+ */
+const landmarkInput = v.object({
+  stableKey: v.string(),
+  name: v.string(),
+  x: v.number(),
+  y: v.number(),
+  displayOrder: v.number(),
+});
 
 const zoneInput = v.object({
   stableKey: v.string(),
   name: v.string(),
+  widthMeters: v.number(),
+  depthMeters: v.number(),
   displayOrder: v.number(),
-});
-
-const spotInput = v.object({
-  stableKey: v.string(),
-  zoneKey: v.string(),
-  label: v.string(),
-  x: v.number(),
-  y: v.number(),
-  accessible: v.boolean(),
-  status: v.union(v.literal("available"), v.literal("closed")),
-  displayOrder: v.number(),
+  landmarks: v.array(landmarkInput),
 });
 
 const planSummary = v.object({
   id: v.id("floorPlanVersions"),
   planNumber: v.number(),
   name: v.string(),
-  status: v.string(),
-  mappingState: v.string(),
+  status: floorPlanStatus,
+  mappingState: floorMappingState,
   version: v.number(),
   zoneCount: v.number(),
-  spotCount: v.number(),
+  landmarkCount: v.number(),
   publishedAt: v.optional(v.number()),
 });
 
@@ -142,7 +151,6 @@ export const createDraft = mutation({
     eventSlug: v.string(),
     name: v.string(),
     zones: v.array(zoneInput),
-    spots: v.array(spotInput),
     expectedEventVersion: v.number(),
     reason: v.string(),
     clientOperationId: v.string(),
@@ -158,7 +166,7 @@ export const createDraft = mutation({
     const requestFingerprint = operationFingerprint([
       args.expectedEventVersion,
       args.reason,
-      JSON.stringify({ name: args.name, zones: args.zones, spots: args.spots }),
+      JSON.stringify({ name: args.name, zones: args.zones }),
     ]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
@@ -185,33 +193,22 @@ export const createDraft = mutation({
     if (args.zones.length < 1 || args.zones.length > 30) {
       throw new ConvexError({ code: "INVALID_FLOOR_PLAN", message: "Use between one and 30 hall zones." });
     }
-    if (args.spots.length < 1 || args.spots.length > 500) {
-      throw new ConvexError({ code: "INVALID_FLOOR_PLAN", message: "Use between one and 500 team spots." });
-    }
     const zones = args.zones.map((zone) => ({
       stableKey: floorStableKey(zone.stableKey, "Zone key"),
       name: normalizedText(zone.name, "Zone name", 1, 80),
+      widthMeters: zoneSide(zone.widthMeters, "Zone width"),
+      depthMeters: zoneSide(zone.depthMeters, "Zone depth"),
       displayOrder: requiredOrder(zone.displayOrder, "Zone order"),
-    }));
-    const spots = args.spots.map((spot) => ({
-      stableKey: floorStableKey(spot.stableKey, "Spot key"),
-      zoneKey: floorStableKey(spot.zoneKey, "Spot zone key"),
-      label: normalizedText(spot.label, "Spot label", 1, 40),
-      x: coordinate(spot.x, "Spot x coordinate"),
-      y: coordinate(spot.y, "Spot y coordinate"),
-      accessible: spot.accessible,
-      status: spot.status,
-      displayOrder: requiredOrder(spot.displayOrder, "Spot order"),
+      // A mapper holding a plain rectangle cannot tell which way it faces, so
+      // a zone without a landmark is a zone nobody can map into.
+      landmarks: requireLandmarks(zone.landmarks, zone.name),
     }));
     requireUnique(zones.map((zone) => zone.stableKey), "Zone keys");
     requireUnique(zones.map((zone) => zone.displayOrder), "Zone orders");
-    requireUnique(spots.map((spot) => spot.stableKey), "Spot keys");
-    requireUnique(spots.map((spot) => spot.label.toLocaleLowerCase("en-IN")), "Spot labels");
-    requireUnique(spots.map((spot) => `${spot.x}:${spot.y}`), "Spot coordinates");
-    const zoneKeys = new Set(zones.map((zone) => zone.stableKey));
-    if (spots.some((spot) => !zoneKeys.has(spot.zoneKey))) {
-      throw new ConvexError({ code: "UNKNOWN_FLOOR_ZONE", message: "Every spot must reference a zone in this plan." });
-    }
+    requireUnique(
+      zones.flatMap((zone) => zone.landmarks.map((landmark) => landmark.stableKey)),
+      "Landmark keys",
+    );
 
     const priorDraft = await ctx.db
       .query("floorPlanVersions")
@@ -232,37 +229,37 @@ export const createDraft = mutation({
       name,
       status: "draft",
       mappingState: "setup",
-      checksum: floorConfigurationChecksum({ name, zones, spots }),
+      checksum: floorConfigurationChecksum({ name, zones }),
       version: 1,
       createdByPersonId: person._id,
       createdAt: now,
     });
-    const zoneIds = new Map<string, Id<"floorZones">>();
+    let landmarkCount = 0;
     for (const zone of zones) {
       const zoneId = await ctx.db.insert("floorZones", {
         eventId: event._id,
         planVersionId,
-        ...zone,
+        stableKey: zone.stableKey,
+        name: zone.name,
+        widthMeters: zone.widthMeters,
+        depthMeters: zone.depthMeters,
+        displayOrder: zone.displayOrder,
         createdAt: now,
       });
-      zoneIds.set(zone.stableKey, zoneId);
-    }
-    for (const spot of spots) {
-      const zoneId = zoneIds.get(spot.zoneKey);
-      if (!zoneId) throw new Error("Validated floor zone is missing.");
-      await ctx.db.insert("floorSpots", {
-        eventId: event._id,
-        planVersionId,
-        zoneId,
-        stableKey: spot.stableKey,
-        label: spot.label,
-        x: spot.x,
-        y: spot.y,
-        accessible: spot.accessible,
-        status: spot.status,
-        displayOrder: spot.displayOrder,
-        createdAt: now,
-      });
+      for (const landmark of zone.landmarks) {
+        await ctx.db.insert("floorLandmarks", {
+          eventId: event._id,
+          planVersionId,
+          zoneId,
+          stableKey: landmark.stableKey,
+          name: landmark.name,
+          x: landmark.x,
+          y: landmark.y,
+          displayOrder: landmark.displayOrder,
+          createdAt: now,
+        });
+        landmarkCount += 1;
+      }
     }
     const eventVersion = event.version + 1;
     await ctx.db.patch(event._id, { version: eventVersion, updatedAt: now });
@@ -285,7 +282,7 @@ export const createDraft = mutation({
       action: "floor.plan_draft_created",
       targetType: "floor_plan",
       targetId: planVersionId,
-      nextSummary: JSON.stringify({ planNumber, zoneCount: zones.length, spotCount: spots.length }),
+      nextSummary: JSON.stringify({ planNumber, zoneCount: zones.length, landmarkCount }),
       reason: normalizedText(args.reason, "Reason", 5, 300),
     });
     return { planVersionId, planNumber, eventVersion };
@@ -339,12 +336,12 @@ export const publish = mutation({
       scopeType: "floor_plan",
       scopeId: plan._id,
     });
-    const [zones, spots] = await Promise.all([
-      ctx.db.query("floorZones").withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id)).collect(),
-      ctx.db.query("floorSpots").withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id)).collect(),
-    ]);
-    if (zones.length === 0 || spots.length === 0) {
-      throw new ConvexError({ code: "FLOOR_PLAN_INCOMPLETE", message: "The floor plan needs at least one zone and spot." });
+    const zones = await ctx.db
+      .query("floorZones")
+      .withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id))
+      .collect();
+    if (zones.length === 0) {
+      throw new ConvexError({ code: "FLOOR_PLAN_INCOMPLETE", message: "The floor plan needs at least one zone." });
     }
     const previousPublished = event.publishedFloorPlanVersionId
       ? await ctx.db.get(event.publishedFloorPlanVersionId)
@@ -515,13 +512,13 @@ async function summarizePlan(
   ctx: QueryCtx,
   plan: Doc<"floorPlanVersions">,
 ) {
-  const [zones, spots] = await Promise.all([
+  const [zones, landmarks] = await Promise.all([
     ctx.db
       .query("floorZones")
       .withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id))
       .collect(),
     ctx.db
-      .query("floorSpots")
+      .query("floorLandmarks")
       .withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id))
       .collect(),
   ]);
@@ -533,7 +530,7 @@ async function summarizePlan(
     mappingState: plan.mappingState,
     version: plan.version,
     zoneCount: zones.length,
-    spotCount: spots.length,
+    landmarkCount: landmarks.length,
     ...(plan.publishedAt !== undefined ? { publishedAt: plan.publishedAt } : {}),
   };
 }
@@ -545,11 +542,37 @@ function requiredOrder(value: number, label: string) {
   return value;
 }
 
-function coordinate(value: number, label: string) {
-  if (!Number.isFinite(value) || value < 0 || value > 100) {
-    throw new ConvexError({ code: "INVALID_COORDINATE", message: `${label} must be from 0 through 100.` });
+/** A hall side in metres, paced out rather than surveyed. */
+function zoneSide(value: number, label: string) {
+  if (!Number.isFinite(value) || value < 2 || value > 300) {
+    throw new ConvexError({
+      code: "INVALID_ZONE_SIZE",
+      message: `${label} must be from 2 through 300 metres.`,
+    });
   }
-  return Math.round(value * 100) / 100;
+  return Math.round(value * 10) / 10;
+}
+
+function requireLandmarks(
+  landmarks: readonly { stableKey: string; name: string; x: number; y: number; displayOrder: number }[],
+  zoneName: string,
+) {
+  if (landmarks.length < 1 || landmarks.length > 12) {
+    throw new ConvexError({
+      code: "INVALID_FLOOR_ZONE",
+      message: `${zoneName} needs between one and 12 landmarks so floor staff can tell which way the zone faces.`,
+    });
+  }
+  const checked = landmarks.map((landmark) => ({
+    stableKey: floorStableKey(landmark.stableKey, "Landmark key"),
+    name: normalizedText(landmark.name, "Landmark name", 1, 40),
+    x: floorCoordinate(landmark.x, "Landmark x coordinate"),
+    y: floorCoordinate(landmark.y, "Landmark y coordinate"),
+    displayOrder: requiredOrder(landmark.displayOrder, "Landmark order"),
+  }));
+  requireUnique(checked.map((landmark) => landmark.name.toLocaleLowerCase("en-IN")), "Landmark names");
+  requireUnique(checked.map((landmark) => landmark.displayOrder), "Landmark orders");
+  return checked;
 }
 
 function requireUnique(values: readonly (string | number)[], label: string) {

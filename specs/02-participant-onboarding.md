@@ -471,15 +471,15 @@ A team becomes eligible for staff review routing after the server verifies:
 - required disclosures are complete;
 - any mandatory integration or alternative evidence is present.
 
-The participant dashboard shows the team's current hall zone and spot after mapping. Participants cannot assign, confirm, or move it themselves. If it is wrong, they show a fresh hall-location code to an authorized floor mapper, who corrects it from the physical location. Mapping starts roughly 90 minutes before a review window and is frozen 30–60 minutes before routing, subject to the final schedule.
+The participant dashboard shows roughly where in the hall staff recorded the team — the part of the zone it is in and the nearest published landmark. Participants cannot assign, confirm, or move it themselves. If it is wrong or the team has moved, they show a fresh hall-location code to an authorized floor mapper, who corrects it while standing with them. Mapping starts roughly 90 minutes before a review window and is frozen 30–60 minutes before routing, subject to the final schedule.
 
 ## 10. Team codes
 
 ### Hall-location QR
 
-A confirmed team can open a short-lived hall-location QR from its dashboard. Roving floor staff scan this code while standing with the team, then tap the team's real spot in the event app. The QR is on the team's screen; the event does not print or attach QR stickers to tables.
+A confirmed team can open a short-lived hall-location QR from its dashboard. Roving floor staff scan this code while standing with the team, then touch the drawn zone rectangle where the team is sitting. The QR is on the team's screen; the event does not print or attach QR stickers to tables.
 
-The opaque code is bound to the event, published floor-plan version, team, token version, and ten-minute expiry. A short manual code is available when the camera cannot read the screen. Scanning consumes the token and creates a three-minute claim owned by that exact operator and destination zone. Saving the location rechecks the plan, team, spot, current assignment version, token claim, and exact zone grant in one transaction.
+The opaque code is bound to the event, published floor-plan version, team, token version, and ten-minute expiry. A short manual code is available when the camera cannot read the screen. Scanning consumes the token and creates a three-minute claim owned by that exact operator and destination zone. Saving the location rechecks the plan, team, current location version, token claim, and exact zone grant in one transaction.
 
 Before freeze, `floor.location.map` for the destination zone is required; moving a team across zones also requires the same key for the origin zone. After freeze, the ordinary command stops working. A correction requires `floor.location.override` for every affected zone and a reason. The participant sees the result live but receives no location-write command.
 

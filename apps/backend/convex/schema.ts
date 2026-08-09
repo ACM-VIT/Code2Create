@@ -12,6 +12,7 @@ import {
   attendanceCredentialKind,
   attentionDetectorKey,
   attentionItemState,
+  attentionProposal,
   attentionScopeType,
   attentionSeverity,
   attentionSubjectType,
@@ -4323,16 +4324,7 @@ export default defineSchema({
      * the normal mutation, which rechecks the confirming human's grant, fresh
      * session, target version, reason, and operation ID.
      */
-    proposal: v.optional(
-      v.object({
-        commandName: v.string(),
-        permissionKey: v.string(),
-        scopeType: attentionScopeType,
-        scopeId: v.string(),
-        argsJson: v.string(),
-        expiresAt: v.number(),
-      }),
-    ),
+    proposal: v.optional(attentionProposal),
     state: attentionItemState,
     /** 1 the first time, 2 the second time the same condition comes back. */
     recurrenceCount: v.number(),

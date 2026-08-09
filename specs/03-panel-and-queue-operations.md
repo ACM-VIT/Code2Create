@@ -2,7 +2,7 @@
 
 ## 1. Operating model
 
-A panel is a group of reviewers assigned to one or more venue tables for a round. A queue contains teams that the panel can review.
+A panel is a group of reviewers who walk to the teams they review for a round. A queue contains teams that the panel can review.
 
 In the judging documents, “reviewer” normally means a person rostered as External Judge, but authorization comes from the panel/review permission grants. Any event-linked person with the same exact assignment grants can judge regardless of role. Panel coordinator is a per-panel assignment, not another role.
 
@@ -69,7 +69,7 @@ The routing function first removes ineligible panels:
 - panel unavailable or paused;
 - no required criterion coverage;
 - team already reviewed by the panel when policy forbids continuity;
-- table or venue zone unavailable;
+- venue zone unavailable;
 - panel at its capacity limit.
 
 It then ranks eligible panels using:
@@ -78,7 +78,7 @@ It then ranks eligible panels using:
 2. rubric coverage;
 3. current queue length and observed review pace;
 4. continuity or rotation policy for the round;
-5. venue distance from the panel's current position to the team's mapped hall spot;
+5. venue distance from the panel's current position to the team's recorded hall position;
 6. number of recent manual exceptions.
 
 The ranker is deterministic code with a recorded rules version. It does not call a language model.
@@ -89,30 +89,35 @@ Operations can auto-accept the top result for ordinary teams during a configured
 
 ## 5. Hall mapping
 
-A panel has no table. A panel is a group of reviewers who walk to whichever team they are reviewing, so the only location in a review is the team's own. Two records describe it. A `teamFloorLocation` is where the team is seated in the hall, recorded by roving floor staff and used for routing. `teamRoundStates.tableLabel` is the label of that spot captured for the round, and it is what a called reviewer is told to walk to.
+A panel has no table. A panel is a group of reviewers who walk to whichever team they are reviewing, so the only location in a review is the team's own. Two records describe it. A `teamFloorLocation` is roughly where the team is sitting in the hall, recorded by roving floor staff and used for routing. `teamRoundStates.tableLabel` is that place written out for the round, and it is what a called reviewer is told to walk to.
 
-Operations publishes a versioned hall plan from a checked CSV of zones and spots. Each spot has one stable key, human label, zone, percentage coordinates for the simple map, accessibility flag, and open/closed state. The plan remains replaceable only until the first team location is saved.
+The hall has no addressable seats. Tables are dragged around by the people using them, are not numbered, and nobody can be asked to identify "E-03" while standing in the middle of a room of nine hundred people. So a team's location is not a claim on a spot. It is a point in a zone's rectangle, recorded as percentages across and along that rectangle, together with the part of the zone that point falls in.
+
+Each zone is divided into the same nine parts — the four corners, the four sides, and the middle — named by compass direction on a plan drawn with hall north at the top. Nine names is the whole vocabulary, because "which part of the room" is the finest thing a roving mapper can honestly record and the coarsest thing a reviewer can be sent to. The recorded point is drawn as a dot; the area name is what gets said out loud.
+
+Operations publishes a versioned hall plan from a checked CSV of zones and landmarks. A zone has a stable key, a name, and its width and depth in paced metres, which is what lets a phone draw the room in the shape it really is. A landmark is a fixed thing inside a zone — the stage, the windows, the food counter, the main entrance — with a name and a position. Every zone needs at least one, because a mapper holding a blank rectangle cannot tell which way it faces. Nothing in the plan is a table. The plan remains replaceable only until the first team location is saved.
 
 Roving floor staff record locations roughly 90 minutes before the review window:
 
 1. the mapper selects one zone covered by their exact grant;
 2. the team opens the hall-location QR on its own dashboard;
 3. the mapper scans it while standing with the team;
-4. the app shows the team and any current location;
-5. the mapper taps the physical spot and waits for server confirmation.
+4. the app shows the team, any current location, and every other team already placed in that zone;
+5. the mapper touches the drawn rectangle where the team is sitting and waits for server confirmation.
 
-No QR is attached to a table. The team credential identifies the team. The mapper identifies the spot from the published plan. The scan consumes one short-lived token and creates an operator-owned claim before the spot write. The server serializes replay, two mappers scanning one code, two teams claiming one spot, and two claims for one team. These actions cannot overwrite each other.
+No QR is attached to a table. The team credential identifies the team. The mapper says where in the room the team is. The scan consumes one short-lived token and creates an operator-owned claim before the location write. The server serializes replay, two mappers scanning one code, and two claims for one team. Two teams sitting beside each other is an ordinary reading and not a conflict: nothing in the model is exclusive, so no mapper is ever told a place is taken.
+
+The description a reviewer receives names the area and, when the team is within a few paces of a published landmark, that landmark — "North-east corner of East wing, near the windows". A team standing away from everything gets the area alone. The server never invents a nearer landmark than the one that is there.
 
 Operations freezes the hall map 30–60 minutes before routing. The server rejects the freeze until every currently confirmed/checked-in/active team has one location. A selected or offer-pending team is not yet mapping-eligible. A later physical correction requires the separate override permission for every affected zone and a reason. The correction supersedes history. It does not edit history.
 
 Before freeze, the dashboard lists:
 
-- unassigned teams;
-- occupied or closed spots;
-- inaccessible placements that need correction;
-- zone capacity.
+- teams nobody has located yet;
+- every recorded team position drawn on its zone's rectangle;
+- how many teams are in each part of each zone, so a crowded corner is visible before anyone walks into it.
 
-The official hall spot comes from the server. Participants may show a fresh code for correction but cannot silently change the record.
+The official hall location comes from the server. Participants may show a fresh code for correction but cannot silently change the record.
 
 ## 6. Reviewer clock-in
 
@@ -185,7 +190,7 @@ Routing and conflict constraints may create different visible queues per panel. 
 Participants see:
 
 - current state;
-- assigned table when safe to show;
+- recorded place in the hall when safe to show;
 - their current ordinal and the ordinal now being called;
 - number of teams ahead;
 - a coarse time window;
@@ -196,7 +201,7 @@ The server derives the ordinal from the current eligible queue. It can change af
 
 ### Calling a team
 
-The panel or operations user calls the next eligible team. The server records `calledAt` and the expected table.
+The panel or operations user calls the next eligible team. The server records `calledAt` and where in the hall the team was last recorded.
 
 The live board shows each team's active-member count, currently-inside count, and the round minimum. Before calling, the server reads those current participant venue projections in the same transaction as the queue transition. A team below the published minimum remains queued; the failed call creates no review, assignment, scorecard, or evidence checkpoint. One temporarily out member does not automatically mark the team missed or remove its queue time. Operations can wait or apply the separately authorized hold flow.
 
@@ -218,7 +223,7 @@ The server checks:
 
 - token signature, event, round, team, and expiry;
 - reviewer is an active member of the assigned panel;
-- team is called or at the expected table;
+- team is called or has met the panel;
 - no conflict appeared after assignment;
 - reviewer has not already scanned for that session.
 
@@ -232,7 +237,7 @@ The server starts a review only when:
 
 - round is open;
 - no active round-wide incident pause exists;
-- team, panel, assignment, and table are current;
+- team, panel, assignment, and recorded hall location are current;
 - no other active review exists for the team or panel;
 - required reviewer presence is complete or a valid scoped presence waiver exists;
 - the current configured minimum participant availability is met in the transactionally maintained team projection, or an immutable `review.participant_availability.waive` record exists for this review;

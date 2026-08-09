@@ -207,7 +207,7 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
             <SetupRow
               detail={floor
                 ? floor.publishedPlan
-                  ? `${floor.publishedPlan.zoneCount} zones · ${floor.publishedPlan.spotCount} team spots`
+                  ? `${floor.publishedPlan.zoneCount} zones · ${floor.publishedPlan.landmarkCount} landmarks`
                   : 'No hall layout is published'
                 : 'Loading the hall layout…'}
               label="Hall layout"
