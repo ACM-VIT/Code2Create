@@ -46,14 +46,13 @@ test("a healthy floor produces no rows", () => {
   assert.deepEqual(reviewAttentionRows(board({ teams: [team()] })), []);
 });
 
-test("an empty panel seat names the panel and its table", () => {
+test("an empty panel seat names the panel", () => {
   const rows = reviewAttentionRows(
     board({
       panels: [
         {
           id: "p1",
           name: "Panel D",
-          tableLabel: "Table 4",
           status: "needs_reviewer",
           reviewers: [
             { displayName: "Asha", clockInStatus: "present" },
@@ -64,7 +63,7 @@ test("an empty panel seat names the panel and its table", () => {
     }),
   );
   assert.equal(rows.length, 1);
-  assert.equal(rows[0]?.subject, "Panel D · Table 4");
+  assert.equal(rows[0]?.subject, "Panel D");
   assert.equal(rows[0]?.severity, "critical");
   assert.match(rows[0]?.statement ?? "", /One seat/);
   assert.equal(rows[0]?.route, "/reviews/round1");
@@ -77,7 +76,6 @@ test("a reviewer who is clocked in but away still leaves the seat empty", () => 
         {
           id: "p1",
           name: "Panel A",
-          tableLabel: "Table 1",
           status: "ready",
           reviewers: [
             { displayName: "Asha", clockInStatus: "present" },
@@ -89,7 +87,7 @@ test("a reviewer who is clocked in but away still leaves the seat empty", () => 
     }),
   );
   assert.equal(rows.length, 1);
-  assert.equal(rows[0]?.subject, "Panel A · Table 1");
+  assert.equal(rows[0]?.subject, "Panel A");
 });
 
 test("an overdue review is critical and carries the time it should have ended", () => {

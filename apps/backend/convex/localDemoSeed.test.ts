@@ -111,14 +111,21 @@ test("teams are in the hall, and exactly one is held below the round minimum", a
       .collect();
     expect(availability.length).toBeGreaterThan(0);
 
-    const shortHanded = availability.filter(
+    // A team that has not taken a place is not in the hall at all, which is a
+    // different case from a confirmed team that is only partly present.
+    const arrived = availability.filter((row) => row.insideMemberCount > 0);
+    const absent = availability.filter((row) => row.insideMemberCount === 0);
+    expect(absent.length).toBeGreaterThan(0);
+
+    const shortHanded = arrived.filter(
       (row) => row.insideMemberCount < row.activeMemberCount,
     );
     expect(shortHanded.length).toBe(1);
     expect(shortHanded[0]?.insideMemberCount).toBe(1);
 
-    // Everyone else is fully present, so the desk can call them without a waiver.
-    for (const row of availability) {
+    // Every other arrived team is fully present, so the desk can call them
+    // without a waiver.
+    for (const row of arrived) {
       if (row === shortHanded[0]) continue;
       expect(row.insideMemberCount).toBe(row.activeMemberCount);
     }
@@ -146,4 +153,41 @@ test("running the demo seed twice changes nothing", async () => {
 
   // The sentinel guard in each step is what makes `pnpm dev` safe to re-run.
   expect(await countRows()).toEqual(before);
+}, seedTestTimeoutMs);
+
+test("applications sit across the stages the admissions workspace groups by", async () => {
+  const backend = seededBackend();
+  await seedBoth(backend);
+
+  await backend.run(async (ctx) => {
+    const event = await ctx.db
+      .query("events")
+      .withIndex("by_slug", (index) => index.eq("slug", "code2create-7"))
+      .unique();
+    if (!event) throw new Error("The seeded event is missing.");
+
+    const applications = await ctx.db
+      .query("applications")
+      .withIndex("by_event_state_submitted", (index) => index.eq("eventId", event._id))
+      .collect();
+    const states = new Set(applications.map((application) => application.state));
+
+    // Seeding every application as confirmed left the review form, the decision
+    // form and the recommendation panel unreachable, because all three are
+    // hidden once an application reaches its terminal state.
+    for (const state of ["submitted", "under_review", "accepted", "declined", "confirmed"]) {
+      expect(states).toContain(state);
+    }
+
+    // An undecided application carries no decision, so the decision form has
+    // something to do.
+    const undecided = applications.filter(
+      (application) => application.state === "submitted" || application.state === "under_review",
+    );
+    expect(undecided.length).toBeGreaterThan(0);
+    for (const application of undecided) {
+      expect(application.humanDecision).toBeUndefined();
+      expect(application.decidedAt).toBeUndefined();
+    }
+  });
 }, seedTestTimeoutMs);

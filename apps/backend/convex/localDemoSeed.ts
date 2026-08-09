@@ -224,14 +224,37 @@ const demoRubricCriteria = [
 ] as const;
 
 const demoPanels = [
-  { stableKey: "panel_a", name: "Panel A", tableLabel: "Table 1", memberCount: 3 },
-  { stableKey: "panel_b", name: "Panel B", tableLabel: "Table 2", memberCount: 3 },
-  { stableKey: "panel_c", name: "Panel C", tableLabel: "Table 3", memberCount: 3 },
-  { stableKey: "panel_d", name: "Panel D", tableLabel: "Table 4", memberCount: 2 },
+  { stableKey: "panel_a", name: "Panel A", memberCount: 3 },
+  { stableKey: "panel_b", name: "Panel B", memberCount: 3 },
+  { stableKey: "panel_c", name: "Panel C", memberCount: 3 },
+  { stableKey: "panel_d", name: "Panel D", memberCount: 2 },
 ] as const;
 
 /** Index into `demoTeams` of the team held below the round's participant minimum. */
 const shortHandedDemoTeamIndex = 10;
+
+/**
+ * The admissions workspace groups applications by stage. Seeding every team as
+ * `confirmed` left the review form, the decision form and the recommendation
+ * panel unreachable in a running local stack, because all of them are hidden
+ * once an application reaches its terminal state.
+ *
+ * These four stages need no rows outside `applications`. The remaining stages
+ * the workspace groups by do: `needs_information` wants an information request
+ * and `offer_sent` / `offer_expired` want an offer, so they are not seeded here.
+ */
+type DemoAdmission =
+  | { state: "submitted" }
+  | { state: "under_review" }
+  | { state: "accepted"; decision: "accept"; reasonCode: string }
+  | { state: "declined"; decision: "decline"; reasonCode: string }
+  | { state: "confirmed"; decision: "accept"; reasonCode: string };
+
+const confirmedAdmission: DemoAdmission = {
+  state: "confirmed",
+  decision: "accept",
+  reasonCode: "clear_and_workable",
+};
 
 const demoTeams = [
   {
@@ -341,6 +364,54 @@ const demoTeams = [
     initialIdea:
       "Canteens publish safe surplus at closing time and nearby collection groups claim it in one tap.",
     members: ["Aisha Khan", "Rudra Sengupta", "Maitri Shah", "Dev Anand"],
+  },
+  {
+    publicCode: "DEMOT013",
+    name: "Ledger Lantern",
+    trackKey: "open_innovation",
+    participantClass: "vit_student",
+    initialIdea:
+      "Hostel mess committees publish what they spent each week so residents can question it before the next cycle.",
+    members: ["Devika Rao", "Imran Sheikh", "Tara Nambiar"],
+    admission: { state: "submitted" },
+  },
+  {
+    publicCode: "DEMOT014",
+    name: "Signal Shed",
+    trackKey: "health_wellbeing",
+    participantClass: "external_participant",
+    initialIdea:
+      "Rural clinics log which medicines ran out and when, so the district can see the pattern rather than the excuse.",
+    members: ["Joseph Mathew", "Lakshmi Pillai", "Farid Ansari", "Nisha Verma"],
+    admission: { state: "under_review" },
+  },
+  {
+    publicCode: "DEMOT015",
+    name: "Kiln Watch",
+    trackKey: "open_innovation",
+    participantClass: "vit_student",
+    initialIdea:
+      "Brick kiln workers report air quality from their own phones and the reading is tied to the kiln, not the person.",
+    members: ["Ravi Chandran", "Meera Joshi", "Sahil Kapoor"],
+    admission: {
+      state: "accepted",
+      decision: "accept",
+      reasonCode: "clear_and_workable",
+    },
+  },
+  {
+    publicCode: "DEMOT016",
+    name: "Parcel Pilot",
+    trackKey: "open_innovation",
+    participantClass: "external_participant",
+    initialIdea:
+      "A delivery route planner that reorders stops when a road closes partway through the shift.",
+    members: ["Kabir Malhotra", "Sunita Reddy", "Arjun Bhat"],
+    admission: {
+      state: "declined",
+      decision: "decline",
+      reasonCode: "scope_not_yet_workable",
+    },
   },
 ] as const;
 
@@ -1079,23 +1150,33 @@ async function createDemoTeam(
     submittedByMembershipId: leadMembership._id,
     submittedAt: now - 29 * hour,
   });
+  // Most teams are confirmed because the review round needs teams to judge.
+  // The few carrying an `admission` stage stop earlier, so the admissions
+  // workspace has something in each group it renders.
+  const admission: DemoAdmission =
+    "admission" in definition ? definition.admission : confirmedAdmission;
+  const decided = "decision" in admission;
   await ctx.db.insert("applications", {
     eventId: event._id,
     teamId,
     submittedProjectVersionId: projectVersionId,
     admissionPolicyVersionId: args.admissionPolicyVersionId,
-    state: "confirmed",
+    state: admission.state,
     experienceBand:
       definition.participantClass === "vit_student" ? "early_year" : "mixed_or_external",
     aiDisposition: "unavailable",
-    humanDecision: "accept",
-    humanReasonCode: "clear_and_workable",
-    decidedByPersonId: args.leadPersonId,
-    decidedAt: now - 28 * hour,
+    ...(decided
+      ? {
+          humanDecision: admission.decision,
+          humanReasonCode: admission.reasonCode,
+          decidedByPersonId: args.leadPersonId,
+          decidedAt: now - 28 * hour,
+        }
+      : {}),
     assignedReviewCount: 0,
     completedReviewCount: 0,
     contentVersion: 1,
-    version: 3,
+    version: decided ? 3 : 1,
     submittedAt: now - 29 * hour,
   });
   await ctx.db.patch(teamId, {
@@ -1105,12 +1186,32 @@ async function createDemoTeam(
     version: team.version + 1,
     updatedAt: now,
   });
+  // Every team carries an availability projection, including one that has not
+  // taken a place: readers treat a missing projection as a broken invariant,
+  // not as "nobody has arrived". Arrival is what actually differs below.
   await initializeAttendanceTeamAvailability(ctx, {
     eventId: event._id,
     teamId,
     activeMemberCount: memberships.length,
     now,
   });
+  if (admission.state !== "confirmed") {
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: args.leadPersonId,
+      permissionKey: "application.decide",
+      grantIds: [],
+      scopeType: "team",
+      scopeId: teamId,
+      action: `application.${admission.state}`,
+      targetType: "team",
+      targetId: teamId,
+      previousSummary: JSON.stringify({ status: "submitted" }),
+      nextSummary: JSON.stringify({ status: admission.state }),
+      reason: demoReason,
+    });
+    return;
+  }
   // A team the review desk cannot call is the interesting case, so one team is
   // left short of the round's minimum while the rest are in the hall.
   const insideCount = args.teamIndex === shortHandedDemoTeamIndex ? 1 : memberships.length;
@@ -1324,7 +1425,6 @@ export const seedReviewRound = internalMutation({
         roundId,
         stableKey: panel.stableKey,
         name: panel.name,
-        tableLabel: panel.tableLabel,
         coordinatorPersonId: coordinatorPerson._id,
         status: panel.memberCount === roundConfiguration.requiredPanelSize
           ? "ready"
@@ -1464,7 +1564,7 @@ export const seedQueueStates = internalMutation({
         teamId: team._id,
         panelId: panel._id,
         state: placement.state,
-        tableLabel: panel.tableLabel,
+        tableLabel: `Table ${placement.teamIndex + 1}`,
         queuedAt: now - placement.queuedMinutesAgo * minute,
         ...(calledAt === null ? {} : { calledAt, lastCallAttemptAt: calledAt }),
         callAttemptCount: calledAt === null ? 0 : 1,

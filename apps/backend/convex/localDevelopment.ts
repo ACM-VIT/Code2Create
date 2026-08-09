@@ -325,30 +325,11 @@ function localAttendanceSessions(eventStartsAt: number) {
   }));
 }
 
-const localAttendanceStations = [
-  {
-    stableKey: "venue_arrivals",
-    name: "Venue arrivals",
-    zoneKey: "main_hall",
-    mode: "venue_entry",
-    allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"],
-  },
-  {
-    stableKey: "venue_departures",
-    name: "Venue departures",
-    zoneKey: "main_hall",
-    mode: "venue_exit",
-    allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"],
-  },
-  ...localAttendanceSessionPlans.flatMap((session) => [1, 2].map((stationNumber) => ({
-    stableKey: `${session.stableKey}_scanner_${stationNumber}`,
-    name: `${session.name} scanner ${stationNumber}`,
-    zoneKey: session.zoneKey,
-    sessionKey: session.stableKey,
-    mode: "roving" as const,
-    allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"] as const,
-  }))),
-] as const;
+const localAttendanceStations = [1, 2, 3].map((stationNumber) => ({
+  stableKey: `main_hall_scanner_${stationNumber}`,
+  name: `Main hall scanner ${stationNumber}`,
+  zoneKey: "main_hall",
+}));
 
 export function localAttendancePlanContent(eventStartsAt: number) {
   return {
@@ -1137,21 +1118,12 @@ export const seedEvent = mutation({
     for (const station of localAttendanceStations) {
       const zoneId = attendanceZoneIds.get(station.zoneKey);
       if (!zoneId) throw new Error("The local attendance station has no zone.");
-      const sessionId = "sessionKey" in station
-        ? attendanceSessionIds.get(station.sessionKey)
-        : undefined;
-      if ("sessionKey" in station && !sessionId) {
-        throw new Error("The local attendance station has no session.");
-      }
       await ctx.db.insert("attendanceStations", {
         eventId,
         planVersionId: attendancePlanVersionId,
         zoneId,
-        ...(sessionId ? { sessionId } : {}),
         stableKey: station.stableKey,
         name: station.name,
-        mode: station.mode,
-        allowedCredentialKinds: [...station.allowedCredentialKinds],
         status: "inactive",
         configurationVersion: 1,
         createdAt: now,

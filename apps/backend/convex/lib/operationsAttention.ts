@@ -42,7 +42,6 @@ const waitingMultiplier = 2;
 type PanelView = {
   id: string;
   name: string;
-  tableLabel: string;
   status: "draft" | "ready" | "needs_reviewer" | "paused" | "closed";
   reviewers: ReadonlyArray<{ displayName: string; clockInStatus: string }>;
 };
@@ -105,7 +104,7 @@ export function reviewAttentionRows(input: {
       key: `panel_seat_empty:${panel.id}`,
       job: "panel_seats",
       severity: "critical",
-      subject: `${panel.name} · ${panel.tableLabel}`,
+      subject: panel.name,
       context: input.roundName,
       statement:
         missing === 1

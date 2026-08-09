@@ -388,24 +388,17 @@ async function attendanceHealth(
       device: station.deviceInstallationId
         ? await ctx.db.get(station.deviceInstallationId)
         : null,
-      session: station.sessionId ? await ctx.db.get(station.sessionId) : null,
     })),
   );
   const scannerStaleBefore = generatedAt - scannerHeartbeatWindowMs;
   const staleScannerTimes: number[] = [];
   const pendingReplayTimes: number[] = [];
   for (const context of stationContexts) {
-    const { station, device, session } = context;
+    const { station, device } = context;
     const withinStationWindow =
       (station.validFrom === undefined || station.validFrom <= generatedAt) &&
       (station.validUntil === undefined || station.validUntil > generatedAt);
-    const sessionExpectsScanner =
-      station.sessionId === undefined ||
-      session === null ||
-      session.status === "ready" ||
-      session.status === "open" ||
-      session.status === "closing";
-    if (!withinStationWindow || !sessionExpectsScanner) continue;
+    if (!withinStationWindow) continue;
     const lastSeenAt = device?.lastSeenAt ?? device?.registeredAt ?? station.updatedAt;
     if (
       device === null ||
