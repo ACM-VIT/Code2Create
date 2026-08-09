@@ -1,8 +1,15 @@
 import { api } from '@code2create/backend/api'
+import {
+  supportCaseCategoryLabels,
+  supportCaseCategoryOrder,
+  supportCaseStateLabels,
+} from '@code2create/domain'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useRef, useState } from 'react'
 
+import { Icon, type IconName } from '../components/Icon'
+import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 
@@ -16,28 +23,16 @@ type CreateStaffArgs = FunctionArgs<typeof api.support.createStaff>
 type UpdateStaffArgs = FunctionArgs<typeof api.support.updateStaff>
 type StateDraft = { caseVersion: number; state: SupportState }
 
-const categories = [
-  ['identity', 'Identity or sign-in'],
-  ['team', 'Team'],
-  ['project_intake', 'Idea submission'],
-  ['track_configuration', 'Track'],
-  ['attendance_credential', 'Check-in or ID'],
-  ['missing_scan', 'Check-in scan'],
-  ['scanner_device', 'Scanner device'],
-  ['table_location', 'Hall location'],
-  ['integration', 'GitHub or Figma'],
-  ['queue', 'Judging queue'],
-  ['reviewer_device', 'Reviewer device'],
-  ['scorecard', 'Judge scores'],
-  ['accessibility', 'Accessibility'],
-  ['safety', 'Safety'],
-] as const satisfies readonly (readonly [SupportCategory, string])[]
+/** A request nobody has moved in this long is the one that gets forgotten. */
+const staleAfterMs = 60 * 60 * 1000
+const ageTickMs = 60 * 1000
+
 
 const filters = [
-  ['active', 'Active'],
+  ['active', 'Still open'],
   ['resolved', 'Resolved'],
   ['closed', 'Closed'],
-  ['all', 'All'],
+  ['all', 'Everything'],
 ] as const satisfies readonly (readonly [StaffFilter, string])[]
 
 const stateTransitions = {
@@ -52,61 +47,118 @@ export function SupportDesk() {
   const [filter, setFilter] = useState<StaffFilter>('active')
   const list = useQuery(api.support.staffList, { eventSlug, state: filter })
   const [selectedId, setSelectedId] = useState<SupportCaseId | null>(null)
+  const now = useCurrentMinute()
 
-  const visibleSelectedId = selectedId ?? list?.cases.at(0)?.id ?? null
+  const ordered = list === undefined
+    ? []
+    : [...list.cases].sort((left, right) => urgency(left) - urgency(right) || sortWithinRank(left, right))
+  const mostUrgentId = ordered.at(0)?.id ?? null
+
+  /**
+   * Open on the most urgent request, then stay there. Reading the order live
+   * would move the open case out from under whoever is working it the moment
+   * they save.
+   */
+  useEffect(() => {
+    setSelectedId((current) => current ?? mostUrgentId)
+  }, [mostUrgentId])
+
+  const heading = (
+    <header className="page-heading support-desk-heading">
+      <div>
+        <p className="eyebrow">Participant support</p>
+        <h1>Help desk</h1>
+      </div>
+      <label className="filter">
+        Showing
+        <select
+          value={filter}
+          onChange={(event) => {
+            setSelectedId(null)
+            setFilter(parseFilter(event.target.value))
+          }}
+        >
+          {filters.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </label>
+    </header>
+  )
+
+  if (list === undefined) {
+    return (
+      <section className="support-desk-shell health-shell">
+        {heading}
+        <LoadingLabel>Loading the help desk</LoadingLabel>
+        <SkeletonStats columns={4} />
+        <SkeletonList rows={5} />
+      </section>
+    )
+  }
+
+  const counts = countCases(list.cases, now)
+  const visibleSelectedId = selectedId ?? mostUrgentId
+  const showCounts = filter === 'active' || filter === 'all'
 
   return (
-    <section className="support-desk-shell">
-      <header className="page-heading support-desk-heading">
-        <div>
-          <p className="eyebrow">Participant support</p>
-          <h1>Help desk</h1>
-          <p className="muted">Track participant and staff issues from first report to resolution.</p>
-        </div>
-        <label className="filter">
-          Requests
-          <select
-            value={filter}
-            onChange={(event) => {
-              setSelectedId(null)
-              setFilter(parseFilter(event.target.value))
-            }}
-          >
-            {filters.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
-        </label>
-      </header>
+    <section className="support-desk-shell health-shell">
+      {heading}
+      <p className="muted">{leadSentence(filter, counts)}</p>
 
-      {list?.canCreate ? <CreateCase onCreated={setSelectedId} /> : null}
+      {showCounts && counts.total > 0 ? (
+        <dl className="catalog-summary">
+          <div><dt>{supportCaseStateLabels.open}</dt><dd>{counts.open}</dd></div>
+          <div><dt>{supportCaseStateLabels.investigating}</dt><dd>{counts.investigating}</dd></div>
+          <div><dt>{supportCaseStateLabels.waiting}</dt><dd>{counts.waiting}</dd></div>
+          <div><dt>Nobody assigned</dt><dd>{counts.unassigned}</dd></div>
+        </dl>
+      ) : null}
 
-      <div className="support-desk-workspace">
+      {list.canCreate ? <CreateCase onCreated={setSelectedId} /> : null}
+
+      {ordered.length === 0 ? null : (
         <div className="support-desk-list" aria-label="Help requests">
-          {list === undefined ? <p className="muted">Loading requests…</p> : null}
-          {list?.cases.map((supportCase) => (
-            <button
-              className={visibleSelectedId === supportCase.id ? 'support-desk-row selected' : 'support-desk-row'}
-              key={supportCase.id}
-              type="button"
-              onClick={() => setSelectedId(supportCase.id)}
-            >
-              <span>
-                <strong>{supportCase.publicCode}</strong>
-                <small>{categoryLabel(supportCase.category)} · {supportCase.reporterName}</small>
-              </span>
-              <span className="support-desk-row-meta">
-                <small>{stateLabel(supportCase.state)}</small>
-                <time>{formatCompactTime(supportCase.updatedAt)}</time>
-              </span>
-            </button>
-          ))}
-          {list?.cases.length === 0 ? <p className="empty">No requests in this view.</p> : null}
+          {ordered.map((supportCase) => {
+            const glyph = rowGlyph(supportCase, now)
+            return (
+              <button
+                className={visibleSelectedId === supportCase.id ? 'list-row support-desk-row selected' : 'list-row support-desk-row'}
+                key={supportCase.id}
+                type="button"
+                onClick={() => setSelectedId(supportCase.id)}
+              >
+                <span className={glyph.className}><Icon name={glyph.icon} /></span>
+                <span className="row-text">
+                  <strong>
+                    {supportCase.reporterName}
+                    <span className="row-context"> · {supportCaseCategoryLabels[supportCase.category]}</span>
+                  </strong>
+                  <small>{rowStatement(supportCase, now)}</small>
+                </span>
+                <span className="state-label">{supportCaseStateLabels[supportCase.state]}</span>
+              </button>
+            )
+          })}
         </div>
-        {visibleSelectedId && list ? (
-          <CaseDetail currentPersonId={list.currentPersonId} supportCaseId={visibleSelectedId} />
-        ) : null}
-      </div>
+      )}
+
+      {visibleSelectedId ? (
+        <CaseDetail currentPersonId={list.currentPersonId} supportCaseId={visibleSelectedId} />
+      ) : null}
     </section>
   )
+}
+
+/**
+ * Row text is written in elapsed time, so it has to move on its own rather than
+ * wait for the next write to the case.
+ */
+function useCurrentMinute() {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), ageTickMs)
+    return () => clearInterval(timer)
+  }, [])
+  return now
 }
 
 function CreateCase({ onCreated }: { onCreated: (supportCaseId: SupportCaseId) => void }) {
@@ -149,6 +201,8 @@ function CreateCase({ onCreated }: { onCreated: (supportCaseId: SupportCaseId) =
     }
   }
 
+  const ready = description.trim().length >= 10
+
   return (
     <details className="support-create">
       <summary>Log a walk-up issue</summary>
@@ -162,7 +216,9 @@ function CreateCase({ onCreated }: { onCreated: (supportCaseId: SupportCaseId) =
               setCategory(parseCategory(event.target.value))
             }}
           >
-            {categories.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            {supportCaseCategoryOrder.map((value) => (
+              <option key={value} value={value}>{supportCaseCategoryLabels[value]}</option>
+            ))}
           </select>
         </label>
         <label className="field">
@@ -178,9 +234,11 @@ function CreateCase({ onCreated }: { onCreated: (supportCaseId: SupportCaseId) =
             }}
           />
         </label>
-        <button className="secondary" type="submit" disabled={busy || description.trim().length < 10}>
-          {busy ? 'Saving…' : 'Log issue'}
-        </button>
+        {ready || busy ? (
+          <button className="secondary" type="submit">{busy ? 'Saving…' : 'Log issue'}</button>
+        ) : (
+          <p className="review-blocked">Write at least ten characters about what happened.</p>
+        )}
         {error ? <p className="notice error">{error}</p> : null}
       </form>
     </details>
@@ -213,7 +271,14 @@ function CaseDetail({ currentPersonId, supportCaseId }: {
     }
   }, [detail])
 
-  if (detail === undefined) return <article className="support-desk-detail"><p className="muted">Loading request…</p></article>
+  if (detail === undefined) {
+    return (
+      <>
+        <LoadingLabel>Loading this request</LoadingLabel>
+        <SkeletonCard lines={5} />
+      </>
+    )
+  }
 
   const nextState = stateDraft?.caseVersion === detail.supportCase.version
     ? stateDraft.state
@@ -286,17 +351,22 @@ function CaseDetail({ currentPersonId, supportCaseId }: {
     }
   }
 
-  const hasFormChange =
-    nextState !== detail.supportCase.state || publicNote.trim().length >= 2 || internalNote.trim().length >= 2
+  const stateChanged = nextState !== detail.supportCase.state
+  const wroteSomething = publicNote.trim().length >= 2 || internalNote.trim().length >= 2
+  const blocker = !stateChanged && !wroteSomething
+    ? 'Pick a different status, or write a reply or a note.'
+    : reason.trim().length < 5
+      ? 'Say why in a few words so the change stays traceable.'
+      : null
 
   return (
     <article className="support-desk-detail">
       <header className="support-case-heading">
         <div>
-          <p className="eyebrow">{categoryLabel(detail.supportCase.category)}</p>
+          <p className="eyebrow">{supportCaseCategoryLabels[detail.supportCase.category]}</p>
           <h2>{detail.supportCase.publicCode}</h2>
         </div>
-        <span className="state-label">{stateLabel(detail.supportCase.state)}</span>
+        <span className="state-label">{supportCaseStateLabels[detail.supportCase.state]}</span>
       </header>
       <dl className="support-case-context">
         <div><dt>Reporter</dt><dd>{detail.supportCase.reporterName}</dd></div>
@@ -304,7 +374,7 @@ function CaseDetail({ currentPersonId, supportCaseId }: {
         {detail.supportCase.subjectName ? <div><dt>Subject</dt><dd>{detail.supportCase.subjectName}</dd></div> : null}
         {detail.supportCase.teamName ? <div><dt>Team</dt><dd>{detail.supportCase.teamName}</dd></div> : null}
         {detail.supportCase.roundName ? <div><dt>Round</dt><dd>{detail.supportCase.roundName}</dd></div> : null}
-        <div><dt>Owner</dt><dd>{detail.supportCase.ownerName ?? 'Unassigned'}</dd></div>
+        <div><dt>Owner</dt><dd>{detail.supportCase.ownerName ?? 'Nobody'}</dd></div>
       </dl>
       <p className="support-case-description">{detail.supportCase.description}</p>
 
@@ -321,15 +391,22 @@ function CaseDetail({ currentPersonId, supportCaseId }: {
       {detail.supportCase.canManage ? (
         <div className="support-case-controls">
           <div className="support-owner-actions">
-            <span>{detail.supportCase.ownerName ? `Owned by ${detail.supportCase.ownerName}` : 'No owner'}</span>
+            <span>
+              {detail.supportCase.ownerName
+                ? `${detail.supportCase.ownerName} is handling this.`
+                : 'Nobody is handling this yet.'}
+            </span>
             {!detail.supportCase.ownedByViewer ? (
-              <button className="text-button" disabled={busy} type="button" onClick={() => void changeOwner('assign')}>Assign to me</button>
+              <button className="text-button" type="button" onClick={() => void changeOwner('assign')}>Take it</button>
             ) : null}
             {detail.supportCase.ownerName ? (
-              <button className="text-button" disabled={busy} type="button" onClick={() => void changeOwner('clear')}>Unassign</button>
+              <button className="text-button" type="button" onClick={() => void changeOwner('clear')}>Hand it back</button>
             ) : null}
           </div>
           <form className="support-case-form" onSubmit={(event) => void save(event)}>
+            <p className="section-note">
+              Waiting on a reply parks the case with the reporter, and resolved keeps it visible until you close it.
+            </p>
             <label className="field">
               Status
               <select
@@ -342,11 +419,13 @@ function CaseDetail({ currentPersonId, supportCaseId }: {
                   })
                 }}
               >
-                {availableStates(detail.supportCase.state).map((state) => <option key={state} value={state}>{stateLabel(state)}</option>)}
+                {availableStates(detail.supportCase.state).map((state) => (
+                  <option key={state} value={state}>{supportCaseStateLabels[state]}</option>
+                ))}
               </select>
             </label>
             <label className="field">
-              Reply visible to reporter
+              Reply the reporter will see
               <textarea
                 maxLength={2000}
                 value={publicNote}
@@ -357,7 +436,7 @@ function CaseDetail({ currentPersonId, supportCaseId }: {
               />
             </label>
             <label className="field">
-              Internal note
+              Note only the desk will see
               <textarea
                 maxLength={2000}
                 value={internalNote}
@@ -380,19 +459,141 @@ function CaseDetail({ currentPersonId, supportCaseId }: {
                 }}
               />
             </label>
-            <button className="primary" type="submit" disabled={busy || !hasFormChange || reason.trim().length < 5}>
-              {busy ? 'Saving…' : 'Save update'}
-            </button>
+            {blocker === null || busy ? (
+              <button className="primary" type="submit">{busy ? 'Saving…' : 'Save update'}</button>
+            ) : (
+              <p className="review-blocked">{blocker}</p>
+            )}
           </form>
         </div>
-      ) : <p className="notice">You can view this request but cannot update it.</p>}
+      ) : <p className="review-blocked">You can read this request but not update it.</p>}
       {error ? <p className="notice error">{error}</p> : null}
     </article>
   )
 }
 
+type CaseCounts = {
+  open: number
+  investigating: number
+  waiting: number
+  unassigned: number
+  stale: number
+  safety: number
+  total: number
+}
+
+function isLive(state: SupportState) {
+  return state === 'open' || state === 'investigating' || state === 'waiting'
+}
+
+function countCases(cases: readonly SupportCase[], now: number): CaseCounts {
+  const counts: CaseCounts = {
+    open: 0,
+    investigating: 0,
+    waiting: 0,
+    unassigned: 0,
+    stale: 0,
+    safety: 0,
+    total: cases.length,
+  }
+  for (const supportCase of cases) {
+    if (supportCase.state === 'open') counts.open += 1
+    if (supportCase.state === 'investigating') counts.investigating += 1
+    if (supportCase.state === 'waiting') counts.waiting += 1
+    if (!isLive(supportCase.state)) continue
+    if (supportCase.ownerName === undefined) counts.unassigned += 1
+    if (supportCase.category === 'safety') counts.safety += 1
+    if (supportCase.state !== 'waiting' && now - supportCase.updatedAt > staleAfterMs) counts.stale += 1
+  }
+  return counts
+}
+
+/**
+ * The screen opens on what is left to do, not on how many rows exist. Two short
+ * sentences at most: what is waiting, and the one thing about it worth knowing.
+ */
+function leadSentence(filter: StaffFilter, counts: CaseCounts): string {
+  if (filter === 'resolved') {
+    if (counts.total === 0) return 'Nothing has been resolved yet.'
+    return `${counts.total} ${counts.total === 1 ? 'request is' : 'requests are'} resolved and can be closed.`
+  }
+  if (filter === 'closed') {
+    if (counts.total === 0) return 'Nothing has been closed yet.'
+    return `${counts.total} ${counts.total === 1 ? 'request is' : 'requests are'} closed. Nothing here needs action.`
+  }
+  const live = counts.open + counts.investigating + counts.waiting
+  if (live === 0) return 'Nothing is open. Nobody is waiting on the desk.'
+
+  const sentences: string[] = []
+  if (counts.safety > 0) {
+    sentences.push(`${counts.safety} safety ${counts.safety === 1 ? 'report needs' : 'reports need'} someone first.`)
+  }
+  if (counts.open > 0) {
+    sentences.push(`${counts.open} ${counts.open === 1 ? 'request is' : 'requests are'} waiting for a first reply.`)
+  } else if (counts.investigating > 0) {
+    sentences.push(`Nothing is waiting for a first reply. ${counts.investigating} ${counts.investigating === 1 ? 'request is' : 'requests are'} being looked at.`)
+  } else {
+    sentences.push(`Nothing is waiting for a first reply. ${counts.waiting} ${counts.waiting === 1 ? 'request is' : 'requests are'} back with the reporter.`)
+  }
+  if (counts.stale > 0) {
+    sentences.push(`${counts.stale} ${counts.stale === 1 ? 'has' : 'have'} gone over an hour with no update.`)
+  }
+  return sentences.slice(0, 2).join(' ')
+}
+
+/** Work that can be picked up sorts first; finished work sinks to the bottom. */
+function urgency(supportCase: SupportCase): number {
+  if (supportCase.state === 'closed') return 6
+  if (supportCase.state === 'resolved') return 5
+  if (supportCase.category === 'safety') return 0
+  if (supportCase.state === 'waiting') return 4
+  if (supportCase.state === 'investigating') return 3
+  return supportCase.ownerName === undefined ? 1 : 2
+}
+
+/** Within a rank, the one that has waited longest is the one to act on. */
+function sortWithinRank(left: SupportCase, right: SupportCase): number {
+  const finished = !isLive(left.state) && !isLive(right.state)
+  return finished ? right.updatedAt - left.updatedAt : left.updatedAt - right.updatedAt
+}
+
+function rowGlyph(supportCase: SupportCase, now: number): { className: string; icon: IconName } {
+  if (isLive(supportCase.state) && supportCase.category === 'safety') {
+    return { className: 'row-glyph critical', icon: 'alert' }
+  }
+  if (supportCase.state === 'open') {
+    return now - supportCase.updatedAt > staleAfterMs
+      ? { className: 'row-glyph critical', icon: 'alert' }
+      : { className: 'row-glyph attention', icon: 'clock' }
+  }
+  if (supportCase.state === 'investigating') return { className: 'row-glyph watch', icon: 'lifebuoy' }
+  if (supportCase.state === 'waiting') return { className: 'row-glyph watch', icon: 'pause' }
+  return { className: 'row-glyph', icon: 'lifebuoy' }
+}
+
+/** What this request is doing to the person who filed it, in one line. */
+function rowStatement(supportCase: SupportCase, now: number): string {
+  if (supportCase.state === 'open') {
+    return supportCase.ownerName === undefined
+      ? `Nobody has picked this up. Reported ${formatAge(supportCase.createdAt, now)}.`
+      : `${supportCase.ownerName} has it but has not started. Reported ${formatAge(supportCase.createdAt, now)}.`
+  }
+  if (supportCase.state === 'investigating') {
+    return supportCase.ownerName === undefined
+      ? `Being looked at, but nobody owns it. Last moved ${formatAge(supportCase.updatedAt, now)}.`
+      : `${supportCase.ownerName} is on it. Last moved ${formatAge(supportCase.updatedAt, now)}.`
+  }
+  if (supportCase.state === 'waiting') {
+    return `Back with ${supportCase.reporterName}, replied to ${formatAge(supportCase.updatedAt, now)}.`
+  }
+  if (supportCase.state === 'resolved') {
+    return `Resolved ${formatAge(supportCase.updatedAt, now)}. Close it when the reporter agrees.`
+  }
+  return `Closed ${formatAge(supportCase.updatedAt, now)}.`
+}
+
 function parseCategory(value: string): SupportCategory {
-  return categories.find(([category]) => category === value)?.[0] ?? 'queue'
+  return supportCaseCategoryOrder.find((category) => category === value) ?? 'queue'
 }
 
 function parseFilter(value: string): StaffFilter {
@@ -407,25 +608,17 @@ function availableStates(current: SupportState): SupportState[] {
   return [current, ...stateTransitions[current]]
 }
 
-function categoryLabel(value: SupportCategory) {
-  return categories.find(([category]) => category === value)?.[1] ?? value.replaceAll('_', ' ')
-}
-
-function stateLabel(value: SupportState) {
-  if (value === 'investigating') return 'Investigating'
-  if (value === 'waiting') return 'Waiting for reporter'
-  if (value === 'resolved') return 'Resolved'
-  if (value === 'closed') return 'Closed'
-  return 'Open'
-}
-
 function actionLabel(action: FunctionReturnType<typeof api.support.detail>['actions'][number]) {
   if (action.kind === 'opened') return 'Request opened'
   if (action.kind === 'reporter_reply') return 'Reporter replied'
-  if (action.kind === 'public_note') return 'Public reply'
+  if (action.kind === 'public_note') return 'Reply to the reporter'
   if (action.kind === 'internal_note') return 'Internal note'
-  if (action.kind === 'state_changed') return `Status: ${stateLabel(action.previousState ?? 'open')} → ${stateLabel(action.nextState ?? 'open')}`
-  if (action.kind === 'owner_changed') return `Owner: ${action.previousOwnerName ?? 'unassigned'} → ${action.nextOwnerName ?? 'unassigned'}`
+  if (action.kind === 'state_changed') {
+    return `Moved from ${supportCaseStateLabels[action.previousState ?? 'open']} to ${supportCaseStateLabels[action.nextState ?? 'open']}`
+  }
+  if (action.kind === 'owner_changed') {
+    return `Handed from ${action.previousOwnerName ?? 'nobody'} to ${action.nextOwnerName ?? 'nobody'}`
+  }
   return 'Request updated'
 }
 
@@ -433,6 +626,12 @@ function formatTime(value: number) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(value)
 }
 
-function formatCompactTime(value: number) {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }).format(value)
+function formatAge(value: number, now: number) {
+  const minutes = Math.max(0, Math.round((now - value) / 60_000))
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`
+  const days = Math.round(hours / 24)
+  return `${days} ${days === 1 ? 'day' : 'days'} ago`
 }

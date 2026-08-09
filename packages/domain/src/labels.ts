@@ -634,3 +634,60 @@ export const repositoryKindLabels: Record<RepositoryKind, string> = {
   docs_research: "Docs or research",
   other: "Something else",
 };
+
+export type SupportCaseCategory =
+  | "identity"
+  | "team"
+  | "project_intake"
+  | "track_configuration"
+  | "attendance_credential"
+  | "missing_scan"
+  | "scanner_device"
+  | "table_location"
+  | "integration"
+  | "queue"
+  | "reviewer_device"
+  | "scorecard"
+  | "accessibility"
+  | "safety";
+
+/**
+ * What a participant walked up about, in the words they would use.
+ *
+ * The help desk and the participant app both offer this list, so it lives here
+ * rather than in either screen; they drifted apart while it did not.
+ */
+export const supportCaseCategoryLabels: Record<SupportCaseCategory, string> = {
+  identity: "Identity or sign-in",
+  team: "Team",
+  project_intake: "Idea submission",
+  track_configuration: "Track",
+  attendance_credential: "Check-in or ID",
+  missing_scan: "Check-in scan",
+  scanner_device: "Scanner device",
+  table_location: "Hall location",
+  integration: "GitHub or Figma",
+  queue: "Judging queue",
+  reviewer_device: "Reviewer device",
+  scorecard: "Judge scores",
+  accessibility: "Accessibility",
+  safety: "Safety",
+};
+
+/** The order the desk offers them in, most common first. */
+export const supportCaseCategoryOrder: readonly SupportCaseCategory[] = [
+  "identity",
+  "team",
+  "project_intake",
+  "track_configuration",
+  "attendance_credential",
+  "missing_scan",
+  "scanner_device",
+  "table_location",
+  "integration",
+  "queue",
+  "reviewer_device",
+  "scorecard",
+  "accessibility",
+  "safety",
+];

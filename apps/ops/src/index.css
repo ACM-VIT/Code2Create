@@ -262,19 +262,15 @@ p { line-height: 1.55; font-size: .8125rem; }
 .rehearsal-history small { display: block; margin-top: 4px; }
 .rehearsal-history p { margin: 7px 0 0; font-size: .72rem; white-space: pre-wrap; }
 .support-desk-heading > div { max-width: 720px; }
-.support-create { margin-top: 26px; padding: 14px 16px; background: var(--surface); border: 0; border-radius: var(--radius-card); }
+/* Help-desk rows are <button>s, so they need the browser's own chrome cleared
+   before the shared .list-row anatomy can take over. */
+.support-desk-row { width: 100%; color: var(--text); text-align: left; background: transparent; border: 0; cursor: pointer; }
+.support-create { margin-top: 0; padding: 14px 16px; background: var(--surface); border: 0; border-radius: var(--radius-card); }
 .support-create summary { color: var(--muted); font-size: .76rem; cursor: pointer; }
 .support-create form { display: grid; max-width: 680px; gap: 14px; margin-top: 16px; }
 .support-create textarea { min-height: 76px; }
 .support-create .secondary { justify-self: start; }
-.support-desk-workspace { display: grid; grid-template-columns: minmax(250px, .7fr) minmax(0, 1.3fr); gap: 38px; margin-top: 34px; border-top: 1px solid var(--border); }
 .support-desk-list { display: grid; align-content: start; }
-.support-desk-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 15px 2px; color: var(--text); text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--border); cursor: pointer; }
-.support-desk-row.selected { border-bottom-color: var(--accent); }
-.support-desk-row strong, .support-desk-row small, .support-desk-row time { display: block; }
-.support-desk-row strong { font-size: .82rem; }
-.support-desk-row small, .support-desk-row time { margin-top: 4px; color: var(--muted); font-size: .67rem; }
-.support-desk-row-meta { flex: 0 0 auto; text-align: right; }
 .support-desk-detail { min-width: 0; padding: 24px 0; }
 .support-case-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
 .support-case-heading h2 { margin: 0; }
@@ -1074,8 +1070,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .health-current { padding: 0; border-top: 2px solid var(--border-strong); border-left: 0; }
   .health-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .health-action { grid-template-columns: 1fr; gap: 10px; }
-  .support-desk-workspace, .support-case-context { grid-template-columns: 1fr; }
-  .support-desk-workspace { gap: 10px; }
+  .support-case-context { grid-template-columns: 1fr; }
   .emergency-pack-count-fields, .emergency-pack-main { grid-template-columns: 1fr; }
   .emergency-pack-history .section-heading { display: grid; }
   .emergency-pack-history .section-heading p { text-align: left; }
@@ -1464,8 +1459,11 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .roster-row:hover,
 .support-desk-row:hover { background: var(--hover); }
 
+/* Hover and selection were both var(--hover), so the row you had open was
+   indistinguishable from the row under the cursor. Selection gets an edge. */
 .support-desk-row.selected,
-.rehearsal-run.selected { background: var(--hover); border-bottom-color: var(--border); }
+.rehearsal-run.selected { background: var(--raised); border-bottom-color: var(--border); }
+.support-desk-row.selected { box-shadow: inset 2px 0 0 var(--accent); }
 
 /* Detail panels, editor cards, and standalone blocks are all one surface. */
 .attendance-export-panel,
