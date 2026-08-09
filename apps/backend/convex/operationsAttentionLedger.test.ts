@@ -215,11 +215,13 @@ describe("operations attention ledger", () => {
     });
     expect(board.rows).toHaveLength(0);
 
+    const hidden = (await items(backend, fixture))[0];
+    if (!hidden) throw new Error("The sweep opened no item to hide.");
     await expect(
       onlooker.mutation(api.operationsAttention.acknowledge, {
         eventSlug: fixture.eventSlug,
-        itemId: (await items(backend, fixture))[0]?._id ?? fixture.panelId,
-        expectedVersion: 1,
+        itemId: hidden._id,
+        expectedVersion: hidden.version,
       }),
     ).rejects.toThrow("permission");
   });
