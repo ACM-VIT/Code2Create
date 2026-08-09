@@ -216,7 +216,6 @@ export function Roster() {
       <Link className="back-link" to="/access">← People and permissions</Link>
       <header className="page-heading">
         <div>
-          <p className="eyebrow">People and permissions</p>
           <h1>Event team</h1>
           <p className="muted">
             The organizers and judges allowed into this event. Anyone not listed cannot sign in.
@@ -398,14 +397,11 @@ export function Roster() {
         </section>
       ) : null}
 
+      {/* An empty list needs no marker of its own: the block at the top of the
+          page already says nobody has been added and what that costs. */}
       {loadingPeople ? (
         <SkeletonList rows={5} />
-      ) : entries.length === 0 ? (
-        <div className="health-empty">
-          <strong>No people have been added.</strong>
-          <span>Everyone who runs or judges this event must be on this list.</span>
-        </div>
-      ) : (
+      ) : entries.length === 0 ? null : (
         rosterGroups.map((group) => {
           const rows = orderedEntries(entries, group.key)
           if (rows.length === 0) return null

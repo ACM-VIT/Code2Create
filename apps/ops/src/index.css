@@ -293,10 +293,6 @@ p { line-height: 1.55; font-size: .8125rem; }
 .support-case-form { display: grid; max-width: 680px; gap: 14px; margin-top: 18px; }
 .support-case-form textarea { min-height: 72px; }
 .support-case-form .primary { justify-self: start; }
-.floor-counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 30px 0 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-.floor-counts div { padding: 15px 14px 15px 0; }
-.floor-counts dt { color: var(--muted); font-size: .7rem; }
-.floor-counts dd { margin: 4px 0 0; font-size: 1.55rem; }
 .floor-state { margin: 16px 0 0; color: var(--muted); font-size: .76rem; }
 .floor-zone-list { display: grid; gap: 28px; margin-top: 34px; }
 .floor-zone { display: grid; gap: 12px; }

@@ -176,15 +176,23 @@ export function FloorOverview({
             </details>
           ) : null}
 
-          <dl className="floor-counts">
+          {/* "Teams with no spot" and "Teams expecting a spot" were separate
+              columns showing the same 14 until somebody was placed, because
+              placed plus unplaced is the eligible total. Placement now reads as
+              one ratio, which leaves the work left as the only bare number. */}
+          <dl className="catalog-summary">
             {overview.unmappedTeams ? (
-              <div><dt>Teams with no spot</dt><dd>{overview.unmappedTeams.length}</dd></div>
+              <div><dt>Still to place</dt><dd>{overview.unmappedTeams.length}</dd></div>
             ) : null}
-            <div><dt>Teams placed here</dt><dd>{overview.visibleMappedCount}</dd></div>
+            <div>
+              <dt>Placed on this map</dt>
+              <dd>
+                {overview.eligibleTeamCount === undefined
+                  ? overview.visibleMappedCount
+                  : `${overview.visibleMappedCount} of ${overview.eligibleTeamCount}`}
+              </dd>
+            </div>
             <div><dt>Spots still free</dt><dd>{freeSpotCount(overview)}</dd></div>
-            {overview.eligibleTeamCount !== undefined ? (
-              <div><dt>Teams expecting a spot</dt><dd>{overview.eligibleTeamCount}</dd></div>
-            ) : null}
           </dl>
           <p className="floor-state">
             {overview.plan.mappingState === 'frozen'
