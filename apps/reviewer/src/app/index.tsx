@@ -11,6 +11,13 @@ import { SupportPanel } from '@/components/SupportPanel'
 import { DutyHome, type DutyHeadline, type DutyTile } from '@/components/DutyHome'
 import { DutyIcon, type DutyIconName } from '@/components/DutyIcon'
 import { reviewerRuntime, type ReviewerRuntime } from '@/lib/runtime'
+import {
+  type DutyStatus,
+  useDoorStatus,
+  useHallStatus,
+  useHelpStatus,
+  useJudgingStatus,
+} from '@/lib/duty-status'
 import { duty, type DutyKey } from '@/theme'
 
 export default function HomeScreen() {
@@ -66,6 +73,13 @@ function ConfiguredHome({ runtime }: { runtime: ReviewerRuntime }) {
     ...(hasFloorMappingAccess ? ['floor' as const] : []),
     ...(hasSupportAccess ? ['support' as const] : []),
   ]
+
+  const statuses = {
+    reviews: useJudgingStatus(eventSlug, hasReviewAccess),
+    attendance: useDoorStatus(eventSlug, hasAttendanceAccess),
+    floor: useHallStatus(eventSlug, hasFloorMappingAccess),
+    support: useHelpStatus(eventSlug, hasSupportAccess),
+  }
 
   if (
     sessionPending ||
@@ -171,8 +185,10 @@ function ConfiguredHome({ runtime }: { runtime: ReviewerRuntime }) {
     }
     return (
       <DutyHome
-        headline={dutyHeadline(availableSurfaces, session.user.name || session.user.email)}
-        tiles={availableSurfaces.map((option) => dutyTile(option, () => setOpenDuty(option)))}
+        headline={homeHeadline(statuses, availableSurfaces, session.user.name || session.user.email)}
+        tiles={availableSurfaces.map((option) =>
+          dutyTile(option, statuses[option], () => setOpenDuty(option)),
+        )}
       />
     )
   }
@@ -204,25 +220,49 @@ const dutyMeta: Record<Surface, { key: DutyKey; label: string; icon: DutyIconNam
   support: { key: 'help', label: 'Help', icon: 'help' },
 }
 
-function dutyTile(surface: Surface, onPress: () => void): DutyTile {
+function dutyTile(surface: Surface, state: DutyStatus, onPress: () => void): DutyTile {
   const meta = dutyMeta[surface]
   return {
     key: meta.key,
     label: meta.label,
-    status: 'Open',
-    resting: true,
-    icon: <DutyIcon color={duty[meta.key].accent} name={meta.icon} />,
+    status: state.status,
+    active: state.active,
+    resting: !state.active,
+    icon: (
+      <DutyIcon
+        color={state.active ? duty[meta.key].ink : duty[meta.key].accent}
+        name={meta.icon}
+      />
+    ),
     onPress,
   }
 }
 
-function dutyHeadline(surfaces: Surface[], who: string): DutyHeadline {
+/**
+ * The headline follows whichever duty is live, so the number on the screen is
+ * the one that is actually moving. With nothing live it counts the duties held.
+ */
+function homeHeadline(
+  statuses: Record<Surface, DutyStatus>,
+  surfaces: Surface[],
+  who: string,
+): DutyHeadline {
+  const live = surfaces.find((surface) => statuses[surface].active)
+  if (live) {
+    const meta = dutyMeta[live]
+    return {
+      value: statuses[live].status,
+      context: who,
+      summary: meta.label,
+      accent: duty[meta.key].accent,
+    }
+  }
   const lead = surfaces[0] ?? 'support'
   return {
     value: String(surfaces.length),
     unit: surfaces.length === 1 ? 'duty' : 'duties',
     context: who,
-    summary: 'Pick what you are doing',
+    summary: 'Nothing needs you right now',
     accent: duty[dutyMeta[lead].key].accent,
     ghost: String(surfaces.length),
   }

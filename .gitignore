@@ -38,6 +38,7 @@ dist/
 *.tsbuildinfo
 
 /outputs/
+/.mobbin/
 /work/
 /.playwright-mcp/
 
