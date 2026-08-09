@@ -4,8 +4,8 @@ import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 
-import { useReviewerSession } from '@/components/ReviewerSession'
 import { Row } from '@/components/ui'
+import { reviewerRuntime } from '@/lib/runtime'
 import { loadScannerDevice } from '@/lib/scanner-device'
 import { palette } from '@/theme'
 
@@ -19,7 +19,9 @@ import { palette } from '@/theme'
  */
 export default function DoorToolsRoute() {
   const router = useRouter()
-  const { eventSlug } = useReviewerSession()
+  // Read straight from configuration: a form sheet is presented outside the
+  // session provider's subtree, so a context hook here throws and blanks it.
+  const eventSlug = reviewerRuntime ? reviewerRuntime.configuration.eventSlug : ''
   const [installationId, setInstallationId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -38,7 +40,7 @@ export default function DoorToolsRoute() {
 
   const assignment = useQuery(
     api.attendanceScanner.current,
-    installationId ? { eventSlug, installationId } : 'skip',
+    installationId && eventSlug ? { eventSlug, installationId } : 'skip',
   )
   const unknown = 'Checking'
 

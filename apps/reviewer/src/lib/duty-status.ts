@@ -131,16 +131,15 @@ export function useHallStatus(eventSlug: string, enabled: boolean): DutyStatus {
   if (available === undefined) return { status: '—', active: false }
   if (available === null) return { status: 'No hall plan yet', active: false }
   if (available.plan.mappingState === 'frozen') return { status: 'Map is frozen', active: false }
-  const spots = available.zones.flatMap((zone) => zone.spots)
-  const free = spots.filter((spot) => spot.occupiedBy === null).length
-  const mapped = spots.length - free
-  if (free === 0) return { status: 'All mapped', active: false, progress: 1 }
+  // There are no numbered spots any more, so there is no denominator to be a
+  // fraction of: what a mapper wants to know is how many teams are down.
+  const placed = available.zones.reduce((total, zone) => total + zone.teams.length, 0)
+  if (placed === 0) return { status: 'Nobody placed yet', active: false }
   return {
-    status: `${free} spot${free === 1 ? '' : 's'} free`,
+    status: `${placed} team${placed === 1 ? '' : 's'} placed`,
     // Mapping is a background chore, not something demanding hands right now.
     active: false,
-    headline: { value: String(free), unit: 'spots free' },
-    progress: spots.length === 0 ? 0 : mapped / spots.length,
+    headline: { value: String(placed), unit: placed === 1 ? 'team placed' : 'teams placed' },
   }
 }
 

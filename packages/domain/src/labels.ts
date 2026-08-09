@@ -488,8 +488,9 @@ export const emergencyPackStatusLabels: Record<EmergencyPackStatus, string> = {
 /**
  * Hall vocabulary.
  *
- * `setup`, `open` and `frozen` decide whether floor staff can pin a team to a
- * spot at all, so each label says what is possible rather than naming a state.
+ * `setup`, `open` and `frozen` decide whether floor staff can record where a
+ * team is sitting at all, so each label says what is possible rather than
+ * naming a state.
  */
 export type FloorMappingState = "setup" | "open" | "frozen";
 
@@ -499,12 +500,64 @@ export const floorMappingStateLabels: Record<FloorMappingState, string> = {
   frozen: "Locations frozen",
 };
 
-export type FloorSpotStatus = "available" | "closed";
+/**
+ * The nine parts of a hall zone. Tables in this venue are moved by the people
+ * sitting at them and carry no numbers, so the finest thing anybody can
+ * honestly record is which part of the room a team is in. These strings are
+ * written to be read out to a reviewer walking over, which is why they say
+ * "corner" and "side" rather than a grid reference.
+ */
+export type FloorArea =
+  | "north_west"
+  | "north"
+  | "north_east"
+  | "west"
+  | "centre"
+  | "east"
+  | "south_west"
+  | "south"
+  | "south_east";
 
-export const floorSpotStatusLabels: Record<FloorSpotStatus, string> = {
-  available: "Usable",
-  closed: "Closed off, do not seat a team here",
+export const floorAreaLabels: Record<FloorArea, string> = {
+  north_west: "North-west corner",
+  north: "North side",
+  north_east: "North-east corner",
+  west: "West side",
+  centre: "Middle",
+  east: "East side",
+  south_west: "South-west corner",
+  south: "South side",
+  south_east: "South-east corner",
 };
+
+/**
+ * The part of the zone rectangle a point falls in. The rectangle is drawn with
+ * hall north at the top, so these nine names mean the same thing to everyone
+ * looking at the same published plan. Shared, because the mapper's phone has to
+ * name the area under a finger before anything is written.
+ */
+export function floorAreaAt(x: number, y: number): FloorArea {
+  const west = x < 100 / 3;
+  const east = x >= 200 / 3;
+  const north = y < 100 / 3;
+  const south = y >= 200 / 3;
+  if (north) return west ? "north_west" : east ? "north_east" : "north";
+  if (south) return west ? "south_west" : east ? "south_east" : "south";
+  return west ? "west" : east ? "east" : "centre";
+}
+
+/** Every area, in reading order, so a crowding view lists all nine. */
+export const floorAreas: readonly FloorArea[] = [
+  "north_west",
+  "north",
+  "north_east",
+  "west",
+  "centre",
+  "east",
+  "south_west",
+  "south",
+  "south_east",
+];
 
 /**
  * Score governance vocabulary.

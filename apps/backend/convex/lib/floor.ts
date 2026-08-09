@@ -1,11 +1,16 @@
+import { floorAreaLabels, floorAreas } from "@code2create/domain";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { ConvexError } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import type { FloorArea } from "../values";
 
 type ReadCtx = QueryCtx | MutationCtx;
+
+/** A landmark is called "near" a team only within this many metres of it. */
+const nearLandmarkMeters = 5;
 
 export function floorDigest(value: string) {
   return bytesToHex(sha256(utf8ToBytes(value)));
@@ -35,6 +40,106 @@ export function floorStableKey(value: string, label: string) {
     });
   }
   return key;
+}
+
+/**
+ * A percentage of a zone rectangle's width or depth. Positions are recorded by
+ * a finger on a phone, so two decimal places is already past the accuracy of
+ * the gesture; it exists only so a dot lands where it was drawn.
+ */
+export function floorCoordinate(value: number, label: string) {
+  if (!Number.isFinite(value) || value < 0 || value > 100) {
+    throw new ConvexError({
+      code: "INVALID_COORDINATE",
+      message: `${label} must be from 0 through 100.`,
+    });
+  }
+  return Math.round(value * 100) / 100;
+}
+
+
+/**
+ * What an operator says to a reviewer who has to walk over. A coarse area on
+ * its own is not enough in a hall the size of this one, so the nearest
+ * published landmark is named whenever the team is standing by one.
+ */
+export function floorLocationDescription(
+  zoneName: string,
+  area: FloorArea,
+  landmarkName: string | undefined,
+) {
+  const place = `${floorAreaLabels[area]} of ${zoneName}`;
+  return landmarkName === undefined ? place : `${place}, near ${landmarkName}`;
+}
+
+/**
+ * The landmark a team is standing by, if any. Distance is measured in real
+ * metres from the zone's published width and depth, because "near the windows"
+ * has to mean a few paces rather than a share of a rectangle.
+ */
+export function nearestLandmarkName(
+  zone: { widthMeters: number; depthMeters: number },
+  landmarks: readonly { name: string; x: number; y: number }[],
+  x: number,
+  y: number,
+) {
+  let nearest: { name: string; meters: number } | undefined;
+  for (const landmark of landmarks) {
+    const across = ((landmark.x - x) / 100) * zone.widthMeters;
+    const along = ((landmark.y - y) / 100) * zone.depthMeters;
+    const meters = Math.hypot(across, along);
+    if (meters <= nearLandmarkMeters && (!nearest || meters < nearest.meters)) {
+      nearest = { name: landmark.name, meters };
+    }
+  }
+  return nearest?.name;
+}
+
+export type PlacedTeam = {
+  teamId: Id<"teams">;
+  teamName: string;
+  x: number;
+  y: number;
+  area: FloorArea;
+  mappedAt: number;
+};
+
+/**
+ * Every team currently sitting in one zone, as points to draw. Teams are not
+ * competing for anything here, so two of them close together is a normal
+ * reading of a busy corner rather than a clash to resolve.
+ */
+export function placedTeamsInZone(
+  locations: readonly Doc<"teamFloorLocations">[],
+  teamById: ReadonlyMap<Id<"teams">, Doc<"teams">>,
+  zoneId: Id<"floorZones">,
+): PlacedTeam[] {
+  return locations
+    .filter((location) => location.zoneId === zoneId)
+    .map((location) => {
+      const team = teamById.get(location.teamId);
+      if (!team) throw new Error("A recorded team location names a team outside this event.");
+      return {
+        teamId: team._id,
+        teamName: team.name,
+        x: location.x,
+        y: location.y,
+        area: location.area,
+        mappedAt: location.mappedAt,
+      };
+    });
+}
+
+/**
+ * How many teams sit in each of a zone's nine parts. All nine are returned,
+ * including the empty ones, because the point of the view is seeing where the
+ * room has filled up relative to everywhere else.
+ */
+export function floorAreaLoad(placed: readonly PlacedTeam[]) {
+  return floorAreas.map((area) => ({
+    area,
+    teamCount: placed.filter((team) => team.area === area).length,
+  }));
 }
 
 export function teamCanBeMapped(status: Doc<"teams">["status"]) {
@@ -67,6 +172,13 @@ export async function publishedFloorPlan(ctx: ReadCtx, event: Doc<"events">) {
   return plan;
 }
 
+export async function zoneLandmarks(ctx: ReadCtx, zoneId: Id<"floorZones">) {
+  return ctx.db
+    .query("floorLandmarks")
+    .withIndex("by_zone_order", (index) => index.eq("zoneId", zoneId))
+    .collect();
+}
+
 export async function activeTeamFloorLocation(
   ctx: ReadCtx,
   teamId: Id<"teams">,
@@ -78,20 +190,41 @@ export async function activeTeamFloorLocation(
 }
 
 /**
- * The label of the table a review panel walks to for this team. Panels have no
- * table of their own, so the only true location is where the team is mapped.
+ * Spells out a recorded location for whoever has to find the team.
+ */
+export async function describeTeamFloorLocation(
+  ctx: ReadCtx,
+  location: Doc<"teamFloorLocations">,
+) {
+  const zone = await ctx.db.get(location.zoneId);
+  if (!zone) throw new Error("The recorded team location has no zone.");
+  const landmarks = await zoneLandmarks(ctx, zone._id);
+  return {
+    zone,
+    description: floorLocationDescription(
+      zone.name,
+      location.area,
+      nearestLandmarkName(zone, landmarks, location.x, location.y),
+    ),
+  };
+}
+
+/**
+ * Where a review panel walks for this team. Panels have no table of their own,
+ * so the only location in a review is where the team was last seen sitting.
+ * The string names a part of the hall and the nearest fixed landmark; no table
+ * in this venue is numbered, and none stays where it was put.
  */
 export async function teamTableLabel(ctx: ReadCtx, teamId: Id<"teams">) {
   const location = await activeTeamFloorLocation(ctx, teamId);
   if (!location) return undefined;
-  const spot = await ctx.db.get(location.spotId);
-  return spot?.label;
+  return (await describeTeamFloorLocation(ctx, location)).description;
 }
 
 /**
- * The table recorded for this team in this round, which is where the panel
- * walks. Undefined until the team is queued or when the team has no mapped
- * table, and callers must say so rather than name a location that is not real.
+ * The location recorded for this team in this round, which is where the panel
+ * walks. Undefined until the team is queued or when the team has no recorded
+ * location, and callers must say so rather than name a place that is not real.
  */
 export async function teamRoundTableLabel(
   ctx: ReadCtx,
