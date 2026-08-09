@@ -23,6 +23,8 @@ export type IconName =
   | 'seat'
   | 'pause'
   | 'arrow'
+  | 'github'
+  | 'figma'
 
 const paths: Record<IconName, string> = {
   home: 'M3 10.5 12 3l9 7.5M5.5 9.5V20a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V9.5',
@@ -44,6 +46,8 @@ const paths: Record<IconName, string> = {
   seat: 'M6 20v-3M18 20v-3M5 17h14M6.5 17V8a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v9M9.5 6V4.5h5V6',
   pause: 'M10 5v14M14 5v14',
   arrow: 'M5 12h14M13 6l6 6-6 6',
+  github: 'M15 21v-3.4a3.7 3.7 0 0 0-1-2.6c2.9-.3 6-1.5 6-6.1 0-1.4-.4-2.5-1.1-3.3.2-.4.5-1.6-.1-3.3 0 0-1-.3-3.3 1.2a11.4 11.4 0 0 0-6 0C7.2 2 6.2 2.3 6.2 2.3c-.6 1.7-.3 2.9-.1 3.3C5.4 6.4 5 7.5 5 8.9c0 4.6 3.1 5.8 6 6.1a3.7 3.7 0 0 0-1 2.6V21M10 18.3c-3.4 1.5-4.3-1.7-5.8-1.7',
+  figma: 'M12 3H9a3 3 0 0 0 0 6h3ZM12 3h3a3 3 0 0 1 0 6h-3ZM12 9H9a3 3 0 0 0 0 6h3ZM15 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM9 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
 }
 
 export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {

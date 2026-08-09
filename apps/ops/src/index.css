@@ -1975,3 +1975,60 @@ label > span { color: var(--muted); font-size: .75rem; }
 .section-note { max-width: 640px; margin: 0 0 12px; font-size: .8125rem; }
 .published-round-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .published-round-row > div { display: grid; gap: 2px; min-width: 0; }
+
+/* ============================================================
+   Code and design
+   Each team row used to spell out "GitHub" and "Figma" as
+   headings above three lines of absence, so fourteen rows
+   repeated the same six strings. The row is now the standard
+   list anatomy: glyph square, team, and the two provider marks
+   carrying their own counts on the right.
+   ============================================================ */
+.integration-health-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+}
+.integration-health-row:last-child { border-bottom: 0; }
+.integration-health-row:hover { background: var(--hover); }
+.integration-health-list > .empty { margin: 0; padding: 16px; color: var(--muted); }
+
+/* Fixed tracks, including an empty one where a row without anything to open
+   would otherwise pull the two counts out of line with the rows above it. */
+.integration-row-side {
+  display: grid;
+  grid-template-columns: 44px 44px 68px;
+  gap: 12px;
+  align-items: center;
+}
+.integration-row-side > .row-action { grid-column: 3; justify-self: end; }
+.integration-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--faint);
+  font-size: .8125rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.integration-provider.ready { color: var(--muted); }
+.integration-provider.attention { color: var(--danger); }
+.integration-provider.unconnected { color: var(--faint); }
+.integration-provider .icon { opacity: .85; }
+
+/* The panel of what a team connected is nested inside a card, so it needs a
+   step up from the surface rather than the same colour twice. */
+.integration-team-detail {
+  margin-top: 12px;
+  background: var(--raised);
+}
+.integration-team-detail h3 { display: flex; align-items: center; gap: 7px; }
+.integration-team-detail h3 .icon { opacity: .7; }
+.integration-file-list small { color: var(--muted); font-size: .75rem; }
+
+@media (max-width: 720px) {
+  .integration-health-row { grid-template-columns: 28px minmax(0, 1fr); align-items: start; }
+  .integration-row-side { grid-column: 2 / -1; justify-items: start; }
+}

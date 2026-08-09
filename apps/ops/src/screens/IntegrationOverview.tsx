@@ -14,9 +14,12 @@ import { useState } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { Icon } from '../components/Icon'
+import type { IconName } from '../components/Icon'
 import { LoadingLabel, SkeletonList } from '../components/Skeleton'
 
 type IntegrationTeam = FunctionReturnType<typeof api.integrationOperations.teams>['page'][number]
+type ProviderHealth = IntegrationTeam['github']['health']
 type IntegrationView = 'attention' | 'all'
 
 function activityTime(value: number | undefined) {
@@ -29,9 +32,8 @@ function activityTime(value: number | undefined) {
   })
 }
 
-function itemCount(value: number, singular: string, plural: string) {
-  if (value === 0) return `No ${plural}`
-  return `${value} ${value === 1 ? singular : plural}`
+function plural(count: number, singular: string, many: string) {
+  return `${count} ${count === 1 ? singular : many}`
 }
 
 /** A team nobody can look at: nothing connected on either side. */
@@ -52,6 +54,80 @@ function teamRank(team: IntegrationTeam) {
   if (isDisconnected(team)) return 0
   if (needsAttention(team)) return 1
   return 2
+}
+
+/**
+ * The provider is a glyph, not a repeated heading. Fourteen rows that each
+ * spelled out "GitHub" and "Figma" above "Nothing connected" said the same six
+ * strings fourteen times; the mark plus a count carries it in one glance.
+ */
+function providerTone(health: ProviderHealth) {
+  if (health === 'needs_attention') return 'attention'
+  if (health === 'not_connected') return 'unconnected'
+  return 'ready'
+}
+
+function ProviderCount({
+  count,
+  health,
+  icon,
+  name,
+  unit,
+  units,
+}: {
+  count: number
+  health: ProviderHealth
+  icon: IconName
+  name: string
+  unit: string
+  units: string
+}) {
+  const state = integrationProviderHealthLabels[health]
+  return (
+    <span
+      className={`integration-provider ${providerTone(health)}`}
+      title={`${name}: ${plural(count, unit, units)}, ${state.toLowerCase()}`}
+    >
+      <Icon name={icon} />
+      <span className="visually-hidden">{`${name}: ${plural(count, unit, units)}, ${state}. `}</span>
+      <span aria-hidden="true">{count}</span>
+    </span>
+  )
+}
+
+/**
+ * The one line that differs between rows. A team with nothing connected gets no
+ * line at all: the headline already says what that means, and the two dimmed
+ * marks on the right say it again without words.
+ */
+function teamNote(team: IntegrationTeam) {
+  const notes: string[] = []
+  if (team.github.topicMissingCount > 0) {
+    notes.push(`${plural(team.github.topicMissingCount, 'repository', 'repositories')} missing the event topic`)
+  }
+  if (team.github.incompleteCount > 0) {
+    notes.push(`${plural(team.github.incompleteCount, 'repository', 'repositories')} only partly counted`)
+  }
+  if (team.figma.rateLimitedCount > 0) {
+    notes.push(`${plural(team.figma.rateLimitedCount, 'file', 'files')} paused by Figma's rate limit`)
+  }
+  if (team.figma.dirtyCount > 0) {
+    notes.push(`${plural(team.figma.dirtyCount, 'file', 'files')} changed since the last capture`)
+  }
+  if (team.figma.incompleteCount > 0) {
+    notes.push(`${plural(team.figma.incompleteCount, 'file', 'files')} only partly captured`)
+  }
+  if (notes.length > 0) return notes.join(' · ')
+  if (needsAttention(team)) {
+    return team.github.health === 'needs_attention'
+      ? 'GitHub is not reading properly'
+      : 'Figma is not reading properly'
+  }
+  if (isDisconnected(team)) return null
+  const latest = activityTime(
+    Math.max(team.github.lastActivityAt ?? 0, team.figma.lastActivityAt ?? 0) || undefined,
+  )
+  return latest === null ? null : `Last change ${latest}`
 }
 
 export function IntegrationOverview() {
@@ -84,7 +160,7 @@ export function IntegrationOverview() {
                 ? `${unwatchable.length} of ${results.length} teams have connected no code and no design. A reviewer opening those teams has nothing to look at.`
                 : broken.length > 0
                   ? `Every team has connected something, but ${broken.length} ${broken.length === 1 ? 'connection is' : 'connections are'} not reading properly. Their recent work will look emptier than it is.`
-                  : `All ${results.length} teams have code or design connected and reading normally. Activity is context for a reviewer, not a score.`}
+                  : `All ${results.length} teams have code or design connected and reading normally.`}
           </p>
         </div>
       </div>
@@ -119,52 +195,54 @@ export function IntegrationOverview() {
         </>
       ) : (
         <div className="integration-health-list">
-          {visible.map((team) => (
-            <article className="integration-health-row" key={team.teamId}>
-              <div className="integration-team-name">
-                <strong>{team.teamName}</strong>
-                <span>{teamStatusLabels[team.teamStatus]}</span>
-                <small>{teamConsequence(team)}</small>
-              </div>
-              <div className="provider-health">
-                <div>
-                  <span>GitHub</span>
-                  <small className={`health-state ${team.github.health}`}>
-                    {integrationProviderHealthLabels[team.github.health]}
-                  </small>
+          {visible.map((team) => {
+            const note = teamNote(team)
+            const connected = team.github.repositoryCount + team.figma.fileCount
+            const expanded = expandedTeamId === team.teamId
+            return (
+              <article className="integration-health-row" key={team.teamId}>
+                <span className={`row-glyph ${isDisconnected(team) ? 'critical' : needsAttention(team) ? 'attention' : ''}`}>
+                  <Icon name="users" />
+                </span>
+                <div className="row-text">
+                  <strong>
+                    {team.teamName}
+                    <span className="row-context"> · {teamStatusLabels[team.teamStatus]}</span>
+                  </strong>
+                  {note === null ? null : <small>{note}</small>}
                 </div>
-                <p>{itemCount(team.github.repositoryCount, 'repository', 'repositories')} connected</p>
-                <small>
-                  {team.github.topicMissingCount > 0 ? `${team.github.topicMissingCount} missing the event topic · ` : ''}
-                  {team.github.incompleteCount > 0 ? `${team.github.incompleteCount} only partly counted · ` : ''}
-                  {activityTime(team.github.lastActivityAt) ?? 'No activity yet'}
-                </small>
-              </div>
-              <div className="provider-health">
-                <div>
-                  <span>Figma</span>
-                  <small className={`health-state ${team.figma.health}`}>
-                    {integrationProviderHealthLabels[team.figma.health]}
-                  </small>
+                <div className="integration-row-side">
+                  <ProviderCount
+                    count={team.github.repositoryCount}
+                    health={team.github.health}
+                    icon="github"
+                    name="GitHub"
+                    unit="repository"
+                    units="repositories"
+                  />
+                  <ProviderCount
+                    count={team.figma.fileCount}
+                    health={team.figma.health}
+                    icon="figma"
+                    name="Figma"
+                    unit="file"
+                    units="files"
+                  />
+                  {connected > 0 ? (
+                    <button
+                      aria-expanded={expanded}
+                      className="row-action"
+                      type="button"
+                      onClick={() => setExpandedTeamId((current) => (current === team.teamId ? null : team.teamId))}
+                    >
+                      {expanded ? 'Hide' : 'Open'}
+                    </button>
+                  ) : null}
                 </div>
-                <p>{itemCount(team.figma.fileCount, 'file', 'files')} connected</p>
-                <small>
-                  {team.figma.rateLimitedCount > 0 ? `${team.figma.rateLimitedCount} paused by Figma's rate limit · ` : ''}
-                  {team.figma.dirtyCount > 0 ? `${team.figma.dirtyCount} with newer changes not captured · ` : ''}
-                  {team.figma.incompleteCount > 0 ? `${team.figma.incompleteCount} only partly captured · ` : ''}
-                  {figmaActivity(team.figma.oldestMetadataCheckAt, team.figma.lastCaptureAt)}
-                </small>
-              </div>
-              <button
-                className="text-button"
-                type="button"
-                onClick={() => setExpandedTeamId((current) => current === team.teamId ? null : team.teamId)}
-              >
-                {expandedTeamId === team.teamId ? 'Hide what is connected' : 'Show what is connected'}
-              </button>
-              {expandedTeamId === team.teamId ? <IntegrationDetails team={team} /> : null}
-            </article>
-          ))}
+                {expanded ? <IntegrationDetails team={team} /> : null}
+              </article>
+            )
+          })}
           {visible.length === 0 ? (
             <p className="empty">
               {results.length === 0
@@ -179,13 +257,6 @@ export function IntegrationOverview() {
       ) : null}
     </section>
   )
-}
-
-/** What the state of this team's connections means for whoever reads its work. */
-function teamConsequence(team: IntegrationTeam) {
-  if (isDisconnected(team)) return 'Nothing for a reviewer to open'
-  if (needsAttention(team)) return 'Recent work may be missing from what a reviewer sees'
-  return 'A reviewer can see this team\'s work'
 }
 
 function IntegrationDetails({ team }: { team: IntegrationTeam }) {
@@ -211,11 +282,9 @@ function IntegrationDetails({ team }: { team: IntegrationTeam }) {
 
   return (
     <div className="integration-team-detail">
-      <div>
-        <h3>GitHub repositories</h3>
-        {details.githubRepositories.length === 0 ? (
-          <p className="muted">No repositories connected.</p>
-        ) : (
+      {details.githubRepositories.length > 0 ? (
+        <div>
+          <h3><Icon name="github" /> Repositories</h3>
           <ul className="integration-file-list">
             {details.githubRepositories.map((repository) => (
               <li key={repository.bindingId}>
@@ -225,30 +294,29 @@ function IntegrationDetails({ team }: { team: IntegrationTeam }) {
                     {repository.customKind ?? repositoryKindLabels[repository.kind]} · {repository.purpose}
                   </small>
                   <small>
-                    {repository.trackedBranch}{repository.rootPath ? ` / ${repository.rootPath}` : ''} · {githubRepositoryTopicStateLabels[repository.topicState]} · {githubRepositorySyncStateLabels[repository.syncState]}
+                    {repository.trackedBranch}{repository.rootPath ? ` / ${repository.rootPath}` : ''}
+                    {repository.topicState === 'present' ? '' : ` · ${githubRepositoryTopicStateLabels[repository.topicState]}`}
+                    {repository.syncState === 'ready' ? '' : ` · ${githubRepositorySyncStateLabels[repository.syncState]}`}
                   </small>
                   <small>
-                    {repository.commitCount} commits · {repository.pushCount} pushes · +{repository.additions} −{repository.deletions} across {repository.changedFiles} files
+                    {plural(repository.commitCount, 'commit', 'commits')} · {plural(repository.pushCount, 'push', 'pushes')} · +{repository.additions} −{repository.deletions} in {plural(repository.changedFiles, 'file', 'files')}
                   </small>
-                  {repository.completeness !== 'complete' || repository.compareTruncated ? (
+                  {repository.completeness === 'complete' && !repository.compareTruncated ? null : (
                     <small>
                       {githubRepositoryCoverageLabels[repository.completeness]}
-                      {repository.compareTruncated ? ', and GitHub cut the list of changed files short' : ''}.
+                      {repository.compareTruncated ? ', and GitHub cut the list of changed files short' : ''}
                     </small>
-                  ) : null}
-                  {repository.syncErrorCode ? <small>GitHub said: {repository.syncErrorCode.replaceAll('_', ' ')}</small> : null}
+                  )}
                 </div>
               </li>
             ))}
           </ul>
-        )}
-      </div>
+        </div>
+      ) : null}
 
-      <div>
-        <h3>Figma files</h3>
-        {details.figmaFiles.length === 0 ? (
-          <p className="muted">No Figma files connected.</p>
-        ) : (
+      {details.figmaFiles.length > 0 ? (
+        <div>
+          <h3><Icon name="figma" /> Design files</h3>
           <ul className="integration-file-list">
             {details.figmaFiles.map((file) => {
               const checkpoint = checkpointLinks[file.bindingId]
@@ -257,15 +325,15 @@ function IntegrationDetails({ team }: { team: IntegrationTeam }) {
                   <div>
                     <a href={file.url} target="_blank" rel="noreferrer">{file.name}</a>
                     <small>{file.role}</small>
-                    <small>
-                      {figmaActivity(file.lastMetadataCheckAt, file.lastFullCaptureAt)}
-                    </small>
-                    {file.contentDirty ? <small>The team has changed this file since the last capture, so a reviewer sees the older version.</small> : null}
+                    <small>{figmaActivity(file.lastMetadataCheckAt, file.lastFullCaptureAt)}</small>
+                    {file.contentDirty ? <small>Changed since the last capture</small> : null}
                     {file.metadataRateLimitRetryAt ? (
-                      <small>Metadata retry {activityTime(file.metadataRateLimitRetryAt) ?? 'pending'}</small>
-                    ) : file.metadataErrorCode ? <small>Figma said: {file.metadataErrorCode.replaceAll('_', ' ')}</small> : null}
+                      <small>Paused by Figma's rate limit, retrying {activityTime(file.metadataRateLimitRetryAt) ?? 'soon'}</small>
+                    ) : null}
                     <small>
-                      {file.preview.availableCount} of {file.preview.selectedNodeCount} frames · {figmaPreviewStateLabels[file.preview.state]}{file.preview.truncated ? ' · only the first frames were taken' : ''}
+                      {file.preview.availableCount} of {plural(file.preview.selectedNodeCount, 'frame', 'frames')}
+                      {file.preview.state === 'ready' ? '' : ` · ${figmaPreviewStateLabels[file.preview.state]}`}
+                      {file.preview.truncated ? ' · only the first frames were taken' : ''}
                     </small>
                   </div>
                   {details.canReadFigmaArtifacts && file.hasFullArtifact ? (
@@ -305,8 +373,8 @@ function IntegrationDetails({ team }: { team: IntegrationTeam }) {
               )
             })}
           </ul>
-        )}
-      </div>
+        </div>
+      ) : null}
       {checkpointError ? <p className="notice error" role="alert">{checkpointError}</p> : null}
     </div>
   )
