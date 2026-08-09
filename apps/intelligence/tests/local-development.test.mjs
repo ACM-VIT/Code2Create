@@ -24,6 +24,6 @@ test('local intelligence uses one localhost-only signed service boundary', () =>
   const callbackUrl = new URL(
     localIntelligenceWorkerEnvironment.CONVEX_INTELLIGENCE_CALLBACK_URL,
   )
-  assert.equal(callbackUrl.origin, 'http://127.0.0.1:3213')
+  assert.equal(callbackUrl.origin, 'http://127.0.0.1:3211')
   assert.equal(callbackUrl.pathname, '/intelligence/operations-briefs/callback')
 })
