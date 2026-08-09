@@ -42,6 +42,8 @@ const staffStateFilter = v.union(
   v.literal("all"),
 );
 
+type StaffStateFilter = "active" | "resolved" | "closed" | "all";
+
 const caseView = v.object({
   id: v.id("supportCases"),
   publicCode: v.string(),
@@ -55,14 +57,39 @@ const caseView = v.object({
   roundName: v.optional(v.string()),
   reviewSessionId: v.optional(v.id("reviewSessions")),
   attendanceSessionId: v.optional(v.id("attendanceSessions")),
+  ownerPersonId: v.optional(v.id("people")),
   ownerName: v.optional(v.string()),
   ownedByViewer: v.boolean(),
   state: supportCaseState,
   version: v.number(),
   createdAt: v.number(),
   updatedAt: v.number(),
+  lastActionAt: v.number(),
+  firstResponseAt: v.optional(v.number()),
+  awaitingStaffReply: v.boolean(),
   canReply: v.boolean(),
   canManage: v.boolean(),
+});
+
+/**
+ * Event-wide counts. The desk needs to know how much work exists, not how much
+ * of it fitted on the page it was handed, so these are counted over every case
+ * the reader can see rather than over the returned rows.
+ */
+const staffTotals = v.object({
+  open: v.number(),
+  investigating: v.number(),
+  waiting: v.number(),
+  resolved: v.number(),
+  closed: v.number(),
+  unowned: v.number(),
+  awaitingStaffReply: v.number(),
+  safety: v.number(),
+});
+
+const ownerCandidate = v.object({
+  personId: v.id("people"),
+  displayName: v.string(),
 });
 
 const actionView = v.object({
@@ -92,6 +119,19 @@ const createResult = v.object({
 });
 
 const activeCaseStates = ["open", "investigating", "waiting"] as const;
+
+/** How many rows one staff page carries. Totals are counted separately. */
+const staffPageSize = 80;
+
+function isLiveState(state: SupportCaseState) {
+  return activeCaseStates.some((candidate) => candidate === state);
+}
+
+function matchesStaffFilter(state: SupportCaseState, filter: StaffStateFilter) {
+  if (filter === "all") return true;
+  if (filter === "active") return isLiveState(state);
+  return state === filter;
+}
 
 function randomSupportCode() {
   const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -162,9 +202,55 @@ function exactCaseGrantIds(grants: Doc<"permissionGrants">[]) {
   );
 }
 
+type CaseActivity = {
+  lastActionAt: number;
+  firstResponseAt?: number;
+  awaitingStaffReply: boolean;
+};
+
+/**
+ * Who spoke last, and when.
+ *
+ * `updatedAt` moves on every write, including an internal note nobody outside
+ * the desk can see, so it cannot say whether the reporter is still waiting. The
+ * action log can: `opened` and `reporter_reply` put the ball with the desk and
+ * `public_note` gives it back. State and owner changes are bookkeeping and
+ * leave the turn where it was, which also keeps the answer stable when a reply
+ * and the state change it triggers land on the same millisecond.
+ */
+async function caseActivity(
+  ctx: ReadCtx,
+  supportCaseId: Id<"supportCases">,
+): Promise<CaseActivity> {
+  const actions = await ctx.db
+    .query("supportCaseActions")
+    .withIndex("by_case_time", (index) =>
+      index.eq("supportCaseId", supportCaseId),
+    )
+    .collect();
+  let lastActionAt = 0;
+  let firstResponseAt: number | undefined;
+  let awaitingStaffReply = false;
+  for (const action of actions) {
+    lastActionAt = action.createdAt;
+    if (action.kind === "public_note") {
+      firstResponseAt ??= action.createdAt;
+      awaitingStaffReply = false;
+    } else if (action.kind === "opened" || action.kind === "reporter_reply") {
+      awaitingStaffReply = true;
+    }
+  }
+  return {
+    lastActionAt,
+    ...(firstResponseAt !== undefined ? { firstResponseAt } : {}),
+    awaitingStaffReply,
+  };
+}
+
 async function toCaseView(
   ctx: ReadCtx,
   supportCase: SupportCaseDoc,
+  activity: CaseActivity,
   viewerPersonId: Id<"people">,
   canReply: boolean,
   canManage: boolean,
@@ -201,12 +287,20 @@ async function toCaseView(
     ...(supportCase.attendanceSessionId !== undefined
       ? { attendanceSessionId: supportCase.attendanceSessionId }
       : {}),
+    ...(supportCase.ownerPersonId !== undefined
+      ? { ownerPersonId: supportCase.ownerPersonId }
+      : {}),
     ...(owner !== null ? { ownerName: owner.displayName } : {}),
     ownedByViewer: supportCase.ownerPersonId === viewerPersonId,
     state: supportCase.state,
     version: supportCase.version,
     createdAt: supportCase.createdAt,
     updatedAt: supportCase.updatedAt,
+    lastActionAt: activity.lastActionAt,
+    ...(activity.firstResponseAt !== undefined
+      ? { firstResponseAt: activity.firstResponseAt }
+      : {}),
+    awaitingStaffReply: activity.awaitingStaffReply,
     canReply,
     canManage,
   };
@@ -557,10 +651,11 @@ export const mine = query({
       .order("desc")
       .take(20);
     return Promise.all(
-      cases.map((supportCase) =>
+      cases.map(async (supportCase) =>
         toCaseView(
           ctx,
           supportCase,
+          await caseActivity(ctx, supportCase._id),
           person._id,
           replyGrants.length > 0 && supportCase.state !== "closed",
           false,
@@ -575,6 +670,7 @@ export const staffList = query({
   returns: v.object({
     currentPersonId: v.id("people"),
     canCreate: v.boolean(),
+    totals: staffTotals,
     cases: v.array(caseView),
   }),
   handler: async (ctx, args) => {
@@ -595,76 +691,79 @@ export const staffList = query({
     const exactReadIds = exactCaseGrantIds(readGrants);
     const canManageEvent = hasEventGrant(manageGrants);
     const exactManageIds = exactCaseGrantIds(manageGrants);
-    let candidates: SupportCaseDoc[] = [];
-    if (canReadEvent) {
-      if (args.state === "all") {
-        candidates = await ctx.db
+    /**
+     * The whole readable set, because the stat strip and the filter both have
+     * to describe the event rather than the page. The rows are then cut from
+     * this in memory, which costs one scan instead of one scan plus a page
+     * query.
+     */
+    const visibleCases: SupportCaseDoc[] = canReadEvent
+      ? await ctx.db
           .query("supportCases")
           .withIndex("by_event_updated", (index) =>
             index.eq("eventId", event._id),
           )
-          .order("desc")
-          .take(80);
-      } else if (args.state === "active") {
-        const groups = await Promise.all(
-          activeCaseStates.map((state) =>
-            ctx.db
-              .query("supportCases")
-              .withIndex("by_event_state_updated", (index) =>
-                index.eq("eventId", event._id).eq("state", state),
-              )
-              .order("desc")
-              .take(40),
-          ),
-        );
-        candidates = groups
-          .flat()
-          .sort((left, right) => right.updatedAt - left.updatedAt)
-          .slice(0, 80);
-      } else if (args.state === "resolved" || args.state === "closed") {
-        const terminalState = args.state;
-        candidates = await ctx.db
-          .query("supportCases")
-          .withIndex("by_event_state_updated", (index) =>
-            index.eq("eventId", event._id).eq("state", terminalState),
+          .collect()
+      : (
+          await Promise.all(
+            [...exactReadIds].map((scopeId) => {
+              const supportCaseId = ctx.db.normalizeId("supportCases", scopeId);
+              return supportCaseId
+                ? ctx.db.get("supportCases", supportCaseId)
+                : Promise.resolve(null);
+            }),
           )
-          .order("desc")
-          .take(80);
-      }
-    } else if (exactReadIds.size > 0) {
-      const exactCases = await Promise.all(
-        [...exactReadIds].map((scopeId) => {
-          const supportCaseId = ctx.db.normalizeId("supportCases", scopeId);
-          return supportCaseId
-            ? ctx.db.get("supportCases", supportCaseId)
-            : Promise.resolve(null);
-        }),
-      );
-      const visibleExactCases: SupportCaseDoc[] = [];
-      for (const supportCase of exactCases) {
-        if (
-          supportCase !== null &&
-          supportCase.eventId === event._id &&
-          (args.state === "all" ||
-            (args.state === "active"
-              ? activeCaseStates.some((state) => state === supportCase.state)
-              : supportCase.state === args.state))
-        ) {
-          visibleExactCases.push(supportCase);
-        }
-      }
-      candidates = visibleExactCases
-        .sort((left, right) => right.updatedAt - left.updatedAt)
-        .slice(0, 80);
+        ).flatMap((supportCase) =>
+          supportCase !== null && supportCase.eventId === event._id
+            ? [supportCase]
+            : [],
+        );
+
+    const liveCases = visibleCases.filter((supportCase) =>
+      isLiveState(supportCase.state),
+    );
+    const liveActivity = await Promise.all(
+      liveCases.map(
+        async (supportCase) =>
+          [supportCase._id, await caseActivity(ctx, supportCase._id)] as const,
+      ),
+    );
+    const liveActivityByCase = new Map(liveActivity);
+
+    const totals = {
+      open: 0,
+      investigating: 0,
+      waiting: 0,
+      resolved: 0,
+      closed: 0,
+      unowned: 0,
+      awaitingStaffReply: liveActivity.filter(
+        ([, activity]) => activity.awaitingStaffReply,
+      ).length,
+      safety: 0,
+    };
+    for (const supportCase of visibleCases) totals[supportCase.state] += 1;
+    for (const supportCase of liveCases) {
+      if (supportCase.ownerPersonId === undefined) totals.unowned += 1;
+      if (supportCase.category === "safety") totals.safety += 1;
     }
+
+    const rows = visibleCases
+      .filter((supportCase) => matchesStaffFilter(supportCase.state, args.state))
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .slice(0, staffPageSize);
+
     return {
       currentPersonId: person._id,
       canCreate: createGrants.length > 0,
+      totals,
       cases: await Promise.all(
-        candidates.map((supportCase) =>
+        rows.map(async (supportCase) =>
           toCaseView(
             ctx,
             supportCase,
+            liveActivityByCase.get(supportCase._id) ??
+              (await caseActivity(ctx, supportCase._id)),
             person._id,
             false,
             canManageEvent || exactManageIds.has(supportCase._id),
@@ -672,6 +771,55 @@ export const staffList = query({
         ),
       ),
     };
+  },
+});
+
+/**
+ * Everyone the desk can hand a case to. Ownership only means anything for
+ * someone who can act on the case afterwards, so this is the set of active
+ * event accounts holding event-wide `support.case.manage`.
+ */
+export const owners = query({
+  args: { eventSlug: v.string() },
+  returns: v.array(ownerCandidate),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const viewerGrants = await activePermissionGrants(
+      ctx,
+      event._id,
+      subject._id,
+      "support.case.manage",
+    );
+    if (viewerGrants.length === 0) {
+      throw new ConvexError({
+        code: "ACCESS_DENIED",
+        message: "This account cannot hand a support case to anyone.",
+      });
+    }
+    const subjects = await ctx.db
+      .query("eventAccessSubjects")
+      .withIndex("by_event_status_email", (index) =>
+        index.eq("eventId", event._id).eq("status", "active"),
+      )
+      .collect();
+    const candidates = await Promise.all(
+      subjects.map(async (candidate) => {
+        const grants = await activePermissionGrants(
+          ctx,
+          event._id,
+          candidate._id,
+          "support.case.manage",
+        );
+        return hasEventGrant(grants)
+          ? { personId: candidate.personId, displayName: candidate.displayName }
+          : null;
+      }),
+    );
+    return candidates
+      .flatMap((candidate) => (candidate === null ? [] : [candidate]))
+      .sort((left, right) => left.displayName.localeCompare(right.displayName));
   },
 });
 
@@ -741,6 +889,7 @@ export const detail = query({
       supportCase: await toCaseView(
         ctx,
         supportCase,
+        await caseActivity(ctx, supportCase._id),
         person._id,
         isReporter && replyGrants.length > 0 && supportCase.state !== "closed",
         manageGrants.length > 0,
