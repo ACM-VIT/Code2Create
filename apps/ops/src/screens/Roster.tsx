@@ -133,7 +133,7 @@ export function Roster() {
       return
     }
     if (sourceName.trim().length < 3) {
-      setError('Name this list, so every person it adds records where they came from.')
+      setError('Give this list a name of at least three characters.')
       return
     }
     const start = new Date(validFrom).getTime()
@@ -143,7 +143,7 @@ export function Roster() {
       return
     }
     if (end <= Date.now()) {
-      setError('Roster access must end in the future, or nobody will be able to sign in with it.')
+      setError('Roster access must end in the future.')
       return
     }
     if (
@@ -154,7 +154,7 @@ export function Roster() {
       return
     }
     if (reason.trim().length < 5) {
-      setError('Say why this list is being added, in at least five characters. It is kept with the audit record.')
+      setError('Say why this list is being added, in at least five characters.')
       return
     }
     setError(null)
@@ -219,8 +219,7 @@ export function Roster() {
           <p className="eyebrow">People and permissions</p>
           <h1>Event team</h1>
           <p className="muted">
-            The organizers and judges allowed into this event. Anyone whose email is not
-            here is turned away when they try to sign in with Google.
+            The organizers and judges allowed into this event. Anyone not listed cannot sign in.
           </p>
         </div>
         {workspace.canImport ? (
@@ -246,40 +245,26 @@ export function Roster() {
           <section className="stage-block">
             <p className="eyebrow">Where this list stands</p>
             {entries.length === 0 ? (
-              <p>
-                Nobody has been added yet, so no organizer or judge can sign in. Add them
-                from a spreadsheet and they can sign in as soon as they are on the list.
-              </p>
+              <p>Nobody has been added yet, so no organizer or judge can sign in.</p>
             ) : (
               <p>
                 {waiting === 0
                   ? `All ${entries.length} ${people(entries.length)} on this list have signed in.`
-                  : `${waiting} of ${entries.length} ${people(entries.length)} have not signed in yet, so they cannot open the dashboard or be given anything to do.`}
+                  : `${waiting} of ${entries.length} ${people(entries.length)} have not signed in, so they cannot be given work.`}
               </p>
             )}
-            {lapsed > 0 ? (
-              <p className="muted">
-                {lapsed === 1
-                  ? 'One invitation ran out before it was used; that person has to be added again before they can sign in.'
-                  : `${lapsed} invitations ran out before they were used; those people have to be added again before they can sign in.`}
-              </p>
-            ) : null}
             {!workspace.canReadAll ? (
               <p className="muted">
-                You can see only the invitations your own permissions name, so these counts
-                cover part of the team.
+                You see only the invitations your permissions name, so these counts are partial.
               </p>
             ) : rosterPage.status === 'CanLoadMore' ? (
               <p className="muted">
-                These counts cover the {entries.length} most recently added people. Load the
-                rest below to count everyone.
+                These counts cover the {entries.length} most recently added people.
               </p>
             ) : null}
             {workspace.importBlocker ? <p className="muted">{workspace.importBlocker}</p> : null}
             {!workspace.canImport && !workspace.importBlocker ? (
-              <p className="muted">
-                Your account can read this list but cannot add people to it.
-              </p>
+              <p className="muted">You can read this list but not add people to it.</p>
             ) : null}
           </section>
 
@@ -309,9 +294,8 @@ export function Roster() {
           <div>
             <h2>Add people from a spreadsheet</h2>
             <p className="muted">
-              A CSV of up to {maximumRosterRows} rows with the columns <code>email,name,role</code>,
-              where the role is one of: {writtenRoleChoices}. You see a summary of what will
-              change before anything is added.
+              A CSV of up to {maximumRosterRows} rows with the columns <code>email,name,role</code>.
+              The role is one of: {writtenRoleChoices}.
             </p>
           </div>
 
@@ -379,25 +363,23 @@ export function Roster() {
                       onChange={(event) => selectBundle(bundle.versionId, event.target.checked)}
                     />
                     <span>
-                      {bundle.label} — {bundle.entryCount}{' '}
-                      {bundle.entryCount === 1 ? 'permission' : 'permissions'}, given to each
-                      person the first time they sign in
+                      {bundle.label} · {bundle.entryCount}{' '}
+                      {bundle.entryCount === 1 ? 'permission' : 'permissions'}
                     </span>
                   </label>
                 ))}
                 {compatibleBundles.length === 0 ? (
                   <p>
                     No published access set can be handed out at sign-in, so these people
-                    arrive with a role label and no permissions.{' '}
-                    <Link to="/access/bundles">Make a reusable access set</Link> if several of
-                    them need the same access.
+                    arrive with no permissions.{' '}
+                    <Link to="/access/bundles">Make a reusable access set</Link>
                   </p>
                 ) : null}
                 {laterBundles.length > 0 ? (
                   <p>
                     {laterBundles.length === 1
-                      ? 'One other set names a specific team or panel, so it can only be given to a person after they sign in.'
-                      : `${laterBundles.length} other sets name a specific team or panel, so they can only be given to a person after they sign in.`}
+                      ? 'One other set names a team or panel, so it can only be given after sign-in.'
+                      : `${laterBundles.length} other sets name a team or panel, so they can only be given after sign-in.`}
                   </p>
                 ) : null}
               </fieldset>
@@ -421,10 +403,7 @@ export function Roster() {
       ) : entries.length === 0 ? (
         <div className="health-empty">
           <strong>No people have been added.</strong>
-          <span>
-            Everyone who runs or judges this event has to be on this list before they can
-            sign in.
-          </span>
+          <span>Everyone who runs or judges this event must be on this list.</span>
         </div>
       ) : (
         rosterGroups.map((group) => {
@@ -489,7 +468,7 @@ function RosterPreview({
       </div>
       <p className="muted">
         {preview.bundles.length === 0
-          ? 'These people get a role label and no permissions, so someone has to grant what each of them needs.'
+          ? 'These people arrive with no permissions until someone grants them.'
           : `Each person also receives ${preview.bundles.length} reusable access ${preview.bundles.length === 1 ? 'set' : 'sets'} the first time they sign in.`}
       </p>
       <div className="button-row">
@@ -500,7 +479,6 @@ function RosterPreview({
           Go back and edit
         </button>
       </div>
-      <small className="muted">You may be asked to sign in again before adding these accounts.</small>
     </div>
   )
 }
@@ -625,7 +603,7 @@ function statusStatement(entry: Entry) {
     return `Signed in. Their access runs until ${dateTime(entry.validUntil)}.`
   }
   if (entry.status === 'expired') {
-    return `The invitation ran out on ${dateTime(entry.validUntil)} before it was used, so this person cannot sign in until they are added again.`
+    return `The invitation ran out on ${dateTime(entry.validUntil)}, so they must be added again.`
   }
   if (entry.status === 'revoked') {
     return 'The invitation was removed, so this person can no longer sign in.'

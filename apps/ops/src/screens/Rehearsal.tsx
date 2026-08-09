@@ -83,10 +83,8 @@ export function Rehearsal() {
             <>
               <p>No test run has been held.</p>
               <p className="muted">
-                A test run walks every way this event can go wrong — a participant signing in with the wrong Google
-                account, a reviewer’s phone dying mid-review, the venue Wi-Fi dropping — one check at a time, with a
-                named person answering for each area. The point is to find those failures now, while there is still
-                time to fix them, rather than on the day.
+                A test run works through every way this event can break, one check at a time,
+                with a named owner for each area.
               </p>
             </>
           ) : (
@@ -117,11 +115,8 @@ export function Rehearsal() {
         </div>
       ) : list !== undefined && !list.canRead ? (
         <div className="health-empty">
-          <strong>No test run is visible to this account.</strong>
-          <span>
-            Reading a run needs the rehearsal permission for that run. Ask an organizer to grant it, or to add this
-            account as the owner of the area it is answering for.
-          </span>
+          <strong>No test run is visible to you.</strong>
+          <span>Reading a run needs the rehearsal permission for that run.</span>
         </div>
       ) : null}
 
@@ -139,7 +134,6 @@ function RunLead({ run }: { run: RehearsalRun | undefined }) {
     return (
       <>
         <p>{run.name} has been signed off. All {run.counts.total} checks passed.</p>
-        <p className="muted">Create a new run if anything about the event has changed since.</p>
       </>
     )
   }
@@ -147,7 +141,6 @@ function RunLead({ run }: { run: RehearsalRun | undefined }) {
     return (
       <>
         <p>{run.name} was cancelled, so nothing about this event has been rehearsed.</p>
-        <p className="muted">Create a new run before the event opens.</p>
       </>
     )
   }
@@ -159,8 +152,8 @@ function RunLead({ run }: { run: RehearsalRun | undefined }) {
         </p>
         <p className="muted">
           {run.assignedWorkstreamCount === run.requiredWorkstreamCount
-            ? 'Every area has an owner, so the run can be started below.'
-            : `${run.requiredWorkstreamCount - run.assignedWorkstreamCount} of the ${run.requiredWorkstreamCount} areas still have nobody answering for them, and the run cannot start until they do.`}
+            ? 'Every area has an owner.'
+            : `${run.requiredWorkstreamCount - run.assignedWorkstreamCount} of ${run.requiredWorkstreamCount} areas have no owner, so the run cannot start.`}
         </p>
       </>
     )
@@ -173,7 +166,7 @@ function RunLead({ run }: { run: RehearsalRun | undefined }) {
       </p>
       <p className="muted">
         {wrong > 0
-          ? 'Each failure is a way the event can break on the day. Fix it, then run the check again.'
+          ? 'Fix each failure, then run the check again.'
           : 'The event should not open until every check has a passing result.'}
       </p>
     </>
@@ -230,9 +223,8 @@ function CreateRun({ defaultOpen, onCreated }: { defaultOpen: boolean; onCreated
       <summary>Create a test run</summary>
       <form onSubmit={(event) => void submit(event)}>
         <p className="section-note rehearsal-wide-field">
-          Creating a run copies in a fixed list of checks — one per way the event is known to break — grouped into
-          areas such as sign-in, attendance and reviewing. Each area then needs one person answering for it before
-          the run can start, and every check needs a pass, fail or blocked result before the run can be signed off.
+          Creating a run copies in a fixed list of checks, grouped into areas such as sign-in,
+          attendance and reviewing. Each area needs an owner before the run can start.
         </p>
         <label className="field">
           Name
@@ -335,8 +327,8 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
             <h2>Checks</h2>
             <p className="muted">
               {detail.run.counts.failed + detail.run.counts.blocked > 0
-                ? 'The checks that went wrong are listed first. Fix the cause, then run the check again.'
-                : 'Work through each check and record what happened. Checks still to try are listed first.'}
+                ? 'Fix what went wrong, then run the check again.'
+                : 'Work through each check and record what happened.'}
             </p>
           </div>
           <div className="rehearsal-filters">
@@ -391,7 +383,7 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
               </button>
             ))}
             {scenarios.length === 0 ? (
-              <p className="empty">No check in this run matches both filters. Widen one of them.</p>
+              <p className="empty">No check matches both filters.</p>
             ) : null}
           </div>
           {selectedScenario ? (
@@ -444,9 +436,9 @@ function WorkstreamOwners({
           <h2>Owners</h2>
           <p className="muted">
             {missing > 0
-              ? `${missing} of the ${detail.run.requiredWorkstreamCount} areas have nobody answering for them. The run cannot start until every one does.`
+              ? `${missing} of ${detail.run.requiredWorkstreamCount} areas have no owner, so the run cannot start.`
               : inactive.length > 0
-                ? `Every area has an owner, but ${inactive.length === 1 ? 'one of them has' : `${inactive.length} of them have`} inactive event access and cannot record a result.`
+                ? `Every area has an owner, but ${inactive.length === 1 ? 'one has' : `${inactive.length} have`} inactive access and cannot record a result.`
                 : `All ${detail.run.requiredWorkstreamCount} areas have an owner who can record results.`}
           </p>
         </div>
@@ -458,10 +450,10 @@ function WorkstreamOwners({
             <span>{owner?.displayName ?? 'Nobody yet'}</span>
             <small>
               {!owner
-                ? 'Nobody is answering for this area, so the run cannot start.'
+                ? 'The run cannot start without an owner.'
                 : owner.accessActive
                   ? owner.email
-                  : 'Their event access is inactive, so they cannot record a result here.'}
+                  : 'Their event access is inactive, so they cannot record results.'}
             </small>
           </div>
         ))}
@@ -543,8 +535,7 @@ function OwnerAssignment({
   return (
     <form className="rehearsal-owner-form" onSubmit={(event) => void submit(event)}>
       <p className="section-note rehearsal-owner-reason">
-        One person per area, and they must hold active event access — the owner is who records the results for that
-        area’s checks and who is asked about them afterwards. Assigning again replaces the current owner.
+        One person per area, with active event access. Assigning again replaces the current owner.
       </p>
       <label className="field">
         Area
@@ -625,14 +616,14 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
   if (detail.run.state === 'completed') {
     return (
       <p className="notice rehearsal-final-note">
-        Signed off, so nothing further can be recorded against it: {detail.run.completionSummary}
+        Signed off, so nothing more can be recorded: {detail.run.completionSummary}
       </p>
     )
   }
   if (detail.run.state === 'cancelled') {
     return (
       <p className="notice rehearsal-final-note">
-        Cancelled before it finished, so its checks prove nothing: {detail.run.cancellationReason}
+        Cancelled before it finished: {detail.run.cancellationReason}
       </p>
     )
   }
@@ -710,15 +701,15 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
         <h2>{detail.run.state === 'draft' ? 'Starting this run' : 'Signing this run off'}</h2>
         <p className="muted">
           {detail.run.state === 'draft'
-            ? 'Results can only be recorded while a run is under way, so nothing can be tried until this one starts.'
-            : 'A run is signed off only when every check has passed. The signed-off summary is the record that the event was rehearsed.'}
+            ? 'Results can only be recorded while a run is under way.'
+            : 'A run is signed off only when every check has passed.'}
         </p>
       </div>
       {detail.run.state === 'draft' && !startReady && detail.run.canManage ? (
         <p className="notice">
           {missingOwners > 0
-            ? `This run cannot start: ${missingOwners} of its ${detail.run.requiredWorkstreamCount} areas still have nobody answering for them. Assign the owners above.`
-            : 'Starting this run needs the rehearsal manage permission, which this account does not have for it.'}
+            ? `This run cannot start: ${missingOwners} of its ${detail.run.requiredWorkstreamCount} areas have no owner.`
+            : 'Starting this run needs the rehearsal manage permission, which you do not have.'}
         </p>
       ) : null}
       {detail.run.state === 'active' && !completionReady && detail.run.canComplete ? (
@@ -869,7 +860,7 @@ function ScenarioDetail({
       ) : (
         <p className="notice">
           {runState === 'active'
-            ? 'This account can read the check but cannot record what happened. The owner of this area records the result.'
+            ? 'You can read this check but not record a result. The area owner does that.'
             : `Results can only be recorded while a run is under way, and this one is ${rehearsalRunStateLabels[runState].toLowerCase()}.`}
         </p>
       )}

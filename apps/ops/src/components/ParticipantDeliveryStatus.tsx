@@ -60,12 +60,12 @@ export function ParticipantDeliveryStatus({ applicationId }: { applicationId: Ap
       <h2>Decision email</h2>
       <p className="muted">
         {unreachable.length > 0
-          ? `${unreachable.length} of ${recipients.length} team members have no verified email address, so the decision cannot reach them.`
+          ? `${unreachable.length} of ${recipients.length} team members have no verified email address.`
           : stuck.length > 0
-            ? `${stuck.length} of ${recipients.length} did not get the decision email. They will not know the outcome until this is fixed.`
+            ? `${stuck.length} of ${recipients.length} did not get the decision email.`
             : deliveredCount === recipients.length
               ? `All ${recipients.length} team members received the decision email.`
-              : `${deliveredCount} of ${recipients.length} confirmed delivered; the rest are still on their way.`}
+              : `${deliveredCount} of ${recipients.length} confirmed delivered.`}
       </p>
       <div className="participant-delivery-list">
         {ordered.map((recipient) => (
@@ -156,7 +156,7 @@ function DeliveryRow({ recipient }: { recipient: DeliveryRecipient }) {
           <small>{delivery.providerErrorCode.replaceAll('_', ' ')}</small>
         ) : null}
         {delivery?.state === 'unknown' ? (
-          <small>Reconcile this message in Cloudflare Email logs before taking another send action.</small>
+          <small>Check the Cloudflare Email logs before sending again.</small>
         ) : null}
       </div>
       {canRetry || canDisable ? (
@@ -178,7 +178,7 @@ function DeliveryRow({ recipient }: { recipient: DeliveryRecipient }) {
           <p>
             {command === 'retry'
               ? 'Try this failed email once more.'
-              : 'Stop future email to this address. A message already being sent may still arrive.'}
+              : 'Stop future email to this address.'}
           </p>
           <label className="field">
             <span>Reason</span>

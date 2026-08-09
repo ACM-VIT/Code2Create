@@ -125,7 +125,7 @@ export function IntelligencePolicyConfiguration({
           <p className="eyebrow">Event setup</p>
           <h1>Operations briefs</h1>
           <p className="muted">
-            Create a short brief when something important changes. A brief can suggest a next step, but it cannot change the event.
+            Create a short brief when something important changes. A brief never changes the event.
           </p>
         </div>
       </header>
@@ -165,7 +165,7 @@ export function IntelligencePolicyConfiguration({
                     {validation.issues.map((issue) => <li key={issue}>{issue}</li>)}
                   </ul>
                 ) : (
-                  <p className="notice">Ready to publish. The new rules apply together.</p>
+                  <p className="notice">Ready to publish.</p>
                 )}
               </>
             )
@@ -178,9 +178,7 @@ export function IntelligencePolicyConfiguration({
       {configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish these operations brief rules?</h2>
-          <p className="muted">
-            These rules replace the current ones immediately. Existing briefs remain in the dashboard.
-          </p>
+          <p className="muted">These rules replace the current ones immediately.</p>
           <label className="field">
             <span>Why this changed</span>
             <textarea required value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
@@ -198,7 +196,7 @@ export function IntelligencePolicyConfiguration({
         <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
           <PolicySection
             title="When to create a brief"
-            description="A selected kind of problem must change before the system creates another brief."
+            description="A brief repeats only after the problem changes."
           >
             <label className="intelligence-enable">
               <input
@@ -224,7 +222,7 @@ export function IntelligencePolicyConfiguration({
 
           <PolicySection
             title="Repeat limits"
-            description="Keep repeated briefs useful and bounded during a busy event."
+            description="How often the same brief can come back."
           >
             <div className="intake-policy-number-grid">
               <NumberField label="Wait between briefs · minutes" min={15} max={360} value={policy.cooldownMinutes} onChange={(value) => updatePolicy('cooldownMinutes', value)} />
@@ -235,7 +233,7 @@ export function IntelligencePolicyConfiguration({
 
           <PolicySection
             title="Owner"
-            description="Briefs appear only to operations staff who have permission to read them."
+            description="Briefs appear only to operations staff."
           >
             <div className="intake-policy-grid">
               <label className="field">

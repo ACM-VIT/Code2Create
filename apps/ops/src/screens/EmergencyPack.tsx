@@ -85,8 +85,8 @@ export function EmergencyPack({
       requestAttemptRef.current = null
       setMessage(
         canRead
-          ? 'Requested. It appears in the list above and becomes printable there once it has been built.'
-          : 'Requested. This account cannot see it, so an operator with read access has to confirm it was built.',
+          ? 'Requested. It becomes printable above once it has been built.'
+          : 'Requested. Someone with read access has to confirm it was built.',
       )
     } catch (caught) {
       setError(readableError(caught))
@@ -131,7 +131,7 @@ export function EmergencyPack({
       <div className="emergency-pack-warning">
         <strong>This pack is a backup, not a mode switch.</strong>
         <p>
-          The incident lead decides when to use it. Every completed sheet must still be entered and checked by a second person.
+          The incident lead decides when to use it. Completed sheets still have to be entered and checked.
         </p>
       </div>
 
@@ -154,9 +154,7 @@ export function EmergencyPack({
       <section className="emergency-pack-history">
         <h2>Prepared backups</h2>
         <p className="section-note">
-          A backup is a printable snapshot of the roster, the check-in stations, the judging panels and blank sheets,
-          frozen at the moment it is prepared. It expires four hours later because the floor keeps moving. Opening
-          one is permission-checked and recorded.
+          A printable snapshot of the roster, stations, panels and blank sheets. It expires four hours later.
         </p>
         {!canRead ? (
           <p className="muted">This account cannot view prepared backups.</p>
@@ -170,8 +168,8 @@ export function EmergencyPack({
             <strong>Nothing has been prepared for this event.</strong>
             <span>
               {canPrepare
-                ? 'Prepare one below at the start of each shift, so that a failure during check-in or judging costs minutes rather than the session.'
-                : 'Preparing one needs the recovery permission, which this account does not have. Ask an organizer to prepare a backup before the event opens.'}
+                ? 'Prepare one at the start of each shift.'
+                : 'Preparing one needs the recovery permission, which you do not have.'}
             </span>
           </div>
         ) : (
@@ -223,22 +221,18 @@ export function EmergencyPack({
                 ) : null}
                 {status === 'ready' && !canPrint ? (
                   <p className="notice">
-                    This backup is printable, but opening it needs the recovery print permission, which this account
-                    does not have.
+                    Opening this needs the recovery print permission, which you do not have.
                   </p>
                 ) : null}
                 {status === 'pending' ? (
-                  <p className="notice">Still being built. It becomes printable here on its own.</p>
+                  <p className="notice">Still being built.</p>
                 ) : null}
                 {status === 'expired' ? (
-                  <p className="notice">
-                    Too old to use: it no longer matches who is in the venue. Prepare a fresh one instead.
-                  </p>
+                  <p className="notice">Too old to match who is in the venue. Prepare a fresh one.</p>
                 ) : null}
                 {status === 'failed' ? (
                   <p className="notice error">
-                    This backup could not be built{pack.failureCode ? ` (${pack.failureCode})` : ''}, so it cannot be
-                    printed. Prepare another one.
+                    This backup could not be built{pack.failureCode ? ` (${pack.failureCode})` : ''}. Prepare another one.
                   </p>
                 ) : null}
               </li>
@@ -255,10 +249,7 @@ export function EmergencyPack({
             void prepare()
           }}
         >
-          <p>
-            Preparing takes a fresh snapshot and builds a new printable backup. It does not replace or cancel any
-            backup already prepared.
-          </p>
+          <p>Preparing takes a fresh snapshot and builds a new printable backup.</p>
           <label className="field">
             <span>What this backup is for</span>
             <textarea
@@ -305,7 +296,7 @@ export function EmergencyPack({
             </label>
           </div>
           <p className="muted">
-            Every check-in phone and judging panel already gets one sheet. Add only the extras you expect to need.
+            Every check-in phone and judging panel already gets one sheet.
           </p>
           <button
             className="primary"
@@ -322,7 +313,7 @@ export function EmergencyPack({
         </form>
       ) : (
         <p className="muted">
-          Preparing a paper backup needs the recovery permission, which this account does not have.
+          Preparing a backup needs the recovery permission, which you do not have.
         </p>
       )}
 
@@ -355,8 +346,8 @@ function PackLead({
         <p>This account cannot see whether a backup exists.</p>
         <p className="muted">
           {canPrepare
-            ? 'You can still prepare one below, but an operator with read access has to confirm it was built and print it.'
-            : 'Ask an operator with recovery access whether the event currently has a printable fallback.'}
+            ? 'You can prepare one, but someone with read access has to print it.'
+            : 'Ask someone with recovery access whether a backup exists.'}
         </p>
       </>
     )
@@ -370,10 +361,7 @@ function PackLead({
             : `${usable.length} paper backups are printable right now.`}
           {` The newest stops being usable at ${formatDateTime(first.expiresAt)}.`}
         </p>
-        <p className="muted">
-          Print it before then, or the room falls back to nothing. A backup older than four hours no longer matches
-          who is actually in the venue.
-        </p>
+        <p className="muted">Print it before then, or the room falls back to nothing.</p>
       </>
     )
   }
@@ -381,9 +369,6 @@ function PackLead({
     return (
       <>
         <p>A backup is being built. Nothing is printable yet.</p>
-        <p className="muted">
-          It becomes printable in the list below on its own; there is nothing to do in the meantime.
-        </p>
       </>
     )
   }
@@ -391,8 +376,7 @@ function PackLead({
     <>
       <p>No paper backup is prepared.</p>
       <p className="muted">
-        If the live system goes down now, the check-in desk and the judging tables have nothing to fall back on: no
-        roster, no station list, no blank sheets.
+        If the live system goes down, check-in and judging have nothing to fall back on.
       </p>
     </>
   )

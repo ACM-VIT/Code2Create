@@ -107,7 +107,6 @@ export function AccessPerson({ access }: { access: Access }) {
       {detail.person.status === 'suspended' ? (
         <p className="notice">
           This account is blocked, so all {live.length} of its permissions are denied at sign-in.
-          Nothing in the grid below takes effect until it is unblocked.
         </p>
       ) : null}
 
@@ -230,8 +229,7 @@ function PermissionMatrix({ detail }: { detail: AccessDetail }) {
           <h2>What this person can do</h2>
           <p className="muted">
             {detail.person.displayName.split(' ')[0]} has {held} of the {rows.length} permissions in
-            this event. Every row shows where it applies and where it came from; use the control on
-            the right to add or remove one.
+            this event.
           </p>
         </div>
       </div>
@@ -554,7 +552,7 @@ function RemovePanel({
     <form className="permission-panel-form" onSubmit={submit}>
       <p className="muted">
         {kept.length > 0
-          ? `${detail.person.displayName} keeps this permission through ${kept.map((grant) => sourceName(grant.sourceType).toLowerCase()).join(' and ')}. Removing the grant below does not take it away.`
+          ? `${detail.person.displayName} also holds this through ${kept.map((grant) => sourceName(grant.sourceType).toLowerCase()).join(' and ')}, so removing this grant leaves it in place.`
           : `${detail.person.displayName} loses this permission as soon as this is removed.`}
       </p>
       {removable.length > 1 ? (
@@ -585,7 +583,6 @@ function RemovePanel({
         </button>
         <button className="secondary" type="button" disabled={busy} onClick={onDone}>Cancel</button>
       </div>
-      <p className="muted permission-panel-wide">You may be asked to sign in again.</p>
     </form>
   )
 }
@@ -683,8 +680,7 @@ function ScopedAuthorityControl({ detail }: { detail: AccessDetail }) {
         <div>
           <h2>Let this person hand out a permission</h2>
           <p className="muted">
-            Passes on one permission so {detail.person.displayName} can give it to others, or take it
-            back, without being able to hand out anything else. It always ends at a time you set.
+            Lets {detail.person.displayName} give this one permission to others, or take it back.
           </p>
         </div>
         {open ? null : (

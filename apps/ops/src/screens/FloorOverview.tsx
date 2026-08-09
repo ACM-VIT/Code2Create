@@ -188,8 +188,8 @@ export function FloorOverview({
           </dl>
           <p className="floor-state">
             {overview.plan.mappingState === 'frozen'
-              ? `${floorMappingStateLabels.frozen}. Correcting a team’s spot now needs the separate override permission and a written reason.`
-              : `${floorMappingStateLabels.open}. Floor staff scan a team’s QR and the spot appears here as soon as their phone saves it.`}
+              ? `${floorMappingStateLabels.frozen}. Correcting a spot now needs the override permission.`
+              : floorMappingStateLabels.open}
           </p>
 
           {overview.plan.mappingState === 'open'
@@ -200,8 +200,7 @@ export function FloorOverview({
             && overview.unmappedTeams.length > 0 ? (
             <p className="notice">
               The map cannot be frozen yet: {overview.unmappedTeams.length}{' '}
-              {overview.unmappedTeams.length === 1 ? 'team has' : 'teams have'} no spot. Freezing only succeeds once
-              every team expecting a spot has one.
+              {overview.unmappedTeams.length === 1 ? 'team has' : 'teams have'} no spot.
             </p>
           ) : null}
 
@@ -227,10 +226,10 @@ export function FloorOverview({
                         style={{ left: `${spot.x}%`, top: `${spot.y}%` }}
                         title={
                           spot.team
-                            ? `${spot.label} — ${spot.team.name}`
+                            ? `${spot.label}: ${spot.team.name}`
                             : spot.status === 'closed'
-                              ? `${spot.label} — ${floorSpotStatusLabels.closed}`
-                              : `${spot.label} — free, no team here yet`
+                              ? `${spot.label}: ${floorSpotStatusLabels.closed}`
+                              : `${spot.label}: free`
                         }
                       >
                         <strong>{spot.label}</strong>
@@ -251,8 +250,8 @@ export function FloorOverview({
           <strong>No hall layout is published, so floor staff have nothing to pin teams to.</strong>
           <span>
             {canReadConfiguration
-              ? 'Scanning a team’s QR will fail until zones and spots exist and the layout has been published. Edit the hall layout to set them up.'
-              : 'Scanning a team’s QR will fail until an organizer defines the zones and spots and publishes the layout.'}
+              ? 'Scanning a team’s QR fails until a layout is published.'
+              : 'Scanning a team’s QR fails until an organizer publishes a layout.'}
           </span>
         </div>
       ) : null}
@@ -287,7 +286,7 @@ export function FloorOverview({
       {view === 'configuration' && configuration?.draftPlan && configuration.canPublish && publishArmed ? (
         <section className="publish-confirmation">
           <h2>Publish this hall plan?</h2>
-          <p className="muted">Publishing opens team mapping. A plan cannot be replaced after the first location is saved.</p>
+          <p className="muted">Publishing opens team mapping. The plan cannot be replaced once a team is placed.</p>
           <label className="field"><span>Reason</span><textarea value={publishReason} onChange={(event) => setPublishReason(event.target.value)} /></label>
           <div className="button-row">
             <button className="primary" disabled={busy || publishReason.trim().length < 5} type="button" onClick={() => void publishDraft()}>{busy ? 'Publishing…' : 'Publish plan'}</button>
@@ -301,8 +300,7 @@ export function FloorOverview({
           <section className="publish-confirmation floor-freeze">
             <h2>Freeze team locations?</h2>
             <p className="muted">
-              Every team expecting a spot has one, so this will succeed. After it, correcting a team’s spot needs the
-              separate override permission and a written reason.
+              Correcting a spot afterwards needs the override permission and a written reason.
             </p>
             <label className="field"><span>Reason</span><textarea value={freezeReason} onChange={(event) => setFreezeReason(event.target.value)} /></label>
             <div className="button-row">
@@ -327,10 +325,7 @@ export function FloorOverview({
                   : 'Create hall layout'}
             </h2>
             <p className="section-note">
-              A layout is zones and the spots inside them. One row per spot: rows sharing a zone_key become one
-              zone, and x and y are percentages across that zone’s canvas, so 50/50 is its middle. Saving leaves a
-              draft that floor staff cannot use; publishing is what opens mapping. Once the first team has been
-              placed, the published layout can no longer be replaced.
+              One row per spot. Rows sharing a zone_key become one zone, and x and y are percentages of that zone.
             </p>
           </div>
           <label className="field"><span>Plan name</span><input required value={planName} onChange={(event) => setPlanName(event.target.value)} /></label>
@@ -364,8 +359,7 @@ function FloorLead({ overview }: { overview: FloorOverviewResult }) {
             : `${overview.visibleMappedCount} ${overview.visibleMappedCount === 1 ? 'team is' : 'teams are'} placed in the zones you can see.`}
         </p>
         <p className="muted">
-          This account reads only its own zones, so it cannot tell how many teams across the hall are still without
-          a spot.
+          You read only your own zones, so hall-wide counts are not available.
         </p>
       </>
     )
@@ -374,22 +368,18 @@ function FloorLead({ overview }: { overview: FloorOverviewResult }) {
     return (
       <>
         <p>No team is ready to be placed yet.</p>
-        <p className="muted">
-          Teams appear here once they have been admitted and confirmed. Until then there is nothing to map.
-        </p>
+        <p className="muted">Teams appear here once they are admitted and confirmed.</p>
       </>
     )
   }
   if (unmapped === 0) {
     return (
       <>
-        <p>
-          All {overview.eligibleTeamCount} teams have a spot, and every one of them can be found by name.
-        </p>
+        <p>All {overview.eligibleTeamCount} teams have a spot.</p>
         <p className="muted">
           {overview.plan.mappingState === 'frozen'
-            ? 'The map is frozen, so it will stay this way unless someone with the override permission changes it.'
-            : 'Freeze the map to stop it drifting for the rest of the event.'}
+            ? 'The map is frozen. Changing a spot needs the override permission.'
+            : 'Freeze the map to stop it drifting.'}
         </p>
       </>
     )
@@ -400,10 +390,6 @@ function FloorLead({ overview }: { overview: FloorOverviewResult }) {
         {unmapped === overview.eligibleTeamCount
           ? `Not one of the ${overview.eligibleTeamCount} teams has a spot on this map yet, so floor staff cannot find any of them.`
           : `${unmapped} of the ${overview.eligibleTeamCount} teams have no spot on this map, so floor staff cannot find them.`}
-      </p>
-      <p className="muted">
-        Each one is placed when a staff phone scans that team’s QR at the table they are actually sitting at. Until
-        then a runner, a judge or a medic sent to that team has nowhere to go.
       </p>
     </>
   )

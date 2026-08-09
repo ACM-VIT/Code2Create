@@ -174,9 +174,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
         <div>
           <p className="eyebrow">Applications</p>
           <h1>Idea originality</h1>
-          <p className="muted">
-            Compare ideas with reviewed past projects and help teams explain what makes their work different.
-          </p>
+          <p className="muted">Compare new ideas with reviewed past projects.</p>
         </div>
       </header>
 
@@ -201,9 +199,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
             <div>
               <p className="eyebrow">{draft ? 'Replace draft changes' : 'Create a draft'}</p>
               <h2>Live feedback</h2>
-              <p className="muted">
-                A new draft keeps the reviewed projects already in use. You can replace them before publishing.
-              </p>
+              <p className="muted">A new draft keeps the projects already in use.</p>
             </div>
           </div>
           <label className="field">
@@ -238,9 +234,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
             <div>
               <p className="eyebrow">Draft changes</p>
               <h2>Past projects</h2>
-              <p className="muted">
-                Review the projects used for comparison. Each one needs a short, supportive question for teams.
-              </p>
+              <p className="muted">Each project needs a short, supportive question for teams.</p>
             </div>
             <span className="status-pill">{importStateName(draft.importState)}</span>
           </div>
@@ -321,7 +315,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
             ) : null}
           </div>
           <p className="muted novelty-file-requirements">
-            You can import a JSON list with {configuration.limits.minimumEntries}–{configuration.limits.maximumEntries} projects. Do not include names, contact details, or credentials.
+            Import a JSON list of {configuration.limits.minimumEntries}–{configuration.limits.maximumEntries} projects. Do not include names, contact details, or credentials.
           </p>
           {!configuration.providerConfigured ? (
             <p className="notice">Live comparison is unavailable. Add the event's OpenAI key before preparing this list.</p>
@@ -333,9 +327,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
         publishArmed ? (
           <section className="publish-confirmation catalog-publish">
             <h2>Publish this past-project comparison set?</h2>
-            <p className="muted">
-              New project drafts use it immediately. Teams already writing keep their current comparison set.
-            </p>
+            <p className="muted">Teams already writing keep their current comparison set.</p>
             <label className="field">
               <span>Why this changed</span>
               <textarea required value={publishReason} onChange={(event) => setPublishReason(event.currentTarget.value)} />

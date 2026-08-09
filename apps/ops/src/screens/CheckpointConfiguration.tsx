@@ -160,9 +160,7 @@ export function CheckpointConfiguration({
         <div>
           <p className="eyebrow">Participant flow</p>
           <h1>Team update prompts</h1>
-          <p className="muted">
-            Three short team updates. Timing comes from the published phases; grace keeps a missed due time recoverable.
-          </p>
+          <p className="muted">Three short team updates. Timing comes from the published phases.</p>
         </div>
       </header>
 
@@ -202,18 +200,18 @@ export function CheckpointConfiguration({
           {validation && !validation.valid ? (
             <ul className="issue-list">{validation.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
           ) : null}
-          {validation?.valid ? <p className="notice">The complete checkpoint plan is valid.</p> : null}
+          {validation?.valid ? <p className="notice">The checkpoint plan is valid.</p> : null}
           {publishArmed ? (
             <div className="publish-confirmation">
-              <p>New team updates will use this wording. Teams already writing keep their current questions.</p>
+              <p>Teams already writing keep their current questions.</p>
               <label className="field">
                 <span>Why this changed</span>
                 <textarea required value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
               </label>
               {configuration.hasPublishedPhaseSchedule ? null : (
                 <p className="notice">
-                  Team updates are due at the end of a phase, so the schedule has to be published
-                  first. <Link to="/configuration/phases">Publish the schedule</Link>, then come back.
+                  The schedule has to be published first.{' '}
+                  <Link to="/configuration/phases">Publish the schedule</Link>.
                 </p>
               )}
               <div className="offer-actions">
@@ -271,8 +269,7 @@ export function CheckpointConfiguration({
             </label>
             {definitions.length === 3 ? null : (
               <p className="notice">
-                A draft needs all three checkpoints — ideation, the intermediate update and the
-                final update. {definitions.length} {definitions.length === 1 ? 'is' : 'are'} filled in.
+                A draft needs all three checkpoints. {definitions.length} {definitions.length === 1 ? 'is' : 'are'} filled in.
               </p>
             )}
             <button className="primary" disabled={busy} type="submit">

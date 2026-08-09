@@ -172,9 +172,7 @@ export function ReviewSetup({
           <h2>Published rounds</h2>
           <p className="muted section-note">
             A round is published with its panels already built. After that, panel
-            membership only changes through a substitute on the board — so get the
-            panels right here first. Teams are not pre-assigned: the desk sends each
-            team to a panel when it is ready to be reviewed.
+            membership only changes through a substitute on the board.
           </p>
           <div className="published-rounds">
             {configuration.rounds.map((round) => (
@@ -205,7 +203,7 @@ export function ReviewSetup({
         />
       ) : (
         <p className="notice">
-          You need permission to view both judging rules and reviewer profiles before you can build panels.
+          Building panels needs access to both judging rules and reviewer profiles.
         </p>
       )}
     </section>
@@ -872,7 +870,7 @@ function RoundPublisher({
           <div className="section-heading">
             <div>
               <h2><span className="step-number">4</span>Reserves</h2>
-              <p className="muted">Only trained, qualified reviewers outside the fixed panels can be paged into an empty seat.</p>
+              <p className="muted">Trained reviewers outside the panels can be paged into an empty seat.</p>
             </div>
           </div>
           <div className="criterion-assignment-list">
@@ -906,7 +904,7 @@ function RoundPublisher({
 
         <section className="publish-confirmation">
           <h2><span className="step-number">5</span>Publish</h2>
-          <p className="muted">Publishing locks this round. Review every section before continuing.</p>
+          <p className="muted">Publishing locks this round.</p>
           <label className="field">
             <span>Publication reason</span>
             <textarea required value={reason} onChange={(event) => {

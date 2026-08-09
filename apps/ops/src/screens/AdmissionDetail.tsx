@@ -87,10 +87,7 @@ export function AdmissionDetail({ access }: { access: Access }) {
       <section className="detail-section">
         <h2>Team · {detail.team.members.length}</h2>
         {detail.team.members.every((member) => member.profileContext === null) ? (
-          <p className="muted">
-            Names only. Year and institution are outside this account’s permission scope, so
-            judge the project on what it says rather than on who wrote it.
-          </p>
+          <p className="muted">Year and institution are outside your permission scope.</p>
         ) : null}
         <div className="member-list">
           {detail.team.members.map((member) => (
@@ -152,7 +149,7 @@ export function AdmissionDetail({ access }: { access: Access }) {
             {detail.policy.criteria.map((criterion) => (
               <div key={criterion.criterionKey}>
                 <dt>{criterion.label}</dt>
-                <dd>{criterion.guidance ?? 'Year context is outside this account’s permission scope.'}</dd>
+                <dd>{criterion.guidance ?? 'Year context is outside your permission scope.'}</dd>
               </div>
             ))}
           </dl>
@@ -259,7 +256,7 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
             <form className="command-form" onSubmit={revoke}>
               <Field
                 label="Why the offer is being withdrawn"
-                hint="Withdrawing releases the reserved places and returns the application to accepted, so a corrected offer can be sent."
+                hint="Releases the reserved places and returns the application to accepted."
               >
                 <textarea required minLength={3} maxLength={300} value={reason} onChange={(event) => setReason(event.target.value)} />
               </Field>
@@ -272,8 +269,8 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
       ) : (
         <form className="command-form" onSubmit={submitOffer}>
           <p className="muted">
-            Sending reserves {placesLabel(detail.team.members.length)} for this team until the deadline
-            below. If the team does not answer in time the places go back to the pool.
+            Sending reserves {placesLabel(detail.team.members.length)} until the deadline.
+            The places go back to the pool if nobody answers.
           </p>
           <Field label={`Answer by · ${detail.eventTimezone}`}>
             <input required type="datetime-local" value={deadline} onChange={(event) => setDeadline(event.target.value)} />
@@ -471,9 +468,9 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
       <h2>Assigned reviewers</h2>
       <p className="muted">
         {assignments.length === 0
-          ? 'Nobody is assigned. Add a reviewer by their Google email and the application appears in their queue.'
+          ? 'Nobody is assigned. Anyone added here sees this in their queue.'
           : owing === 0
-            ? `Everyone assigned has reviewed. ${detail.application.completedReviewCount} of ${detail.policy.minimumHumanReviews} required reviews are in.`
+            ? 'Everyone assigned has reviewed.'
             : `${owing} of ${assignments.length} assigned reviewers still owe a review.`}
       </p>
       <form className="command-form compact-command" onSubmit={assign}>
@@ -589,7 +586,7 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
             {reasons.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
           </select>
         </Field>
-        <Field label="Note" hint="Optional; keep it concrete and application-specific.">
+        <Field label="Note" hint="Optional.">
           <textarea value={note} maxLength={600} onChange={(event) => setNote(event.target.value)} />
         </Field>
         {error ? <p className="notice error" role="alert">{error}</p> : null}
@@ -657,10 +654,7 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
   return (
     <section className="detail-section command-section final-command">
       <h2>Publish the decision</h2>
-      <p className="muted">
-        The team is emailed as soon as this is published, and it cannot be taken back. It decides
-        admission only; it has no effect on hackathon judging.
-      </p>
+      <p className="muted">Publishing emails the team straight away and cannot be undone.</p>
       <form className="command-form" onSubmit={publish}>
         <Field label="Decision">
           <select value={decision} onChange={(event) => setDecision(parseDecision(event.target.value))}>
@@ -697,7 +691,7 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
             </div>
           </div>
         ) : null}
-        <Field label="How you used the AI recommendation" hint="Recorded with the decision so the audit trail shows whether a person or a model drove it.">
+        <Field label="How you used the AI recommendation" hint="Recorded in the audit trail.">
           <select value={aiDisposition} onChange={(event) => setAiDisposition(parseAiDisposition(event.target.value))}>
             {aiDispositionOptions(detail, decision).map((value) => <option key={value} value={value}>{admissionAiDispositionLabels[value]}</option>)}
           </select>
@@ -757,13 +751,13 @@ function nextStep(
     if (outstanding > 0) {
       return {
         title: `${outstanding} more ${outstanding === 1 ? 'review' : 'reviews'} needed`,
-        detail: `${completedReviewCount} of ${minimumHumanReviews} organizer reviews are in. Read the project below, then add yours.`,
+        detail: `${completedReviewCount} of ${minimumHumanReviews} organizer reviews are in.`,
         ...(permissions.canReview ? {} : { blocker: 'You can read this application but not review it.' }),
       }
     }
     return {
       title: 'Ready for a decision',
-      detail: `All ${minimumHumanReviews} required reviews are in. Publishing the decision emails the team.`,
+      detail: `All ${minimumHumanReviews} required reviews are in.`,
       ...(permissions.canDecide ? {} : { blocker: 'Publishing a decision is outside your permission scope.' }),
     }
   }
@@ -771,13 +765,13 @@ function nextStep(
     const asked = detail.currentInformationRequest?.questions.length ?? 0
     return {
       title: 'Waiting for the team',
-      detail: `The team was asked ${asked === 1 ? 'a question' : `${asked} questions`}. Review continues once it answers; nothing is due from you.`,
+      detail: `The team was asked ${asked === 1 ? 'a question' : `${asked} questions`}. Review continues once it answers.`,
     }
   }
   if (state === 'accepted') {
     return {
       title: 'Send the offer',
-      detail: `${detail.team.name} was accepted but has not been offered a place. The places are not reserved until the offer goes out.`,
+      detail: `${detail.team.name} was accepted but has no offer, so no places are reserved.`,
       ...(permissions.canManageOffer ? {} : { blocker: 'Sending offers is outside your permission scope.' }),
     }
   }
@@ -786,20 +780,20 @@ function nextStep(
     return {
       title: 'Waiting for the team to accept',
       detail: expiresAt
-        ? `The team lead must accept by ${formatEventTime(expiresAt, detail.eventTimezone)}. If nobody answers, the reserved places go back to the pool.`
-        : 'The team lead must accept before the deadline. If nobody answers, the reserved places go back to the pool.',
+        ? `The team lead must accept by ${formatEventTime(expiresAt, detail.eventTimezone)}.`
+        : 'The team lead must accept before the deadline.',
     }
   }
   if (state === 'confirmed') {
     return {
       title: 'Nothing left to do',
-      detail: `${detail.team.name} accepted its place. Its ${placesLabel(detail.team.members.length)} are confirmed and it will appear at check-in.`,
+      detail: `${detail.team.name} confirmed ${placesLabel(detail.team.members.length)} and appears at check-in.`,
     }
   }
   if (state === 'waitlisted') {
     return {
       title: 'On the waitlist',
-      detail: 'The team has been told. It only moves if places are released by an expired or declined offer.',
+      detail: 'The team has been told. It moves only if an offer expires or is declined.',
     }
   }
   if (state === 'declined') {

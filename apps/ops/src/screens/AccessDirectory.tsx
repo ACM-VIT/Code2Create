@@ -93,7 +93,7 @@ export function AccessDirectory({
           ) : null}
         </>
       ) : canInvite ? (
-        <p className="notice">You can invite someone, but this account cannot view the event team.</p>
+        <p className="notice">You can invite someone but not view the event team.</p>
       ) : null}
     </section>
   )

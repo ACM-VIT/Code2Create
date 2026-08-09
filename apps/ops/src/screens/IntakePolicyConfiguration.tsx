@@ -170,7 +170,7 @@ export function IntakePolicyConfiguration({
           <p className="eyebrow">Participant introduction</p>
           <h1>Idea questions</h1>
           <p className="muted">
-            Controls the short project introduction. Teams already writing keep the questions they started with.
+            Controls the short project introduction. Teams already writing keep their current questions.
           </p>
         </div>
       </header>
@@ -223,9 +223,7 @@ export function IntakePolicyConfiguration({
       {configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish these idea questions?</h2>
-          <p className="muted">
-            New project drafts use it immediately. Existing drafts and their generated questions do not change.
-          </p>
+          <p className="muted">New project drafts use these questions immediately.</p>
           <label className="field">
             <span>Why this changed</span>
             <textarea required value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
@@ -245,7 +243,7 @@ export function IntakePolicyConfiguration({
             <div>
               <p className="eyebrow">{configuration.draftPolicy ? 'Replace current draft' : 'Create a draft'}</p>
               <h2>Participant copy</h2>
-              <p className="muted">The greeting and first question are event-wide product language.</p>
+              <p className="muted">The greeting and first question cannot be changed here.</p>
             </div>
           </div>
 
@@ -258,7 +256,7 @@ export function IntakePolicyConfiguration({
             <textarea required value={policy.initialHelpText} onChange={(event) => updatePolicy('initialHelpText', event.target.value)} />
           </label>
 
-          <PolicySection title="Answer limits" description="Enough room to explain an idea without turning intake into a deck.">
+          <PolicySection title="Answer limits" description="How much a team can write at each step.">
             <div className="intake-policy-number-grid">
               <NumberField label="Idea minimum · characters" min={10} max={200} value={policy.initialIdeaMinLength} onChange={(value) => updatePolicy('initialIdeaMinLength', value)} />
               <NumberField label="Idea maximum · characters" min={500} max={8000} value={policy.initialIdeaMaxLength} onChange={(value) => updatePolicy('initialIdeaMaxLength', value)} />
@@ -273,7 +271,7 @@ export function IntakePolicyConfiguration({
                 </select>
               </label>
             </div>
-            <p className="muted intake-policy-note">Assisted intake may stop after one useful answer. It can never ask more than two questions.</p>
+            <p className="muted intake-policy-note">Assisted intake never asks more than two questions.</p>
           </PolicySection>
 
           <PolicySection title="Question goals" description="Assisted questions use one of these reviewed goals.">
@@ -296,7 +294,7 @@ export function IntakePolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Fallback questions" description="These are used directly in fixed mode and whenever assisted generation is unavailable.">
+          <PolicySection title="Fallback questions" description="Used in fixed mode and when assisted questions are unavailable.">
             <div className="phase-card-list">
               {policy.fallbackQuestions.map((question) => (
                 <article className="phase-card" key={question.ordinal}>
@@ -321,14 +319,14 @@ export function IntakePolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Supportive wording" description="One prohibited phrase per line. Required event-safety language cannot be removed at publication.">
+          <PolicySection title="Supportive wording" description="One phrase per line. Required safety language cannot be removed.">
             <label className="field">
               <span>Blocked wording</span>
               <textarea className="intake-policy-lines" required value={policy.blockedTerms.join('\n')} onChange={(event) => updatePolicy('blockedTerms', event.target.value.split('\n'))} />
             </label>
           </PolicySection>
 
-          <PolicySection title="Common project patterns" description="Optional guidance helps the question stay useful without treating a familiar idea as a reason to reject it.">
+          <PolicySection title="Common project patterns" description="Optional guidance for ideas that come up every year.">
             <div className="phase-card-list">
               {policy.commonIdeaPatterns.map((pattern, index) => (
                 <article className="phase-card" key={index}>
@@ -351,7 +349,7 @@ export function IntakePolicyConfiguration({
             </button>
           </PolicySection>
 
-          <PolicySection title="Question source" description="Assisted questions use the approved AI release and fall back to the fixed questions when unavailable.">
+          <PolicySection title="Question source" description="Assisted questions fall back to the fixed ones when unavailable.">
             <label className="field intake-policy-mode">
               <span>Mode</span>
               <select

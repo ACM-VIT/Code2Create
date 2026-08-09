@@ -242,7 +242,7 @@ export function PhaseConfiguration({
         <section className="publish-confirmation catalog-publish">
           <h2>Publish this event schedule?</h2>
           <p className="muted">
-            Participants will receive the new schedule immediately. Completed phases cannot be changed later; a phase already in progress can only change its future end time.
+            Participants see the new schedule immediately. Completed phases can no longer change.
           </p>
           <label className="field">
             <span>Why this changed</span>
@@ -302,7 +302,6 @@ export function PhaseConfiguration({
             {phases.length === phaseDefaults.length ? null : (
               <p className="notice">
                 The schedule needs all {phaseDefaults.length} phases before it can be saved.
-                {' '}{phases.length} {phases.length === 1 ? 'is' : 'are'} filled in.
               </p>
             )}
             <button className="primary" disabled={busy} type="submit">

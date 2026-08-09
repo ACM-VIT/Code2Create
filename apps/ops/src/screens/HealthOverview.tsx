@@ -197,7 +197,7 @@ export function HealthOverview({
                 <p className="eyebrow">
                   {brief.origin === 'automation' ? 'Prepared automatically' : 'Requested by an operator'} · Source checked {brief.sourceGeneratedAt ? formatDateTime(brief.sourceGeneratedAt) : 'recently'}
                 </p>
-                {briefExpired ? <p className="notice">This brief is outside its configured relevance window. Use the current signals below.</p> : null}
+                {briefExpired ? <p className="notice">This brief is outside its relevance window.</p> : null}
                 <h3>{brief.headline}</h3>
                 <p>{brief.summary}</p>
                 {brief.accountableOwner ? <p className="intelligence-owner">Accountable owner: {brief.accountableOwner}</p> : null}
@@ -218,12 +218,12 @@ export function HealthOverview({
                 ) : null}
               </div>
             ) : brief.state === 'failed' ? (
-              <p className="muted">The brief could not be prepared. The health signals below remain authoritative.</p>
+              <p className="muted">The brief could not be prepared.</p>
             ) : (
               <p className="muted">Preparing from a frozen copy of the current health signals…</p>
             )
           ) : (
-            <p className="muted">This account may request a brief but cannot read its result.</p>
+            <p className="muted">You can request a brief but not read the result.</p>
           )}
         </section>
       ) : null}
@@ -256,7 +256,7 @@ function StageBlock() {
       <p>{stage.goal}</p>
       {stage.nextStep === null ? null : blockers.length === 0 ? (
         <p className="muted">
-          Nothing is blocking you. When you are ready, the next step is <strong>{stage.nextStep.toLowerCase()}</strong>.
+          Nothing is blocking you. The next step is <strong>{stage.nextStep.toLowerCase()}</strong>.
         </p>
       ) : (
         <>

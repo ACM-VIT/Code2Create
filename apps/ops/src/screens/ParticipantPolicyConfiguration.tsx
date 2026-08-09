@@ -143,7 +143,7 @@ export function ParticipantPolicyConfiguration({
                   <ul className="catalog-issue-list">
                     {validation.issues.map((issue) => <li key={issue}>{issue}</li>)}
                   </ul>
-                ) : <p className="notice">Ready to publish. Participants must accept the updated rules before creating or joining a team, or submitting their project.</p>}
+                ) : <p className="notice">Ready to publish. Participants must accept the updated rules.</p>}
               </>
             )
           ) : <p className="notice">You do not have permission to check this draft.</p>}
@@ -153,7 +153,7 @@ export function ParticipantPolicyConfiguration({
       {configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish these participant rules?</h2>
-          <p className="muted">Open participant portals update immediately. Existing profiles keep their history, but each participant must accept the updated rules.</p>
+          <p className="muted">Each participant must accept the updated rules.</p>
           <label className="field">
             <span>Why this changed</span>
             <textarea required value={publishReason} onChange={(event) => setPublishReason(event.currentTarget.value)} />
@@ -169,7 +169,7 @@ export function ParticipantPolicyConfiguration({
 
       {configuration.canDraft ? (
         <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
-          <PolicySection title="Team rules" description="These limits apply when a person joins and again before final submission.">
+          <PolicySection title="Team rules" description="Checked when someone joins and again at submission.">
             <div className="intake-policy-grid">
               <label className="field">
                 <span>Minimum members</span>
@@ -197,7 +197,7 @@ export function ParticipantPolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Participant notice" description="Keep this direct. The project-question AI never receives profile fields.">
+          <PolicySection title="Participant notice" description="The project-question AI never receives profile fields.">
             <div className="intake-policy-grid">
               <label className="field">
                 <span>Notice name</span>
@@ -218,7 +218,7 @@ export function ParticipantPolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Submission" description="The fresh-build promise is fixed; the lock warning may be clarified without weakening it.">
+          <PolicySection title="Submission" description="The fresh-build promise cannot be edited.">
             <div className="intake-policy-grid">
               <label className="field field-wide">
                 <span>Fresh-project acknowledgement</span>

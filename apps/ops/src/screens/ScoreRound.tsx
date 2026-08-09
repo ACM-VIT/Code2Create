@@ -52,7 +52,7 @@ export function ScoreRound() {
     )
   }
   if (!visibleRound) {
-    return <p className="notice error">This results round is not visible to this account.</p>
+    return <p className="notice error">This results round is not visible to you.</p>
   }
   if (!completeness) {
     return (
@@ -90,13 +90,13 @@ export function ScoreRound() {
           <h1>{completeness.round.name}</h1>
           <p className="muted">
             {completeness.unresolvedTeamCount === 0
-              ? 'Every team in this round has a countable result. Submitted scores are never overwritten; a correction keeps the original.'
+              ? 'Every team in this round has a countable result.'
               : `${completeness.unresolvedTeamCount} ${completeness.unresolvedTeamCount === 1 ? 'team has' : 'teams have'} no countable result, so this round cannot close.` +
                 (blocked.length > 0
-                  ? ` ${blocked.length} ${blocked.length === 1 ? 'is' : 'are'} short of scores and listed first below.`
+                  ? ` ${blocked.length} ${blocked.length === 1 ? 'is' : 'are'} short of scores.`
                   : '') +
                 (unjudged > 0
-                  ? ` ${unjudged} ${unjudged === 1 ? 'has' : 'have'} no review session at all — no panel has sat down with ${unjudged === 1 ? 'it' : 'them'}.`
+                  ? ` ${unjudged} ${unjudged === 1 ? 'has' : 'have'} no review session at all.`
                   : '')}
           </p>
         </div>
@@ -140,8 +140,7 @@ export function ScoreRound() {
 
       {completeness.reviews.length === 0 ? (
         <p className="empty">
-          No panel has been given a team to judge in this round, so there is nothing to score yet.
-          Set the round up under Review rounds before it opens.
+          No panel has been given a team to judge in this round.
         </p>
       ) : null}
 
@@ -195,9 +194,9 @@ function ReviewCompleteness({
       <p className="review-team-shortfall">
         {short.length === 0
           ? disagreeing.length > 0
-            ? `Fully scored, but the reviewers are far apart on ${listNames(disagreeing.map((coverage) => criterionLabel(criteria, coverage.criterionId)))}. Check before the round closes.`
+            ? `Fully scored, but the reviewers are far apart on ${listNames(disagreeing.map((coverage) => criterionLabel(criteria, coverage.criterionId)))}.`
             : 'Every criterion has the scores it needs.'
-          : `${listNames(short.map((coverage) => criterionLabel(criteria, coverage.criterionId)))} ${short.length === 1 ? 'is' : 'are'} short of the ${short[0]?.requiredCount ?? 0} scores needed. This team gets no result until they are in.`}
+          : `${listNames(short.map((coverage) => criterionLabel(criteria, coverage.criterionId)))} ${short.length === 1 ? 'is' : 'are'} short of the ${short[0]?.requiredCount ?? 0} scores needed.`}
       </p>
 
       <div className="coverage-strip">
@@ -387,7 +386,7 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
   }
   return (
     <div className="score-command destructive-command">
-      <p>Voiding invalidates this review result. It never deletes the submitted version.</p>
+      <p>Voiding invalidates this review result.</p>
       <div className="form-grid">
         <label className="field">
           <span>Category</span>
@@ -515,7 +514,7 @@ function ReleaseRound({ completeness }: { completeness: Completeness }) {
   return (
     <section className="score-final-command score-command release-command">
       <h2>Release participant feedback</h2>
-      <p>The release is immutable. Nothing is selected by default.</p>
+      <p>The release cannot be undone.</p>
       <label className="field">
         <span>Feedback policy name</span>
         <input disabled={busy} value={policyVersion} onChange={(event) => { setPolicyVersion(event.target.value); changed() }} />
@@ -553,7 +552,7 @@ function NumericValues({ values }: { values: Values }) {
       <div className="section-heading">
         <div>
           <h2>Numeric values</h2>
-          <p className="muted">Alphabetical by team. This is not a live leaderboard.</p>
+          <p className="muted">Alphabetical by team.</p>
         </div>
       </div>
       {values.reviews.map((review) => (

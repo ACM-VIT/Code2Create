@@ -139,9 +139,7 @@ export function TrackConfiguration({
         <div>
           <p className="eyebrow">Participant intake</p>
           <h1>Tracks</h1>
-          <p className="muted">
-            New teams see the published tracks. Teams already writing keep their current list.
-          </p>
+          <p className="muted">New teams see the published tracks.</p>
         </div>
       </header>
 
@@ -179,7 +177,7 @@ export function TrackConfiguration({
                   </ul>
                 ) : (
                   <p className="notice">
-                    Ready to publish. {validation.pinnedParticipantDraftCount} active participant {validation.pinnedParticipantDraftCount === 1 ? 'draft keeps' : 'drafts keep'} the current track list.
+                    Ready to publish. {validation.pinnedParticipantDraftCount} {validation.pinnedParticipantDraftCount === 1 ? 'draft keeps' : 'drafts keep'} the current track list.
                   </p>
                 )}
               </>
@@ -193,9 +191,7 @@ export function TrackConfiguration({
       {configuration.draftCatalog && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish this track list?</h2>
-          <p className="muted">
-            New participant drafts use it immediately. Teams already writing keep their current track list.
-          </p>
+          <p className="muted">Teams already writing keep their current track list.</p>
           <label className="field">
             <span>Why this changed</span>
             <textarea required value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
@@ -220,7 +216,7 @@ export function TrackConfiguration({
             <button
               className="secondary"
               disabled={tracks.length >= 15}
-              title={tracks.length >= 15 ? 'Fifteen tracks is the most a team can be asked to read through.' : undefined}
+              title={tracks.length >= 15 ? 'Fifteen tracks is the maximum.' : undefined}
               type="button"
               onClick={() => setTracks((current) => [...current, newSponsorTrack()])}
             >
@@ -264,8 +260,7 @@ export function TrackConfiguration({
             <label className="field"><span>Why this changed</span><textarea required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} /></label>
             {tracks.length < 5 ? (
               <p className="notice">
-                Teams choose one core track, and the event runs five of them. You have {tracks.length}
-                {tracks.length === 1 ? ' track' : ' tracks'} — add {5 - tracks.length} more before saving a draft.
+                Add {5 - tracks.length} more core {5 - tracks.length === 1 ? 'track' : 'tracks'} before saving a draft.
               </p>
             ) : null}
             <button className="primary" disabled={busy} type="submit">

@@ -143,9 +143,7 @@ export function CommunicationsPolicyConfiguration({
       <header className="page-heading track-config-heading">
         <div>
           <h1>Accepted team details</h1>
-          <p className="muted">
-            Controls the selected-team venue, next steps, Discord link, and generic email wording.
-          </p>
+          <p className="muted">Controls the venue, next steps, Discord link, and email wording.</p>
         </div>
       </header>
 
@@ -188,7 +186,7 @@ export function CommunicationsPolicyConfiguration({
                     {validation.issues.map((issue) => <li key={issue}>{issue}</li>)}
                   </ul>
                 ) : (
-                  <p className="notice">Ready to publish. Eligible portals update immediately; email already queued keeps its current wording.</p>
+                  <p className="notice">Ready to publish. Queued email keeps its current wording.</p>
                 )}
               </>
             )
@@ -201,7 +199,7 @@ export function CommunicationsPolicyConfiguration({
       {configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish these accepted-team details?</h2>
-          <p className="muted">Accepted teams and teams with an open offer will see the changes immediately.</p>
+          <p className="muted">Accepted and offer-stage teams see the changes immediately.</p>
           <label className="field">
             <span>Why this changed</span>
             <textarea required value={publishReason} onChange={(event) => setPublishReason(event.currentTarget.value)} />
@@ -217,7 +215,7 @@ export function CommunicationsPolicyConfiguration({
 
       {configuration.canDraft ? (
         <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
-          <PolicySection title="Event details" description="Dates follow the event's operational window and cannot drift from it.">
+          <PolicySection title="Event details" description="Dates follow the event window and cannot be changed here.">
             <div className="intake-policy-grid">
               <label className="field">
                 <span>Venue name</span>
@@ -283,7 +281,7 @@ export function CommunicationsPolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Verified email" description="The message stays generic. The signed-in portal remains the source of truth.">
+          <PolicySection title="Verified email" description="The message stays generic. Details live in the portal.">
             <div className="intake-policy-grid">
               <label className="field">
                 <span>Provider</span>

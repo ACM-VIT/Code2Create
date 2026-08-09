@@ -157,7 +157,7 @@ export function AdmissionPolicyConfiguration({
       </dl>
 
       {current.publicationLocked ? (
-        <p className="notice">Applications have opened. This policy is now locked so every team is reviewed under the same expectations.</p>
+        <p className="notice">Applications have opened. This policy is locked.</p>
       ) : null}
 
       {current.draftRelease ? (
@@ -178,7 +178,7 @@ export function AdmissionPolicyConfiguration({
                   <ul className="catalog-issue-list">
                     {validation.issues.map((issue) => <li key={issue}>{issue}</li>)}
                   </ul>
-                ) : <p className="notice">Ready to publish. The first submitted application will lock this policy.</p>}
+                ) : <p className="notice">Ready to publish. The first application locks this policy.</p>}
               </>
             )
           ) : <p className="notice">You do not have permission to check this draft.</p>}
@@ -188,7 +188,7 @@ export function AdmissionPolicyConfiguration({
       {current.draftRelease && current.canPublish && validation?.valid && publishArmed && !current.publicationLocked ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish this admission policy?</h2>
-          <p className="muted">The review rules and optional AI recommendation settings go live together. The first application then locks them.</p>
+          <p className="muted">The first application will lock these rules.</p>
           <label className="field">
             <span>Why this policy is ready</span>
             <textarea required value={publishReason} onChange={(event) => setPublishReason(event.currentTarget.value)} />
@@ -221,7 +221,7 @@ export function AdmissionPolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Application expectations" description="Set a welcoming bar for first-year teams and progressively stronger expectations for more experienced teams. These are not judging scores.">
+          <PolicySection title="Application expectations" description="Expect more from experienced teams. These are not judging scores.">
             <div className="configuration-card-stack">
               {configuration.criteria.map((criterion, index) => (
                 <section className="catalog-review" key={`${criterion.criterionKey}:${index}`}>
@@ -260,7 +260,7 @@ export function AdmissionPolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Decision reasons" description="Organizers choose one clear reason whenever they accept, waitlist, decline, or request more information.">
+          <PolicySection title="Decision reasons" description="Organizers pick one reason for every decision.">
             <div className="configuration-card-stack">
               {configuration.decisionReasonCodes.map((reason, index) => (
                 <section className="catalog-review" key={`${reason.key}:${index}`}>
@@ -304,7 +304,7 @@ export function AdmissionPolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="AI admission recommendation" description="Optional and advisory. It can explain how an application fits this policy, but it never admits, rejects, or writes judging scores.">
+          <PolicySection title="AI admission recommendation" description="Optional. It never admits, rejects, or writes judging scores.">
             <label className="check-row">
               <input
                 type="checkbox"
@@ -315,7 +315,7 @@ export function AdmissionPolicyConfiguration({
             </label>
             {configuration.model ? (
               <ModelEditor model={configuration.model} onChange={(model) => update('model', model)} />
-            ) : <p className="notice">Human application review and decisions continue without model analysis.</p>}
+            ) : null}
           </PolicySection>
 
           <section className="track-save">

@@ -83,11 +83,11 @@ export function ProjectCheckpointOverview() {
             <div className="catalog-summary">
               <Stat
                 label="Still to submit"
-                value={teams.status === 'LoadingFirstPage' ? '—' : String(outstanding)}
+                value={teams.status === 'LoadingFirstPage' ? '…' : String(outstanding)}
               />
               <Stat
                 label="Submitted"
-                value={teams.status === 'LoadingFirstPage' ? '—' : `${submitted} of ${rows.length}`}
+                value={teams.status === 'LoadingFirstPage' ? '…' : `${submitted} of ${rows.length}`}
               />
               <Stat label="Due" value={formatTime(checkpoint.dueAt)} />
               <Stat label="Closes" value={formatTime(checkpoint.closesAt)} />
