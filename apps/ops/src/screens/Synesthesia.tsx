@@ -1,8 +1,15 @@
 import { api } from '@code2create/backend/api'
+import {
+  synesthesiaCatalogTrackStatusLabels,
+  synesthesiaWindowKindLabels,
+  synesthesiaWindowStatusLabels,
+  type SongRequestState,
+} from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { useState } from 'react'
 
+import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
 import { SynesthesiaRequestCard } from '../components/SynesthesiaRequestCard'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -10,8 +17,10 @@ import { readableError } from '../lib/errors'
 type Overview = FunctionReturnType<typeof api.synesthesiaConfiguration.overview>
 type SynesthesiaWindow = Overview['windows'][number]
 type WindowKind = SynesthesiaWindow['kind']
+type WindowStatus = SynesthesiaWindow['status']
 type CatalogResult = FunctionReturnType<typeof api.synesthesiaConfiguration.catalog>
 type CatalogTrack = CatalogResult['tracks'][number]
+type QueueResult = FunctionReturnType<typeof api.synesthesiaOperations.queue>
 
 const windowKinds: WindowKind[] = [
   'arrival',
@@ -23,14 +32,30 @@ const windowKinds: WindowKind[] = [
   'custom',
 ]
 
-const windowKindLabels: Record<WindowKind, string> = {
-  arrival: 'Arrival',
-  working_session: 'Working session',
-  late_night: 'Late night',
-  morning_reset: 'Morning reset',
-  judging: 'Judging',
-  closing: 'Closing',
-  custom: 'Custom',
+/**
+ * A window an operator can still act on comes before one that is finished:
+ * an open window holds the live queue, a draft is waiting to be published,
+ * and a closed window is a record.
+ */
+const windowOrder: Record<WindowStatus, number> = {
+  published: 0,
+  draft: 1,
+  closed: 2,
+}
+
+/**
+ * Same idea inside one window. What is playing and what has not been decided
+ * sit at the top; songs that have already had their moment sink.
+ */
+const requestOrder: Record<SongRequestState, number> = {
+  playing: 0,
+  pending: 1,
+  queued: 2,
+  approved: 3,
+  played: 4,
+  skipped: 5,
+  rejected: 6,
+  hidden: 7,
 }
 
 type CatalogValues = {
@@ -167,8 +192,57 @@ function emptyCatalogValues(): CatalogValues {
   }
 }
 
-function statusLabel(value: string) {
-  return value.replaceAll('_', ' ')
+function countLabel(count: number, noun: string) {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`
+}
+
+/** Withdrawn tracks are a record; the ones a participant can still pick lead. */
+function catalogOrder(track: CatalogTrack) {
+  return track.status === 'active' ? 0 : 1
+}
+
+function requestableCount(catalog: CatalogResult) {
+  return catalog.tracks.filter((track) => track.status === 'active').length
+}
+
+/**
+ * What this window means for the people in the room, rather than its key.
+ * A draft looks identical to an open window in a list of names, and the
+ * difference is whether anybody can request a song at all.
+ */
+function windowConsequence(window: SynesthesiaWindow) {
+  if (window.status === 'closed') {
+    return 'Closed. No new request can arrive and nothing more will play from it.'
+  }
+  if (window.status === 'draft') {
+    return 'Participants cannot see this window yet. Publish it before it starts, or no request will arrive.'
+  }
+  if (window.playbackPaused) {
+    return window.playbackPauseReason
+      ? `Playback is paused: ${window.playbackPauseReason}. Requests keep arriving but nothing new will start.`
+      : 'Playback is paused. Requests keep arriving but nothing new will start.'
+  }
+  if (!window.requestsOpen) {
+    return 'Open, but requests are closed, so no new song can be added to the queue.'
+  }
+  return 'Open. Participants can request songs and the queue below is live.'
+}
+
+/** The one sentence that says why the Start control is not on offer. */
+function playbackBlocker(queue: QueueResult) {
+  if (queue.window.status !== 'published') {
+    return 'This window is not open, so nothing can be started from it.'
+  }
+  if (queue.window.playbackPaused) {
+    return queue.window.playbackPauseReason
+      ? `Playback is paused: ${queue.window.playbackPauseReason}. Resume it above before starting a song.`
+      : 'Playback is paused. Resume it above before starting a song.'
+  }
+  const playing = queue.requests.find((request) => request.state === 'playing')
+  if (playing) {
+    return `“${playing.title}” is playing. Mark it played or skipped before starting another song.`
+  }
+  return null
 }
 
 export function Synesthesia() {
@@ -179,7 +253,11 @@ export function Synesthesia() {
   )
   const [selectedWindowId, setSelectedWindowId] = useState<SynesthesiaWindow['id'] | null>(null)
 
-  const queueWindows = overview?.windows.filter((window) => window.canReadQueue) ?? []
+  // The open window is the one being worked, so it is what the queue opens on.
+  const queueWindows = (overview?.windows.filter((window) => window.canReadQueue) ?? []).sort(
+    (left, right) =>
+      windowOrder[left.status] - windowOrder[right.status] || left.startsAt - right.startsAt,
+  )
   const selectedWindow = queueWindows.find((window) => window.id === selectedWindowId)
     ?? queueWindows[0]
   const queue = useQuery(
@@ -188,8 +266,23 @@ export function Synesthesia() {
   )
 
   if (overview === undefined) {
-    return <p className="muted" role="status">Loading Synesthesia…</p>
+    return (
+      <section className="synesthesia-operations-shell">
+        <LoadingLabel>Opening the music desk</LoadingLabel>
+        <SkeletonCard lines={3} />
+        <SkeletonList rows={4} />
+      </section>
+    )
   }
+
+  const openWindows = overview.windows.filter((window) => window.status === 'published')
+  const draftWindows = overview.windows.filter((window) => window.status === 'draft')
+  const undecided = queue?.requests.filter((request) => request.state === 'pending').length ?? 0
+  const unansweredReports = queue?.requests.reduce(
+    (total, request) => total + request.openReportCount,
+    0,
+  ) ?? 0
+  const blocker = queue ? playbackBlocker(queue) : null
 
   return (
     <section className="synesthesia-operations-shell">
@@ -203,6 +296,50 @@ export function Synesthesia() {
         </div>
       </div>
 
+      <section className="stage-block">
+        {overview.windows.length === 0 ? (
+          <>
+            <p>Nothing is running at this desk yet.</p>
+            <p className="muted">
+              {overview.canCreateWindow
+                ? 'Participants cannot request a song until a window exists and has been published, and there is no queue until then. Creating the first window is the whole of the work below.'
+                : 'No music window is assigned to this account, so there is nothing to run from here.'}
+            </p>
+          </>
+        ) : openWindows.length === 0 ? (
+          <>
+            <p>
+              No window is open to participants
+              {draftWindows.length > 0
+                ? `, and ${draftWindows.length === 1 ? 'one window is' : `${draftWindows.length} windows are`} still a draft.`
+                : '.'}
+            </p>
+            <p className="muted">
+              Nobody can request a song and no queue can build until a draft is published.
+            </p>
+          </>
+        ) : queue === undefined || !selectedWindow ? (
+          <>
+            <p>{openWindows.length === 1 ? 'One window is open to participants.' : `${openWindows.length} windows are open to participants.`}</p>
+            <p className="muted">Requests are arriving. The queue for each window is below.</p>
+          </>
+        ) : (
+          <>
+            <p>
+              {undecided === 0
+                ? `${selectedWindow.name}: no request is waiting for your decision.`
+                : `${selectedWindow.name}: ${undecided === 1 ? '1 request is' : `${undecided} requests are`} waiting for your decision.`}
+              {unansweredReports > 0
+                ? ` ${unansweredReports === 1 ? '1 song has an unanswered report' : `${unansweredReports} songs have unanswered reports`}.`
+                : ''}
+            </p>
+            <p className="muted">
+              A request cannot reach the room until you approve it and add it to the queue.
+            </p>
+          </>
+        )}
+      </section>
+
       <WindowSection overview={overview} />
 
       <section className="synesthesia-section" aria-labelledby="synesthesia-queue-title">
@@ -211,7 +348,7 @@ export function Synesthesia() {
             <h2 id="synesthesia-queue-title">Live queue</h2>
             <p className="muted">Requests, moderation, reports, and what is playing update in every portal live.</p>
           </div>
-          {queueWindows.length > 0 ? (
+          {queueWindows.length > 1 ? (
             <label className="filter">
               <span>Window</span>
               <select
@@ -222,21 +359,34 @@ export function Synesthesia() {
                 }}
               >
                 {queueWindows.map((window) => (
-                  <option value={window.id} key={window.id}>{window.name} · {statusLabel(window.status)}</option>
+                  <option value={window.id} key={window.id}>
+                    {window.name} · {synesthesiaWindowStatusLabels[window.status]}
+                  </option>
                 ))}
               </select>
             </label>
           ) : null}
         </div>
 
+        <p className="section-note">
+          Every request belongs to one window. Each one arrives here needing a decision: approve it, then add it to
+          the queue, then mark it playing and played as it goes out over the room speakers.
+        </p>
+
         {queueWindows.length === 0 ? (
-          <p className="empty">
-            {overview.windows.length === 0
-              ? 'Create a music window to start a queue.'
-              : 'No visible music window includes queue access.'}
-          </p>
-        ) : queue === undefined ? (
-          <p className="muted" role="status">Loading queue…</p>
+          <div className="health-empty">
+            <strong>There is no queue to work yet.</strong>
+            <span>
+              {overview.windows.length === 0
+                ? 'A queue belongs to a window, so create a window first. Requests can only arrive once that window is published.'
+                : 'None of the windows visible to this account includes queue access, so requests cannot be read or moderated from here.'}
+            </span>
+          </div>
+        ) : queue === undefined || !selectedWindow ? (
+          <>
+            <LoadingLabel>Loading the request queue</LoadingLabel>
+            <SkeletonList rows={4} />
+          </>
         ) : (
           <>
             <div className="synesthesia-live-state">
@@ -244,29 +394,49 @@ export function Synesthesia() {
               <span>{new Date(queue.window.startsAt).toLocaleString()} – {new Date(queue.window.endsAt).toLocaleString()}</span>
               {queue.window.playbackPauseReason ? <small>{queue.window.playbackPauseReason}</small> : null}
             </div>
+            {blocker ? <p className="notice">{blocker}</p> : null}
             <div className="synesthesia-request-list">
-              {queue.requests.map((request) => {
-                const anotherRequestIsPlaying = queue.requests.some(
-                  (candidate) => candidate.state === 'playing' && candidate.id !== request.id,
-                )
-                const deferredUntilLater = request.queueMode === 'deferred'
-                  && request.scheduledFor !== undefined
-                  && request.scheduledFor > Date.now()
-                return (
-                  <SynesthesiaRequestCard
-                    request={request}
-                    startAvailable={
-                      queue.window.status === 'published'
-                      && !queue.window.playbackPaused
-                      && !anotherRequestIsPlaying
-                      && !deferredUntilLater
-                    }
-                    key={request.id}
-                  />
-                )
-              })}
-              {queue.requests.length === 0 ? <p className="empty">No requests in this window.</p> : null}
-              {queue.truncated ? <p className="notice">The release-bound queue page is full.</p> : null}
+              {[...queue.requests]
+                .sort((left, right) => requestOrder[left.state] - requestOrder[right.state])
+                .map((request) => {
+                  const anotherRequestIsPlaying = queue.requests.some(
+                    (candidate) => candidate.state === 'playing' && candidate.id !== request.id,
+                  )
+                  const deferredUntilLater = request.queueMode === 'deferred'
+                    && request.scheduledFor !== undefined
+                    && request.scheduledFor > Date.now()
+                  return (
+                    <SynesthesiaRequestCard
+                      request={request}
+                      startAvailable={
+                        queue.window.status === 'published'
+                        && !queue.window.playbackPaused
+                        && !anotherRequestIsPlaying
+                        && !deferredUntilLater
+                      }
+                      key={request.id}
+                    />
+                  )
+                })}
+              {queue.requests.length === 0 ? (
+                <div className="health-empty">
+                  <strong>No participant has requested a song in this window.</strong>
+                  <span>
+                    {selectedWindow.status === 'draft'
+                      ? 'The window is still a draft, so nobody can see it. Publish it and requests will start arriving here.'
+                      : selectedWindow.status === 'closed'
+                        ? 'The window is closed, so no further request can arrive.'
+                        : selectedWindow.requestsOpen
+                          ? 'Requests are open. Each one will appear here needing your approval before it can be queued.'
+                          : 'Requests are closed for this window, so no new song can arrive. Reopen requests on the window above.'}
+                  </span>
+                </div>
+              ) : null}
+              {queue.truncated ? (
+                <p className="notice">
+                  This page shows the first {queue.requests.length} requests in the window. Clear these before the rest can be read.
+                </p>
+              ) : null}
             </div>
           </>
         )}
@@ -276,8 +446,11 @@ export function Synesthesia() {
         <CatalogSection catalog={catalog} canManage={overview.canManageCatalog} />
       ) : (
         <section className="synesthesia-section">
-          <h2>Catalog</h2>
-          <p className="muted">Catalog contents require the event-wide catalog-read permission.</p>
+          <h2>Available tracks</h2>
+          <p className="muted">
+            Participants can only request songs from this list. Reading it needs the event-wide catalog permission,
+            which this account does not have.
+          </p>
         </section>
       )}
     </section>
@@ -406,23 +579,40 @@ function WindowSection({ overview }: { overview: Overview }) {
         ) : null}
       </div>
 
+      <p className="section-note">
+        A window is a stretch of time when participants may request songs, and it carries its own limits, its own
+        allowed tracks and its own queue. Saving a window creates a draft that nobody outside this desk can see;
+        publishing it is what lets requests start arriving. Nothing can be requested, queued or played outside a
+        published window.
+      </p>
+
       <div className="synesthesia-window-list">
-        {overview.windows.map((window) => (
+        {[...overview.windows]
+          .sort((left, right) =>
+            windowOrder[left.status] - windowOrder[right.status] || left.startsAt - right.startsAt,
+          )
+          .map((window) => (
           <article className="synesthesia-window" key={window.id}>
             <div className="synesthesia-window-heading">
               <div>
                 <strong>{window.name}</strong>
-                <span>{windowKindLabels[window.kind]} · {statusLabel(window.status)}</span>
+                <span>
+                  {window.kind === 'custom' && window.customKindLabel
+                    ? window.customKindLabel
+                    : synesthesiaWindowKindLabels[window.kind]}
+                  {' · '}
+                  {synesthesiaWindowStatusLabels[window.status]}
+                </span>
               </div>
               <small>{new Date(window.startsAt).toLocaleString()} – {new Date(window.endsAt).toLocaleString()}</small>
             </div>
+            <p>{windowConsequence(window)}</p>
             <p>
               {window.catalogSourceLabel} · {window.maxRequestsPerParticipant} requests/person · {window.maxVotesPerParticipant} votes/person · {window.maxRequestsTotal} total
             </p>
             <p>
-              {window.requestsOpen ? 'Requests open' : 'Requests closed'} · {window.votingOpen ? 'Voting open' : 'Voting closed'} · {window.autoApproveRequests ? 'Automatic approval' : 'Manual approval'}
+              {window.requestsOpen ? 'Requests open' : 'Requests closed'} · {window.votingOpen ? 'Voting open' : 'Voting closed'} · {window.autoApproveRequests ? 'Requests from the allowed list are approved automatically' : 'Every request waits for a decision at this desk'}
             </p>
-            {window.playbackPaused ? <p>Playback paused: {window.playbackPauseReason}</p> : null}
             <div className="synesthesia-window-actions">
               {window.status === 'draft' && window.canManage ? (
                 <button
@@ -457,11 +647,14 @@ function WindowSection({ overview }: { overview: Overview }) {
           </article>
         ))}
         {overview.windows.length === 0 ? (
-          <p className="empty">
-            {overview.canCreateWindow
-              ? 'No music window yet. Create one for each request period.'
-              : 'No music window is assigned here.'}
-          </p>
+          <div className="health-empty">
+            <strong>No window exists, so the desk has nothing to run.</strong>
+            <span>
+              {overview.canCreateWindow
+                ? 'Create one for each period you want music open — arrival, the working session, late night. Until a window is published, participants have no way to request a song and the queue below stays empty.'
+                : 'No music window is assigned to this account. An organizer with window access has to create one before anything can run from here.'}
+            </span>
+          </div>
         ) : null}
       </div>
 
@@ -476,6 +669,11 @@ function WindowSection({ overview }: { overview: Overview }) {
           <div>
             <p className="eyebrow">{editor.mode === 'create' ? 'New draft' : 'Edit draft'}</p>
             <h2>{editor.mode === 'create' ? 'Create ambience window' : editor.values.name}</h2>
+            <p className="section-note">
+              Saving leaves the window as a draft. Nobody outside this desk can see it, and no request can arrive,
+              until you publish it. The limits below are per participant for the life of this window, and only tracks
+              on the allowed list can be requested.
+            </p>
           </div>
           <div className="synesthesia-editor-grid">
             <label className="field">
@@ -491,7 +689,9 @@ function WindowSection({ overview }: { overview: Overview }) {
                   if (kind) updateEditorValues({ ...editor.values, kind })
                 }}
               >
-                {windowKinds.map((kind) => <option key={kind} value={kind}>{windowKindLabels[kind]}</option>)}
+                {windowKinds.map((kind) => (
+                  <option key={kind} value={kind}>{synesthesiaWindowKindLabels[kind]}</option>
+                ))}
               </select>
             </label>
             {editor.values.kind === 'custom' ? (
@@ -648,18 +848,36 @@ function CatalogSection({
         ) : null}
       </div>
 
+      <p className="section-note">
+        {catalog === undefined || catalog.tracks.length === 0
+          ? 'Participants can only request a song that is on this list, so a window whose list is empty will take no requests at all.'
+          : `${countLabel(requestableCount(catalog), 'track')} can be requested${
+              catalog.tracks.length > requestableCount(catalog)
+                ? `, and ${catalog.tracks.length - requestableCount(catalog)} have been withdrawn and cannot.`
+                : '.'
+            } Each window narrows this list further by length, energy tag and whether explicit tracks are allowed.`}
+      </p>
+
       {catalog === undefined ? (
-        <p className="muted" role="status">Loading catalog…</p>
+        <>
+          <LoadingLabel>Loading the track list</LoadingLabel>
+          <SkeletonList rows={4} />
+        </>
       ) : (
         <div className="synesthesia-catalog-list">
-          {catalog.tracks.map((track) => (
+          {[...catalog.tracks]
+            .sort((left, right) => catalogOrder(left) - catalogOrder(right))
+            .map((track) => (
             <div className="synesthesia-catalog-track" key={track.id}>
               <div>
                 <strong>{track.title}</strong>
                 <span>{track.artist} · {track.provider} · {track.durationSeconds}s · {track.energyTag}</span>
               </div>
               <div>
-                <small>{track.status}{track.isExplicit ? ' · explicit' : ''}</small>
+                <small>
+                  {synesthesiaCatalogTrackStatusLabels[track.status]}
+                  {track.isExplicit ? ' · explicit' : ''}
+                </small>
                 {canManage ? (
                   <button
                     type="button"
@@ -691,8 +909,21 @@ function CatalogSection({
               </div>
             </div>
           ))}
-          {catalog.tracks.length === 0 ? <p className="empty">No catalog tracks yet.</p> : null}
-          {catalog.truncated ? <p className="notice">The 500-track release bound has been reached.</p> : null}
+          {catalog.tracks.length === 0 ? (
+            <div className="health-empty">
+              <strong>No track has been added yet.</strong>
+              <span>
+                {canManage
+                  ? 'Add the tracks from the event’s licensed music account. Until at least one is here, a published window will show participants nothing to request.'
+                  : 'Adding tracks needs the catalog-manage permission, which this account does not have. Until a track is added, a published window will show participants nothing to request.'}
+              </span>
+            </div>
+          ) : null}
+          {catalog.truncated ? (
+            <p className="notice">
+              This list holds the 500 tracks a release may carry. Withdraw a track before adding another.
+            </p>
+          ) : null}
         </div>
       )}
 
@@ -745,10 +976,10 @@ function CatalogSection({
             </label>
             {editor.mode === 'edit' ? (
               <label className="field">
-                <span>Catalog state</span>
+                <span>Can participants request it?</span>
                 <select value={editor.values.status} onChange={(event) => updateValues({ ...editor.values, status: event.target.value === 'disabled' ? 'disabled' : 'active' })}>
-                  <option value="active">Active</option>
-                  <option value="disabled">Disabled</option>
+                  <option value="active">{synesthesiaCatalogTrackStatusLabels.active}</option>
+                  <option value="disabled">{synesthesiaCatalogTrackStatusLabels.disabled}</option>
                 </select>
               </label>
             ) : null}

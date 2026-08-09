@@ -1,8 +1,17 @@
 import { api } from '@code2create/backend/api'
+import {
+  rehearsalRunStateLabels,
+  rehearsalScenarioStateLabels,
+  rehearsalWorkstreamLabels,
+  type RehearsalRunState,
+  type RehearsalScenarioState,
+  type RehearsalWorkstream,
+} from '@code2create/domain'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 
+import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 
@@ -12,8 +21,6 @@ type RehearsalRunId = RehearsalRun['id']
 type RehearsalDetail = FunctionReturnType<typeof api.rehearsals.detail>
 type RehearsalScenario = RehearsalDetail['scenarios'][number]
 type RehearsalScenarioId = RehearsalScenario['id']
-type RehearsalScenarioState = RehearsalScenario['state']
-type RehearsalWorkstream = RehearsalScenario['workstream']
 type CreateArgs = FunctionArgs<typeof api.rehearsals.create>
 type AssignArgs = FunctionArgs<typeof api.rehearsals.assignWorkstreamOwner>
 type StartArgs = FunctionArgs<typeof api.rehearsals.start>
@@ -21,27 +28,25 @@ type CompleteArgs = FunctionArgs<typeof api.rehearsals.complete>
 type CancelArgs = FunctionArgs<typeof api.rehearsals.cancel>
 type UpdateScenarioArgs = FunctionArgs<typeof api.rehearsals.updateScenario>
 
-const workstreams = [
-  ['auth_access', 'Sign-in and access'],
-  ['intake_admissions', 'Intake and admissions'],
-  ['communications', 'Communications'],
-  ['attendance', 'Attendance'],
-  ['floor', 'Hall operations'],
-  ['reviewer_app', 'Reviewer app'],
-  ['review_operations', 'Review operations'],
-  ['integrations', 'GitHub and Figma'],
-  ['reliability', 'Reliability'],
-  ['synesthesia', 'Synesthesia'],
-  ['support', 'Support'],
-] as const satisfies readonly (readonly [RehearsalWorkstream, string])[]
+/**
+ * Checks are listed and filtered worst-first: the ones that went wrong are the
+ * reason to hold a test run at all, and the ones that worked are a record.
+ */
+const scenarioStateOrder: RehearsalScenarioState[] = [
+  'failed',
+  'blocked',
+  'running',
+  'pending',
+  'passed',
+]
 
-const scenarioStates = [
-  ['pending', 'Pending'],
-  ['running', 'Running'],
-  ['passed', 'Passed'],
-  ['failed', 'Failed'],
-  ['blocked', 'Blocked'],
-] as const satisfies readonly (readonly [RehearsalScenarioState, string])[]
+/** A run still being set up or worked comes before one already put to bed. */
+const runOrder: Record<RehearsalRunState, number> = {
+  active: 0,
+  draft: 1,
+  completed: 2,
+  cancelled: 3,
+}
 
 type StateFilter = RehearsalScenarioState | 'all'
 type WorkstreamFilter = RehearsalWorkstream | 'all'
@@ -49,7 +54,10 @@ type WorkstreamFilter = RehearsalWorkstream | 'all'
 export function Rehearsal() {
   const list = useQuery(api.rehearsals.list, { eventSlug })
   const [selectedId, setSelectedId] = useState<RehearsalRunId | null>(null)
-  const visibleSelectedId = selectedId ?? list?.runs.at(0)?.id ?? null
+  const runs = [...(list?.runs ?? [])].sort(
+    (left, right) => runOrder[left.state] - runOrder[right.state] || right.createdAt - left.createdAt,
+  )
+  const visibleSelectedId = selectedId ?? runs.at(0)?.id ?? null
 
   return (
     <section className="rehearsal-shell">
@@ -63,38 +71,116 @@ export function Rehearsal() {
         </div>
       </header>
 
-      {list?.canCreate ? <CreateRun onCreated={() => setSelectedId(null)} /> : null}
+      {list === undefined ? (
+        <>
+          <LoadingLabel>Loading test runs</LoadingLabel>
+          <SkeletonCard lines={3} />
+          <SkeletonList rows={4} />
+        </>
+      ) : (
+        <section className="stage-block">
+          {runs.length === 0 ? (
+            <>
+              <p>No test run has been held.</p>
+              <p className="muted">
+                A test run walks every way this event can go wrong — a participant signing in with the wrong Google
+                account, a reviewer’s phone dying mid-review, the venue Wi-Fi dropping — one check at a time, with a
+                named person answering for each area. The point is to find those failures now, while there is still
+                time to fix them, rather than on the day.
+              </p>
+            </>
+          ) : (
+            <RunLead run={runs[0]} />
+          )}
+        </section>
+      )}
 
-      <div className="rehearsal-run-list" aria-label="Test runs">
-        {list === undefined ? <p className="muted">Loading test runs…</p> : null}
-        {list?.runs.map((run) => (
-          <button
-            aria-pressed={visibleSelectedId === run.id}
-            className={visibleSelectedId === run.id ? 'rehearsal-run selected' : 'rehearsal-run'}
-            key={run.id}
-            type="button"
-            onClick={() => setSelectedId(run.id)}
-          >
-            <span>
-              <strong>{run.name}</strong>
-              <small>{run.counts.passed} of {run.counts.total} passed</small>
-            </span>
-            <span className={`rehearsal-state ${run.state}`}>{runStateLabel(run.state)}</span>
-          </button>
-        ))}
-        {list?.runs.length === 0 ? (
-          <p className="empty">
-            {list.canRead ? 'No test run yet.' : 'No test run is visible to this account.'}
-          </p>
-        ) : null}
-      </div>
+      {list?.canCreate ? <CreateRun defaultOpen={runs.length === 0} onCreated={() => setSelectedId(null)} /> : null}
+
+      {runs.length > 0 ? (
+        <div className="rehearsal-run-list" aria-label="Test runs">
+          {runs.map((run) => (
+            <button
+              aria-pressed={visibleSelectedId === run.id}
+              className={visibleSelectedId === run.id ? 'rehearsal-run selected' : 'rehearsal-run'}
+              key={run.id}
+              type="button"
+              onClick={() => setSelectedId(run.id)}
+            >
+              <span>
+                <strong>{run.name}</strong>
+                <small>{run.counts.total - run.counts.passed} of {run.counts.total} checks still to pass</small>
+              </span>
+              <span className={`rehearsal-state ${run.state}`}>{rehearsalRunStateLabels[run.state]}</span>
+            </button>
+          ))}
+        </div>
+      ) : list !== undefined && !list.canRead ? (
+        <div className="health-empty">
+          <strong>No test run is visible to this account.</strong>
+          <span>
+            Reading a run needs the rehearsal permission for that run. Ask an organizer to grant it, or to add this
+            account as the owner of the area it is answering for.
+          </span>
+        </div>
+      ) : null}
 
       {visibleSelectedId ? <RunDetail rehearsalRunId={visibleSelectedId} /> : null}
     </section>
   )
 }
 
-function CreateRun({ onCreated }: { onCreated: () => void }) {
+/** The most recent unfinished run, stated as work outstanding rather than a score. */
+function RunLead({ run }: { run: RehearsalRun | undefined }) {
+  if (!run) return null
+  const wrong = run.counts.failed + run.counts.blocked
+  const untried = run.counts.pending + run.counts.running
+  if (run.state === 'completed') {
+    return (
+      <>
+        <p>{run.name} has been signed off. All {run.counts.total} checks passed.</p>
+        <p className="muted">Create a new run if anything about the event has changed since.</p>
+      </>
+    )
+  }
+  if (run.state === 'cancelled') {
+    return (
+      <>
+        <p>{run.name} was cancelled, so nothing about this event has been rehearsed.</p>
+        <p className="muted">Create a new run before the event opens.</p>
+      </>
+    )
+  }
+  if (run.state === 'draft') {
+    return (
+      <>
+        <p>
+          {run.name} is set up with {run.counts.total} checks but has not started.
+        </p>
+        <p className="muted">
+          {run.assignedWorkstreamCount === run.requiredWorkstreamCount
+            ? 'Every area has an owner, so the run can be started below.'
+            : `${run.requiredWorkstreamCount - run.assignedWorkstreamCount} of the ${run.requiredWorkstreamCount} areas still have nobody answering for them, and the run cannot start until they do.`}
+        </p>
+      </>
+    )
+  }
+  return (
+    <>
+      <p>
+        {run.name}: {wrong > 0 ? `${wrong} ${wrong === 1 ? 'check' : 'checks'} went wrong and ` : ''}
+        {untried} of {run.counts.total} have not been tried yet.
+      </p>
+      <p className="muted">
+        {wrong > 0
+          ? 'Each failure is a way the event can break on the day. Fix it, then run the check again.'
+          : 'The event should not open until every check has a passing result.'}
+      </p>
+    </>
+  )
+}
+
+function CreateRun({ defaultOpen, onCreated }: { defaultOpen: boolean; onCreated: () => void }) {
   const create = useMutation(api.rehearsals.create)
   const [name, setName] = useState('Full event test')
   const [scheduledFor, setScheduledFor] = useState('')
@@ -140,9 +226,14 @@ function CreateRun({ onCreated }: { onCreated: () => void }) {
   }
 
   return (
-    <details className="rehearsal-create">
+    <details className="rehearsal-create" open={defaultOpen}>
       <summary>Create a test run</summary>
       <form onSubmit={(event) => void submit(event)}>
+        <p className="section-note rehearsal-wide-field">
+          Creating a run copies in a fixed list of checks — one per way the event is known to break — grouped into
+          areas such as sign-in, attendance and reviewing. Each area then needs one person answering for it before
+          the run can start, and every check needs a pass, fail or blocked result before the run can be signed off.
+        </p>
         <label className="field">
           Name
           <input
@@ -195,13 +286,27 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
   const [workstreamFilter, setWorkstreamFilter] = useState<WorkstreamFilter>('all')
   const [selectedScenarioId, setSelectedScenarioId] = useState<RehearsalScenarioId | null>(null)
 
-  if (detail === undefined) return <div className="rehearsal-detail"><p className="muted">Loading run…</p></div>
+  if (detail === undefined) {
+    return (
+      <div className="rehearsal-detail">
+        <LoadingLabel>Loading this test run</LoadingLabel>
+        <SkeletonList rows={6} />
+      </div>
+    )
+  }
 
-  const scenarios = detail.scenarios.filter(
-    (scenario) =>
-      (stateFilter === 'all' || scenario.state === stateFilter) &&
-      (workstreamFilter === 'all' || scenario.workstream === workstreamFilter),
-  )
+  const runWorkstreams = runAreas(detail)
+  const scenarios = detail.scenarios
+    .filter(
+      (scenario) =>
+        (stateFilter === 'all' || scenario.state === stateFilter) &&
+        (workstreamFilter === 'all' || scenario.workstream === workstreamFilter),
+    )
+    .sort(
+      (left, right) =>
+        scenarioStateOrder.indexOf(left.state) - scenarioStateOrder.indexOf(right.state)
+        || left.sequence - right.sequence,
+    )
   const visibleScenarioId = scenarios.some((scenario) => scenario.id === selectedScenarioId)
     ? selectedScenarioId
     : scenarios.at(0)?.id ?? null
@@ -217,38 +322,46 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
             {detail.run.scheduledFor ? ` · scheduled ${formatTime(detail.run.scheduledFor)}` : ''}
           </p>
         </div>
-        <span className={`rehearsal-state ${detail.run.state}`}>{runStateLabel(detail.run.state)}</span>
+        <span className={`rehearsal-state ${detail.run.state}`}>{rehearsalRunStateLabels[detail.run.state]}</span>
       </header>
 
       <RunCounts run={detail.run} />
-      <WorkstreamOwners detail={detail} />
+      <WorkstreamOwners areas={runWorkstreams} detail={detail} />
       <RunControls detail={detail} />
 
       <section className="rehearsal-scenarios">
         <div className="section-heading">
           <div>
             <h2>Checks</h2>
-            <p className="muted">Work through each check and record what happened.</p>
+            <p className="muted">
+              {detail.run.counts.failed + detail.run.counts.blocked > 0
+                ? 'The checks that went wrong are listed first. Fix the cause, then run the check again.'
+                : 'Work through each check and record what happened. Checks still to try are listed first.'}
+            </p>
           </div>
           <div className="rehearsal-filters">
             <label className="filter">
-              State
+              Result
               <select
                 value={stateFilter}
                 onChange={(event) => setStateFilter(parseStateFilter(event.target.value))}
               >
-                <option value="all">All states</option>
-                {scenarioStates.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                <option value="all">Every check</option>
+                {scenarioStateOrder.map((value) => (
+                  <option key={value} value={value}>{rehearsalScenarioStateLabels[value]}</option>
+                ))}
               </select>
             </label>
             <label className="filter">
               Area
               <select
                 value={workstreamFilter}
-                onChange={(event) => setWorkstreamFilter(parseWorkstreamFilter(event.target.value))}
+                onChange={(event) => setWorkstreamFilter(parseWorkstreamFilter(event.target.value, runWorkstreams))}
               >
-                <option value="all">All areas</option>
-                {workstreams.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                <option value="all">Every area</option>
+                {runWorkstreams.map((value) => (
+                  <option key={value} value={value}>{rehearsalWorkstreamLabels[value]}</option>
+                ))}
               </select>
             </label>
           </div>
@@ -267,12 +380,19 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
                 <span className="rehearsal-sequence">{scenario.sequence}</span>
                 <span>
                   <strong>{scenario.title}</strong>
-                  <small>{workstreamLabel(scenario.workstream)}</small>
+                  <small>
+                    {rehearsalWorkstreamLabels[scenario.workstream]} · {rehearsalScenarioStateLabels[scenario.state]}
+                  </small>
                 </span>
-                <span className={`rehearsal-dot ${scenario.state}`} title={stateLabel(scenario.state)} />
+                <span
+                  className={`rehearsal-dot ${scenario.state}`}
+                  title={rehearsalScenarioStateLabels[scenario.state]}
+                />
               </button>
             ))}
-            {scenarios.length === 0 ? <p className="empty">No checks match these filters.</p> : null}
+            {scenarios.length === 0 ? (
+              <p className="empty">No check in this run matches both filters. Widen one of them.</p>
+            ) : null}
           </div>
           {selectedScenario ? (
             <ScenarioDetail
@@ -288,60 +408,94 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
   )
 }
 
+/** Worst first, so the strip reads in the order the work should be picked up. */
 function RunCounts({ run }: { run: RehearsalRun }) {
   return (
     <dl className="rehearsal-counts">
-      <div><dt>Passed</dt><dd>{run.counts.passed}</dd></div>
-      <div><dt>Running</dt><dd>{run.counts.running}</dd></div>
-      <div><dt>Failed</dt><dd>{run.counts.failed}</dd></div>
-      <div><dt>Blocked</dt><dd>{run.counts.blocked}</dd></div>
-      <div><dt>Pending</dt><dd>{run.counts.pending}</dd></div>
+      <div><dt>Did not work</dt><dd>{run.counts.failed}</dd></div>
+      <div><dt>Could not be tried</dt><dd>{run.counts.blocked}</dd></div>
+      <div><dt>Being tried now</dt><dd>{run.counts.running}</dd></div>
+      <div><dt>Not tried yet</dt><dd>{run.counts.pending}</dd></div>
+      <div><dt>Worked</dt><dd>{run.counts.passed}</dd></div>
     </dl>
   )
 }
 
-function WorkstreamOwners({ detail }: { detail: RehearsalDetail }) {
+function WorkstreamOwners({
+  areas,
+  detail,
+}: {
+  areas: RehearsalWorkstream[]
+  detail: RehearsalDetail
+}) {
+  const missing = detail.run.requiredWorkstreamCount - detail.run.assignedWorkstreamCount
+  const inactive = detail.workstreamOwners.filter((owner) => !owner.accessActive)
+  const rows = areas
+    .map((workstream) => ({
+      workstream,
+      owner: detail.workstreamOwners.find((candidate) => candidate.workstream === workstream),
+    }))
+    .sort((left, right) => ownerRank(left.owner) - ownerRank(right.owner))
+
   return (
     <section className="rehearsal-section">
       <div className="section-heading">
         <div>
           <h2>Owners</h2>
-          <p className="muted">Give each event area one person responsible for completing its checks.</p>
+          <p className="muted">
+            {missing > 0
+              ? `${missing} of the ${detail.run.requiredWorkstreamCount} areas have nobody answering for them. The run cannot start until every one does.`
+              : inactive.length > 0
+                ? `Every area has an owner, but ${inactive.length === 1 ? 'one of them has' : `${inactive.length} of them have`} inactive event access and cannot record a result.`
+                : `All ${detail.run.requiredWorkstreamCount} areas have an owner who can record results.`}
+          </p>
         </div>
-        <span className="rehearsal-assignment-count">
-          {detail.run.assignedWorkstreamCount} of {detail.run.requiredWorkstreamCount} assigned
-        </span>
       </div>
       <div className="rehearsal-owner-list">
-        {workstreams.map(([workstream, label]) => {
-          const owner = detail.workstreamOwners.find((candidate) => candidate.workstream === workstream)
-          return (
-            <div className="rehearsal-owner-row" key={workstream}>
-              <strong>{label}</strong>
-              <span>{owner?.displayName ?? 'Unassigned'}</span>
-              <small>{owner ? (owner.accessActive ? owner.email : 'Access inactive') : 'Needs an accountable owner'}</small>
-            </div>
-          )
-        })}
+        {rows.map(({ owner, workstream }) => (
+          <div className="rehearsal-owner-row" key={workstream}>
+            <strong>{rehearsalWorkstreamLabels[workstream]}</strong>
+            <span>{owner?.displayName ?? 'Nobody yet'}</span>
+            <small>
+              {!owner
+                ? 'Nobody is answering for this area, so the run cannot start.'
+                : owner.accessActive
+                  ? owner.email
+                  : 'Their event access is inactive, so they cannot record a result here.'}
+            </small>
+          </div>
+        ))}
       </div>
       {detail.run.canManage && (detail.run.state === 'draft' || detail.run.state === 'active') ? (
-        <OwnerAssignment detail={detail} />
+        <OwnerAssignment areas={areas} detail={detail} />
       ) : null}
     </section>
   )
 }
 
-function OwnerAssignment({ detail }: { detail: RehearsalDetail }) {
+/** An area with nobody on it is the work; an area already covered is not. */
+function ownerRank(owner: RehearsalDetail['workstreamOwners'][number] | undefined) {
+  if (!owner) return 0
+  return owner.accessActive ? 2 : 1
+}
+
+function OwnerAssignment({
+  areas,
+  detail,
+}: {
+  areas: RehearsalWorkstream[]
+  detail: RehearsalDetail
+}) {
   const assign = useMutation(api.rehearsals.assignWorkstreamOwner)
   const options = usePaginatedQuery(
     api.rehearsals.ownerOptions,
     { eventSlug, rehearsalRunId: detail.run.id },
     { initialNumItems: 100 },
   )
-  const firstMissing = workstreams.find(
-    ([workstream]) => !detail.workstreamOwners.some((owner) => owner.workstream === workstream),
-  )?.[0] ?? workstreams[0][0]
-  const [workstream, setWorkstream] = useState<RehearsalWorkstream>(firstMissing)
+  const firstMissing = areas.find(
+    (candidate) => !detail.workstreamOwners.some((owner) => owner.workstream === candidate),
+  ) ?? areas[0]
+  const [workstream, setWorkstream] = useState<RehearsalWorkstream>(firstMissing ?? 'auth_access')
   const [ownerPersonId, setOwnerPersonId] = useState('')
   const [reason, setReason] = useState('Assigning rehearsal accountability')
   const [busy, setBusy] = useState(false)
@@ -388,16 +542,22 @@ function OwnerAssignment({ detail }: { detail: RehearsalDetail }) {
 
   return (
     <form className="rehearsal-owner-form" onSubmit={(event) => void submit(event)}>
+      <p className="section-note rehearsal-owner-reason">
+        One person per area, and they must hold active event access — the owner is who records the results for that
+        area’s checks and who is asked about them afterwards. Assigning again replaces the current owner.
+      </p>
       <label className="field">
         Area
         <select
           value={workstream}
           onChange={(event) => {
             resetOperation()
-            setWorkstream(parseWorkstream(event.target.value, workstream))
+            setWorkstream(parseWorkstream(event.target.value, workstream, areas))
           }}
         >
-          {workstreams.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          {areas.map((value) => (
+            <option key={value} value={value}>{rehearsalWorkstreamLabels[value]}</option>
+          ))}
         </select>
       </label>
       <label className="field">
@@ -463,10 +623,18 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
   }, [detail.run.version])
 
   if (detail.run.state === 'completed') {
-    return <p className="notice rehearsal-final-note">Signed off: {detail.run.completionSummary}</p>
+    return (
+      <p className="notice rehearsal-final-note">
+        Signed off, so nothing further can be recorded against it: {detail.run.completionSummary}
+      </p>
+    )
   }
   if (detail.run.state === 'cancelled') {
-    return <p className="notice rehearsal-final-note">Cancelled: {detail.run.cancellationReason}</p>
+    return (
+      <p className="notice rehearsal-final-note">
+        Cancelled before it finished, so its checks prove nothing: {detail.run.cancellationReason}
+      </p>
+    )
   }
   if (!detail.run.canManage && !detail.run.canComplete) return null
 
@@ -533,16 +701,35 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
     }
   }
 
+  const missingOwners = detail.run.requiredWorkstreamCount - detail.run.assignedWorkstreamCount
+  const outstanding = detail.run.counts.total - detail.run.counts.passed
+
   return (
     <section className="rehearsal-section rehearsal-run-controls">
       <div>
-        <h2>Start or finish</h2>
+        <h2>{detail.run.state === 'draft' ? 'Starting this run' : 'Signing this run off'}</h2>
         <p className="muted">
-          Start after every area has an owner. Finish only after every check passes.
+          {detail.run.state === 'draft'
+            ? 'Results can only be recorded while a run is under way, so nothing can be tried until this one starts.'
+            : 'A run is signed off only when every check has passed. The signed-off summary is the record that the event was rehearsed.'}
         </p>
       </div>
+      {detail.run.state === 'draft' && !startReady && detail.run.canManage ? (
+        <p className="notice">
+          {missingOwners > 0
+            ? `This run cannot start: ${missingOwners} of its ${detail.run.requiredWorkstreamCount} areas still have nobody answering for them. Assign the owners above.`
+            : 'Starting this run needs the rehearsal manage permission, which this account does not have for it.'}
+        </p>
+      ) : null}
+      {detail.run.state === 'active' && !completionReady && detail.run.canComplete ? (
+        <p className="notice">
+          {detail.run.counts.total === 0
+            ? 'This run has no checks, so there is nothing to sign off.'
+            : `This run cannot be signed off yet: ${outstanding} of its ${detail.run.counts.total} checks have no passing result.`}
+        </p>
+      ) : null}
       <label className="field">
-        {detail.run.state === 'active' ? 'Result or completion note' : 'Why this run is starting or ending'}
+        {detail.run.state === 'active' ? 'What this run showed' : 'Why this run is starting or ending'}
         <textarea
           maxLength={1000}
           value={note}
@@ -553,14 +740,14 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
         />
       </label>
       <div className="rehearsal-control-actions">
-        {detail.run.state === 'draft' && detail.run.canManage ? (
-          <button className="primary" disabled={busy || !startReady || note.trim().length < 5} type="button" onClick={() => void run('start')}>
+        {startReady ? (
+          <button className="primary" disabled={busy || note.trim().length < 5} type="button" onClick={() => void run('start')}>
             {busy ? 'Working…' : 'Start test run'}
           </button>
         ) : null}
-        {detail.run.state === 'active' && detail.run.canComplete ? (
-          <button className="primary" disabled={busy || !completionReady || note.trim().length < 10} type="button" onClick={() => void run('complete')}>
-            {busy ? 'Working…' : 'Finish test run'}
+        {completionReady ? (
+          <button className="primary" disabled={busy || note.trim().length < 10} type="button" onClick={() => void run('complete')}>
+            {busy ? 'Working…' : 'Sign off test run'}
           </button>
         ) : null}
         {detail.run.canManage ? (
@@ -569,8 +756,6 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
           </button>
         ) : null}
       </div>
-      {!startReady && detail.run.state === 'draft' ? <small>Assign every workstream before starting.</small> : null}
-      {!completionReady && detail.run.state === 'active' ? <small>{detail.run.counts.total - detail.run.counts.passed} checks still need a passing result.</small> : null}
       {error ? <p className="notice error">{error}</p> : null}
     </section>
   )
@@ -639,14 +824,16 @@ function ScenarioDetail({
     <article className="rehearsal-scenario-detail">
       <header>
         <div>
-          <p className="eyebrow">Check {scenario.sequence} · {workstreamLabel(scenario.workstream)}</p>
+          <p className="eyebrow">Check {scenario.sequence} · {rehearsalWorkstreamLabels[scenario.workstream]}</p>
           <h2>{scenario.title}</h2>
         </div>
-        <span className={`rehearsal-state ${scenario.state}`}>{stateLabel(scenario.state)}</span>
+        <span className={`rehearsal-state ${scenario.state}`}>
+          {rehearsalScenarioStateLabels[scenario.state]}
+        </span>
       </header>
       <dl className="rehearsal-expectation">
-        <div><dt>Expected</dt><dd>{scenario.expectedState}</dd></div>
-        <div><dt>If it fails</dt><dd>{scenario.recoveryAction}</dd></div>
+        <div><dt>What should happen</dt><dd>{scenario.expectedState}</dd></div>
+        <div><dt>What to do if it does not</dt><dd>{scenario.recoveryAction}</dd></div>
       </dl>
       {scenario.resultSummary ? <p className="rehearsal-result">{scenario.resultSummary}</p> : null}
 
@@ -681,14 +868,23 @@ function ScenarioDetail({
         </div>
       ) : (
         <p className="notice">
-          {runState === 'active' ? 'This account can read the check but cannot record outcomes.' : 'Results can be recorded only while the test run is active.'}
+          {runState === 'active'
+            ? 'This account can read the check but cannot record what happened. The owner of this area records the result.'
+            : `Results can only be recorded while a run is under way, and this one is ${rehearsalRunStateLabels[runState].toLowerCase()}.`}
         </p>
       )}
 
       <div className="rehearsal-history">
         <h2>History</h2>
-        {history === undefined ? <p className="muted">Loading history…</p> : null}
-        {history?.length === 0 ? <p className="muted">No result recorded yet.</p> : null}
+        {history === undefined ? (
+          <>
+            <LoadingLabel>Loading what has been recorded for this check</LoadingLabel>
+            <SkeletonList rows={2} />
+          </>
+        ) : null}
+        {history?.length === 0 ? (
+          <p className="muted">Nothing has been recorded for this check yet.</p>
+        ) : null}
         <ol>
           {history?.map((action) => (
             <li key={action.id}>
@@ -706,41 +902,37 @@ function ScenarioDetail({
   )
 }
 
+/**
+ * The areas this run actually covers, in check order. The run's own required
+ * count is derived from its checks, so listing a fixed eleven would show areas
+ * that need no owner and make "3 of 11 assigned" disagree with the server.
+ */
+function runAreas(detail: RehearsalDetail): RehearsalWorkstream[] {
+  const seen: RehearsalWorkstream[] = []
+  for (const scenario of [...detail.scenarios].sort((left, right) => left.sequence - right.sequence)) {
+    if (!seen.includes(scenario.workstream)) seen.push(scenario.workstream)
+  }
+  return seen
+}
+
 function parseStateFilter(value: string): StateFilter {
-  if (value === 'all') return value
-  return scenarioStates.find(([state]) => state === value)?.[0] ?? 'all'
+  return scenarioStateOrder.find((state) => state === value) ?? 'all'
 }
 
-function parseWorkstreamFilter(value: string): WorkstreamFilter {
-  if (value === 'all') return value
-  return workstreams.find(([workstream]) => workstream === value)?.[0] ?? 'all'
+function parseWorkstreamFilter(value: string, areas: RehearsalWorkstream[]): WorkstreamFilter {
+  return areas.find((workstream) => workstream === value) ?? 'all'
 }
 
-function parseWorkstream(value: string, fallback: RehearsalWorkstream) {
-  return workstreams.find(([workstream]) => workstream === value)?.[0] ?? fallback
-}
-
-function workstreamLabel(value: RehearsalWorkstream) {
-  return workstreams.find(([workstream]) => workstream === value)?.[1] ?? value.replaceAll('_', ' ')
-}
-
-function stateLabel(value: RehearsalScenarioState) {
-  return scenarioStates.find(([state]) => state === value)?.[1] ?? value
-}
-
-function runStateLabel(value: RehearsalRun['state']) {
-  if (value === 'active') return 'Active'
-  if (value === 'completed') return 'Signed off'
-  if (value === 'cancelled') return 'Cancelled'
-  return 'Draft'
+function parseWorkstream(value: string, fallback: RehearsalWorkstream, areas: RehearsalWorkstream[]) {
+  return areas.find((workstream) => workstream === value) ?? fallback
 }
 
 function historyLabel(kind: FunctionReturnType<typeof api.rehearsals.scenarioHistory>[number]['kind']) {
   if (kind === 'started') return 'Started'
-  if (kind === 'passed') return 'Passed'
-  if (kind === 'failed') return 'Failed'
-  if (kind === 'blocked') return 'Blocked'
-  return 'Run again'
+  if (kind === 'passed') return 'Worked'
+  if (kind === 'failed') return 'Did not work'
+  if (kind === 'blocked') return 'Could not be tried'
+  return 'Tried again'
 }
 
 function formatTime(value: number) {

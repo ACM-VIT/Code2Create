@@ -1,12 +1,16 @@
 import { api } from '@code2create/backend/api'
+import { floorMappingStateLabels, floorSpotStatusLabels } from '@code2create/domain'
+import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import Papa from 'papaparse'
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 
+import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 
+type FloorOverviewResult = NonNullable<FunctionReturnType<typeof api.floorOperations.overview>>
 type CsvRow = Record<string, string | undefined>
 type ZoneInput = { stableKey: string; name: string; displayOrder: number }
 type SpotInput = {
@@ -56,7 +60,14 @@ export function FloorOverview({
     (canReadConfiguration && configuration === undefined) ||
     (view === 'operations' && canReadLocations && overview === undefined)
   ) {
-    return <p className="muted">Loading hall map…</p>
+    return (
+      <section className="floor-shell">
+        <LoadingLabel>Loading the hall map</LoadingLabel>
+        <SkeletonCard lines={2} />
+        <SkeletonStats columns={4} />
+        <SkeletonList rows={3} />
+      </section>
+    )
   }
 
   const mapReadyToFreeze =
@@ -152,55 +163,98 @@ export function FloorOverview({
 
       {view === 'operations' && overview ? (
         <>
-          <dl className="floor-counts">
-            <div><dt>Mapped here</dt><dd>{overview.visibleMappedCount}</dd></div>
-            <div><dt>Available spots</dt><dd>{overview.visibleSpotCount}</dd></div>
-            {overview.eligibleTeamCount !== undefined ? (
-              <div><dt>Accepted teams</dt><dd>{overview.eligibleTeamCount}</dd></div>
-            ) : null}
-            {overview.unmappedTeams ? (
-              <div><dt>Still unmapped</dt><dd>{overview.unmappedTeams.length}</dd></div>
-            ) : null}
-          </dl>
-          <p className="floor-state">
-            {overview.plan.mappingState === 'frozen'
-              ? 'Frozen. Any correction now needs the separate override permission and a reason.'
-              : 'Open for floor mapping. The map updates as staff phones save each scan.'}
-          </p>
-          <div className="floor-zone-list">
-            {overview.zones.map((zone) => (
-              <article className="floor-zone" key={zone.id}>
-                <div className="floor-zone-heading">
-                  <h2>{zone.name}</h2>
-                  <span>{zone.spots.filter((spot) => spot.team).length} mapped</span>
-                </div>
-                <div className="floor-map" aria-label={`${zone.name} team locations`}>
-                  {zone.spots.map((spot) => (
-                    <div
-                      className={`floor-map-spot ${spot.team ? 'occupied' : ''} ${spot.status === 'closed' ? 'closed' : ''}`}
-                      key={spot.id}
-                      style={{ left: `${spot.x}%`, top: `${spot.y}%` }}
-                      title={spot.team ? `${spot.label}: ${spot.team.name}` : `${spot.label}: ${spot.status}`}
-                    >
-                      <strong>{spot.label}</strong>
-                      {spot.team ? <span>{spot.team.name}</span> : null}
-                    </div>
-                  ))}
-                </div>
-              </article>
-            ))}
-          </div>
+          <section className="stage-block">
+            <FloorLead overview={overview} />
+          </section>
+
           {overview.unmappedTeams && overview.unmappedTeams.length > 0 ? (
-            <details className="floor-unmapped">
+            <details className="floor-unmapped" open>
               <summary>
-                {overview.unmappedTeams.length} {overview.unmappedTeams.length === 1 ? 'team still needs' : 'teams still need'} a location
+                The {overview.unmappedTeams.length} {overview.unmappedTeams.length === 1 ? 'team' : 'teams'} nobody can find yet
               </summary>
               <ul>{overview.unmappedTeams.map((team) => <li key={team.id}>{team.name}</li>)}</ul>
             </details>
           ) : null}
+
+          <dl className="floor-counts">
+            {overview.unmappedTeams ? (
+              <div><dt>Teams with no spot</dt><dd>{overview.unmappedTeams.length}</dd></div>
+            ) : null}
+            <div><dt>Teams placed here</dt><dd>{overview.visibleMappedCount}</dd></div>
+            <div><dt>Spots still free</dt><dd>{freeSpotCount(overview)}</dd></div>
+            {overview.eligibleTeamCount !== undefined ? (
+              <div><dt>Teams expecting a spot</dt><dd>{overview.eligibleTeamCount}</dd></div>
+            ) : null}
+          </dl>
+          <p className="floor-state">
+            {overview.plan.mappingState === 'frozen'
+              ? `${floorMappingStateLabels.frozen}. Correcting a team’s spot now needs the separate override permission and a written reason.`
+              : `${floorMappingStateLabels.open}. Floor staff scan a team’s QR and the spot appears here as soon as their phone saves it.`}
+          </p>
+
+          {overview.plan.mappingState === 'open'
+            && configuration?.canFreeze
+            && configuration.publishedPlan?.mappingState === 'open'
+            && !mapReadyToFreeze
+            && overview.unmappedTeams
+            && overview.unmappedTeams.length > 0 ? (
+            <p className="notice">
+              The map cannot be frozen yet: {overview.unmappedTeams.length}{' '}
+              {overview.unmappedTeams.length === 1 ? 'team has' : 'teams have'} no spot. Freezing only succeeds once
+              every team expecting a spot has one.
+            </p>
+          ) : null}
+
+          <div className="floor-zone-list">
+            {overview.zones.map((zone) => {
+              const placed = zone.spots.filter((spot) => spot.team).length
+              const usable = zone.spots.filter((spot) => spot.status === 'available').length
+              return (
+                <article className="floor-zone" key={zone.id}>
+                  <div className="floor-zone-heading">
+                    <h2>{zone.name}</h2>
+                    <span>
+                      {placed === usable
+                        ? `All ${usable} spots have a team`
+                        : `${placed} of ${usable} spots have a team`}
+                    </span>
+                  </div>
+                  <div className="floor-map" aria-label={`${zone.name} team locations`}>
+                    {zone.spots.map((spot) => (
+                      <div
+                        className={`floor-map-spot ${spot.team ? 'occupied' : ''} ${spot.status === 'closed' ? 'closed' : ''}`}
+                        key={spot.id}
+                        style={{ left: `${spot.x}%`, top: `${spot.y}%` }}
+                        title={
+                          spot.team
+                            ? `${spot.label} — ${spot.team.name}`
+                            : spot.status === 'closed'
+                              ? `${spot.label} — ${floorSpotStatusLabels.closed}`
+                              : `${spot.label} — free, no team here yet`
+                        }
+                      >
+                        <strong>{spot.label}</strong>
+                        {spot.team ? <span>{spot.team.name}</span> : null}
+                      </div>
+                    ))}
+                    {zone.spots.length === 0 ? (
+                      <p className="empty">This zone has no spots, so no team can be placed in it.</p>
+                    ) : null}
+                  </div>
+                </article>
+              )
+            })}
+          </div>
         </>
       ) : view === 'operations' && canReadLocations ? (
-        <p className="empty">No floor plan is published yet.</p>
+        <div className="health-empty">
+          <strong>No hall layout is published, so floor staff have nothing to pin teams to.</strong>
+          <span>
+            {canReadConfiguration
+              ? 'Scanning a team’s QR will fail until zones and spots exist and the layout has been published. Edit the hall layout to set them up.'
+              : 'Scanning a team’s QR will fail until an organizer defines the zones and spots and publishes the layout.'}
+          </span>
+        </div>
       ) : null}
 
       {view === 'configuration' && configuration?.publishedPlan ? (
@@ -209,7 +263,7 @@ export function FloorOverview({
             <p className="eyebrow">Published</p>
             <h2>{configuration.publishedPlan.name}</h2>
             <p className="muted">
-              {configuration.publishedPlan.zoneCount} zones · {configuration.publishedPlan.spotCount} team spots · {configuration.publishedPlan.mappingState === 'frozen' ? 'Locations frozen' : 'Open for mapping'}
+              {configuration.publishedPlan.zoneCount} zones · {configuration.publishedPlan.spotCount} team spots · {configuration.publishedPlan.mappingState === 'frozen' ? floorMappingStateLabels.frozen : configuration.publishedPlan.mappingState === 'open' ? floorMappingStateLabels.open : floorMappingStateLabels.setup}
             </p>
           </div>
         </section>
@@ -220,7 +274,9 @@ export function FloorOverview({
           <div>
             <p className="eyebrow">Draft plan {configuration.draftPlan.planNumber}</p>
             <h2>{configuration.draftPlan.name}</h2>
-            <p className="muted">{configuration.draftPlan.zoneCount} zones · {configuration.draftPlan.spotCount} spots</p>
+            <p className="muted">
+              {configuration.draftPlan.zoneCount} zones · {configuration.draftPlan.spotCount} spots · floor staff cannot use it until it is published
+            </p>
           </div>
           {configuration.canPublish && !publishArmed ? (
             <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>Publish draft</button>
@@ -244,7 +300,10 @@ export function FloorOverview({
         freezeArmed ? (
           <section className="publish-confirmation floor-freeze">
             <h2>Freeze team locations?</h2>
-            <p className="muted">This succeeds only when every accepted team has one location. Later changes require a separately granted override.</p>
+            <p className="muted">
+              Every team expecting a spot has one, so this will succeed. After it, correcting a team’s spot needs the
+              separate override permission and a written reason.
+            </p>
             <label className="field"><span>Reason</span><textarea value={freezeReason} onChange={(event) => setFreezeReason(event.target.value)} /></label>
             <div className="button-row">
               <button className="primary" disabled={busy || freezeReason.trim().length < 5} type="button" onClick={() => void freezeMap()}>{busy ? 'Freezing…' : 'Freeze locations'}</button>
@@ -267,7 +326,12 @@ export function FloorOverview({
                   ? 'Create replacement draft'
                   : 'Create hall layout'}
             </h2>
-            <p className="muted">Paste rows from a spreadsheet. Coordinates are percentages across each zone canvas.</p>
+            <p className="section-note">
+              A layout is zones and the spots inside them. One row per spot: rows sharing a zone_key become one
+              zone, and x and y are percentages across that zone’s canvas, so 50/50 is its middle. Saving leaves a
+              draft that floor staff cannot use; publishing is what opens mapping. Once the first team has been
+              placed, the published layout can no longer be replaced.
+            </p>
           </div>
           <label className="field"><span>Plan name</span><input required value={planName} onChange={(event) => setPlanName(event.target.value)} /></label>
           <label className="field">
@@ -282,6 +346,75 @@ export function FloorOverview({
 
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </section>
+  )
+}
+
+/**
+ * The one sentence the numbers add up to. A team with no spot is a team no
+ * runner, judge or medic can be sent to, which is the whole point of the map.
+ */
+function FloorLead({ overview }: { overview: FloorOverviewResult }) {
+  const unmapped = overview.unmappedTeams?.length
+  if (unmapped === undefined || overview.eligibleTeamCount === undefined) {
+    return (
+      <>
+        <p>
+          {overview.visibleMappedCount === 0
+            ? 'No team has been placed in the zones you can see.'
+            : `${overview.visibleMappedCount} ${overview.visibleMappedCount === 1 ? 'team is' : 'teams are'} placed in the zones you can see.`}
+        </p>
+        <p className="muted">
+          This account reads only its own zones, so it cannot tell how many teams across the hall are still without
+          a spot.
+        </p>
+      </>
+    )
+  }
+  if (overview.eligibleTeamCount === 0) {
+    return (
+      <>
+        <p>No team is ready to be placed yet.</p>
+        <p className="muted">
+          Teams appear here once they have been admitted and confirmed. Until then there is nothing to map.
+        </p>
+      </>
+    )
+  }
+  if (unmapped === 0) {
+    return (
+      <>
+        <p>
+          All {overview.eligibleTeamCount} teams have a spot, and every one of them can be found by name.
+        </p>
+        <p className="muted">
+          {overview.plan.mappingState === 'frozen'
+            ? 'The map is frozen, so it will stay this way unless someone with the override permission changes it.'
+            : 'Freeze the map to stop it drifting for the rest of the event.'}
+        </p>
+      </>
+    )
+  }
+  return (
+    <>
+      <p>
+        {unmapped === overview.eligibleTeamCount
+          ? `Not one of the ${overview.eligibleTeamCount} teams has a spot on this map yet, so floor staff cannot find any of them.`
+          : `${unmapped} of the ${overview.eligibleTeamCount} teams have no spot on this map, so floor staff cannot find them.`}
+      </p>
+      <p className="muted">
+        Each one is placed when a staff phone scans that team’s QR at the table they are actually sitting at. Until
+        then a runner, a judge or a medic sent to that team has nowhere to go.
+      </p>
+    </>
+  )
+}
+
+/** Spots a team could still be put in: not closed off and nobody in them. */
+function freeSpotCount(overview: FloorOverviewResult) {
+  return overview.zones.reduce(
+    (total, zone) =>
+      total + zone.spots.filter((spot) => spot.status === 'available' && !spot.team).length,
+    0,
   )
 }
 

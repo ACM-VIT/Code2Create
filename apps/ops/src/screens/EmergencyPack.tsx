@@ -1,8 +1,10 @@
 import { api } from '@code2create/backend/api'
+import { emergencyPackStatusLabels, type EmergencyPackStatus } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useAction, useMutation, useQuery } from 'convex/react'
 import { useEffect, useRef, useState } from 'react'
 
+import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 
@@ -13,7 +15,19 @@ type RequestAttempt = {
   clientOperationId: string
 }
 
-type EmergencyPackId = FunctionReturnType<typeof api.emergencyPacks.list>[number]['id']
+type EmergencyPack = FunctionReturnType<typeof api.emergencyPacks.list>[number]
+type EmergencyPackId = EmergencyPack['id']
+
+/**
+ * A backup you could print right now leads; one still being built comes next;
+ * the ones that failed or went stale are a record of what was tried.
+ */
+const packOrder: Record<EmergencyPackStatus, number> = {
+  ready: 0,
+  pending: 1,
+  failed: 2,
+  expired: 3,
+}
 
 export function EmergencyPack({
   canRead,
@@ -71,8 +85,8 @@ export function EmergencyPack({
       requestAttemptRef.current = null
       setMessage(
         canRead
-          ? 'Pack requested. Its status will update below.'
-          : 'Pack requested. An operator with read access can follow its status.',
+          ? 'Requested. It appears in the list above and becomes printable there once it has been built.'
+          : 'Requested. This account cannot see it, so an operator with read access has to confirm it was built.',
       )
     } catch (caught) {
       setError(readableError(caught))
@@ -94,6 +108,14 @@ export function EmergencyPack({
     }
   }
 
+  const packsByUse = packs
+    ? [...packs]
+      .map((pack) => ({ pack, status: currentStatus(pack, now) }))
+      .sort((left, right) => packOrder[left.status] - packOrder[right.status] || right.pack.requestedAt - left.pack.requestedAt)
+    : null
+  const usable = packsByUse?.filter((entry) => entry.status === 'ready') ?? []
+  const beingPrepared = packsByUse?.filter((entry) => entry.status === 'pending') ?? []
+
   return (
     <section className="emergency-pack-shell">
       <header className="page-heading">
@@ -113,6 +135,118 @@ export function EmergencyPack({
         </p>
       </div>
 
+      {canRead && packsByUse === null ? (
+        <>
+          <LoadingLabel>Checking whether a paper backup is ready</LoadingLabel>
+          <SkeletonCard lines={2} />
+        </>
+      ) : (
+        <section className="stage-block">
+          <PackLead
+            beingPrepared={beingPrepared.length}
+            canPrepare={canPrepare}
+            canRead={canRead}
+            usable={usable.map((entry) => entry.pack)}
+          />
+        </section>
+      )}
+
+      <section className="emergency-pack-history">
+        <h2>Prepared backups</h2>
+        <p className="section-note">
+          A backup is a printable snapshot of the roster, the check-in stations, the judging panels and blank sheets,
+          frozen at the moment it is prepared. It expires four hours later because the floor keeps moving. Opening
+          one is permission-checked and recorded.
+        </p>
+        {!canRead ? (
+          <p className="muted">This account cannot view prepared backups.</p>
+        ) : packsByUse === null ? (
+          <>
+            <LoadingLabel>Loading prepared backups</LoadingLabel>
+            <SkeletonList rows={3} />
+          </>
+        ) : packsByUse.length === 0 ? (
+          <div className="health-empty">
+            <strong>Nothing has been prepared for this event.</strong>
+            <span>
+              {canPrepare
+                ? 'Prepare one below at the start of each shift, so that a failure during check-in or judging costs minutes rather than the session.'
+                : 'Preparing one needs the recovery permission, which this account does not have. Ask an organizer to prepare a backup before the event opens.'}
+            </span>
+          </div>
+        ) : (
+          <ol className="emergency-pack-list">
+            {packsByUse.map(({ pack, status }) => (
+              <li key={pack.id}>
+                <div className="emergency-pack-main">
+                  <div>
+                    <span className={`state-label ${status}`}>{emergencyPackStatusLabels[status]}</span>
+                    <strong>{pack.purpose}</strong>
+                    <small>
+                      Requested by {pack.requestedByName} · {formatDateTime(pack.requestedAt)}
+                    </small>
+                  </div>
+                  {pack.counts ? (
+                    <dl className="emergency-pack-counts">
+                      <Count label="People" value={pack.counts.participants} />
+                      <Count label="Stations" value={pack.counts.stations} />
+                      <Count label="Panels" value={pack.counts.panels} />
+                      <Count
+                        label="Sheets"
+                        value={pack.counts.attendanceSheets + pack.counts.reviewSheets}
+                      />
+                    </dl>
+                  ) : null}
+                </div>
+                <div className="emergency-pack-meta">
+                  <span>
+                    {pack.snapshotAt === undefined
+                      ? 'The snapshot has not been taken yet'
+                      : `Snapshot taken ${formatDateTime(pack.snapshotAt)}`}
+                  </span>
+                  <span>
+                    {status === 'expired'
+                      ? `Expired ${formatDateTime(pack.expiresAt)}`
+                      : `Usable until ${formatDateTime(pack.expiresAt)}`}
+                  </span>
+                  {pack.byteCount !== undefined ? <span>{formatBytes(pack.byteCount)}</span> : null}
+                </div>
+                {status === 'ready' && canPrint ? (
+                  <button
+                    className="secondary"
+                    type="button"
+                    disabled={openingPackId !== null}
+                    onClick={() => void print(pack.id)}
+                  >
+                    {openingPackId === pack.id ? 'Opening…' : 'Open paper backup'}
+                  </button>
+                ) : null}
+                {status === 'ready' && !canPrint ? (
+                  <p className="notice">
+                    This backup is printable, but opening it needs the recovery print permission, which this account
+                    does not have.
+                  </p>
+                ) : null}
+                {status === 'pending' ? (
+                  <p className="notice">Still being built. It becomes printable here on its own.</p>
+                ) : null}
+                {status === 'expired' ? (
+                  <p className="notice">
+                    Too old to use: it no longer matches who is in the venue. Prepare a fresh one instead.
+                  </p>
+                ) : null}
+                {status === 'failed' ? (
+                  <p className="notice error">
+                    This backup could not be built{pack.failureCode ? ` (${pack.failureCode})` : ''}, so it cannot be
+                    printed. Prepare another one.
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
       {canPrepare ? (
         <form
           className="emergency-pack-form"
@@ -121,8 +255,12 @@ export function EmergencyPack({
             void prepare()
           }}
         >
+          <p>
+            Preparing takes a fresh snapshot and builds a new printable backup. It does not replace or cancel any
+            backup already prepared.
+          </p>
           <label className="field">
-            <span>Purpose</span>
+            <span>What this backup is for</span>
             <textarea
               minLength={10}
               maxLength={240}
@@ -167,7 +305,7 @@ export function EmergencyPack({
             </label>
           </div>
           <p className="muted">
-            Current check-in phones and judging panels already receive one sheet each. Add only the extras you expect to need.
+            Every check-in phone and judging panel already gets one sheet. Add only the extras you expect to need.
           </p>
           <button
             className="primary"
@@ -183,78 +321,80 @@ export function EmergencyPack({
           </button>
         </form>
       ) : (
-        <p className="muted">This account cannot prepare a paper backup.</p>
+        <p className="muted">
+          Preparing a paper backup needs the recovery permission, which this account does not have.
+        </p>
       )}
 
       {error ? <p className="notice error" role="alert">{error}</p> : null}
       {message ? <p className="notice" role="status">{message}</p> : null}
-
-      <section className="emergency-pack-history">
-        <div className="section-heading">
-          <h2>Recent backups</h2>
-          <p className="muted">
-            Each backup expires after four hours. Opening it is permission-checked and recorded.
-          </p>
-        </div>
-        {!canRead ? (
-          <p className="muted">This account cannot view prepared backups.</p>
-        ) : packs === undefined ? (
-          <p className="muted">Loading prepared backups…</p>
-        ) : packs.length === 0 ? (
-          <p className="muted">No paper backup has been prepared.</p>
-        ) : (
-          <ol className="emergency-pack-list">
-            {packs.map((pack) => {
-              const status = pack.expiresAt <= now ? 'expired' : pack.status
-              return <li key={pack.id}>
-                <div className="emergency-pack-main">
-                  <div>
-                    <span className={`state-label ${status}`}>{statusLabel(status)}</span>
-                    <strong>{pack.purpose}</strong>
-                    <small>
-                      Requested by {pack.requestedByName} · {formatDateTime(pack.requestedAt)}
-                    </small>
-                  </div>
-                  {pack.counts ? (
-                    <dl className="emergency-pack-counts">
-                      <Count label="People" value={pack.counts.participants} />
-                      <Count label="Stations" value={pack.counts.stations} />
-                      <Count label="Panels" value={pack.counts.panels} />
-                      <Count
-                        label="Sheets"
-                        value={pack.counts.attendanceSheets + pack.counts.reviewSheets}
-                      />
-                    </dl>
-                  ) : null}
-                </div>
-                <div className="emergency-pack-meta">
-                  <span>
-                    {pack.snapshotAt === undefined
-                      ? 'Snapshot pending'
-                      : `Snapshot ${formatDateTime(pack.snapshotAt)}`}
-                  </span>
-                  <span>Expires {formatDateTime(pack.expiresAt)}</span>
-                  {pack.byteCount !== undefined ? <span>{formatBytes(pack.byteCount)}</span> : null}
-                </div>
-                {status === 'ready' && canPrint ? (
-                  <button
-                    className="secondary"
-                    type="button"
-                    disabled={openingPackId !== null}
-                    onClick={() => void print(pack.id)}
-                  >
-                    {openingPackId === pack.id ? 'Opening…' : 'Open paper backup'}
-                  </button>
-                ) : null}
-                {status === 'failed' ? (
-                  <p className="notice error">Generation failed: {pack.failureCode ?? 'unknown reason'}.</p>
-                ) : null}
-              </li>
-            })}
-          </ol>
-        )}
-      </section>
     </section>
+  )
+}
+
+/**
+ * What the event can fall back on right now, said before the form that changes
+ * it. The screen used to open with a request form and leave the answer to a
+ * line at the foot of the page.
+ */
+function PackLead({
+  beingPrepared,
+  canPrepare,
+  canRead,
+  usable,
+}: {
+  beingPrepared: number
+  canPrepare: boolean
+  canRead: boolean
+  usable: EmergencyPack[]
+}) {
+  const first = usable[0]
+  if (!canRead) {
+    return (
+      <>
+        <p>This account cannot see whether a backup exists.</p>
+        <p className="muted">
+          {canPrepare
+            ? 'You can still prepare one below, but an operator with read access has to confirm it was built and print it.'
+            : 'Ask an operator with recovery access whether the event currently has a printable fallback.'}
+        </p>
+      </>
+    )
+  }
+  if (first) {
+    return (
+      <>
+        <p>
+          {usable.length === 1
+            ? 'One paper backup is printable right now.'
+            : `${usable.length} paper backups are printable right now.`}
+          {` The newest stops being usable at ${formatDateTime(first.expiresAt)}.`}
+        </p>
+        <p className="muted">
+          Print it before then, or the room falls back to nothing. A backup older than four hours no longer matches
+          who is actually in the venue.
+        </p>
+      </>
+    )
+  }
+  if (beingPrepared > 0) {
+    return (
+      <>
+        <p>A backup is being built. Nothing is printable yet.</p>
+        <p className="muted">
+          It becomes printable in the list below on its own; there is nothing to do in the meantime.
+        </p>
+      </>
+    )
+  }
+  return (
+    <>
+      <p>No paper backup is prepared.</p>
+      <p className="muted">
+        If the live system goes down now, the check-in desk and the judging tables have nothing to fall back on: no
+        roster, no station list, no blank sheets.
+      </p>
+    </>
   )
 }
 
@@ -266,11 +406,12 @@ function validCount(value: number) {
   return Number.isSafeInteger(value) && value >= 0 && value <= 20
 }
 
-function statusLabel(value: 'pending' | 'ready' | 'failed' | 'expired') {
-  if (value === 'pending') return 'Preparing'
-  if (value === 'ready') return 'Ready to print'
-  if (value === 'failed') return 'Failed'
-  return 'Expired'
+/**
+ * The stored status says nothing about the four-hour lifetime, so a pack the
+ * server still calls "ready" may already be useless on the floor.
+ */
+function currentStatus(pack: EmergencyPack, now: number): EmergencyPackStatus {
+  return pack.expiresAt <= now ? 'expired' : pack.status
 }
 
 function formatDateTime(value: number) {

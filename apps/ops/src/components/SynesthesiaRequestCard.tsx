@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { songRequestStateLabels } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation } from 'convex/react'
 import { useState } from 'react'
@@ -37,10 +38,6 @@ type ReportAction = {
 
 function durationLabel(seconds: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
-}
-
-function stateLabel(value: string) {
-  return value.replaceAll('_', ' ')
 }
 
 function timestampFromLocal(value: string) {
@@ -216,7 +213,7 @@ export function SynesthesiaRequestCard({
           </span>
         </div>
         <div className="synesthesia-request-state">
-          <span>{stateLabel(request.state)}</span>
+          <span>{songRequestStateLabels[request.state]}</span>
           <small>{request.voteCount} votes · {request.openReportCount} open reports</small>
         </div>
       </div>
