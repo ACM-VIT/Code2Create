@@ -5,21 +5,19 @@ import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native'
 import { palette } from '@/theme'
 
 /**
- * The chrome every screen behind the grid shares: a real iOS large title that
- * collapses into a blurred bar as you scroll, and one scroll container so the
- * panels underneath never nest their own.
+ * The chrome every screen behind the grid shares.
  *
- * `back` is for pushed duty routes, which set their header on the root stack;
- * tab screens inherit theirs from the stack inside their own tab.
+ * The title sits inline, on the same row as the back chevron, rather than as a
+ * large title on a line of its own: a duty screen is somewhere you are working,
+ * not somewhere you are browsing, and the vertical space belongs to the work.
+ * The bar is a real blurred iOS header, so content passes under it.
  */
 export function DutyScreen({
-  back = false,
   children,
   onRefresh,
   refreshing = false,
   title,
 }: {
-  back?: boolean
   children: ReactNode
   onRefresh?: () => void
   refreshing?: boolean
@@ -31,19 +29,18 @@ export function DutyScreen({
         options={{
           headerShown: true,
           title,
+          headerLargeTitle: false,
           // Chevron only. The previous screen's title beside it is noise.
           headerBackButtonDisplayMode: 'minimal',
-          ...(back
-            ? {
-                headerLargeTitle: true,
-                headerTransparent: true,
-                headerBlurEffect: 'systemChromeMaterialDark' as const,
-                headerStyle: { backgroundColor: 'transparent' },
-                headerTintColor: palette.text,
-                headerLargeTitleStyle: { color: palette.text },
-                headerTitleStyle: { color: palette.text },
-              }
-            : {}),
+          // Transparent, not "the same colour as the page": iOS draws its own
+          // header material over any backgroundColor you set, which is what
+          // made the bar read as a separate surface hovering above the screen.
+          // Nothing else in this app has one, so the header has none either.
+          headerTransparent: true,
+          headerShadowVisible: false,
+          headerStyle: { backgroundColor: 'transparent' },
+          headerTintColor: palette.text,
+          headerTitleStyle: { color: palette.text, fontSize: 17, fontWeight: '600' },
         }}
       />
       <ScrollView
@@ -66,5 +63,7 @@ export function DutyScreen({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: palette.background },
   scroll: { flex: 1 },
-  content: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 120, gap: 16 },
+  /* The floating tab bar overlays the scroll view, so the last control needs
+     room to clear it rather than sitting underneath. */
+  content: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 120, gap: 18 },
 })

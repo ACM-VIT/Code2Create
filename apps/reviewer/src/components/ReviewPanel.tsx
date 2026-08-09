@@ -16,6 +16,17 @@ import {
 
 import { ProjectEvidence } from '@/components/ProjectEvidence'
 import {
+  Action,
+  Body,
+  Field,
+  Meta,
+  Problem,
+  Progress,
+  QuietAction,
+  ScoreRow,
+  Section,
+} from '@/components/ui'
+import {
   checkEncryptedDraftStorage,
   clearLocalScorecardDraft,
   loadLocalScorecardDraft,
@@ -34,7 +45,9 @@ import {
   type ReviewerDeviceRecord,
   type ReviewerPlatform,
 } from '@/lib/reviewer-device'
+import { describeError } from '@/lib/errors'
 import type { ReviewerRuntime } from '@/lib/runtime'
+import { palette } from '@/theme'
 
 type ReviewerNow = FunctionReturnType<typeof api.reviewer.now>
 type ActiveReview = NonNullable<ReviewerNow['review']>
@@ -1250,92 +1263,104 @@ function ScorecardEditor({
 
   if (submitted) {
     return (
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Scorecard submitted</Text>
-        <Text style={styles.body}>Your independent ratings are locked. Other reviewers cannot see them.</Text>
-      </View>
+      <Section title="Submitted">
+        <Body>Your scores are locked. No other reviewer can see them.</Body>
+      </Section>
     )
   }
 
+  const scored = review.criteria.filter((criterion) =>
+    ratings.some((rating) => rating.criterionId === criterion.id),
+  ).length
+  const correcting = review.scorecard.status === 'correction_open'
+
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>
-        {review.scorecard.status === 'correction_open' ? 'Authorised correction' : 'Your scorecard'}
-      </Text>
-      <Text style={styles.body}>
-        {review.scorecard.status === 'correction_open'
-          ? 'Edit only what needs correction. The original submitted version stays in the audit history.'
-          : 'Rate only your assigned criteria. Your draft and scores are private.'}
-      </Text>
-      <Text style={localError ? styles.error : styles.meta}>
-        {localError ?? (localState === 'restored' ? 'Recovered the encrypted draft from this phone.' : localState === 'loading' ? 'Checking encrypted local draft…' : 'Unsaved edits are encrypted on this phone.')}
-      </Text>
+    <Section title={correcting ? 'Correction' : 'Your scorecard'}>
+      {/* How far through, before anything else. A judge wants to know how many
+          are left far more often than they want to be told the rules. */}
+      <Progress done={scored} total={review.criteria.length} />
+      <Meta>
+        {scored === review.criteria.length
+          ? 'All scored. Submit when you are ready.'
+          : `${scored} of ${review.criteria.length} scored`}
+      </Meta>
+      {correcting ? (
+        <Body>Change only what needs correcting. The submitted version stays in the history.</Body>
+      ) : null}
+      {localError ? <Problem>{localError}</Problem> : null}
+
       {review.criteria.map((criterion) => {
         const rating = ratings.find((candidate) => candidate.criterionId === criterion.id)
+        // A note is only demanded at the ends of the scale, where a score is a
+        // claim someone may later have to defend.
+        const noteRequired = rating ? rating.score === 0 || rating.score === 4 : false
         return (
           <View key={criterion.id} style={styles.criterion}>
-            <Text style={styles.value}>{criterion.label}</Text>
-            <Text style={styles.body}>{criterion.question}</Text>
-            <Text style={styles.guidance}>{criterion.guidance}</Text>
-            <View style={styles.scoreRow}>
-              {scores.map((score) => (
-                <Pressable
-                  accessibilityLabel={`${criterion.label}: ${score}`}
-                  accessibilityRole="button"
-                  disabled={busy !== null || localState === 'loading'}
-                  key={score}
-                  onPress={() => setScore(criterion.id, score)}
-                  style={[styles.scoreButton, rating?.score === score ? styles.scoreSelected : null]}
-                >
-                  <Text style={[styles.scoreText, rating?.score === score ? styles.scoreSelectedText : null]}>{score}</Text>
-                </Pressable>
-              ))}
-            </View>
+            <Text style={styles.criterionLabel}>{criterion.label}</Text>
+            <Text style={styles.criterionQuestion}>{criterion.question}</Text>
+            <ScoreRow
+              disabled={busy !== null || localState === 'loading'}
+              onSelect={(score) => setScore(criterion.id, score)}
+              scores={scores}
+              selected={rating?.score}
+            />
+            {/* The anchor for the chosen score, not the whole rubric. Guidance
+                for four scores you did not pick is noise at a table. */}
             <Text style={styles.anchor}>
-              {rating ? anchorText(criterion, rating.score) : 'Choose a score to see its published anchor.'}
+              {rating ? anchorText(criterion, rating.score) : criterion.guidance}
             </Text>
             {rating ? (
-              <TextInput
+              <Field
                 editable={busy === null && localState !== 'loading'}
+                label={noteRequired ? 'Why this score (required)' : 'Note (optional)'}
                 multiline
                 onChangeText={(value) => setEvidenceNote(criterion.id, value)}
-                placeholder={rating.score === 0 || rating.score === 4 ? 'Evidence note required' : 'Evidence note (optional)'}
-                placeholderTextColor="#625f5a"
-                style={styles.input}
+                placeholder="What you saw."
                 value={rating.evidenceNote ?? ''}
               />
             ) : null}
           </View>
         )
       })}
-      <Text style={styles.label}>Private note</Text>
-      <TextInput
+
+      <Field
         editable={busy === null && localState !== 'loading'}
+        label="Private note"
         multiline
         onChangeText={(value) => {
           setPrivateNote(value)
           edit()
         }}
-        placeholder="Visible only in your scorecard"
-        placeholderTextColor="#625f5a"
-        style={[styles.input, styles.privateInput]}
+        placeholder="Only ever visible on your own scorecard."
         value={privateNote}
       />
-      <View style={styles.buttonRow}>
-        <Button
-          label={busy === 'save' ? 'Saving…' : dirty ? 'Save draft' : 'Draft saved'}
-          disabled={busy !== null || !dirty || localState === 'loading'}
-          secondary
-          onPress={async () => { await save() }}
-        />
-        <Button
-          label={busy === 'submit' ? 'Submitting…' : 'Review and submit'}
-          disabled={busy !== null || localState === 'loading'}
-          onPress={prepareSubmission}
-        />
+
+      {error ? <Problem>{error}</Problem> : null}
+      {/* One primary action. Saving is a status, not a decision. */}
+      <Action
+        disabled={busy !== null || localState === 'loading'}
+        label={busy === 'submit' ? 'Submitting…' : 'Submit scorecard'}
+        onPress={prepareSubmission}
+      />
+      <View style={styles.saveRow}>
+        <Meta>
+          {busy === 'save'
+            ? 'Saving…'
+            : dirty
+              ? 'Unsaved edits are encrypted on this phone.'
+              : localState === 'restored'
+                ? 'Recovered from this phone.'
+                : 'Draft saved.'}
+        </Meta>
+        {dirty ? (
+          <QuietAction
+            disabled={busy !== null || localState === 'loading'}
+            label="Save now"
+            onPress={async () => { await save() }}
+          />
+        ) : null}
       </View>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-    </View>
+    </Section>
   )
 }
 
@@ -1421,17 +1446,8 @@ function submissionProblem(criteria: Criterion[], ratings: Rating[]) {
   return null
 }
 
-function errorMessage(error: unknown, fallback: string) {
-  if (typeof error === 'object' && error !== null) {
-    if ('data' in error) {
-      const data = error.data
-      if (typeof data === 'object' && data !== null && 'message' in data && typeof data.message === 'string') {
-        return data.message
-      }
-    }
-    if ('message' in error && typeof error.message === 'string') return error.message
-  }
-  return fallback
+function errorMessage(caught: unknown, fallback: string) {
+  return describeError(caught, fallback)
 }
 
 const styles = StyleSheet.create({
@@ -1525,7 +1541,10 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   evidenceRow: { borderTopWidth: 1, borderTopColor: '#2c2a27', paddingTop: 10, gap: 3 },
-  criterion: { borderTopWidth: 1, borderTopColor: '#2c2a27', paddingTop: 16, gap: 8 },
+  criterion: { paddingTop: 18, gap: 10 },
+  criterionLabel: { color: palette.text, fontSize: 19, fontWeight: '600', letterSpacing: -0.3 },
+  criterionQuestion: { color: palette.muted, fontSize: 16, lineHeight: 22 },
+  saveRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   scoreRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
   scoreButton: {
     width: 44,
@@ -1539,7 +1558,7 @@ const styles = StyleSheet.create({
   scoreSelected: { backgroundColor: '#eee9e0', borderColor: '#eee9e0' },
   scoreText: { color: '#c9c4bb', fontSize: 16 },
   scoreSelectedText: { color: '#11110f', fontWeight: '700' },
-  anchor: { minHeight: 38, color: '#9d9992', fontSize: 13, lineHeight: 19 },
+  anchor: { minHeight: 40, color: palette.muted, fontSize: 15, lineHeight: 21 },
   input: {
     minHeight: 72,
     borderWidth: 1,

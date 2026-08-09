@@ -105,6 +105,17 @@ export function Problem({ children }: { children: ReactNode }) {
   return <Text style={styles.problem}>{children}</Text>
 }
 
+/** Grey blocks where the content will land. Never the word "Loading". */
+export function Shell({ lines = 3 }: { lines?: number }) {
+  return (
+    <View style={styles.shell}>
+      {Array.from({ length: lines }, (_, index) => (
+        <View key={index} style={[styles.shellLine, index === 0 ? styles.shellLead : null]} />
+      ))}
+    </View>
+  )
+}
+
 /** What to say when there is genuinely nothing here, without saying "empty". */
 export function Nothing({ children }: { children: string }) {
   return (
@@ -174,6 +185,134 @@ export function ChipRow<Value extends string>({
           </Pressable>
         )
       })}
+    </View>
+  )
+}
+
+/**
+ * The one number this screen is about, set the way the duty grid sets its
+ * headline. A screen that opens with a sentence reads as a document; a screen
+ * that opens with a number reads as a job in progress.
+ */
+export function Lead({
+  accent = palette.text,
+  detail,
+  unit,
+  value,
+}: {
+  accent?: string
+  detail?: string
+  unit?: string
+  value: string
+}) {
+  return (
+    <View style={styles.lead2}>
+      <Text allowFontScaling={false} numberOfLines={1} style={[styles.leadValue, { color: accent }]}>
+        {value}
+      </Text>
+      {unit ? (
+        <Text allowFontScaling={false} numberOfLines={1} style={styles.leadUnit}>
+          {unit}
+        </Text>
+      ) : null}
+      {detail ? <Text style={styles.leadDetail}>{detail}</Text> : null}
+    </View>
+  )
+}
+
+/**
+ * The camera, given the room it needs.
+ *
+ * A small preview with a hairline rectangle over it asks someone to aim a phone
+ * at a lanyard in a dark hall through a viewport the size of a stamp. This is
+ * full width, nearly square, with brackets thick enough to find in peripheral
+ * vision, in the colour of the duty being done.
+ */
+export function Viewfinder({
+  accent,
+  children,
+}: {
+  accent: string
+  children: ReactNode
+}) {
+  return (
+    <View style={styles.viewfinder}>
+      {children}
+      <View pointerEvents="none" style={styles.brackets}>
+        <View style={[styles.bracket, styles.bracketTopLeft, { borderColor: accent }]} />
+        <View style={[styles.bracket, styles.bracketTopRight, { borderColor: accent }]} />
+        <View style={[styles.bracket, styles.bracketBottomLeft, { borderColor: accent }]} />
+        <View style={[styles.bracket, styles.bracketBottomRight, { borderColor: accent }]} />
+      </View>
+    </View>
+  )
+}
+
+/**
+ * A whole scale as one row of large blocks, the way a survey app sets out a
+ * rating: every option visible at once, each one a target you can hit without
+ * looking, and the chosen one filled solid. A slider or a stepper would ask a
+ * judge to aim, at a table, standing up, at three in the morning.
+ */
+export function ScoreRow({
+  accent = palette.judging,
+  disabled = false,
+  ink = palette.onJudging,
+  onSelect,
+  scores,
+  selected,
+}: {
+  accent?: string
+  disabled?: boolean
+  ink?: string
+  onSelect: (score: number) => void
+  scores: readonly number[]
+  selected: number | undefined
+}) {
+  return (
+    <View style={styles.scoreRow}>
+      {scores.map((score) => {
+        const on = score === selected
+        return (
+          <Pressable
+            accessibilityLabel={String(score)}
+            accessibilityRole="button"
+            accessibilityState={{ disabled, selected: on }}
+            disabled={disabled}
+            key={score}
+            onPress={() => onSelect(score)}
+            style={({ pressed }) => [
+              styles.score,
+              on ? { backgroundColor: accent } : null,
+              pressed ? styles.pressed : null,
+            ]}
+          >
+            <Text style={[styles.scoreText, on ? { color: ink, fontWeight: '700' } : null]}>
+              {score}
+            </Text>
+          </Pressable>
+        )
+      })}
+    </View>
+  )
+}
+
+/** How far through a run of work this screen is. Thick, like the duty grid's. */
+export function Progress({
+  accent = palette.judging,
+  done,
+  total,
+}: {
+  accent?: string
+  done: number
+  total: number
+}) {
+  const filled = total === 0 ? 0 : Math.max(0, Math.min(1, done / total))
+  return (
+    <View style={styles.progress}>
+      {filled > 0 ? <View style={{ flex: filled, backgroundColor: accent }} /> : null}
+      {filled > 0 && filled < 1 ? <View style={styles.progressGap} /> : null}
+      {filled < 1 ? <View style={{ flex: 1 - filled, backgroundColor: palette.strong }} /> : null}
     </View>
   )
 }
@@ -261,6 +400,10 @@ const styles = StyleSheet.create({
   meta: { color: palette.muted, fontSize: 14 },
   problem: { color: palette.urgent, fontSize: 15, lineHeight: 21 },
 
+  shell: { gap: 12, paddingTop: 4 },
+  shellLead: { height: 54, width: '58%' },
+  shellLine: { height: 18, borderRadius: 2, backgroundColor: palette.tile },
+
   nothing: { paddingVertical: 34, alignItems: 'center' },
   nothingText: { color: palette.faint, fontSize: 16, textAlign: 'center' },
 
@@ -279,6 +422,40 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 14, height: 40, justifyContent: 'center', backgroundColor: palette.tile },
   chipText: { color: palette.text, fontSize: 15 },
   chipTextOn: { color: palette.background, fontWeight: '600' },
+
+  lead2: { paddingBottom: 4 },
+  leadValue: { fontSize: 52, fontWeight: '600', letterSpacing: -1.6, lineHeight: 54 },
+  leadUnit: { color: palette.text, fontSize: 26, fontWeight: '500', letterSpacing: -0.6 },
+  leadDetail: { marginTop: 10, color: palette.muted, fontSize: 16, lineHeight: 22 },
+
+  viewfinder: {
+    width: '100%',
+    aspectRatio: 1.05,
+    backgroundColor: '#000',
+    overflow: 'hidden',
+    justifyContent: 'center',
+  },
+  brackets: { position: 'absolute', top: 28, right: 28, bottom: 28, left: 28 },
+  bracket: { position: 'absolute', width: 46, height: 46 },
+  bracketTopLeft: { top: 0, left: 0, borderTopWidth: 5, borderLeftWidth: 5 },
+  bracketTopRight: { top: 0, right: 0, borderTopWidth: 5, borderRightWidth: 5 },
+  bracketBottomLeft: { bottom: 0, left: 0, borderBottomWidth: 5, borderLeftWidth: 5 },
+  bracketBottomRight: { bottom: 0, right: 0, borderBottomWidth: 5, borderRightWidth: 5 },
+
+  /* Tall enough to hit without aiming, and wide enough that a five-point
+     scale still fills the row. */
+  scoreRow: { flexDirection: 'row', gap: 7 },
+  score: {
+    flex: 1,
+    height: 62,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.tile,
+  },
+  scoreText: { color: palette.text, fontSize: 22, fontWeight: '500' },
+
+  progress: { flexDirection: 'row', height: 8 },
+  progressGap: { width: 3 },
 
   action: { alignSelf: 'stretch', height: 62 },
   quiet: { alignSelf: 'flex-start', paddingVertical: 10 },

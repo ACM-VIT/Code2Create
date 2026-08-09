@@ -9,12 +9,19 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import {
   Action,
   Body,
+  Card,
   ChipRow,
+  Field,
+  Heading,
+  Lead,
   Meta,
   Problem,
   QuietAction,
   Section,
+  Shell,
+  Viewfinder,
 } from '@/components/ui'
+import { describeError } from '@/lib/errors'
 import type { ReviewerRuntime } from '@/lib/runtime'
 import { palette } from '@/theme'
 
@@ -32,13 +39,14 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const busyRef = useRef(false)
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
   const [manualCode, setManualCode] = useState('')
+  const [selectedSpotId, setSelectedSpotId] = useState<string | null>(null)
   const [claim, setClaim] = useState<FloorClaim | null>(null)
   const [receipt, setReceipt] = useState<FloorReceipt | null>(null)
   const [overrideReason, setOverrideReason] = useState('Corrected after confirming the team’s physical location')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  if (floor === undefined) return <Meta>Loading the hall plan…</Meta>
+  if (floor === undefined) return <Shell />
   if (!floor) return <Body>There is no hall plan yet, so there is nothing to map.</Body>
 
   const selectedZone = floor.zones.find((zone) => zone.id === selectedZoneId) ?? floor.zones[0]
@@ -107,52 +115,135 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
     setManualCode('')
   }
 
+  const placing = claim
+  const selectedSpot = selectedSpotId
+    ? selectedZone.spots.find((spot) => spot.id === selectedSpotId)
+    : undefined
+
+  const tapSpot = (spot: FloorZone['spots'][number]) => {
+    setError(null)
+    setSelectedSpotId(spot.id)
+    // With a team in hand a tap is a placement. Without one it answers "who is
+    // sitting there", which is the other question people bring to this screen.
+    if (placing && spot.occupiedBy && spot.occupiedBy.teamId !== placing.team.id) {
+      setError(`${spot.label} is ${spot.occupiedBy.teamName}. Move them first.`)
+    }
+  }
+
+  const placeHere = async () => {
+    if (!selectedSpot) return
+    await assignSpot(selectedSpot.id)
+    setSelectedSpotId(null)
+  }
+
   return (
     <>
-      {/* Lead with how much of the hall is still unmapped, which is the whole
-          reason anyone opens this screen. */}
-      <Body>
-        {freeSpots === 0
-          ? `Every spot in ${selectedZone.name} is mapped.`
-          : `${freeSpots} ${freeSpots === 1 ? 'spot is' : 'spots are'} still empty in ${selectedZone.name}.`}
-      </Body>
-      <Meta>
-        {floor.mode === 'override'
-          ? 'The map is frozen, so a change needs a reason.'
-          : 'Scan the QR on the team’s own dashboard, then tap where they are sitting.'}
-      </Meta>
+      <Lead
+        accent={palette.hall}
+        detail={
+          floor.mode === 'override'
+            ? 'The map is frozen, so a change needs a reason.'
+            : placing
+              ? `Tap where ${placing.team.name} is sitting.`
+              : 'Tap a spot to see who is there, or scan a team to place them.'
+        }
+        unit={freeSpots === 1 ? 'spot still empty' : 'spots still empty'}
+        value={String(freeSpots)}
+      />
 
-      {!claim && !receipt ? (
+      {floor.zones.length > 1 ? (
+        <ChipRow
+          accent={palette.hall}
+          onSelect={(zoneId) => {
+            setSelectedZoneId(zoneId)
+            setSelectedSpotId(null)
+          }}
+          options={floor.zones.map((zone) => [zone.id, zone.name] as const)}
+          selected={selectedZone.id}
+        />
+      ) : null}
+
+      <HallCanvas
+        disabled={busy}
+        onSelect={tapSpot}
+        placingTeamId={placing ? placing.team.id : null}
+        selectedSpotId={selectedSpotId}
+        zone={selectedZone}
+      />
+
+      {selectedSpot ? (
+        <Card accent={palette.hall} selected>
+          <Heading>{selectedSpot.label}</Heading>
+          <Meta>
+            {selectedSpot.occupiedBy ? selectedSpot.occupiedBy.teamName : 'Nobody here yet'}
+          </Meta>
+        </Card>
+      ) : null}
+
+      {error ? <Problem>{error}</Problem> : null}
+
+      {placing ? (
         <>
-          {floor.zones.length > 1 ? (
-            <ChipRow
-              accent={palette.hall}
-              onSelect={setSelectedZoneId}
-              options={floor.zones.map((zone) => [zone.id, zone.name] as const)}
-              selected={selectedZone.id}
+          {placing.mode === 'override' ? (
+            <Field
+              label="Why is this frozen location changing?"
+              multiline
+              onChangeText={setOverrideReason}
+              placeholder="What you saw."
+              value={overrideReason}
             />
           ) : null}
+          <Action
+            accent={palette.hall}
+            disabled={
+              busy ||
+              !selectedSpot ||
+              Boolean(
+                selectedSpot.occupiedBy && selectedSpot.occupiedBy.teamId !== placing.team.id,
+              ) ||
+              (placing.mode === 'override' && overrideReason.trim().length < 5)
+            }
+            label={
+              selectedSpot
+                ? `Put ${placing.team.name} at ${selectedSpot.label}`
+                : `Tap a spot for ${placing.team.name}`
+            }
+            onPress={placeHere}
+          />
+          <QuietAction disabled={busy} label="Scan a different team" onPress={reset} />
+        </>
+      ) : receipt ? (
+        <>
+          <Card accent={palette.hall} selected>
+            <Heading>{receipt.teamName}</Heading>
+            <Meta>
+              {receipt.zoneName} · {receipt.spotLabel}
+            </Meta>
+          </Card>
+          <Action accent={palette.hall} label="Scan the next team" onPress={reset} />
+        </>
+      ) : (
+        <Section title="Scan a team">
           {!permission ? <Meta>Checking camera access…</Meta> : null}
           {permission && !permission.granted ? (
             <Action
               accent={palette.hall}
               label="Allow the camera"
-              onPress={async () => { await requestPermission() }}
+              onPress={async () => {
+                await requestPermission()
+              }}
             />
           ) : null}
           {permission?.granted ? (
-            <View style={styles.cameraFrame}>
+            <Viewfinder accent={palette.hall}>
               <CameraView
                 barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
                 facing="back"
                 onBarcodeScanned={busy ? undefined : handleBarcode}
                 style={StyleSheet.absoluteFill}
               />
-              <View pointerEvents="none" style={styles.cameraGuide} />
-            </View>
+            </Viewfinder>
           ) : null}
-          {/* The typed code is the fallback for a QR that will not read, so it
-              sits under the camera rather than competing with it. */}
           <View style={styles.manualRow}>
             <TextInput
               autoCapitalize="characters"
@@ -167,88 +258,75 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
               accessibilityRole="button"
               disabled={busy || manualCode.trim().length < 10}
               onPress={() => void claimCredential(manualCode)}
-              style={[styles.openButton, busy || manualCode.trim().length < 10 ? styles.disabled : null]}
+              style={[
+                styles.openButton,
+                busy || manualCode.trim().length < 10 ? styles.disabled : null,
+              ]}
             >
               <Text style={styles.openButtonText}>{busy ? '…' : 'Open'}</Text>
             </Pressable>
           </View>
-        </>
-      ) : null}
-
-      {claim ? (
-        <Section title={claim.team.name}>
-          <Meta>
-            {claim.currentLocation
-              ? `Currently at ${claim.currentLocation.zoneName}, ${claim.currentLocation.spotLabel}.`
-              : 'Nowhere on the map yet.'}
-          </Meta>
-          {claim.mode === 'override' ? (
-            <TextInput
-              multiline
-              onChangeText={setOverrideReason}
-              placeholder="Why is this frozen location changing?"
-              placeholderTextColor={palette.faint}
-              style={[styles.input, styles.reasonInput]}
-              value={overrideReason}
-            />
-          ) : null}
-          <Meta>Tap where they are sitting in {selectedZone.name}</Meta>
-          <FloorCanvas
-            claim={claim}
-            disabled={busy || (claim.mode === 'override' && overrideReason.trim().length < 5)}
-            onSelect={assignSpot}
-            zone={selectedZone}
-          />
-          <QuietAction disabled={busy} label="Scan a different team" onPress={reset} />
         </Section>
-      ) : null}
-
-      {receipt ? (
-        <Section title="Saved">
-          <Body>
-            {receipt.teamName} is at {receipt.zoneName}, {receipt.spotLabel}.
-          </Body>
-          <Action accent={palette.hall} label="Scan the next team" onPress={reset} />
-        </Section>
-      ) : null}
-
-      {error ? <Problem>{error}</Problem> : null}
+      )}
     </>
   )
 }
 
-function FloorCanvas({
-  claim,
+/**
+ * The hall itself, as a thing you point at.
+ *
+ * Mapping is a spatial job: someone is standing in the room looking at where a
+ * team is sitting. Asking them to read a list of spot labels and pick the right
+ * string is a translation step that only exists because it was easier to build.
+ * This draws the zone to scale from the published plan and lets them touch the
+ * place.
+ */
+function HallCanvas({
   disabled,
   onSelect,
+  placingTeamId,
+  selectedSpotId,
   zone,
 }: {
-  claim: FloorClaim
   disabled: boolean
-  onSelect: (spotId: FloorZone['spots'][number]['id']) => void | Promise<void>
+  onSelect: (spot: FloorZone['spots'][number]) => void
+  /** The team being placed, so its current spot reads as "theirs", not "taken". */
+  placingTeamId: string | null
+  selectedSpotId: string | null
   zone: FloorZone
 }) {
   return (
     <View style={styles.map}>
       {zone.spots.map((spot) => {
-        const occupiedByAnotherTeam = spot.occupiedBy && spot.occupiedBy.teamId !== claim.team.id
+        const theirs = spot.occupiedBy !== null && spot.occupiedBy.teamId === placingTeamId
+        const takenByAnother = spot.occupiedBy !== null && !theirs
+        const selected = spot.id === selectedSpotId
         return (
           <Pressable
-            accessibilityLabel={`${spot.label}${spot.occupiedBy ? `, occupied by ${spot.occupiedBy.teamName}` : ', available'}`}
+            accessibilityLabel={
+              spot.occupiedBy ? `${spot.label}, ${spot.occupiedBy.teamName}` : `${spot.label}, free`
+            }
             accessibilityRole="button"
-            disabled={disabled || Boolean(occupiedByAnotherTeam)}
+            accessibilityState={{ disabled, selected }}
+            disabled={disabled}
             key={spot.id}
-            onPress={() => void onSelect(spot.id)}
-            style={[
-              styles.mapSpot,
+            onPress={() => onSelect(spot)}
+            style={({ pressed }) => [
+              styles.spot,
               { left: `${spot.x}%`, top: `${spot.y}%` },
-              spot.occupiedBy ? styles.mapSpotOccupied : null,
-              occupiedByAnotherTeam ? styles.mapSpotDisabled : null,
+              takenByAnother ? styles.spotTaken : null,
+              theirs ? styles.spotTheirs : null,
+              selected ? styles.spotSelected : null,
+              pressed ? styles.spotPressed : null,
             ]}
           >
             <Text
               numberOfLines={1}
-              style={[styles.mapSpotText, spot.occupiedBy ? styles.mapSpotTextOccupied : null]}
+              style={[
+                styles.spotText,
+                takenByAnother ? styles.spotTextTaken : null,
+                theirs || selected ? styles.spotTextOn : null,
+              ]}
             >
               {spot.label}
             </Text>
@@ -259,25 +337,11 @@ function FloorCanvas({
   )
 }
 
-function errorMessage(value: unknown, fallback: string) {
-  if (value instanceof Error && value.message.trim()) return value.message
-  return fallback
+function errorMessage(caught: unknown, fallback: string) {
+  return describeError(caught, fallback)
 }
 
 const styles = StyleSheet.create({
-  /* The viewfinder is the screen's subject, so it gets real height and the
-     guide is the only thing drawn over it. */
-  cameraFrame: { height: 280, overflow: 'hidden', backgroundColor: '#000' },
-  cameraGuide: {
-    position: 'absolute',
-    top: 48,
-    right: 48,
-    bottom: 48,
-    left: 48,
-    borderWidth: 2,
-    borderColor: palette.hall,
-  },
-
   manualRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   input: {
     flex: 1,
@@ -287,7 +351,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: palette.tile,
   },
-  reasonInput: { height: 90, paddingTop: 13, textAlignVertical: 'top' },
   openButton: {
     height: 50,
     paddingHorizontal: 20,
@@ -298,20 +361,28 @@ const styles = StyleSheet.create({
   openButtonText: { color: palette.onHall, fontSize: 16, fontWeight: '600' },
   disabled: { opacity: 0.4 },
 
-  /* Spots are tap targets before they are a diagram: big enough to hit while
-     standing, and colour-coded so a full zone reads at a glance. */
-  map: { position: 'relative', width: '100%', aspectRatio: 1.45, backgroundColor: palette.tile },
-  mapSpot: {
-    position: 'absolute',
-    minWidth: 44,
-    maxWidth: 78,
-    paddingHorizontal: 6,
-    paddingVertical: 8,
-    backgroundColor: palette.hall,
-    transform: [{ translateX: -22 }, { translateY: -16 }],
+  /* The zone drawn to the plan's own proportions, tall enough that a spot is a
+     thumb target rather than a dot on a diagram. */
+  map: {
+    position: 'relative',
+    width: '100%',
+    aspectRatio: 1.15,
+    backgroundColor: palette.tile,
   },
-  mapSpotOccupied: { backgroundColor: palette.strong },
-  mapSpotDisabled: { opacity: 0.35 },
-  mapSpotText: { color: palette.onHall, fontSize: 11, fontWeight: '700', textAlign: 'center' },
-  mapSpotTextOccupied: { color: palette.text },
+  spot: {
+    position: 'absolute',
+    minWidth: 52,
+    maxWidth: 86,
+    paddingHorizontal: 6,
+    paddingVertical: 10,
+    backgroundColor: palette.strong,
+    transform: [{ translateX: -26 }, { translateY: -18 }],
+  },
+  spotTaken: { backgroundColor: palette.background },
+  spotTheirs: { backgroundColor: palette.hall },
+  spotSelected: { backgroundColor: palette.hall },
+  spotPressed: { opacity: 0.7 },
+  spotText: { color: palette.text, fontSize: 12, fontWeight: '600', textAlign: 'center' },
+  spotTextTaken: { color: palette.muted },
+  spotTextOn: { color: palette.onHall },
 })

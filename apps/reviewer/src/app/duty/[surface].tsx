@@ -19,11 +19,11 @@ export default function DutyRoute() {
   const held = surfaces.find((candidate) => candidate === surface)
 
   if (!held) {
-    return <DutyScreen back title="Not yours">{null}</DutyScreen>
+    return <DutyScreen title="Not yours">{null}</DutyScreen>
   }
 
   return (
-    <DutyScreen back title={dutyMeta[held].label}>
+    <DutyScreen title={dutyMeta[held].label}>
       {panelFor(held, runtime, canCreateSupport)}
     </DutyScreen>
   )

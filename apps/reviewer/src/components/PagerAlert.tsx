@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Dimensions, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
+import { describeError } from '@/lib/errors'
 import { palette, type } from '@/theme'
 
 export type SubstitutePage = NonNullable<
@@ -285,8 +286,8 @@ function countdownLabel(seconds: number) {
   return `${minutes}:${String(seconds - minutes * 60).padStart(2, '0')}`
 }
 
-function errorMessage(value: unknown, fallback: string) {
-  return value instanceof Error && value.message.trim() ? value.message : fallback
+function errorMessage(caught: unknown, fallback: string) {
+  return describeError(caught, fallback)
 }
 
 const screenPadding = 24

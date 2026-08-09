@@ -4,6 +4,8 @@ import { useAction } from 'convex/react'
 import { useRef, useState } from 'react'
 import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 
+import { describeError } from '@/lib/errors'
+
 type ReviewerNow = FunctionReturnType<typeof api.reviewer.now>
 type ActiveReview = NonNullable<ReviewerNow['review']>
 type GithubEvidence = ActiveReview['evidence']['github'][number]
@@ -1058,9 +1060,8 @@ function evidenceState(value: string) {
   return value.toLowerCase().replaceAll('_', ' ')
 }
 
-function errorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message.trim()) return error.message
-  return fallback
+function errorMessage(caught: unknown, fallback: string) {
+  return describeError(caught, fallback)
 }
 
 const styles = StyleSheet.create({

@@ -366,8 +366,11 @@ const localFloorSpots = localFloorZones.flatMap((zone, zoneIndex) =>
     stableKey: `${zone.stableKey}_${spotIndex + 1}`,
     zoneKey: zone.stableKey,
     label: `${zone.name.slice(0, 1)}-${String(spotIndex + 1).padStart(2, "0")}`,
-    x: 8 + spotIndex * 12,
-    y: 20 + zoneIndex * 30,
+    // Laid out as a grid inside the zone, because the reviewer app draws one
+    // zone at a time: a single y per zone put every spot of that zone on one
+    // line and the hall read as a row of labels rather than a room.
+    x: 18 + (spotIndex % 4) * 22,
+    y: 26 + Math.floor(spotIndex / 4) * 34,
     accessible: spotIndex === 0,
     status: "available" as const,
     displayOrder: zoneIndex * 8 + spotIndex,

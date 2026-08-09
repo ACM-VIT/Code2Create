@@ -36,9 +36,12 @@ export type DutyHeadline = {
 
 export function DutyHome({
   headline,
+  notice,
   tiles,
 }: {
   headline: DutyHeadline
+  /** Something that has already happened and cannot be undone. Rare by design. */
+  notice?: string
   tiles: DutyTile[]
 }) {
   const rows: DutyTile[][] = []
@@ -87,6 +90,12 @@ export function DutyHome({
               </Text>
             </View>
           </View>
+
+          {notice ? (
+            <View style={styles.notice}>
+              <Text style={styles.noticeText}>{notice}</Text>
+            </View>
+          ) : null}
 
           <View style={styles.grid}>
             {rows.map((row, rowIndex) => (
@@ -181,6 +190,16 @@ const styles = StyleSheet.create({
   identityTight: { marginTop: 42 },
   context: { color: palette.muted, ...type.context },
   summary: { marginTop: 3, color: palette.text, ...type.summary },
+
+  notice: {
+    marginHorizontal: space.grid,
+    marginBottom: space.tileGapY,
+    padding: 14,
+    borderLeftWidth: 3,
+    borderLeftColor: palette.urgent,
+    backgroundColor: palette.tile,
+  },
+  noticeText: { color: palette.text, fontSize: 15, lineHeight: 21 },
 
   grid: { paddingHorizontal: space.grid, gap: space.tileGapY },
   gridRow: { flexDirection: 'row', gap: space.tileGapX },

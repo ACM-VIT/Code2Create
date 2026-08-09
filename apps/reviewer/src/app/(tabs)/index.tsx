@@ -1,6 +1,11 @@
 import { useRouter } from 'expo-router'
+import { useSyncExternalStore } from 'react'
 
 import { DutyHome, type DutyHeadline, type DutyTile } from '@/components/DutyHome'
+import {
+  localStoreWasReset,
+  subscribeToLocalStoreReset,
+} from '@/lib/encrypted-local-database'
 import { DutyIcon, type DutyIconName } from '@/components/DutyIcon'
 import { useReviewerSession, type Surface } from '@/components/ReviewerSession'
 import {
@@ -15,6 +20,7 @@ import { duty, type DutyKey } from '@/theme'
 export default function DutiesScreen() {
   const router = useRouter()
   const { eventSlug, surfaces, who } = useReviewerSession()
+  const storeReset = useSyncExternalStore(subscribeToLocalStoreReset, localStoreWasReset)
 
   const statuses: Record<Surface, DutyStatus> = {
     reviews: useJudgingStatus(eventSlug, surfaces.includes('reviews')),
@@ -26,6 +32,12 @@ export default function DutiesScreen() {
   return (
     <DutyHome
       headline={homeHeadline(statuses, surfaces, who)}
+      {...(storeReset
+        ? {
+            notice:
+              'This phone could not read its saved work, so it started fresh. Anything scanned but not yet sent is gone.',
+          }
+        : {})}
       tiles={surfaces.map((surface) =>
         // Every duty that is genuinely running fills solid; that is the whole
         // point of the grid. One filled tile is a rule, not a status.

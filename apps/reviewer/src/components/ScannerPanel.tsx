@@ -24,6 +24,7 @@ import {
   Body,
   Card,
   ChipRow,
+  Lead,
   Field,
   Heading,
   Meta,
@@ -31,6 +32,8 @@ import {
   Problem,
   QuietAction,
   Section,
+  Shell,
+  Viewfinder,
 } from '@/components/ui'
 import {
   clearScannerDevice,
@@ -49,6 +52,7 @@ import {
   type PendingAttendanceSummary,
   type ScanTransition,
 } from '@/lib/pending-attendance-scans'
+import { describeError } from '@/lib/errors'
 import type { ReviewerRuntime } from '@/lib/runtime'
 import { palette } from '@/theme'
 
@@ -151,7 +155,7 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
     )
   }
   if (deviceState.status === 'loading' || availableStations === undefined) {
-    return <Meta>Loading the scanner setup…</Meta>
+    return <Shell />
   }
   if (deviceState.status === 'error') {
     return (
@@ -222,7 +226,7 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
   }
   const deviceRecord = deviceState.record
   if (current === undefined) {
-    return <Meta>Checking this phone’s station…</Meta>
+    return <Shell />
   }
   if (!current) {
     const pendingStation = availableStations.find(
@@ -1036,20 +1040,19 @@ function ScannerSurface({
 
   return (
     <>
-      <Card>
-        <Heading>{assignment.station.name}</Heading>
-        <Meta>
-          {assignment.station.zoneName}
-          {assignment.openSession ? ` · ${assignment.openSession.name}` : ''}
-        </Meta>
-        {displayedHeartbeatState.status === 'error' ? (
-          <Problem>{displayedHeartbeatState.message}</Problem>
-        ) : (
-          <Meta>
-            {displayedHeartbeatState.status === 'checking' ? 'Checking the connection…' : 'Online'}
-          </Meta>
-        )}
-      </Card>
+      {/* What the next scan will write, as the largest thing on the screen.
+          Getting that wrong is the failure mode at a door, not missing the
+          station's name. */}
+      <Lead
+        accent={palette.door}
+        detail={`${assignment.station.name} · ${assignment.station.zoneName}${
+          assignment.openSession ? ` · ${assignment.openSession.name}` : ''
+        }`}
+        value={task === 'presence' ? transitionName(transition) : 'Credentials'}
+      />
+      {displayedHeartbeatState.status === 'error' ? (
+        <Problem>{displayedHeartbeatState.message}</Problem>
+      ) : null}
 
       <ChipRow
         accent={palette.door}
@@ -1153,7 +1156,7 @@ function ScannerSurface({
         )
       ) : null}
 
-      <View style={styles.cameraFrame}>
+      <Viewfinder accent={palette.door}>
         <CameraView
           barcodeScannerSettings={{ barcodeTypes }}
           facing="back"
@@ -1168,8 +1171,7 @@ function ScannerSurface({
           }
           style={StyleSheet.absoluteFill}
         />
-        <View pointerEvents="none" style={styles.cameraGuide} />
-      </View>
+      </Viewfinder>
       {busy ? <Meta>Checking…</Meta> : null}
 
       {task === 'presence' && receipt ? (
@@ -1639,8 +1641,8 @@ function reasonName(reason: string) {
   return names[reason] ?? 'The server recorded this result for operations review.'
 }
 
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message ? error.message : fallback
+function errorMessage(caught: unknown, fallback: string) {
+  return describeError(caught, fallback)
 }
 
 const styles = StyleSheet.create({

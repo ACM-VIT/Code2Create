@@ -22,7 +22,9 @@ import {
   Problem,
   QuietAction,
   Section,
+  Shell,
 } from '@/components/ui'
+import { describeError } from '@/lib/errors'
 import type { ReviewerRuntime } from '@/lib/runtime'
 import { palette } from '@/theme'
 
@@ -90,7 +92,7 @@ export function SupportPanel({ canCreate, runtime }: { canCreate: boolean; runti
     }
   }
 
-  if (sorted === undefined) return <Meta>Checking your cases…</Meta>
+  if (sorted === undefined) return <Shell />
 
   return (
     <>
@@ -186,7 +188,7 @@ export function SupportCaseDetail({ eventSlug, supportCaseId }: { eventSlug: str
     }
   }, [detail])
 
-  if (detail === undefined) return <Meta>Opening the case…</Meta>
+  if (detail === undefined) return <Shell />
 
   const sendReply = async () => {
     const normalizedMessage = message.trim()
@@ -284,7 +286,7 @@ function formatTime(value: number) {
 }
 
 function errorMessage(caught: unknown, fallback: string) {
-  return caught instanceof Error ? caught.message : fallback
+  return describeError(caught, fallback)
 }
 
 const styles = StyleSheet.create({

@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { PagerAlert } from '@/components/PagerAlert'
 import { useReviewerInstallationId } from '@/lib/duty-status'
+import { describeError } from '@/lib/errors'
 import type { ReviewerRuntime } from '@/lib/runtime'
 import { palette, type } from '@/theme'
 
@@ -267,8 +268,8 @@ export function PrimaryAction({
   )
 }
 
-function errorMessage(value: unknown, fallback: string) {
-  return value instanceof Error && value.message.trim() ? value.message : fallback
+function errorMessage(caught: unknown, fallback: string) {
+  return describeError(caught, fallback)
 }
 
 const styles = StyleSheet.create({
