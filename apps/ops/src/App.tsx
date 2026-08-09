@@ -239,6 +239,9 @@ function Operations({
   const canGenerateIntelligence = access.grants.some(
     (grant) => grant.permissionKey === 'operations.intelligence.generate' && grant.scopeType === 'event',
   )
+  const canManageAttention = access.grants.some(
+    (grant) => grant.permissionKey === 'operations.attention.manage' && grant.scopeType === 'event',
+  )
   const canViewSupport = access.grants.some(
     (grant) =>
       (grant.permissionKey === 'support.case.create' && grant.scopeType === 'event') ||
@@ -396,6 +399,7 @@ function Operations({
               <HealthOverview
                 canGenerateIntelligence={canGenerateIntelligence}
                 canReadIntelligence={canReadIntelligence}
+                canManageAttention={canManageAttention}
               />
             )}
           />

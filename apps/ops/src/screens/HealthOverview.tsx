@@ -5,6 +5,7 @@ import {
   eventStageGuidance,
 } from '@code2create/domain'
 import { useMutation, useQuery } from 'convex/react'
+import type { FunctionReturnType } from 'convex/server'
 
 import { Icon, type IconName } from '../components/Icon'
 import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
@@ -21,6 +22,8 @@ const refreshIntervalMs = 30_000
  */
 const attentionCoveredSignalKeys = ['panels_needing_reviewer', 'overdue_reviews']
 
+type AttentionRow = FunctionReturnType<typeof api.operationsAttention.overview>['rows'][number]
+
 function currentRefreshBucket() {
   return Math.floor(Date.now() / refreshIntervalMs)
 }
@@ -28,11 +31,13 @@ function currentRefreshBucket() {
 type HealthOverviewProps = {
   canGenerateIntelligence: boolean
   canReadIntelligence: boolean
+  canManageAttention: boolean
 }
 
 export function HealthOverview({
   canGenerateIntelligence,
   canReadIntelligence,
+  canManageAttention,
 }: HealthOverviewProps) {
   const [refreshBucket, setRefreshBucket] = useState(currentRefreshBucket)
 
@@ -42,7 +47,6 @@ export function HealthOverview({
   }, [])
 
   const overview = useQuery(api.operationsHealth.overview, { eventSlug, refreshBucket })
-  const attention = useQuery(api.operationsAttention.overview, { eventSlug, refreshBucket })
   const brief = useQuery(
     api.operationsIntelligence.latest,
     canReadIntelligence ? { eventSlug } : 'skip',
@@ -98,44 +102,7 @@ export function HealthOverview({
 
       <StageBlock />
 
-      <section className="attention-section">
-        <div className="section-heading">
-          <h2>Needs attention now</h2>
-          {attention && attention.rows.length > 0 ? <span>{attention.rows.length}</span> : null}
-        </div>
-        {attention === undefined ? (
-          <SkeletonList rows={4} />
-        ) : attention.rows.length === 0 ? (
-          <div className="health-empty">
-            <strong>Nothing needs action.</strong>
-            <span>No panel is short, no review is overdue, and no team is stuck.</span>
-          </div>
-        ) : (
-          <div className="health-list">
-            {attention.rows.map((row) => (
-              <article className={`list-row ${row.severity}`} key={row.key}>
-                <span className={`row-glyph ${row.severity}`}>
-                  <Icon name={severityIcon(row.severity)} />
-                </span>
-                <div className="row-text">
-                  <strong>
-                    {row.subject}
-                    {row.context ? <span className="row-context"> · {row.context}</span> : null}
-                  </strong>
-                  <small>
-                    {row.statement}
-                    {row.since !== undefined ? ` · since ${formatDateTime(row.since)}` : ''}
-                  </small>
-                </div>
-                <Link className="row-action" to={row.route}>
-                  {row.canAct ? row.actionLabel : 'Open'}
-                  <Icon name="arrow" size={13} />
-                </Link>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
+      <AttentionSection canManageAttention={canManageAttention} />
 
       <section className="attention-section">
         <div className="section-heading">
@@ -230,6 +197,115 @@ export function HealthOverview({
 
     </section>
   )
+}
+
+/**
+ * The open work, read from the durable attention ledger.
+ *
+ * This list used to be recomputed inside the page query, so it had no memory:
+ * a row could not be picked up, a problem that had cleared left no trace, and
+ * the same condition looked new on every refresh. Each row now carries how long
+ * it has been open, whether this is the first time tonight, and whether
+ * somebody has it.
+ */
+function AttentionSection({ canManageAttention }: { canManageAttention: boolean }) {
+  const attention = useQuery(api.operationsAttention.overview, { eventSlug })
+  const acknowledge = useMutation(api.operationsAttention.acknowledge)
+  const [pending, setPending] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function claim(row: AttentionRow) {
+    setPending(row.id)
+    setError(null)
+    try {
+      await acknowledge({ eventSlug, itemId: row.id, expectedVersion: row.version })
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not pick that up.')
+    } finally {
+      setPending(null)
+    }
+  }
+
+  return (
+    <section className="attention-section">
+      <div className="section-heading">
+        <h2>Needs attention now</h2>
+        {attention && attention.rows.length > 0 ? (
+          <span>
+            {attention.summary.acknowledgedCount > 0
+              ? `${attention.rows.length}, ${attention.summary.acknowledgedCount} picked up`
+              : attention.rows.length}
+          </span>
+        ) : null}
+      </div>
+      {error ? <p className="notice error">{error}</p> : null}
+      {attention === undefined ? (
+        <>
+          <LoadingLabel>Reading the attention ledger</LoadingLabel>
+          <SkeletonList rows={4} />
+        </>
+      ) : attention.rows.length === 0 ? (
+        <div className="health-empty">
+          <strong>Nothing needs action.</strong>
+          <span>No panel is short, no review is overdue, and no team is stuck.</span>
+        </div>
+      ) : (
+        <div className="health-list">
+          {attention.rows.map((row) => (
+            <article
+              className={`list-row ${row.severity}${row.acknowledged ? ' acknowledged' : ''}`}
+              key={row.id}
+            >
+              <span className={`row-glyph ${row.severity}`}>
+                <Icon name={severityIcon(row.severity)} />
+              </span>
+              <div className="row-text">
+                <strong>{row.statement}</strong>
+                <small>{rowMeta(row)}</small>
+              </div>
+              <span className="row-controls">
+                {canManageAttention && !row.acknowledged ? (
+                  <button
+                    type="button"
+                    className="row-action"
+                    disabled={pending === row.id}
+                    onClick={() => void claim(row)}
+                  >
+                    {pending === row.id ? 'Picking up' : 'Pick up'}
+                  </button>
+                ) : null}
+                <Link className="row-action" to={row.route}>
+                  {row.canAct ? row.actionLabel : 'Open'}
+                  <Icon name="arrow" size={13} />
+                </Link>
+              </span>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** How long it has been open, whether it has happened before, and who has it. */
+function rowMeta(row: {
+  firstObservedAt: number
+  recurrenceCount: number
+  acknowledged: boolean
+}) {
+  const parts = [`Open since ${formatTime(row.firstObservedAt)}`]
+  if (row.recurrenceCount > 1) parts.push(`${ordinal(row.recurrenceCount)} time today`)
+  if (row.acknowledged) parts.push('Someone has picked this up')
+  return parts.join(' · ')
+}
+
+function ordinal(value: number) {
+  const remainderOfTen = value % 10
+  const remainderOfHundred = value % 100
+  if (remainderOfTen === 1 && remainderOfHundred !== 11) return `${value}st`
+  if (remainderOfTen === 2 && remainderOfHundred !== 12) return `${value}nd`
+  if (remainderOfTen === 3 && remainderOfHundred !== 13) return `${value}rd`
+  return `${value}th`
 }
 
 /**
