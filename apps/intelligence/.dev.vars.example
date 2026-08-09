@@ -1,0 +1,11 @@
+# Copy to `.dev.vars` for local `pnpm dev:intelligence`.
+#
+# The operations brief agent runs on `openai/gpt-5.6-luna`. The Flue runtime
+# resolves the OpenAI credential from `process.env.OPENAI_API_KEY`, which
+# `nodejs_compat` populates from this Worker binding. Deployed environments get
+# it from Wrangler secret storage instead:
+#
+#   pnpm exec wrangler secret put OPENAI_API_KEY --env staging
+#
+# The repository-root `.env.local` holds the shared development value.
+OPENAI_API_KEY=sk-replace-with-a-real-openai-key

@@ -79,3 +79,36 @@ export const operationsBriefOutputSchema = v.strictObject({
 export type OperationsIntelligenceInput = v.InferOutput<
 	typeof operationsIntelligenceRequestSchema
 >;
+
+const callbackBase = {
+	protocolVersion: v.literal(operationsIntelligenceProtocolVersion),
+	briefId: boundedText(1, 200),
+	sourceChecksum: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/)),
+	agentVersion: boundedText(1, 80),
+	model: boundedText(1, 120),
+	completedAt: nonNegativeInteger,
+};
+
+/**
+ * The signed body this Worker delivers to Convex. Convex re-validates it; the
+ * evaluation suite parses the delivered body with this schema so a live run is
+ * scored against a named type rather than an untyped payload.
+ */
+export const operationsIntelligenceCallbackSchema = v.variant('status', [
+	v.strictObject({
+		...callbackBase,
+		status: v.literal('succeeded'),
+		headline: boundedText(3, 100),
+		summary: boundedText(10, 600),
+		priorities: v.pipe(v.array(operationsBriefPrioritySchema), v.maxLength(3)),
+	}),
+	v.strictObject({
+		...callbackBase,
+		status: v.literal('failed'),
+		failureCode: v.picklist(['model_did_not_publish', 'callback_rejected']),
+	}),
+]);
+
+export type OperationsIntelligenceCallbackBody = v.InferOutput<
+	typeof operationsIntelligenceCallbackSchema
+>;

@@ -3,19 +3,12 @@
 	"name": "code2create-intelligence",
 	"compatibility_date": "2026-08-07",
 	"compatibility_flags": ["nodejs_compat"],
-	"ai": { "binding": "AI" },
 	"observability": { "enabled": true, "traces": { "enabled": true } },
 	"migrations": [
 		{ "tag": "v1", "new_sqlite_classes": ["FlueOperationsBriefAgent"] }
 	],
 	"env": {
-		"staging": {
-			"name": "code2create-intelligence-staging",
-			"ai": { "binding": "AI" }
-		},
-		"production": {
-			"name": "code2create-intelligence",
-			"ai": { "binding": "AI" }
-		}
+		"staging": { "name": "code2create-intelligence-staging" },
+		"production": { "name": "code2create-intelligence" }
 	}
 }

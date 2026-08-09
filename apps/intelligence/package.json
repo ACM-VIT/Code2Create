@@ -9,12 +9,14 @@
 		"deploy": "pnpm build && pnpm deploy:built",
 		"deploy:built": "wrangler deploy --env \"$CLOUDFLARE_ENV\" --strict --message \"$VITE_RELEASE_ID\"",
 		"deploy:check": "wrangler deploy --env staging --strict --dry-run",
+		"eval": "vitest run --config vitest.eval.config.ts",
 		"lint": "oxlint src",
 		"test": "vitest run --config vitest.config.ts && node --test tests/local-development.test.mjs",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
 		"@code2create/domain": "workspace:*",
+		"@earendil-works/pi-ai": "^0.83.0",
 		"@flue/runtime": "^2.0.3",
 		"hono": "^4.7.0",
 		"valibot": "^1.1.0"

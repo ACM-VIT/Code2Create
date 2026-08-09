@@ -22,8 +22,15 @@ import {
 	type OperationsIntelligenceInput,
 } from '../protocol.ts';
 
-const model = 'cloudflare/@cf/moonshotai/kimi-k2.6';
-const agentVersion = 'operations-brief-v1';
+/**
+ * The single source of the model this agent runs on. `useModel` and every
+ * callback payload read this constant, so the reported model always names the
+ * model that produced the brief. Credentials reach the provider through the
+ * Worker's `OPENAI_API_KEY` secret, which `nodejs_compat` exposes as
+ * `process.env.OPENAI_API_KEY`.
+ */
+export const operationsBriefModel = 'openai/gpt-5.6-luna';
+export const operationsBriefAgentVersion = 'operations-brief-v1';
 
 function successCallback(
 	input: OperationsIntelligenceInput,
@@ -33,8 +40,8 @@ function successCallback(
 		protocolVersion: operationsIntelligenceProtocolVersion,
 		briefId: input.briefId,
 		sourceChecksum: input.sourceChecksum,
-		agentVersion,
-		model,
+		agentVersion: operationsBriefAgentVersion,
+		model: operationsBriefModel,
 		completedAt: Date.now(),
 		status: 'succeeded',
 		headline: output.headline,
@@ -48,8 +55,8 @@ function failureCallback(input: OperationsIntelligenceInput): OperationsIntellig
 		protocolVersion: operationsIntelligenceProtocolVersion,
 		briefId: input.briefId,
 		sourceChecksum: input.sourceChecksum,
-		agentVersion,
-		model,
+		agentVersion: operationsBriefAgentVersion,
+		model: operationsBriefModel,
 		completedAt: Date.now(),
 		status: 'failed',
 		failureCode: 'model_did_not_publish',
@@ -59,7 +66,7 @@ function failureCallback(input: OperationsIntelligenceInput): OperationsIntellig
 export function OperationsBrief() {
 	const input = useInitialData<OperationsIntelligenceInput>();
 	const [reminded, setReminded] = usePersistentState('publish-reminded', false);
-	useModel(model, { thinkingLevel: 'low', compaction: false });
+	useModel(operationsBriefModel, { thinkingLevel: 'low', compaction: false });
 	useTool(
 		defineTool({
 			name: 'publish_operations_brief',

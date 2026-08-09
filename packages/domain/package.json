@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/eventStage.test.ts"
+    "test": "node --test src/eventStage.test.ts src/floorArea.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
