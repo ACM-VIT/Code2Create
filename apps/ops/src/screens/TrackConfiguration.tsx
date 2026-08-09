@@ -4,6 +4,7 @@ import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 
@@ -54,7 +55,14 @@ export function TrackConfiguration({
     setPublishArmed(false)
   }, [configuration, loadedCatalog])
 
-  if (configuration === undefined) return <p className="muted">Loading track configuration…</p>
+  if (configuration === undefined) return (
+      <section className="track-config-shell">
+        <ConfigurationTabs visibility={tabs} />
+        <LoadingLabel>Loading the tracks</LoadingLabel>
+        <SkeletonStats columns={3} />
+        <SkeletonCard lines={4} />
+      </section>
+    )
 
   const updateTrack = (clientId: string, patch: Partial<EditorTrack>) => {
     setTracks((current) => current.map((track) => (
@@ -212,6 +220,7 @@ export function TrackConfiguration({
             <button
               className="secondary"
               disabled={tracks.length >= 15}
+              title={tracks.length >= 15 ? 'Fifteen tracks is the most a team can be asked to read through.' : undefined}
               type="button"
               onClick={() => setTracks((current) => [...current, newSponsorTrack()])}
             >
@@ -253,7 +262,13 @@ export function TrackConfiguration({
 
           <section className="track-save">
             <label className="field"><span>Why this changed</span><textarea required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} /></label>
-            <button className="primary" disabled={busy || tracks.length < 5} type="submit">
+            {tracks.length < 5 ? (
+              <p className="notice">
+                Teams choose one core track, and the event runs five of them. You have {tracks.length}
+                {tracks.length === 1 ? ' track' : ' tracks'} — add {5 - tracks.length} more before saving a draft.
+              </p>
+            ) : null}
+            <button className="primary" disabled={busy} type="submit">
               {busy ? 'Saving…' : configuration.draftCatalog ? 'Replace draft' : 'Save draft'}
             </button>
           </section>

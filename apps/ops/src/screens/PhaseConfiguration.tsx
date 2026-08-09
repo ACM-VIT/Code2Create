@@ -5,6 +5,7 @@ import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 
@@ -92,7 +93,14 @@ export function PhaseConfiguration({
   }, [configuration, loadedSchedule])
 
   if (configuration === undefined) {
-    return <p className="muted">Loading event phases…</p>
+    return (
+      <section className="phase-config-shell">
+        <ConfigurationTabs visibility={tabs} />
+        <LoadingLabel>Loading the schedule</LoadingLabel>
+        <SkeletonStats columns={3} />
+        <SkeletonCard lines={4} />
+      </section>
+    )
   }
 
   const updatePhase = (phaseKey: PhaseKey, patch: Partial<EditorPhase>) => {
@@ -291,7 +299,13 @@ export function PhaseConfiguration({
               <span>Why this changed</span>
               <textarea required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} />
             </label>
-            <button className="primary" disabled={busy || phases.length !== phaseDefaults.length} type="submit">
+            {phases.length === phaseDefaults.length ? null : (
+              <p className="notice">
+                The schedule needs all {phaseDefaults.length} phases before it can be saved.
+                {' '}{phases.length} {phases.length === 1 ? 'is' : 'are'} filled in.
+              </p>
+            )}
+            <button className="primary" disabled={busy} type="submit">
               {busy ? 'Saving…' : configuration.draftSchedule ? 'Replace draft' : 'Save draft'}
             </button>
           </section>

@@ -4,6 +4,9 @@ import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { Link } from 'react-router-dom'
+
+import { LoadingLabel, SkeletonCard, SkeletonLine, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 
@@ -90,7 +93,14 @@ export function CheckpointConfiguration({
     setPublishArmed(false)
   }, [configuration, loadedPlan])
 
-  if (configuration === undefined) return <p className="muted">Loading checkpoints…</p>
+  if (configuration === undefined) return (
+      <section className="intake-policy-shell">
+        <ConfigurationTabs visibility={tabs} />
+        <LoadingLabel>Loading the checkpoints</LoadingLabel>
+        <SkeletonStats columns={3} />
+        <SkeletonCard lines={4} />
+      </section>
+    )
 
   const updateDefinition = (
     checkpointKey: EditorDefinition['checkpointKey'],
@@ -188,7 +198,7 @@ export function CheckpointConfiguration({
               </button>
             ) : null}
           </div>
-          {validation === undefined && configuration.canValidate ? <p className="muted">Checking draft…</p> : null}
+          {validation === undefined && configuration.canValidate ? <SkeletonLine width="40%" /> : null}
           {validation && !validation.valid ? (
             <ul className="issue-list">{validation.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
           ) : null}
@@ -200,11 +210,19 @@ export function CheckpointConfiguration({
                 <span>Why this changed</span>
                 <textarea required value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
               </label>
+              {configuration.hasPublishedPhaseSchedule ? null : (
+                <p className="notice">
+                  Team updates are due at the end of a phase, so the schedule has to be published
+                  first. <Link to="/configuration/phases">Publish the schedule</Link>, then come back.
+                </p>
+              )}
               <div className="offer-actions">
                 <button className="secondary" disabled={busy} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
-                <button className="primary" disabled={busy || !configuration.hasPublishedPhaseSchedule} type="button" onClick={() => void publishDraft()}>
-                  {busy ? 'Publishing…' : 'Publish team updates'}
-                </button>
+                {configuration.hasPublishedPhaseSchedule ? (
+                  <button className="primary" disabled={busy} type="button" onClick={() => void publishDraft()}>
+                    {busy ? 'Publishing…' : 'Publish team updates'}
+                  </button>
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -251,7 +269,13 @@ export function CheckpointConfiguration({
               <span>Why this changed</span>
               <textarea required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} />
             </label>
-            <button className="primary" disabled={busy || definitions.length !== 3} type="submit">
+            {definitions.length === 3 ? null : (
+              <p className="notice">
+                A draft needs all three checkpoints — ideation, the intermediate update and the
+                final update. {definitions.length} {definitions.length === 1 ? 'is' : 'are'} filled in.
+              </p>
+            )}
+            <button className="primary" disabled={busy} type="submit">
               {busy ? 'Saving…' : configuration.draftPlan ? 'Replace draft' : 'Save draft'}
             </button>
           </section>

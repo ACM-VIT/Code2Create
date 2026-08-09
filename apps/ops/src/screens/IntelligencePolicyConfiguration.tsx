@@ -4,6 +4,7 @@ import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 
@@ -58,7 +59,14 @@ export function IntelligencePolicyConfiguration({
   }, [configuration, loadedPolicy])
 
   if (configuration === undefined || policy === null) {
-    return <p className="muted">Loading intelligence configuration…</p>
+    return (
+      <section className="intake-policy-shell">
+        <ConfigurationTabs visibility={tabs} />
+        <LoadingLabel>Loading the operations brief settings</LoadingLabel>
+        <SkeletonStats columns={3} />
+        <SkeletonCard lines={4} />
+      </section>
+    )
   }
 
   const updatePolicy = <Key extends keyof Policy>(key: Key, value: Policy[Key]) => {

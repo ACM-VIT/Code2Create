@@ -4,6 +4,7 @@ import { useAction, useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 
@@ -40,7 +41,14 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
   }, [configuration, defaults, loadedSource])
 
   if (configuration === undefined || defaults === undefined || policy === null) {
-    return <p className="muted">Loading novelty configuration…</p>
+    return (
+      <section className="intake-policy-shell">
+        <ConfigurationTabs visibility={tabs} />
+        <LoadingLabel>Loading the idea comparison set</LoadingLabel>
+        <SkeletonStats columns={3} />
+        <SkeletonCard lines={4} />
+      </section>
+    )
   }
 
   const updatePolicy = <Key extends keyof Policy>(key: Key, value: Policy[Key]) => {
@@ -304,7 +312,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
             {configuration.canWriteEntries ? (
               <button
                 className="primary"
-                disabled={busy || draft.importState === 'running' || !configuration.providerConfigured || !entriesPreview.ok || entriesPreview.entries.length < configuration.limits.minimumEntries || entriesPreview.entries.length > configuration.limits.maximumEntries || importReason.trim().length < 5}
+                disabled={busy || draft.importState === 'running'}
                 type="button"
                 onClick={importEntries}
               >
