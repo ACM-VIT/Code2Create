@@ -18,7 +18,7 @@ const localPrivateEnvironment = Object.fromEntries(
 export const localConvexEnvironment = Object.freeze({
   LOCAL_DEVELOPMENT_SEED_ENABLED: 'true',
   LOCAL_PROVIDER_FIXTURES_ENABLED: 'true',
-  AUTH_SITE_URL: 'http://localhost:3213',
+  AUTH_SITE_URL: 'http://localhost:3211',
   PARTICIPANT_SITE_URL: 'http://localhost:5180',
   OPERATIONS_SITE_URL: 'http://localhost:5181',
   HANDBOOK_SITE_URL: 'http://localhost:5182',
@@ -32,5 +32,5 @@ export const localIntelligenceWorkerEnvironment = Object.freeze({
   INTELLIGENCE_INGRESS_SECRET: intelligenceIngressSecret,
   INTELLIGENCE_CALLBACK_SECRET: intelligenceCallbackSecret,
   CONVEX_INTELLIGENCE_CALLBACK_URL:
-    'http://127.0.0.1:3213/intelligence/operations-briefs/callback',
+    'http://127.0.0.1:3211/intelligence/operations-briefs/callback',
 })
