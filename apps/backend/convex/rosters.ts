@@ -41,7 +41,9 @@ import {
 } from "./lib/permissions";
 import { selfScopeKind } from "./lib/grantScopes";
 import { normalizeEmail, normalizedText } from "./lib/strings";
-import { eventRole } from "./values";
+import { eventRoleLabels } from "@code2create/domain";
+
+import { eventRole, rosterEntryStatus } from "./values";
 
 type ReadCtx = QueryCtx | MutationCtx;
 type GrantDoc = Doc<"permissionGrants">;
@@ -341,26 +343,12 @@ function displayedRosterStatus(entry: RosterEntryDoc, now: number) {
     : entry.status;
 }
 
-function readableRole(role: RosterEntryDoc["role"]) {
-  if (role === "external_judge") return "External judge";
-  if (role === "sc") return "SC";
-  if (role === "jc") return "JC";
-  return role.charAt(0).toUpperCase() + role.slice(1);
-}
-
 const workspaceEntry = v.object({
   id: v.id("rosterEntries"),
   email: v.string(),
   displayName: v.string(),
   role: eventRole,
-  roleLabel: v.string(),
-  status: v.union(
-    v.literal("pending"),
-    v.literal("claimed"),
-    v.literal("revoked"),
-    v.literal("superseded"),
-    v.literal("expired"),
-  ),
+  status: rosterEntryStatus,
   validFrom: v.number(),
   validUntil: v.number(),
   version: v.number(),
@@ -389,7 +377,6 @@ async function rosterEntryViews(
       email: entry.emailNormalized,
       displayName: entry.displayName,
       role: entry.role,
-      roleLabel: readableRole(entry.role),
       status: displayedRosterStatus(entry, now),
       validFrom: entry.validFrom,
       validUntil: entry.validUntil,
@@ -999,7 +986,6 @@ export const mine = query({
       email: v.string(),
       displayName: v.string(),
       role: eventRole,
-      roleLabel: v.string(),
       sourceName: v.string(),
       validFrom: v.number(),
       validUntil: v.number(),
@@ -1064,7 +1050,6 @@ export const mine = query({
       email: entry.emailNormalized,
       displayName: entry.displayName,
       role: entry.role,
-      roleLabel: readableRole(entry.role),
       sourceName: rosterImport.sourceName,
       validFrom: entry.validFrom,
       validUntil: entry.validUntil,
@@ -1299,7 +1284,7 @@ export const claim = mutation({
     if (currentRole && currentRole.role !== entry.role) {
       throw new ConvexError({
         code: "ROSTER_ROLE_CONFLICT",
-        message: `This account already has the ${readableRole(currentRole.role)} role. Resolve that role before claiming ${readableRole(entry.role)}.`,
+        message: `This account already has the ${eventRoleLabels[currentRole.role]} role. Resolve that role before claiming ${eventRoleLabels[entry.role]}.`,
       });
     }
     let roleId = currentRole?._id;

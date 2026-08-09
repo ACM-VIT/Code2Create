@@ -1,5 +1,5 @@
 import { api } from '@code2create/backend/api'
-import { type EventStage, eventStageGuidance } from '@code2create/domain'
+import { type EventStage, eventRoleLabels, eventStageGuidance } from '@code2create/domain'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import type { FunctionReturnType } from 'convex/server'
 import { AuthLoading, Authenticated, Unauthenticated, useAction, useMutation, useQuery } from 'convex/react'
@@ -652,7 +652,7 @@ function RosterClaim({
         <p className="eyebrow">{roster.eventName}</p>
         <h1>Join the event team</h1>
         <p className="muted">
-          You are listed as {roster.displayName} · {roster.roleLabel} under {roster.email}.
+          You are listed as {roster.displayName} · {eventRoleLabels[roster.role]} under {roster.email}.
         </p>
         {roster.bundles.length > 0 ? (
           <ul className="claim-bundle-list">

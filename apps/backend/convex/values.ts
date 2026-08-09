@@ -547,3 +547,11 @@ export const figmaPreviewState = v.union(
   v.literal("rate_limited"),
   v.literal("failed"),
 );
+
+export const rosterEntryStatus = v.union(
+  v.literal("pending"),
+  v.literal("claimed"),
+  v.literal("revoked"),
+  v.literal("superseded"),
+  v.literal("expired"),
+);
