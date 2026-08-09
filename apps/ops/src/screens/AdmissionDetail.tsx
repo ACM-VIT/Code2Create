@@ -1,5 +1,20 @@
 import { api } from '@code2create/backend/api'
-import { applicationDecisions, type ApplicationDecision } from '@code2create/domain'
+import {
+  admissionAiDispositionLabels,
+  admissionExperienceBandLabels,
+  admissionInformationRequestStateLabels,
+  admissionOfferStateLabels,
+  admissionRecommendationStateLabels,
+  admissionReviewAssignmentStateLabels,
+  applicationDecisionLabels,
+  applicationDecisions,
+  applicationStateLabels,
+  criterionAssessmentLabels,
+  participantClassLabels,
+  studyYearLabels,
+  type AdmissionAiDisposition,
+  type ApplicationDecision,
+} from '@code2create/domain'
 import { TZDateMini } from '@date-fns/tz'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
@@ -8,11 +23,13 @@ import { Link, useParams } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { Icon } from '../components/Icon'
+import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
 import { ParticipantDeliveryStatus } from '../components/ParticipantDeliveryStatus'
 
 type AdmissionDetailData = NonNullable<FunctionReturnType<typeof api.admissions.detail>>
 type Access = NonNullable<FunctionReturnType<typeof api.access.mine>>
-type AiDisposition = 'used' | 'cleared' | 'overridden' | 'stale' | 'unavailable'
+type AiDisposition = AdmissionAiDisposition
 
 export function AdmissionDetail({ access }: { access: Access }) {
   const { applicationId } = useParams()
@@ -22,7 +39,15 @@ export function AdmissionDetail({ access }: { access: Access }) {
   )
 
   if (!applicationId) return <p className="notice error">Application ID is missing.</p>
-  if (detail === undefined) return <p className="muted">Loading application…</p>
+  if (detail === undefined) {
+    return (
+      <article className="application-detail">
+        <LoadingLabel>Loading this application</LoadingLabel>
+        <SkeletonCard lines={3} />
+        <SkeletonList rows={4} />
+      </article>
+    )
+  }
   if (!detail) return <p className="notice error">This application is not available to your permission scope.</p>
 
   const canReview = can(access, 'application.review', detail.application.id)
@@ -34,37 +59,9 @@ export function AdmissionDetail({ access }: { access: Access }) {
     (grant) => grant.permissionKey === 'communications.delivery.read',
   )
   const reviewOpen = canAcceptAdmissionReview(detail.application.state)
-  const reviewRecord = (
-    <details className="application-record" open={reviewOpen || undefined}>
-      <summary>
-        <span>Admission review</span>
-        <small>{detail.application.completedReviewCount} of {detail.policy.minimumHumanReviews} reviews complete</small>
-      </summary>
-      <div>
-        <section className="detail-section">
-          <div className="section-heading">
-            <div>
-              <h2>What to look for</h2>
-              <p className="muted">{experienceName(detail.application.experienceBand ?? 'mixed_or_external')}</p>
-            </div>
-            <span className="state-label">Admissions only</span>
-          </div>
-          <dl className="criteria-list">
-            {detail.policy.criteria.map((criterion) => (
-              <div key={criterion.criterionKey}>
-                <dt>{criterion.label}</dt>
-                <dd>{criterion.guidance ?? 'Year context is outside this account’s permission scope.'}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-        {detail.aiRecommendationVisible ? <AiRecommendation detail={detail} /> : null}
-        {detail.currentInformationRequest?.state === 'open' ? <InformationRequest detail={detail} /> : null}
-        <HumanReviews detail={detail} />
-        {canAssign && detail.reviewAssignments ? <ReviewAssignmentControl detail={detail} /> : null}
-      </div>
-    </details>
-  )
+  const step = nextStep(detail, { canReview, canDecide, canManageOffer })
+  const offerActionable = canManageOffer &&
+    (detail.currentOffer !== null || detail.application.state === 'accepted')
 
   return (
     <article className="application-detail">
@@ -74,32 +71,42 @@ export function AdmissionDetail({ access }: { access: Access }) {
           <p className="eyebrow">{detail.project.trackName}</p>
           <h1>{detail.team.name}</h1>
           <p className="muted">
-            {detail.application.experienceBand ? experienceName(detail.application.experienceBand) : 'Application'}
+            {experienceBandName(detail.application.experienceBand)} · {teamSizeLabel(detail.team.members.length)}
           </p>
         </div>
-        <span className="state-label">{applicationStateName(detail.application.state)}</span>
+        <span className="state-label">{applicationStateLabels[detail.application.state]}</span>
       </header>
 
-      <ApplicationState detail={detail} />
+      <section className="application-next-step">
+        <p className="eyebrow">What happens next</p>
+        <h2>{step.title}</h2>
+        <p>{step.detail}</p>
+        {step.blocker ? <p className="application-blocker">{step.blocker}</p> : null}
+      </section>
 
       <section className="detail-section">
-        <h2>Team</h2>
-        <ul className="member-grid">
-          {detail.team.members.map((member) => (
-            <li key={member.membershipId}>
-              <strong>{member.displayName}</strong>
-              {member.profileContext ? (
-                <>
-                  <span>{participantClassName(member.profileContext.participantClass)} · {yearName(member.profileContext.yearOfStudy)}</span>
-                  <span>{member.profileContext.institution}</span>
-                </>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+        <h2>Team · {detail.team.members.length}</h2>
         {detail.team.members.every((member) => member.profileContext === null) ? (
-          <p className="muted">Profile and year context is outside this permission scope.</p>
+          <p className="muted">
+            Names only. Year and institution are outside this account’s permission scope, so
+            judge the project on what it says rather than on who wrote it.
+          </p>
         ) : null}
+        <div className="member-list">
+          {detail.team.members.map((member) => (
+            <div className="list-row" key={member.membershipId}>
+              <span className="row-glyph"><Icon name="users" /></span>
+              <div className="row-text">
+                <strong>{member.displayName}</strong>
+                <small>
+                  {member.profileContext
+                    ? `${participantClassLabels[member.profileContext.participantClass]} · ${studyYearLabels[member.profileContext.yearOfStudy]} · ${member.profileContext.institution}`
+                    : 'No year or institution in scope'}
+                </small>
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="detail-section prose-section">
@@ -132,30 +139,38 @@ export function AdmissionDetail({ access }: { access: Access }) {
         )}
       </section>
 
-      {reviewOpen ? reviewRecord : null}
-      {canReview && canAcceptAdmissionReview(detail.application.state) ? <ReviewForm detail={detail} /> : null}
-      {canDecide && canAcceptAdmissionReview(detail.application.state) && hasRequiredReviews ? (
-        <DecisionForm detail={detail} />
+      {reviewOpen ? (
+        <section className="detail-section">
+          <div className="section-heading">
+            <div>
+              <h2>What to look for</h2>
+              <p className="muted">{experienceBandName(detail.application.experienceBand)}</p>
+            </div>
+            <span className="state-label">Admissions only</span>
+          </div>
+          <dl className="criteria-list">
+            {detail.policy.criteria.map((criterion) => (
+              <div key={criterion.criterionKey}>
+                <dt>{criterion.label}</dt>
+                <dd>{criterion.guidance ?? 'Year context is outside this account’s permission scope.'}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
       ) : null}
+      {detail.aiRecommendationVisible && detail.aiRecommendation ? (
+        <AiRecommendation recommendation={detail.aiRecommendation} detail={detail} />
+      ) : null}
+      {detail.currentInformationRequest?.state === 'open' ? <InformationRequest detail={detail} /> : null}
+      <HumanReviews detail={detail} reviewOpen={reviewOpen} />
+      {canAssign && reviewOpen && detail.reviewAssignments ? <ReviewAssignmentControl detail={detail} /> : null}
+      {canReview && reviewOpen ? <ReviewForm detail={detail} /> : null}
+      {canDecide && reviewOpen && hasRequiredReviews ? <DecisionForm detail={detail} /> : null}
       {detail.application.humanDecision && canReadParticipantDelivery ? (
         <ParticipantDeliveryStatus applicationId={detail.application.id} />
       ) : null}
-      {canManageOffer && detail.application.humanDecision === 'accept' ? <OfferControl detail={detail} /> : null}
-      {!reviewOpen ? reviewRecord : null}
+      {offerActionable ? <OfferControl detail={detail} /> : null}
     </article>
-  )
-}
-
-function ApplicationState({ detail }: { detail: AdmissionDetailData }) {
-  const state = applicationStateCopy(detail)
-  return (
-    <section className="application-state-summary">
-      <div>
-        <span>Current step</span>
-        <strong>{state.title}</strong>
-      </div>
-      <p>{state.detail}</p>
-    </section>
   )
 }
 
@@ -230,30 +245,37 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
     }
   }
 
+  const offer = detail.currentOffer
   return (
     <section className="detail-section command-section">
       <h2>Offer</h2>
-      {detail.currentOffer ? (
+      {offer ? (
         <>
-          <dl className="criteria-list compact-criteria">
-            <div><dt>Status</dt><dd>{offerStateName(detail.currentOffer.state)}</dd></div>
-            <div><dt>Places</dt><dd>{detail.currentOffer.participantCount}</dd></div>
-            <div><dt>Deadline</dt><dd>{formatEventTime(detail.currentOffer.expiresAt, detail.eventTimezone)}</dd></div>
-          </dl>
-          {detail.currentOffer.state === 'offered' ? (
+          <p className="muted">
+            {admissionOfferStateLabels[offer.state]} · {placesLabel(offer.participantCount)} held until{' '}
+            {formatEventTime(offer.expiresAt, detail.eventTimezone)}.
+          </p>
+          {offer.state === 'offered' ? (
             <form className="command-form" onSubmit={revoke}>
-              <Field label="Revoke reason" hint="Revocation releases capacity and returns the application to accepted so a corrected offer can be sent.">
+              <Field
+                label="Why the offer is being withdrawn"
+                hint="Withdrawing releases the reserved places and returns the application to accepted, so a corrected offer can be sent."
+              >
                 <textarea required minLength={3} maxLength={300} value={reason} onChange={(event) => setReason(event.target.value)} />
               </Field>
               <button className="secondary" type="submit" disabled={busy !== null || !reason.trim()}>
-                {busy === 'revoke' ? 'Revoking…' : 'Revoke offer'}
+                {busy === 'revoke' ? 'Withdrawing…' : 'Withdraw offer'}
               </button>
             </form>
           ) : null}
         </>
-      ) : detail.application.state === 'accepted' ? (
+      ) : (
         <form className="command-form" onSubmit={submitOffer}>
-          <Field label={`Response deadline · ${detail.eventTimezone}`} hint="Sending reserves the locked team’s places until this event-local time.">
+          <p className="muted">
+            Sending reserves {placesLabel(detail.team.members.length)} for this team until the deadline
+            below. If the team does not answer in time the places go back to the pool.
+          </p>
+          <Field label={`Answer by · ${detail.eventTimezone}`}>
             <input required type="datetime-local" value={deadline} onChange={(event) => setDeadline(event.target.value)} />
           </Field>
           {detail.capacity ? (
@@ -263,16 +285,17 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
             {busy === 'send' ? 'Sending…' : 'Send offer'}
           </button>
         </form>
-      ) : (
-        <p className="muted">No open offer action is available for this application state.</p>
       )}
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </section>
   )
 }
 
-function AiRecommendation({ detail }: { detail: AdmissionDetailData }) {
-  const recommendation = detail.aiRecommendation
+type AiRecommendationData = NonNullable<AdmissionDetailData['aiRecommendation']>
+
+function AiRecommendation(
+  { recommendation, detail }: { recommendation: AiRecommendationData; detail: AdmissionDetailData },
+) {
   return (
     <section className="detail-section ai-section">
       <div className="section-heading">
@@ -280,12 +303,12 @@ function AiRecommendation({ detail }: { detail: AdmissionDetailData }) {
           <h2>AI recommendation</h2>
           <p className="muted">Input to the human admission decision. Never used in judging.</p>
         </div>
-        <span className="state-label">{recommendationStateName(recommendation?.state)}</span>
+        <span className="state-label">{admissionRecommendationStateLabels[recommendation.state]}</span>
       </div>
-      {recommendation?.recommendation ? (
-        <p className="recommendation-line">Recommend {decisionName(recommendation.recommendation)}</p>
+      {recommendation.recommendation ? (
+        <p className="recommendation-line">{applicationDecisionLabels[recommendation.recommendation]}</p>
       ) : null}
-      {recommendation?.criterionAssessments.length ? (
+      {recommendation.criterionAssessments.length ? (
         <dl className="criteria-list compact-criteria">
           {recommendation.criterionAssessments.map((assessment) => {
             const policyCriterion = detail.policy.criteria.find(
@@ -294,37 +317,49 @@ function AiRecommendation({ detail }: { detail: AdmissionDetailData }) {
             return (
               <div key={assessment.criterionKey}>
                 <dt>{policyCriterion?.label ?? assessment.criterionKey}</dt>
-                <dd>{assessmentName(assessment.assessment)} · sources: {assessment.sourceRefs.map(sourceName).join(', ')}</dd>
+                <dd>{criterionAssessmentLabels[assessment.assessment]} · read from the {assessment.sourceRefs.map(sourceName).join(' and the ')}</dd>
               </div>
             )
           })}
         </dl>
       ) : null}
-      {recommendation?.strengths.length ? <TextList label="Strengths" values={recommendation.strengths} /> : null}
-      {recommendation?.concerns.length ? <TextList label="Concerns" values={recommendation.concerns} /> : null}
-      {recommendation?.proposedQuestions.length ? <TextList label="Questions for humans" values={recommendation.proposedQuestions} /> : null}
-      {recommendation?.limitations.length ? <TextList label="Limitations" values={recommendation.limitations} /> : null}
+      {recommendation.strengths.length ? <TextList label="Strengths" values={recommendation.strengths} /> : null}
+      {recommendation.concerns.length ? <TextList label="Concerns" values={recommendation.concerns} /> : null}
+      {recommendation.proposedQuestions.length ? <TextList label="Questions for humans" values={recommendation.proposedQuestions} /> : null}
+      {recommendation.limitations.length ? <TextList label="Limitations" values={recommendation.limitations} /> : null}
     </section>
   )
 }
 
-function HumanReviews({ detail }: { detail: AdmissionDetailData }) {
+function HumanReviews({ detail, reviewOpen }: { detail: AdmissionDetailData; reviewOpen: boolean }) {
+  const outstanding = detail.policy.minimumHumanReviews - detail.application.completedReviewCount
+  const decision = detail.application.humanDecision
+  // Newest first: the most recent opinion is the one a decider argues with.
+  const reviews = [...detail.humanReviews].sort((left, right) => right.createdAt - left.createdAt)
+  if (!reviewOpen && reviews.length === 0 && !decision) return null
   return (
     <section className="detail-section">
-      <div className="section-heading">
-        <h2>Organizer reviews</h2>
-        <span className="state-label">{detail.application.completedReviewCount} / {detail.policy.minimumHumanReviews} required</span>
-      </div>
-      {detail.humanReviews.length ? (
+      <h2>{reviewOpen ? 'Organizer reviews' : 'How this was decided'}</h2>
+      <p className="muted">
+        {!reviewOpen && decision
+          ? `Published as ${applicationDecisionLabels[decision].toLowerCase()}${detail.application.humanReasonCode ? `: ${reasonLabel(detail, detail.application.humanReasonCode)}` : ''}.`
+          : outstanding > 0
+            ? `Still to come: ${outstanding} of ${detail.policy.minimumHumanReviews}. A decision cannot be published until they are in.`
+            : `All ${detail.policy.minimumHumanReviews} required reviews are in.`}
+      </p>
+      {reviews.length ? (
         <ul className="review-list">
-          {detail.humanReviews.map((review) => (
+          {reviews.map((review) => (
             <li key={review.id}>
-              <div><strong>{review.reviewerName}</strong><span>{decisionName(review.recommendation)} · {reasonLabel(detail, review.reasonCode)}</span></div>
+              <div>
+                <strong>{review.reviewerName}</strong>
+                <span>{applicationDecisionLabels[review.recommendation]} · {reasonLabel(detail, review.reasonCode)}</span>
+              </div>
               {review.note ? <p>{review.note}</p> : null}
             </li>
           ))}
         </ul>
-      ) : <p className="muted">No human review has been saved yet.</p>}
+      ) : null}
     </section>
   )
 }
@@ -336,7 +371,7 @@ function InformationRequest({ detail }: { detail: AdmissionDetailData }) {
     <section className="detail-section">
       <div className="section-heading">
         <h2>Requested information</h2>
-        <span className="state-label">{informationStateName(request.state)}</span>
+        <span className="state-label">{admissionInformationRequestStateLabels[request.state]}</span>
       </div>
       <dl className="criteria-list">
         {request.questions.map((question) => {
@@ -423,14 +458,24 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
     }
   }
 
+  // Reviewers who still owe a review come first; finished and cancelled work sinks.
+  const assignmentOrder = { active: 0, completed: 1, cancelled: 2 }
+  const ordered = [...assignments].sort(
+    (left, right) => assignmentOrder[left.state] - assignmentOrder[right.state] ||
+      left.assignedAt - right.assignedAt,
+  )
+  const owing = assignments.filter((assignment) => assignment.state === 'active').length
+
   return (
     <section className="detail-section command-section">
-      <div className="section-heading">
-        <div>
-          <h2>Assign reviewers</h2>
-        </div>
-        <span className="state-label">{detail.application.assignedReviewCount} assigned · {detail.application.completedReviewCount} complete</span>
-      </div>
+      <h2>Assigned reviewers</h2>
+      <p className="muted">
+        {assignments.length === 0
+          ? 'Nobody is assigned. Add a reviewer by their Google email and the application appears in their queue.'
+          : owing === 0
+            ? `Everyone assigned has reviewed. ${detail.application.completedReviewCount} of ${detail.policy.minimumHumanReviews} required reviews are in.`
+            : `${owing} of ${assignments.length} assigned reviewers still owe a review.`}
+      </p>
       <form className="command-form compact-command" onSubmit={assign}>
         <Field label="Reviewer Google email">
           <input required type="email" value={reviewerEmail} onChange={(event) => setReviewerEmail(event.target.value)} />
@@ -439,13 +484,13 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
           {busy === 'assign' ? 'Assigning…' : 'Assign review'}
         </button>
       </form>
-      {assignments.length > 0 ? (
+      {ordered.length > 0 ? (
         <ul className="review-list assignment-list">
-          {assignments.map((assignment) => (
+          {ordered.map((assignment) => (
             <li key={assignment.id}>
               <div>
                 <strong>{assignment.reviewerName}</strong>
-                <span>{assignment.reviewerEmail} · {assignment.state}</span>
+                <span>{admissionReviewAssignmentStateLabels[assignment.state]} · {assignment.reviewerEmail}</span>
               </div>
               {assignment.state === 'active' && cancelTargetId !== assignment.id ? (
                 <button className="text-button" type="button" onClick={() => {
@@ -474,7 +519,7 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
             </li>
           ))}
         </ul>
-      ) : <p className="muted">No review work is assigned yet.</p>}
+      ) : null}
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </section>
   )
@@ -532,10 +577,11 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
   return (
     <section className="detail-section command-section">
       <h2>Add your review</h2>
+      <p className="muted">Your recommendation and reason are visible to whoever publishes the decision.</p>
       <form className="command-form" onSubmit={submit}>
         <Field label="Recommendation">
           <select value={recommendation} onChange={(event) => setRecommendation(parseDecision(event.target.value))}>
-            {applicationDecisions.map((decision) => <option key={decision} value={decision}>{decisionName(decision)}</option>)}
+            {applicationDecisions.map((decision) => <option key={decision} value={decision}>{applicationDecisionLabels[decision]}</option>)}
           </select>
         </Field>
         <Field label="Published reason">
@@ -610,12 +656,15 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
 
   return (
     <section className="detail-section command-section final-command">
-      <h2>Publish decision</h2>
-      <p className="muted">This admission decision does not affect hackathon judging.</p>
+      <h2>Publish the decision</h2>
+      <p className="muted">
+        The team is emailed as soon as this is published, and it cannot be taken back. It decides
+        admission only; it has no effect on hackathon judging.
+      </p>
       <form className="command-form" onSubmit={publish}>
         <Field label="Decision">
           <select value={decision} onChange={(event) => setDecision(parseDecision(event.target.value))}>
-            {applicationDecisions.map((value) => <option key={value} value={value}>{decisionName(value)}</option>)}
+            {applicationDecisions.map((value) => <option key={value} value={value}>{applicationDecisionLabels[value]}</option>)}
           </select>
         </Field>
         <Field label="Published reason">
@@ -648,9 +697,9 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
             </div>
           </div>
         ) : null}
-        <Field label="AI recommendation use">
+        <Field label="How you used the AI recommendation" hint="Recorded with the decision so the audit trail shows whether a person or a model drove it.">
           <select value={aiDisposition} onChange={(event) => setAiDisposition(parseAiDisposition(event.target.value))}>
-            {aiDispositionOptions(detail, decision).map((value) => <option key={value} value={value}>{aiDispositionName(value)}</option>)}
+            {aiDispositionOptions(detail, decision).map((value) => <option key={value} value={value}>{admissionAiDispositionLabels[value]}</option>)}
           </select>
         </Field>
         {detail.capacity ? (
@@ -662,7 +711,7 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
           type="submit"
           disabled={busy || !reason || (decision === 'needs_information' && informationQuestions.some((question) => question.trim().length < 8))}
         >
-          {busy ? 'Publishing…' : `Publish ${decisionName(decision)}`}
+          {busy ? 'Publishing…' : `Publish ${applicationDecisionLabels[decision].toLowerCase()}`}
         </button>
       </form>
     </section>
@@ -688,71 +737,84 @@ function canAcceptAdmissionReview(state: string) {
   return state === 'submitted' || state === 'under_review' || state === 'needs_information'
 }
 
-function applicationStateName(state: string) {
-  if (state === 'submitted') return 'Submitted'
-  if (state === 'under_review') return 'Under review'
-  if (state === 'needs_information') return 'Waiting on team'
-  if (state === 'accepted') return 'Accepted'
-  if (state === 'waitlisted') return 'Waitlisted'
-  if (state === 'declined') return 'Not selected'
-  if (state === 'offer_sent') return 'Offer sent'
-  if (state === 'confirmed') return 'Confirmed'
-  if (state === 'offer_expired') return 'Offer expired'
-  if (state === 'withdrawn') return 'Offer declined'
-  return state.replaceAll('_', ' ')
-}
-
-function applicationStateCopy(detail: AdmissionDetailData) {
+/**
+ * The one thing this application is waiting on, and who it is waiting on.
+ *
+ * The dossier used to open with a bare state name, which told a reader where
+ * the record sat but never whether it was their move. Each branch below names
+ * the action, and when the reader cannot take it, why not.
+ */
+function nextStep(
+  detail: AdmissionDetailData,
+  permissions: { canReview: boolean; canDecide: boolean; canManageOffer: boolean },
+): { title: string; detail: string; blocker?: string } {
   const state = detail.application.state
-  if (state === 'submitted') {
-    return { title: 'Needs a first review', detail: 'Read the project, then add an organizer review.' }
-  }
-  if (state === 'under_review') {
-    if (detail.application.completedReviewCount >= detail.policy.minimumHumanReviews) {
+  const { completedReviewCount } = detail.application
+  const { minimumHumanReviews } = detail.policy
+  const outstanding = minimumHumanReviews - completedReviewCount
+
+  if (state === 'submitted' || state === 'under_review') {
+    if (outstanding > 0) {
       return {
-        title: 'Choose an admission decision',
-        detail: 'The required organizer review is complete.',
+        title: `${outstanding} more ${outstanding === 1 ? 'review' : 'reviews'} needed`,
+        detail: `${completedReviewCount} of ${minimumHumanReviews} organizer reviews are in. Read the project below, then add yours.`,
+        ...(permissions.canReview ? {} : { blocker: 'You can read this application but not review it.' }),
       }
     }
     return {
-      title: 'Review in progress',
-      detail: `${detail.application.completedReviewCount} of ${detail.policy.minimumHumanReviews} required reviews are complete.`,
+      title: 'Ready for a decision',
+      detail: `All ${minimumHumanReviews} required reviews are in. Publishing the decision emails the team.`,
+      ...(permissions.canDecide ? {} : { blocker: 'Publishing a decision is outside your permission scope.' }),
     }
   }
   if (state === 'needs_information') {
-    return { title: 'Waiting for the team', detail: 'The admission review continues after the team answers the open questions.' }
+    const asked = detail.currentInformationRequest?.questions.length ?? 0
+    return {
+      title: 'Waiting for the team',
+      detail: `The team was asked ${asked === 1 ? 'a question' : `${asked} questions`}. Review continues once it answers; nothing is due from you.`,
+    }
   }
   if (state === 'accepted') {
-    return { title: 'Send the offer', detail: 'Set a response deadline to reserve places for this locked team.' }
+    return {
+      title: 'Send the offer',
+      detail: `${detail.team.name} was accepted but has not been offered a place. The places are not reserved until the offer goes out.`,
+      ...(permissions.canManageOffer ? {} : { blocker: 'Sending offers is outside your permission scope.' }),
+    }
   }
   if (state === 'offer_sent') {
-    return { title: 'Waiting for confirmation', detail: 'The team lead must accept before the offer deadline.' }
+    const expiresAt = detail.currentOffer?.expiresAt
+    return {
+      title: 'Waiting for the team to accept',
+      detail: expiresAt
+        ? `The team lead must accept by ${formatEventTime(expiresAt, detail.eventTimezone)}. If nobody answers, the reserved places go back to the pool.`
+        : 'The team lead must accept before the deadline. If nobody answers, the reserved places go back to the pool.',
+    }
   }
   if (state === 'confirmed') {
-    return { title: 'Team confirmed', detail: 'The team accepted its offer. No admission action is due.' }
+    return {
+      title: 'Nothing left to do',
+      detail: `${detail.team.name} accepted its place. Its ${placesLabel(detail.team.members.length)} are confirmed and it will appear at check-in.`,
+    }
   }
   if (state === 'waitlisted') {
-    return { title: 'On the waitlist', detail: 'The published decision is visible to the team.' }
+    return {
+      title: 'On the waitlist',
+      detail: 'The team has been told. It only moves if places are released by an expired or declined offer.',
+    }
   }
   if (state === 'declined') {
-    return { title: 'Decision published', detail: 'The team was not selected.' }
+    return { title: 'Nothing left to do', detail: 'The team was told it was not selected.' }
   }
   if (state === 'offer_expired') {
-    return { title: 'Offer expired', detail: 'The reserved places were released.' }
+    return {
+      title: 'Offer expired',
+      detail: 'Nobody answered before the deadline and the reserved places went back to the pool.',
+    }
   }
-  if (state === 'withdrawn') {
-    return { title: 'Offer declined', detail: 'The team declined and its reserved places were released.' }
+  return {
+    title: 'Team withdrew',
+    detail: 'The team declined its offer and the reserved places went back to the pool.',
   }
-  return { title: applicationStateName(state), detail: 'The application record is current.' }
-}
-
-function offerStateName(state: string) {
-  if (state === 'offered') return 'Waiting for team'
-  if (state === 'confirmed') return 'Confirmed'
-  if (state === 'declined') return 'Declined'
-  if (state === 'expired') return 'Expired'
-  if (state === 'revoked') return 'Revoked'
-  return state.replaceAll('_', ' ')
 }
 
 function parseDecision(value: string): ApplicationDecision {
@@ -776,43 +838,17 @@ function defaultAiDisposition(detail: AdmissionDetailData, decision: Application
   return aiDispositionOptions(detail, decision)[0] ?? 'unavailable'
 }
 
-function decisionName(value: string) {
-  if (value === 'accept') return 'Accept'
-  if (value === 'waitlist') return 'Waitlist'
-  if (value === 'decline') return 'Decline'
-  return 'Needs information'
+/** Team size stated in places, so a reader knows what an offer reserves. */
+function placesLabel(count: number) {
+  return `${count} ${count === 1 ? 'place' : 'places'}`
 }
 
-function aiDispositionName(value: AiDisposition) {
-  if (value === 'used') return 'Use recommendation'
-  if (value === 'cleared') return 'Do not use recommendation'
-  if (value === 'overridden') return 'Override recommendation'
-  if (value === 'stale') return 'Recommendation is stale'
-  return 'Recommendation unavailable'
+function teamSizeLabel(count: number) {
+  return `${count} ${count === 1 ? 'member' : 'members'}`
 }
 
-function assessmentName(value: string) {
-  if (value === 'meets') return 'Meets'
-  if (value === 'partly_meets') return 'Partly meets'
-  return 'Not yet clear'
-}
-
-function recommendationStateName(value: string | undefined) {
-  if (value === 'succeeded') return 'Ready'
-  if (value === 'pending' || value === 'running') return 'Preparing'
-  if (value === 'stale') return 'Outdated'
-  if (value === 'rate_limited' || value === 'timed_out') return 'Try again later'
-  if (value === 'disabled') return 'Turned off'
-  if (value === 'refused' || value === 'invalid' || value === 'failed') return 'Could not prepare'
-  return 'Unavailable'
-}
-
-function informationStateName(value: string) {
-  if (value === 'open') return 'Waiting for team'
-  if (value === 'answered') return 'Answered'
-  if (value === 'superseded') return 'Replaced'
-  const label = value.replaceAll('_', ' ')
-  return `${label.slice(0, 1).toUpperCase()}${label.slice(1)}`
+function experienceBandName(band: AdmissionDetailData['application']['experienceBand']) {
+  return band ? admissionExperienceBandLabels[band] : 'Experience band is outside your permission scope'
 }
 
 function sourceName(value: string) {
@@ -823,28 +859,6 @@ function sourceName(value: string) {
 
 function reasonLabel(detail: AdmissionDetailData, key: string) {
   return detail.policy.decisionReasonCodes.find((reason) => reason.key === key)?.label ?? key
-}
-
-function participantClassName(value: string) {
-  return value === 'vit_student' ? 'VIT student' : 'External participant'
-}
-
-function yearName(value: string) {
-  if (value === 'first') return 'First year'
-  if (value === 'second') return 'Second year'
-  if (value === 'third') return 'Third year'
-  if (value === 'fourth') return 'Fourth year'
-  if (value === 'fifth_or_later') return 'Fifth year or later'
-  if (value === 'postgraduate') return 'Postgraduate'
-  return 'Not a student'
-}
-
-function experienceName(value: string) {
-  if (value === 'first_year') return 'First-year expectations'
-  if (value === 'early_year') return 'Early-year expectations'
-  if (value === 'later_year') return 'Later-year expectations'
-  if (value === 'postgraduate_or_professional') return 'Postgraduate or professional expectations'
-  return 'Mixed or external expectations'
 }
 
 function zonedTimestamp(value: string, timezone: string, label: string) {

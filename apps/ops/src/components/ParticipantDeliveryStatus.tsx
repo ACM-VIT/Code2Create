@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { LoadingLabel, SkeletonList } from './Skeleton'
 
 type DeliveryRecipients = FunctionReturnType<typeof api.participantNotifications.forApplication>
 type DeliveryRecipient = DeliveryRecipients[number]
@@ -35,33 +36,43 @@ export function ParticipantDeliveryStatus({ applicationId }: { applicationId: Ap
   if (recipients === undefined) {
     return (
       <section className="detail-section">
-        <h2>Application email</h2>
-        <p className="muted">Loading…</p>
+        <h2>Decision email</h2>
+        <LoadingLabel>Loading email delivery</LoadingLabel>
+        <SkeletonList rows={2} />
       </section>
     )
   }
   if (recipients.length === 0) return null
-  const needsAttention = recipients.some(
+
+  const stuck = recipients.filter(
     (recipient) => recipient.delivery && deliveryNeedsAttention(recipient.delivery.state),
   )
+  const unreachable = recipients.filter((recipient) => recipient.destination === null)
   const deliveredCount = recipients.filter(
     (recipient) => recipient.delivery?.state === 'delivered',
   ).length
+  // Anyone the decision did not reach comes first: they are the reason to read this at all.
+  const attention = [...new Set([...stuck, ...unreachable])]
+  const ordered = [...attention, ...recipients.filter((recipient) => !attention.includes(recipient))]
 
   return (
-    <details className="application-record participant-delivery-record" open={needsAttention || undefined}>
-      <summary>
-        <span>Application email</span>
-        <small>{needsAttention ? 'Needs attention' : `${deliveredCount} of ${recipients.length} delivered`}</small>
-      </summary>
-      <section className="detail-section">
-        <div className="participant-delivery-list">
-          {recipients.map((recipient) => (
-            <DeliveryRow key={recipient.personId} recipient={recipient} />
-          ))}
-        </div>
-      </section>
-    </details>
+    <section className="detail-section">
+      <h2>Decision email</h2>
+      <p className="muted">
+        {unreachable.length > 0
+          ? `${unreachable.length} of ${recipients.length} team members have no verified email address, so the decision cannot reach them.`
+          : stuck.length > 0
+            ? `${stuck.length} of ${recipients.length} did not get the decision email. They will not know the outcome until this is fixed.`
+            : deliveredCount === recipients.length
+              ? `All ${recipients.length} team members received the decision email.`
+              : `${deliveredCount} of ${recipients.length} confirmed delivered; the rest are still on their way.`}
+      </p>
+      <div className="participant-delivery-list">
+        {ordered.map((recipient) => (
+          <DeliveryRow key={recipient.personId} recipient={recipient} />
+        ))}
+      </div>
+    </section>
   )
 }
 

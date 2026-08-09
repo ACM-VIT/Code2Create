@@ -2,8 +2,11 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 import {
+  admissionAiDisposition,
   admissionDecision,
   admissionExperienceBand,
+  admissionOfferState,
+  admissionRecommendationState,
   admissionReviewAssignmentState,
   applicationState,
   attendanceCredentialKind,
@@ -1576,15 +1579,7 @@ export default defineSchema({
     state: applicationState,
     experienceBand: admissionExperienceBand,
     aiRecommendationId: v.optional(v.id("admissionAIRecommendations")),
-    aiDisposition: v.optional(
-      v.union(
-        v.literal("used"),
-        v.literal("cleared"),
-        v.literal("overridden"),
-        v.literal("stale"),
-        v.literal("unavailable"),
-      ),
-    ),
+    aiDisposition: v.optional(admissionAiDisposition),
     humanDecision: v.optional(admissionDecision),
     humanReasonCode: v.optional(v.string()),
     decidedByPersonId: v.optional(v.id("people")),
@@ -1718,18 +1713,7 @@ export default defineSchema({
     applicationContentVersion: v.number(),
     sourceInputFingerprint: v.string(),
     experienceBand: admissionExperienceBand,
-    state: v.union(
-      v.literal("pending"),
-      v.literal("running"),
-      v.literal("succeeded"),
-      v.literal("refused"),
-      v.literal("invalid"),
-      v.literal("timed_out"),
-      v.literal("rate_limited"),
-      v.literal("failed"),
-      v.literal("stale"),
-      v.literal("disabled"),
-    ),
+    state: admissionRecommendationState,
     recommendation: v.optional(admissionDecision),
     criterionAssessments: v.array(
       v.object({
@@ -1925,13 +1909,7 @@ export default defineSchema({
     participantCount: v.number(),
     reservedCoreTrackVersionId: v.id("trackVersions"),
     source: v.literal("accepted_decision"),
-    state: v.union(
-      v.literal("offered"),
-      v.literal("confirmed"),
-      v.literal("declined"),
-      v.literal("expired"),
-      v.literal("revoked"),
-    ),
+    state: admissionOfferState,
     sentAt: v.number(),
     expiresAt: v.number(),
     createdByPersonId: v.id("people"),

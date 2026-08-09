@@ -428,17 +428,16 @@ textarea { min-height: 110px; padding: 11px; line-height: 1.5; resize: vertical;
 .application-state-summary span { color: var(--faint); font-size: .66rem; }
 .application-state-summary strong { font-size: .86rem; }
 .application-state-summary p { max-width: 680px; margin: 0; color: var(--muted); font-size: .78rem; }
-.application-record { border-bottom: 1px solid var(--border); }
-.application-record > summary { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px 0; color: var(--text); cursor: pointer; list-style-position: inside; }
-.application-record > summary span { font-size: 1.35rem; }
-.application-record > summary small { color: var(--muted); font-size: .7rem; }
-.application-record[open] > summary { border-bottom: 1px solid var(--border); }
-.application-record > div > .detail-section:last-child { border-bottom: 0; }
 .detail-section { padding: 34px 0; border-bottom: 1px solid var(--border); }
-.member-grid, .review-list, .text-list ul { margin: 0; padding: 0; list-style: none; }
-.member-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--border); border: 0; border-radius: var(--radius-card); }
-.member-grid li { display: grid; gap: 4px; padding: 15px; background: var(--background); }
-.member-grid span { color: var(--muted); font-size: .76rem; }
+.application-detail > .detail-section:last-child { border-bottom: 0; }
+.review-list, .text-list ul { margin: 0; padding: 0; list-style: none; }
+/* The one thing this application is waiting on, stated before the record. */
+.application-next-step { display: grid; gap: 6px; margin-top: 22px; padding: 18px 20px; background: var(--surface); border-radius: var(--radius-card); }
+.application-next-step .eyebrow, .application-next-step h2, .application-next-step p { margin: 0; }
+.application-next-step h2 { font-size: .9375rem; font-weight: 500; }
+.application-next-step p { max-width: 680px; color: var(--muted); }
+.application-blocker { color: var(--warn); }
+.member-list { display: grid; overflow: hidden; margin-top: 14px; background: var(--surface); border-radius: var(--radius-card); }
 .prose-section { display: grid; gap: 24px; }
 .answer > span { display: block; margin-bottom: 7px; color: var(--muted); font-size: .75rem; }
 .answer p { max-width: 760px; margin-bottom: 0; white-space: pre-wrap; }
@@ -1016,7 +1015,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .workspace { padding: 32px 20px 80px; }
   .page-heading, .application-heading { display: grid; }
   .application-state-summary { grid-template-columns: 1fr; gap: 8px; }
-  .application-record > summary { align-items: flex-start; flex-direction: column; gap: 6px; }
   .catalog-summary { grid-template-columns: 1fr; }
   .catalog-summary div { border-bottom: 1px solid var(--border); }
   .catalog-summary div:last-child { border-bottom: 0; }
@@ -1047,7 +1045,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .filter { width: 100%; }
   .queue-row { align-items: flex-start; }
   .queue-meta { text-align: right; }
-  .member-grid { grid-template-columns: 1fr; }
   .criteria-list div { grid-template-columns: 1fr; gap: 5px; }
   .review-list li div { display: grid; gap: 5px; }
   .attendance-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1485,7 +1482,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 
 /* Form controls sit on the page, inside cards that own the padding. */
 .form-grid,
-.member-grid,
 .phase-field-grid,
 .track-field-grid,
 .intake-policy-grid { gap: 14px; }

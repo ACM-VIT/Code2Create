@@ -13,6 +13,8 @@
  * is the participant's instruction "Keep your team code open".
  */
 
+import type { ApplicationDecision, ParticipantClass, StudyYear } from "./index.ts";
+
 export type TeamRoundState =
   | "unassigned"
   | "queued"
@@ -130,6 +132,136 @@ export const applicationStateLabels: Record<ApplicationState, string> = {
   confirmed: "Confirmed",
   offer_expired: "Offer expired",
   withdrawn: "Withdrawn",
+};
+
+/**
+ * Admission vocabulary.
+ *
+ * The application dossier used to title-case these in place, which put
+ * "Mixed or external", "Not yet clear" and a bare "active" on the same screen
+ * without saying what any of them meant for the reader's next move.
+ */
+export const applicationDecisionLabels: Record<ApplicationDecision, string> = {
+  accept: "Accept",
+  waitlist: "Waitlist",
+  decline: "Do not select",
+  needs_information: "Ask the team for more",
+};
+
+export type AdmissionExperienceBand =
+  | "first_year"
+  | "early_year"
+  | "later_year"
+  | "postgraduate_or_professional"
+  | "mixed_or_external";
+
+/** What a reviewer should expect of this team, given how far into a degree it is. */
+export const admissionExperienceBandLabels: Record<AdmissionExperienceBand, string> = {
+  first_year: "Judge as a first-year team",
+  early_year: "Judge as an early-year team",
+  later_year: "Judge as a later-year team",
+  postgraduate_or_professional: "Judge as a postgraduate or professional team",
+  mixed_or_external: "Judge as a mixed or external team",
+};
+
+export type AdmissionOfferState =
+  | "offered"
+  | "confirmed"
+  | "declined"
+  | "expired"
+  | "revoked";
+
+export const admissionOfferStateLabels: Record<AdmissionOfferState, string> = {
+  offered: "Waiting for the team to accept",
+  confirmed: "Accepted by the team",
+  declined: "Declined by the team",
+  expired: "Expired without an answer",
+  revoked: "Withdrawn by an organizer",
+};
+
+export type AdmissionInformationRequestState = "open" | "answered" | "superseded";
+
+export const admissionInformationRequestStateLabels: Record<
+  AdmissionInformationRequestState,
+  string
+> = {
+  open: "Waiting for the team",
+  answered: "Answered",
+  superseded: "Replaced by a newer request",
+};
+
+export type AdmissionReviewAssignmentState = "active" | "completed" | "cancelled";
+
+export const admissionReviewAssignmentStateLabels: Record<
+  AdmissionReviewAssignmentState,
+  string
+> = {
+  active: "Has not reviewed yet",
+  completed: "Review submitted",
+  cancelled: "Cancelled",
+};
+
+export type AdmissionRecommendationState =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "refused"
+  | "invalid"
+  | "timed_out"
+  | "rate_limited"
+  | "failed"
+  | "stale"
+  | "disabled";
+
+export const admissionRecommendationStateLabels: Record<AdmissionRecommendationState, string> = {
+  pending: "Being prepared",
+  running: "Being prepared",
+  succeeded: "Ready",
+  refused: "Could not be prepared",
+  invalid: "Could not be prepared",
+  timed_out: "Try again later",
+  rate_limited: "Try again later",
+  failed: "Could not be prepared",
+  stale: "Out of date since the team edited its project",
+  disabled: "Turned off for this event",
+};
+
+export type AdmissionAiDisposition =
+  | "used"
+  | "cleared"
+  | "overridden"
+  | "stale"
+  | "unavailable";
+
+export const admissionAiDispositionLabels: Record<AdmissionAiDisposition, string> = {
+  used: "I agreed with the recommendation",
+  cleared: "I did not use the recommendation",
+  overridden: "I went against the recommendation",
+  stale: "The recommendation was out of date",
+  unavailable: "There was no recommendation",
+};
+
+export type CriterionAssessment = "meets" | "partly_meets" | "not_yet_clear";
+
+export const criterionAssessmentLabels: Record<CriterionAssessment, string> = {
+  meets: "Meets",
+  partly_meets: "Partly meets",
+  not_yet_clear: "Not yet clear",
+};
+
+export const participantClassLabels: Record<ParticipantClass, string> = {
+  vit_student: "VIT student",
+  external_participant: "External participant",
+};
+
+export const studyYearLabels: Record<StudyYear, string> = {
+  first: "First year",
+  second: "Second year",
+  third: "Third year",
+  fourth: "Fourth year",
+  fifth_or_later: "Fifth year or later",
+  postgraduate: "Postgraduate",
+  not_applicable: "Not a student",
 };
 
 export type SupportCaseState = "open" | "investigating" | "waiting" | "resolved" | "closed";

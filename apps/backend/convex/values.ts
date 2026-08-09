@@ -287,6 +287,41 @@ export const admissionExperienceBand = v.union(
   v.literal("mixed_or_external"),
 );
 
+export const admissionOfferState = v.union(
+  v.literal("offered"),
+  v.literal("confirmed"),
+  v.literal("declined"),
+  v.literal("expired"),
+  v.literal("revoked"),
+);
+
+export const admissionInformationRequestState = v.union(
+  v.literal("open"),
+  v.literal("answered"),
+  v.literal("superseded"),
+);
+
+export const admissionRecommendationState = v.union(
+  v.literal("pending"),
+  v.literal("running"),
+  v.literal("succeeded"),
+  v.literal("refused"),
+  v.literal("invalid"),
+  v.literal("timed_out"),
+  v.literal("rate_limited"),
+  v.literal("failed"),
+  v.literal("stale"),
+  v.literal("disabled"),
+);
+
+export const admissionAiDisposition = v.union(
+  v.literal("used"),
+  v.literal("cleared"),
+  v.literal("overridden"),
+  v.literal("stale"),
+  v.literal("unavailable"),
+);
+
 export const repositoryKind = v.union(
   v.literal("full_product"),
   v.literal("frontend"),

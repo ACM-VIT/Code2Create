@@ -42,7 +42,12 @@ import {
 } from "./lib/strings";
 import { requireProjectTrackSelection } from "./lib/trackCatalog";
 import {
+  admissionAiDisposition,
   admissionDecision,
+  admissionExperienceBand,
+  admissionInformationRequestState,
+  admissionOfferState,
+  admissionRecommendationState,
   admissionReviewAssignmentState,
   applicationState,
   criterionAssessment,
@@ -50,22 +55,14 @@ import {
   studyYear,
 } from "./values";
 
-const admissionOfferState = v.union(
-  v.literal("offered"),
-  v.literal("confirmed"),
-  v.literal("declined"),
-  v.literal("expired"),
-  v.literal("revoked"),
-);
-
 const listItem = v.object({
   id: v.id("applications"),
   teamName: v.string(),
   state: applicationState,
-  experienceBand: v.optional(v.string()),
+  experienceBand: v.optional(admissionExperienceBand),
   trackName: v.string(),
   submittedAt: v.number(),
-  aiState: v.optional(v.string()),
+  aiState: v.optional(admissionRecommendationState),
   assignedReviewCount: v.number(),
   completedReviewCount: v.number(),
   version: v.number(),
@@ -181,8 +178,8 @@ const assignedReviewItem = v.object({
   applicationVersion: v.number(),
   teamName: v.string(),
   trackName: v.string(),
-  experienceBand: v.optional(v.string()),
-  aiState: v.optional(v.string()),
+  experienceBand: v.optional(admissionExperienceBand),
+  aiState: v.optional(admissionRecommendationState),
   ownRecommendation: v.optional(admissionDecision),
 });
 
@@ -310,7 +307,7 @@ export const detail = query({
       application: v.object({
         id: v.id("applications"),
         state: applicationState,
-        experienceBand: v.optional(v.string()),
+        experienceBand: v.optional(admissionExperienceBand),
         assignedReviewCount: v.number(),
         completedReviewCount: v.number(),
         contentVersion: v.number(),
@@ -318,7 +315,7 @@ export const detail = query({
         submittedAt: v.number(),
         humanDecision: v.optional(admissionDecision),
         humanReasonCode: v.optional(v.string()),
-        aiDisposition: v.optional(v.string()),
+        aiDisposition: v.optional(admissionAiDisposition),
       }),
       team: v.object({ id: v.id("teams"), name: v.string(), members: v.array(memberView) }),
       project: v.object({
@@ -373,7 +370,7 @@ export const detail = query({
         v.null(),
         v.object({
           id: v.id("admissionAIRecommendations"),
-          state: v.string(),
+          state: admissionRecommendationState,
           recommendation: v.optional(admissionDecision),
           criterionAssessments: v.array(
             v.object({
@@ -404,11 +401,7 @@ export const detail = query({
         v.null(),
         v.object({
           id: v.id("admissionInformationRequests"),
-          state: v.union(
-            v.literal("open"),
-            v.literal("answered"),
-            v.literal("superseded"),
-          ),
+          state: admissionInformationRequestState,
           questions: v.array(
             v.object({ questionKey: v.string(), question: v.string() }),
           ),
