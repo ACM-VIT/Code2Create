@@ -38,7 +38,6 @@ import type { ReviewerRuntime } from '@/lib/runtime'
 
 type ReviewerNow = FunctionReturnType<typeof api.reviewer.now>
 type ActiveReview = NonNullable<ReviewerNow['review']>
-type SubstitutePage = NonNullable<FunctionReturnType<typeof api.reviewSubstitutions.currentPage>>
 type Rating = ActiveReview['scorecard']['ratings'][number]
 type Criterion = ActiveReview['criteria'][number]
 type DeviceState =
@@ -129,10 +128,6 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     api.reviewer.now,
     deviceRecord ? { eventSlug, installationId: deviceRecord.installationId } : 'skip',
   )
-  const substitutePage = useQuery(
-    api.reviewSubstitutions.currentPage,
-    deviceRecord ? { eventSlug } : 'skip',
-  )
   const heartbeatRoundId = current?.panel?.round.id ?? current?.reserve?.round.id
   const heartbeatStatus = current?.panel?.clockIn?.status ?? current?.reserve?.clockIn?.status
   const heartbeatInstallationId = deviceRecord?.installationId
@@ -219,22 +214,6 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   if (current === undefined) {
     return <Panel><Text style={styles.body}>Loading your current panel…</Text></Panel>
   }
-  if (substitutePage === undefined) {
-    return <Panel><Text style={styles.body}>Checking substitute pages…</Text></Panel>
-  }
-  if (substitutePage) {
-    return (
-      <Panel>
-        <SubstitutePagePrompt
-          eventSlug={eventSlug}
-          installationId={deviceRecord.installationId}
-          page={substitutePage}
-          serverNow={current.serverNow}
-        />
-      </Panel>
-    )
-  }
-
   const cameraReady = Boolean(cameraPermission?.granted)
   const notificationsReady = notificationState.status === 'ready'
   const encryptedDraftReady = draftStorageState.status === 'ready'
@@ -504,144 +483,6 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {heartbeatIssue ? <Text style={styles.error}>{heartbeatIssue}</Text> : null}
     </Panel>
-  )
-}
-
-function SubstitutePagePrompt({
-  eventSlug,
-  installationId,
-  page,
-  serverNow,
-}: {
-  eventSlug: string
-  installationId: string
-  page: SubstitutePage
-  serverNow: number
-}) {
-  const openPage = useMutation(api.reviewSubstitutions.openPage)
-  const respondToPage = useMutation(api.reviewSubstitutions.respondToPage)
-  const [declining, setDeclining] = useState(false)
-  const [reason, setReason] = useState('')
-  const [busy, setBusy] = useState<'accept' | 'decline' | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [openAttempt, setOpenAttempt] = useState(0)
-  const operationRef = useRef<{ response: 'accept' | 'decline'; id: string } | null>(null)
-  const openedPageRef = useRef<string | null>(null)
-  const secondsRemaining = useSecondsRemaining(page.expiresAt, serverNow)
-
-  useEffect(() => {
-    if (page.state !== 'sent' || openedPageRef.current === page.id) return
-    openedPageRef.current = page.id
-    void openPage({ eventSlug, pageId: page.id, expectedVersion: page.version }).catch((caught) => {
-      openedPageRef.current = null
-      setError(errorMessage(caught, 'The page could not be acknowledged.'))
-    })
-  }, [eventSlug, openAttempt, openPage, page.id, page.state, page.version])
-
-  const operationId = (response: 'accept' | 'decline') => {
-    if (operationRef.current?.response === response) return operationRef.current.id
-    const id = randomUUID()
-    operationRef.current = { response, id }
-    return id
-  }
-
-  const respond = async (response: 'accept' | 'decline') => {
-    if (page.state !== 'opened' || busy || (response === 'decline' && reason.trim().length < 3)) return
-    setBusy(response)
-    setError(null)
-    try {
-      await respondToPage({
-        eventSlug,
-        pageId: page.id,
-        response,
-        ...(response === 'decline' ? { reason } : {}),
-        installationId,
-        expectedVersion: page.version,
-        clientOperationId: operationId(response),
-      })
-      operationRef.current = null
-    } catch (caught) {
-      setError(errorMessage(caught, 'The substitute response could not be saved.'))
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  return (
-    <View style={styles.pagePrompt}>
-      <Text style={styles.eyebrow}>Substitute request</Text>
-      <Text style={styles.heading}>{page.panel.tableLabel}</Text>
-      <Text style={styles.body}>{page.reason}</Text>
-      <View style={styles.details}>
-        <Detail label="Round" value={page.round.name} />
-        <Detail label="Panel" value={page.panel.name} />
-        {page.teamName ? <Detail label="Team" value={page.teamName} /> : null}
-        <Detail label="Criteria" value={page.criteria.map((criterion) => criterion.label).join(', ')} />
-        <Detail label="Respond in" value={`${secondsRemaining}s`} />
-      </View>
-      {page.state === 'sent' ? (
-        <Button
-          label={error ? 'Retry opening request' : 'Opening request…'}
-          disabled={!error}
-          secondary
-          onPress={() => {
-            setError(null)
-            setOpenAttempt((current) => current + 1)
-          }}
-        />
-      ) : null}
-      {!declining ? (
-        <View style={styles.buttonRow}>
-          <Button
-            label={busy === 'accept' ? 'Accepting…' : 'Accept panel seat'}
-            disabled={page.state !== 'opened' || busy !== null || secondsRemaining === 0}
-            onPress={() => respond('accept')}
-          />
-          <Button
-            label="Decline"
-            disabled={page.state !== 'opened' || busy !== null || secondsRemaining === 0}
-            secondary
-            onPress={() => {
-              operationRef.current = null
-              setDeclining(true)
-            }}
-          />
-        </View>
-      ) : (
-        <View style={styles.availabilityBlock}>
-          <Text style={styles.label}>Short reason</Text>
-          <TextInput
-            editable={busy === null}
-            onChangeText={(value) => {
-              setReason(value)
-              operationRef.current = null
-              setError(null)
-            }}
-            placeholder="For example: stepping away now"
-            placeholderTextColor="#625f5a"
-            style={styles.input}
-            value={reason}
-          />
-          <View style={styles.buttonRow}>
-            <Button
-              label={busy === 'decline' ? 'Saving…' : 'Decline request'}
-              disabled={page.state !== 'opened' || busy !== null || reason.trim().length < 3 || secondsRemaining === 0}
-              onPress={() => respond('decline')}
-            />
-            <Button
-              label="Back"
-              disabled={busy !== null}
-              secondary
-              onPress={() => {
-                operationRef.current = null
-                setDeclining(false)
-              }}
-            />
-          </View>
-        </View>
-      )}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-    </View>
   )
 }
 

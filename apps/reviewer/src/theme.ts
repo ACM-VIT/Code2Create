@@ -5,65 +5,83 @@
  * for someone sitting down with a screen; this is used standing up, one-handed,
  * in a loud hall, often at three in the morning, by a volunteer briefed once.
  *
- * The shape comes from a car app's home screen: a large two-line value with a
- * segmented bar beneath it, one enormous low-contrast numeral behind everything,
- * and a seamed grid of tall tiles where the duty you are doing right now fills
- * solid. Emptiness inside a tile is what makes it readable at arm's length, so
- * the padding here is generous on purpose.
+ * The shape is a car app's home screen: a two-line value with a thick split bar
+ * under it, one enormous low-contrast numeral behind, then a grid of tall cards
+ * where every duty that is actually running fills solid in its own colour. The
+ * air inside a card is the point — it is what makes it readable at arm's length.
  */
 
 export const palette = {
-  /** Near-black, slightly warm so it does not look blue under hall lighting. */
-  background: '#0B0B0C',
-  /** Tiles sit just above the background; the 1px seam between them is this. */
-  tile: '#100F12',
-  seam: '#17171A',
-  raised: '#17171A',
-  strong: '#232327',
+  /** Near-black. The cards have to read as raised against it. */
+  background: '#0A0A0B',
+  /** A real step up from the background, not a hint of one. */
+  tile: '#2C2C2E',
+  /** The unfilled half of the value bar. */
+  strong: '#4A4A4D',
+  /** The numeral behind the header. Just above the card grey. */
+  ghost: '#232325',
 
-  text: '#EDEDEF',
-  muted: '#7C7C85',
-  faint: '#55555C',
+  text: '#F2F2F4',
+  muted: '#8E8E93',
+  faint: '#636367',
 
   /** Duty colours. Each keeps its meaning everywhere it appears. */
   judging: '#3ED88A',
-  door: '#59A6FF',
-  hall: '#FF7A2F',
+  door: '#4C9BFF',
+  hall: '#FF6B00',
   setup: '#B79CFF',
-  urgent: '#FF5A4E',
+  urgent: '#FF453A',
 
   /** Ink used on top of a filled tile, per duty. */
-  onJudging: '#06170F',
-  onDoor: '#08101C',
-  onHall: '#12100E',
-  onSetup: '#140D26',
-  onUrgent: '#1B0705',
+  onJudging: '#04140C',
+  onDoor: '#050D18',
+  onHall: '#180A00',
+  onSetup: '#120A24',
+  onUrgent: '#1B0503',
 } as const
 
+/** Measured off the Polestar home screen at a 393pt viewport. */
 export const space = {
-  screen: 18,
-  tile: 14,
-  gap: 12,
+  /** Header text is inset further than the card grid, as it is there. */
+  text: 21,
+  /** The grid sits close to the screen edge. */
+  grid: 11,
+  /** Between two cards in a row, and between rows. */
+  tileGapX: 16,
+  tileGapY: 13,
+  tile: 16,
+  /** The pause between the bar and the identity line. Unusually large. */
+  breath: 80,
 } as const
 
 export const radius = {
+  /** Square corners throughout. Softening these loses the whole character. */
   tile: 0,
-  control: 16,
+  control: 0,
   pill: 999,
 } as const
 
 export const type = {
   /** The headline value. Two lines, tight, never wrapped mid-number. */
-  value: { fontSize: 34, fontWeight: '500', letterSpacing: -0.8, lineHeight: 37 },
-  valueUnit: { fontSize: 20, fontWeight: '500' },
-  /** The numeral sitting behind everything. Identity, not information. */
-  ghost: { fontSize: 168, fontWeight: '700', letterSpacing: -6, lineHeight: 150 },
-  title: { fontSize: 15, fontWeight: '500' },
-  tileLabel: { fontSize: 13 },
-  tileStatus: { fontSize: 14, fontWeight: '500' },
-  body: { fontSize: 14 },
-  small: { fontSize: 12.5 },
+  value: { fontSize: 36, fontWeight: '500', letterSpacing: -0.8, lineHeight: 37 },
+  /**
+   * The numeral sitting behind everything. Identity, not information — but it
+   * still has to read as a digit. Past roughly this size it stops being a
+   * numeral and becomes a grey shape.
+   */
+  ghost: { fontSize: 250, fontWeight: '500', letterSpacing: -10, lineHeight: 230 },
+  /** Identity: what this is, then how it is doing. */
+  context: { fontSize: 15, fontWeight: '400' },
+  summary: { fontSize: 17, fontWeight: '400' },
+  /** Both card lines are the same size; only their colour differs. */
+  tileLabel: { fontSize: 17, fontWeight: '400' },
+  tileStatus: { fontSize: 17, fontWeight: '400' },
+  body: { fontSize: 15 },
+  small: { fontSize: 13 },
 } as const
+
+/** Card proportions: noticeably taller than wide. */
+export const tileAspectRatio = 176 / 213
 
 export type DutyKey = 'judging' | 'door' | 'hall' | 'help'
 

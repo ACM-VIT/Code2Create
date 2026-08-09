@@ -1,11 +1,22 @@
 import Svg, { Path } from 'react-native-svg'
 
 /**
- * Duty glyphs, drawn on a 24-unit grid at 1.7 stroke and rendered at 28px.
- * Larger and heavier than the dashboard's 16px icons: this app is read at
- * arm's length in a hall, not at a desk.
+ * Duty glyphs, drawn on a 24-unit grid at 1.7 stroke and rendered at 35px in a
+ * card, 26px in the tab bar. Far larger and heavier than the dashboard's 16px
+ * icons: this app is read at arm's length in a hall, not at a desk.
  */
-export type DutyIconName = 'judging' | 'door' | 'hall' | 'help' | 'clock' | 'queue' | 'badge' | 'chart'
+export type DutyIconName =
+  | 'judging'
+  | 'door'
+  | 'hall'
+  | 'help'
+  | 'clock'
+  | 'queue'
+  | 'badge'
+  | 'chart'
+  | 'home'
+  | 'question'
+  | 'person'
 
 const paths: Record<DutyIconName, string> = {
   judging:
@@ -17,6 +28,12 @@ const paths: Record<DutyIconName, string> = {
   queue: 'M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6M17 3v4h-4M7 21v-4h4',
   badge: 'M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM8 17c1-2 2.6-3 4-3s3 1 4 3',
   chart: 'M5 20V10M12 20V4M19 20v-7',
+  /* Four squares, matching the duty grid this bar returns you to. */
+  home: 'M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z',
+  /* Bare question mark. Boxing it at 26px collapses into something that reads
+     as a missing-glyph tofu. */
+  question: 'M8.6 8.7a3.4 3.4 0 1 1 4.3 3.3c-.6.2-1 .8-1 1.4v1.1M11.9 19v.2',
+  person: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4.5 20.5c1.4-3.4 4.2-5.2 7.5-5.2s6.1 1.8 7.5 5.2',
 }
 
 export function DutyIcon({
