@@ -19,7 +19,7 @@ import {
   View,
 } from 'react-native'
 
-import { palette } from '@/theme'
+import { palette, radius } from '@/theme'
 
 /**
  * The pieces every duty screen is built from.
@@ -519,7 +519,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: palette.text, fontSize: 20, fontWeight: '600', letterSpacing: -0.4 },
   lead: { color: palette.muted, fontSize: 16, lineHeight: 23 },
 
-  card: { backgroundColor: palette.tile, padding: 16, gap: 8 },
+  card: { backgroundColor: palette.tile, borderRadius: radius.tile, padding: 16, gap: 8 },
   pressed: { opacity: 0.75 },
   dim: { opacity: 0.45 },
 
@@ -543,15 +543,22 @@ const styles = StyleSheet.create({
   fieldLabel: { color: palette.muted, fontSize: 14 },
   input: {
     height: 50,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     color: palette.text,
     fontSize: 17,
     backgroundColor: palette.tile,
+    borderRadius: radius.tile,
   },
   inputTall: { height: 108, paddingTop: 13, textAlignVertical: 'top' },
 
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingHorizontal: 14, height: 40, justifyContent: 'center', backgroundColor: palette.tile },
+  chip: {
+    paddingHorizontal: 16,
+    height: 40,
+    justifyContent: 'center',
+    backgroundColor: palette.tile,
+    borderRadius: radius.control,
+  },
   chipText: { color: palette.text, fontSize: 15 },
   chipTextOn: { color: palette.background, fontWeight: '600' },
 
@@ -576,6 +583,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 16,
     backgroundColor: palette.tile,
+    borderRadius: radius.tile,
   },
   rowText: { flex: 1, gap: 3 },
   rowLabel: { color: palette.text, fontSize: 17 },
@@ -639,10 +647,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: palette.tile,
+    borderRadius: radius.tile,
   },
   scoreText: { color: palette.text, fontSize: 22, fontWeight: '500' },
 
-  progress: { flexDirection: 'row', height: 8 },
+  progress: { flexDirection: 'row', height: 8, borderRadius: 4, overflow: 'hidden' },
   progressGap: { width: 3 },
 
   action: { alignSelf: 'stretch', height: 62 },

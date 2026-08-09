@@ -209,7 +209,7 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
 
   if (!deviceState.record) {
     return (
-      <Section lead="Choose the station this phone will operate." title="Assign this phone">
+      <Section title="Assign this phone">
         {availableStations.length === 0 ? (
           <Nothing>No unassigned station is available to this account.</Nothing>
         ) : (
@@ -1073,8 +1073,8 @@ function ScannerSurface({
 
       {task === 'presence' ? (
         <>
-          {/* One door, both directions. Marking the next scan is one tap and
-              the sentence underneath says exactly what it will write. */}
+          {/* One door, both directions. The chip that is lit is what the next
+              scan writes — it does not need a sentence repeating it. */}
           <ChipRow
             accent={palette.door}
             onSelect={(option) => {
@@ -1086,7 +1086,6 @@ function ScannerSurface({
             )}
             selected={transition}
           />
-          <Meta>{transitionStatement(transition, assignment.openSession)}</Meta>
         </>
       ) : (
         <CredentialSetupInstructions
@@ -1309,7 +1308,6 @@ function ScannerSurface({
                   )}
                   selected={transition}
                 />
-                <Meta>{transitionStatement(transition, assignment.openSession)}</Meta>
                 {scanError ? <Problem>{scanError}</Problem> : null}
                 {pendingSummary.count > 0 ? (
                   <Meta>
@@ -1550,7 +1548,6 @@ function VenueCheckInControls({
               label="Reverse check-in"
               onPress={onReverse}
             />
-            <Meta>Presence scans and session attendance do not change.</Meta>
           </>
         ) : receipt?.status === 'checked_in' ? (
           <Meta>Scan a fresh portal QR to reverse this check-in.</Meta>
@@ -1608,7 +1605,6 @@ function VenueCheckInControls({
           />
         </>
       ) : null}
-      <Meta>This does not mark them inside or record session attendance.</Meta>
     </View>
   )
 }
@@ -1713,18 +1709,6 @@ function transitionName(transition: ScanTransition) {
   if (transition === 'session_confirm') return 'Session'
   if (transition === 'zone_entry') return 'Back in'
   return 'Stepped out'
-}
-
-function transitionStatement(
-  transition: ScanTransition,
-  openSession: ScannerAssignment['openSession'],
-) {
-  if (transition === 'venue_entry') return 'The next scan marks them arriving at the venue.'
-  if (transition === 'venue_exit') return 'The next scan marks them leaving the venue.'
-  const session = openSession ? openSession.name : 'the open session'
-  if (transition === 'session_confirm') return `The next scan confirms them present for ${session}.`
-  if (transition === 'zone_entry') return `The next scan marks them back in ${session}.`
-  return `The next scan marks them stepped out of ${session}.`
 }
 
 function outcomeName(outcome: ScanReceipt['outcome']) {

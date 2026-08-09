@@ -9,7 +9,7 @@ import { PagerAlert } from '@/components/PagerAlert'
 import { useReviewerInstallationId } from '@/lib/duty-status'
 import { describeError } from '@/lib/errors'
 import type { ReviewerRuntime } from '@/lib/runtime'
-import { palette, type } from '@/theme'
+import { palette, radius, type } from '@/theme'
 
 /**
  * The duties this account can actually do. Everything downstream — which tabs
@@ -125,7 +125,6 @@ export function ReviewerSessionProvider({
       <Gate
         error={authError}
         title="Sign in to work this event"
-        body="Use the Google account the operations board gave access to."
       >
         <PrimaryAction
           disabled={authBusy || !publicState.auth.googleConfigured}
@@ -152,9 +151,9 @@ export function ReviewerSessionProvider({
   if (!access) {
     return (
       <Gate
-        body={`${session.user.email} has no permission on this event yet. Ask the operations board to grant one.`}
         error={null}
         title="No access yet"
+        who={session.user.email}
       >
         <PrimaryAction label="Sign out" onPress={signOut} secondary />
       </Gate>
@@ -171,9 +170,9 @@ export function ReviewerSessionProvider({
   if (surfaces.length === 0) {
     return (
       <Gate
-        body="You are signed in, but no event work has been assigned to this account."
         error={null}
         title="Nothing assigned yet"
+        who={session.user.email}
       >
         <PrimaryAction label="Sign out" onPress={signOut} secondary />
       </Gate>
@@ -222,15 +221,15 @@ function Booting() {
  * a login form that happens to be dark.
  */
 function Gate({
-  body,
   children,
   error,
   title,
+  who,
 }: {
-  body: string
   children: ReactNode
   error: string | null
   title: string
+  who?: string
 }) {
   return (
     <BrandBackdrop>
@@ -238,12 +237,11 @@ function Gate({
         <View style={styles.gateBody}>
           <BrandMark size={104} />
           <Text style={styles.wordmark}>
-            Code
-            <Text style={styles.wordmarkAccent}>2</Text>
-            Create
+            Code2Creat
+            <Text style={styles.wordmarkAccent}>e</Text>
           </Text>
           <Text style={styles.title}>{title}</Text>
-          <Text style={styles.body}>{body}</Text>
+          {who ? <Text style={styles.who}>{who}</Text> : null}
         </View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <View style={styles.actions}>{children}</View>
@@ -296,15 +294,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -1.2,
   },
-  /* The one blossom-coloured letter, as the wordmark has it. */
+  /* The wordmark ends on a blossom; here that is one blossom-coloured letter. */
   wordmarkAccent: { color: '#E3A9BF' },
   title: { marginTop: 20, color: palette.text, fontSize: 26, fontWeight: '600', letterSpacing: -0.5 },
-  body: { marginTop: 10, color: '#C9B3BC', fontSize: 17, lineHeight: 25 },
+  who: { marginTop: 8, color: '#B9A3AC', fontSize: 16 },
   error: { color: palette.urgent, fontSize: 15, lineHeight: 21, marginBottom: 12 },
 
   actions: { paddingBottom: 12, gap: 10 },
   action: {
     height: 56,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: palette.text,

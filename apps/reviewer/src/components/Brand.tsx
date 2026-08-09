@@ -12,8 +12,19 @@ import { palette } from '@/theme'
  * their lanyard.
  */
 
-/** The night the event runs in: near-black, warming through plum to blossom. */
-export const brandGradient = ['#0C0004', '#2B0A16', '#7A3049', '#A04263'] as const
+/**
+ * The night the event runs in.
+ *
+ * The brand file runs this from near-black through plum to blossom, but puts
+ * the two pink stops past the bottom of the frame — so a screen only ever
+ * shows the dark two-thirds and the plum it has turned by the bottom edge.
+ * These are those visible stops, with the off-screen ones resolved.
+ */
+export const brandGradient = [
+  { colour: '#0C0004', at: 0 },
+  { colour: '#0C0004', at: 0.71 },
+  { colour: '#6D2B42', at: 1 },
+] as const
 
 /** The hexagon, drawn at whatever size it is given. */
 export function BrandMark({ size = 96 }: { size?: number }) {
@@ -63,12 +74,8 @@ export function BrandBackdrop({ children }: { children: React.ReactNode }) {
       <Svg height="100%" style={StyleSheet.absoluteFill} width="100%">
         <Defs>
           <LinearGradient id="night" x1="0" x2="0" y1="0" y2="1">
-            {brandGradient.map((colour, index) => (
-              <Stop
-                key={colour}
-                offset={index / (brandGradient.length - 1)}
-                stopColor={colour}
-              />
+            {brandGradient.map((stop) => (
+              <Stop key={stop.at} offset={stop.at} stopColor={stop.colour} />
             ))}
           </LinearGradient>
         </Defs>
@@ -92,29 +99,52 @@ export function BrandBackdrop({ children }: { children: React.ReactNode }) {
         style={styles.hills}
       />
 
+      {/* The landscape is busiest exactly where the words sit. This settles the
+          lower half back down so type has something quiet to rest on. */}
+      <Svg height="55%" style={styles.scrim} width="100%">
+        <Defs>
+          <LinearGradient id="scrim" x1="0" x2="0" y1="0" y2="1">
+            <Stop offset={0} stopColor="#0C0004" stopOpacity={0} />
+            <Stop offset={0.55} stopColor="#0C0004" stopOpacity={0.72} />
+            <Stop offset={1} stopColor="#0C0004" stopOpacity={0.92} />
+          </LinearGradient>
+        </Defs>
+        <Rect fill="url(#scrim)" height="100%" width="100%" x="0" y="0" />
+      </Svg>
+
       {children}
     </View>
   )
 }
 
 const styles = StyleSheet.create({
+  scrim: { position: 'absolute', right: 0, bottom: 0, left: 0 },
   backdrop: { flex: 1, backgroundColor: palette.background, overflow: 'hidden' },
+  /**
+   * Big enough that the canopy leaves the top of the screen and the trunk runs
+   * the length of the left edge, so it reads as a tree you are standing under
+   * rather than a picture pinned to the top.
+   *
+   * The image ends in a carpet of fallen petals, which would otherwise cut off
+   * in a hard line across the middle of the screen. It is sized so that edge
+   * lands inside the ridge below, where the two blend into each other.
+   */
   tree: {
     position: 'absolute',
-    top: -20,
-    left: -60,
-    width: 560,
-    height: 445,
+    top: -40,
+    left: -170,
+    width: 850,
+    height: 676,
     opacity: 0.92,
   },
-  /* Sat on the bottom edge, wide enough that the silhouette reads as a ridge
-     rather than a single hill. */
+  /* Low and faint: the ridge should settle the bottom of the screen, not
+     compete with the words sitting on top of it. */
   hills: {
     position: 'absolute',
-    right: -80,
-    bottom: -30,
-    left: -80,
-    height: 260,
-    opacity: 0.85,
+    right: -40,
+    bottom: -150,
+    left: -40,
+    height: 460,
+    opacity: 0.5,
   },
 })

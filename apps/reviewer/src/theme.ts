@@ -55,9 +55,10 @@ export const space = {
 } as const
 
 export const radius = {
-  /** Square corners throughout. Softening these loses the whole character. */
-  tile: 0,
-  control: 0,
+  /** Surfaces that hold content: soft enough to read as one object. */
+  tile: 18,
+  /** Anything you press. Every comparable app makes these a full pill. */
+  control: 999,
   pill: 999,
 } as const
 

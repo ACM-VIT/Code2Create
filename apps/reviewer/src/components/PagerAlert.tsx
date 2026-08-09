@@ -19,7 +19,7 @@ import { Dimensions, Modal, Pressable, StyleSheet, Text, TextInput, View } from 
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { describeError } from '@/lib/errors'
-import { palette, type } from '@/theme'
+import { palette, radius, type } from '@/theme'
 
 export type SubstitutePage = NonNullable<
   FunctionReturnType<typeof api.reviewSubstitutions.currentPage>
@@ -330,6 +330,7 @@ const styles = StyleSheet.create({
     color: palette.text,
     fontSize: 17,
     backgroundColor: palette.tile,
+    borderRadius: radius.tile,
   },
   retry: { marginTop: 14, alignItems: 'center', paddingVertical: 10 },
   retryText: { color: palette.muted, fontSize: 17 },

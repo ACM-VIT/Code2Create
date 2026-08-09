@@ -1,7 +1,7 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
-import { type DutyKey, duty, palette, space, tileAspectRatio, type } from '@/theme'
+import { duty, palette, radius, space, tileAspectRatio, type, type DutyKey } from '@/theme'
 
 export type DutyTile = {
   key: DutyKey
@@ -198,6 +198,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: palette.urgent,
     backgroundColor: palette.tile,
+    borderRadius: radius.tile,
   },
   noticeText: { color: palette.text, fontSize: 15, lineHeight: 21 },
 
@@ -208,6 +209,7 @@ const styles = StyleSheet.create({
     aspectRatio: tileAspectRatio,
     padding: space.tile,
     backgroundColor: palette.tile,
+    borderRadius: radius.tile,
   },
   tilePressed: { opacity: 0.75 },
   tileFiller: { flex: 1 },

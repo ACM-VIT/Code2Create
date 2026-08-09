@@ -24,7 +24,7 @@ import {
 } from '@/components/ui'
 import { describeError } from '@/lib/errors'
 import type { ReviewerRuntime } from '@/lib/runtime'
-import { palette } from '@/theme'
+import { palette, radius } from '@/theme'
 
 type FloorClaim = FunctionReturnType<typeof api.floorMapping.claimTeamQr>
 type FloorReceipt = FunctionReturnType<typeof api.floorMapping.assignClaim>
@@ -373,6 +373,7 @@ const styles = StyleSheet.create({
     color: palette.text,
     fontSize: 16,
     backgroundColor: palette.tile,
+    borderRadius: radius.tile,
   },
   openButton: {
     height: 50,
@@ -386,7 +387,7 @@ const styles = StyleSheet.create({
 
   /* The room at the proportions of the real hall, so what a mapper sees on
      the phone matches what they are standing in. */
-  room: { width: '100%', backgroundColor: palette.tile, overflow: 'hidden' },
+  room: { width: '100%', backgroundColor: palette.tile, borderRadius: radius.tile, overflow: 'hidden' },
   gridLine: { position: 'absolute', backgroundColor: palette.background, opacity: 0.5 },
   gridV: { top: 0, bottom: 0, width: 1 },
   gridH: { left: 0, right: 0, height: 1 },
