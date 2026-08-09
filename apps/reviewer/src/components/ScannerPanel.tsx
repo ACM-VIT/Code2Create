@@ -28,11 +28,11 @@ import {
   Lead,
   Field,
   Heading,
+  HeaderButton,
   Meta,
   Nothing,
   Problem,
   QuietAction,
-  HeaderButton,
   ScanSurface,
   Section,
   Shell,
@@ -1232,7 +1232,21 @@ function ScannerSurface({
       <Stack.Screen
         options={{
           headerRight: () => (
-            <HeaderButton label="This door" onPress={() => router.push('/duty/door-tools')} />
+            <HeaderButton
+              label="This door"
+              onPress={() =>
+                router.push({
+                  pathname: '/duty/door-tools',
+                  params: {
+                    station: assignment.station.name,
+                    zone: assignment.station.zoneName,
+                    ...(assignment.openSession ? { session: assignment.openSession.name } : {}),
+                    pending: String(assignment.device.pendingReplayCount),
+                    sent: String(assignment.device.lastSequence),
+                  },
+                })
+              }
+            />
           ),
         }}
       />

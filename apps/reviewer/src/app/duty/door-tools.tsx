@@ -1,92 +1,63 @@
-import { api } from '@code2create/backend/api'
-import { useQuery } from 'convex/react'
-import { useRouter } from 'expo-router'
-import { useEffect, useState } from 'react'
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useLocalSearchParams, useRouter } from 'expo-router'
+import { StyleSheet, Text, View } from 'react-native'
 
 import { Row } from '@/components/ui'
-import { reviewerRuntime } from '@/lib/runtime'
-import { loadScannerDevice } from '@/lib/scanner-device'
 import { palette } from '@/theme'
 
 /**
  * Everything this door can do that is not reading a badge.
  *
  * A real iOS form sheet: system grabber, a detent it rests at, the scanner
- * still visible behind it. Every row is always present and states what it
- * knows, including that it does not know yet — a sheet that renders nothing
- * while a query settles reads as broken.
+ * still visible behind it, and a drag down to dismiss.
+ *
+ * It takes what it shows as route parameters rather than subscribing again.
+ * The scanner behind it already holds every one of these values, so a second
+ * subscription would only add a way for the two to disagree, and a sheet is
+ * open for seconds — nothing here changes underneath it.
+ *
+ * Laid out with a plain view: a scroll view inside a form sheet has no height
+ * to measure against and collapses, which renders the whole sheet empty.
  */
 export default function DoorToolsRoute() {
   const router = useRouter()
-  // Read straight from configuration: a form sheet is presented outside the
-  // session provider's subtree, so a context hook here throws and blanks it.
-  const eventSlug = reviewerRuntime ? reviewerRuntime.configuration.eventSlug : ''
-  const [installationId, setInstallationId] = useState<string | null>(null)
-
-  useEffect(() => {
-    let active = true
-    void loadScannerDevice(eventSlug)
-      .then((record) => {
-        if (active) setInstallationId(record ? record.installationId : null)
-      })
-      .catch(() => {
-        if (active) setInstallationId(null)
-      })
-    return () => {
-      active = false
-    }
-  }, [eventSlug])
-
-  const assignment = useQuery(
-    api.attendanceScanner.current,
-    installationId && eventSlug ? { eventSlug, installationId } : 'skip',
-  )
-  const unknown = 'Checking'
+  const { station, zone, session, pending, sent } = useLocalSearchParams<{
+    station?: string
+    zone?: string
+    session?: string
+    pending?: string
+    sent?: string
+  }>()
+  const pendingCount = Number(pending ?? '0')
 
   return (
     <View style={styles.root}>
-      <ScrollView contentContainerStyle={styles.body} style={styles.scroll}>
+      <View style={styles.body}>
         <Text style={styles.title}>This door</Text>
         <Row
-          detail={
-            assignment
-              ? `${assignment.station.zoneName}${
-                  assignment.openSession ? ` · ${assignment.openSession.name}` : ''
-                }`
-              : assignment === null
-                ? 'No station chosen for this phone yet'
-                : unknown
-          }
-          label={assignment ? assignment.station.name : 'Station'}
+          {...(zone === undefined ? {} : { detail: session ? `${zone} · ${session}` : zone })}
+          label={station ?? 'Station'}
         />
         <Row
           detail={
-            assignment
-              ? assignment.device.pendingReplayCount === 0
-                ? 'Everything has reached the server'
-                : `${assignment.device.pendingReplayCount} still on this phone`
-              : unknown
+            pendingCount === 0
+              ? 'Everything has reached the server'
+              : `${pendingCount} still on this phone`
           }
           label="Unsent scans"
         />
-        <Row
-          detail={assignment ? `${assignment.device.lastSequence} from this phone` : unknown}
-          label="Scans sent"
-        />
+        <Row detail={`${sent ?? '0'} from this phone`} label="Scans sent" />
         <Row
           detail="Issue badges and enrol ID cards instead of recording presence"
           label="Arrival and credentials"
           onPress={() => router.back()}
         />
-      </ScrollView>
+      </View>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: palette.background },
-  scroll: { flex: 1 },
   body: { padding: 20, paddingTop: 26, gap: 10 },
   title: {
     marginBottom: 6,

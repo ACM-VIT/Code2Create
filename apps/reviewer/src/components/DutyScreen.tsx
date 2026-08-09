@@ -38,13 +38,15 @@ export function DutyScreen({
           headerLargeTitle: false,
           // Chevron only. The previous screen's title beside it is noise.
           headerBackButtonDisplayMode: 'minimal',
-          // Transparent, not "the same colour as the page": iOS draws its own
-          // header material over any backgroundColor you set, which is what
-          // made the bar read as a separate surface hovering above the screen.
-          // Nothing else in this app has one, so the header has none either.
-          headerTransparent: true,
+          // Transparent only where content scrolls under it. A screen that
+          // fills its own frame has nothing to scroll, and a transparent header
+          // over a full-bleed camera lets the camera swallow taps meant for the
+          // header's own controls.
+          headerTransparent: scroll,
           headerShadowVisible: false,
-          headerStyle: { backgroundColor: 'transparent' },
+          headerStyle: scroll
+            ? { backgroundColor: 'transparent' }
+            : { backgroundColor: palette.background },
           headerTintColor: palette.text,
           headerTitleStyle: { color: palette.text, fontSize: 17, fontWeight: '600' },
         }}
