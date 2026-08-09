@@ -4,20 +4,21 @@ import { useMutation, useQuery } from 'convex/react'
 import { randomUUID } from 'expo-crypto'
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera'
 import { useRef, useState } from 'react'
+import { Stack } from 'expo-router'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 
 import {
   Action,
   Body,
-  Card,
   ChipRow,
   Field,
-  Heading,
+  HeaderButton,
   Lead,
   Meta,
   Problem,
   QuietAction,
   Section,
+  Sheet,
   Shell,
   Viewfinder,
 } from '@/components/ui'
@@ -40,6 +41,7 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
   const [manualCode, setManualCode] = useState('')
   const [selectedSpotId, setSelectedSpotId] = useState<string | null>(null)
+  const [showScanner, setShowScanner] = useState(false)
   const [claim, setClaim] = useState<FloorClaim | null>(null)
   const [receipt, setReceipt] = useState<FloorReceipt | null>(null)
   const [overrideReason, setOverrideReason] = useState('Corrected after confirming the team’s physical location')
@@ -137,9 +139,28 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
   }
 
   return (
-    <>
-      <Lead
-        accent={palette.hall}
+    <View style={styles.frame}>
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <HeaderButton label="Scan a team" onPress={() => setShowScanner(true)} />
+          ),
+        }}
+      />
+
+      <View style={styles.canvasFrame}>
+        <HallCanvas
+          disabled={busy}
+          onSelect={tapSpot}
+          placingTeamId={placing ? placing.team.id : null}
+          selectedSpotId={selectedSpotId}
+          zone={selectedZone}
+        />
+      </View>
+
+      <View style={styles.dock}>
+        <Lead
+          accent={palette.hall}
         detail={
           floor.mode === 'override'
             ? 'The map is frozen, so a change needs a reason.'
@@ -147,42 +168,33 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
               ? `Tap where ${placing.team.name} is sitting.`
               : 'Tap a spot to see who is there, or scan a team to place them.'
         }
-        unit={freeSpots === 1 ? 'spot still empty' : 'spots still empty'}
-        value={String(freeSpots)}
-      />
-
-      {floor.zones.length > 1 ? (
-        <ChipRow
-          accent={palette.hall}
-          onSelect={(zoneId) => {
-            setSelectedZoneId(zoneId)
-            setSelectedSpotId(null)
-          }}
-          options={floor.zones.map((zone) => [zone.id, zone.name] as const)}
-          selected={selectedZone.id}
+          unit={freeSpots === 1 ? 'spot still empty' : 'spots still empty'}
+          value={String(freeSpots)}
         />
-      ) : null}
 
-      <HallCanvas
-        disabled={busy}
-        onSelect={tapSpot}
-        placingTeamId={placing ? placing.team.id : null}
-        selectedSpotId={selectedSpotId}
-        zone={selectedZone}
-      />
+        {floor.zones.length > 1 ? (
+          <ChipRow
+            accent={palette.hall}
+            onSelect={(zoneId) => {
+              setSelectedZoneId(zoneId)
+              setSelectedSpotId(null)
+            }}
+            options={floor.zones.map((zone) => [zone.id, zone.name] as const)}
+            selected={selectedZone.id}
+            wrap={false}
+          />
+        ) : null}
 
-      {selectedSpot ? (
-        <Card accent={palette.hall} selected>
-          <Heading>{selectedSpot.label}</Heading>
+        {selectedSpot ? (
           <Meta>
-            {selectedSpot.occupiedBy ? selectedSpot.occupiedBy.teamName : 'Nobody here yet'}
+            {selectedSpot.label} ·{' '}
+            {selectedSpot.occupiedBy ? selectedSpot.occupiedBy.teamName : 'nobody here yet'}
           </Meta>
-        </Card>
-      ) : null}
+        ) : null}
 
-      {error ? <Problem>{error}</Problem> : null}
+        {error ? <Problem>{error}</Problem> : null}
 
-      {placing ? (
+        {placing ? (
         <>
           {placing.mode === 'override' ? (
             <Field
@@ -212,18 +224,25 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
           />
           <QuietAction disabled={busy} label="Scan a different team" onPress={reset} />
         </>
-      ) : receipt ? (
+        ) : receipt ? (
         <>
-          <Card accent={palette.hall} selected>
-            <Heading>{receipt.teamName}</Heading>
-            <Meta>
-              {receipt.zoneName} · {receipt.spotLabel}
-            </Meta>
-          </Card>
-          <Action accent={palette.hall} label="Scan the next team" onPress={reset} />
+          <Meta>
+            {receipt.teamName} is at {receipt.zoneName}, {receipt.spotLabel}.
+          </Meta>
+          <Action accent={palette.hall} label="Place the next team" onPress={reset} />
         </>
-      ) : (
-        <Section title="Scan a team">
+        ) : (
+          <Action
+            accent={palette.hall}
+            label="Scan a team to place"
+            onPress={() => setShowScanner(true)}
+          />
+        )}
+      </View>
+
+      <Sheet onClose={() => setShowScanner(false)} title="Scan a team" visible={showScanner}>
+        <Body>The QR is on the team’s own dashboard. There are no table stickers.</Body>
+        <Section title="Camera">
           {!permission ? <Meta>Checking camera access…</Meta> : null}
           {permission && !permission.granted ? (
             <Action
@@ -267,8 +286,8 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
             </Pressable>
           </View>
         </Section>
-      )}
-    </>
+      </Sheet>
+    </View>
   )
 }
 
@@ -342,6 +361,11 @@ function errorMessage(caught: unknown, fallback: string) {
 }
 
 const styles = StyleSheet.create({
+  frame: { flex: 1, backgroundColor: palette.background },
+  /* The room takes whatever the dock does not. */
+  canvasFrame: { flex: 1, padding: 12 },
+  dock: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 34, gap: 12 },
+
   manualRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   input: {
     flex: 1,
@@ -363,12 +387,7 @@ const styles = StyleSheet.create({
 
   /* The zone drawn to the plan's own proportions, tall enough that a spot is a
      thumb target rather than a dot on a diagram. */
-  map: {
-    position: 'relative',
-    width: '100%',
-    aspectRatio: 1.15,
-    backgroundColor: palette.tile,
-  },
+  map: { position: 'relative', flex: 1, backgroundColor: palette.tile },
   spot: {
     position: 'absolute',
     minWidth: 52,

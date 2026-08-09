@@ -23,9 +23,12 @@ export default function DutyRoute() {
   }
 
   return (
-    // The door owns its whole frame: the camera is the screen there, not a
-    // field inside a form.
-    <DutyScreen scroll={held !== 'attendance'} title={dutyMeta[held].label}>
+    // The door and the hall each own their whole frame: on one the camera is
+    // the screen, on the other the room is. Neither is a field inside a form.
+    <DutyScreen
+      scroll={held !== 'attendance' && held !== 'floor'}
+      title={dutyMeta[held].label}
+    >
       {panelFor(held, runtime, canCreateSupport)}
     </DutyScreen>
   )

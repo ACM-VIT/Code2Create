@@ -8,7 +8,16 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers'
 import type { ReactNode } from 'react'
-import { Dimensions, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import {
+  Dimensions,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native'
 
 import { palette } from '@/theme'
 
@@ -257,6 +266,82 @@ export function Viewfinder({
 }
 
 /**
+ * A real iOS sheet: grabber, swipe to dismiss, the screen behind it still
+ * visible. Anything that is not the one job a screen exists for belongs in
+ * here rather than as a link sitting on top of the job.
+ */
+export function Sheet({
+  children,
+  onClose,
+  title,
+  visible,
+}: {
+  children: ReactNode
+  onClose: () => void
+  title: string
+  visible: boolean
+}) {
+  return (
+    <Modal animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet" visible={visible}>
+      <View style={styles.sheet}>
+        <View style={styles.sheetHead}>
+          <Text style={styles.sheetTitle}>{title}</Text>
+          <Pressable accessibilityRole="button" hitSlop={12} onPress={onClose}>
+            <Text style={styles.sheetClose}>Done</Text>
+          </Pressable>
+        </View>
+        <ScrollView contentContainerStyle={styles.sheetBody}>{children}</ScrollView>
+      </View>
+    </Modal>
+  )
+}
+
+/**
+ * One line of a sheet: what it is, where it stands, and a chevron when it
+ * leads somewhere. A sheet is a list of choices, not a page folded in half.
+ */
+export function Row({
+  danger = false,
+  detail,
+  label,
+  onPress,
+}: {
+  danger?: boolean
+  detail?: string
+  label: string
+  onPress?: () => void
+}) {
+  const body = (
+    <View style={styles.row}>
+      <View style={styles.rowText}>
+        <Text style={[styles.rowLabel, danger ? { color: palette.urgent } : null]}>{label}</Text>
+        {detail ? <Text style={styles.rowDetail}>{detail}</Text> : null}
+      </View>
+      {onPress ? <Text style={styles.rowChevron}>›</Text> : null}
+    </View>
+  )
+  if (!onPress) return body
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => (pressed ? styles.pressed : null)}
+    >
+      {body}
+    </Pressable>
+  )
+}
+
+/** A single glyph in the navigation bar, for the rarely-used way out. */
+export function HeaderButton({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable accessibilityLabel={label} accessibilityRole="button" hitSlop={12} onPress={onPress}>
+      <Text style={styles.headerButton}>•••</Text>
+    </Pressable>
+  )
+}
+
+/**
  * A scanner that owns the screen.
  *
  * The camera runs edge to edge behind everything, the way a ticket app's does,
@@ -469,6 +554,33 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 14, height: 40, justifyContent: 'center', backgroundColor: palette.tile },
   chipText: { color: palette.text, fontSize: 15 },
   chipTextOn: { color: palette.background, fontWeight: '600' },
+
+  sheet: { flex: 1, backgroundColor: palette.background },
+  sheetHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 8,
+  },
+  sheetTitle: { color: palette.text, fontSize: 22, fontWeight: '600', letterSpacing: -0.4 },
+  sheetClose: { color: palette.muted, fontSize: 17 },
+  sheetBody: { paddingHorizontal: 20, paddingBottom: 40, gap: 18 },
+  headerButton: { color: palette.text, fontSize: 20, letterSpacing: 1 },
+
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    backgroundColor: palette.tile,
+  },
+  rowText: { flex: 1, gap: 3 },
+  rowLabel: { color: palette.text, fontSize: 17 },
+  rowDetail: { color: palette.muted, fontSize: 14 },
+  rowChevron: { color: palette.faint, fontSize: 22 },
 
   scanSurface: { flex: 1, backgroundColor: '#000' },
   /* A single rounded window rather than four brackets: at full-bleed the

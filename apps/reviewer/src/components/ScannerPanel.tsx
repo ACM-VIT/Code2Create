@@ -17,6 +17,7 @@ import {
   type BarcodeType,
 } from 'expo-camera'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Stack } from 'expo-router'
 import { AppState, Platform, ScrollView, StyleSheet, View } from 'react-native'
 
 import {
@@ -31,8 +32,11 @@ import {
   Nothing,
   Problem,
   QuietAction,
+  HeaderButton,
+  Row,
   ScanSurface,
   Section,
+  Sheet,
   Shell,
   Viewfinder,
 } from '@/components/ui'
@@ -1044,92 +1048,11 @@ function ScannerSurface({
   // The scanner proper: camera edge to edge, controls floating over it, the
   // person who was just read rising from the bottom. Everything that is not
   // scanning lives behind "Other tasks" rather than stacked above the camera.
-  if (task === 'presence' && !showTools) {
-    return (
-      <ScanSurface
-        camera={
-          <CameraView
-            barcodeScannerSettings={{ barcodeTypes }}
-            facing="back"
-            onBarcodeScanned={
-              busy || replaying || receipt || pendingConfirmation ? undefined : handleBarcode
-            }
-            style={StyleSheet.absoluteFill}
-          />
-        }
-        {...(receipt
-          ? {
-              outcome: {
-                colour: receipt.outcome === 'accepted' ? palette.judging : palette.urgent,
-                ink: receipt.outcome === 'accepted' ? palette.onJudging : palette.text,
-                text: outcomeName(receipt.outcome),
-              },
-            }
-          : {})}
-        result={
-          <>
-            {receipt ? (
-              <>
-                {receipt.participant ? (
-                  <>
-                    <Heading>{receipt.participant.displayName}</Heading>
-                    {receipt.participant.teamName ? (
-                      <Meta>{receipt.participant.teamName}</Meta>
-                    ) : null}
-                  </>
-                ) : null}
-                {receipt.outcome === 'accepted' ? (
-                  <Meta>{reasonName(receipt.reasonCode)}</Meta>
-                ) : (
-                  <Problem>{reasonName(receipt.reasonCode)}</Problem>
-                )}
-                <Action
-                  accent={palette.door}
-                  label="Scan next"
-                  onPress={() => {
-                    setReceipt(null)
-                    setScanError(null)
-                  }}
-                />
-              </>
-            ) : (
-              <>
-                <ChipRow
-                  accent={palette.door}
-                  onSelect={(option) => {
-                    setChosenTransition(option)
-                    setScanError(null)
-                  }}
-                  options={availableTransitions.map(
-                    (option) => [option, transitionName(option)] as const,
-                  )}
-                  selected={transition}
-                  wrap={false}
-                />
-                <Meta>{transitionStatement(transition, assignment.openSession)}</Meta>
-                {scanError ? <Problem>{scanError}</Problem> : null}
-                {pendingSummary.count > 0 ? (
-                  <Meta>
-                    {pendingSummary.count} scan{pendingSummary.count === 1 ? '' : 's'} still to send
-                  </Meta>
-                ) : null}
-                <QuietAction label="Other tasks" onPress={() => setShowTools(true)} />
-              </>
-            )}
-          </>
-        }
-      />
-    )
-  }
-
-  return (
-    <ScrollView
-      contentContainerStyle={styles.toolsContent}
-      contentInsetAdjustmentBehavior="automatic"
-    >
-      {task === 'presence' ? (
-        <QuietAction label="Back to scanning" onPress={() => setShowTools(false)} />
-      ) : null}
+  // Everything this station can do that is not reading a badge. It is the
+  // whole screen when setting up credentials, and a sheet over the scanner the
+  // rest of the time.
+  const tools = (
+    <>
       <Lead
         accent={palette.door}
         detail={`${assignment.station.name} · ${assignment.station.zoneName}${
@@ -1303,9 +1226,140 @@ function ScannerSurface({
           <QuietAction label="Try again" onPress={() => setScanError(null)} />
         </Section>
       ) : null}
+    </>
+  )
+
+  if (task === 'presence') {
+    return (
+      <>
+      <Stack.Screen
+        options={{ headerRight: () => <HeaderButton label="Other tasks" onPress={() => setShowTools(true)} /> }}
+      />
+      <ScanSurface
+        camera={
+          <CameraView
+            barcodeScannerSettings={{ barcodeTypes }}
+            facing="back"
+            onBarcodeScanned={
+              busy || replaying || receipt || pendingConfirmation ? undefined : handleBarcode
+            }
+            style={StyleSheet.absoluteFill}
+          />
+        }
+        {...(receipt
+          ? {
+              outcome: {
+                colour: receipt.outcome === 'accepted' ? palette.judging : palette.urgent,
+                ink: receipt.outcome === 'accepted' ? palette.onJudging : palette.text,
+                text: outcomeName(receipt.outcome),
+              },
+            }
+          : {})}
+        result={
+          <>
+            {receipt ? (
+              <>
+                {receipt.participant ? (
+                  <>
+                    <Heading>{receipt.participant.displayName}</Heading>
+                    {receipt.participant.teamName ? (
+                      <Meta>{receipt.participant.teamName}</Meta>
+                    ) : null}
+                  </>
+                ) : null}
+                {receipt.outcome === 'accepted' ? (
+                  <Meta>{reasonName(receipt.reasonCode)}</Meta>
+                ) : (
+                  <Problem>{reasonName(receipt.reasonCode)}</Problem>
+                )}
+                <Action
+                  accent={palette.door}
+                  label="Scan next"
+                  onPress={() => {
+                    setReceipt(null)
+                    setScanError(null)
+                  }}
+                />
+              </>
+            ) : (
+              <>
+                <ChipRow
+                  accent={palette.door}
+                  onSelect={(option) => {
+                    setChosenTransition(option)
+                    setScanError(null)
+                  }}
+                  options={availableTransitions.map(
+                    (option) => [option, transitionName(option)] as const,
+                  )}
+                  selected={transition}
+                  wrap={false}
+                />
+                <Meta>{transitionStatement(transition, assignment.openSession)}</Meta>
+                {scanError ? <Problem>{scanError}</Problem> : null}
+                {pendingSummary.count > 0 ? (
+                  <Meta>
+                    {pendingSummary.count} scan{pendingSummary.count === 1 ? '' : 's'} still to send
+                  </Meta>
+                ) : null}
+              </>
+            )}
+          </>
+        }
+      />
+      {/* A sheet is a list of choices, not the scanning screen folded in half.
+          Each row states where something stands before it offers a way in. */}
+      <Sheet onClose={() => setShowTools(false)} title="This door" visible={showTools}>
+        <Row
+          detail={`${assignment.station.zoneName}${
+            assignment.openSession ? ` · ${assignment.openSession.name}` : ''
+          }`}
+          label={assignment.station.name}
+        />
+        <Row
+          detail={
+            displayedHeartbeatState.status === 'error'
+              ? displayedHeartbeatState.message
+              : displayedHeartbeatState.status === 'checking'
+                ? 'Checking'
+                : 'Reaching the server fine'
+          }
+          label="Connection"
+        />
+        <Row
+          detail={
+            pendingSummary.count === 0
+              ? 'Everything has reached the server'
+              : `${pendingSummary.count} still on this phone`
+          }
+          label="Unsent scans"
+          {...(pendingSummary.count > 0 && !replaying
+            ? { onPress: () => void replayPending() }
+            : {})}
+        />
+        <Row
+          detail="Issue badges and enrol ID cards instead of recording presence"
+          label="Arrival and credentials"
+          onPress={() => {
+            setShowTools(false)
+            startTask('staffed')
+          }}
+        />
+      </Sheet>
+      </>
+    )
+  }
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.toolsContent}
+      contentInsetAdjustmentBehavior="automatic"
+    >
+      {tools}
     </ScrollView>
   )
 }
+
 
 function CredentialSetupInstructions({
   credentialSetup,
