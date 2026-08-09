@@ -100,71 +100,14 @@ export function ReviewRoundBoard() {
 
       <p className="board-section-label">Panels</p>
       <div className="panel-list">
-        {[...board.panels].sort(byPanelUrgency).map((panel) => {
-          const substitutionPanel = substitutions.panels.find(
-            (candidate) => candidate.panelId === panel.id,
-          )
-          const present = panel.reviewers.filter(
-            (reviewer) => reviewer.clockInStatus === 'present',
-          )
-          const short = panel.reviewers.length - present.length
-          return (
-            <article className={`panel-row ${short > 0 ? 'short' : 'ready'}`} key={panel.id}>
-              <span className={`row-glyph ${short > 0 ? 'attention' : 'watch'}`}>
-                <Icon name={short > 0 ? 'alert' : 'seat'} />
-              </span>
-              <div className="panel-row-text">
-                <strong>
-                  {panel.tableLabel}
-                  <span className="row-context"> · {panel.name}</span>
-                </strong>
-                <ul className="panel-reviewers">
-                  {panel.reviewers.map((reviewer) => {
-                    const state = reviewerState(reviewer, board.serverNow)
-                    return (
-                      <li className={reviewer.clockInStatus === 'present' ? '' : 'away'} key={reviewer.personId}>
-                        <span>
-                          {reviewer.displayName}
-                          {reviewer.isCoordinator ? ' · runs this panel' : ''}
-                        </span>
-                        {/* A reviewer who is at the table needs no commentary; a
-                            stale heartbeat is already a system check. */}
-                        {reviewer.clockInStatus === 'present' ? null : <small>{state}</small>}
-                        {reviewer.clockInStatus !== 'present' && substitutionPanel ? (
-                          <ReviewerNoShow
-                            member={substitutionPanel.activeMembers.find(
-                              (member) => member.personId === reviewer.personId,
-                            )}
-                            panelVersion={substitutionPanel.panelVersion}
-                          />
-                        ) : null}
-                      </li>
-                    )
-                  })}
-                </ul>
-                {short > 0 ? (
-                  <small className="panel-shortfall">
-                    {short === 1 ? 'One seat empty' : `${short} seats empty`} — reviews here cannot start
-                  </small>
-                ) : null}
-              </div>
-              <div className="panel-row-actions">
-                {substitutionPanel ? (
-                  <SubstitutionControl panel={substitutionPanel} serverNow={substitutions.serverNow} />
-                ) : null}
-                {substitutionPanel ? (
-                  <PanelMembership
-                    key={substitutionPanel.panelVersion}
-                    panel={substitutionPanel}
-                    reserves={substitutions.reserves}
-                  />
-                ) : null}
-                {panel.canPause ? <PanelAvailability panel={panel} /> : null}
-
-              </div>
-            </article>
-          )
-        })}
+        {[...board.panels].sort(byPanelUrgency).map((panel) => (
+          <PanelRow
+            board={board}
+            key={panel.id}
+            panel={panel}
+            substitutions={substitutions}
+          />
+        ))}
       </div>
 
       {substitutions.reserves.length > 0 ? (
@@ -229,12 +172,157 @@ function panelShortfall(panel: Panel) {
 function byPanelUrgency(left: Panel, right: Panel) {
   return (
     panelShortfall(right) - panelShortfall(left) ||
-    left.tableLabel.localeCompare(right.tableLabel)
+    left.name.localeCompare(right.name)
   )
 }
 
 function countTeams(board: Board, state: Team['state']) {
   return board.teams.filter((team) => team.state === state).length
+}
+
+/**
+ * One panel, closed to a single line until you ask for it.
+ *
+ * The board listed every reviewer of every panel at once, so four panels filled
+ * the screen before the desk queue below them was visible. Closed, a row answers
+ * "can this table review?"; opened, it answers everything else about that table.
+ */
+function PanelRow({
+  board,
+  panel,
+  substitutions,
+}: {
+  board: Board
+  panel: Panel
+  substitutions: Substitutions
+}) {
+  const [open, setOpen] = useState(false)
+  const substitutionPanel = substitutions.panels.find(
+    (candidate) => candidate.panelId === panel.id,
+  )
+  const short = panelShortfall(panel)
+  const teams = board.teams.filter((team) => team.panelId === panel.id)
+  const waiting = teams.filter(
+    (team) => team.state === 'queued' || team.state === 'called' || team.state === 'at_table',
+  )
+  const live = teams.filter((team) => team.state === 'in_review')
+  const done = teams.filter((team) => team.state === 'completed')
+
+  return (
+    <article className={`panel-row ${short > 0 ? 'short' : 'ready'} ${open ? 'open' : ''}`}>
+      <button
+        aria-expanded={open}
+        className="panel-row-summary"
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className={`row-glyph ${short > 0 ? 'attention' : 'watch'}`}>
+          <Icon name={short > 0 ? 'alert' : 'seat'} />
+        </span>
+        <span className="panel-row-text">
+          <strong>
+            {panel.name}
+            {live[0] ? <span className="row-context"> · at {live[0].teamName}</span> : null}
+          </strong>
+          <small>
+            {panelSummary({
+              short,
+              total: panel.reviewers.length,
+              waiting: waiting.length,
+              reviewing: live[0]?.teamName,
+            })}
+          </small>
+        </span>
+        <span className="panel-row-chevron" aria-hidden="true">{open ? '⌄' : '›'}</span>
+      </button>
+
+      {open ? (
+        <div className="panel-detail">
+          <div className="panel-detail-block">
+            <p className="board-section-label">Reviewers</p>
+            <ul className="panel-reviewers">
+              {panel.reviewers.map((reviewer) => (
+                <li className={reviewer.clockInStatus === 'present' ? '' : 'away'} key={reviewer.personId}>
+                  <span>
+                    {reviewer.displayName}
+                    {reviewer.isCoordinator ? ' · runs this panel' : ''}
+                  </span>
+                  {/* A reviewer who is at the table needs no commentary; a
+                      stale heartbeat is already a system check. */}
+                  {reviewer.clockInStatus === 'present' ? null : (
+                    <small>{reviewerState(reviewer, board.serverNow)}</small>
+                  )}
+                  {reviewer.clockInStatus !== 'present' && substitutionPanel ? (
+                    <ReviewerNoShow
+                      member={substitutionPanel.activeMembers.find(
+                        (member) => member.personId === reviewer.personId,
+                      )}
+                      panelVersion={substitutionPanel.panelVersion}
+                    />
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="panel-detail-block">
+            <p className="board-section-label">Teams routed to this panel</p>
+            {teams.length === 0 ? (
+              <p className="muted">Nothing routed here yet.</p>
+            ) : (
+              <ul className="panel-team-list">
+                {[...live, ...waiting, ...done].map((team) => (
+                  <li key={team.stateId ?? team.teamId}>
+                    <span>{team.teamName}</span>
+                    <small>{teamRoundStateOperatorLabels[team.state]}</small>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="panel-row-actions">
+            {substitutionPanel ? (
+              <SubstitutionControl panel={substitutionPanel} serverNow={substitutions.serverNow} />
+            ) : null}
+            {substitutionPanel ? (
+              <PanelMembership
+                key={substitutionPanel.panelVersion}
+                panel={substitutionPanel}
+                reserves={substitutions.reserves}
+              />
+            ) : null}
+            {panel.canPause ? <PanelAvailability panel={panel} /> : null}
+          </div>
+        </div>
+      ) : null}
+    </article>
+  )
+}
+
+/**
+ * The one line a closed panel gets: can it review, and what is it doing.
+ *
+ * A panel is people, not a place. It walks to whichever team's table it is
+ * reviewing, so its location is the team it is with, never a table of its own.
+ */
+function panelSummary(counts: {
+  short: number
+  total: number
+  waiting: number
+  reviewing: string | undefined
+}) {
+  if (counts.short > 0) {
+    const seats = counts.short === 1 ? 'One reviewer is missing' : `${counts.short} reviewers are missing`
+    return `${seats}. This panel cannot start a review.`
+  }
+  if (counts.reviewing) {
+    return `All ${counts.total} reviewers present. Reviewing now.`
+  }
+  if (counts.waiting > 0) {
+    return `All ${counts.total} reviewers present. ${counts.waiting} ${counts.waiting === 1 ? 'team is' : 'teams are'} waiting for it.`
+  }
+  return `All ${counts.total} reviewers present. Nothing waiting.`
 }
 
 function RoundPauseControl({ round, incidents }: { round: Board['round']; incidents: ActiveIncident[] }) {
@@ -855,7 +943,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
             <span className="visually-hidden">Panel</span>
             <select value={selectedPanel?.id ?? ''} onChange={(event) => setSelectedPanelId(event.target.value)}>
               {manageablePanels.map((panel) => (
-                <option key={panel.id} value={panel.id}>{panel.tableLabel} · {panel.name}</option>
+                <option key={panel.id} value={panel.id}>{panel.name}</option>
               ))}
             </select>
           </label>
@@ -1149,7 +1237,7 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
               <span>Target panel</span>
               <select value={targetPanelId} onChange={(event) => { setTargetPanelId(event.target.value); changed() }}>
                 {moveTargets.map((panel) => (
-                  <option key={panel.id} value={panel.id}>{panel.tableLabel} · {panel.name}</option>
+                  <option key={panel.id} value={panel.id}>{panel.name}</option>
                 ))}
               </select>
             </label>

@@ -178,7 +178,7 @@ function ReviewCompleteness({
       <div className="review-team-heading">
         <div>
           <strong>{review.teamName}</strong>
-          <span>{review.panelName} · {review.tableLabel}</span>
+          <span>Reviewed by {review.panelName}</span>
         </div>
         <div className="review-team-state">
           <strong>{reviewSessionStatusLabels[review.status]}</strong>

@@ -91,7 +91,7 @@ export function ReviewOverview({ showSetup }: { showSetup: boolean }) {
             <div className="panel-strip">
               {round.panels.map((panel) => (
                 <span key={panel.id}>
-                  {panel.tableLabel} · {panel.queuedCount} waiting · {panel.activeReviewCount} active
+                  {panel.name} · {panel.queuedCount} waiting · {panel.activeReviewCount} active
                 </span>
               ))}
             </div>
