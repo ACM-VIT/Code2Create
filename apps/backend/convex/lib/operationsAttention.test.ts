@@ -1,207 +1,116 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { reviewAttentionRows, sortAttentionRows } from "./operationsAttention.ts";
+import {
+  applyInhibition,
+  countPhrase,
+  durationPhrase,
+  joinNames,
+  sortAttentionItems,
+  type DetectedAttentionItem,
+} from "./operationsAttention.ts";
+import type { AttentionDetectorKey, AttentionSeverity } from "../values.ts";
 
 const minute = 60 * 1_000;
 const now = 1_770_000_000_000;
 
-function board(
-  overrides: Partial<Parameters<typeof reviewAttentionRows>[0]> = {},
-): Parameters<typeof reviewAttentionRows>[0] {
+function item(
+  detectorKey: AttentionDetectorKey,
+  scopes: readonly string[],
+  overrides: Partial<DetectedAttentionItem> = {},
+): DetectedAttentionItem {
   return {
-    roundId: "round1",
-    roundName: "Review 1",
-    requiredPanelSize: 3,
-    reviewDurationSeconds: 600,
-    panels: [],
-    teams: [],
-    now,
+    detectorKey,
+    dedupeKey: `${detectorKey}:${scopes.join(",")}`,
+    subjectType: "panel",
+    subjectId: scopes[0] ?? "subject",
+    severity: "attention",
+    statement: "",
+    route: "/reviews/r1",
+    actionLabel: "Open",
+    visibility: { permissionKey: "round.read", scopeType: "round", scopeId: "r1" },
+    evidenceJson: "{}",
+    scopes,
     ...overrides,
   };
 }
 
-function team(
-  overrides: Partial<Parameters<typeof reviewAttentionRows>[0]["teams"][number]> = {},
-): Parameters<typeof reviewAttentionRows>[0]["teams"][number] {
-  return {
-    teamName: "Nightshift",
-    state: "queued",
-    canHold: true,
-    canResume: true,
-    canMarkMissed: true,
-    participantAvailability: {
-      availableCount: 4,
-      requiredCount: 2,
-      isMet: true,
-      isWaived: false,
-      canWaive: true,
-    },
-    review: null,
-    ...overrides,
-  };
-}
-
-test("a healthy floor produces no rows", () => {
-  assert.deepEqual(reviewAttentionRows(board({ teams: [team()] })), []);
-});
-
-test("an empty panel seat names the panel", () => {
-  const rows = reviewAttentionRows(
-    board({
-      panels: [
-        {
-          id: "p1",
-          name: "Panel D",
-          status: "needs_reviewer",
-          reviewers: [
-            { displayName: "Asha", clockInStatus: "present" },
-            { displayName: "Ben", clockInStatus: "present" },
-          ],
-        },
-      ],
-    }),
-  );
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0]?.subject, "Panel D");
-  assert.equal(rows[0]?.severity, "critical");
-  assert.match(rows[0]?.statement ?? "", /One seat/);
-  assert.equal(rows[0]?.route, "/reviews/round1");
-});
-
-test("a reviewer who is clocked in but away still leaves the seat empty", () => {
-  const rows = reviewAttentionRows(
-    board({
-      panels: [
-        {
-          id: "p1",
-          name: "Panel A",
-          status: "ready",
-          reviewers: [
-            { displayName: "Asha", clockInStatus: "present" },
-            { displayName: "Ben", clockInStatus: "present" },
-            { displayName: "Cal", clockInStatus: "temporarily_unavailable" },
-          ],
-        },
-      ],
-    }),
-  );
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0]?.subject, "Panel A");
-});
-
-test("an overdue review is critical and carries the time it should have ended", () => {
-  const plannedEndAt = now - 6 * minute;
-  const rows = reviewAttentionRows(
-    board({
-      teams: [
-        team({
-          state: "in_review",
-          tableLabel: "Table 2",
-          review: {
-            status: "overdue",
-            plannedEndAt,
-            reviewerPresenceCount: 3,
-            reviewerCount: 3,
-            canStart: false,
-            canComplete: true,
-          },
-        }),
-      ],
-    }),
-  );
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0]?.severity, "critical");
-  assert.equal(rows[0]?.subject, "Nightshift");
-  assert.equal(rows[0]?.context, "Review 1 · Table 2");
-  assert.equal(rows[0]?.since, plannedEndAt);
-});
-
-test("a team below the round minimum says the actual counts", () => {
-  const rows = reviewAttentionRows(
-    board({
-      teams: [
-        team({
-          participantAvailability: {
-            availableCount: 1,
-            requiredCount: 2,
-            isMet: false,
-            isWaived: false,
-            canWaive: true,
-          },
-        }),
-      ],
-    }),
-  );
-  assert.equal(rows.length, 1);
-  assert.match(rows[0]?.statement ?? "", /Only 1 .* needs 2/);
-});
-
-test("a waived team below the minimum is not still reported", () => {
-  const rows = reviewAttentionRows(
-    board({
-      teams: [
-        team({
-          participantAvailability: {
-            availableCount: 1,
-            requiredCount: 2,
-            isMet: false,
-            isWaived: true,
-            canWaive: true,
-          },
-        }),
-      ],
-    }),
-  );
-  assert.deepEqual(rows, []);
-});
-
-test("a held team shows the reason the operator recorded", () => {
-  const rows = reviewAttentionRows(
-    board({
-      teams: [team({ state: "held", holdReason: "Two members are at the clinic." })],
-    }),
-  );
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0]?.statement, "On hold: Two members are at the clinic.");
-});
-
-test("waiting is only flagged past two reviews' worth of time", () => {
-  const justUnder = reviewAttentionRows(
-    board({ teams: [team({ queuedAt: now - 19 * minute })] }),
-  );
-  assert.deepEqual(justUnder, []);
-
-  const justOver = reviewAttentionRows(
-    board({ teams: [team({ queuedAt: now - 21 * minute })] }),
-  );
-  assert.equal(justOver.length, 1);
-  assert.equal(justOver[0]?.severity, "watch");
-});
-
-test("canAct is false when the caller cannot run the fix", () => {
-  const rows = reviewAttentionRows(
-    board({
-      teams: [
-        team({
-          state: "held",
-          holdReason: "Waiting on a part.",
-          canResume: false,
-        }),
-      ],
-    }),
-  );
-  assert.equal(rows[0]?.canAct, false);
-});
-
-test("rows sort worst first, then longest waiting", () => {
-  const rows = sortAttentionRows([
-    { key: "c", job: "team_queue", severity: "watch", subject: "C", statement: "", route: "/", actionLabel: "", canAct: true },
-    { key: "a", job: "active_reviews", severity: "critical", subject: "A", statement: "", route: "/", actionLabel: "", canAct: true, since: now },
-    { key: "b", job: "active_reviews", severity: "critical", subject: "B", statement: "", route: "/", actionLabel: "", canAct: true, since: now - minute },
+test("a short panel silences the teams queued behind it", () => {
+  const kept = applyInhibition([
+    item("panel_seat_empty", ["panel:p1"], { severity: "critical" }),
+    item("team_waiting_long", ["team:t1", "panel:p1"], { severity: "watch" }),
+    item("team_waiting_long", ["team:t2", "panel:p2"], { severity: "watch" }),
   ]);
   assert.deepEqual(
-    rows.map((row) => row.key),
-    ["b", "a", "c"],
+    kept.map((row) => row.dedupeKey),
+    ["panel_seat_empty:panel:p1", "team_waiting_long:team:t2,panel:p2"],
   );
+});
+
+test("inhibition only fires between items that share a locus", () => {
+  const kept = applyInhibition([
+    item("panel_seat_empty", ["panel:p1"], { severity: "critical" }),
+    item("seat_at_risk", ["panel:p2", "person:x"]),
+  ]);
+  assert.equal(kept.length, 2);
+});
+
+test("a reviewer at risk on an already short panel is not stated twice", () => {
+  const kept = applyInhibition([
+    item("panel_seat_empty", ["panel:p1"], { severity: "critical" }),
+    item("seat_at_risk", ["panel:p1", "person:x"]),
+  ]);
+  assert.deepEqual(kept.map((row) => row.detectorKey), ["panel_seat_empty"]);
+});
+
+test("a team below the round minimum explains its own long wait", () => {
+  const kept = applyInhibition([
+    item("team_below_minimum", ["team:t1", "panel:p1"]),
+    item("team_waiting_long", ["team:t1", "panel:p1"], { severity: "watch" }),
+  ]);
+  assert.deepEqual(kept.map((row) => row.detectorKey), ["team_below_minimum"]);
+});
+
+test("inhibition never removes the item that causes it", () => {
+  const kept = applyInhibition([
+    item("panel_bottleneck", ["panel:p1", "round:r1"]),
+    item("panel_seat_empty", ["panel:p1"], { severity: "critical" }),
+  ]);
+  assert.deepEqual(kept.map((row) => row.detectorKey), ["panel_seat_empty"]);
+});
+
+test("an uninhibited board keeps every row", () => {
+  const rows = [
+    item("review_overdue", ["team:t1", "panel:p1"], { severity: "critical" }),
+    item("team_held", ["team:t2"]),
+    item("scorecard_outstanding", ["review:s1"], { severity: "watch" }),
+  ];
+  assert.equal(applyInhibition(rows).length, 3);
+});
+
+test("rows sort worst first, then the oldest", () => {
+  const sorted = sortAttentionItems([
+    { severity: "watch" as AttentionSeverity, firstObservedAt: now, subjectId: "c" },
+    { severity: "critical" as AttentionSeverity, firstObservedAt: now, subjectId: "a" },
+    { severity: "critical" as AttentionSeverity, firstObservedAt: now - minute, subjectId: "b" },
+  ]);
+  assert.deepEqual(sorted.map((row) => row.subjectId), ["b", "a", "c"]);
+});
+
+test("durations read the way an operator says them", () => {
+  assert.equal(durationPhrase(0), "0s");
+  assert.equal(durationPhrase(45_000), "45s");
+  assert.equal(durationPhrase(9 * minute + 40_000), "9m40s");
+  assert.equal(durationPhrase(12 * minute), "12m");
+  assert.equal(durationPhrase(90 * minute), "1h30m");
+  assert.equal(durationPhrase(2 * 60 * minute), "2h");
+  assert.equal(durationPhrase(-5_000), "0s");
+});
+
+test("counts and names read as sentences", () => {
+  assert.equal(countPhrase(1, "team", "teams"), "one team");
+  assert.equal(countPhrase(4, "team", "teams"), "4 teams");
+  assert.equal(joinNames(["Asha"]), "Asha");
+  assert.equal(joinNames(["Asha", "Ben"]), "Asha and Ben");
+  assert.equal(joinNames(["Asha", "Ben", "Cal"]), "Asha, Ben and Cal");
 });

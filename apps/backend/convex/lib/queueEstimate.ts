@@ -15,19 +15,50 @@ export type QueueEstimateInput = {
 
 const fiveMinutesInSeconds = 5 * 60;
 
-export function estimateQueueWindow(input: QueueEstimateInput): QueueEstimate {
-  const configuredDuration = validDuration(input.configuredDurationSeconds)
-    ? input.configuredDurationSeconds
+export type ObservedPace = {
+  /** Seconds per review, clamped either side of the configured duration. */
+  paceSeconds: number;
+  sampleSize: number;
+  basis: "configured" | "observed";
+};
+
+/**
+ * How long one review is actually taking.
+ *
+ * A median of the last few completed reviews tracks the floor without letting
+ * one forty-minute argument or one two-minute walkout move the number, and the
+ * clamp keeps a thin or unlucky sample from producing a pace nobody would say
+ * out loud. Both the participant's queue window and the round-completion
+ * forecast read the floor the same way, so they never disagree.
+ */
+export function observedPace(
+  configuredDurationSeconds: number,
+  completedDurationsSeconds: readonly number[],
+): ObservedPace {
+  const configuredDuration = validDuration(configuredDurationSeconds)
+    ? configuredDurationSeconds
     : 10 * 60;
-  const samples = input.completedDurationsSeconds
+  const samples = completedDurationsSeconds
     .filter(validDuration)
     .slice(0, 9)
     .sort((left, right) => left - right);
   const observedDuration = samples.length >= 3 ? median(samples) : configuredDuration;
-  const boundedPace = Math.min(
-    configuredDuration * 1.5,
-    Math.max(configuredDuration * 0.65, observedDuration),
+  return {
+    paceSeconds: Math.min(
+      configuredDuration * 1.5,
+      Math.max(configuredDuration * 0.65, observedDuration),
+    ),
+    sampleSize: samples.length,
+    basis: samples.length >= 3 ? "observed" : "configured",
+  };
+}
+
+export function estimateQueueWindow(input: QueueEstimateInput): QueueEstimate {
+  const pace = observedPace(
+    input.configuredDurationSeconds,
+    input.completedDurationsSeconds,
   );
+  const boundedPace = pace.paceSeconds;
   const activeReviewSeconds =
     input.activeReviewPlannedEndAt === undefined
       ? 0
@@ -43,8 +74,8 @@ export function estimateQueueWindow(input: QueueEstimateInput): QueueEstimate {
   return {
     lowerMinutes: roundDownToFiveMinutes(lowerSeconds),
     upperMinutes: roundUpToFiveMinutes(upperSeconds),
-    sampleSize: samples.length,
-    basis: samples.length >= 3 ? "observed" : "configured",
+    sampleSize: pace.sampleSize,
+    basis: pace.basis,
   };
 }
 

@@ -83,6 +83,7 @@ export const permissionCatalog = {
   "configuration.intelligence.validate": { scopes: [], eventWide: true },
   "configuration.intelligence.publish": { scopes: [], eventWide: true },
   "operations.health.read": { scopes: [], eventWide: true },
+  "operations.attention.manage": { scopes: [], eventWide: true },
   "operations.intelligence.read": { scopes: [], eventWide: true },
   "operations.intelligence.generate": { scopes: [], eventWide: true },
   "support.case.create": { scopes: ["self"], eventWide: true },

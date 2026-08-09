@@ -10,6 +10,11 @@ import {
   admissionReviewAssignmentState,
   applicationState,
   attendanceCredentialKind,
+  attentionDetectorKey,
+  attentionItemState,
+  attentionScopeType,
+  attentionSeverity,
+  attentionSubjectType,
   attendanceExportField,
   attendanceManualTransition,
   barcodeSymbology,
@@ -17,6 +22,14 @@ import {
   eventPhaseKey,
   eventStatus,
   eventRole,
+  floorArea,
+  floorLocationMethod,
+  floorLocationState,
+  floorMappingClaimState,
+  floorMappingMode,
+  floorMappingState,
+  floorPlanStatus,
+  floorTeamQrTokenState,
   intakeAnswerLength,
   intakeQuestionPurpose,
   memberRole,
@@ -811,17 +824,8 @@ export default defineSchema({
     eventId: v.id("events"),
     planNumber: v.number(),
     name: v.string(),
-    status: v.union(
-      v.literal("draft"),
-      v.literal("published"),
-      v.literal("superseded"),
-      v.literal("retired"),
-    ),
-    mappingState: v.union(
-      v.literal("setup"),
-      v.literal("open"),
-      v.literal("frozen"),
-    ),
+    status: floorPlanStatus,
+    mappingState: floorMappingState,
     checksum: v.string(),
     version: v.number(),
     createdByPersonId: v.id("people"),
@@ -835,27 +839,33 @@ export default defineSchema({
     .index("by_event_status", ["eventId", "status"])
     .index("by_event_number", ["eventId", "planNumber"]),
 
+  // A zone is a rectangle of the hall, published with the proportions of the
+  // real room so a phone can draw it without distorting where anybody is.
   floorZones: defineTable({
     eventId: v.id("events"),
     planVersionId: v.id("floorPlanVersions"),
     stableKey: v.string(),
     name: v.string(),
+    widthMeters: v.number(),
+    depthMeters: v.number(),
     displayOrder: v.number(),
     createdAt: v.number(),
   })
     .index("by_plan_order", ["planVersionId", "displayOrder"])
     .index("by_plan_key", ["planVersionId", "stableKey"]),
 
-  floorSpots: defineTable({
+  // The fixed things in the room: the stage, the doors, the windows, the food
+  // counter. They are what a mapper aligns the drawn rectangle against, and
+  // what an operator names when telling a reviewer where to walk. Tables are
+  // not landmarks; participants move those.
+  floorLandmarks: defineTable({
     eventId: v.id("events"),
     planVersionId: v.id("floorPlanVersions"),
     zoneId: v.id("floorZones"),
     stableKey: v.string(),
-    label: v.string(),
+    name: v.string(),
     x: v.number(),
     y: v.number(),
-    accessible: v.boolean(),
-    status: v.union(v.literal("available"), v.literal("closed")),
     displayOrder: v.number(),
     createdAt: v.number(),
   })
@@ -863,14 +873,20 @@ export default defineSchema({
     .index("by_zone_order", ["zoneId", "displayOrder"])
     .index("by_plan_key", ["planVersionId", "stableKey"]),
 
+  // Where a team was observed sitting: a point in its zone's rectangle, as
+  // percentages of the zone's width and depth. There is no spot to claim, so
+  // two teams sitting next to each other is an ordinary reading, not a
+  // conflict.
   teamFloorLocations: defineTable({
     eventId: v.id("events"),
     planVersionId: v.id("floorPlanVersions"),
     teamId: v.id("teams"),
     zoneId: v.id("floorZones"),
-    spotId: v.id("floorSpots"),
-    state: v.union(v.literal("active"), v.literal("superseded")),
-    method: v.union(v.literal("team_qr_scan"), v.literal("override")),
+    x: v.number(),
+    y: v.number(),
+    area: floorArea,
+    state: floorLocationState,
+    method: floorLocationMethod,
     supersedesLocationId: v.optional(v.id("teamFloorLocations")),
     version: v.number(),
     mappedByPersonId: v.id("people"),
@@ -880,9 +896,8 @@ export default defineSchema({
     supersededByLocationId: v.optional(v.id("teamFloorLocations")),
   })
     .index("by_team_state", ["teamId", "state"])
-    .index("by_spot_state", ["spotId", "state"])
     .index("by_plan_state", ["planVersionId", "state"])
-    .index("by_zone_state_mapped", ["zoneId", "state", "mappedAt"]),
+    .index("by_zone_state", ["zoneId", "state"]),
 
   floorTeamQrTokens: defineTable({
     eventId: v.id("events"),
@@ -891,12 +906,7 @@ export default defineSchema({
     tokenDigest: v.string(),
     manualCodeDigest: v.string(),
     tokenVersion: v.number(),
-    state: v.union(
-      v.literal("active"),
-      v.literal("used"),
-      v.literal("superseded"),
-      v.literal("expired"),
-    ),
+    state: floorTeamQrTokenState,
     expiresAt: v.number(),
     issuedByMembershipId: v.id("eventMemberships"),
     issuedAt: v.number(),
@@ -913,10 +923,10 @@ export default defineSchema({
     destinationZoneId: v.id("floorZones"),
     tokenId: v.id("floorTeamQrTokens"),
     operatorPersonId: v.id("people"),
-    mode: v.union(v.literal("map"), v.literal("override")),
+    mode: floorMappingMode,
     expectedLocationId: v.optional(v.id("teamFloorLocations")),
     expectedLocationVersion: v.optional(v.number()),
-    state: v.union(v.literal("active"), v.literal("completed"), v.literal("expired")),
+    state: floorMappingClaimState,
     version: v.number(),
     expiresAt: v.number(),
     createdAt: v.number(),
@@ -4273,6 +4283,77 @@ export default defineSchema({
   })
     .index("by_event_requested", ["eventId", "requestedAt"])
     .index("by_event_state_updated", ["eventId", "state", "updatedAt"]),
+
+  /**
+   * The durable record of what needs a human, one row per named thing that is
+   * stuck.
+   *
+   * The Overview used to recompute this list on every page view, so it had no
+   * memory: nothing could be acknowledged, nothing recorded that a problem had
+   * cleared, and the same condition looked new every thirty seconds. A row here
+   * opens once, is updated while the condition persists, and is resolved by the
+   * sweep when the condition clears, which is what makes "third time tonight"
+   * and "acknowledged by Priya" expressible at all.
+   */
+  operationsAttentionItems: defineTable({
+    eventId: v.id("events"),
+    detectorKey: attentionDetectorKey,
+    /**
+     * Detector plus subject, never a value. An earlier automation keyed on the
+     * reading itself, so every tick looked like a new trigger and only a
+     * cooldown stopped the churn.
+     */
+    dedupeKey: v.string(),
+    subjectType: attentionSubjectType,
+    subjectId: v.string(),
+    severity: attentionSeverity,
+    statement: v.string(),
+    route: v.string(),
+    actionLabel: v.string(),
+    /** The grant a caller must hold to see this row at all. */
+    visibility: v.object({
+      permissionKey: v.string(),
+      scopeType: attentionScopeType,
+      scopeId: v.string(),
+    }),
+    /** What the detector read, verbatim, so the row can be argued with later. */
+    evidenceJson: v.string(),
+    /**
+     * A prefilled ordinary command. Data, never authority: confirming it opens
+     * the normal mutation, which rechecks the confirming human's grant, fresh
+     * session, target version, reason, and operation ID.
+     */
+    proposal: v.optional(
+      v.object({
+        commandName: v.string(),
+        permissionKey: v.string(),
+        scopeType: attentionScopeType,
+        scopeId: v.string(),
+        argsJson: v.string(),
+        expiresAt: v.number(),
+      }),
+    ),
+    state: attentionItemState,
+    /** 1 the first time, 2 the second time the same condition comes back. */
+    recurrenceCount: v.number(),
+    firstObservedAt: v.number(),
+    lastObservedAt: v.number(),
+    /** Set when the condition stops being observed, cleared if it returns. */
+    clearedSince: v.optional(v.number()),
+    acknowledgedByPersonId: v.optional(v.id("people")),
+    acknowledgedAt: v.optional(v.number()),
+    dismissedByPersonId: v.optional(v.id("people")),
+    dismissedAt: v.optional(v.number()),
+    resolvedAt: v.optional(v.number()),
+    version: v.number(),
+  })
+    .index("by_event_state_severity_first", [
+      "eventId",
+      "state",
+      "severity",
+      "firstObservedAt",
+    ])
+    .index("by_event_dedupe", ["eventId", "dedupeKey"]),
 
   operationResults: defineTable({
     eventId: v.id("events"),

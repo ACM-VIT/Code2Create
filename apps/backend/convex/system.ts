@@ -979,6 +979,7 @@ export const bootstrapEvent = mutation({
       "configuration.intelligence.validate",
       "configuration.intelligence.publish",
       "operations.health.read",
+      "operations.attention.manage",
       "operations.intelligence.read",
       "operations.intelligence.generate",
     ] satisfies PermissionKey[];

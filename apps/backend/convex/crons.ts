@@ -18,6 +18,19 @@ crons.interval(
   {},
 );
 
+/**
+ * The deterministic attention ledger. Thirty seconds is fast enough that an
+ * empty seat reaches the desk before the queue behind it notices, and slow
+ * enough that the clear delay still takes three passes to resolve a flapping
+ * condition.
+ */
+crons.interval(
+  "sweep review operations attention",
+  { seconds: 30 },
+  internal.operationsAttentionSweep.sweepReviewDomain,
+  {},
+);
+
 crons.interval(
   "evaluate proactive operations intelligence",
   { minutes: 1 },

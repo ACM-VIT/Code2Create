@@ -1,234 +1,163 @@
 /**
- * Turns the live review projections into the rows the Overview leads with.
+ * The contract every attention detector writes to, and the two things that keep
+ * a durable ledger honest: hysteresis and inhibition.
  *
  * `specs/06-operations-dashboard.md:5` asks the dashboard to answer two
  * questions — what needs my attention now, and where do I do that work. A
- * severity and a count answer neither. Every row here names the thing that is
- * stuck, says what is wrong in the words an operator would use, and carries the
- * route to the screen where it gets fixed.
+ * severity and a count answer neither. Every item here names the thing that is
+ * stuck, says what is wrong in the words an operator would use, carries the
+ * route to the screen where it gets fixed, and where a single command can fix
+ * it, carries that command with its arguments already filled in.
+ *
+ * A proposal is data. `specs/06-operations-dashboard.md:181` is explicit that
+ * execution is never an agent tool: confirming a proposal opens the ordinary
+ * mutation, which rechecks the confirming human's grant, scope, current state,
+ * and version. Nothing here holds authority.
  */
 
-export type AttentionSeverity = "critical" | "attention" | "watch";
+import type {
+  AttentionDetectorKey,
+  AttentionScopeType,
+  AttentionSeverity,
+  AttentionSubjectType,
+} from "../values";
 
-/** The dashboard jobs from `specs/06-operations-dashboard.md:7-17`. */
-export type AttentionJob = "panel_seats" | "team_queue" | "active_reviews";
-
-export type AttentionRow = {
-  key: string;
-  job: AttentionJob;
-  severity: AttentionSeverity;
-  subject: string;
-  context?: string;
-  statement: string;
-  since?: number;
-  route: string;
-  actionLabel: string;
-  /** False when the caller may look but holds no command grant for the fix. */
-  canAct: boolean;
+/**
+ * A prefilled command. `argsJson` is the argument object the ordinary mutation
+ * takes, minus the operation ID the confirming client mints. It carries the
+ * target's current version so a stale proposal fails against current state the
+ * same way a stale operator command does.
+ */
+export type AttentionProposal = {
+  commandName: string;
+  permissionKey: string;
+  scopeType: AttentionScopeType;
+  scopeId: string;
+  argsJson: string;
+  expiresAt: number;
 };
 
-const severityRank: Record<AttentionSeverity, number> = {
+/** The grant that lets a caller see the item at all, checked on every read. */
+export type AttentionVisibility = {
+  permissionKey: string;
+  scopeType: AttentionScopeType;
+  scopeId: string;
+};
+
+export type DetectedAttentionItem = {
+  detectorKey: AttentionDetectorKey;
+  /** Detector plus subject. Never a count, an age, or anything that varies. */
+  dedupeKey: string;
+  subjectType: AttentionSubjectType;
+  subjectId: string;
+  severity: AttentionSeverity;
+  statement: string;
+  route: string;
+  actionLabel: string;
+  visibility: AttentionVisibility;
+  /** What the detector read, kept verbatim so a row can be argued with later. */
+  evidenceJson: string;
+  /**
+   * The loci this item belongs to, as `panel:<id>` or `team:<id>`. Inhibition
+   * only fires between items that share a locus, so a short panel silences the
+   * teams queued behind it and nothing else.
+   */
+  scopes: readonly string[];
+  proposal?: AttentionProposal;
+};
+
+export const severityRank: Record<AttentionSeverity, number> = {
   critical: 0,
   attention: 1,
   watch: 2,
 };
 
 /**
- * A team is "waiting long" once it has been queued for more than two reviews'
- * worth of time, which is when the desk would start asking why.
+ * How long a condition must stay clear before its item resolves.
+ *
+ * Flapping is solved with time, not cleverness. The persistence side of the
+ * same idea lives in each detector, which only reports a condition that has
+ * already lasted a stated interval, measured from a timestamp the database
+ * already holds rather than from a counter this layer would have to keep.
  */
-const waitingMultiplier = 2;
+export const attentionClearDelayMs = 90_000;
 
-type PanelView = {
-  id: string;
-  name: string;
-  status: "draft" | "ready" | "needs_reviewer" | "paused" | "closed";
-  reviewers: ReadonlyArray<{ displayName: string; clockInStatus: string }>;
+/** How long a prefilled command stays offered before the desk must re-derive it. */
+export const attentionProposalLifetimeMs = 10 * 60 * 1_000;
+
+/**
+ * A high-severity item suppresses the low-severity ones it causes.
+ *
+ * Without this the board states one problem several times: a panel missing a
+ * reviewer also shows every team queued behind it as waiting too long, and the
+ * desk reads five rows where there is one job.
+ */
+const inhibitedBy: Record<AttentionDetectorKey, readonly AttentionDetectorKey[]> = {
+  panel_seat_empty: [],
+  seat_at_risk: ["panel_seat_empty"],
+  review_overdue: [],
+  review_presence_incomplete: ["panel_seat_empty", "seat_at_risk"],
+  team_below_minimum: [],
+  team_held: [],
+  team_call_overdue: [],
+  team_waiting_long: [
+    "panel_seat_empty",
+    "panel_bottleneck",
+    "team_below_minimum",
+    "team_held",
+  ],
+  round_finish_forecast: [],
+  panel_bottleneck: ["panel_seat_empty"],
+  scorecard_outstanding: [],
 };
 
-type TeamView = {
-  teamName: string;
-  state:
-    | "unassigned"
-    | "queued"
-    | "called"
-    | "at_table"
-    | "in_review"
-    | "completed"
-    | "held"
-    | "missed"
-    | "withdrawn";
-  queuedAt?: number;
-  tableLabel?: string;
-  holdReason?: string;
-  missedEligibleAt?: number;
-  canHold: boolean;
-  canResume: boolean;
-  canMarkMissed: boolean;
-  participantAvailability: {
-    availableCount: number;
-    requiredCount: number;
-    isMet: boolean;
-    isWaived: boolean;
-    canWaive: boolean;
-  };
-  review: {
-    status: "awaiting_presence" | "active" | "overdue" | "completed" | "cancelled";
-    plannedEndAt?: number;
-    reviewerPresenceCount: number;
-    reviewerCount: number;
-    canStart: boolean;
-    canComplete: boolean;
-  } | null;
-};
-
-export function reviewAttentionRows(input: {
-  roundId: string;
-  roundName: string;
-  requiredPanelSize: number;
-  reviewDurationSeconds: number;
-  panels: ReadonlyArray<PanelView>;
-  teams: ReadonlyArray<TeamView>;
-  now: number;
-}): AttentionRow[] {
-  const route = `/reviews/${input.roundId}`;
-  const rows: AttentionRow[] = [];
-
-  for (const panel of input.panels) {
-    const present = panel.reviewers.filter(
-      (reviewer) => reviewer.clockInStatus === "present",
-    ).length;
-    if (panel.status !== "needs_reviewer" && present >= input.requiredPanelSize) continue;
-    const missing = input.requiredPanelSize - present;
-    rows.push({
-      key: `panel_seat_empty:${panel.id}`,
-      job: "panel_seats",
-      severity: "critical",
-      subject: panel.name,
-      context: input.roundName,
-      statement:
-        missing === 1
-          ? "One seat has nobody in it. Reviews here cannot start."
-          : `${missing} seats have nobody in them. Reviews here cannot start.`,
-      route,
-      actionLabel: "Page a substitute",
-      canAct: true,
-    });
-  }
-
-  for (const team of input.teams) {
-    const at = team.tableLabel ? `${input.roundName} · ${team.tableLabel}` : input.roundName;
-
-    if (team.review?.status === "overdue") {
-      rows.push({
-        key: `review_overdue:${team.teamName}`,
-        job: "active_reviews",
-        severity: "critical",
-        subject: team.teamName,
-        context: at,
-        statement: "This review has passed the time it was meant to finish.",
-        ...(team.review.plannedEndAt === undefined ? {} : { since: team.review.plannedEndAt }),
-        route,
-        actionLabel: "Extend or close it",
-        canAct: team.review.canComplete,
-      });
-    }
-
-    if (
-      team.review?.status === "awaiting_presence" &&
-      team.review.reviewerPresenceCount < team.review.reviewerCount
-    ) {
-      rows.push({
-        key: `presence_incomplete:${team.teamName}`,
-        job: "active_reviews",
-        severity: "attention",
-        subject: team.teamName,
-        context: at,
-        statement: `${team.review.reviewerPresenceCount} of ${team.review.reviewerCount} reviewers have scanned in, so the review cannot start.`,
-        route,
-        actionLabel: "Check the table",
-        canAct: team.review.canStart,
-      });
-    }
-
-    if (!team.participantAvailability.isMet && !team.participantAvailability.isWaived) {
-      const { availableCount, requiredCount } = team.participantAvailability;
-      rows.push({
-        key: `below_minimum:${team.teamName}`,
-        job: "team_queue",
-        severity: "attention",
-        subject: team.teamName,
-        context: at,
-        statement: `Only ${availableCount} of the team is in the hall; this round needs ${requiredCount}. The desk cannot call them yet.`,
-        route,
-        actionLabel: "Record an exception",
-        canAct: team.participantAvailability.canWaive,
-      });
-    }
-
-    if (team.state === "held") {
-      rows.push({
-        key: `team_held:${team.teamName}`,
-        job: "team_queue",
-        severity: "attention",
-        subject: team.teamName,
-        context: at,
-        statement: team.holdReason
-          ? `On hold: ${team.holdReason}`
-          : "On hold, with no reason recorded.",
-        route,
-        actionLabel: "Take them off hold",
-        canAct: team.canResume,
-      });
-    }
-
-    if (
-      team.state === "called" &&
-      team.missedEligibleAt !== undefined &&
-      input.now > team.missedEligibleAt
-    ) {
-      rows.push({
-        key: `call_overdue:${team.teamName}`,
-        job: "team_queue",
-        severity: "attention",
-        subject: team.teamName,
-        context: at,
-        statement: "Called to the table, but the grace period has run out.",
-        since: team.missedEligibleAt,
-        route,
-        actionLabel: "Mark them missed",
-        canAct: team.canMarkMissed,
-      });
-    }
-
-    if (team.state === "queued" && team.queuedAt !== undefined) {
-      const waitedFor = input.now - team.queuedAt;
-      if (waitedFor > waitingMultiplier * input.reviewDurationSeconds * 1_000) {
-        rows.push({
-          key: `waiting_long:${team.teamName}`,
-          job: "team_queue",
-          severity: "watch",
-          subject: team.teamName,
-          context: at,
-          statement: "Has been waiting longer than two reviews' worth of time.",
-          since: team.queuedAt,
-          route,
-          actionLabel: "Move them up the queue",
-          canAct: team.canHold,
-        });
-      }
-    }
-  }
-
-  return rows;
+/** Drops items whose cause is already stated by a higher-severity neighbour. */
+export function applyInhibition(
+  items: readonly DetectedAttentionItem[],
+): DetectedAttentionItem[] {
+  return items.filter((item) => {
+    const suppressors = inhibitedBy[item.detectorKey];
+    if (suppressors.length === 0) return true;
+    return !items.some(
+      (other) =>
+        other !== item &&
+        suppressors.includes(other.detectorKey) &&
+        other.scopes.some((scope) => item.scopes.includes(scope)),
+    );
+  });
 }
 
-/** Most urgent first, then longest-waiting, so the top row is the next job. */
-export function sortAttentionRows(rows: readonly AttentionRow[]): AttentionRow[] {
-  return [...rows].sort(
+/** Worst first, then the oldest, so the top row is the next job. */
+export function sortAttentionItems<
+  Item extends { severity: AttentionSeverity; firstObservedAt: number; subjectId: string },
+>(items: readonly Item[]): Item[] {
+  return [...items].sort(
     (left, right) =>
       severityRank[left.severity] - severityRank[right.severity] ||
-      (left.since ?? Number.MAX_SAFE_INTEGER) - (right.since ?? Number.MAX_SAFE_INTEGER) ||
-      left.subject.localeCompare(right.subject),
+      left.firstObservedAt - right.firstObservedAt ||
+      left.subjectId.localeCompare(right.subjectId),
   );
+}
+
+/** "9m40s", the unit an operator uses out loud for a pace or an overrun. */
+export function durationPhrase(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.round(milliseconds / 1_000));
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return minutes === 0 ? `${hours}h` : `${hours}h${minutes}m`;
+  if (minutes > 0) return seconds === 0 ? `${minutes}m` : `${minutes}m${seconds}s`;
+  return `${seconds}s`;
+}
+
+/** "4 teams" / "one team", so a statement reads like a sentence. */
+export function countPhrase(count: number, singular: string, plural: string) {
+  return count === 1 ? `one ${singular}` : `${count} ${plural}`;
+}
+
+export function joinNames(names: readonly string[]) {
+  if (names.length === 0) throw new Error("A statement cannot list no names.");
+  if (names.length === 1) return names[0] ?? "";
+  const head = names.slice(0, -1).join(", ");
+  return `${head} and ${names[names.length - 1] ?? ""}`;
 }

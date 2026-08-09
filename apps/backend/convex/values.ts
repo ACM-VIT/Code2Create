@@ -547,6 +547,65 @@ export const figmaPreviewState = v.union(
   v.literal("failed"),
 );
 
+export const floorPlanStatus = v.union(
+  v.literal("draft"),
+  v.literal("published"),
+  v.literal("superseded"),
+  v.literal("retired"),
+);
+
+export const floorMappingState = v.union(
+  v.literal("setup"),
+  v.literal("open"),
+  v.literal("frozen"),
+);
+
+/** The two states in which a published plan is visible to floor staff at all. */
+export const floorActiveMappingState = v.union(v.literal("open"), v.literal("frozen"));
+
+export const floorMappingMode = v.union(v.literal("map"), v.literal("override"));
+
+export const floorTeamQrTokenState = v.union(
+  v.literal("active"),
+  v.literal("used"),
+  v.literal("superseded"),
+  v.literal("expired"),
+);
+
+export const floorMappingClaimState = v.union(
+  v.literal("active"),
+  v.literal("completed"),
+  v.literal("expired"),
+);
+
+export const floorLocationState = v.union(v.literal("active"), v.literal("superseded"));
+
+export const floorLocationMethod = v.union(
+  v.literal("team_qr_scan"),
+  v.literal("override"),
+);
+
+/**
+ * The nine parts of a hall zone that an operator can say out loud. A team's
+ * recorded position is a point in the zone rectangle; this is the part of that
+ * rectangle the point falls in, and it is the only granularity anybody is
+ * asked to believe.
+ */
+export const floorArea = v.union(
+  v.literal("north_west"),
+  v.literal("north"),
+  v.literal("north_east"),
+  v.literal("west"),
+  v.literal("centre"),
+  v.literal("east"),
+  v.literal("south_west"),
+  v.literal("south"),
+  v.literal("south_east"),
+);
+
+export type FloorArea = Infer<typeof floorArea>;
+export type FloorMappingState = Infer<typeof floorMappingState>;
+
 export const rosterEntryStatus = v.union(
   v.literal("pending"),
   v.literal("claimed"),
@@ -554,3 +613,64 @@ export const rosterEntryStatus = v.union(
   v.literal("superseded"),
   v.literal("expired"),
 );
+
+export const attentionSeverity = v.union(
+  v.literal("critical"),
+  v.literal("attention"),
+  v.literal("watch"),
+);
+
+/**
+ * One key per deterministic detector. The key is half of an item's identity;
+ * the other half is the subject it names, never anything that varies with the
+ * reading (a count, an age, a timestamp).
+ */
+export const attentionDetectorKey = v.union(
+  v.literal("panel_seat_empty"),
+  v.literal("seat_at_risk"),
+  v.literal("review_overdue"),
+  v.literal("review_presence_incomplete"),
+  v.literal("team_below_minimum"),
+  v.literal("team_held"),
+  v.literal("team_call_overdue"),
+  v.literal("team_waiting_long"),
+  v.literal("round_finish_forecast"),
+  v.literal("panel_bottleneck"),
+  v.literal("scorecard_outstanding"),
+);
+
+export const attentionSubjectType = v.union(
+  v.literal("round"),
+  v.literal("panel"),
+  v.literal("panel_member"),
+  v.literal("team"),
+  v.literal("review"),
+);
+
+/**
+ * `resolved` is written by the sweep when the condition clears, which is the
+ * memory a recomputed list cannot have. `dismissed` is a human saying this is
+ * not a problem; the sweep keeps updating it but the board stops leading with
+ * it.
+ */
+export const attentionItemState = v.union(
+  v.literal("open"),
+  v.literal("acknowledged"),
+  v.literal("resolved"),
+  v.literal("dismissed"),
+);
+
+/** The scope kinds an attention proposal or visibility rule can resolve. */
+export const attentionScopeType = v.union(
+  v.literal("round"),
+  v.literal("panel"),
+  v.literal("review"),
+  v.literal("team"),
+  v.literal("person"),
+);
+
+export type AttentionSeverity = Infer<typeof attentionSeverity>;
+export type AttentionDetectorKey = Infer<typeof attentionDetectorKey>;
+export type AttentionSubjectType = Infer<typeof attentionSubjectType>;
+export type AttentionItemState = Infer<typeof attentionItemState>;
+export type AttentionScopeType = Infer<typeof attentionScopeType>;
