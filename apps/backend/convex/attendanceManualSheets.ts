@@ -118,24 +118,6 @@ function normalizedSerial(value: string) {
   return serial;
 }
 
-function requireManualStationTransition(
-  station: Doc<"attendanceStations">,
-  transition: Doc<"attendanceManualSheets">["transition"],
-) {
-  if (station.mode === "venue_entry" || station.mode === "venue_exit") {
-    throw new ConvexError({
-      code: "SESSION_STATION_REQUIRED",
-      message: "Paper recovery for this screen needs a station assigned to the attendance session.",
-    });
-  }
-  if (station.mode !== "roving" && station.mode !== transition) {
-    throw new ConvexError({
-      code: "STATION_DIRECTION_CHANGED",
-      message: "The paper direction does not match the selected station configuration.",
-    });
-  }
-}
-
 async function resolveReference(
   ctx: MutationCtx,
   args: {
@@ -244,7 +226,6 @@ export const forSession = query({
       v.object({
         id: v.id("attendanceStations"),
         name: v.string(),
-        mode: v.string(),
         configurationVersion: v.number(),
       }),
     ),
@@ -352,17 +333,10 @@ export const forSession = query({
       canVerify: verifyGrants.length > 0 && sourceGrants.length > 0,
       canReadSource: sourceGrants.length > 0,
       stations: stations
-        .filter(
-          (station) =>
-            station.sessionId === session._id &&
-            station.zoneId === session.zoneId &&
-            station.mode !== "venue_entry" &&
-            station.mode !== "venue_exit",
-        )
+        .filter((station) => station.zoneId === session.zoneId)
         .map((station) => ({
           id: station._id,
           name: station.name,
-          mode: station.mode,
           configurationVersion: station.configurationVersion,
         })),
       sheets: sheetViews,
@@ -464,15 +438,13 @@ export const createDraft = mutation({
     if (
       !station ||
       station.eventId !== event._id ||
-      station.sessionId !== session._id ||
       station.zoneId !== session.zoneId
     ) {
       throw new ConvexError({
         code: "STATION_NOT_IN_SESSION",
-        message: "Choose the exact session station printed on the paper sheet.",
+        message: "Choose a station in the same area as this session.",
       });
     }
-    requireManualStationTransition(station, args.transition);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,

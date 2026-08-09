@@ -10,6 +10,7 @@ import {
   attendanceSessionCutoffAt,
   attendanceSessionJobIsTerminal,
   extendedAttendanceSessionTiming,
+  openAttendanceSessionsInZone,
 } from "./lib/attendanceSessionLifecycle";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
@@ -327,6 +328,16 @@ export const open = mutation({
       throw new ConvexError({
         code: "SESSION_WINDOW_CLOSED",
         message: "The session can open only during its published check-in window.",
+      });
+    }
+    const alreadyOpen = await openAttendanceSessionsInZone(ctx, {
+      eventId: event._id,
+      zoneId: session.zoneId,
+    });
+    if (alreadyOpen.length > 0) {
+      throw new ConvexError({
+        code: "ZONE_SESSION_ALREADY_OPEN",
+        message: "Close the session already running in this area before opening another one.",
       });
     }
     await ctx.db.patch(session._id, {

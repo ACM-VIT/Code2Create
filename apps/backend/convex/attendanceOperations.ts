@@ -10,12 +10,7 @@ import { query } from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
-import {
-  attendanceCredentialKind,
-  attendanceStationMode,
-  barcodeSymbology,
-  sessionPresenceState,
-} from "./values";
+import { barcodeSymbology, sessionPresenceState } from "./values";
 
 const sessionCounters = v.object({
   expected: v.number(),
@@ -31,12 +26,9 @@ const sessionCounters = v.object({
 const stationView = v.object({
   id: v.id("attendanceStations"),
   name: v.string(),
-  mode: attendanceStationMode,
   status: v.string(),
   configurationVersion: v.number(),
-  allowedCredentialKinds: v.array(attendanceCredentialKind),
   zoneName: v.string(),
-  sessionName: v.optional(v.string()),
   canManage: v.boolean(),
   device: v.union(
     v.null(),
@@ -337,18 +329,14 @@ export const overview = query({
         }),
       ]);
       if (readStationGrants.length === 0 && manageStationGrants.length === 0) continue;
-      const [zone, session, device] = await Promise.all([
+      const [zone, device] = await Promise.all([
         ctx.db.get(station.zoneId),
-        station.sessionId ? ctx.db.get(station.sessionId) : Promise.resolve(null),
         station.deviceInstallationId
           ? ctx.db.get(station.deviceInstallationId)
           : Promise.resolve(null),
       ]);
       if (!zone || zone.eventId !== event._id) {
         throw new Error("An attendance station must belong to one event zone.");
-      }
-      if (station.sessionId !== undefined && (!session || session.eventId !== event._id)) {
-        throw new Error("A session-bound attendance station must belong to one event session.");
       }
       if ((station.status === "active") !== (station.deviceInstallationId !== undefined)) {
         throw new Error("Only an active attendance station can own a device assignment.");
@@ -362,12 +350,9 @@ export const overview = query({
       visibleStations.push({
         id: station._id,
         name: station.name,
-        mode: station.mode,
         status: station.status,
         configurationVersion: station.configurationVersion,
-        allowedCredentialKinds: station.allowedCredentialKinds,
         zoneName: zone.name,
-        ...(session ? { sessionName: session.name } : {}),
         canManage: manageStationGrants.length > 0,
         device: device
           ? {

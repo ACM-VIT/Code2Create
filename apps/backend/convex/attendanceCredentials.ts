@@ -235,7 +235,6 @@ async function resolveVitCredential(
     eventAccessSubjectId: Id<"eventAccessSubjects">;
     personId: Id<"people">;
     stationId: Id<"attendanceStations">;
-    stationAllowsCredential: boolean;
     currentCredential: CurrentVitCredential | undefined;
   },
 ): Promise<StaffedParticipantResult["credential"]> {
@@ -263,22 +262,18 @@ async function resolveVitCredential(
       state: args.currentCredential.state,
       credentialId: args.currentCredential._id,
       expectedCredentialVersion: args.currentCredential.version,
-      canRebind: args.stationAllowsCredential && rebindGrantIds.length > 0,
+      canRebind: rebindGrantIds.length > 0,
       canSuspend:
-        args.stationAllowsCredential &&
-        args.currentCredential.state === "active" &&
-        suspendGrantIds.length > 0,
+        args.currentCredential.state === "active" && suspendGrantIds.length > 0,
     };
   }
-  const grantIds = args.stationAllowsCredential
-    ? await matchingPermissionGrantIds(ctx, {
+  const grantIds = await matchingPermissionGrantIds(ctx, {
     eventId: args.eventId,
     eventAccessSubjectId: args.eventAccessSubjectId,
     permissionKey: "attendance.credential.enrol",
     scopeType: "station",
     scopeId: args.stationId,
-      })
-    : [];
+  });
   return {
     kind: "vit_id_barcode",
     state: "not_enrolled",
@@ -292,20 +287,17 @@ async function resolveBadgeCredential(
     eventId: Id<"events">;
     eventAccessSubjectId: Id<"eventAccessSubjects">;
     personId: Id<"people">;
-    stationAllowsCredential: boolean;
     activeCredential: Doc<"attendanceCredentials"> | undefined;
   },
 ): Promise<StaffedParticipantResult["credential"]> {
   if (!args.activeCredential) {
-    const grantIds = args.stationAllowsCredential
-      ? await matchingPermissionGrantIds(ctx, {
-          eventId: args.eventId,
-          eventAccessSubjectId: args.eventAccessSubjectId,
-          permissionKey: "attendance.badge.issue",
-          scopeType: "person",
-          scopeId: args.personId,
-        })
-      : [];
+    const grantIds = await matchingPermissionGrantIds(ctx, {
+      eventId: args.eventId,
+      eventAccessSubjectId: args.eventAccessSubjectId,
+      permissionKey: "attendance.badge.issue",
+      scopeType: "person",
+      scopeId: args.personId,
+    });
     return {
       kind: "badge_qr",
       state: "not_issued",
@@ -337,8 +329,8 @@ async function resolveBadgeCredential(
     credentialId: args.activeCredential._id,
     expectedCredentialVersion: args.activeCredential.version,
     badgeReference: args.activeCredential.badgeReference,
-    canReplace: args.stationAllowsCredential && replaceGrantIds.length > 0,
-    canRevoke: args.stationAllowsCredential && revokeGrantIds.length > 0,
+    canReplace: replaceGrantIds.length > 0,
+    canRevoke: revokeGrantIds.length > 0,
   };
 }
 
@@ -371,12 +363,6 @@ async function requireExternalBadgeCommand(
     deviceInstallationId: args.deviceInstallationId,
     deviceSecretHash: args.deviceSecretHash,
   });
-  if (!station.allowedCredentialKinds.some((kind) => kind === "badge_qr")) {
-    throw new ConvexError({
-      code: "BADGE_NOT_ALLOWED",
-      message: "External event badges are not enabled for this station.",
-    });
-  }
   const membership = await ctx.db.get(args.membershipId);
   if (
     !membership ||
@@ -517,18 +503,12 @@ export const resolveStaffedParticipant = internalMutation({
           eventAccessSubjectId: subject._id,
           personId: membership.personId,
           stationId: station._id,
-          stationAllowsCredential: station.allowedCredentialKinds.some(
-            (kind) => kind === "vit_id_barcode",
-          ),
           currentCredential: currentVitCredential,
         })
       : await resolveBadgeCredential(ctx, {
           eventId: event._id,
           eventAccessSubjectId: subject._id,
           personId: membership.personId,
-          stationAllowsCredential: station.allowedCredentialKinds.some(
-            (kind) => kind === "badge_qr",
-          ),
           activeCredential: activeBadgeCredential,
         });
     const checkInStation = latestCheckIn
@@ -537,7 +517,6 @@ export const resolveStaffedParticipant = internalMutation({
     if (latestCheckIn && (!checkInStation || checkInStation.eventId !== event._id)) {
       throw new Error("A venue check-in must resolve its event station.");
     }
-    const arrivalDesk = station.mode === "venue_entry";
     await writeAuditEvent(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -596,11 +575,11 @@ export const resolveStaffedParticipant = internalMutation({
           }
         : null,
       canRecordVenueCheckIn:
-        arrivalDesk && recordCheckInGrantIds.length > 0,
+        recordCheckInGrantIds.length > 0,
       canOverrideVenueIdentity:
-        arrivalDesk && overrideIdentityGrantIds.length > 0,
+        overrideIdentityGrantIds.length > 0,
       canReverseVenueCheckIn:
-        arrivalDesk && reverseCheckInGrantIds.length > 0,
+        reverseCheckInGrantIds.length > 0,
     };
   },
 });
@@ -674,8 +653,7 @@ export const beginVitBarcodeEnrollment = internalMutation({
       plan.eventId !== event._id ||
       plan.status !== "published" ||
       plan.vitBarcodeNormalizationVersion !== args.normalizationVersion ||
-      !plan.vitBarcodeSymbologies.some((symbology) => symbology === args.symbology) ||
-      !station.allowedCredentialKinds.some((kind) => kind === "vit_id_barcode")
+      !plan.vitBarcodeSymbologies.some((symbology) => symbology === args.symbology)
     ) {
       throw new ConvexError({
         code: "BARCODE_NOT_ALLOWED",
@@ -1034,8 +1012,7 @@ export const beginVitBarcodeRebind = internalMutation({
       plan.eventId !== event._id ||
       plan.status !== "published" ||
       plan.vitBarcodeNormalizationVersion !== args.normalizationVersion ||
-      !plan.vitBarcodeSymbologies.some((symbology) => symbology === args.symbology) ||
-      !station.allowedCredentialKinds.some((kind) => kind === "vit_id_barcode")
+      !plan.vitBarcodeSymbologies.some((symbology) => symbology === args.symbology)
     ) {
       throw new ConvexError({
         code: "BARCODE_NOT_ALLOWED",
@@ -1274,8 +1251,7 @@ export const verifyVitBarcodeRebind = internalMutation({
       !plan ||
       plan.eventId !== event._id ||
       plan.status !== "published" ||
-      !plan.vitBarcodeSymbologies.some((symbology) => symbology === args.symbology) ||
-      !station.allowedCredentialKinds.some((kind) => kind === "vit_id_barcode")
+      !plan.vitBarcodeSymbologies.some((symbology) => symbology === args.symbology)
     ) {
       throw new ConvexError({
         code: "BARCODE_NOT_ALLOWED",
@@ -1441,12 +1417,6 @@ export const suspendVitBarcode = internalMutation({
       deviceInstallationId: args.deviceInstallationId,
       deviceSecretHash: args.deviceSecretHash,
     });
-    if (!station.allowedCredentialKinds.some((kind) => kind === "vit_id_barcode")) {
-      throw new ConvexError({
-        code: "BARCODE_NOT_ALLOWED",
-        message: "VIT ID credentials are not enabled for this station.",
-      });
-    }
     const membership = await ctx.db.get(args.membershipId);
     if (
       !membership ||

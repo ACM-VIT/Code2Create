@@ -333,8 +333,6 @@ function DraftSheetForm({
   const chooseStation = (value: string) => {
     invalidate()
     setStationId(value)
-    const station = stations.find((candidate) => candidate.id === value)
-    if (station && isManualTransition(station.mode)) setTransition(station.mode)
   }
 
   const submit = async (event: FormEvent) => {
@@ -407,7 +405,6 @@ function DraftSheetForm({
     )
   }
 
-  const selectedStation = stations.find((candidate) => candidate.id === stationId)
   return (
     <form className="manual-sheet-form" onSubmit={submit}>
       <div className="manual-sheet-meta">
@@ -433,7 +430,6 @@ function DraftSheetForm({
           <span>Direction</span>
           <select
             value={transition}
-            disabled={selectedStation !== undefined && selectedStation.mode !== 'roving'}
             onChange={(event) => { invalidate(); setTransition(parseTransition(event.target.value)) }}
           >
             <option value="session_confirm">Session confirmation</option>

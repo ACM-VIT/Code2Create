@@ -238,10 +238,7 @@ export function AttendanceOverview() {
                     <span>{station.name}</span>
                     <small>{stationStatusName(station.status)}</small>
                   </div>
-                  <small>
-                    {stationModeName(station.mode)} · {station.zoneName}
-                    {station.sessionName ? ` · ${station.sessionName}` : ''}
-                  </small>
+                  <small>{station.zoneName}</small>
                   <small>{stationDeviceSummary(station)}</small>
                   {station.canManage && !action && station.status === 'active' ? (
                     <button className="text-button" type="button" onClick={() => beginStationAction(station, 'disable')}>
@@ -513,15 +510,6 @@ function jobName(value: string) {
   if (value === 'build_expectations') return 'Preparing expected participants'
   if (value === 'cancel_results') return 'Cancelling session'
   return 'Finalising results'
-}
-
-function stationModeName(value: string) {
-  if (value === 'zone_entry') return 'Return scanner'
-  if (value === 'zone_exit') return 'Exit scanner'
-  if (value === 'session_confirm') return 'Check-in scanner'
-  if (value === 'venue_entry') return 'Venue entry'
-  if (value === 'venue_exit') return 'Venue exit'
-  return 'Roving scanner'
 }
 
 function stationStatusName(value: string) {

@@ -26,13 +26,13 @@ type DraftSession = {
   checkInOpensAt: string
   checkInClosesAt: string
   awayAlertMinutes: string
-  scannerCount: string
 }
 
 type DraftZone = {
   stableKey: string
   name: string
   safeCapacity: string
+  scannerCount: string
 }
 
 type CreateDraftArgs = FunctionArgs<typeof api.attendanceConfiguration.createDraft>
@@ -65,9 +65,6 @@ export function AttendanceSetup() {
   const [barcodeSymbology, setBarcodeSymbology] = useState<BarcodeSymbology | ''>('')
   const [offlineQueueMaxScans, setOfflineQueueMaxScans] = useState('8')
   const [offlineQueueMaxAgeSeconds, setOfflineQueueMaxAgeSeconds] = useState('180')
-  const [venueEntryScannerCount, setVenueEntryScannerCount] = useState('1')
-  const [venueExitScannerCount, setVenueExitScannerCount] = useState('1')
-  const [preservedStations, setPreservedStations] = useState<StationInput[]>([])
   const [sessions, setSessions] = useState<DraftSession[]>(() => [newSession('main_hack_hall')])
   const [loadedSource, setLoadedSource] = useState('')
   const [draftReason, setDraftReason] = useState('Prepared for event-day attendance rehearsal')
@@ -87,15 +84,11 @@ export function AttendanceSetup() {
       stableKey: zone.stableKey,
       name: zone.name,
       safeCapacity: zone.safeCapacity === undefined ? '' : `${zone.safeCapacity}`,
+      scannerCount: `${source.stations.filter((station) => station.zoneKey === zone.stableKey).length}`,
     })))
     setBarcodeSymbology(source.vitBarcodeSymbologies[0] ?? '')
     setOfflineQueueMaxScans(`${source.offlineQueueMaxScans}`)
     setOfflineQueueMaxAgeSeconds(`${source.offlineQueueMaxAgeSeconds}`)
-    setVenueEntryScannerCount(`${source.stations.filter((station) => station.mode === 'venue_entry').length}`)
-    setVenueExitScannerCount(`${source.stations.filter((station) => station.mode === 'venue_exit').length}`)
-    setPreservedStations(source.stations.filter((station) => (
-      station.mode !== 'roving' && station.mode !== 'venue_entry' && station.mode !== 'venue_exit'
-    )))
     setSessions(source.sessions.map((session) => ({
       id: session.stableKey,
       stableKey: session.stableKey,
@@ -109,9 +102,6 @@ export function AttendanceSetup() {
       checkInOpensAt: localDateTimeValue(session.checkInOpensAt, timezone),
       checkInClosesAt: localDateTimeValue(session.checkInClosesAt, timezone),
       awayAlertMinutes: session.awayAlertAfterMinutes === undefined ? '' : `${session.awayAlertAfterMinutes}`,
-      scannerCount: `${source.stations.filter((station) => (
-        station.mode === 'roving' && station.sessionKey === session.stableKey
-      )).length}`,
     })))
     setLoadedSource(sourceKey)
     setPublishArmed(false)
@@ -154,6 +144,15 @@ export function AttendanceSetup() {
           ...(capacity !== undefined ? { safeCapacity: capacity } : {}),
         }
       })
+      const stationInputs: StationInput[] = zones.flatMap((zone) => {
+        const scannerCount = requiredPositiveInteger(zone.scannerCount, `${zone.name || 'Area'} scanner phones`)
+        if (scannerCount > 12) throw new Error('Use no more than twelve scanner phones per area.')
+        return Array.from({ length: scannerCount }, (_, stationIndex) => ({
+          stableKey: `${zone.stableKey}_scanner_${stationIndex + 1}`,
+          name: `${zone.name} scanner ${stationIndex + 1}`,
+          zoneKey: zone.stableKey,
+        }))
+      })
       const zoneKeys = new Set(zoneInputs.map((zone) => zone.stableKey))
       const sessionInputs: SessionInput[] = sessions.map((session, index) => {
         const startsAt = zonedTimestamp(session.startsAt, timezone, 'Session start')
@@ -182,44 +181,6 @@ export function AttendanceSetup() {
           ...(awayAlertAfterMinutes !== undefined ? { awayAlertAfterMinutes } : {}),
         }
       })
-      const sessionKeys = new Set(sessionInputs.map((session) => session.stableKey))
-      const sessionStations: StationInput[] = sessions.flatMap((session) => {
-        const scannerCount = requiredPositiveInteger(session.scannerCount, 'Scanner count')
-        if (scannerCount > 8) throw new Error('Use no more than eight scanner phones per session.')
-        return Array.from({ length: scannerCount }, (_, stationIndex) => ({
-          stableKey: `${session.stableKey}_scanner_${stationIndex + 1}`,
-          name: `${session.name} scanner ${stationIndex + 1}`,
-          zoneKey: session.zoneKey,
-          sessionKey: session.stableKey,
-          mode: 'roving',
-          allowedCredentialKinds: ['vit_id_barcode', 'badge_qr', 'portal_qr'],
-        }))
-      })
-      const venueZoneKey = zoneInputs[0]?.stableKey
-      if (!venueZoneKey) throw new Error('Add at least one event area.')
-      const venueStations = [
-        ...venueStationInputs(
-          'venue_arrivals',
-          'Venue arrivals',
-          'venue_entry',
-          requiredNonnegativeInteger(venueEntryScannerCount, 'Venue arrival phones'),
-          venueZoneKey,
-        ),
-        ...venueStationInputs(
-          'venue_departures',
-          'Venue departures',
-          'venue_exit',
-          requiredNonnegativeInteger(venueExitScannerCount, 'Venue departure phones'),
-          venueZoneKey,
-        ),
-      ]
-      const stationInputs: StationInput[] = [
-        ...preservedStations.filter((station) => (
-          station.sessionKey === undefined || sessionKeys.has(station.sessionKey)
-        )),
-        ...venueStations,
-        ...sessionStations,
-      ]
       const pendingScanLimit = requiredPositiveInteger(offlineQueueMaxScans, 'Offline queue size')
       const pendingScanAgeSeconds = requiredPositiveInteger(offlineQueueMaxAgeSeconds, 'Offline queue age')
       if (pendingScanLimit > 25) throw new Error('Keep the offline queue at 25 scans or fewer per phone.')
@@ -352,12 +313,6 @@ export function AttendanceSetup() {
                   onChange={(event) => setOfflineQueueMaxAgeSeconds(event.target.value)}
                 />
               </Field>
-              <Field label="Venue arrival phones">
-                <input required inputMode="numeric" value={venueEntryScannerCount} onChange={(event) => setVenueEntryScannerCount(event.target.value)} />
-              </Field>
-              <Field label="Venue departure phones">
-                <input required inputMode="numeric" value={venueExitScannerCount} onChange={(event) => setVenueExitScannerCount(event.target.value)} />
-              </Field>
             </div>
             <p className="muted">During a short outage, each assigned phone keeps only this small encrypted queue. VIT IDs and event badges can replay; short-lived participant portal codes still need an online connection.</p>
           </section>
@@ -366,7 +321,7 @@ export function AttendanceSetup() {
             <div className="section-heading">
               <div>
                 <h2>Event areas</h2>
-                <p className="muted">Use the real hall or controlled area names that scanner staff will see.</p>
+                <p className="muted">Use the real hall or controlled area names that scanner staff will see. Each phone in an area scans people in and out.</p>
               </div>
               <button className="secondary" type="button" onClick={() => setZones((current) => [...current, newZone(`Area ${current.length + 1}`)])}>Add area</button>
             </div>
@@ -386,6 +341,9 @@ export function AttendanceSetup() {
                     <Field label="Safe capacity" hint="Optional">
                       <input inputMode="numeric" value={zone.safeCapacity} onChange={(event) => setZones((current) => current.map((item) => item.stableKey === zone.stableKey ? { ...item, safeCapacity: event.target.value } : item))} />
                     </Field>
+                    <Field label="Scanner phones">
+                      <input required inputMode="numeric" value={zone.scannerCount} onChange={(event) => setZones((current) => current.map((item) => item.stableKey === zone.stableKey ? { ...item, scannerCount: event.target.value } : item))} />
+                    </Field>
                   </div>
                 </article>
               ))}
@@ -396,7 +354,7 @@ export function AttendanceSetup() {
             <div className="section-heading">
               <div>
                 <h2>Hacking sessions</h2>
-                <p className="muted">Each session has its own check-in window and assigned scanner phones.</p>
+                <p className="muted">Each session has its own check-in window. One session runs at a time in an area.</p>
               </div>
               <button className="secondary" type="button" onClick={() => setSessions((current) => [...current, newSession(zones[0]?.stableKey ?? 'main_hack_hall')])}>Add session</button>
             </div>
@@ -438,9 +396,6 @@ export function AttendanceSetup() {
                     </Field>
                     <Field label="Away alert · minutes" hint="Optional">
                       <input inputMode="numeric" value={session.awayAlertMinutes} onChange={(event) => updateSession(session.id, { awayAlertMinutes: event.target.value })} />
-                    </Field>
-                    <Field label="Scanner phones">
-                      <input required inputMode="numeric" value={session.scannerCount} onChange={(event) => updateSession(session.id, { scannerCount: event.target.value })} />
                     </Field>
                   </div>
                   <details className="configuration-advanced">
@@ -488,6 +443,7 @@ function newZone(name: string, stableKey = `area_${crypto.randomUUID().replaceAl
     stableKey,
     name,
     safeCapacity: '',
+    scannerCount: '2',
   }
 }
 
@@ -506,24 +462,7 @@ function newSession(zoneKey: string): DraftSession {
     checkInOpensAt: '',
     checkInClosesAt: '',
     awayAlertMinutes: '20',
-    scannerCount: '2',
   }
-}
-
-function venueStationInputs(
-  stableKeyPrefix: string,
-  name: string,
-  mode: 'venue_entry' | 'venue_exit',
-  count: number,
-  zoneKey: string,
-): StationInput[] {
-  return Array.from({ length: count }, (_, index) => ({
-    stableKey: `${stableKeyPrefix}_${index + 1}`,
-    name: `${name} ${index + 1}`,
-    zoneKey,
-    mode,
-    allowedCredentialKinds: ['vit_id_barcode', 'badge_qr', 'portal_qr'],
-  }))
 }
 
 function sessionKind(value: string, fallback: SessionInput['kind']): SessionInput['kind'] {
@@ -583,12 +522,6 @@ function positiveInteger(value: string, label: string) {
 function requiredPositiveInteger(value: string, label: string) {
   const parsed = Number(value)
   if (!Number.isSafeInteger(parsed) || parsed < 1) throw new Error(`${label} must be a positive whole number.`)
-  return parsed
-}
-
-function requiredNonnegativeInteger(value: string, label: string) {
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`${label} must be zero or a positive whole number.`)
   return parsed
 }
 

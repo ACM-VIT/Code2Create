@@ -68,12 +68,11 @@ export async function recordStaffedVenueCheckIn(
     !station ||
     station.eventId !== event._id ||
     station.planVersionId !== event.publishedAttendancePlanVersionId ||
-    station.status !== "active" ||
-    station.mode !== "venue_entry"
+    station.status !== "active"
   ) {
     throw new ConvexError({
-      code: "VENUE_ENTRY_STATION_REQUIRED",
-      message: "Use an active venue-entry station for staffed arrival check-in.",
+      code: "ACTIVE_STATION_REQUIRED",
+      message: "Use an active scanner station for staffed arrival check-in.",
     });
   }
   if (

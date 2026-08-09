@@ -1,10 +1,40 @@
 import { ConvexError } from "convex/values";
 
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { SessionTransition } from "./attendanceSessionTransition";
 
 const minuteMs = 60_000;
 const maximumExtensionMinutes = 24 * 60;
+
+/**
+ * A zone holds at most one open attendance session at a time, so a scan taken
+ * anywhere in that zone resolves to exactly one session. `attendanceSessions.open`
+ * owns that invariant.
+ */
+export async function openAttendanceSessionInZone(
+  ctx: QueryCtx | MutationCtx,
+  args: { eventId: Id<"events">; zoneId: Id<"attendanceZones"> },
+) {
+  const open = await openAttendanceSessionsInZone(ctx, args);
+  if (open.length > 1) {
+    throw new Error("More than one attendance session is open in one zone.");
+  }
+  return open[0] ?? null;
+}
+
+export async function openAttendanceSessionsInZone(
+  ctx: QueryCtx | MutationCtx,
+  args: { eventId: Id<"events">; zoneId: Id<"attendanceZones"> },
+) {
+  const open = await ctx.db
+    .query("attendanceSessions")
+    .withIndex("by_event_status_start", (index) =>
+      index.eq("eventId", args.eventId).eq("status", "open"),
+    )
+    .collect();
+  return open.filter((session) => session.zoneId === args.zoneId);
+}
 
 type SessionTiming = Pick<
   Doc<"attendanceSessions">,

@@ -479,8 +479,6 @@ async function seedFixture(backend: BackendTest, now: number) {
       zoneId,
       stableKey: "arrival_desk_1",
       name: "Arrival desk 1",
-      mode: "venue_entry",
-      allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"],
       status: "active",
       deviceInstallationId,
       configurationVersion: 1,

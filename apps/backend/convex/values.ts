@@ -408,13 +408,12 @@ export const barcodeSymbology = v.union(
   v.literal("upc_a"),
 );
 
-export const attendanceStationMode = v.union(
+export const attendanceScanTransition = v.union(
   v.literal("venue_entry"),
   v.literal("venue_exit"),
   v.literal("session_confirm"),
   v.literal("zone_entry"),
   v.literal("zone_exit"),
-  v.literal("roving"),
 );
 
 export const venueCheckInStatus = v.union(

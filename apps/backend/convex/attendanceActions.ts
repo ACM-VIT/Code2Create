@@ -5,7 +5,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import { action } from "./_generated/server";
-import { barcodeSymbology } from "./values";
+import { attendanceScanTransition, barcodeSymbology } from "./values";
 
 type BarcodeSymbology = Infer<typeof barcodeSymbology>;
 type KeySetResult = {
@@ -1153,15 +1153,7 @@ export const recordScan = action({
       v.object({ kind: v.literal("badge_qr"), bearer: v.string() }),
       v.object({ kind: v.literal("portal_qr"), bearer: v.string() }),
     ),
-    rovingTransition: v.optional(
-      v.union(
-        v.literal("venue_entry"),
-        v.literal("venue_exit"),
-        v.literal("session_confirm"),
-        v.literal("zone_entry"),
-        v.literal("zone_exit"),
-      ),
-    ),
+    transition: attendanceScanTransition,
     clientOperationId: v.string(),
     deviceSequence: v.number(),
     capturedAt: v.number(),
@@ -1177,13 +1169,7 @@ export const recordScan = action({
     ),
     reasonCode: v.string(),
     serverTime: v.number(),
-    transition: v.union(
-      v.literal("venue_entry"),
-      v.literal("venue_exit"),
-      v.literal("session_confirm"),
-      v.literal("zone_entry"),
-      v.literal("zone_exit"),
-    ),
+    transition: attendanceScanTransition,
     previousState: v.optional(v.string()),
     nextState: v.optional(v.string()),
     participant: v.union(
@@ -1227,9 +1213,7 @@ export const recordScan = action({
       deviceSecretHash: secretHash,
       credentialKind: args.credential.kind,
       lookupHash,
-      ...(args.rovingTransition !== undefined
-        ? { rovingTransition: args.rovingTransition }
-        : {}),
+      transition: args.transition,
       clientOperationId: args.clientOperationId,
       deviceSequence: args.deviceSequence,
       capturedAt: args.capturedAt,

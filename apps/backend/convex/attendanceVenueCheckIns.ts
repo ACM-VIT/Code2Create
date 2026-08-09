@@ -120,12 +120,6 @@ export const record = internalMutation({
       deviceInstallationId: args.deviceInstallationId,
       deviceSecretHash: args.deviceSecretHash,
     });
-    if (station.mode !== "venue_entry") {
-      throw new ConvexError({
-        code: "VENUE_ENTRY_STATION_REQUIRED",
-        message: "Use an active venue-entry station for staffed arrival check-in.",
-      });
-    }
     if (!args.visibleIdentityConfirmed) {
       throw new ConvexError({
         code: "IDENTITY_CONFIRMATION_REQUIRED",
@@ -280,12 +274,6 @@ export const reverse = internalMutation({
       deviceInstallationId: args.deviceInstallationId,
       deviceSecretHash: args.deviceSecretHash,
     });
-    if (station.mode !== "venue_entry") {
-      throw new ConvexError({
-        code: "VENUE_ENTRY_STATION_REQUIRED",
-        message: "Use an active venue-entry station for a venue check-in reversal.",
-      });
-    }
     const checkIn = await ctx.db.get(args.checkInId);
     if (!checkIn || checkIn.eventId !== event._id) {
       throw new ConvexError({

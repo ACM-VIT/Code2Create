@@ -13,12 +13,7 @@ import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { normalizedText } from "./lib/strings";
-import {
-  attendanceCredentialKind,
-  attendanceStationMode,
-  barcodeSymbology,
-  participantClass,
-} from "./values";
+import { barcodeSymbology, participantClass } from "./values";
 
 const cohort = v.union(
   v.object({ kind: v.literal("all_admitted") }),
@@ -71,9 +66,6 @@ const stationInput = v.object({
   stableKey: v.string(),
   name: v.string(),
   zoneKey: v.string(),
-  sessionKey: v.optional(v.string()),
-  mode: attendanceStationMode,
-  allowedCredentialKinds: v.array(attendanceCredentialKind),
 });
 
 function stableKey(value: string, label: string) {
@@ -204,7 +196,6 @@ export const current = query({
         ])
       : [[], [], []];
     const zoneKeyById = new Map(zones.map((zone) => [zone._id, zone.stableKey]));
-    const sessionKeyById = new Map(sessions.map((session) => [session._id, session.stableKey]));
     return {
       eventVersion: event.version,
       canConfigure: configurationGrants.length > 0,
@@ -272,19 +263,10 @@ export const current = query({
               .map((station) => {
                 const zoneKey = zoneKeyById.get(station.zoneId);
                 if (!zoneKey) throw new Error("Attendance station zone no longer resolves.");
-                const sessionKey = station.sessionId
-                  ? sessionKeyById.get(station.sessionId)
-                  : undefined;
-                if (station.sessionId && !sessionKey) {
-                  throw new Error("Attendance station session no longer resolves.");
-                }
                 return {
                   stableKey: station.stableKey,
                   name: station.name,
                   zoneKey,
-                  ...(sessionKey ? { sessionKey } : {}),
-                  mode: station.mode,
-                  allowedCredentialKinds: station.allowedCredentialKinds,
                 };
               })
               .sort((left, right) => left.stableKey.localeCompare(right.stableKey)),
@@ -374,13 +356,9 @@ export const createDraft = mutation({
       zoneKey: stableKey(session.zoneKey, "Session zone key"),
     }));
     const stations = args.stations.map((station) => ({
-      ...station,
       stableKey: stableKey(station.stableKey, "Station key"),
       name: normalizedText(station.name, "Station name", 2, 80),
       zoneKey: stableKey(station.zoneKey, "Station zone key"),
-      ...(station.sessionKey !== undefined
-        ? { sessionKey: stableKey(station.sessionKey, "Station session key") }
-        : {}),
     }));
     requireUnique(zones.map((zone) => zone.stableKey), "Zone keys");
     requireUnique(sessions.map((session) => session.stableKey), "Session keys");
@@ -418,20 +396,14 @@ export const createDraft = mutation({
         message: "Offline scans must expire between 30 seconds and 10 minutes after capture.",
       });
     }
-    if (
-      stations.some((station) =>
-        station.allowedCredentialKinds.includes("vit_id_barcode"),
-      ) &&
-      args.vitBarcodeSymbologies.length === 0
-    ) {
+    if (args.vitBarcodeSymbologies.length === 0) {
       throw new ConvexError({
         code: "BARCODE_PROFILE_REQUIRED",
-        message: "Choose the tested VIT ID barcode symbology before enabling it at a station.",
+        message: "Choose the tested VIT ID barcode symbology before publishing scanner stations.",
       });
     }
 
     const zoneKeys = new Set(zones.map((zone) => zone.stableKey));
-    const sessionKeys = new Set(sessions.map((session) => session.stableKey));
     for (const zone of zones) {
       if (
         zone.safeCapacity !== undefined &&
@@ -480,26 +452,6 @@ export const createDraft = mutation({
     for (const station of stations) {
       if (!zoneKeys.has(station.zoneKey)) {
         throw new ConvexError({ code: "UNKNOWN_ZONE", message: "A station references an unknown zone." });
-      }
-      if (station.allowedCredentialKinds.length === 0) {
-        throw new ConvexError({ code: "NO_SCAN_METHOD", message: "A station needs a credential method." });
-      }
-      requireUnique(station.allowedCredentialKinds, "Station credential methods");
-      const needsSession =
-        station.mode === "session_confirm" ||
-        station.mode === "zone_entry" ||
-        station.mode === "zone_exit";
-      if (needsSession && station.sessionKey === undefined) {
-        throw new ConvexError({ code: "SESSION_REQUIRED", message: "This station mode needs a session." });
-      }
-      if (station.sessionKey !== undefined && !sessionKeys.has(station.sessionKey)) {
-        throw new ConvexError({ code: "UNKNOWN_SESSION", message: "A station references an unknown session." });
-      }
-      if (
-        (station.mode === "venue_entry" || station.mode === "venue_exit") &&
-        station.sessionKey !== undefined
-      ) {
-        throw new ConvexError({ code: "SESSION_NOT_ALLOWED", message: "Venue stations are not session-bound." });
       }
     }
 
@@ -602,20 +554,12 @@ export const createDraft = mutation({
     for (const station of stations) {
       const zoneId = zoneIds.get(station.zoneKey);
       if (!zoneId) throw new Error("Validated station zone is missing.");
-      const sessionId =
-        station.sessionKey !== undefined ? sessionIds.get(station.sessionKey) : undefined;
-      if (station.sessionKey !== undefined && sessionId === undefined) {
-        throw new Error("Validated station session is missing.");
-      }
       await ctx.db.insert("attendanceStations", {
         eventId: event._id,
         planVersionId,
         zoneId,
-        ...(sessionId !== undefined ? { sessionId } : {}),
         stableKey: station.stableKey,
         name: station.name,
-        mode: station.mode,
-        allowedCredentialKinds: station.allowedCredentialKinds,
         status: "inactive",
         configurationVersion: 1,
         createdAt: now,

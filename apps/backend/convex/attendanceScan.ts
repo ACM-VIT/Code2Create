@@ -1,4 +1,4 @@
-import { ConvexError, v } from "convex/values";
+import { ConvexError, type Infer, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -17,17 +17,17 @@ import {
   applySessionTransitionProjection,
   prepareSessionTransition,
 } from "./lib/attendanceSessionTransition";
-import { attendanceSessionWindowRejection } from "./lib/attendanceSessionLifecycle";
+import {
+  attendanceSessionWindowRejection,
+  openAttendanceSessionInZone,
+} from "./lib/attendanceSessionLifecycle";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson } from "./lib/identity";
 import { operationFingerprint } from "./lib/operations";
+import { attendanceScanTransition } from "./values";
 
-type Transition =
-  | "venue_entry"
-  | "venue_exit"
-  | "session_confirm"
-  | "zone_entry"
-  | "zone_exit";
+type Transition = Infer<typeof attendanceScanTransition>;
+type VenueTransition = Extract<Transition, "venue_entry" | "venue_exit">;
 type Outcome = "accepted" | "duplicate" | "rejected" | "needs_review";
 type VenueState = Doc<"attendanceVenueStates">["state"];
 type SessionState = Doc<"attendanceSessionParticipants">["state"];
@@ -44,6 +44,7 @@ type CredentialResolution =
       membershipId: Id<"eventMemberships">;
       credentialId?: Id<"attendanceCredentials">;
       portalQrTokenId?: Id<"attendancePortalQrTokens">;
+      portalQrSessionId?: Id<"attendanceSessions">;
     }
   | { resolved: false; reasonCode: string };
 
@@ -57,13 +58,7 @@ const receipt = v.object({
   ),
   reasonCode: v.string(),
   serverTime: v.number(),
-  transition: v.union(
-    v.literal("venue_entry"),
-    v.literal("venue_exit"),
-    v.literal("session_confirm"),
-    v.literal("zone_entry"),
-    v.literal("zone_exit"),
-  ),
+  transition: attendanceScanTransition,
   previousState: v.optional(v.string()),
   nextState: v.optional(v.string()),
   participant: v.union(
@@ -91,29 +86,7 @@ type Receipt = {
   };
 };
 
-function transitionFor(
-  station: Doc<"attendanceStations">,
-  rovingTransition: Transition | undefined,
-): Transition {
-  if (station.mode === "roving") {
-    if (rovingTransition === undefined) {
-      throw new ConvexError({
-        code: "TRANSITION_REQUIRED",
-        message: "Choose entry, exit, or session confirmation on this roving station.",
-      });
-    }
-    return rovingTransition;
-  }
-  if (rovingTransition !== undefined) {
-    throw new ConvexError({
-      code: "TRANSITION_FIXED",
-      message: "This station's transition is fixed by its configuration.",
-    });
-  }
-  return station.mode;
-}
-
-function venueDecision(state: VenueState, transition: Transition): Decision {
+function venueDecision(state: VenueState, transition: VenueTransition): Decision {
   if (transition === "venue_entry") {
     if (state === "inside") {
       return { outcome: "duplicate", reasonCode: "already_inside", previousState: state, nextState: state };
@@ -123,16 +96,13 @@ function venueDecision(state: VenueState, transition: Transition): Decision {
     }
     return { outcome: "accepted", reasonCode: "venue_entry_recorded", previousState: state, nextState: "inside" };
   }
-  if (transition === "venue_exit") {
-    if (state === "inside") {
-      return { outcome: "accepted", reasonCode: "venue_exit_recorded", previousState: state, nextState: "temporarily_out" };
-    }
-    if (state === "temporarily_out" || state === "departed") {
-      return { outcome: "duplicate", reasonCode: "already_outside", previousState: state, nextState: state };
-    }
-    return { outcome: "needs_review", reasonCode: "exit_without_entry", previousState: state, nextState: "unknown" };
+  if (state === "inside") {
+    return { outcome: "accepted", reasonCode: "venue_exit_recorded", previousState: state, nextState: "temporarily_out" };
   }
-  throw new ConvexError({ code: "STATION_SESSION_REQUIRED", message: "This transition needs a session station." });
+  if (state === "temporarily_out" || state === "departed") {
+    return { outcome: "duplicate", reasonCode: "already_outside", previousState: state, nextState: state };
+  }
+  return { outcome: "needs_review", reasonCode: "exit_without_entry", previousState: state, nextState: "unknown" };
 }
 
 function venueProjectionState(state: ProjectionState): VenueState {
@@ -152,15 +122,11 @@ async function resolveCredential(
   ctx: MutationCtx,
   args: {
     eventId: Id<"events">;
-    station: Doc<"attendanceStations">;
     credentialKind: "vit_id_barcode" | "badge_qr" | "portal_qr";
     lookupHash: string;
     receivedAt: number;
   },
 ): Promise<CredentialResolution> {
-  if (!args.station.allowedCredentialKinds.some((kind) => kind === args.credentialKind)) {
-    return { resolved: false, reasonCode: "credential_method_not_allowed" };
-  }
   if (args.credentialKind === "portal_qr") {
     const token = await ctx.db
       .query("attendancePortalQrTokens")
@@ -173,9 +139,6 @@ async function resolveCredential(
     }
     if (token.state === "used") {
       return { resolved: false, reasonCode: "portal_qr_used" };
-    }
-    if (token.sessionId !== undefined && token.sessionId !== args.station.sessionId) {
-      return { resolved: false, reasonCode: "portal_qr_wrong_session" };
     }
     const portalCredential = await ctx.db.get(token.portalCredentialId);
     if (
@@ -190,6 +153,7 @@ async function resolveCredential(
       resolved: true,
       membershipId: token.membershipId,
       portalQrTokenId: token._id,
+      ...(token.sessionId !== undefined ? { portalQrSessionId: token.sessionId } : {}),
     };
   }
   const matches = await ctx.db
@@ -278,15 +242,7 @@ export const recordScan = internalMutation({
       v.literal("portal_qr"),
     ),
     lookupHash: v.string(),
-    rovingTransition: v.optional(
-      v.union(
-        v.literal("venue_entry"),
-        v.literal("venue_exit"),
-        v.literal("session_confirm"),
-        v.literal("zone_entry"),
-        v.literal("zone_exit"),
-      ),
-    ),
+    transition: attendanceScanTransition,
     clientOperationId: v.string(),
     deviceSequence: v.number(),
     capturedAt: v.number(),
@@ -303,7 +259,7 @@ export const recordScan = internalMutation({
       args.deviceSecretHash,
       args.credentialKind,
       args.lookupHash,
-      args.rovingTransition ?? null,
+      args.transition,
       args.deviceSequence,
       args.capturedAt,
     ]);
@@ -399,20 +355,13 @@ export const recordScan = internalMutation({
     ) {
       throw new ConvexError({ code: "STATION_NOT_ACTIVE", message: "This station assignment is not active." });
     }
-    const transition = transitionFor(station, args.rovingTransition);
+    const transition = args.transition;
     const usesSession =
       transition === "session_confirm" ||
       transition === "zone_entry" ||
       transition === "zone_exit";
-    if (usesSession !== (station.sessionId !== undefined)) {
-      throw new ConvexError({
-        code: "STATION_CONFIGURATION_INVALID",
-        message: "The station's session assignment does not match its transition.",
-      });
-    }
     const resolved = await resolveCredential(ctx, {
       eventId: event._id,
-      station,
       credentialKind: args.credentialKind,
       lookupHash: args.lookupHash,
       receivedAt: now,
@@ -437,12 +386,18 @@ export const recordScan = internalMutation({
         rejectionReason = "participant_not_active";
       } else if (usesSession) {
         const activeMembership = membership;
-        const sessionId = station.sessionId;
-        if (!sessionId) throw new Error("Validated session station has no session.");
-        const session = await ctx.db.get(sessionId);
+        const session = await openAttendanceSessionInZone(ctx, {
+          eventId: event._id,
+          zoneId: station.zoneId,
+        });
         attendanceSession = session;
-        if (!session || session.eventId !== event._id || session.status !== "open") {
+        if (!session) {
           rejectionReason = args.isOfflineReplay ? "offline_scan_needs_reconciliation" : "session_not_open";
+        } else if (
+          resolved.portalQrSessionId !== undefined &&
+          resolved.portalQrSessionId !== session._id
+        ) {
+          rejectionReason = "portal_qr_wrong_session";
         } else {
           const windowRejection = attendanceSessionWindowRejection({
             session,
@@ -470,6 +425,8 @@ export const recordScan = internalMutation({
             }
           }
         }
+      } else if (resolved.portalQrSessionId !== undefined) {
+        rejectionReason = "portal_qr_wrong_session";
       } else {
         const activeMembership = membership;
         venueState = await ctx.db
@@ -542,7 +499,7 @@ export const recordScan = internalMutation({
       stationId: station._id,
       stationConfigurationVersion: station.configurationVersion,
       zoneId: station.zoneId,
-      ...(station.sessionId !== undefined ? { sessionId: station.sessionId } : {}),
+      ...(attendanceSession ? { sessionId: attendanceSession._id } : {}),
       deviceInstallationId: device._id,
       operatorPersonId: person._id,
       ...(membership ? { membershipId: membership._id } : {}),
@@ -572,10 +529,7 @@ export const recordScan = internalMutation({
       decision &&
       (decision.outcome === "accepted" || decision.outcome === "needs_review")
     ) {
-      if (usesSession && sessionParticipant && station.sessionId) {
-        if (!attendanceSession || attendanceSession._id !== station.sessionId) {
-          throw new Error("Attendance session disappeared during scan.");
-        }
+      if (usesSession && sessionParticipant && attendanceSession) {
         await applySessionTransitionProjection(ctx, {
           eventId: event._id,
           session: attendanceSession,

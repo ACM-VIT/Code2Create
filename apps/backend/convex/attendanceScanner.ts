@@ -1,34 +1,33 @@
 import { v } from "convex/values";
 
 import { query } from "./_generated/server";
+import { openAttendanceSessionInZone } from "./lib/attendanceSessionLifecycle";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   matchingPermissionGrantIds,
   requirePermission,
 } from "./lib/permissions";
-import { attendanceCredentialKind, attendanceStationMode, barcodeSymbology } from "./values";
+import { attendanceScanTransition, barcodeSymbology } from "./values";
 
 const stationSummary = v.object({
   id: v.id("attendanceStations"),
   stableKey: v.string(),
   name: v.string(),
-  mode: attendanceStationMode,
   configurationVersion: v.number(),
-  allowedCredentialKinds: v.array(attendanceCredentialKind),
   barcodeSymbologies: v.array(barcodeSymbology),
   zoneName: v.string(),
-  session: v.union(
-    v.null(),
-    v.object({
-      id: v.id("attendanceSessions"),
-      name: v.string(),
-      status: v.string(),
-      startsAt: v.number(),
-      endsAt: v.number(),
-    }),
-  ),
 });
+
+const openSession = v.union(
+  v.null(),
+  v.object({
+    id: v.id("attendanceSessions"),
+    name: v.string(),
+    startsAt: v.number(),
+    endsAt: v.number(),
+  }),
+);
 
 export const availableStations = query({
   args: { eventSlug: v.string() },
@@ -60,26 +59,13 @@ export const availableStations = query({
       if (grantIds.length === 0) continue;
       const zone = await ctx.db.get(station.zoneId);
       if (!zone || zone.eventId !== event._id) continue;
-      const session = station.sessionId ? await ctx.db.get(station.sessionId) : null;
       visible.push({
         id: station._id,
         stableKey: station.stableKey,
         name: station.name,
-        mode: station.mode,
         configurationVersion: station.configurationVersion,
-        allowedCredentialKinds: station.allowedCredentialKinds,
         barcodeSymbologies: plan.vitBarcodeSymbologies,
         zoneName: zone.name,
-        session:
-          session && session.eventId === event._id
-            ? {
-                id: session._id,
-                name: session.name,
-                status: session.status,
-                startsAt: session.startsAt,
-                endsAt: session.endsAt,
-              }
-            : null,
       });
     }
     return visible;
@@ -103,6 +89,7 @@ export const current = query({
         oldestPendingCapturedAt: v.optional(v.number()),
       }),
       station: stationSummary,
+      openSession,
       serverNow: v.number(),
       offlinePolicy: v.object({
         maxScans: v.number(),
@@ -118,13 +105,7 @@ export const current = query({
             v.literal("needs_review"),
           ),
           reasonCode: v.string(),
-          transition: v.union(
-            v.literal("venue_entry"),
-            v.literal("venue_exit"),
-            v.literal("session_confirm"),
-            v.literal("zone_entry"),
-            v.literal("zone_exit"),
-          ),
+          transition: attendanceScanTransition,
           receivedAt: v.number(),
           capturedAt: v.number(),
           isOfflineReplay: v.boolean(),
@@ -162,7 +143,7 @@ export const current = query({
     const [plan, zone, session, recentEvents] = await Promise.all([
       ctx.db.get(station.planVersionId),
       ctx.db.get(station.zoneId),
-      station.sessionId ? ctx.db.get(station.sessionId) : Promise.resolve(null),
+      openAttendanceSessionInZone(ctx, { eventId: event._id, zoneId: station.zoneId }),
       ctx.db
         .query("attendancePresenceEvents")
         .withIndex("by_device_sequence", (index) =>
@@ -234,22 +215,18 @@ export const current = query({
         id: station._id,
         stableKey: station.stableKey,
         name: station.name,
-        mode: station.mode,
         configurationVersion: station.configurationVersion,
-        allowedCredentialKinds: station.allowedCredentialKinds,
         barcodeSymbologies: plan.vitBarcodeSymbologies,
         zoneName: zone.name,
-        session:
-          session && session.eventId === event._id
-            ? {
-                id: session._id,
-                name: session.name,
-                status: session.status,
-                startsAt: session.startsAt,
-                endsAt: session.endsAt,
-              }
-            : null,
       },
+      openSession: session
+        ? {
+            id: session._id,
+            name: session.name,
+            startsAt: session.startsAt,
+            endsAt: session.endsAt,
+          }
+        : null,
       serverNow: Date.now(),
       offlinePolicy: {
         maxScans: plan.offlineQueueMaxScans,
