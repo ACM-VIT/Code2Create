@@ -4,11 +4,19 @@ import { useQuery } from 'convex/react'
 import { Link } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
+import { LoadingLabel, SkeletonList } from '../components/Skeleton'
 
 export function ScoreOverview() {
   const rounds = useQuery(api.scoreGovernance.rounds, { eventSlug })
 
-  if (rounds === undefined) return <p className="muted">Loading results…</p>
+  if (rounds === undefined) {
+    return (
+      <section className="review-shell">
+        <LoadingLabel>Loading the judging rounds</LoadingLabel>
+        <SkeletonList rows={3} />
+      </section>
+    )
+  }
 
   return (
     <section className="review-shell">

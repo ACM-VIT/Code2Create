@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom'
 import { useState } from 'react'
 
 import { eventSlug } from '../lib/config'
+import { LoadingLabel, SkeletonList } from '../components/Skeleton'
 
 type Access = NonNullable<FunctionReturnType<typeof api.access.mine>>
 type QueueState =
@@ -130,7 +131,12 @@ function ApplicationList() {
             </div>
           </Link>
         ))}
-        {status === 'LoadingFirstPage' ? <p className="muted">Loading applications…</p> : null}
+        {status === 'LoadingFirstPage' ? (
+          <>
+            <LoadingLabel>Loading applications</LoadingLabel>
+            <SkeletonList rows={5} />
+          </>
+        ) : null}
         {status !== 'LoadingFirstPage' && results.length === 0 ? (
           <p className="empty">
             {countByState.size === 0
@@ -183,7 +189,12 @@ function AssignmentList() {
             </div>
           </Link>
         ))}
-        {status === 'LoadingFirstPage' ? <p className="muted">Loading review work…</p> : null}
+        {status === 'LoadingFirstPage' ? (
+          <>
+            <LoadingLabel>Loading your review work</LoadingLabel>
+            <SkeletonList rows={5} />
+          </>
+        ) : null}
         {status !== 'LoadingFirstPage' && results.length === 0 ? (
           <p className="empty">No {assignmentStateName(state).toLowerCase()} review assignments.</p>
         ) : null}

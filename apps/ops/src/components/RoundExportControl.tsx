@@ -5,6 +5,7 @@ import { useRef, useState } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { LoadingLabel, SkeletonCard } from './Skeleton'
 
 type Workspace = FunctionReturnType<typeof api.roundExports.workspace>
 type RoundId = Workspace['round']['id']
@@ -13,7 +14,12 @@ export function RoundExportControl({ roundId }: { roundId: RoundId }) {
   const workspace = useQuery(api.roundExports.workspace, { eventSlug, roundId })
 
   if (workspace === undefined) {
-    return <p className="muted">Loading round export…</p>
+    return (
+      <section className="score-final-command round-export-control">
+        <LoadingLabel>Loading the round export</LoadingLabel>
+        <SkeletonCard lines={3} />
+      </section>
+    )
   }
 
   const activeExport = workspace.activeExport
