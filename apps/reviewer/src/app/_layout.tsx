@@ -34,6 +34,18 @@ function RootLayout() {
             >
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="duty/[surface]" />
+              {/* A real iOS form sheet: system grabber, a detent it rests at,
+                  and the screen behind still visible. Declared here because the
+                  presentation style has to be known before the route mounts. */}
+              <Stack.Screen
+                name="duty/door-tools"
+                options={{
+                  presentation: 'formSheet',
+                  sheetGrabberVisible: true,
+                  sheetAllowedDetents: [0.5, 0.92],
+                  sheetCornerRadius: 20,
+                }}
+              />
             </Stack>
           </ReviewerSessionProvider>
         </ReviewerAuthProvider>

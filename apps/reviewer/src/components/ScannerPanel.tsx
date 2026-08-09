@@ -17,7 +17,7 @@ import {
   type BarcodeType,
 } from 'expo-camera'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Stack } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import { AppState, Platform, ScrollView, StyleSheet, View } from 'react-native'
 
 import {
@@ -33,10 +33,8 @@ import {
   Problem,
   QuietAction,
   HeaderButton,
-  Row,
   ScanSurface,
   Section,
-  Sheet,
   Shell,
   Viewfinder,
 } from '@/components/ui'
@@ -329,8 +327,7 @@ function ScannerSurface({
   const busyRef = useRef(false)
   const replayingRef = useRef(false)
   const serverOffsetRef = useRef(0)
-  /** True while the operator is in the settings behind the scanner. */
-  const [showTools, setShowTools] = useState(false)
+  const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [replaying, setReplaying] = useState(false)
   const [task, setTask] = useState<ScannerTask>('presence')
@@ -1233,7 +1230,11 @@ function ScannerSurface({
     return (
       <>
       <Stack.Screen
-        options={{ headerRight: () => <HeaderButton label="Other tasks" onPress={() => setShowTools(true)} /> }}
+        options={{
+          headerRight: () => (
+            <HeaderButton label="This door" onPress={() => router.push('/duty/door-tools')} />
+          ),
+        }}
       />
       <ScanSurface
         camera={
@@ -1307,45 +1308,6 @@ function ScannerSurface({
           </>
         }
       />
-      {/* A sheet is a list of choices, not the scanning screen folded in half.
-          Each row states where something stands before it offers a way in. */}
-      <Sheet onClose={() => setShowTools(false)} title="This door" visible={showTools}>
-        <Row
-          detail={`${assignment.station.zoneName}${
-            assignment.openSession ? ` · ${assignment.openSession.name}` : ''
-          }`}
-          label={assignment.station.name}
-        />
-        <Row
-          detail={
-            displayedHeartbeatState.status === 'error'
-              ? displayedHeartbeatState.message
-              : displayedHeartbeatState.status === 'checking'
-                ? 'Checking'
-                : 'Reaching the server fine'
-          }
-          label="Connection"
-        />
-        <Row
-          detail={
-            pendingSummary.count === 0
-              ? 'Everything has reached the server'
-              : `${pendingSummary.count} still on this phone`
-          }
-          label="Unsent scans"
-          {...(pendingSummary.count > 0 && !replaying
-            ? { onPress: () => void replayPending() }
-            : {})}
-        />
-        <Row
-          detail="Issue badges and enrol ID cards instead of recording presence"
-          label="Arrival and credentials"
-          onPress={() => {
-            setShowTools(false)
-            startTask('staffed')
-          }}
-        />
-      </Sheet>
       </>
     )
   }
