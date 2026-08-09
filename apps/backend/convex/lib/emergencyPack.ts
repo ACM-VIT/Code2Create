@@ -19,10 +19,8 @@ export type EmergencyPackStation = {
   id: string;
   stableKey: string;
   name: string;
+  zoneId: string;
   zoneName: string;
-  sessionId?: string;
-  sessionName?: string;
-  mode: string;
   status: string;
   configurationVersion: number;
   deviceName?: string;
@@ -33,6 +31,7 @@ export type EmergencyPackSession = {
   name: string;
   status: string;
   requirement: string;
+  zoneId: string;
   zoneName: string;
   startsAt: number;
   endsAt: number;
@@ -50,7 +49,6 @@ export type EmergencyPackCriterion = {
 export type EmergencyPackPanel = {
   id: string;
   name: string;
-  tableLabel: string;
   status: string;
   version: number;
   coordinatorName: string;
@@ -99,6 +97,7 @@ export type EmergencyPackBuildResult = {
 type AttendanceSheet = {
   serial: string;
   station?: EmergencyPackStation;
+  session?: EmergencyPackSession;
 };
 
 type ReviewSheet = {
@@ -155,17 +154,19 @@ function attendanceSheets(
   serialPrefix: string,
   spareCount: number,
 ) {
-  const activeSessionIds = new Set(snapshot.sessions.map((session) => session.id));
   const assignedStations = snapshot.stations.filter(
-    (station) =>
-      station.status === "active" &&
-      station.sessionId !== undefined &&
-      activeSessionIds.has(station.sessionId),
+    (station) => station.status === "active",
   );
-  const sheets: AttendanceSheet[] = assignedStations.map((station, index) => ({
-    serial: emergencyPackSerial(serialPrefix, "attendance", index + 1),
-    station,
-  }));
+  const sheets: AttendanceSheet[] = assignedStations.map((station, index) => {
+    const session = snapshot.sessions.find(
+      (candidate) => candidate.zoneId === station.zoneId,
+    );
+    return {
+      serial: emergencyPackSerial(serialPrefix, "attendance", index + 1),
+      station,
+      ...(session ? { session } : {}),
+    };
+  });
   for (let index = 0; index < spareCount; index += 1) {
     sheets.push({
       serial: emergencyPackSerial(serialPrefix, "attendance", sheets.length + 1),
@@ -262,8 +263,6 @@ function operationsSummary(snapshot: EmergencyPackSnapshot) {
         <tr>
           <td>${cell(station.name)}</td>
           <td>${cell(station.zoneName)}</td>
-          <td>${cell(station.sessionName)}</td>
-          <td>${cell(words(station.mode))}</td>
           <td>${cell(words(station.status))}</td>
           <td>${cell(station.deviceName)}</td>
           <td>${station.configurationVersion}</td>
@@ -293,7 +292,6 @@ function operationsSummary(snapshot: EmergencyPackSnapshot) {
             <td>${cell(round.name)}</td>
             <td>${cell(words(round.status))}</td>
             <td>${cell(panel.name)}</td>
-            <td>${cell(panel.tableLabel)}</td>
             <td>${cell(words(panel.status))}</td>
             <td>${cell(panel.coordinatorName)}</td>
             <td>${cell(panel.reviewerNames.join(", "))}</td>
@@ -307,11 +305,11 @@ function operationsSummary(snapshot: EmergencyPackSnapshot) {
       <h3>Active sessions</h3>
       <table><thead><tr><th>Session</th><th>State</th><th>Rule</th><th>Zone</th><th>Starts</th><th>Ends</th><th>Expected</th><th>Version</th></tr></thead><tbody>${sessionRows || '<tr><td colspan="8">No ready, open, or closing sessions in this snapshot.</td></tr>'}</tbody></table>
       <h3>Published station list</h3>
-      <table><thead><tr><th>Station</th><th>Zone</th><th>Session</th><th>Mode</th><th>State</th><th>Phone</th><th>Config</th></tr></thead><tbody>${stationRows || '<tr><td colspan="7">No published stations.</td></tr>'}</tbody></table>
+      <table><thead><tr><th>Station</th><th>Zone</th><th>State</th><th>Phone</th><th>Config</th></tr></thead><tbody>${stationRows || '<tr><td colspan="5">No published stations.</td></tr>'}</tbody></table>
     </section>
     <section class="page wide">
       <header class="section-header"><p class="kicker">Snapshot</p><h2>Panel and table plan</h2></header>
-      <table><thead><tr><th>Round</th><th>Round state</th><th>Panel</th><th>Table</th><th>Panel state</th><th>Coordinator</th><th>Reviewers</th></tr></thead><tbody>${panelRows || '<tr><td colspan="7">No published, open, or closing review panels.</td></tr>'}</tbody></table>
+      <table><thead><tr><th>Round</th><th>Round state</th><th>Panel</th><th>Panel state</th><th>Coordinator</th><th>Reviewers</th></tr></thead><tbody>${panelRows || '<tr><td colspan="6">No published, open, or closing review panels.</td></tr>'}</tbody></table>
     </section>`;
 }
 
@@ -349,14 +347,15 @@ function blankAttendanceRows() {
 
 function attendanceForm(sheet: AttendanceSheet, snapshot: EmergencyPackSnapshot) {
   const station = sheet.station;
+  const session = sheet.session;
   return `
     <section class="paper-sheet attendance-form" data-serial="${escapeHtml(sheet.serial)}">
       <div class="form-title"><div><p class="kicker">Attendance manual recovery</p><h2>Numbered transition sheet</h2></div><strong class="serial">${escapeHtml(sheet.serial)}</strong></div>
       <div class="warning compact"><strong>One sheet, one session, one station configuration, one transition.</strong> Enter no more than 25 unique participants. A different authorised person must verify the source before import.</div>
       <dl class="form-grid">
         <div><dt>Incident</dt><dd>________________________________</dd></div>
-        <div><dt>Session</dt><dd>${cell(station?.sessionName)}</dd></div>
-        <div><dt>Session ID</dt><dd class="mono">${cell(station?.sessionId)}</dd></div>
+        <div><dt>Session</dt><dd>${cell(session?.name)}</dd></div>
+        <div><dt>Session ID</dt><dd class="mono">${cell(session?.id)}</dd></div>
         <div><dt>Station</dt><dd>${cell(station?.name)}</dd></div>
         <div><dt>Station ID</dt><dd class="mono">${cell(station?.id)}</dd></div>
         <div><dt>Config version</dt><dd>${station?.configurationVersion ?? "—"}</dd></div>
@@ -401,9 +400,10 @@ function reviewForm(sheet: ReviewSheet, snapshot: EmergencyPackSnapshot) {
         <div><dt>Incident</dt><dd>____________________________</dd></div>
         <div><dt>Round</dt><dd>${cell(round?.name)}</dd></div>
         <div><dt>Round ID / version</dt><dd class="mono">${cell(round?.id)} / ${round?.version ?? "—"}</dd></div>
-        <div><dt>Panel / table</dt><dd>${cell(panel?.name)} / ${cell(panel?.tableLabel)}</dd></div>
+        <div><dt>Panel</dt><dd>${cell(panel?.name)}</dd></div>
         <div><dt>Panel ID / version</dt><dd class="mono">${cell(panel?.id)} / ${panel?.version ?? "—"}</dd></div>
         <div><dt>Team / review ID</dt><dd>____________________________</dd></div>
+        <div><dt>Team table</dt><dd>____________________________</dd></div>
         <div><dt>Started / ended</dt><dd>____________________________</dd></div>
         <div><dt>Unavailable reason</dt><dd>____________________________</dd></div>
       </dl>

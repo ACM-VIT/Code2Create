@@ -74,7 +74,7 @@ async function sendFcmNotification(claim: PushClaim): Promise<PushOutcome> {
       token: claim.token,
       notification: {
         title: "Substitute request",
-        body: `${claim.roundName} · ${claim.tableLabel}. Open Code2Create Ops now.`,
+        body: pageBody(claim),
       },
       data: {
         kind: "reviewer_substitute_page",
@@ -179,7 +179,7 @@ async function sendApnsNotification(claim: PushClaim): Promise<PushOutcome> {
         aps: {
           alert: {
             title: "Substitute request",
-            body: `${claim.roundName} · ${claim.tableLabel}. Open Code2Create Ops now.`,
+            body: pageBody(claim),
           },
           sound: "default",
           "thread-id": "reviewer-pages",
@@ -287,9 +287,24 @@ type PushClaim = {
   provider: "fcm" | "apns";
   environment: "development" | "production";
   roundName: string;
-  tableLabel: string;
+  teamName?: string;
+  tableLabel?: string;
   expiresAt: number;
 };
+
+/**
+ * Names where the reviewer has to walk. The panel has no table of its own, so
+ * the only true location is the team's table for this round. Each step down
+ * drops a fact rather than guessing one.
+ */
+function pageBody(claim: PushClaim) {
+  const where = claim.teamName === undefined
+    ? claim.roundName
+    : claim.tableLabel === undefined
+      ? `${claim.roundName} · ${claim.teamName}`
+      : `${claim.roundName} · ${claim.teamName} at ${claim.tableLabel}`;
+  return `${where}. Open Code2Create Ops now.`;
+}
 
 type PushOutcome = { ok: true; messageId: string } | PushFailure;
 

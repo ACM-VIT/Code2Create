@@ -486,19 +486,6 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   )
 }
 
-function useSecondsRemaining(expiresAt: number, serverNow: number) {
-  const [estimatedServerNow, setEstimatedServerNow] = useState(serverNow)
-  useEffect(() => {
-    const observedAt = Date.now()
-    const timer = setInterval(
-      () => setEstimatedServerNow(serverNow + Date.now() - observedAt),
-      1_000,
-    )
-    return () => clearInterval(timer)
-  }, [serverNow])
-  return Math.max(0, Math.ceil((expiresAt - estimatedServerNow) / 1_000))
-}
-
 function CorrectionRequests({ eventSlug }: { eventSlug: string }) {
   const options = useQuery(api.scoreGovernance.myCorrectionOptions, { eventSlug })
   const requestCorrection = useMutation(api.scoreGovernance.requestCorrection)

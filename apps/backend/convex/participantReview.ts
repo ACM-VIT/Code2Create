@@ -7,6 +7,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
+import { teamRoundTableLabel } from "./lib/floor";
 import { findCurrentPerson, requireCurrentPerson, requireEventSubject, requireMembership } from "./lib/identity";
 import { requirePermission } from "./lib/permissions";
 import { estimateQueueWindow } from "./lib/queueEstimate";
@@ -71,8 +72,10 @@ export const current = query({
       state: v.string(),
       panel: v.union(
         v.null(),
-        v.object({ id: v.id("reviewPanels"), name: v.string(), tableLabel: v.string() }),
+        v.object({ id: v.id("reviewPanels"), name: v.string() }),
       ),
+      // The team's own table for this round, which is where the panel comes.
+      tableLabel: v.optional(v.string()),
       teamsAhead: v.optional(v.number()),
       estimate: v.union(
         v.null(),
@@ -249,8 +252,11 @@ export const current = query({
       state: selectedState?.state ?? "unassigned",
       panel:
         panel && panel.eventId === event._id
-          ? { id: panel._id, name: panel.name, tableLabel: panel.tableLabel }
+          ? { id: panel._id, name: panel.name }
           : null,
+      ...(selectedState?.tableLabel !== undefined
+        ? { tableLabel: selectedState.tableLabel }
+        : {}),
       ...(teamsAhead !== undefined ? { teamsAhead } : {}),
       estimate: estimate
         ? { ...estimate, calculatedAt: Date.now() }
@@ -276,7 +282,7 @@ export const mintTeamQr = mutation({
     expiresAt: v.number(),
     teamName: v.string(),
     roundName: v.string(),
-    tableLabel: v.string(),
+    tableLabel: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -317,6 +323,7 @@ export const mintTeamQr = mutation({
     if (!round || !panel || round.eventId !== event._id || panel.eventId !== event._id) {
       throw new Error("Review QR context is incomplete.");
     }
+    const qrTableLabel = await teamRoundTableLabel(ctx, round._id, teamContext.team._id);
     const now = Date.now();
     for (const token of existingTokens.filter((candidate) => candidate.state === "active")) {
       await ctx.db.patch(token._id, { state: "superseded" });
@@ -357,7 +364,7 @@ export const mintTeamQr = mutation({
       expiresAt,
       teamName: teamContext.team.name,
       roundName: round.name,
-      tableLabel: panel.tableLabel,
+      ...(qrTableLabel !== undefined ? { tableLabel: qrTableLabel } : {}),
     };
   },
 });

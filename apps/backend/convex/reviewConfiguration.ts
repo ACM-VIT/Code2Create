@@ -33,7 +33,6 @@ const criterionInput = v.object({
 const panelInput = v.object({
   stableKey: v.string(),
   name: v.string(),
-  tableLabel: v.string(),
   members: v.array(
     v.object({
       personId: v.id("people"),
@@ -639,11 +638,10 @@ export const publishRound = mutation({
     const panels = args.panels.map((panel) => ({
       stableKey: stableKey(panel.stableKey, "Panel key"),
       name: normalizedText(panel.name, "Panel name", 2, 80),
-      tableLabel: normalizedText(panel.tableLabel, "Table label", 1, 60),
       members: panel.members,
     }));
     unique(panels.map((panel) => panel.stableKey), "Panel keys");
-    unique(panels.map((panel) => panel.tableLabel.toLocaleLowerCase()), "Panel tables");
+    unique(panels.map((panel) => panel.name.toLocaleLowerCase()), "Panel names");
     const allReviewerIds = panels.flatMap((panel) => panel.members.map((member) => member.personId));
     unique(allReviewerIds, "Reviewer assignments across panels");
     unique(args.reservePersonIds, "Reserve reviewers");
@@ -836,7 +834,6 @@ export const publishRound = mutation({
         roundId,
         stableKey: panel.stableKey,
         name: panel.name,
-        tableLabel: panel.tableLabel,
         coordinatorPersonId: coordinator.personId,
         status: "ready",
         version: 1,

@@ -38,7 +38,6 @@ type PanelDraft = {
   id: string
   stableKey: string
   name: string
-  tableLabel: string
   members: MemberDraft[]
 }
 type RoundDraft = {
@@ -445,7 +444,7 @@ function RoundPublisher({
     requiresNotifications: true,
   })
   const [panels, setPanels] = useState<PanelDraft[]>([
-    { id: 'panel-1', stableKey: 'panel_1', name: 'Panel 1', tableLabel: 'Table 1', members: [] },
+    { id: 'panel-1', stableKey: 'panel_1', name: 'Panel 1', members: [] },
   ])
   const [reservePersonIds, setReservePersonIds] = useState<PersonId[]>([])
   const [reason, setReason] = useState('')
@@ -523,7 +522,6 @@ function RoundPublisher({
         id: `panel-${sequence}`,
         stableKey: `panel_${sequence}`,
         name: `Panel ${sequence}`,
-        tableLabel: `Table ${sequence}`,
         members: [],
       },
     ])
@@ -590,7 +588,6 @@ function RoundPublisher({
       const mappedPanels = panels.map((panel) => ({
         stableKey: panel.stableKey,
         name: panel.name,
-        tableLabel: panel.tableLabel,
         members: panel.members.map((member) => {
           const candidate = readyCandidates.find((item) => item.personId === member.personId)
           if (!candidate) throw new Error('A selected reviewer is no longer active and training-complete.')
@@ -1005,7 +1002,6 @@ function PanelEditor({
   return (
     <article className="panel-editor">
       <div className="form-grid">
-        <label className="field"><span>Table</span><input value={panel.tableLabel} onChange={(event) => onUpdate((current) => ({ ...current, tableLabel: event.target.value }))} /></label>
         <label className="field full-field"><span>Panel name</span><input value={panel.name} onChange={(event) => onUpdate((current) => ({ ...current, name: event.target.value }))} /></label>
       </div>
       <div className="panel-member-list">

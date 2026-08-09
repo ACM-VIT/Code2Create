@@ -5,6 +5,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
+import { teamRoundTableLabel } from "./lib/floor";
 import {
   requireCurrentPerson,
   requireEventSubject,
@@ -110,7 +111,7 @@ const reviewView = v.object({
   id: v.id("reviewSessions"),
   teamName: v.string(),
   panelName: v.string(),
-  tableLabel: v.string(),
+  tableLabel: v.optional(v.string()),
   status: v.string(),
   version: v.number(),
   roundVersion: v.number(),
@@ -350,11 +351,12 @@ export const workspace = query({
             record.sourceStorageId !== undefined,
         });
       }
+      const reviewTableLabel = await teamRoundTableLabel(ctx, round._id, team._id);
       reviews.push({
         id: session._id,
         teamName: team.name,
         panelName: panel.name,
-        tableLabel: panel.tableLabel,
+        ...(reviewTableLabel !== undefined ? { tableLabel: reviewTableLabel } : {}),
         status: session.status,
         version: session.version,
         roundVersion: round.version,
@@ -613,6 +615,10 @@ export const createDraft = mutation({
         ...(privateNote !== undefined ? { privateNote } : {}),
       });
     }
+    // The paper record captures where the review physically happened, which is
+    // the team's table. A team with no mapped table leaves the cell blank
+    // rather than naming a place that does not exist.
+    const recordTableLabel = await teamRoundTableLabel(ctx, round._id, session.teamId);
     const sharedFindings = optionalNormalizedText(
       args.sharedFindings,
       "Shared findings",
@@ -652,7 +658,7 @@ export const createDraft = mutation({
       reviewSessionId: session._id,
       teamId: session.teamId,
       panelId: panel._id,
-      tableLabel: panel.tableLabel,
+      tableLabel: recordTableLabel ?? "",
       evidenceCheckpointSetId: session.evidenceCheckpointSetId,
       rubricVersionId: rubric._id,
       panelVersion: panel.version,
@@ -1276,8 +1282,7 @@ export const verify = mutation({
       session.rubricVersionId !== record.rubricVersionId ||
       session.evidenceCheckpointSetId !== record.evidenceCheckpointSetId ||
       session.panelId !== record.panelId ||
-      panel.version !== record.panelVersion ||
-      panel.tableLabel !== record.tableLabel
+      panel.version !== record.panelVersion
     ) {
       throw new ConvexError({
         code: "REVIEW_CHANGED",

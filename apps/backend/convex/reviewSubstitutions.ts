@@ -7,6 +7,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { advanceAccessVersion } from "./lib/accessVersion";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
+import { teamRoundTableLabel } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import {
@@ -391,7 +392,7 @@ async function sendNextPage(
     reserveId: candidate.reserve._id,
     requiredCriterionIds: chain.requiredCriterionIds,
     rank,
-    reason: `A reviewer seat at ${panel.tableLabel} needs coverage.`,
+    reason: `A reviewer seat on ${panel.name} needs coverage.`,
     state: "sent",
     expiresAt,
     version: 1,
@@ -869,8 +870,19 @@ export const currentPage = query({
       sentAt: v.number(),
       reason: v.string(),
       round: v.object({ id: v.id("reviewRounds"), name: v.string() }),
-      panel: v.object({ id: v.id("reviewPanels"), name: v.string(), tableLabel: v.string() }),
-      teamName: v.optional(v.string()),
+      panel: v.object({ id: v.id("reviewPanels"), name: v.string() }),
+      // Where the reviewer has to walk. The panel walks to the team, so the
+      // team and its table for this round are the only real location. A page
+      // raised before a review session exists covers a panel seat instead, and
+      // then there is no team to name yet.
+      team: v.union(
+        v.null(),
+        v.object({
+          id: v.id("teams"),
+          name: v.string(),
+          tableLabel: v.optional(v.string()),
+        }),
+      ),
       criteria: v.array(v.object({ id: v.id("reviewRubricCriteria"), label: v.string() })),
     }),
   ),
@@ -921,7 +933,7 @@ export const currentPage = query({
       }
       criteria.push({ id: criterion._id, label: criterion.label });
     }
-    let teamName: string | undefined;
+    let pageTeam: { id: Id<"teams">; name: string; tableLabel?: string } | null = null;
     if (page.reviewSessionId !== undefined) {
       const session = await ctx.db.get(page.reviewSessionId);
       if (!session || session.eventId !== event._id) {
@@ -931,7 +943,12 @@ export const currentPage = query({
       if (!team || team.eventId !== event._id) {
         throw new Error("An active substitute page has an invalid team.");
       }
-      teamName = team.name;
+      const tableLabel = await teamRoundTableLabel(ctx, session.roundId, team._id);
+      pageTeam = {
+        id: team._id,
+        name: team.name,
+        ...(tableLabel !== undefined ? { tableLabel } : {}),
+      };
     }
     return {
       id: page._id,
@@ -942,8 +959,8 @@ export const currentPage = query({
       sentAt: page._creationTime,
       reason: page.reason,
       round: { id: round._id, name: round.name },
-      panel: { id: panel._id, name: panel.name, tableLabel: panel.tableLabel },
-      ...(teamName !== undefined ? { teamName } : {}),
+      panel: { id: panel._id, name: panel.name },
+      team: pageTeam,
       criteria,
     };
   },

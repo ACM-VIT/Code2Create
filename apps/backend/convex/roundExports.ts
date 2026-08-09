@@ -14,6 +14,7 @@ import {
 } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
+import { teamRoundTableLabel } from "./lib/floor";
 import {
   requireCurrentPerson,
   requireEventSubject,
@@ -831,7 +832,6 @@ export const generationContext = internalQuery({
         id: panel._id,
         stableKey: panel.stableKey,
         name: panel.name,
-        tableLabel: panel.tableLabel,
         coordinatorPersonId: panel.coordinatorPersonId,
         status: panel.status,
         version: panel.version,
@@ -1001,7 +1001,7 @@ async function teamExportContext(
         reviewState: "",
         panelReference: "",
         panelName: "",
-        tableLabel: "",
+        teamTableLabel: "",
         reviewerReference: "",
         reviewerName: "",
         scorecardReference: "",
@@ -1097,6 +1097,9 @@ async function teamExportContext(
   ) {
     throw new Error("A close entry's review context no longer resolves.");
   }
+  // Panels walk to teams, so the archived location is the team's table for the
+  // round. It stays blank when the team was never mapped to one.
+  const exportTableLabel = (await teamRoundTableLabel(ctx, round._id, team._id)) ?? "";
   const teamCheckpointSubmission = evidence.teamCheckpointSubmissionId
     ? await ctx.db.get(evidence.teamCheckpointSubmissionId)
     : null;
@@ -1292,7 +1295,7 @@ async function teamExportContext(
           reviewState: session.status,
           panelReference: String(panel._id),
           panelName: panel.name,
-          tableLabel: panel.tableLabel,
+          teamTableLabel: exportTableLabel,
           reviewerReference: String(reviewer.id),
           reviewerName: reviewer.name,
           scorecardReference: String(scorecard._id),
@@ -1343,7 +1346,7 @@ async function teamExportContext(
       reviewState: session.status,
       panelReference: String(panel._id),
       panelName: panel.name,
-      tableLabel: panel.tableLabel,
+      teamTableLabel: exportTableLabel,
       reviewerReference: "",
       reviewerName: "",
       scorecardReference: "",
@@ -1378,9 +1381,9 @@ async function teamExportContext(
           id: panel._id,
           stableKey: panel.stableKey,
           name: panel.name,
-          tableLabel: panel.tableLabel,
           version: panel.version,
         },
+        teamTableLabel: exportTableLabel,
         evidenceCheckpointSet: evidence,
         teamCheckpointSubmission,
         reviewers,

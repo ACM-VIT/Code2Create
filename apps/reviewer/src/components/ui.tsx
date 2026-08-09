@@ -1,4 +1,4 @@
-import { Button, Host } from '@expo/ui/swift-ui'
+import { Button, Host, Text as NativeText } from '@expo/ui/swift-ui'
 import {
   buttonStyle,
   controlSize,
@@ -7,7 +7,6 @@ import {
   frame,
   tint,
 } from '@expo/ui/swift-ui/modifiers'
-import { Text as NativeText } from '@expo/ui/swift-ui'
 import type { ReactNode } from 'react'
 import { Dimensions, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 

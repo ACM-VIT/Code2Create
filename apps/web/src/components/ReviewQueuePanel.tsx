@@ -11,7 +11,7 @@ type TeamQr = {
   payload: string
   manualCode: string
   expiresAt: number
-  tableLabel: string
+  tableLabel?: string
 }
 
 export function ReviewQueuePanel() {
@@ -43,7 +43,7 @@ export function ReviewQueuePanel() {
         payload: minted.payload,
         manualCode: minted.manualCode,
         expiresAt: minted.expiresAt,
-        tableLabel: minted.tableLabel,
+        ...(minted.tableLabel !== undefined ? { tableLabel: minted.tableLabel } : {}),
       })
       setNow(Date.now())
     } catch (caught) {
@@ -81,10 +81,16 @@ export function ReviewQueuePanel() {
           <dt>Status</dt>
           <dd>{queueStateName(queue.state)}</dd>
         </div>
+        {queue.tableLabel ? (
+          <div>
+            <dt>Your table</dt>
+            <dd>{queue.tableLabel}</dd>
+          </div>
+        ) : null}
         {queue.panel ? (
           <div>
             <dt>Panel</dt>
-            <dd>{queue.panel.name} · {queue.panel.tableLabel}</dd>
+            <dd>{queue.panel.name}</dd>
           </div>
         ) : null}
         {queue.estimate ? (
@@ -122,7 +128,7 @@ export function ReviewQueuePanel() {
             />
           </div>
           <p className="inline-status">
-            {currentQr.tableLabel} · expires in {countdownName(secondsLeft)} · show this to each reviewer at your table.
+            {currentQr.tableLabel ? `${currentQr.tableLabel} · ` : ''}expires in {countdownName(secondsLeft)} · show this to each reviewer at your table.
           </p>
           <p className="manual-code" aria-label={`Fallback code ${currentQr.manualCode}`}>
             {currentQr.manualCode}

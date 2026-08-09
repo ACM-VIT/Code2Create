@@ -267,17 +267,18 @@ export function PagerAlert({
  * elapsed time between updates rather than its wall clock.
  */
 function useSecondsRemaining(expiresAt: number, serverNow: number) {
+  // The device's wall clock is only ever read as a delta between ticks, never
+  // as an absolute, so a phone set to the wrong date still counts down right.
+  // A newer server clock only ever moves the estimate forward.
   const [estimated, setEstimated] = useState(serverNow)
   useEffect(() => {
     const observedAt = Date.now()
-    setEstimated(serverNow)
     const timer = setInterval(() => setEstimated(serverNow + Date.now() - observedAt), 1_000)
     return () => clearInterval(timer)
   }, [serverNow])
-  return Math.max(0, Math.ceil((expiresAt - estimated) / 1_000))
+  return Math.max(0, Math.ceil((expiresAt - Math.max(estimated, serverNow)) / 1_000))
 }
 
-/** Seconds up to a minute, then m:ss — "293" is not a legible clock. */
 function countdownLabel(seconds: number) {
   if (seconds < 60) return String(seconds)
   const minutes = Math.floor(seconds / 60)

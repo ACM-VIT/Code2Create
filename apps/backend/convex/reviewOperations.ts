@@ -6,6 +6,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
+import { teamTableLabel } from "./lib/floor";
 import {
   requireCurrentPerson,
   requireEventSubject,
@@ -44,7 +45,6 @@ type OverviewRoundView = {
   panels: Array<{
     id: Id<"reviewPanels">;
     name: string;
-    tableLabel: string;
     status: Doc<"reviewPanels">["status"];
     queuedCount: number;
     activeReviewCount: number;
@@ -328,7 +328,6 @@ export const overview = query({
           v.object({
             id: v.id("reviewPanels"),
             name: v.string(),
-            tableLabel: v.string(),
             status: reviewPanelStatus,
             queuedCount: v.number(),
             activeReviewCount: v.number(),
@@ -411,7 +410,6 @@ export async function buildReviewOverview(
         return {
           id: panel._id,
           name: panel.name,
-          tableLabel: panel.tableLabel,
           status: panel.status,
           queuedCount: queued.filter((state) => state.state === "queued").length,
           activeReviewCount: sessions.filter((session) => isLiveReviewStatus(session.status)).length,
@@ -477,7 +475,6 @@ export const roundBoard = query({
       v.object({
         id: v.id("reviewPanels"),
         name: v.string(),
-        tableLabel: v.string(),
         status: reviewPanelStatus,
         version: v.number(),
         canManageQueue: v.boolean(),
@@ -731,7 +728,6 @@ export async function buildRoundBoard(
       return {
         id: panel._id,
         name: panel.name,
-        tableLabel: panel.tableLabel,
         status: panel.status,
         version: panel.version,
         canManageQueue: queueGrants.length > 0,
@@ -1086,6 +1082,7 @@ export const queueTeam = mutation({
     }
     const now = Date.now();
     const nextVersion = (state?.version ?? 0) + 1;
+    const tableLabel = await teamTableLabel(ctx, team._id);
     const teamRoundStateId = state
       ? state._id
       : await ctx.db.insert("teamRoundStates", {
@@ -1094,7 +1091,7 @@ export const queueTeam = mutation({
           teamId: team._id,
           panelId: panel._id,
           state: "queued",
-          tableLabel: panel.tableLabel,
+          ...(tableLabel !== undefined ? { tableLabel } : {}),
           queuedAt: now,
           callAttemptCount: 0,
           priority: 0,
@@ -1106,7 +1103,7 @@ export const queueTeam = mutation({
       await ctx.db.patch(state._id, {
         panelId: panel._id,
         state: "queued",
-        tableLabel: panel.tableLabel,
+        tableLabel,
         queuedAt: now,
         calledAt: undefined,
         callAttemptCount: 0,

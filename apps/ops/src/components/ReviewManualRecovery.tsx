@@ -437,7 +437,9 @@ function DraftReviewForm({ incidents, reviews }: { incidents: Incident[]; review
 
       {review ? (
         <div className="manual-review-scorecards">
-          <p className="muted">{review.rubric.name} · {review.tableLabel}</p>
+          <p className="muted">
+            {review.tableLabel ? `${review.rubric.name} · ${review.tableLabel}` : review.rubric.name}
+          </p>
           {entries.map((entry) => (
             <fieldset className="manual-review-scorecard" key={entry.scorecardId}>
               <legend>{entry.reviewerName}</legend>

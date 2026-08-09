@@ -5,6 +5,7 @@ import type { MutationCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
+import { teamTableLabel } from "./lib/floor";
 import {
   requireCurrentPerson,
   requireEventSubject,
@@ -386,6 +387,7 @@ export const resumeTeam = mutation({
     });
     const panel = state.panelId ? await ctx.db.get(state.panelId) : null;
     const canReturnToPanel = Boolean(panel && panel.status === "ready");
+    const resumedTableLabel = await teamTableLabel(ctx, state.teamId);
     const now = Date.now();
     let nextState: "unassigned" | "queued" = "unassigned";
     let preserveQueueTime = true;
@@ -400,7 +402,7 @@ export const resumeTeam = mutation({
     await ctx.db.patch(state._id, {
       state: nextState,
       ...(nextState === "queued" && state.panelId ? { panelId: state.panelId } : { panelId: undefined }),
-      ...(nextState === "queued" && panel ? { tableLabel: panel.tableLabel } : { tableLabel: undefined }),
+      ...(nextState === "queued" ? { tableLabel: resumedTableLabel } : { tableLabel: undefined }),
       ...(nextState === "unassigned"
         ? { queuedAt: undefined }
         : preserveQueueTime
@@ -727,7 +729,6 @@ export const moveQueuedTeam = mutation({
     const sourcePanelId = state.panelId;
     await ctx.db.patch(state._id, {
       panelId: targetPanel._id,
-      tableLabel: targetPanel.tableLabel,
       movedFromPanelId: sourcePanelId,
       lastMovedAt: now,
       version: state.version + 1,
@@ -757,7 +758,6 @@ export const moveQueuedTeam = mutation({
       previousSummary: JSON.stringify({ panelId: sourcePanelId, version: state.version }),
       nextSummary: JSON.stringify({
         panelId: targetPanel._id,
-        tableLabel: targetPanel.tableLabel,
         version: state.version + 1,
       }),
       reason,

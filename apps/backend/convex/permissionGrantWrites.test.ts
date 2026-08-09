@@ -194,7 +194,6 @@ async function seedReviewAssignment(
       roundId,
       stableKey: "fixture-panel",
       name: "Fixture panel",
-      tableLabel: "A1",
       coordinatorPersonId: fixture.reviewerPersonId,
       status: "ready",
       version: 1,

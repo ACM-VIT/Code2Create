@@ -324,7 +324,6 @@ export const completeness = query({
         teamId: v.id("teams"),
         teamName: v.string(),
         panelName: v.string(),
-        tableLabel: v.string(),
         status: reviewSessionStatus,
         evaluationState: v.optional(reviewEvaluationState),
         evaluationVersion: v.optional(v.number()),
@@ -502,7 +501,6 @@ export const completeness = query({
         teamId: team._id,
         teamName: team.name,
         panelName: panel.name,
-        tableLabel: panel.tableLabel,
         status: session.status,
         ...(evaluation ? { evaluationState: evaluation.state, evaluationVersion: evaluation.version } : {}),
         ...(session.completedByManualReviewRecordId !== undefined

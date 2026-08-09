@@ -51,10 +51,8 @@ const stationSnapshot = v.object({
   id: v.string(),
   stableKey: v.string(),
   name: v.string(),
+  zoneId: v.string(),
   zoneName: v.string(),
-  sessionId: v.optional(v.string()),
-  sessionName: v.optional(v.string()),
-  mode: v.string(),
   status: v.string(),
   configurationVersion: v.number(),
   deviceName: v.optional(v.string()),
@@ -65,6 +63,7 @@ const sessionSnapshot = v.object({
   name: v.string(),
   status: v.string(),
   requirement: v.string(),
+  zoneId: v.string(),
   zoneName: v.string(),
   startsAt: v.number(),
   endsAt: v.number(),
@@ -82,7 +81,6 @@ const criterionSnapshot = v.object({
 const panelSnapshot = v.object({
   id: v.string(),
   name: v.string(),
-  tableLabel: v.string(),
   status: v.string(),
   version: v.number(),
   coordinatorName: v.string(),
@@ -353,7 +351,6 @@ async function buildSnapshot(
       message: `The emergency pack supports at most ${maximumEventStations} stations.`,
     });
   }
-  const sessionsById = mapById(allSessions);
   const deviceRows = await Promise.all(
     allStations.map((station) =>
       station.deviceInstallationId
@@ -369,6 +366,7 @@ async function buildSnapshot(
       name: session.name,
       status: session.status,
       requirement: session.requirement,
+      zoneId: session.zoneId,
       zoneName: attendanceZonesById.get(session.zoneId)?.name ?? "Unknown zone",
       startsAt: session.startsAt,
       endsAt: session.endsAt,
@@ -377,17 +375,13 @@ async function buildSnapshot(
     }));
   const stations = allStations
     .map((station, index) => {
-      const session = station.sessionId ? sessionsById.get(station.sessionId) : undefined;
       const device = deviceRows[index];
       return {
         id: station._id,
         stableKey: station.stableKey,
         name: station.name,
+        zoneId: station.zoneId,
         zoneName: attendanceZonesById.get(station.zoneId)?.name ?? "Unknown zone",
-        ...(session
-          ? { sessionId: session._id, sessionName: session.name }
-          : {}),
-        mode: station.mode,
         status: station.status,
         configurationVersion: station.configurationVersion,
         ...(device ? { deviceName: device.name } : {}),
@@ -428,7 +422,7 @@ async function buildSnapshot(
         }
         const panelRows = await Promise.all(
           panels
-            .sort((left, right) => left.tableLabel.localeCompare(right.tableLabel))
+            .sort((left, right) => left.name.localeCompare(right.name))
             .map(async (panel) => {
               const members = await ctx.db
                 .query("reviewPanelMembers")
@@ -450,7 +444,6 @@ async function buildSnapshot(
               return {
                 id: panel._id,
                 name: panel.name,
-                tableLabel: panel.tableLabel,
                 status: panel.status,
                 version: panel.version,
                 coordinatorName: coordinator?.displayName ?? "Coordinator unavailable",

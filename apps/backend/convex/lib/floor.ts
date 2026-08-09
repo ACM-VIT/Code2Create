@@ -76,3 +76,31 @@ export async function activeTeamFloorLocation(
     .withIndex("by_team_state", (index) => index.eq("teamId", teamId).eq("state", "active"))
     .unique();
 }
+
+/**
+ * The label of the table a review panel walks to for this team. Panels have no
+ * table of their own, so the only true location is where the team is mapped.
+ */
+export async function teamTableLabel(ctx: ReadCtx, teamId: Id<"teams">) {
+  const location = await activeTeamFloorLocation(ctx, teamId);
+  if (!location) return undefined;
+  const spot = await ctx.db.get(location.spotId);
+  return spot?.label;
+}
+
+/**
+ * The table recorded for this team in this round, which is where the panel
+ * walks. Undefined until the team is queued or when the team has no mapped
+ * table, and callers must say so rather than name a location that is not real.
+ */
+export async function teamRoundTableLabel(
+  ctx: ReadCtx,
+  roundId: Id<"reviewRounds">,
+  teamId: Id<"teams">,
+) {
+  const state = await ctx.db
+    .query("teamRoundStates")
+    .withIndex("by_round_team", (index) => index.eq("roundId", roundId).eq("teamId", teamId))
+    .unique();
+  return state?.tableLabel;
+}

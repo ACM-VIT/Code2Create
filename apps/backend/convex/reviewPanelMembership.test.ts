@@ -371,7 +371,6 @@ async function seedPanel(backend: BackendTest) {
       roundId,
       stableKey: "fixture-panel",
       name: "Fixture panel",
-      tableLabel: "A1",
       coordinatorPersonId: coordinator.personId,
       status: "ready",
       version: 1,

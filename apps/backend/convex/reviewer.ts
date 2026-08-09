@@ -7,6 +7,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
+import { teamRoundTableLabel } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { requirePermission, revokeSourceGrants } from "./lib/permissions";
@@ -30,7 +31,6 @@ type PanelContext = {
 type PanelView = {
   id: Id<"reviewPanels">;
   name: string;
-  tableLabel: string;
   isCoordinator: boolean;
   round: {
     id: Id<"reviewRounds">;
@@ -711,7 +711,6 @@ export const now = query({
       v.object({
         id: v.id("reviewPanels"),
         name: v.string(),
-        tableLabel: v.string(),
         isCoordinator: v.boolean(),
         round: v.object({
           id: v.id("reviewRounds"),
@@ -772,9 +771,14 @@ export const now = query({
         sharedFindings: v.optional(v.string()),
         sharedCommitments: v.optional(v.string()),
         sharedNotesVersion: v.number(),
-        team: v.object({ id: v.id("teams"), name: v.string() }),
+        // The panel walks to the team, so the table hangs off the team.
+        team: v.object({
+          id: v.id("teams"),
+          name: v.string(),
+          tableLabel: v.optional(v.string()),
+        }),
         round: v.object({ id: v.id("reviewRounds"), name: v.string() }),
-        panel: v.object({ id: v.id("reviewPanels"), name: v.string(), tableLabel: v.string() }),
+        panel: v.object({ id: v.id("reviewPanels"), name: v.string() }),
         assignment: v.object({
           id: v.id("reviewAssignments"),
           isCoordinator: v.boolean(),
@@ -976,7 +980,6 @@ export const now = query({
       panelView = {
         id: panelContext.panel._id,
         name: panelContext.panel.name,
-        tableLabel: panelContext.panel.tableLabel,
         isCoordinator: panelContext.membership.isCoordinator,
         round: {
           id: panelContext.round._id,
@@ -1325,6 +1328,7 @@ export const now = query({
     const currentPresences = presences.filter((presence) =>
       assignedReviewerIds.has(presence.reviewerPersonId),
     );
+    const activeTableLabel = await teamRoundTableLabel(ctx, round._id, team._id);
     return {
       serverNow: Date.now(),
       device: device
@@ -1362,9 +1366,13 @@ export const now = query({
           ? { sharedCommitments: active.session.sharedCommitments }
           : {}),
         sharedNotesVersion: active.session.sharedNotesVersion,
-        team: { id: team._id, name: team.name },
+        team: {
+          id: team._id,
+          name: team.name,
+          ...(activeTableLabel !== undefined ? { tableLabel: activeTableLabel } : {}),
+        },
         round: { id: round._id, name: round.name },
-        panel: { id: panel._id, name: panel.name, tableLabel: panel.tableLabel },
+        panel: { id: panel._id, name: panel.name },
         assignment: {
           id: active.assignment._id,
           isCoordinator: active.assignment.isCoordinator,
@@ -1443,7 +1451,7 @@ export const confirmPresence = mutation({
     reviewSessionId: v.id("reviewSessions"),
     teamName: v.string(),
     roundName: v.string(),
-    tableLabel: v.string(),
+    tableLabel: v.optional(v.string()),
     reviewerPresenceCount: v.number(),
     reviewerCount: v.number(),
     confirmedAt: v.number(),
@@ -1529,11 +1537,12 @@ export const confirmPresence = mutation({
         .query("reviewPresence")
         .withIndex("by_session_reviewer", (index) => index.eq("reviewSessionId", session._id))
         .collect();
+      const confirmedTableLabel = await teamRoundTableLabel(ctx, round._id, team._id);
       return {
         reviewSessionId: session._id,
         teamName: team.name,
         roundName: round.name,
-        tableLabel: panel.tableLabel,
+        ...(confirmedTableLabel !== undefined ? { tableLabel: confirmedTableLabel } : {}),
         reviewerPresenceCount: allPresence.length,
         reviewerCount: assignedRows.filter((row) => row.status === "assigned").length,
         confirmedAt: currentPresence.confirmedAt,
@@ -1592,7 +1601,7 @@ export const confirmPresence = mutation({
       reviewSessionId: session._id,
       teamName: team.name,
       roundName: round.name,
-      tableLabel: panel.tableLabel,
+      ...(state.tableLabel !== undefined ? { tableLabel: state.tableLabel } : {}),
       reviewerPresenceCount: allPresence.length,
       reviewerCount: assignedRows.filter((row) => row.status === "assigned").length,
       confirmedAt: now,

@@ -428,7 +428,7 @@ async function resolveScopeLabel(
     const panel = id ? await ctx.db.get(id) : null;
     if (!panel || panel.eventId !== eventId) return "Unavailable panel";
     const round = await ctx.db.get(panel.roundId);
-    return `${round?.name ?? "Round"} · ${panel.name} · ${panel.tableLabel}`;
+    return `${round?.name ?? "Round"} · ${panel.name}`;
   }
   if (requestedScopeType === "review") {
     const id = ctx.db.normalizeId("reviewSessions", scopeId);
@@ -1121,7 +1121,7 @@ export const scopeOptions = query({
             const round = await ctx.db.get(panel.roundId);
             return {
               id: panel._id,
-              label: `${round?.name ?? "Round"} · ${panel.name} · ${panel.tableLabel}`,
+              label: `${round?.name ?? "Round"} · ${panel.name}`,
             };
           }),
         ),
