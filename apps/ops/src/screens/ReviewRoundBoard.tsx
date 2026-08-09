@@ -21,6 +21,7 @@ type Panel = Board['panels'][number]
 type Substitutions = FunctionReturnType<typeof api.reviewSubstitutions.roundStatus>
 type SubstitutionPanel = Substitutions['panels'][number]
 type SubstituteMember = SubstitutionPanel['activeMembers'][number]
+type Reserve = Substitutions['reserves'][number]
 type ActiveIncident = FunctionReturnType<typeof api.incidents.active>[number]
 type Command = 'queue' | 'call' | 'start' | 'complete'
 type Attempt = {
@@ -150,6 +151,13 @@ export function ReviewRoundBoard() {
               <div className="panel-row-actions">
                 {substitutionPanel ? (
                   <SubstitutionControl panel={substitutionPanel} serverNow={substitutions.serverNow} />
+                ) : null}
+                {substitutionPanel ? (
+                  <PanelMembership
+                    key={substitutionPanel.panelVersion}
+                    panel={substitutionPanel}
+                    reserves={substitutions.reserves}
+                  />
                 ) : null}
                 {panel.canPause ? <PanelAvailability panel={panel} /> : null}
 
@@ -520,6 +528,121 @@ function SubstitutionControl({ panel, serverNow }: { panel: SubstitutionPanel; s
           </div>
         </div>
       ) : null}
+      {error ? <p className="notice error">{error}</p> : null}
+    </div>
+  )
+}
+
+function PanelMembership({ panel, reserves }: { panel: SubstitutionPanel; reserves: Reserve[] }) {
+  const swapPanelMember = useMutation(api.reviewPanelMembership.swapPanelMember)
+  const [open, setOpen] = useState(false)
+  const [leavingPersonId, setLeavingPersonId] = useState('')
+  const [joiningPersonId, setJoiningPersonId] = useState('')
+  const [reason, setReason] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const operationRef = useRef<string | null>(null)
+
+  if (!panel.canSwapMembers) return null
+
+  // A reserve who is out on a page or already seated cannot take this seat.
+  const candidates = reserves.filter((reserve) => reserve.status === 'available')
+  const leaving = panel.activeMembers.find((member) => member.personId === leavingPersonId)
+  const joining = candidates.find((reserve) => reserve.personId === joiningPersonId)
+
+  const changed = () => {
+    operationRef.current = null
+    setConfirmed(false)
+    setError(null)
+  }
+
+  const submit = async () => {
+    if (busy || !confirmed || reason.trim().length < 5 || (!leaving && !joining)) return
+    const clientOperationId = operationRef.current ?? crypto.randomUUID()
+    operationRef.current = clientOperationId
+    setBusy(true)
+    setError(null)
+    try {
+      await swapPanelMember({
+        eventSlug,
+        panelId: panel.panelId,
+        ...(leaving ? { leavingPersonId: leaving.personId } : {}),
+        ...(joining ? { joiningPersonId: joining.personId } : {}),
+        expectedPanelVersion: panel.panelVersion,
+        reason,
+        clientOperationId,
+      })
+      operationRef.current = null
+      setOpen(false)
+      setLeavingPersonId('')
+      setJoiningPersonId('')
+      setReason('')
+      setConfirmed(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <button className="text-button" type="button" onClick={() => setOpen(true)}>
+        Swap a reviewer
+      </button>
+    )
+  }
+  return (
+    <div className="panel-command">
+      <label className="field compact-select">
+        <span>Reviewer leaving</span>
+        <select value={leavingPersonId} onChange={(event) => { setLeavingPersonId(event.target.value); changed() }}>
+          <option value="">Nobody leaves</option>
+          {panel.activeMembers.map((member) => (
+            <option key={member.personId} value={member.personId}>
+              {member.displayName}{member.isCoordinator ? ' · runs this panel' : ''}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field compact-select">
+        <span>Reviewer joining</span>
+        <select value={joiningPersonId} onChange={(event) => { setJoiningPersonId(event.target.value); changed() }}>
+          <option value="">Nobody joins</option>
+          {candidates.map((reserve) => (
+            <option key={reserve.personId} value={reserve.personId}>{reserve.displayName}</option>
+          ))}
+        </select>
+      </label>
+      {candidates.length === 0 ? (
+        <p className="muted">No reserve reviewer is free for this round right now.</p>
+      ) : null}
+      {leaving?.isCoordinator ? (
+        <p className="muted">Whoever takes this seat runs the panel.</p>
+      ) : null}
+      <label className="field">
+        <span>Operational reason</span>
+        <input value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
+      </label>
+      <label className="check-filter">
+        <input checked={confirmed} type="checkbox" onChange={(event) => {
+          setConfirmed(event.target.checked)
+          operationRef.current = null
+        }} />
+        I confirm this seat change with the panel. A running review is never interrupted.
+      </label>
+      <div className="button-row">
+        <button
+          className="primary"
+          disabled={busy || !confirmed || reason.trim().length < 5 || (!leaving && !joining)}
+          type="button"
+          onClick={() => void submit()}
+        >
+          {busy ? 'Saving…' : 'Change the panel'}
+        </button>
+        <button className="secondary compact-link" disabled={busy} type="button" onClick={() => setOpen(false)}>Cancel</button>
+      </div>
       {error ? <p className="notice error">{error}</p> : null}
     </div>
   )
