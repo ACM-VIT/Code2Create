@@ -8,7 +8,7 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers'
 import type { ReactNode } from 'react'
-import { Dimensions, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Dimensions, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 
 import { palette } from '@/theme'
 
@@ -163,14 +163,22 @@ export function ChipRow<Value extends string>({
   onSelect,
   options,
   selected,
+  wrap = true,
 }: {
   accent?: string
   onSelect: (value: Value) => void
   options: readonly (readonly [Value, string])[]
   selected: Value
+  /** False keeps one line and scrolls, rather than breaking into ragged rows. */
+  wrap?: boolean
 }) {
+  const Row = wrap ? View : ScrollView
   return (
-    <View style={styles.chipRow}>
+    <Row
+      horizontal={!wrap}
+      showsHorizontalScrollIndicator={false}
+      {...(wrap ? { style: styles.chipRow } : { contentContainerStyle: styles.chipRow })}
+    >
       {options.map(([value, label]) => {
         const on = value === selected
         return (
@@ -185,7 +193,7 @@ export function ChipRow<Value extends string>({
           </Pressable>
         )
       })}
-    </View>
+    </Row>
   )
 }
 
@@ -244,6 +252,45 @@ export function Viewfinder({
         <View style={[styles.bracket, styles.bracketBottomLeft, { borderColor: accent }]} />
         <View style={[styles.bracket, styles.bracketBottomRight, { borderColor: accent }]} />
       </View>
+    </View>
+  )
+}
+
+/**
+ * A scanner that owns the screen.
+ *
+ * The camera runs edge to edge behind everything, the way a ticket app's does,
+ * because the job is aiming a phone at a lanyard in a dark hall. Controls float
+ * over the top of it and the result rises from the bottom, so nothing pushes
+ * the viewfinder around or scrolls it out of reach mid-shift.
+ */
+export function ScanSurface({
+  camera,
+  controls,
+  outcome,
+  result,
+}: {
+  camera: ReactNode
+  controls?: ReactNode
+  /** Colour of the floating verdict pill: absent while nothing has been read. */
+  outcome?: { colour: string; ink: string; text: string }
+  result?: ReactNode
+}) {
+  return (
+    <View style={styles.scanSurface}>
+      {camera}
+      <View pointerEvents="none" style={styles.scanGuide} />
+
+      <View pointerEvents="box-none" style={styles.scanTop}>
+        {outcome ? (
+          <View style={[styles.verdict, { backgroundColor: outcome.colour }]}>
+            <Text style={[styles.verdictText, { color: outcome.ink }]}>{outcome.text}</Text>
+          </View>
+        ) : null}
+        {controls}
+      </View>
+
+      {result ? <View style={styles.scanResult}>{result}</View> : null}
     </View>
   )
 }
@@ -422,6 +469,35 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 14, height: 40, justifyContent: 'center', backgroundColor: palette.tile },
   chipText: { color: palette.text, fontSize: 15 },
   chipTextOn: { color: palette.background, fontWeight: '600' },
+
+  scanSurface: { flex: 1, backgroundColor: '#000' },
+  /* A single rounded window rather than four brackets: at full-bleed the
+     brackets read as screen furniture, the window reads as "aim here". */
+  scanGuide: {
+    position: 'absolute',
+    top: '24%',
+    right: '12%',
+    bottom: '30%',
+    left: '12%',
+    borderWidth: 2,
+    borderRadius: 22,
+    borderColor: 'rgba(255,255,255,0.55)',
+  },
+  scanTop: { position: 'absolute', top: 12, right: 16, left: 16, gap: 12, alignItems: 'center' },
+  verdict: { paddingHorizontal: 18, height: 40, borderRadius: 999, justifyContent: 'center' },
+  verdictText: { fontSize: 16, fontWeight: '600' },
+  scanResult: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    left: 0,
+    padding: 20,
+    paddingBottom: 34,
+    gap: 10,
+    backgroundColor: palette.background,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
 
   lead2: { paddingBottom: 4 },
   leadValue: { fontSize: 52, fontWeight: '600', letterSpacing: -1.6, lineHeight: 54 },

@@ -16,11 +16,17 @@ export function DutyScreen({
   children,
   onRefresh,
   refreshing = false,
+  scroll = true,
   title,
 }: {
   children: ReactNode
   onRefresh?: () => void
   refreshing?: boolean
+  /**
+   * False when the duty owns its whole frame. A camera boxed inside a padded
+   * scrolling form is a preview; a camera that fills the screen is a scanner.
+   */
+  scroll?: boolean
   title: string
 }) {
   return (
@@ -43,6 +49,7 @@ export function DutyScreen({
           headerTitleStyle: { color: palette.text, fontSize: 17, fontWeight: '600' },
         }}
       />
+      {scroll ? (
       <ScrollView
         contentContainerStyle={styles.content}
         contentInsetAdjustmentBehavior="automatic"
@@ -56,6 +63,9 @@ export function DutyScreen({
       >
         {children}
       </ScrollView>
+      ) : (
+        children
+      )}
     </View>
   )
 }

@@ -17,7 +17,7 @@ import {
   type BarcodeType,
 } from 'expo-camera'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppState, Platform, StyleSheet, View } from 'react-native'
+import { AppState, Platform, ScrollView, StyleSheet, View } from 'react-native'
 
 import {
   Action,
@@ -31,6 +31,7 @@ import {
   Nothing,
   Problem,
   QuietAction,
+  ScanSurface,
   Section,
   Shell,
   Viewfinder,
@@ -324,6 +325,8 @@ function ScannerSurface({
   const busyRef = useRef(false)
   const replayingRef = useRef(false)
   const serverOffsetRef = useRef(0)
+  /** True while the operator is in the settings behind the scanner. */
+  const [showTools, setShowTools] = useState(false)
   const [busy, setBusy] = useState(false)
   const [replaying, setReplaying] = useState(false)
   const [task, setTask] = useState<ScannerTask>('presence')
@@ -1038,11 +1041,95 @@ function ScannerSurface({
     )
   }
 
+  // The scanner proper: camera edge to edge, controls floating over it, the
+  // person who was just read rising from the bottom. Everything that is not
+  // scanning lives behind "Other tasks" rather than stacked above the camera.
+  if (task === 'presence' && !showTools) {
+    return (
+      <ScanSurface
+        camera={
+          <CameraView
+            barcodeScannerSettings={{ barcodeTypes }}
+            facing="back"
+            onBarcodeScanned={
+              busy || replaying || receipt || pendingConfirmation ? undefined : handleBarcode
+            }
+            style={StyleSheet.absoluteFill}
+          />
+        }
+        {...(receipt
+          ? {
+              outcome: {
+                colour: receipt.outcome === 'accepted' ? palette.judging : palette.urgent,
+                ink: receipt.outcome === 'accepted' ? palette.onJudging : palette.text,
+                text: outcomeName(receipt.outcome),
+              },
+            }
+          : {})}
+        result={
+          <>
+            {receipt ? (
+              <>
+                {receipt.participant ? (
+                  <>
+                    <Heading>{receipt.participant.displayName}</Heading>
+                    {receipt.participant.teamName ? (
+                      <Meta>{receipt.participant.teamName}</Meta>
+                    ) : null}
+                  </>
+                ) : null}
+                {receipt.outcome === 'accepted' ? (
+                  <Meta>{reasonName(receipt.reasonCode)}</Meta>
+                ) : (
+                  <Problem>{reasonName(receipt.reasonCode)}</Problem>
+                )}
+                <Action
+                  accent={palette.door}
+                  label="Scan next"
+                  onPress={() => {
+                    setReceipt(null)
+                    setScanError(null)
+                  }}
+                />
+              </>
+            ) : (
+              <>
+                <ChipRow
+                  accent={palette.door}
+                  onSelect={(option) => {
+                    setChosenTransition(option)
+                    setScanError(null)
+                  }}
+                  options={availableTransitions.map(
+                    (option) => [option, transitionName(option)] as const,
+                  )}
+                  selected={transition}
+                  wrap={false}
+                />
+                <Meta>{transitionStatement(transition, assignment.openSession)}</Meta>
+                {scanError ? <Problem>{scanError}</Problem> : null}
+                {pendingSummary.count > 0 ? (
+                  <Meta>
+                    {pendingSummary.count} scan{pendingSummary.count === 1 ? '' : 's'} still to send
+                  </Meta>
+                ) : null}
+                <QuietAction label="Other tasks" onPress={() => setShowTools(true)} />
+              </>
+            )}
+          </>
+        }
+      />
+    )
+  }
+
   return (
-    <>
-      {/* What the next scan will write, as the largest thing on the screen.
-          Getting that wrong is the failure mode at a door, not missing the
-          station's name. */}
+    <ScrollView
+      contentContainerStyle={styles.toolsContent}
+      contentInsetAdjustmentBehavior="automatic"
+    >
+      {task === 'presence' ? (
+        <QuietAction label="Back to scanning" onPress={() => setShowTools(false)} />
+      ) : null}
       <Lead
         accent={palette.door}
         detail={`${assignment.station.name} · ${assignment.station.zoneName}${
@@ -1216,7 +1303,7 @@ function ScannerSurface({
           <QuietAction label="Try again" onPress={() => setScanError(null)} />
         </Section>
       ) : null}
-    </>
+    </ScrollView>
   )
 }
 
@@ -1646,6 +1733,7 @@ function errorMessage(caught: unknown, fallback: string) {
 }
 
 const styles = StyleSheet.create({
+  toolsContent: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 120, gap: 18 },
   /* The viewfinder is the subject of the screen, so it gets real height and the
      guide is the only thing drawn over it. */
   cameraFrame: { height: 300, overflow: 'hidden', backgroundColor: '#000' },
