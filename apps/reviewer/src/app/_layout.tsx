@@ -41,6 +41,7 @@ function RootLayout() {
                 name="duty/door-tools"
                 options={{
                   presentation: 'formSheet',
+                  headerShown: false,
                   sheetGrabberVisible: true,
                   sheetAllowedDetents: [0.5, 0.92],
                   sheetCornerRadius: 20,

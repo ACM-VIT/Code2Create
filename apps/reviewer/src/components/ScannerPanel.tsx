@@ -1294,7 +1294,6 @@ function ScannerSurface({
                     (option) => [option, transitionName(option)] as const,
                   )}
                   selected={transition}
-                  wrap={false}
                 />
                 <Meta>{transitionStatement(transition, assignment.openSession)}</Meta>
                 {scanError ? <Problem>{scanError}</Problem> : null}
