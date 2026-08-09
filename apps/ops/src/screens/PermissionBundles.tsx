@@ -1,10 +1,12 @@
 import { api } from '@code2create/backend/api'
+import { eventRoleLabels } from '@code2create/domain'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 
 import { PermissionBundleMigration } from '../components/PermissionBundleMigration'
+import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import {
@@ -25,6 +27,9 @@ type DraftEntry = FunctionArgs<typeof api.permissionBundles.saveDraft>['entries'
 type ScopeType = DraftEntry['scopeType']
 type BundleDetail = FunctionReturnType<typeof api.permissionBundles.detail>
 
+const maximumBundleEntries = 48
+const bundleRoles = ['supreme', 'board', 'sc', 'jc', 'external_judge'] as const
+
 export function PermissionBundles() {
   const workspace = useQuery(api.permissionBundles.workspace, { eventSlug })
   const [selectedBundleId, setSelectedBundleId] = useState<BundleId | null>(null)
@@ -34,8 +39,25 @@ export function PermissionBundles() {
     selectedBundleId ? { eventSlug, bundleId: selectedBundleId } : 'skip',
   )
 
-  if (workspace === undefined) return <p className="muted">Loading permission bundles…</p>
+  if (workspace === undefined) {
+    return (
+      <section className="access-shell">
+        <LoadingLabel>Loading the reusable access sets</LoadingLabel>
+        <SkeletonStats columns={3} />
+        <SkeletonList rows={4} />
+      </section>
+    )
+  }
   const selectedBundle = workspace.bundles.find((bundle) => bundle.id === selectedBundleId)
+  const total = workspace.bundles.length
+  const unpublished = workspace.bundles.filter((bundle) => bundle.published === undefined).length
+  const waitingToPublish = workspace.bundles.filter(
+    (bundle) => bundle.published !== undefined && bundle.draft !== undefined,
+  ).length
+  /** Unfinished sets first: a set nobody can be given is the reason to be here. */
+  const ordered = [...workspace.bundles].sort(
+    (left, right) => bundleRank(left) - bundleRank(right) || left.label.localeCompare(right.label),
+  )
 
   return (
     <section className="access-shell">
@@ -45,7 +67,10 @@ export function PermissionBundles() {
           <p className="eyebrow">People and permissions</p>
           <h1>Reusable access</h1>
           <p className="muted">
-            Save a group of permissions once, then give the same access to several people.
+            An access set is a saved, named list of permissions — everything the check-in
+            desk does, or everything an external judge needs. Make one when the same access
+            has to reach several people: you hand out the set instead of ticking permissions
+            person by person, and editing the set is how you change all of them at once.
           </p>
         </div>
         {workspace.canCreate ? (
@@ -62,8 +87,62 @@ export function PermissionBundles() {
         ) : null}
       </header>
 
+      <section className="stage-block">
+        <p className="eyebrow">Where these sets stand</p>
+        {total === 0 ? (
+          <p>
+            No access set exists yet, so every permission on this event is being granted one
+            person at a time. Make one for the first group that shares a job, and the event
+            team screen can hand it out as people sign in.
+          </p>
+        ) : unpublished === 0 && waitingToPublish === 0 ? (
+          <p>
+            All {total} access {sets(total)} are published, so any of them can be given to a
+            person now.
+          </p>
+        ) : (
+          <>
+            {unpublished > 0 ? (
+              <p>
+                {unpublished} of {total} access {sets(total)}{' '}
+                {unpublished === 1 ? 'has' : 'have'} never been published, so nobody can be
+                given {unpublished === 1 ? 'it' : 'them'} yet.
+              </p>
+            ) : null}
+            {waitingToPublish > 0 ? (
+              <p>
+                {waitingToPublish} published {sets(waitingToPublish)}{' '}
+                {waitingToPublish === 1 ? 'has' : 'have'} edits saved as a draft. People
+                holding {waitingToPublish === 1 ? 'it' : 'them'} keep the older permissions
+                until the draft is published.
+              </p>
+            ) : null}
+          </>
+        )}
+        {!workspace.canCreate ? (
+          <p className="muted">Your account can read these sets but cannot create or publish one.</p>
+        ) : null}
+      </section>
+
+      {total > 0 ? (
+        <dl className="catalog-summary">
+          <div>
+            <dt>Never published</dt>
+            <dd>{unpublished}</dd>
+          </div>
+          <div>
+            <dt>Draft waiting</dt>
+            <dd>{waitingToPublish}</dd>
+          </div>
+          <div>
+            <dt>Ready to give out</dt>
+            <dd>{total - unpublished}</dd>
+          </div>
+        </dl>
+      ) : null}
+
       <div className="bundle-list">
-        {workspace.bundles.map((bundle) => (
+        {ordered.map((bundle) => (
           <button
             className={`bundle-row${bundle.id === selectedBundleId ? ' selected' : ''}`}
             key={bundle.id}
@@ -75,15 +154,19 @@ export function PermissionBundles() {
           >
             <span>
               <strong>{bundle.label}</strong>
+              <small>{bundleStatement(bundle)}</small>
             </span>
             <span className="bundle-row-state">
-              {bundle.published ? 'Ready to use' : 'Not published'}
-              {bundle.draft ? ' · Draft changes' : ''}
+              {bundle.published?.publishedAt === undefined
+                ? 'Never published'
+                : `Published ${dateOnly(bundle.published.publishedAt)}`}
             </span>
           </button>
         ))}
-        {workspace.bundles.length === 0 ? (
-          <p className="empty">No reusable access sets yet.</p>
+        {total === 0 ? (
+          <p className="muted">
+            No access set has been made yet.
+          </p>
         ) : null}
       </div>
 
@@ -101,7 +184,10 @@ export function PermissionBundles() {
         />
       ) : null}
       {selectedBundleId && detail === undefined ? (
-        <p className="muted">Loading bundle…</p>
+        <>
+          <LoadingLabel>Loading this access set</LoadingLabel>
+          <SkeletonCard lines={5} />
+        </>
       ) : null}
       {selectedBundle && detail ? (
         <BundleEditor
@@ -153,9 +239,21 @@ function BundleEditor({
   const submitDraft = async (event: FormEvent) => {
     event.preventDefault()
     if (!canEdit) return
+    setMessage(null)
+    if (label.trim().length < 2 || key.length < 2) {
+      setError('Give this set a name of at least two characters, so people can tell it apart.')
+      return
+    }
+    if (entries.length === 0) {
+      setError('A set with no permissions grants nothing. Add at least one permission.')
+      return
+    }
+    if (reason.trim().length < 5) {
+      setError('Say why this set is changing, in at least five characters. It is kept with the audit record.')
+      return
+    }
     setSaving(true)
     setError(null)
-    setMessage(null)
     try {
       const result = await saveDraft({
         eventSlug,
@@ -170,7 +268,7 @@ function BundleEditor({
         clientOperationId: crypto.randomUUID(),
       })
       setReason('')
-      setMessage('Draft saved.')
+      setMessage('Draft saved. Nobody receives these permissions until it is published.')
       onSaved(result.bundleId)
     } catch (caught) {
       setError(readableError(caught))
@@ -181,9 +279,13 @@ function BundleEditor({
 
   const publishDraft = async () => {
     if (!canEdit || !detail?.draft) return
+    setMessage(null)
+    if (reason.trim().length < 5) {
+      setError('Say why this set is being published, in at least five characters.')
+      return
+    }
     setPublishing(true)
     setError(null)
-    setMessage(null)
     try {
       await publish({
         eventSlug,
@@ -195,7 +297,7 @@ function BundleEditor({
       })
       setConfirmPublish(false)
       setReason('')
-      setMessage('This access set is ready to use.')
+      setMessage('This access set is published, so it can now be given to people.')
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -208,7 +310,8 @@ function BundleEditor({
       <div>
         <h2>{detail ? detail.bundle.label : 'New access set'}</h2>
         <p className="muted">
-          Roles are labels only. This list defines the exact permissions a person receives.
+          Every line below is granted the moment a person receives this set. The role label
+          is only a name for the group; on its own it grants nothing.
         </p>
       </div>
 
@@ -235,11 +338,9 @@ function BundleEditor({
               onChange={(event) => setDefaultRole(event.target.value)}
             >
               <option value="">None</option>
-              <option value="supreme">Supreme</option>
-              <option value="board">Board</option>
-              <option value="sc">SC</option>
-              <option value="jc">JC</option>
-              <option value="external_judge">External judge</option>
+              {bundleRoles.map((role) => (
+                <option key={role} value={role}>{eventRoleLabels[role]}</option>
+              ))}
             </select>
           </label>
         </div>
@@ -267,11 +368,10 @@ function BundleEditor({
             />
           ))}
         </div>
-        {canEdit ? (
+        {canEdit && entries.length < maximumBundleEntries ? (
           <button
             className="text-button"
             type="button"
-            disabled={entries.length >= 48}
             onClick={() => {
               const next = defaultEntry(firstCatalogEntry(catalog))
               if (next) setEntries((current) => [...current, next])
@@ -280,25 +380,27 @@ function BundleEditor({
             Add permission
           </button>
         ) : null}
+        {canEdit && entries.length >= maximumBundleEntries ? (
+          <p className="muted">
+            This set holds the most permissions one set can carry ({maximumBundleEntries}).
+            Remove one before adding another, or split the group into two sets.
+          </p>
+        ) : null}
 
-        <div className="bundle-diff">
-          <span>{diff.added} added</span>
-          <span>{diff.removed} removed</span>
-          <span>{diff.unchanged} unchanged</span>
-        </div>
+        <p className="muted">
+          {detail?.published
+            ? `Against the published version, this draft adds ${diff.added}, removes ${diff.removed}, and leaves ${diff.unchanged} unchanged.`
+            : `Publishing this set will hand out ${entries.length} ${permissions(entries.length)} to everyone who receives it.`}
+        </p>
 
         {canEdit ? (
           <>
             <label className="field bundle-reason">
               <span>Why this changed</span>
-              <textarea required value={reason} onChange={(event) => setReason(event.target.value)} />
+              <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
             </label>
             <div className="button-row">
-              <button
-                className="primary"
-                type="submit"
-                disabled={saving || label.trim().length < 2 || key.length < 2 || entries.length === 0 || reason.trim().length < 5}
-              >
+              <button className="primary" type="submit" disabled={saving}>
                 {saving ? 'Saving…' : 'Save draft'}
               </button>
               {detail?.draft ? (
@@ -314,7 +416,7 @@ function BundleEditor({
             </div>
           </>
         ) : (
-          <p className="notice">You can read this bundle, but cannot publish changes to it.</p>
+          <p className="notice">You can read this set, but cannot publish changes to it.</p>
         )}
       </form>
 
@@ -322,14 +424,16 @@ function BundleEditor({
         <div className="publish-confirmation">
           <h2>Make this access set available?</h2>
           <p>
-            {detail.draft.entries.length} permissions · {diff.added} added · {diff.removed} removed.
-            People who already use this set keep their current access until you update them separately.
+            It will carry {detail.draft.entries.length} {permissions(detail.draft.entries.length)}
+            {' '}({diff.added} added, {diff.removed} removed) and can be given to anyone from
+            then on. People who already hold this set keep their current permissions until you
+            move them across separately.
           </p>
           <div className="button-row">
             <button
               className="primary"
               type="button"
-              disabled={publishing || reason.trim().length < 5}
+              disabled={publishing}
               onClick={() => void publishDraft()}
             >
               {publishing ? 'Publishing…' : 'Confirm publish'}
@@ -462,6 +566,36 @@ function BundleEntryRow({
   )
 }
 
+/** A set nobody can be given ranks above one that is merely out of date. */
+function bundleRank(bundle: Bundle) {
+  if (bundle.published === undefined) return 0
+  if (bundle.draft !== undefined) return 1
+  return 2
+}
+
+function bundleStatement(bundle: Bundle) {
+  if (bundle.published === undefined) {
+    const drafted = bundle.draft?.entryCount ?? 0
+    return `Not published, so nobody can be given it yet. The draft holds ${drafted} ${permissions(drafted)}.`
+  }
+  if (bundle.draft !== undefined) {
+    return `In use with ${bundle.published.entryCount} ${permissions(bundle.published.entryCount)}. A draft of ${bundle.draft.entryCount} is waiting to be published.`
+  }
+  return `Ready to give to anyone, carrying ${bundle.published.entryCount} ${permissions(bundle.published.entryCount)}.`
+}
+
+function permissions(count: number) {
+  return count === 1 ? 'permission' : 'permissions'
+}
+
+function sets(count: number) {
+  return count === 1 ? 'set' : 'sets'
+}
+
+function dateOnly(timestamp: number) {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(timestamp)
+}
+
 function firstEntries(catalog: CatalogEntry[]) {
   const entry = defaultEntry(firstCatalogEntry(catalog))
   return entry ? [entry] : []
@@ -498,10 +632,7 @@ function scopesFor(definition: CatalogEntry): ScopeType[] {
 }
 
 function roleValue(value: string): FunctionArgs<typeof api.permissionBundles.saveDraft>['defaultRole'] {
-  if (value === 'supreme' || value === 'board' || value === 'sc' || value === 'jc' || value === 'external_judge') {
-    return value
-  }
-  return null
+  return bundleRoles.find((role) => role === value) ?? null
 }
 
 function entryIdentity(entry: DraftEntry) {

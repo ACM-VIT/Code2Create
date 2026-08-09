@@ -1,10 +1,13 @@
 import { api } from '@code2create/backend/api'
+import { eventRoleLabels } from '@code2create/domain'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import * as Papa from 'papaparse'
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 
+import { Icon, type IconName } from '../components/Icon'
+import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 
@@ -15,10 +18,36 @@ type ImportRow = PreviewRequest['rows'][number]
 type RosterRole = ImportRow['role']
 type BundleVersionId = PreviewRequest['bundleVersionIds'][number]
 
+/**
+ * What a reader is doing on this screen, in the order they need it: someone who
+ * was invited and has not arrived is work; someone who signed in is done.
+ */
+type EntryGroup = 'lapsed' | 'waiting' | 'signed_in' | 'ended'
+
 const maximumCsvBytes = 256 * 1024
 const maximumRosterRows = 200
+const maximumBundleSelections = 8
 const rosterRoles = ['supreme', 'board', 'sc', 'jc', 'external_judge'] as const
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/**
+ * The CSV takes the role written the way the dashboard says it, as well as the
+ * stored key, so nobody has to know that Senior Core is filed as `sc`.
+ */
+const roleByWrittenForm = new Map<string, RosterRole>(
+  rosterRoles.flatMap((role) => [
+    [role, role] as const,
+    [normalizedRoleText(eventRoleLabels[role]), role] as const,
+  ]),
+)
+const writtenRoleChoices = rosterRoles.map((role) => eventRoleLabels[role]).join(', ')
+
+const rosterGroups: ReadonlyArray<{ key: EntryGroup; label: string }> = [
+  { key: 'lapsed', label: 'Invitation ran out' },
+  { key: 'waiting', label: 'Waiting to sign in' },
+  { key: 'signed_in', label: 'Signed in' },
+  { key: 'ended', label: 'No longer on the team' },
+]
 
 export function Roster() {
   const workspace = useQuery(api.rosters.workspace, { eventSlug })
@@ -28,6 +57,7 @@ export function Roster() {
     { initialNumItems: 50 },
   )
   const confirmImport = useMutation(api.rosters.confirmImport)
+  const [showImport, setShowImport] = useState(false)
   const [loadedRoster, setLoadedRoster] = useState<{
     fileName: string
     rows: ImportRow[]
@@ -53,11 +83,23 @@ export function Roster() {
     }
   }, [workspace])
 
-  if (workspace === undefined) return <p className="muted">Loading event team…</p>
+  if (workspace === undefined) {
+    return (
+      <section className="access-shell roster-workspace">
+        <LoadingLabel>Loading the event team</LoadingLabel>
+        <SkeletonStats columns={3} />
+        <SkeletonList rows={5} />
+      </section>
+    )
+  }
 
-  const entries = workspace.canReadAll
-    ? rosterPage.results
-    : workspace.entries
+  const entries = workspace.canReadAll ? rosterPage.results : workspace.entries
+  const loadingPeople = workspace.canReadAll && rosterPage.status === 'LoadingFirstPage'
+  const waiting = entries.filter((entry) => entry.status === 'pending').length
+  const signedIn = entries.filter((entry) => entry.status === 'claimed').length
+  const lapsed = entries.filter((entry) => entry.status === 'expired').length
+  const compatibleBundles = workspace.bundles.filter((bundle) => bundle.rosterCompatible)
+  const laterBundles = workspace.bundles.filter((bundle) => !bundle.rosterCompatible)
 
   const readCsv = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -85,15 +127,23 @@ export function Roster() {
 
   const requestPreview = (event: FormEvent) => {
     event.preventDefault()
-    if (!loadedRoster) return
+    setMessage(null)
+    if (!loadedRoster) {
+      setError('Choose the CSV holding the people you want to add.')
+      return
+    }
+    if (sourceName.trim().length < 3) {
+      setError('Name this list, so every person it adds records where they came from.')
+      return
+    }
     const start = new Date(validFrom).getTime()
     const end = new Date(validUntil).getTime()
     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end <= start) {
-      setError('Choose a valid access start and end time.')
+      setError('Choose an access start time, and an end time after it.')
       return
     }
     if (end <= Date.now()) {
-      setError('Roster access must end in the future.')
+      setError('Roster access must end in the future, or nobody will be able to sign in with it.')
       return
     }
     if (
@@ -103,8 +153,11 @@ export function Roster() {
       setError('Roster access cannot outlive the event.')
       return
     }
+    if (reason.trim().length < 5) {
+      setError('Say why this list is being added, in at least five characters. It is kept with the audit record.')
+      return
+    }
     setError(null)
-    setMessage(null)
     setPreviewRequest({
       eventSlug,
       sourceName,
@@ -129,7 +182,7 @@ export function Roster() {
         clientOperationId: crypto.randomUUID(),
       })
       setMessage(
-        `${result.createdCount} added, ${result.replacedCount} updated, ${result.unchangedCount} unchanged, and ${result.alreadyClaimedCount} already signed in.`,
+        `Added ${result.createdCount} ${people(result.createdCount)}, replaced ${result.replacedCount} ${invitations(result.replacedCount)}, left ${result.unchangedCount} unchanged, and skipped ${result.alreadyClaimedCount} who had already signed in.`,
       )
       setPreviewRequest(null)
       setLoadedRoster(null)
@@ -137,11 +190,25 @@ export function Roster() {
       setBundleVersionIds([])
       setReason('')
       setFileInputKey((current) => current + 1)
+      setShowImport(false)
     } catch (caught) {
       setError(readableError(caught))
     } finally {
       setBusy(false)
     }
+  }
+
+  const selectBundle = (versionId: BundleVersionId, selected: boolean) => {
+    if (!selected) {
+      setBundleVersionIds((current) => current.filter((id) => id !== versionId))
+      return
+    }
+    if (bundleVersionIds.length >= maximumBundleSelections) {
+      setError(`One list can carry at most ${maximumBundleSelections} reusable access sets.`)
+      return
+    }
+    setError(null)
+    setBundleVersionIds((current) => [...current, versionId])
   }
 
   return (
@@ -152,19 +219,99 @@ export function Roster() {
           <p className="eyebrow">People and permissions</p>
           <h1>Event team</h1>
           <p className="muted">
-            Add approved organizers and judges before they sign in with Google.
+            The organizers and judges allowed into this event. Anyone whose email is not
+            here is turned away when they try to sign in with Google.
           </p>
         </div>
+        {workspace.canImport ? (
+          <button
+            aria-expanded={showImport}
+            className="secondary"
+            type="button"
+            onClick={() => setShowImport((current) => !current)}
+          >
+            {showImport ? 'Hide the spreadsheet form' : 'Add people from a spreadsheet'}
+          </button>
+        ) : null}
       </header>
 
-      {workspace.importBlocker ? <p className="notice">{workspace.importBlocker}</p> : null}
+      {loadingPeople ? (
+        <>
+          <LoadingLabel>Loading the event team</LoadingLabel>
+          <SkeletonCard lines={3} />
+          <SkeletonStats columns={3} />
+        </>
+      ) : (
+        <>
+          <section className="stage-block">
+            <p className="eyebrow">Where this list stands</p>
+            {entries.length === 0 ? (
+              <p>
+                Nobody has been added yet, so no organizer or judge can sign in. Add them
+                from a spreadsheet and they can sign in as soon as they are on the list.
+              </p>
+            ) : (
+              <p>
+                {waiting === 0
+                  ? `All ${entries.length} ${people(entries.length)} on this list have signed in.`
+                  : `${waiting} of ${entries.length} ${people(entries.length)} have not signed in yet, so they cannot open the dashboard or be given anything to do.`}
+              </p>
+            )}
+            {lapsed > 0 ? (
+              <p className="muted">
+                {lapsed === 1
+                  ? 'One invitation ran out before it was used; that person has to be added again before they can sign in.'
+                  : `${lapsed} invitations ran out before they were used; those people have to be added again before they can sign in.`}
+              </p>
+            ) : null}
+            {!workspace.canReadAll ? (
+              <p className="muted">
+                You can see only the invitations your own permissions name, so these counts
+                cover part of the team.
+              </p>
+            ) : rosterPage.status === 'CanLoadMore' ? (
+              <p className="muted">
+                These counts cover the {entries.length} most recently added people. Load the
+                rest below to count everyone.
+              </p>
+            ) : null}
+            {workspace.importBlocker ? <p className="muted">{workspace.importBlocker}</p> : null}
+            {!workspace.canImport && !workspace.importBlocker ? (
+              <p className="muted">
+                Your account can read this list but cannot add people to it.
+              </p>
+            ) : null}
+          </section>
 
-      {workspace.canImport ? (
+          {entries.length > 0 ? (
+            <dl className="catalog-summary">
+              <div>
+                <dt>Waiting to sign in</dt>
+                <dd>{waiting}</dd>
+              </div>
+              <div>
+                <dt>Signed in</dt>
+                <dd>{signedIn}</dd>
+              </div>
+              <div>
+                <dt>Invitation ran out</dt>
+                <dd>{lapsed}</dd>
+              </div>
+            </dl>
+          ) : null}
+        </>
+      )}
+
+      {message ? <p className="notice" role="status">{message}</p> : null}
+
+      {workspace.canImport && showImport ? (
         <section className="roster-import">
           <div>
-            <h2>Bulk add from a spreadsheet</h2>
+            <h2>Add people from a spreadsheet</h2>
             <p className="muted">
-              Upload up to 200 people with the columns <code>email,name,role</code>. Roles are Supreme, Board, SC, JC, or External Judge.
+              A CSV of up to {maximumRosterRows} rows with the columns <code>email,name,role</code>,
+              where the role is one of: {writtenRoleChoices}. You see a summary of what will
+              change before anything is added.
             </p>
           </div>
 
@@ -183,20 +330,22 @@ export function Roster() {
               <label className="field roster-file-field">
                 <span>Team list</span>
                 <input
-                  required
                   accept=".csv,text/csv"
                   key={fileInputKey}
                   type="file"
                   onChange={(event) => void readCsv(event)}
                 />
-                {loadedRoster ? <small>{loadedRoster.rows.length} valid rows loaded</small> : null}
+                {loadedRoster ? (
+                  <small>
+                    {loadedRoster.rows.length} {people(loadedRoster.rows.length)} read from{' '}
+                    {loadedRoster.fileName}
+                  </small>
+                ) : null}
               </label>
               <label className="field">
                 <span>List name</span>
                 <input
-                  required
                   maxLength={100}
-                  minLength={3}
                   value={sourceName}
                   onChange={(event) => setSourceName(event.target.value)}
                 />
@@ -204,7 +353,6 @@ export function Roster() {
               <label className="field">
                 <span>Access starts</span>
                 <input
-                  required
                   type="datetime-local"
                   value={validFrom}
                   onChange={(event) => setValidFrom(event.target.value)}
@@ -213,7 +361,6 @@ export function Roster() {
               <label className="field">
                 <span>Access ends</span>
                 <input
-                  required
                   max={workspace.recommendedValidUntil === undefined
                     ? undefined
                     : localDateTime(workspace.recommendedValidUntil)}
@@ -224,83 +371,81 @@ export function Roster() {
               </label>
               <fieldset className="roster-bundles">
                 <legend>Reusable access <small>Optional</small></legend>
-                {workspace.bundles.map((bundle) => (
+                {compatibleBundles.map((bundle) => (
                   <label className="check-row" key={bundle.versionId}>
                     <input
                       checked={bundleVersionIds.includes(bundle.versionId)}
-                      disabled={
-                        !bundle.rosterCompatible ||
-                        (!bundleVersionIds.includes(bundle.versionId) && bundleVersionIds.length >= 8)
-                      }
                       type="checkbox"
-                      onChange={(event) => {
-                        if (event.target.checked) {
-                          setBundleVersionIds((current) => [...current, bundle.versionId])
-                        } else {
-                          setBundleVersionIds((current) => current.filter((id) => id !== bundle.versionId))
-                        }
-                      }}
+                      onChange={(event) => selectBundle(bundle.versionId, event.target.checked)}
                     />
                     <span>
-                      {bundle.label} · {bundle.entryCount} permissions
-                      {!bundle.rosterCompatible ? ' · assign after sign-in' : ''}
+                      {bundle.label} — {bundle.entryCount}{' '}
+                      {bundle.entryCount === 1 ? 'permission' : 'permissions'}, given to each
+                      person the first time they sign in
                     </span>
                   </label>
                 ))}
-                {workspace.bundles.length === 0 ? (
-                  <p className="muted">No reusable access sets are ready.</p>
+                {compatibleBundles.length === 0 ? (
+                  <p>
+                    No published access set can be handed out at sign-in, so these people
+                    arrive with a role label and no permissions.{' '}
+                    <Link to="/access/bundles">Make a reusable access set</Link> if several of
+                    them need the same access.
+                  </p>
+                ) : null}
+                {laterBundles.length > 0 ? (
+                  <p>
+                    {laterBundles.length === 1
+                      ? 'One other set names a specific team or panel, so it can only be given to a person after they sign in.'
+                      : `${laterBundles.length} other sets name a specific team or panel, so they can only be given to a person after they sign in.`}
+                  </p>
                 ) : null}
               </fieldset>
               <label className="field roster-reason">
                 <span>Why this list is being added</span>
                 <textarea
-                  required
                   maxLength={300}
-                  minLength={5}
                   value={reason}
                   onChange={(event) => setReason(event.target.value)}
                 />
               </label>
-              <button
-                className="secondary"
-                type="submit"
-                disabled={
-                  !loadedRoster ||
-                  sourceName.trim().length < 3 ||
-                  !validFrom ||
-                  !validUntil ||
-                  reason.trim().length < 5
-                }
-              >
-                Review people
-              </button>
+              <button className="secondary" type="submit">Check what this changes</button>
             </form>
           )}
-          {message ? <p className="notice" role="status">{message}</p> : null}
           {error ? <p className="notice error" role="alert">{error}</p> : null}
         </section>
       ) : null}
 
-      <section className="roster-history">
-        <div>
-          <h2>People</h2>
-          <p className="muted">Sign-in and access status update here in real time.</p>
+      {loadingPeople ? (
+        <SkeletonList rows={5} />
+      ) : entries.length === 0 ? (
+        <div className="health-empty">
+          <strong>No people have been added.</strong>
+          <span>
+            Everyone who runs or judges this event has to be on this list before they can
+            sign in.
+          </span>
         </div>
-        <div className="roster-access-list">
-          {entries.map((entry) => <RosterEntry key={entry.id} entry={entry} />)}
-          {workspace.canReadAll && rosterPage.status === 'LoadingFirstPage' ? (
-            <p className="muted">Loading people…</p>
-          ) : null}
-          {entries.length === 0 && (!workspace.canReadAll || rosterPage.status !== 'LoadingFirstPage') ? (
-            <p className="empty">No people have been added.</p>
-          ) : null}
-        </div>
-        {workspace.canReadAll && rosterPage.status === 'CanLoadMore' ? (
-          <button className="secondary" type="button" onClick={() => rosterPage.loadMore(50)}>
-            Load more entries
-          </button>
-        ) : null}
-      </section>
+      ) : (
+        rosterGroups.map((group) => {
+          const rows = orderedEntries(entries, group.key)
+          if (rows.length === 0) return null
+          return (
+            <section key={group.key}>
+              <p className="board-section-label">{group.label} · {rows.length}</p>
+              <div className="health-list">
+                {rows.map((entry) => <RosterEntry key={entry.id} entry={entry} />)}
+              </div>
+            </section>
+          )
+        })
+      )}
+
+      {workspace.canReadAll && rosterPage.status === 'CanLoadMore' ? (
+        <button className="secondary" type="button" onClick={() => rosterPage.loadMore(50)}>
+          Load more people
+        </button>
+      ) : null}
     </section>
   )
 }
@@ -316,12 +461,19 @@ function RosterPreview({
   onConfirm: () => void
   onCancel: () => void
 }) {
-  if (!preview) return <p className="muted">Checking the roster against current event access…</p>
+  if (!preview) {
+    return (
+      <>
+        <LoadingLabel>Checking this list against the access people already have</LoadingLabel>
+        <SkeletonCard lines={4} />
+      </>
+    )
+  }
   return (
     <div className="roster-preview">
       <dl className="roster-preview-counts">
-        <div><dt>New</dt><dd>{preview.counts.create}</dd></div>
-        <div><dt>Update</dt><dd>{preview.counts.replace}</dd></div>
+        <div><dt>New people</dt><dd>{preview.counts.create}</dd></div>
+        <div><dt>Invitation replaced</dt><dd>{preview.counts.replace}</dd></div>
         <div><dt>Unchanged</dt><dd>{preview.counts.unchanged}</dd></div>
         <div><dt>Already signed in</dt><dd>{preview.counts.alreadyClaimed}</dd></div>
       </dl>
@@ -330,22 +482,22 @@ function RosterPreview({
           <div key={`${row.rowNumber}:${row.email}`}>
             <span>{row.rowNumber}</span>
             <span><strong>{row.displayName}</strong><small>{row.email}</small></span>
-            <span>{roleName(row.role)}</span>
+            <span>{eventRoleLabels[row.role]}</span>
             <span>{outcomeName(row.outcome)}</span>
           </div>
         ))}
       </div>
       <p className="muted">
         {preview.bundles.length === 0
-          ? 'These people receive a role label but no permissions.'
-          : `${preview.bundles.length} access set${preview.bundles.length === 1 ? '' : 's'} will be added when each person first signs in.`}
+          ? 'These people get a role label and no permissions, so someone has to grant what each of them needs.'
+          : `Each person also receives ${preview.bundles.length} reusable access ${preview.bundles.length === 1 ? 'set' : 'sets'} the first time they sign in.`}
       </p>
       <div className="button-row">
         <button className="primary" type="button" disabled={busy} onClick={onConfirm}>
           {busy ? 'Adding…' : 'Add these people'}
         </button>
         <button className="text-button" type="button" disabled={busy} onClick={onCancel}>
-          Edit
+          Go back and edit
         </button>
       </div>
       <small className="muted">You may be asked to sign in again before adding these accounts.</small>
@@ -359,8 +511,13 @@ function RosterEntry({ entry }: { entry: Entry }) {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const group = entryGroup(entry.status)
 
   const confirmRevoke = async () => {
+    if (reason.trim().length < 5) {
+      setError('Say why this invitation is being removed, in at least five characters.')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -381,32 +538,40 @@ function RosterEntry({ entry }: { entry: Entry }) {
   }
 
   return (
-    <article className="roster-access-row">
-      <div>
-        <strong>{entry.displayName}</strong>
-        <span>{entry.email}</span>
-        <small>{entry.sourceName} · {dateTime(entry.validFrom)} to {dateTime(entry.validUntil)}</small>
-      </div>
-      <div className="roster-access-state">
-        <span>{entry.roleLabel}</span>
-        <small>{statusName(entry.status)}</small>
+    <>
+      <article className="list-row">
+        <span className={`row-glyph ${groupTone(group)}`}>
+          <Icon name={groupIcon(group)} />
+        </span>
+        <div className="row-text">
+          <strong>
+            {entry.displayName}
+            <span className="row-context"> · {eventRoleLabels[entry.role]}</span>
+          </strong>
+          <small>{statusStatement(entry)}</small>
+          <small className="row-context">{entry.email} · added from {entry.sourceName}</small>
+        </div>
         {entry.canRevoke ? (
-          <button className="text-button" type="button" onClick={() => setConfirming((current) => !current)}>
-            {confirming ? 'Keep' : 'Revoke'}
+          <button
+            className="row-action"
+            type="button"
+            onClick={() => setConfirming((current) => !current)}
+          >
+            {confirming ? 'Keep the invitation' : 'Remove'}
           </button>
         ) : null}
-      </div>
+      </article>
       {confirming ? (
         <div className="roster-revoke">
           <label className="field">
-            <span>Why remove this invitation?</span>
-            <textarea required value={reason} onChange={(event) => setReason(event.target.value)} />
+            <span>Why {entry.displayName} is being removed</span>
+            <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
           </label>
           <div className="button-row">
             <button
               className="secondary"
               type="button"
-              disabled={busy || reason.trim().length < 5}
+              disabled={busy}
               onClick={() => void confirmRevoke()}
             >
               {busy ? 'Removing…' : 'Remove invitation'}
@@ -418,8 +583,54 @@ function RosterEntry({ entry }: { entry: Entry }) {
           {error ? <p className="notice error" role="alert">{error}</p> : null}
         </div>
       ) : null}
-    </article>
+    </>
   )
+}
+
+/** Work first: people who cannot get in, then people who have not arrived. */
+function orderedEntries(entries: readonly Entry[], group: EntryGroup) {
+  const rows = entries.filter((entry) => entryGroup(entry.status) === group)
+  return rows.sort((left, right) =>
+    group === 'signed_in' || group === 'ended'
+      ? right.createdAt - left.createdAt
+      : left.validUntil - right.validUntil,
+  )
+}
+
+function entryGroup(status: Entry['status']): EntryGroup {
+  if (status === 'expired') return 'lapsed'
+  if (status === 'pending') return 'waiting'
+  if (status === 'claimed') return 'signed_in'
+  return 'ended'
+}
+
+function groupTone(group: EntryGroup) {
+  if (group === 'lapsed') return 'attention'
+  if (group === 'waiting') return 'watch'
+  return ''
+}
+
+function groupIcon(group: EntryGroup): IconName {
+  if (group === 'lapsed') return 'alert'
+  if (group === 'waiting') return 'clock'
+  if (group === 'signed_in') return 'users'
+  return 'pause'
+}
+
+function statusStatement(entry: Entry) {
+  if (entry.status === 'pending') {
+    return `Has not signed in yet. The invitation stays open until ${dateTime(entry.validUntil)}.`
+  }
+  if (entry.status === 'claimed') {
+    return `Signed in. Their access runs until ${dateTime(entry.validUntil)}.`
+  }
+  if (entry.status === 'expired') {
+    return `The invitation ran out on ${dateTime(entry.validUntil)} before it was used, so this person cannot sign in until they are added again.`
+  }
+  if (entry.status === 'revoked') {
+    return 'The invitation was removed, so this person can no longer sign in.'
+  }
+  return 'A newer invitation for the same email address replaced this one.'
 }
 
 function parseRosterCsv(text: string): ImportRow[] {
@@ -449,7 +660,9 @@ function parseRosterCsv(text: string): ImportRow[] {
     const displayName = source[1]?.trim()
     const role = source[2] ? parsedRole(source[2]) : null
     if (source.length !== 3 || !email || !displayName || !role) {
-      throw new Error(`CSV row ${index + 1} must contain one email, name, and valid role.`)
+      throw new Error(
+        `CSV row ${index + 1} needs an email, a name, and one of these roles: ${writtenRoleChoices}.`,
+      )
     }
     if (!emailPattern.test(email) || email.length > 254) {
       throw new Error(`CSV row ${index + 1} has an invalid email address.`)
@@ -470,9 +683,12 @@ function parseRosterCsv(text: string): ImportRow[] {
   return rows
 }
 
+function normalizedRoleText(value: string) {
+  return value.trim().toLowerCase().replace(/[ -]+/g, '_')
+}
+
 function parsedRole(value: string): RosterRole | null {
-  const normalized = value.trim().toLowerCase().replace(/[ -]+/g, '_')
-  return rosterRoles.find((role) => role === normalized) ?? null
+  return roleByWrittenForm.get(normalizedRoleText(value)) ?? null
 }
 
 function sourceNameFromFile(fileName: string) {
@@ -492,25 +708,18 @@ function dateTime(timestamp: number) {
   }).format(timestamp)
 }
 
-function roleName(role: RosterRole) {
-  if (role === 'external_judge') return 'External judge'
-  if (role === 'sc') return 'SC'
-  if (role === 'jc') return 'JC'
-  return role.charAt(0).toUpperCase() + role.slice(1)
+function people(count: number) {
+  return count === 1 ? 'person' : 'people'
+}
+
+function invitations(count: number) {
+  return count === 1 ? 'invitation' : 'invitations'
 }
 
 function outcomeName(outcome: FunctionReturnType<typeof api.rosters.previewImport>['rows'][number]['outcome']) {
   if (outcome === 'create') return 'New'
-  if (outcome === 'replace_pending') return 'Update invitation'
-  if (outcome === 'replace_expired') return 'Invite again'
+  if (outcome === 'replace_pending') return 'Invitation replaced'
+  if (outcome === 'replace_expired') return 'Invited again'
   if (outcome === 'unchanged_pending') return 'Unchanged'
   return 'Already signed in'
-}
-
-function statusName(status: Entry['status']) {
-  if (status === 'claimed') return 'Signed in'
-  if (status === 'revoked') return 'Revoked'
-  if (status === 'superseded') return 'Superseded'
-  if (status === 'expired') return 'Expired'
-  return 'Waiting for sign-in'
 }

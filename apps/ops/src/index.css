@@ -323,6 +323,9 @@ p { line-height: 1.55; font-size: .8125rem; }
 .floor-setup h2, .floor-setup p { margin-bottom: 0; }
 .floor-csv { min-height: 230px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .76rem; white-space: pre; }
 .page-heading, .application-heading, .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+/* A heading's trailing control keeps its width; only the prose beside it wraps. */
+.page-heading > .primary, .page-heading > .secondary,
+.section-heading > .primary, .section-heading > .secondary { flex: 0 0 auto; }
 .configuration-tabs { display: flex; width: fit-content; margin-top: 22px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 3px; }
 .configuration-tabs button { min-height: 38px; padding: 8px 12px; color: var(--muted); background: transparent; border: 0; border-right: 1px solid var(--border); cursor: pointer; }
 .configuration-tabs button:last-child { border-right: 0; }
