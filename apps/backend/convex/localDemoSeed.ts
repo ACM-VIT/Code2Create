@@ -1089,7 +1089,7 @@ async function createDemoTeam(
       definition.participantClass === "vit_student" ? "early_year" : "mixed_or_external",
     aiDisposition: "unavailable",
     humanDecision: "accept",
-    humanReasonCode: "clear_problem_and_plan",
+    humanReasonCode: "clear_and_workable",
     decidedByPersonId: args.leadPersonId,
     decidedAt: now - 28 * hour,
     assignedReviewCount: 0,

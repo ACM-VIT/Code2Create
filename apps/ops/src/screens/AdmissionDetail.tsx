@@ -7,6 +7,7 @@ import {
   admissionRecommendationStateLabels,
   admissionReviewAssignmentStateLabels,
   applicationDecisionLabels,
+  applicationDecisionOutcomeLabels,
   applicationDecisions,
   applicationStateLabels,
   criterionAssessmentLabels,
@@ -71,7 +72,7 @@ export function AdmissionDetail({ access }: { access: Access }) {
           <p className="eyebrow">{detail.project.trackName}</p>
           <h1>{detail.team.name}</h1>
           <p className="muted">
-            {experienceBandName(detail.application.experienceBand)} · {teamSizeLabel(detail.team.members.length)}
+            {teamSizeLabel(detail.team.members.length)} · applied {formatEventTime(detail.application.submittedAt, detail.eventTimezone)}
           </p>
         </div>
         <span className="state-label">{applicationStateLabels[detail.application.state]}</span>
@@ -83,6 +84,13 @@ export function AdmissionDetail({ access }: { access: Access }) {
         <p>{step.detail}</p>
         {step.blocker ? <p className="application-blocker">{step.blocker}</p> : null}
       </section>
+
+      {/* The decision and the offer rest on reviews that are already in, so they
+          belong with the step that asks for them rather than below the whole
+          dossier. A review is the one command that needs the proposal read
+          first, so its form stays under the project text. */}
+      {canDecide && reviewOpen && hasRequiredReviews ? <DecisionForm detail={detail} /> : null}
+      {offerActionable ? <OfferControl detail={detail} /> : null}
 
       <section className="detail-section">
         <h2>Team · {detail.team.members.length}</h2>
@@ -162,11 +170,9 @@ export function AdmissionDetail({ access }: { access: Access }) {
       <HumanReviews detail={detail} reviewOpen={reviewOpen} />
       {canAssign && reviewOpen && detail.reviewAssignments ? <ReviewAssignmentControl detail={detail} /> : null}
       {canReview && reviewOpen ? <ReviewForm detail={detail} /> : null}
-      {canDecide && reviewOpen && hasRequiredReviews ? <DecisionForm detail={detail} /> : null}
       {detail.application.humanDecision && canReadParticipantDelivery ? (
-        <ParticipantDeliveryStatus applicationId={detail.application.id} />
+        <ParticipantDeliveryStatus applicationId={detail.application.id} teamName={detail.team.name} />
       ) : null}
-      {offerActionable ? <OfferControl detail={detail} /> : null}
     </article>
   )
 }
@@ -339,7 +345,7 @@ function HumanReviews({ detail, reviewOpen }: { detail: AdmissionDetailData; rev
       <h2>{reviewOpen ? 'Organizer reviews' : 'How this was decided'}</h2>
       <p className="muted">
         {!reviewOpen && decision
-          ? `Published as ${applicationDecisionLabels[decision].toLowerCase()}${detail.application.humanReasonCode ? `: ${reasonLabel(detail, detail.application.humanReasonCode)}` : ''}.`
+          ? decidedSentence(detail, decision)
           : outstanding > 0
             ? `Still to come: ${outstanding} of ${detail.policy.minimumHumanReviews}. A decision cannot be published until they are in.`
             : `All ${detail.policy.minimumHumanReviews} required reviews are in.`}
@@ -350,7 +356,7 @@ function HumanReviews({ detail, reviewOpen }: { detail: AdmissionDetailData; rev
             <li key={review.id}>
               <div>
                 <strong>{review.reviewerName}</strong>
-                <span>{applicationDecisionLabels[review.recommendation]} · {reasonLabel(detail, review.reasonCode)}</span>
+                <span>{[applicationDecisionLabels[review.recommendation], reasonLabel(detail, review.reasonCode)].filter(Boolean).join(' · ')}</span>
               </div>
               {review.note ? <p>{review.note}</p> : null}
             </li>
@@ -851,8 +857,25 @@ function sourceName(value: string) {
   return 'follow-up answer'
 }
 
-function reasonLabel(detail: AdmissionDetailData, key: string) {
-  return detail.policy.decisionReasonCodes.find((reason) => reason.key === key)?.label ?? key
+/**
+ * The published reason in the wording the team was given.
+ *
+ * A reason code is only ever written after it has been checked against the
+ * policy version pinned to this application, so a miss here means the record
+ * predates the policy it points at. Returning null keeps a storage key such as
+ * `clear_and_workable` off the screen; the sentence simply drops the clause.
+ */
+function reasonLabel(detail: AdmissionDetailData, key: string): string | null {
+  return detail.policy.decisionReasonCodes.find((reason) => reason.key === key)?.label ?? null
+}
+
+/** How a published decision reads once it can no longer be changed. */
+function decidedSentence(detail: AdmissionDetailData, decision: ApplicationDecision) {
+  const outcome = applicationDecisionOutcomeLabels[decision]
+  const reason = detail.application.humanReasonCode
+    ? reasonLabel(detail, detail.application.humanReasonCode)
+    : null
+  return reason ? `${outcome}. The team was told: ${reason}.` : `${outcome}.`
 }
 
 function zonedTimestamp(value: string, timezone: string, label: string) {

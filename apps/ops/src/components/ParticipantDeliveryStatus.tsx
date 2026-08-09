@@ -27,7 +27,9 @@ const deliveryStateLabel: Record<DeliveryState, string> = {
   superseded: 'Replaced by a newer email',
 }
 
-export function ParticipantDeliveryStatus({ applicationId }: { applicationId: ApplicationId }) {
+export function ParticipantDeliveryStatus(
+  { applicationId, teamName }: { applicationId: ApplicationId; teamName: string },
+) {
   const recipients = useQuery(api.participantNotifications.forApplication, {
     eventSlug,
     applicationId,
@@ -58,15 +60,9 @@ export function ParticipantDeliveryStatus({ applicationId }: { applicationId: Ap
   return (
     <section className="detail-section">
       <h2>Decision email</h2>
-      <p className="muted">
-        {unreachable.length > 0
-          ? `${unreachable.length} of ${recipients.length} team members have no verified email address.`
-          : stuck.length > 0
-            ? `${stuck.length} of ${recipients.length} did not get the decision email.`
-            : deliveredCount === recipients.length
-              ? `All ${recipients.length} team members received the decision email.`
-              : `${deliveredCount} of ${recipients.length} confirmed delivered.`}
-      </p>
+      {/* A count on its own never said what it cost. Each line below names who is
+          affected and what they do not know as a result. */}
+      <p className="muted">{deliverySentence({ teamName, recipients, unreachable, stuck, deliveredCount })}</p>
       <div className="participant-delivery-list">
         {ordered.map((recipient) => (
           <DeliveryRow key={recipient.personId} recipient={recipient} />
@@ -74,6 +70,27 @@ export function ParticipantDeliveryStatus({ applicationId }: { applicationId: Ap
       </div>
     </section>
   )
+}
+
+function deliverySentence(
+  { teamName, recipients, unreachable, stuck, deliveredCount }: {
+    teamName: string
+    recipients: DeliveryRecipients
+    unreachable: DeliveryRecipients
+    stuck: DeliveryRecipients
+    deliveredCount: number
+  },
+) {
+  const missing = new Set([...unreachable, ...stuck]).size
+  if (missing === 0) {
+    return deliveredCount === recipients.length
+      ? `Everyone on ${teamName} has the decision.`
+      : `${deliveredCount} of ${recipients.length} on ${teamName} are confirmed to have the decision. The rest are still in the mail queue.`
+  }
+  if (missing === recipients.length) {
+    return `Nobody on ${teamName} has the decision yet. Tell the team another way.`
+  }
+  return `${missing} of ${recipients.length} on ${teamName} do not have the decision yet.`
 }
 
 function deliveryNeedsAttention(state: DeliveryState) {

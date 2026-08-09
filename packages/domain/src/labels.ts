@@ -153,6 +153,20 @@ export const applicationDecisionLabels: Record<ApplicationDecision, string> = {
   needs_information: "Ask the team for more",
 };
 
+/**
+ * The same decisions once they have been published.
+ *
+ * The dossier used to lowercase the imperative label into a sentence, which
+ * produced "Published as accept" and "Published as do not select". A decision
+ * that already happened reads as an outcome, not as an instruction.
+ */
+export const applicationDecisionOutcomeLabels: Record<ApplicationDecision, string> = {
+  accept: "Accepted",
+  waitlist: "Waitlisted",
+  decline: "Not selected",
+  needs_information: "Sent back to the team for more",
+};
+
 export type AdmissionExperienceBand =
   | "first_year"
   | "early_year"
