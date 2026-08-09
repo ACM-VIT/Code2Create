@@ -4,6 +4,7 @@ import { createContext, useContext, useState, type ReactNode } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
+import { BrandBackdrop, BrandMark } from '@/components/Brand'
 import { PagerAlert } from '@/components/PagerAlert'
 import { useReviewerInstallationId } from '@/lib/duty-status'
 import { describeError } from '@/lib/errors'
@@ -215,6 +216,10 @@ function Booting() {
 /**
  * Every pre-duty screen — signing in, no access, nothing assigned — has the
  * same shape: one sentence of why, then the only thing you can do about it.
+ *
+ * It is also the one screen somebody sees before this app has given them
+ * anything to do, so it carries the event's own marks rather than looking like
+ * a login form that happens to be dark.
  */
 function Gate({
   body,
@@ -228,15 +233,22 @@ function Gate({
   title: string
 }) {
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={styles.gate}>
-      <View style={styles.gateBody}>
-        <Text style={styles.kicker}>CODE2CREATE</Text>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.body}>{body}</Text>
-      </View>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <View style={styles.actions}>{children}</View>
-    </SafeAreaView>
+    <BrandBackdrop>
+      <SafeAreaView edges={['top', 'bottom']} style={styles.gate}>
+        <View style={styles.gateBody}>
+          <BrandMark size={104} />
+          <Text style={styles.wordmark}>
+            Code
+            <Text style={styles.wordmarkAccent}>2</Text>
+            Create
+          </Text>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.body}>{body}</Text>
+        </View>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        <View style={styles.actions}>{children}</View>
+      </SafeAreaView>
+    </BrandBackdrop>
   )
 }
 
@@ -273,12 +285,21 @@ function errorMessage(caught: unknown, fallback: string) {
 }
 
 const styles = StyleSheet.create({
-  gate: { flex: 1, backgroundColor: palette.background, paddingHorizontal: 24 },
+  gate: { flex: 1, paddingHorizontal: 24 },
   centred: { alignItems: 'center', justifyContent: 'center' },
-  gateBody: { flex: 1, justifyContent: 'center' },
-  kicker: { color: palette.muted, fontSize: 12, fontWeight: '700', letterSpacing: 1.6 },
-  title: { marginTop: 14, color: palette.text, fontSize: 34, fontWeight: '600', letterSpacing: -0.8 },
-  body: { marginTop: 12, color: palette.muted, fontSize: 17, lineHeight: 25 },
+  /* Pushed below the canopy: the tree owns the top third of the screen. */
+  gateBody: { flex: 1, justifyContent: 'flex-end', paddingBottom: 40 },
+  wordmark: {
+    marginTop: 22,
+    color: palette.text,
+    fontSize: 40,
+    fontWeight: '700',
+    letterSpacing: -1.2,
+  },
+  /* The one blossom-coloured letter, as the wordmark has it. */
+  wordmarkAccent: { color: '#E3A9BF' },
+  title: { marginTop: 20, color: palette.text, fontSize: 26, fontWeight: '600', letterSpacing: -0.5 },
+  body: { marginTop: 10, color: '#C9B3BC', fontSize: 17, lineHeight: 25 },
   error: { color: palette.urgent, fontSize: 15, lineHeight: 21, marginBottom: 12 },
 
   actions: { paddingBottom: 12, gap: 10 },
@@ -288,7 +309,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: palette.text,
   },
-  actionSecondary: { backgroundColor: palette.tile },
+  actionSecondary: { backgroundColor: 'rgba(250,251,251,0.12)' },
   actionPressed: { opacity: 0.8 },
   actionDisabled: { opacity: 0.4 },
   actionText: { color: palette.background, fontSize: 17, fontWeight: '600' },
