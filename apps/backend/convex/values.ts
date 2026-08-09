@@ -511,3 +511,39 @@ export const scorecardStatus = v.union(
   v.literal("correction_open"),
   v.literal("void"),
 );
+
+export const integrationProviderHealth = v.union(
+  v.literal("ready"),
+  v.literal("syncing"),
+  v.literal("needs_attention"),
+  v.literal("not_connected"),
+);
+
+export const githubRepositorySyncState = v.union(
+  v.literal("pending"),
+  v.literal("running"),
+  v.literal("ready"),
+  v.literal("rate_limited"),
+  v.literal("error"),
+);
+
+export const githubRepositoryTopicState = v.union(
+  v.literal("present"),
+  v.literal("missing"),
+  v.literal("unknown"),
+);
+
+export const githubRepositoryCoverage = v.union(
+  v.literal("complete"),
+  v.literal("partial"),
+  v.literal("unknown"),
+);
+
+export const figmaPreviewState = v.union(
+  v.literal("pending"),
+  v.literal("running"),
+  v.literal("ready"),
+  v.literal("partial"),
+  v.literal("rate_limited"),
+  v.literal("failed"),
+);

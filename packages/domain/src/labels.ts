@@ -13,7 +13,12 @@
  * is the participant's instruction "Keep your team code open".
  */
 
-import type { ApplicationDecision, ParticipantClass, StudyYear } from "./index.ts";
+import type {
+  ApplicationDecision,
+  ParticipantClass,
+  RepositoryKind,
+  StudyYear,
+} from "./index.ts";
 
 export type TeamRoundState =
   | "unassigned"
@@ -548,5 +553,84 @@ export const scorecardCorrectionCategoryLabels: Record<ScorecardCorrectionCatego
   duplicate_review: "The same review twice",
   confirmed_conflict: "Reviewer had a conflict of interest",
   judge_ineligible: "Reviewer should not have judged this",
+  other: "Something else",
+};
+
+/**
+ * Code and design vocabulary.
+ *
+ * The integrations screen title-cased provider keys in place, so a row read
+ * "Rate limited", "Unknown" and "Partial" with nothing saying what those meant
+ * for whether a reviewer would see the team's work.
+ */
+export type IntegrationProviderHealth = "ready" | "syncing" | "needs_attention" | "not_connected";
+
+export const integrationProviderHealthLabels: Record<IntegrationProviderHealth, string> = {
+  ready: "Connected",
+  syncing: "Catching up",
+  needs_attention: "Needs attention",
+  not_connected: "Nothing connected",
+};
+
+export type GithubRepositorySyncState =
+  | "pending"
+  | "running"
+  | "ready"
+  | "rate_limited"
+  | "error";
+
+export const githubRepositorySyncStateLabels: Record<GithubRepositorySyncState, string> = {
+  pending: "Waiting to read",
+  running: "Reading now",
+  ready: "Up to date",
+  rate_limited: "Paused by GitHub's rate limit",
+  error: "Could not be read",
+};
+
+export type GithubRepositoryTopicState = "present" | "missing" | "unknown";
+
+export const githubRepositoryTopicStateLabels: Record<GithubRepositoryTopicState, string> = {
+  present: "Event topic set",
+  missing: "Event topic missing",
+  unknown: "Event topic not checked",
+};
+
+export type GithubRepositoryCoverage = "complete" | "partial" | "unknown";
+
+export const githubRepositoryCoverageLabels: Record<GithubRepositoryCoverage, string> = {
+  complete: "All changes counted",
+  partial: "Some changes could not be counted",
+  unknown: "Changes not counted yet",
+};
+
+export type FigmaPreviewState =
+  | "pending"
+  | "running"
+  | "ready"
+  | "partial"
+  | "rate_limited"
+  | "failed";
+
+export const figmaPreviewStateLabels: Record<FigmaPreviewState, string> = {
+  pending: "Waiting to render",
+  running: "Rendering now",
+  ready: "Ready to look at",
+  partial: "Some frames missing",
+  rate_limited: "Paused by Figma's rate limit",
+  failed: "Could not be rendered",
+};
+
+export const repositoryKindLabels: Record<RepositoryKind, string> = {
+  full_product: "Whole product",
+  frontend: "Front end",
+  backend_api: "Back end or API",
+  mobile_app: "Mobile app",
+  desktop_app: "Desktop app",
+  ai_ml: "AI or machine learning",
+  data_pipeline: "Data pipeline",
+  hardware_firmware: "Hardware or firmware",
+  infrastructure: "Infrastructure",
+  library_sdk: "Library or SDK",
+  docs_research: "Docs or research",
   other: "Something else",
 };

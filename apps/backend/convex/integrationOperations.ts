@@ -8,21 +8,22 @@ import { query } from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
-import { repositoryKind, teamStatus } from "./values";
-
-const providerHealth = v.union(
-  v.literal("not_connected"),
-  v.literal("ready"),
-  v.literal("syncing"),
-  v.literal("needs_attention"),
-);
+import {
+  figmaPreviewState,
+  githubRepositoryCoverage,
+  githubRepositorySyncState,
+  githubRepositoryTopicState,
+  integrationProviderHealth,
+  repositoryKind,
+  teamStatus,
+} from "./values";
 
 const integrationTeam = v.object({
   teamId: v.id("teams"),
   teamName: v.string(),
   teamStatus,
   github: v.object({
-    health: providerHealth,
+    health: integrationProviderHealth,
     repositoryCount: v.number(),
     installationCount: v.number(),
     topicMissingCount: v.number(),
@@ -30,7 +31,7 @@ const integrationTeam = v.object({
     lastActivityAt: v.optional(v.number()),
   }),
   figma: v.object({
-    health: providerHealth,
+    health: integrationProviderHealth,
     fileCount: v.number(),
     authorizationCount: v.number(),
     completeCount: v.number(),
@@ -45,15 +46,6 @@ const integrationTeam = v.object({
   }),
 });
 
-const previewState = v.union(
-  v.literal("pending"),
-  v.literal("running"),
-  v.literal("ready"),
-  v.literal("partial"),
-  v.literal("rate_limited"),
-  v.literal("failed"),
-);
-
 const teamDetail = v.object({
   canReadFigmaArtifacts: v.boolean(),
   githubRepositories: v.array(
@@ -66,9 +58,9 @@ const teamDetail = v.object({
       purpose: v.string(),
       trackedBranch: v.string(),
       rootPath: v.optional(v.string()),
-      topicState: v.union(v.literal("present"), v.literal("missing"), v.literal("unknown")),
+      topicState: githubRepositoryTopicState,
       state: v.string(),
-      syncState: v.string(),
+      syncState: githubRepositorySyncState,
       syncErrorCode: v.optional(v.string()),
       baselineSha: v.optional(v.string()),
       currentHeadSha: v.optional(v.string()),
@@ -79,7 +71,7 @@ const teamDetail = v.object({
       additions: v.number(),
       deletions: v.number(),
       changedFiles: v.number(),
-      completeness: v.union(v.literal("complete"), v.literal("partial"), v.literal("unknown")),
+      completeness: githubRepositoryCoverage,
       compareTruncated: v.boolean(),
     }),
   ),
@@ -100,7 +92,7 @@ const teamDetail = v.object({
       hasFullArtifact: v.boolean(),
       artifactCapturedAt: v.optional(v.number()),
       preview: v.object({
-        state: previewState,
+        state: figmaPreviewState,
         selectedNodeCount: v.number(),
         availableCount: v.number(),
         failedCount: v.number(),
