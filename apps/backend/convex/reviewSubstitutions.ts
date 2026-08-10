@@ -460,6 +460,12 @@ export async function sendNextPage(
     await ctx.scheduler.runAfter(0, internal.reviewPush.deliverPage, {
       deliveryId: pushDeliveryId,
     });
+    /* One notification is a notification. A pager keeps asking until somebody
+       answers it or the window closes, which is the whole difference between
+       being told and being reached. */
+    await ctx.scheduler.runAfter(repageIntervalMs, internal.reviewSubstitutions.repage, {
+      pageId,
+    });
   }
   return { pageId, targetPersonId: candidate.person._id, expiresAt };
 }
@@ -1453,6 +1459,41 @@ export const respondToPage = mutation({
       panelMemberId,
       ...(reviewAssignmentId !== undefined ? { reviewAssignmentId } : {}),
     };
+  },
+});
+
+/** How long an unanswered page waits before it asks again. */
+const repageIntervalMs = 30 * 1_000;
+
+/**
+ * Sends the same page again while it is still unanswered.
+ *
+ * It reuses the page's own delivery record rather than making a new one, so a
+ * reviewer's phone collapses the repeats into the one notification it already
+ * has and the audit trail stays a single page rather than a burst.
+ */
+export const repage = internalMutation({
+  args: { pageId: v.id("reviewerPages") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const page = await ctx.db.get(args.pageId);
+    if (!page || (page.state !== "sent" && page.state !== "opened")) return null;
+    const now = Date.now();
+    if (page.expiresAt <= now + repageIntervalMs) return null;
+
+    const delivery = await ctx.db
+      .query("reviewerPushDeliveries")
+      .withIndex("by_page", (index) => index.eq("pageId", page._id))
+      .first();
+    if (delivery) {
+      await ctx.scheduler.runAfter(0, internal.reviewPush.deliverPage, {
+        deliveryId: delivery._id,
+      });
+    }
+    await ctx.scheduler.runAfter(repageIntervalMs, internal.reviewSubstitutions.repage, {
+      pageId: page._id,
+    });
+    return null;
   },
 });
 

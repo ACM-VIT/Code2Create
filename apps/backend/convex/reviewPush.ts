@@ -88,6 +88,12 @@ async function sendFcmNotification(claim: PushClaim): Promise<PushOutcome> {
           channelId: "reviewer-pages",
           sound: "default",
           priority: "max",
+          /* Android will put this over the lock screen like an incoming call,
+             which is as close to a real pager as either platform gets without
+             an entitlement granted by hand. */
+          visibility: "public",
+          defaultVibrateTimings: false,
+          vibrateTimingsMillis: [0, 250, 200, 250],
         },
       },
     });
@@ -181,6 +187,12 @@ async function sendApnsNotification(claim: PushClaim): Promise<PushOutcome> {
             title: "Substitute request",
             body: pageBody(claim),
           },
+          /* A reviewer's phone is in a pocket, face down, in a loud hall, at
+             three in the morning. Time Sensitive is what carries a page
+             through a Focus mode without an entitlement Apple grants by hand
+             for life-safety apps only; the ringer switch still wins. */
+          "interruption-level": "time-sensitive",
+          "relevance-score": 1,
           sound: "default",
           "thread-id": "reviewer-pages",
         },

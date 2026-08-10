@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native'
 
+import { PagingSetup } from '@/components/PagingSetup'
 import { ProjectEvidence } from '@/components/ProjectEvidence'
 import {
   Action,
@@ -84,6 +85,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const [busy, setBusy] = useState<BusyAction>(null)
   const [error, setErrorState] = useState<{ message: string; raisedWhile: string | undefined } | null>(null)
   const [heartbeatIssue, setHeartbeatIssue] = useState<string | null>(null)
+  const [pagingOpen, setPagingOpen] = useState(false)
   const createBusyRef = useRef(false)
   const clockInOperationRef = useRef<string | null>(null)
   const startOperationRef = useRef<string | null>(null)
@@ -403,14 +405,27 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
       {!cameraReady && round?.requiresCamera ? (
         <Button label="Allow camera" secondary onPress={async () => { await requestCameraPermission() }} />
       ) : null}
-      {!notificationsReady && round?.requiresNotifications ? (
+      {/* Not gated on the round requiring notifications. A reserve who cannot
+          be paged is the failure this app exists to prevent, and the round
+          flag only says whether clock-in is blocked by it. */}
+      {!notificationsReady ? (
         <Button
-          label={notificationState.status === 'loading' ? 'Checking notifications…' : 'Set up notifications'}
+          label={notificationState.status === 'loading' ? 'Checking…' : 'Getting paged'}
           disabled={notificationState.status === 'loading'}
           secondary
-          onPress={requestNotifications}
+          onPress={() => setPagingOpen(true)}
         />
       ) : null}
+      <Sheet
+        onClose={() => setPagingOpen(false)}
+        title="Getting paged"
+        visible={pagingOpen}
+      >
+        <PagingSetup
+          onDone={() => setPagingOpen(false)}
+          requestPermission={requestNotifications}
+        />
+      </Sheet>
       {notificationState.status === 'unavailable' && round?.requiresNotifications ? (
         <Text style={styles.error}>{notificationState.message}</Text>
       ) : null}

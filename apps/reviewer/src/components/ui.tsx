@@ -11,7 +11,6 @@ import { TrueSheet, type SheetDetent } from '@lodev09/react-native-true-sheet'
 import { useEffect, useRef, type ReactNode } from 'react'
 import {
   Dimensions,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
