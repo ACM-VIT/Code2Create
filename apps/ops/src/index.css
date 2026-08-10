@@ -61,7 +61,7 @@ p { line-height: 1.55; font-size: .8125rem; }
 .incident-banner li { display: grid; gap: 3px; padding-top: 8px; border-top: 1px solid var(--border); }
 .incident-banner li strong { font-size: .76rem; }
 .incident-banner li span { color: var(--muted); font-size: .7rem; line-height: 1.45; }
-.queue-shell, .application-detail, .attendance-shell, .access-shell, .integration-health-shell, .review-shell, .health-shell, .floor-shell, .emergency-pack-shell, .support-desk-shell, .rehearsal-shell, .track-config-shell, .phase-config-shell, .intake-policy-shell, .setup-home { width: min(100%, var(--shell-max)); margin: 0 auto; }
+.queue-shell, .application-detail, .attendance-shell, .access-shell, .integration-health-shell, .review-shell, .health-shell, .intelligence-activity-shell, .floor-shell, .emergency-pack-shell, .support-desk-shell, .rehearsal-shell, .track-config-shell, .phase-config-shell, .intake-policy-shell, .setup-home { width: min(100%, var(--shell-max)); margin: 0 auto; }
 .configuration-back { margin-bottom: 30px; }
 .configuration-back a { color: var(--muted); font-size: .75rem; text-decoration: none; }
 .configuration-back a:hover { color: var(--text); }
@@ -1285,8 +1285,16 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 }
 
 /* Cursor stacks cards in a single column with a consistent 20px gutter. */
-.health-shell { display: grid; gap: 20px; align-content: start; }
-.health-shell > .health-heading { margin-bottom: 0; }
+.health-shell, .intelligence-activity-shell { display: grid; gap: 20px; align-content: start; }
+.health-shell > .health-heading, .intelligence-activity-shell > .health-heading { margin-bottom: 0; }
+
+/* Agent instance ids are the join key to worker logs and traces, so they stay
+   verbatim and monospaced instead of being prettied into a label. */
+.instance-id { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .7rem; color: var(--faint); }
+.agent-instance-list { display: grid; gap: 22px; }
+.copilot-instance { display: grid; gap: 8px; }
+.copilot-instance-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 0 2px; }
+.copilot-instance-heading > span:last-child { flex: 0 0 auto; color: var(--muted); font-size: .75rem; }
 .stage-block { margin: 0; padding: 20px; }
 .attention-section { margin-top: 0; }
 .health-row { padding: 16px 20px; transition: background 120ms ease; }

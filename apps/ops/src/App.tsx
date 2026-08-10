@@ -43,6 +43,9 @@ const IntegrationOverview = lazy(() =>
 const HealthOverview = lazy(() =>
   import('./screens/HealthOverview').then((module) => ({ default: module.HealthOverview })),
 )
+const IntelligenceActivity = lazy(() =>
+  import('./screens/IntelligenceActivity').then((module) => ({ default: module.IntelligenceActivity })),
+)
 const EventSetupOverview = lazy(() =>
   import('./screens/EventSetupOverview').then((module) => ({ default: module.EventSetupOverview })),
 )
@@ -313,6 +316,7 @@ function Operations({
       label: 'Now',
       items: [
         ...(canViewHealth ? [{ label: 'Overview', to: '/', icon: 'home' as const }] : []),
+        ...(canReadIntelligence ? [{ label: 'Agent activity', to: '/intelligence', icon: 'pulse' as const }] : []),
         ...(canViewSupport ? [{ label: 'Help desk', to: '/support', icon: 'lifebuoy' as const }] : []),
       ],
     },
@@ -404,6 +408,7 @@ function Operations({
             )}
           />
         ) : null}
+        {canReadIntelligence ? <Route path="/intelligence" element={<IntelligenceActivity />} /> : null}
         {canViewRehearsal ? <Route path="/rehearsal" element={<Rehearsal />} /> : null}
         {canViewSupport ? <Route path="/support" element={<SupportDesk />} /> : null}
         {canViewAdmissions ? <Route path="/admissions" element={<AdmissionsQueue access={access} />} /> : null}
