@@ -294,7 +294,12 @@ async function eligibleReserve(
   return { reserve: args.reserve, person, subject, clockIn, device };
 }
 
-async function sendNextPage(
+/**
+ * Exported so local development can fire a real page without an operator
+ * sitting at the dashboard. Nothing outside this file and the local fixtures
+ * should reach for it.
+ */
+export async function sendNextPage(
   ctx: MutationCtx,
   pageChainId: Id<"reviewerPageChains">,
   now: number,

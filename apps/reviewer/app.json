@@ -12,7 +12,8 @@
     "scheme": "code2create-ops",
     "userInterfaceStyle": "dark",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.anonymous.code2create-ops"
     },
     "android": {
       "adaptiveIcon": {

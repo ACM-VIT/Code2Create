@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { action, internalMutation, type MutationCtx } from "./_generated/server";
+import { action, internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import { advanceAccessVersion } from "./lib/accessVersion";
 import { attendancePlanChecksum } from "./lib/attendancePlan";
 import {
@@ -30,6 +30,7 @@ import {
 } from "./lib/phaseSchedule";
 import { grantPanelMemberAccess, grantReviewAssignmentAccess } from "./lib/reviewAccess";
 import { computeReviewEvaluation } from "./lib/reviewScores";
+import { sendNextPage } from "./reviewSubstitutions";
 import { fingerprintText } from "./lib/strings";
 import { localAttendancePlanContent, localIntegrationPolicy } from "./localDevelopment";
 import { createEvidenceCheckpoint } from "./reviewOperations";
@@ -421,12 +422,12 @@ const demoTeams = [
  * mappers actually produce.
  */
 const demoHallLocations = [
-  "North-east corner of East wing, near the windows",
-  "South side of East wing, near the side doors",
-  "Middle of Centre, near the help desk",
-  "North-west corner of Centre, near the food counter",
-  "West side of West wing, near the power wall",
-  "South side of West wing, near the main entrance",
+  "North-east corner of Anna Auditorium, near the stage",
+  "South side of Anna Auditorium, near the main entrance",
+  "Middle of Anna Auditorium, near the sound desk",
+  "North-west corner of Anna Auditorium, near the left aisle",
+  "East side of Anna Auditorium, near the right aisle",
+  "South-west corner of Anna Auditorium, near the left aisle",
 ] as const;
 
 function demoHallLocation(teamIndex: number) {
@@ -1865,5 +1866,384 @@ export const seedDemoState = action({
       panels: demoPanels.length,
       reviewSessions: demoReviewSessionBatches.flat().length,
     };
+  },
+});
+
+/**
+ * Seats whoever signed in as the local operator on a review panel.
+ *
+ * The demo seed fills its panels from the seeded reviewers, and the local
+ * operator's person record does not exist until they first sign in — so on a
+ * fresh stack the judging surface has nothing to show the one account a
+ * developer actually uses. This puts them on a panel after the fact.
+ *
+ * Idempotent: running it twice leaves the same single membership.
+ */
+export const seatLocalOperatorOnPanel = mutation({
+  args: { confirmation: v.literal("seat-code2create-local-operator") },
+  returns: v.object({
+    panelName: v.string(),
+    seated: v.boolean(),
+  }),
+  handler: async (ctx) => {
+    requireLocalDeployment();
+
+    /* The operator is the account somebody signs into the app with. The
+       seed's own bot person is not it, and seating that instead puts the duty
+       on a record nobody logs in as. */
+    const operator = await ctx.db
+      .query("people")
+      .filter((row) => row.eq(row.field("verifiedEmail"), "supreme@example.test"))
+      .first();
+    if (!operator) {
+      throw new ConvexError("Sign in as the local operator once before seating them.");
+    }
+
+    const round = await ctx.db.query("reviewRounds").order("desc").first();
+    if (!round) throw new ConvexError("There is no review round to seat anybody on.");
+
+    const panel = await ctx.db
+      .query("reviewPanels")
+      .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
+      .first();
+    if (!panel) throw new ConvexError("The round has no panel to seat anybody on.");
+
+    const existing = await ctx.db
+      .query("reviewPanelMembers")
+      .withIndex("by_panel_status", (index) => index.eq("panelId", panel._id))
+      .collect();
+    if (existing.some((member) => member.personId === operator._id)) {
+      return { panelName: panel.name, seated: false };
+    }
+
+    /* The local operator's access is granted event-wide when they first sign
+       in, which does not create the per-event subject a panel seat hangs off.
+       Making one here is what the invite flow would have done for a reviewer. */
+    const now = Date.now();
+    const existingSubject = await ctx.db
+      .query("eventAccessSubjects")
+      .withIndex("by_event_person", (index) =>
+        index.eq("eventId", round.eventId).eq("personId", operator._id),
+      )
+      .unique();
+    const subject = existingSubject ?? (await (async () => {
+      const subjectId = await ctx.db.insert("eventAccessSubjects", {
+        eventId: round.eventId,
+        personId: operator._id,
+        emailNormalized: operator.verifiedEmail,
+        displayName: operator.displayName,
+        status: "active",
+        linkedBy: "access_invitation",
+        accessVersion: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await addEventSubjectSelfGrants(ctx, {
+        eventId: round.eventId,
+        personId: operator._id,
+        eventAccessSubjectId: subjectId,
+      });
+      const created = await ctx.db.get(subjectId);
+      if (!created) throw new ConvexError("The operator's event subject vanished.");
+      return created;
+    })());
+    const template = existing[0];
+    if (!template) throw new ConvexError("The panel has no member to copy criteria from.");
+
+    const panelMemberId = await ctx.db.insert("reviewPanelMembers", {
+      eventId: round.eventId,
+      roundId: round._id,
+      panelId: panel._id,
+      personId: operator._id,
+      eventAccessSubjectId: subject._id,
+      assignedCriterionIds: template.assignedCriterionIds,
+      isCoordinator: false,
+      status: "active",
+      assignedAt: now,
+    });
+    await grantPanelMemberAccess(ctx, {
+      eventId: round.eventId,
+      roundId: round._id,
+      panelId: panel._id,
+      panelMemberId,
+      reviewerPersonId: operator._id,
+      eventAccessSubjectId: subject._id,
+      grantedByPersonId: panel.coordinatorPersonId,
+      isCoordinator: false,
+      reason: "Local operator seated for development",
+    });
+    return { panelName: panel.name, seated: true };
+  },
+});
+
+/**
+ * Fires a real substitute page at the local operator so the pager can be seen
+ * working without an operations dashboard driving it.
+ *
+ * It does what the dashboard does — empties a seat on the operator's panel and
+ * starts a page chain — except that it seats the operator as the reserve, so
+ * the page lands on the phone in front of you.
+ */
+export const pageLocalOperator = mutation({
+  args: { confirmation: v.literal("page-code2create-local-operator") },
+  returns: v.object({
+    paged: v.boolean(),
+    panelName: v.string(),
+    chainState: v.string(),
+  }),
+  handler: async (ctx) => {
+    requireLocalDeployment();
+
+    const operator = await ctx.db
+      .query("people")
+      .filter((row) => row.eq(row.field("verifiedEmail"), "supreme@example.test"))
+      .first();
+    if (!operator) throw new ConvexError("Sign in as the local operator first.");
+
+    const round = await ctx.db.query("reviewRounds").order("desc").first();
+    if (!round) throw new ConvexError("There is no review round to page into.");
+    const subject = await requireDemoSubject(ctx, round.eventId, operator._id);
+    const now = Date.now();
+
+    /* A reserve is only eligible with a complete profile, a phone, and a
+       present clock-in with a fresh heartbeat — the same bar a real reviewer
+       clears before the chain will consider them. */
+    const criteria = await ctx.db
+      .query("reviewRubricCriteria")
+      .withIndex("by_rubric_order", (index) =>
+        index.eq("rubricVersionId", round.rubricVersionId),
+      )
+      .collect();
+    const criterionKeys = criteria.map((criterion) => criterion.stableKey);
+
+    const profile = await ctx.db
+      .query("reviewerProfiles")
+      .withIndex("by_event_person", (index) =>
+        index.eq("eventId", round.eventId).eq("personId", operator._id),
+      )
+      .unique();
+    if (profile) {
+      await ctx.db.patch(profile._id, {
+        criterionKeys,
+        trainingStatus: "complete",
+        status: "active",
+        version: profile.version + 1,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("reviewerProfiles", {
+        eventId: round.eventId,
+        personId: operator._id,
+        technicalDomains: [],
+        productDomains: [],
+        languages: ["English"],
+        criterionKeys,
+        trainingStatus: "complete",
+        status: "active",
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    const device = await ctx.db
+      .query("reviewerDevices")
+      .withIndex("by_event_person_status", (index) =>
+        index.eq("eventId", round.eventId).eq("personId", operator._id).eq("status", "active"),
+      )
+      .first();
+    /* The chain also checks the phone is alive and ready, so an existing one
+       is brought back up to date rather than left where the last run put it. */
+    if (device) {
+      await ctx.db.patch(device._id, {
+        appBuild: round.minimumReviewerBuild,
+        cameraReady: true,
+        encryptedDraftReady: true,
+        lastSeenAt: now,
+        version: device.version + 1,
+      });
+    }
+    const deviceId = device?._id ?? (await ctx.db.insert("reviewerDevices", {
+      eventId: round.eventId,
+      personId: operator._id,
+      installationId: `local-operator-pager-${now}`,
+      name: "Local operator phone",
+      platform: "ios",
+      appBuild: round.minimumReviewerBuild,
+      cameraReady: true,
+      encryptedDraftReady: true,
+      pushTokenStatus: "not_registered",
+      pushTokenUpdatedAt: now,
+      status: "active",
+      version: 1,
+      registeredAt: now,
+      lastSeenAt: now,
+    }));
+
+    const clockIn = await ctx.db
+      .query("reviewerClockIns")
+      .withIndex("by_round_person", (index) =>
+        index.eq("roundId", round._id).eq("reviewerPersonId", operator._id),
+      )
+      .unique();
+    if (clockIn) {
+      await ctx.db.patch(clockIn._id, {
+        status: "present",
+        lastHeartbeatAt: now,
+        version: clockIn.version + 1,
+      });
+    } else {
+      await ctx.db.insert("reviewerClockIns", {
+        eventId: round.eventId,
+        roundId: round._id,
+        reviewerPersonId: operator._id,
+        reviewerDeviceId: deviceId,
+        status: "present",
+        clockedInAt: now,
+        lastHeartbeatAt: now,
+        version: 1,
+      });
+    }
+
+    /* A chain will not page somebody already holding a seat in the round, so
+       the operator waits in the reserve pool rather than on a panel. */
+    const seats = await ctx.db
+      .query("reviewPanelMembers")
+      .withIndex("by_round_person_status", (index) =>
+        index
+          .eq("roundId", round._id)
+          .eq("personId", operator._id)
+          .eq("status", "active"),
+      )
+      .collect();
+    for (const seat of seats) await ctx.db.patch(seat._id, { status: "removed" });
+
+    const existingReserve = await ctx.db
+      .query("reviewRoundReserves")
+      .withIndex("by_round_person", (index) =>
+        index.eq("roundId", round._id).eq("personId", operator._id),
+      )
+      .unique();
+    if (existingReserve) {
+      await ctx.db.patch(existingReserve._id, {
+        status: "available",
+        version: existingReserve.version + 1,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("reviewRoundReserves", {
+        eventId: round.eventId,
+        roundId: round._id,
+        personId: operator._id,
+        eventAccessSubjectId: subject._id,
+        status: "available",
+        pageCount: 0,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    /* Put back any seat an earlier run emptied, and cancel the chains that
+       went with them. A panel with two holes in it cannot say which one a
+       reserve is accepting, and refuses — correctly — to seat anybody. */
+    const allPanels = await ctx.db
+      .query("reviewPanels")
+      .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
+      .collect();
+    for (const panel of allPanels) {
+      const removed = await ctx.db
+        .query("reviewPanelMembers")
+        .withIndex("by_panel_status", (index) =>
+          index.eq("panelId", panel._id).eq("status", "removed"),
+        )
+        .collect();
+      for (const seat of removed) {
+        if (seat.personId === operator._id) continue;
+        await ctx.db.patch(seat._id, { status: "active" });
+      }
+      if (removed.length > 0) {
+        await ctx.db.patch(panel._id, {
+          status: "ready",
+          version: panel.version + 1,
+          updatedAt: now,
+        });
+      }
+      const chains = await ctx.db
+        .query("reviewerPageChains")
+        .withIndex("by_panel_state", (index) =>
+          index.eq("panelId", panel._id).eq("state", "active"),
+        )
+        .collect();
+      for (const chain of chains) {
+        await ctx.db.patch(chain._id, {
+          state: "cancelled",
+          version: chain.version + 1,
+          completedAt: now,
+        });
+        const pages = await ctx.db
+          .query("reviewerPages")
+          .withIndex("by_chain_state_rank", (index) => index.eq("pageChainId", chain._id))
+          .collect();
+        for (const page of pages) {
+          if (page.state === "sent" || page.state === "opened") {
+            await ctx.db.patch(page._id, {
+              state: "cancelled",
+              version: page.version + 1,
+                          });
+          }
+        }
+      }
+    }
+
+    /* Empty a seat somebody else is holding: a chain will not page the person
+       whose seat it is trying to fill. */
+    const panels = await ctx.db
+      .query("reviewPanels")
+      .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
+      .collect();
+    for (const panel of panels) {
+      const members = await ctx.db
+        .query("reviewPanelMembers")
+        .withIndex("by_panel_status", (index) =>
+          index.eq("panelId", panel._id).eq("status", "active"),
+        )
+        .collect();
+      const victim = members.find((member) => member.personId !== operator._id);
+      if (!victim) continue;
+
+      await ctx.db.patch(victim._id, { status: "removed" });
+      await ctx.db.patch(panel._id, {
+        status: "needs_reviewer",
+        version: panel.version + 1,
+        updatedAt: now,
+      });
+      const pageChainId = await ctx.db.insert("reviewerPageChains", {
+        eventId: round.eventId,
+        roundId: round._id,
+        panelId: panel._id,
+        missingPanelMemberId: victim._id,
+        requiredCriterionIds: victim.assignedCriterionIds,
+        reason: "Local development pager check",
+        responseWindowSeconds: round.substituteResponseSeconds,
+        state: "active",
+        currentRank: 0,
+        version: 1,
+        createdByPersonId: panel.coordinatorPersonId,
+        pageGrantIds: [],
+        assignmentGrantIds: [],
+        resolvedScopeType: "panel",
+        resolvedScopeId: panel._id,
+        createdAt: now,
+      });
+      const sent = await sendNextPage(ctx, pageChainId, now);
+      const chain = await ctx.db.get(pageChainId);
+      return {
+        paged: sent !== null,
+        panelName: panel.name,
+        chainState: chain?.state ?? "gone",
+      };
+    }
+    throw new ConvexError("No panel had a seat to empty.");
   },
 });

@@ -3,6 +3,7 @@ import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { randomUUID } from 'expo-crypto'
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera'
+import { Stack, useRouter } from 'expo-router'
 import { useEffect, useRef, useState } from 'react'
 import {
   Alert,
@@ -18,13 +19,17 @@ import { ProjectEvidence } from '@/components/ProjectEvidence'
 import {
   Action,
   Body,
+  DutyRing,
   Field,
+  HeaderButton,
   Meta,
+  Nothing,
   Problem,
   Progress,
   QuietAction,
   ScoreRow,
   Section,
+  Sheet,
 } from '@/components/ui'
 import {
   checkEncryptedDraftStorage,
@@ -47,7 +52,7 @@ import {
 } from '@/lib/reviewer-device'
 import { describeError } from '@/lib/errors'
 import type { ReviewerRuntime } from '@/lib/runtime'
-import { palette } from '@/theme'
+import { palette, radius } from '@/theme'
 
 type ReviewerNow = FunctionReturnType<typeof api.reviewer.now>
 type ActiveReview = NonNullable<ReviewerNow['review']>
@@ -77,11 +82,12 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     platform ? { status: 'loading' } : { status: 'ready', record: null },
   )
   const [busy, setBusy] = useState<BusyAction>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setErrorState] = useState<{ message: string; raisedWhile: string | undefined } | null>(null)
   const [heartbeatIssue, setHeartbeatIssue] = useState<string | null>(null)
   const createBusyRef = useRef(false)
   const clockInOperationRef = useRef<string | null>(null)
   const startOperationRef = useRef<string | null>(null)
+  const router = useRouter()
   const registerDevice = useMutation(api.reviewer.registerDevice)
   const clockIn = useMutation(api.reviewer.clockIn)
   const startReview = useMutation(api.reviewOperations.startReview)
@@ -144,6 +150,15 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const heartbeatRoundId = current?.panel?.round.id ?? current?.reserve?.round.id
   const heartbeatStatus = current?.panel?.clockIn?.status ?? current?.reserve?.clockIn?.status
   const heartbeatInstallationId = deviceRecord?.installationId
+
+  /* An error describes an action the server refused, under the duty state it
+     refused it in. Once that state moves on the sentence is no longer true,
+     and leaving it up tells a reviewer who is on duty that they are not — so
+     it is remembered against that state rather than cleared by an effect. */
+  const setError = (message: string | null) => {
+    setErrorState(message === null ? null : { message, raisedWhile: heartbeatStatus })
+  }
+  const visibleError = error && error.raisedWhile === heartbeatStatus ? error.message : null
 
   useEffect(() => {
     if (
@@ -220,7 +235,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
           disabled={busy !== null}
           onPress={createDevice}
         />
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {error ? <Text style={styles.error}>{error.message}</Text> : null}
       </Panel>
     )
   }
@@ -331,8 +346,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   if (!current.panel && !current.reserve && !current.review) {
     return (
       <Panel>
-        <Text style={styles.heading}>No current review duty</Text>
-        <Text style={styles.body}>Your published panel or reserve assignment will appear here when it is available.</Text>
+        <Nothing>No current review duty</Nothing>
       </Panel>
     )
   }
@@ -347,34 +361,35 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     <Panel>
       <View style={styles.headingRow}>
         <View style={styles.flex}>
-          <Text style={styles.eyebrow}>Project reviews</Text>
           <Text style={styles.heading}>{assignment?.round.name ?? review?.round.name}</Text>
         </View>
         {review?.team.tableLabel ? <Text style={styles.table}>{review.team.tableLabel}</Text> : null}
       </View>
 
-      {current.panel ? (
-        <View style={styles.details}>
-          <Detail label="Panel" value={current.panel.name} />
-          <Detail label="Clock-in" value={clockedIn ? 'Present' : 'Not clocked in'} />
-          <Detail label="App build" value={`${runtime.configuration.appBuild}`} />
-          <Detail label="Camera" value={cameraReady ? 'Ready' : 'Not allowed'} />
-          <Detail label="Notifications" value={notificationLabel(notificationState, current.device?.pushTokenStatus)} />
-          <Detail label="Encrypted drafts" value={encryptedDraftReady ? 'Ready' : 'Unavailable'} />
-        </View>
-      ) : null}
-
-      {current.reserve ? (
-        <View style={styles.details}>
-          <Detail label="Duty" value="Reserve reviewer" />
-          <Detail label="State" value={current.reserve.status === 'paged' ? 'Paged' : 'Waiting'} />
-          <Detail label="Clock-in" value={clockedIn ? 'Present' : 'Not clocked in'} />
-          <Detail label="App build" value={`${runtime.configuration.appBuild}`} />
-          <Detail label="Camera" value={cameraReady ? 'Ready' : 'Not allowed'} />
-          <Detail label="Notifications" value={notificationLabel(notificationState, current.device?.pushTokenStatus)} />
-          <Detail label="Encrypted drafts" value={encryptedDraftReady ? 'Ready' : 'Unavailable'} />
-        </View>
-      ) : null}
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <HeaderButton
+              label="This phone"
+              onPress={() =>
+                router.push({
+                  pathname: '/duty/reviewer-phone',
+                  params: {
+                    ...(current.panel ? { panel: current.panel.name } : {}),
+                    build: `${runtime.configuration.appBuild}`,
+                    camera: cameraReady ? 'Ready' : 'Not allowed',
+                    notifications: notificationLabel(
+                      notificationState,
+                      current.device?.pushTokenStatus,
+                    ),
+                    drafts: encryptedDraftReady ? 'Ready' : 'Unavailable',
+                  },
+                })
+              }
+            />
+          ),
+        }}
+      />
 
       {round?.isPaused ? (
         <View style={styles.pauseNotice}>
@@ -418,18 +433,20 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
           onPress={saveDeviceRegistration}
         />
       ) : null}
-      {deviceIsCurrent && assignment && !clockedIn ? (
-        <Button
-          label={busy === 'clock_in' ? 'Clocking in…' : assignment.clockIn ? 'Return to duty' : 'Clock in'}
+      {deviceIsCurrent && assignment && !review ? (
+        <DutyRing
+          accent={palette.judging}
+          busy={busy === 'clock_in'}
+          {...(clockedIn ? { detail: dutyStateDetail(current) } : {})}
           disabled={busy !== null || !checksMeetRound}
+          label={clockedIn ? 'On duty' : assignment.clockIn ? 'Return to duty' : 'Clock in'}
+          on={clockedIn}
           onPress={clockIntoRound}
         />
       ) : null}
 
       {clockedIn && !review ? (
         <View style={styles.waiting}>
-          <Text style={styles.value}>You are ready.</Text>
-          <Text style={styles.body}>{current.reserve ? 'Stay available. A substitute request will appear here if a panel needs your criteria.' : 'The next assigned team will appear here automatically.'}</Text>
           {assignment ? (
             <AvailabilityControl
               eventSlug={eventSlug}
@@ -493,7 +510,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
 
       <CorrectionRequests eventSlug={eventSlug} />
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {visibleError ? <Text style={styles.error}>{visibleError}</Text> : null}
       {heartbeatIssue ? <Text style={styles.error}>{heartbeatIssue}</Text> : null}
     </Panel>
   )
@@ -604,7 +621,7 @@ function CorrectionRequests({ eventSlug }: { eventSlug: string }) {
                     resetOperation()
                   }}
                   placeholder="Briefly explain what needs correction"
-                  placeholderTextColor="#625f5a"
+                  placeholderTextColor={palette.faint}
                   style={styles.input}
                   value={reason}
                 />
@@ -689,13 +706,10 @@ function AvailabilityControl({
     }
   }
 
-  if (!open) {
-    return <Button label="Step away briefly" secondary onPress={() => setOpen(true)} />
-  }
   return (
-    <View style={styles.availabilityBlock}>
-      <Text style={styles.value}>Step away from review duty?</Text>
-      <Text style={styles.body}>No team is assigned right now. Operations will see that you are temporarily unavailable.</Text>
+    <>
+      <Button label="Step away briefly" secondary onPress={() => setOpen(true)} />
+      <Sheet onClose={() => setOpen(false)} title="Step away" visible={open}>
       <Text style={styles.label}>Short operational reason</Text>
       <TextInput
         editable={!busy}
@@ -704,7 +718,7 @@ function AvailabilityControl({
           changed()
         }}
         placeholder="For example: returning after a break"
-        placeholderTextColor="#625f5a"
+        placeholderTextColor={palette.faint}
         style={styles.input}
         value={reason}
       />
@@ -720,16 +734,14 @@ function AvailabilityControl({
         style={styles.shortInput}
         value={returnMinutes}
       />
-      <View style={styles.buttonRow}>
-        <Button
-          label={busy ? 'Updating…' : 'Confirm step away'}
-          disabled={busy || reason.trim().length < 3}
-          onPress={stepAway}
-        />
-        <Button label="Cancel" disabled={busy} secondary onPress={() => setOpen(false)} />
-      </View>
+      <Button
+        label={busy ? 'Updating…' : 'Confirm step away'}
+        disabled={busy || reason.trim().length < 3}
+        onPress={stepAway}
+      />
       {error ? <Text style={styles.error}>{error}</Text> : null}
-    </View>
+      </Sheet>
+    </>
   )
 }
 
@@ -762,17 +774,15 @@ function ConflictReport({ eventSlug, review }: { eventSlug: string; review: Acti
     }
   }
 
-  if (!open) {
-    return (
+  return (
+    <>
       <Pressable accessibilityRole="button" onPress={() => setOpen(true)}>
         <Text style={styles.textButton}>I have a conflict with this team</Text>
       </Pressable>
-    )
-  }
-  return (
-    <View style={styles.conflictBlock}>
-      <Text style={styles.value}>Report reviewer conflict</Text>
-      <Text style={styles.body}>This cancels the pending review and returns the team for rerouting. Avoid unnecessary personal detail.</Text>
+      <Sheet onClose={() => setOpen(false)} title="Report a conflict" visible={open}>
+      {/* This cancels the pending review and reroutes the team, so it says so
+          rather than leaving somebody to find out by pressing it. */}
+      <Text style={styles.body}>The team returns to the queue for another panel.</Text>
       <TextInput
         editable={!busy}
         multiline
@@ -782,20 +792,18 @@ function ConflictReport({ eventSlug, review }: { eventSlug: string; review: Acti
           setError(null)
         }}
         placeholder="Brief relationship or policy conflict"
-        placeholderTextColor="#625f5a"
+        placeholderTextColor={palette.faint}
         style={styles.input}
         value={reason}
       />
-      <View style={styles.buttonRow}>
-        <Button
-          label={busy ? 'Reporting…' : 'Report and reroute team'}
-          disabled={busy || reason.trim().length < 3}
-          onPress={submit}
-        />
-        <Button label="Cancel" disabled={busy} secondary onPress={() => setOpen(false)} />
-      </View>
+      <Button
+        label={busy ? 'Reporting…' : 'Report and reroute team'}
+        disabled={busy || reason.trim().length < 3}
+        onPress={submit}
+      />
       {error ? <Text style={styles.error}>{error}</Text> : null}
-    </View>
+      </Sheet>
+    </>
   )
 }
 
@@ -847,7 +855,7 @@ function ReviewQrScanner({
             setError(null)
           }}
           placeholder="ABCD-EFGH-JKLM"
-          placeholderTextColor="#625f5a"
+          placeholderTextColor={palette.faint}
           style={styles.codeInput}
           value={manualCode}
         />
@@ -1030,7 +1038,7 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Ac
           edit()
         }}
         placeholder="A short factual summary"
-        placeholderTextColor="#625f5a"
+        placeholderTextColor={palette.faint}
         style={styles.input}
         value={findings}
       />
@@ -1043,7 +1051,7 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Ac
           edit()
         }}
         placeholder="Concrete next-checkpoint commitments"
-        placeholderTextColor="#625f5a"
+        placeholderTextColor={palette.faint}
         style={styles.input}
         value={commitments}
       />
@@ -1395,15 +1403,6 @@ function Button({
   )
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.detailRow}>
-      <Text style={styles.label}>{label}</Text>
-      <Text style={styles.detailValue}>{value}</Text>
-    </View>
-  )
-}
-
 function reviewerPlatform(): ReviewerPlatform | null {
   if (Platform.OS === 'android') return 'android'
   if (Platform.OS === 'ios') return 'ios'
@@ -1446,43 +1445,46 @@ function submissionProblem(criteria: Criterion[], ratings: Rating[]) {
   return null
 }
 
+/** The few words inside the ring: what being on duty means right now. */
+function dutyStateDetail(current: ReviewerNow) {
+  if (current.reserve) {
+    return current.reserve.status === 'paged' ? 'You have been paged' : 'On call'
+  }
+  return 'Waiting for a team'
+}
+
 function errorMessage(caught: unknown, fallback: string) {
   return describeError(caught, fallback)
 }
 
 const styles = StyleSheet.create({
-  panel: {
-    marginTop: 24,
-    borderWidth: 1,
-    borderColor: '#2c2a27',
-    borderRadius: 8,
-    padding: 18,
-    gap: 14,
-  },
+  /* No border. Every other duty screen is content on the background; a boxed
+     card was the last thing making judging feel like a different product. */
+  panel: { marginTop: 8, gap: 16 },
   flex: { flex: 1 },
   headingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
-  eyebrow: { color: '#9a737a', fontSize: 13, marginBottom: 5 },
-  heading: { color: '#f1eee8', fontSize: 22, lineHeight: 28 },
+  eyebrow: { color: palette.judging, fontSize: 13, fontWeight: '600', letterSpacing: 0.6, marginBottom: 6 },
+  heading: { color: palette.text, fontSize: 30, fontWeight: '600', letterSpacing: -0.8, lineHeight: 35 },
   reviewHeading: { gap: 4 },
-  reviewTitle: { color: '#f1eee8', fontFamily: 'Georgia', fontSize: 30, lineHeight: 36 },
+  reviewTitle: { color: palette.text, fontSize: 30, fontWeight: '600', letterSpacing: -0.8, lineHeight: 36 },
   table: {
-    color: '#f1eee8',
+    color: palette.text,
     borderWidth: 1,
-    borderColor: '#4d383c',
-    borderRadius: 6,
+    borderColor: palette.strong,
+    borderRadius: radius.tile,
     paddingHorizontal: 10,
     paddingVertical: 7,
     fontSize: 13,
   },
-  body: { color: '#aaa69f', fontSize: 15, lineHeight: 22 },
-  value: { color: '#f1eee8', fontSize: 16, lineHeight: 22 },
-  idea: { color: '#e3dfd7', fontSize: 18, lineHeight: 26 },
-  question: { color: '#c9c4bb', fontSize: 14, lineHeight: 21, marginTop: 8 },
-  guidance: { color: '#827e77', fontSize: 13, lineHeight: 19 },
-  meta: { color: '#77736d', fontSize: 13, lineHeight: 18 },
-  label: { color: '#77736d', fontSize: 13 },
-  error: { color: '#e3a4a4', fontSize: 14, lineHeight: 20 },
-  details: { borderTopWidth: 1, borderTopColor: '#2c2a27' },
+  body: { color: palette.muted, fontSize: 15, lineHeight: 22 },
+  value: { color: palette.text, fontSize: 16, lineHeight: 22 },
+  idea: { color: palette.text, fontSize: 18, lineHeight: 26 },
+  question: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 8 },
+  guidance: { color: palette.faint, fontSize: 13, lineHeight: 19 },
+  meta: { color: palette.faint, fontSize: 13, lineHeight: 18 },
+  label: { color: palette.faint, fontSize: 13 },
+  error: { color: palette.urgent, fontSize: 14, lineHeight: 20 },
+  details: { borderTopWidth: 1, borderTopColor: palette.tile },
   detailRow: {
     minHeight: 40,
     flexDirection: 'row',
@@ -1490,49 +1492,49 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#2c2a27',
+    borderBottomColor: palette.tile,
   },
-  detailValue: { color: '#c9c4bb', fontSize: 14, textAlign: 'right' },
+  detailValue: { color: palette.muted, fontSize: 14, textAlign: 'right' },
   button: {
     minHeight: 48,
-    borderRadius: 7,
-    backgroundColor: '#eee9e0',
+    borderRadius: radius.control,
+    backgroundColor: palette.text,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 16,
     flexGrow: 1,
   },
-  buttonText: { color: '#11110f', fontSize: 15, fontWeight: '600' },
-  secondaryButton: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#3a3733' },
-  secondaryButtonText: { color: '#f1eee8' },
+  buttonText: { color: palette.background, fontSize: 15, fontWeight: '600' },
+  secondaryButton: { backgroundColor: 'transparent', borderWidth: 1, borderColor: palette.strong },
+  secondaryButtonText: { color: palette.text },
   disabled: { opacity: 0.5 },
   waiting: { gap: 10, paddingVertical: 8 },
   pauseNotice: {
     gap: 7,
     padding: 13,
     borderWidth: 1,
-    borderColor: '#5d4747',
-    borderRadius: 7,
-    backgroundColor: '#12100f',
+    borderColor: palette.urgent,
+    borderRadius: radius.tile,
+    backgroundColor: palette.tile,
   },
   pagePrompt: { gap: 14 },
   availabilityBlock: { gap: 10, paddingTop: 6 },
-  rule: { height: 1, backgroundColor: '#2c2a27', marginVertical: 4 },
+  rule: { height: 1, backgroundColor: palette.tile, marginVertical: 4 },
   scannerBlock: { gap: 12 },
   conflictBlock: {
     gap: 10,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#553b3f',
-    borderRadius: 7,
+    borderColor: palette.urgent,
+    borderRadius: radius.tile,
   },
-  textButton: { color: '#aaa69f', fontSize: 14, textDecorationLine: 'underline' },
-  camera: { width: '100%', height: 330, borderRadius: 7, overflow: 'hidden' },
-  timer: { color: '#f1eee8', fontSize: 26, marginTop: 8, fontVariant: ['tabular-nums'] },
-  overdue: { color: '#e3a4a4', fontSize: 26, marginTop: 8, fontVariant: ['tabular-nums'] },
+  textButton: { color: palette.muted, fontSize: 14, textDecorationLine: 'underline' },
+  camera: { width: '100%', height: 330, borderRadius: radius.tile, overflow: 'hidden' },
+  timer: { color: palette.text, fontSize: 26, marginTop: 8, fontVariant: ['tabular-nums'] },
+  overdue: { color: palette.urgent, fontSize: 26, marginTop: 8, fontVariant: ['tabular-nums'] },
   workspace: { gap: 24 },
   section: { gap: 12, paddingTop: 8 },
-  sectionTitle: { color: '#f1eee8', fontSize: 19, lineHeight: 25 },
+  sectionTitle: { color: palette.text, fontSize: 20, fontWeight: '600', letterSpacing: -0.4, lineHeight: 25 },
   evidenceHeader: {
     marginTop: 14,
     flexDirection: 'row',
@@ -1540,7 +1542,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
-  evidenceRow: { borderTopWidth: 1, borderTopColor: '#2c2a27', paddingTop: 10, gap: 3 },
+  evidenceRow: { borderTopWidth: 1, borderTopColor: palette.tile, paddingTop: 10, gap: 3 },
   criterion: { paddingTop: 18, gap: 10 },
   criterionLabel: { color: palette.text, fontSize: 19, fontWeight: '600', letterSpacing: -0.3 },
   criterionQuestion: { color: palette.muted, fontSize: 16, lineHeight: 22 },
@@ -1550,21 +1552,21 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderWidth: 1,
-    borderColor: '#3a3733',
-    borderRadius: 6,
+    borderColor: palette.strong,
+    borderRadius: radius.control,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  scoreSelected: { backgroundColor: '#eee9e0', borderColor: '#eee9e0' },
-  scoreText: { color: '#c9c4bb', fontSize: 16 },
-  scoreSelectedText: { color: '#11110f', fontWeight: '700' },
+  scoreSelected: { backgroundColor: palette.text, borderColor: palette.text },
+  scoreText: { color: palette.muted, fontSize: 16 },
+  scoreSelectedText: { color: palette.background, fontWeight: '700' },
   anchor: { minHeight: 40, color: palette.muted, fontSize: 15, lineHeight: 21 },
   input: {
     minHeight: 72,
     borderWidth: 1,
-    borderColor: '#34322f',
-    borderRadius: 6,
-    color: '#f1eee8',
+    borderColor: palette.tile,
+    borderRadius: radius.tile,
+    color: palette.text,
     paddingHorizontal: 12,
     paddingVertical: 10,
     textAlignVertical: 'top',
@@ -1576,18 +1578,18 @@ const styles = StyleSheet.create({
     width: 100,
     minHeight: 44,
     borderWidth: 1,
-    borderColor: '#34322f',
-    borderRadius: 6,
-    color: '#f1eee8',
+    borderColor: palette.tile,
+    borderRadius: radius.tile,
+    color: palette.text,
     paddingHorizontal: 12,
     fontSize: 14,
   },
   codeInput: {
     minHeight: 48,
     borderWidth: 1,
-    borderColor: '#34322f',
-    borderRadius: 6,
-    color: '#f1eee8',
+    borderColor: palette.tile,
+    borderRadius: radius.tile,
+    color: palette.text,
     paddingHorizontal: 12,
     fontFamily: 'monospace',
     fontSize: 17,

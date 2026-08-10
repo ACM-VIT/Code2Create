@@ -7,7 +7,8 @@ import {
   frame,
   tint,
 } from '@expo/ui/swift-ui/modifiers'
-import type { ReactNode } from 'react'
+import { TrueSheet, type SheetDetent } from '@lodev09/react-native-true-sheet'
+import { useEffect, useRef, type ReactNode } from 'react'
 import {
   Dimensions,
   Modal,
@@ -32,7 +33,15 @@ import { palette, radius } from '@/theme'
  */
 
 const screenPadding = 20
-const actionWidth = Dimensions.get('window').width - screenPadding * 2
+/**
+ * A bordered-prominent button hugs its label and then adds its own padding, so
+ * sizing the label to the full content width pushes the button itself out past
+ * the screen inset. This is the label width that makes the *button* span the
+ * inset exactly.
+ */
+const actionInnerPadding = 20
+const actionWidth =
+  Dimensions.get('window').width - screenPadding * 2 - actionInnerPadding * 2
 
 /** A titled block. The title is the only place a duty screen raises its voice. */
 export function Section({
@@ -272,27 +281,41 @@ export function Viewfinder({
  */
 export function Sheet({
   children,
+  detents = ['auto'],
   onClose,
   title,
   visible,
 }: {
   children: ReactNode
+  /** Content that is not a short form — a camera, a long list — says so. */
+  detents?: SheetDetent[]
   onClose: () => void
   title: string
   visible: boolean
 }) {
+  const sheet = useRef<TrueSheet>(null)
+
+  useEffect(() => {
+    if (visible) void sheet.current?.present()
+    else void sheet.current?.dismiss()
+  }, [visible])
+
   return (
-    <Modal animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet" visible={visible}>
-      <View style={styles.sheet}>
-        <View style={styles.sheetHead}>
-          <Text style={styles.sheetTitle}>{title}</Text>
-          <Pressable accessibilityRole="button" hitSlop={12} onPress={onClose}>
-            <Text style={styles.sheetClose}>Done</Text>
-          </Pressable>
-        </View>
-        <ScrollView contentContainerStyle={styles.sheetBody}>{children}</ScrollView>
+    <TrueSheet
+      backgroundColor={palette.background}
+      cornerRadius={20}
+      /* Sized to what is inside it. A page sheet that is always full height
+         makes a two-field form look like a screen you have navigated to. */
+      detents={detents}
+      grabber
+      onDidDismiss={onClose}
+      ref={sheet}
+    >
+      <View style={styles.sheetBody}>
+        <Text style={styles.sheetTitle}>{title}</Text>
+        {children}
       </View>
-    </Modal>
+    </TrueSheet>
   )
 }
 
@@ -562,18 +585,14 @@ const styles = StyleSheet.create({
   chipText: { color: palette.text, fontSize: 15 },
   chipTextOn: { color: palette.background, fontWeight: '600' },
 
-  sheet: { flex: 1, backgroundColor: palette.background },
-  sheetHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 8,
+  sheetTitle: {
+    color: palette.text,
+    fontSize: 24,
+    fontWeight: '600',
+    letterSpacing: -0.5,
+    marginBottom: 4,
   },
-  sheetTitle: { color: palette.text, fontSize: 22, fontWeight: '600', letterSpacing: -0.4 },
-  sheetClose: { color: palette.muted, fontSize: 17 },
-  sheetBody: { paddingHorizontal: 20, paddingBottom: 40, gap: 18 },
+  sheetBody: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 40, gap: 16 },
   headerButton: { color: palette.text, fontSize: 20, letterSpacing: 1 },
 
   row: {
@@ -654,7 +673,76 @@ const styles = StyleSheet.create({
   progress: { flexDirection: 'row', height: 8, borderRadius: 4, overflow: 'hidden' },
   progressGap: { width: 3 },
 
+  ringWrap: { alignItems: 'center', paddingVertical: 18 },
+  ring: {
+    width: 232,
+    height: 232,
+    borderRadius: 116,
+    borderWidth: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingHorizontal: 24,
+  },
+  ringLabel: {
+    color: palette.text,
+    fontSize: 28,
+    fontWeight: '600',
+    letterSpacing: -0.6,
+    textAlign: 'center',
+  },
+  ringDetail: { color: palette.muted, fontSize: 15, textAlign: 'center' },
+
   action: { alignSelf: 'stretch', height: 62 },
   quiet: { alignSelf: 'flex-start', paddingVertical: 10 },
   quietText: { color: palette.muted, fontSize: 16 },
 })
+
+/**
+ * The state of a duty as one circle you press.
+ *
+ * A reviewer standing in a hall wants to know one thing — am I on duty — and
+ * wants one thing to press about it. Every timer and check-in worth copying
+ * puts that in a ring with the state in the middle and a single action under
+ * it, so this does the same: the ring fills when you are on duty, and the
+ * words inside it are the whole status.
+ */
+export function DutyRing({
+  accent,
+  busy = false,
+  detail,
+  disabled = false,
+  label,
+  on,
+  onPress,
+}: {
+  accent: string
+  busy?: boolean
+  /** The line under the label, inside the ring. Kept to a few words. */
+  detail?: string
+  disabled?: boolean
+  label: string
+  on: boolean
+  onPress: () => void | Promise<void>
+}) {
+  return (
+    <View style={styles.ringWrap}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ busy, disabled, selected: on }}
+        disabled={disabled || busy}
+        onPress={() => void onPress()}
+        style={({ pressed }) => [
+          styles.ring,
+          { borderColor: on ? accent : palette.strong },
+          on ? { backgroundColor: `${accent}14` } : null,
+          disabled ? styles.dim : null,
+          pressed ? styles.pressed : null,
+        ]}
+      >
+        <Text style={[styles.ringLabel, on ? { color: accent } : null]}>{label}</Text>
+        {detail ? <Text style={styles.ringDetail}>{detail}</Text> : null}
+      </Pressable>
+    </View>
+  )
+}

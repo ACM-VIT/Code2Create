@@ -47,6 +47,16 @@ function RootLayout() {
                   sheetCornerRadius: 20,
                 }}
               />
+              <Stack.Screen
+                name="duty/reviewer-phone"
+                options={{
+                  presentation: 'formSheet',
+                  headerShown: false,
+                  sheetGrabberVisible: true,
+                  sheetAllowedDetents: [0.5],
+                  sheetCornerRadius: 20,
+                }}
+              />
             </Stack>
           </ReviewerSessionProvider>
         </ReviewerAuthProvider>

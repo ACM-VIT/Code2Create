@@ -1,12 +1,12 @@
 import { api } from '@code2create/backend/api'
-import { floorAreaAt, floorAreaLabels } from '@code2create/domain'
+import { floorAreaAt, floorAreaLabels, type FloorArea } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { randomUUID } from 'expo-crypto'
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera'
 import { useRef, useState } from 'react'
 import { Stack } from 'expo-router'
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 
 import {
   Action,
@@ -135,6 +135,14 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
         }}
       />
 
+      <View style={styles.headline}>
+        <Lead
+          accent={palette.hall}
+          unit={selectedZone.teams.length === 1 ? 'team placed' : 'teams placed'}
+          value={String(selectedZone.teams.length)}
+        />
+      </View>
+
       <View style={styles.canvasFrame}>
         <HallCanvas
           depthMeters={selectedZone.depthMeters}
@@ -144,23 +152,13 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
             setPicked(point)
           }}
           picked={picked}
+          placing={placing !== null}
           teams={selectedZone.teams}
           widthMeters={selectedZone.widthMeters}
         />
       </View>
 
       <View style={styles.dock}>
-        <Lead
-          accent={palette.hall}
-          detail={
-            placing
-              ? `Touch where ${placing.team.name} is sitting.`
-              : 'Scan a team, then touch where they are.'
-          }
-          unit={selectedZone.teams.length === 1 ? 'team placed' : 'teams placed'}
-          value={String(selectedZone.teams.length)}
-        />
-
         {floor.zones.length > 1 ? (
           <ChipRow
             accent={palette.hall}
@@ -219,7 +217,12 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
         )}
       </View>
 
-      <Sheet onClose={() => setShowScanner(false)} title="Scan a team" visible={showScanner}>
+      <Sheet
+        detents={[0.9]}
+        onClose={() => setShowScanner(false)}
+        title="Scan a team"
+        visible={showScanner}
+      >
         <Body>The QR is on the team’s own dashboard. There are no table stickers.</Body>
         {!permission ? <Meta>Checking camera access…</Meta> : null}
         {permission && !permission.granted ? (
@@ -283,6 +286,7 @@ function HallCanvas({
   landmarks,
   onPick,
   picked,
+  placing,
   teams,
   widthMeters,
   depthMeters,
@@ -290,64 +294,130 @@ function HallCanvas({
   landmarks: readonly { id: string; name: string; x: number; y: number }[]
   onPick: (point: { x: number; y: number }) => void
   picked: { x: number; y: number } | null
+  /** While placing, a touch draws on the room. Otherwise it pans and zooms it. */
+  placing: boolean
   teams: readonly { teamId: string; teamName: string; x: number; y: number }[]
   widthMeters: number
   depthMeters: number
 }) {
   const [size, setSize] = useState<{ width: number; height: number } | null>(null)
+  /* A percentage width inside a zoomable scroll view resolves against content
+     that has no bound yet, so the room has to be told the frame it fits. */
+  const [frameWidth, setFrameWidth] = useState<number | null>(null)
+
+  /* The plan names its fixtures; the stage is the one worth drawing rather
+     than pinning, because it spans the end of the room instead of sitting at
+     a point in it. */
+  const stage = landmarks.find((landmark) => landmark.name === 'the stage') ?? null
+  const stageDepth = stage ? Math.max(6, stage.y * 2) : 0
+
+  const pointFrom = (locationX: number, locationY: number) => {
+    if (!size || size.width === 0 || size.height === 0) return null
+    return {
+      x: clampPercent((locationX / size.width) * 100),
+      y: clampPercent((locationY / size.height) * 100),
+    }
+  }
+
   return (
-    <View
-      onLayout={(event) => setSize(event.nativeEvent.layout)}
-      style={[styles.room, { aspectRatio: widthMeters / depthMeters }]}
+    <ScrollView
+      onLayout={(event) => setFrameWidth(event.nativeEvent.layout.width)}
+      centerContent
+      contentContainerStyle={styles.canvasContent}
+      maximumZoomScale={4}
+      minimumZoomScale={1}
+      /* Placing takes the touches, so a drag adjusts the pin instead of
+         scrolling the room out from under the finger. */
+      scrollEnabled={!placing}
+      showsHorizontalScrollIndicator={false}
+      showsVerticalScrollIndicator={false}
     >
-      <Pressable
-        accessibilityHint="Touch where the team is sitting"
-        accessibilityLabel="Hall"
-        accessibilityRole="button"
-        onPress={(event) => {
-          if (!size || size.width === 0 || size.height === 0) return
-          onPick({
-            x: clampPercent((event.nativeEvent.locationX / size.width) * 100),
-            y: clampPercent((event.nativeEvent.locationY / size.height) * 100),
-          })
+      <View
+        onLayout={(event) => setSize(event.nativeEvent.layout)}
+        style={[
+          styles.room,
+          { aspectRatio: widthMeters / depthMeters },
+          frameWidth ? { width: frameWidth - canvasInset * 2 } : null,
+        ]}
+        /* Touch anywhere and drag: the pin follows the finger, so the last
+           thing you see before lifting is where it will be recorded. A tap is
+           just a drag that did not move. */
+        onMoveShouldSetResponder={() => placing}
+        onResponderGrant={(event) => {
+          const point = pointFrom(event.nativeEvent.locationX, event.nativeEvent.locationY)
+          if (point) onPick(point)
         }}
-        style={StyleSheet.absoluteFill}
+        onResponderMove={(event) => {
+          const point = pointFrom(event.nativeEvent.locationX, event.nativeEvent.locationY)
+          if (point) onPick(point)
+        }}
+        onStartShouldSetResponder={() => placing}
       >
-        {/* Thirds, drawn faintly. They are how the room is named, so seeing
-            them is what makes "north-east" mean something to the mapper. */}
-        <View pointerEvents="none" style={[styles.gridLine, styles.gridV, { left: '33.333%' }]} />
-        <View pointerEvents="none" style={[styles.gridLine, styles.gridV, { left: '66.666%' }]} />
-        <View pointerEvents="none" style={[styles.gridLine, styles.gridH, { top: '33.333%' }]} />
-        <View pointerEvents="none" style={[styles.gridLine, styles.gridH, { top: '66.666%' }]} />
-      </Pressable>
+        {/* The stage, drawn where the plan puts it. It is the one thing in the
+            room that never moves, so a mapper holding the phone up can tell at
+            a glance which way round they are standing. */}
+        {stage ? (
+          <View pointerEvents="none" style={[styles.stage, { height: `${stageDepth}%` }]}>
+            <Text style={styles.stageText}>STAGE</Text>
+          </View>
+        ) : null}
 
-      {landmarks.map((landmark) => (
-        <View
-          key={landmark.id}
-          pointerEvents="none"
-          style={[styles.landmark, { left: `${landmark.x}%`, top: `${landmark.y}%` }]}
-        >
-          <Text numberOfLines={1} style={styles.landmarkText}>
-            {landmark.name}
-          </Text>
+        {/* The nine named areas, drawn as the grid they are and each labelled
+            with the words an operator says out loud. Seeing the vocabulary on
+            the map is what makes "north-east corner" mean something to both
+            the mapper touching it and the reviewer being sent there. */}
+        <View pointerEvents="none" style={styles.grid}>
+          {floorAreaRows.map((row, rowIndex) => (
+            <View key={rowIndex} style={styles.gridRow}>
+              {row.map((area) => {
+                const lit = picked !== null && floorAreaAt(picked.x, picked.y) === area
+                return (
+                  <View key={area} style={[styles.gridCell, lit ? styles.gridCellLit : null]}>
+                    <Text style={[styles.gridCellText, lit ? styles.gridCellTextLit : null]}>
+                      {floorAreaShortLabels[area]}
+                    </Text>
+                  </View>
+                )
+              })}
+            </View>
+          ))}
         </View>
-      ))}
 
-      {teams.map((team) => (
-        <View
-          key={team.teamId}
-          pointerEvents="none"
-          style={[styles.team, { left: `${team.x}%`, top: `${team.y}%` }]}
-        />
-      ))}
+        {landmarks.filter((landmark) => landmark !== stage).map((landmark) => (
+          <View
+            key={landmark.id}
+            pointerEvents="none"
+            style={[
+              styles.landmark,
+              { left: `${landmark.x}%`, top: `${landmark.y}%` },
+              /* A landmark on an edge would otherwise be half outside the room
+                 and clipped. It sits against the edge it names instead. */
+              landmark.x > 66 ? styles.landmarkRight : null,
+              landmark.x < 34 ? styles.landmarkLeft : null,
+            ]}
+          >
+            <Text numberOfLines={1} style={styles.landmarkText}>
+              {landmark.name}
+            </Text>
+          </View>
+        ))}
 
-      {picked ? (
-        <View
-          pointerEvents="none"
-          style={[styles.pin, { left: `${picked.x}%`, top: `${picked.y}%` }]}
-        />
-      ) : null}
-    </View>
+        {teams.map((team) => (
+          <View
+            key={team.teamId}
+            pointerEvents="none"
+            style={[styles.team, { left: `${team.x}%`, top: `${team.y}%` }]}
+          />
+        ))}
+
+        {picked ? (
+          <View
+            pointerEvents="none"
+            style={[styles.pin, { left: `${picked.x}%`, top: `${picked.y}%` }]}
+          />
+        ) : null}
+      </View>
+    </ScrollView>
   )
 }
 
@@ -359,10 +429,35 @@ function errorMessage(caught: unknown, fallback: string) {
   return describeError(caught, fallback)
 }
 
+const canvasInset = 12
+
+/** The nine named areas, laid out the way they sit in the room. */
+const floorAreaRows = [
+  ['north_west', 'north', 'north_east'],
+  ['west', 'centre', 'east'],
+  ['south_west', 'south', 'south_east'],
+] as const satisfies readonly (readonly FloorArea[])[]
+
+/** Room enough for the label inside a ninth of a phone-width room. */
+const floorAreaShortLabels: Record<FloorArea, string> = {
+  north_west: 'NW',
+  north: 'N',
+  north_east: 'NE',
+  west: 'W',
+  centre: 'C',
+  east: 'E',
+  south_west: 'SW',
+  south: 'S',
+  south_east: 'SE',
+}
+
 const styles = StyleSheet.create({
   frame: { flex: 1, backgroundColor: palette.background },
-  /* The room takes whatever the dock does not. */
-  canvasFrame: { flex: 1, padding: 12 },
+  /* The room takes whatever the dock does not, and sits in the middle of it
+     rather than against the top with a void underneath. */
+  canvasFrame: { flex: 1 },
+  canvasContent: { flexGrow: 1, justifyContent: 'center', padding: canvasInset },
+  headline: { paddingHorizontal: 20, paddingTop: 4 },
   dock: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 34, gap: 12 },
 
   manualRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -387,18 +482,43 @@ const styles = StyleSheet.create({
 
   /* The room at the proportions of the real hall, so what a mapper sees on
      the phone matches what they are standing in. */
-  room: { width: '100%', backgroundColor: palette.tile, borderRadius: radius.tile, overflow: 'hidden' },
-  gridLine: { position: 'absolute', backgroundColor: palette.background, opacity: 0.5 },
-  gridV: { top: 0, bottom: 0, width: 1 },
-  gridH: { left: 0, right: 0, height: 1 },
+  room: { backgroundColor: palette.tile, borderRadius: radius.tile, overflow: 'hidden' },
+  stage: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.strong,
+  },
+  stageText: { color: palette.muted, fontSize: 11, fontWeight: '700', letterSpacing: 2 },
+  grid: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, flexDirection: 'column' },
+  gridRow: { flex: 1, flexDirection: 'row' },
+  gridCell: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.background,
+  },
+  /* The area the pin is in, so the words under the map and the cell under the
+     finger are visibly the same place. */
+  gridCellLit: { backgroundColor: 'rgba(255,107,0,0.14)', borderColor: palette.hall },
+  gridCellText: { color: palette.faint, fontSize: 11, fontWeight: '600', letterSpacing: 0.6 },
+  gridCellTextLit: { color: palette.hall },
 
   landmark: {
     position: 'absolute',
+    maxWidth: '46%',
     paddingHorizontal: 7,
     paddingVertical: 4,
     backgroundColor: palette.background,
+    borderRadius: 6,
     transform: [{ translateX: -34 }, { translateY: -12 }],
   },
+  landmarkRight: { transform: [{ translateX: -68 }, { translateY: -12 }] },
+  landmarkLeft: { transform: [{ translateX: 0 }, { translateY: -12 }] },
   landmarkText: { color: palette.muted, fontSize: 11, fontWeight: '600' },
 
   /* Teams already placed, so a crowded corner is visible before you add to it. */

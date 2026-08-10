@@ -355,41 +355,25 @@ export function localIntegrationPolicy(eventStartsAt: number) {
   };
 }
 
-// Three halves of a hall, each with the fixed things a mapper aligns against.
+// Anna Auditorium, which is where this runs: one flat floor of roughly
+// 15,436 sq ft with a stage at one end, green rooms beside it, and removable
+// chairs — so teams lay out on the floor rather than in fixed seating.
 // Nothing here is a table: participants drag those around all weekend.
 const localFloorZones = [
   {
-    stableKey: "east",
-    name: "East wing",
-    widthMeters: 28,
-    depthMeters: 18,
+    stableKey: "anna_auditorium",
+    name: "Anna Auditorium",
+    // 44 x 33 is 1,452 m², the published 15,436 sq ft to within a percent.
+    widthMeters: 44,
+    depthMeters: 33,
     displayOrder: 0,
     landmarks: [
-      { stableKey: "east_stage", name: "the stage", x: 50, y: 4, displayOrder: 0 },
-      { stableKey: "east_windows", name: "the windows", x: 96, y: 50, displayOrder: 1 },
-      { stableKey: "east_doors", name: "the side doors", x: 4, y: 88, displayOrder: 2 },
-    ],
-  },
-  {
-    stableKey: "centre",
-    name: "Centre",
-    widthMeters: 24,
-    depthMeters: 24,
-    displayOrder: 1,
-    landmarks: [
-      { stableKey: "centre_help_desk", name: "the help desk", x: 50, y: 50, displayOrder: 0 },
-      { stableKey: "centre_food", name: "the food counter", x: 10, y: 12, displayOrder: 1 },
-    ],
-  },
-  {
-    stableKey: "west",
-    name: "West wing",
-    widthMeters: 28,
-    depthMeters: 18,
-    displayOrder: 2,
-    landmarks: [
-      { stableKey: "west_entrance", name: "the main entrance", x: 50, y: 96, displayOrder: 0 },
-      { stableKey: "west_power", name: "the power wall", x: 6, y: 40, displayOrder: 1 },
+      { stableKey: "anna_stage", name: "the stage", x: 50, y: 4, displayOrder: 0 },
+      { stableKey: "anna_green_rooms", name: "the green rooms", x: 8, y: 8, displayOrder: 1 },
+      { stableKey: "anna_left_aisle", name: "the left aisle", x: 6, y: 52, displayOrder: 2 },
+      { stableKey: "anna_right_aisle", name: "the right aisle", x: 94, y: 52, displayOrder: 3 },
+      { stableKey: "anna_sound_desk", name: "the sound desk", x: 92, y: 88, displayOrder: 4 },
+      { stableKey: "anna_entrance", name: "the main entrance", x: 50, y: 96, displayOrder: 5 },
     ],
   },
 ] as const;

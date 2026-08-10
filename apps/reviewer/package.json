@@ -9,6 +9,7 @@
     "@code2create/domain": "workspace:*",
     "@convex-dev/better-auth": "^0.12.5",
     "@expo/ui": "~57.0.9",
+    "@lodev09/react-native-true-sheet": "^3.11.9",
     "@sentry/react-native": "~7.11.0",
     "better-auth": "~1.6.25",
     "convex": "^1.43.0",

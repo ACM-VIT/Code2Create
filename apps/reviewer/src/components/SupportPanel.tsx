@@ -22,6 +22,7 @@ import {
   Problem,
   QuietAction,
   Section,
+  Sheet,
   Shell,
 } from '@/components/ui'
 import { describeError } from '@/lib/errors'
@@ -122,14 +123,21 @@ export function SupportPanel({ canCreate, runtime }: { canCreate: boolean; runti
         <Nothing>You have not reported anything.</Nothing>
       )}
 
-      {/* Reporting is a one-in-a-shift act, so it stays folded away until it is
-          wanted rather than sitting above the cases you came here to read. */}
-      {canCreate && !reporting ? (
+      {/* Reporting is a one-in-a-shift act, so it opens as a sheet over the
+          cases you came here to read rather than unfolding above them. */}
+      {canCreate ? (
         <QuietAction label="Report a problem" onPress={() => setReporting(true)} />
       ) : null}
 
-      {canCreate && reporting ? (
-        <Section title="Report a problem">
+      {canCreate ? (
+        <Sheet
+          onClose={() => {
+            operationRef.current = null
+            setReporting(false)
+          }}
+          title="Report a problem"
+          visible={reporting}
+        >
           <ChipRow
             accent={palette.setup}
             onSelect={(value: SupportCategory) => {
@@ -158,15 +166,7 @@ export function SupportPanel({ canCreate, runtime }: { canCreate: boolean; runti
             label={busy ? 'Sending…' : 'Send to the help desk'}
             onPress={submit}
           />
-          <QuietAction
-            disabled={busy}
-            label="Cancel"
-            onPress={() => {
-              operationRef.current = null
-              setReporting(false)
-            }}
-          />
-        </Section>
+        </Sheet>
       ) : null}
     </>
   )
