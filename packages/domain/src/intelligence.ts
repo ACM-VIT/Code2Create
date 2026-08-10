@@ -147,6 +147,41 @@ export type OperationsIntelligenceReadRequest = {
 };
 
 /**
+ * The admissions reads live on their own route and whitelist because their
+ * redaction contract differs from the operations reads: they carry
+ * policy-published admission signals — criteria assessments, novelty bands,
+ * review coverage, a capacity-ranked suggestion — that the operations reads
+ * deliberately exclude. Splitting the whitelist keeps each contract reviewable
+ * on its own; neither read ever carries a participant's name or email.
+ */
+export const admissionIntelligenceReadNames = [
+  "admission_cohort",
+  "admission_submission_search",
+] as const;
+export type AdmissionIntelligenceReadName =
+  (typeof admissionIntelligenceReadNames)[number];
+
+// Its own context for the same reason every other boundary has one: a body
+// captured on the operations read route can never replay as an admission read.
+export const admissionIntelligenceReadSignatureContext =
+  "code2create.admission-intelligence.read.v1";
+
+/**
+ * Unlike the operations reads, the admission reads take bounded parameters:
+ * the cohort read evaluates one capacity in people, and the search read takes
+ * the words to match. There is still no query language on this boundary — the
+ * parameters select within one fixed projection, never compose one.
+ */
+export type AdmissionIntelligenceReadRequest = {
+  protocolVersion: typeof operationsIntelligenceProtocolVersion;
+  read: AdmissionIntelligenceReadName;
+  eventSlug: string;
+  capacityPeople?: number;
+  query?: string;
+  limit?: number;
+};
+
+/**
  * The action kinds the copilot may propose. Every kind maps onto one existing
  * operator mutation, so approval executes the ordinary command under the
  * approving operator's own grants — the agent holds no authority of its own.

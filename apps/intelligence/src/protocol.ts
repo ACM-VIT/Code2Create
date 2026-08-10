@@ -1,4 +1,5 @@
 import {
+	admissionIntelligenceReadNames,
 	operationsBriefPrioritySeverities,
 	operationsHealthAreas,
 	operationsHealthSeverities,
@@ -307,6 +308,140 @@ export const platformReadSchemas = {
 
 export const platformReadEnvelopeSchema = v.strictObject({
 	read: v.picklist(operationsIntelligenceReadNames),
+	data: v.unknown(),
+});
+
+/**
+ * What Convex returns for the admission reads, re-validated here for the same
+ * reason as the operations reads: the model only sees data matching the shape
+ * Convex promised. These reads carry team names (already operator-visible on
+ * the admissions list), ids, aggregate counts, year bands, and signals scored
+ * against published policy — and by construction never a participant's name
+ * or email. Enums Convex owns (states, bands, novelty bands, criterion
+ * assessments) travel as bounded text so a new backend value does not break a
+ * deployed Worker; whole-number checks are skipped where a value can be
+ * legitimately negative (`remainingPeople` when committed seats already
+ * exceed a proposed capacity).
+ */
+const admissionReviewCoverage = v.strictObject({
+	assigned: nonNegativeInteger,
+	completed: nonNegativeInteger,
+	required: nonNegativeInteger,
+	decidable: v.boolean(),
+	shortfall: nonNegativeInteger,
+});
+
+const admissionNoveltySignal = v.nullable(
+	v.strictObject({
+		score: nonNegativeInteger,
+		band: boundedText(1, 40),
+		nearestThemeLabel: boundedText(1, 160),
+		nearestSimilarity: v.optional(v.number()),
+	}),
+);
+
+const admissionRosterRow = v.strictObject({
+	applicationId: convexId,
+	teamId: convexId,
+	teamName: boundedText(1, 160),
+	state: boundedText(1, 40),
+	teamSize: nonNegativeInteger,
+});
+
+const admissionCohortCandidate = v.strictObject({
+	applicationId: convexId,
+	teamId: convexId,
+	teamName: boundedText(1, 160),
+	state: boundedText(1, 40),
+	submittedAt: nonNegativeInteger,
+	experienceBand: boundedText(1, 40),
+	teamSize: nonNegativeInteger,
+	reviewCoverage: admissionReviewCoverage,
+	reviewSignal: v.strictObject({
+		accept: nonNegativeInteger,
+		waitlist: nonNegativeInteger,
+		decline: nonNegativeInteger,
+		needsInformation: nonNegativeInteger,
+	}),
+	aiRecommendation: v.optional(
+		v.strictObject({
+			state: boundedText(1, 40),
+			current: v.boolean(),
+			recommendation: v.optional(boundedText(1, 40)),
+			confidence: v.optional(boundedText(1, 20)),
+			criterionAssessments: v.array(
+				v.strictObject({
+					criterionKey: boundedText(1, 80),
+					assessment: boundedText(1, 40),
+				}),
+			),
+		}),
+	),
+	novelty: admissionNoveltySignal,
+	rank: nonNegativeInteger,
+	cumulativePeople: nonNegativeInteger,
+	entryCapacityPeople: nonNegativeInteger,
+	suggestedIn: v.boolean(),
+});
+
+export const admissionReadSchemas = {
+	admission_cohort: v.strictObject({
+		generatedAt: nonNegativeInteger,
+		capacityPeople: nonNegativeInteger,
+		policy: v.strictObject({
+			version: boundedText(1, 80),
+			minimumHumanReviews: nonNegativeInteger,
+			overallParticipantCapacity: nonNegativeInteger,
+			criteria: v.array(
+				v.strictObject({
+					criterionKey: boundedText(1, 80),
+					label: boundedText(1, 160),
+				}),
+			),
+		}),
+		summary: v.strictObject({
+			capacityPeople: nonNegativeInteger,
+			committedPeople: nonNegativeInteger,
+			suggestedPeople: nonNegativeInteger,
+			remainingPeople: v.pipe(v.number(), v.integer()),
+			suggestedInTeamCount: nonNegativeInteger,
+			suggestedInNotYetDecidableCount: nonNegativeInteger,
+			bandMix: v.array(
+				v.strictObject({
+					band: boundedText(1, 40),
+					teamsIn: nonNegativeInteger,
+					peopleIn: nonNegativeInteger,
+					teamsOut: nonNegativeInteger,
+					peopleOut: nonNegativeInteger,
+				}),
+			),
+		}),
+		committed: v.array(admissionRosterRow),
+		decidedOut: v.array(admissionRosterRow),
+		candidates: v.array(admissionCohortCandidate),
+	}),
+	admission_submission_search: v.strictObject({
+		generatedAt: nonNegativeInteger,
+		searchQuery: boundedText(1, 200),
+		matches: v.array(
+			v.strictObject({
+				applicationId: convexId,
+				teamId: convexId,
+				teamName: boundedText(1, 160),
+				state: boundedText(1, 40),
+				experienceBand: boundedText(1, 40),
+				teamSize: nonNegativeInteger,
+				ideaExcerpt: v.pipe(v.string(), v.maxLength(320)),
+				novelty: admissionNoveltySignal,
+				reviewCoverage: admissionReviewCoverage,
+			}),
+		),
+		truncated: v.boolean(),
+	}),
+} as const;
+
+export const admissionReadEnvelopeSchema = v.strictObject({
+	read: v.picklist(admissionIntelligenceReadNames),
 	data: v.unknown(),
 });
 
