@@ -1441,6 +1441,129 @@ export const now = query({
   },
 });
 
+// What a reviewer may know about this team's past reviews stops at the shared
+// artefacts. The handbook promises the next panel the previous review's
+// evidence, findings, and commitments — never hidden peer scores — because a
+// prior round's numbers are exactly the anchor that would bias a live panel.
+// The line is enforced here, not in the client: this handler never reads a
+// scorecard, evaluation, or round-close table, and the validator has nowhere
+// to carry a number even if it did.
+export const teamContext = query({
+  args: { eventSlug: v.string(), reviewSessionId: v.id("reviewSessions") },
+  returns: v.object({
+    team: v.object({
+      id: v.id("teams"),
+      name: v.string(),
+      publicCode: v.string(),
+      memberCount: v.number(),
+      projectVersion: v.number(),
+      projectSubmittedAt: v.number(),
+    }),
+    priorReviews: v.array(
+      v.object({
+        id: v.id("reviewSessions"),
+        roundName: v.string(),
+        roundSequence: v.number(),
+        panelName: v.string(),
+        outcome: v.union(v.literal("completed"), v.literal("cancelled")),
+        startedAt: v.optional(v.number()),
+        endedAt: v.number(),
+        sharedFindings: v.optional(v.string()),
+        sharedCommitments: v.optional(v.string()),
+      }),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const session = await ctx.db.get(args.reviewSessionId);
+    if (!session || session.eventId !== event._id) {
+      throw new ConvexError({ code: "REVIEW_NOT_FOUND", message: "That review is unavailable." });
+    }
+    const assignment = await ctx.db
+      .query("reviewAssignments")
+      .withIndex("by_session_person", (index) =>
+        index.eq("reviewSessionId", session._id).eq("reviewerPersonId", person._id),
+      )
+      .unique();
+    if (!assignment || assignment.status !== "assigned") {
+      throw new ConvexError({
+        code: "REVIEW_ASSIGNMENT_REQUIRED",
+        message: "Only a reviewer assigned to this review can read its team context.",
+      });
+    }
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "review.read",
+      scopeType: "review",
+      scopeId: session._id,
+    });
+    const [team, project, activeMembers, teamSessions] = await Promise.all([
+      ctx.db.get(session.teamId),
+      ctx.db.get(session.projectVersionId),
+      ctx.db
+        .query("teamMembers")
+        .withIndex("by_team_status", (index) =>
+          index.eq("teamId", session.teamId).eq("status", "active"),
+        )
+        .collect(),
+      ctx.db
+        .query("reviewSessions")
+        .withIndex("by_team_created", (index) => index.eq("teamId", session.teamId))
+        .collect(),
+    ]);
+    if (!team || !project || team.eventId !== event._id || project.teamId !== team._id) {
+      throw new Error("The review team context is incomplete.");
+    }
+    const priorReviews = [];
+    for (const prior of teamSessions) {
+      // A live sibling session is not history yet, but a cancelled one is: the
+      // fact that a panel sat down and the review was abandoned is context the
+      // next panel deserves, even though it carries no notes.
+      if (prior._id === session._id || prior.eventId !== event._id) continue;
+      if (prior.status !== "completed" && prior.status !== "cancelled") continue;
+      const [round, panel] = await Promise.all([
+        ctx.db.get(prior.roundId),
+        ctx.db.get(prior.panelId),
+      ]);
+      if (!round || !panel || round.eventId !== event._id || panel.eventId !== event._id) {
+        throw new Error("A prior review references a round or panel outside this event.");
+      }
+      const completed = prior.status === "completed";
+      priorReviews.push({
+        id: prior._id,
+        roundName: round.name,
+        roundSequence: round.sequence,
+        panelName: panel.name,
+        outcome: prior.status,
+        ...(prior.startedAt !== undefined ? { startedAt: prior.startedAt } : {}),
+        endedAt: (completed ? prior.completedAt : prior.cancelledAt) ?? prior.updatedAt,
+        // Shared notes travel only once the panel finished the review. Notes
+        // on a cancelled session were never the panel's final word.
+        ...(completed && prior.sharedFindings !== undefined
+          ? { sharedFindings: prior.sharedFindings }
+          : {}),
+        ...(completed && prior.sharedCommitments !== undefined
+          ? { sharedCommitments: prior.sharedCommitments }
+          : {}),
+      });
+    }
+    return {
+      team: {
+        id: team._id,
+        name: team.name,
+        publicCode: team.publicCode,
+        memberCount: activeMembers.length,
+        projectVersion: project.version,
+        projectSubmittedAt: project.submittedAt,
+      },
+      priorReviews,
+    };
+  },
+});
+
 export const confirmPresence = mutation({
   args: {
     eventSlug: v.string(),

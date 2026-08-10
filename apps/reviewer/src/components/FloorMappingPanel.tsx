@@ -162,12 +162,19 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
         }}
       />
 
+      {/* The second line is the number that decides whether to keep walking:
+          teams that could be placed but have no recorded spot yet, across the
+          whole hall rather than just this zone. Frozen takes the line when it
+          applies, because it changes what a scan means, and being told the
+          plan is frozen matters more than being told it is nearly done. */}
       <View style={styles.headline}>
         <Lead
           accent={palette.hall}
           {...(floor.plan.mappingState === 'frozen'
             ? { detail: floorMappingStateLabels.frozen }
-            : {})}
+            : floor.hall.unplacedTeamCount > 0
+              ? { detail: `${floor.hall.unplacedTeamCount} still to place` }
+              : {})}
           unit={selectedZone.teams.length === 1 ? 'team placed' : 'teams placed'}
           value={String(selectedZone.teams.length)}
         />
@@ -302,10 +309,10 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
       </Sheet>
 
       {/* Everything about the hall that is not placing a team: which plan is
-          live, whether locations are frozen, and where any already-placed team
-          is. The header button used to open the scanner, which the button
-          under the map already does; a menu that repeats the screen is not a
-          menu. */}
+          live, whether locations are frozen, how much of the hall is still
+          unplaced, and where any already-placed team is. The header button
+          used to open the scanner, which the button under the map already
+          does; a menu that repeats the screen is not a menu. */}
       <Sheet
         onClose={() => {
           setShowTools(false)
@@ -318,6 +325,23 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
           detail={`Plan ${floor.plan.version} · ${floorMappingStateLabels[floor.plan.mappingState]}`}
           label={floor.plan.name}
         />
+        <Row
+          label={
+            floor.hall.unplacedTeamCount > 0
+              ? `${floor.hall.unplacedTeamCount} ${
+                  floor.hall.unplacedTeamCount === 1 ? 'team' : 'teams'
+                } still to place`
+              : 'Every team has a recorded spot'
+          }
+        />
+        {/* One count per zone, whole plan, so a mapper covering several zones
+            can see which end of the hall is still thin before walking there.
+            With a single zone the count is already the headline. */}
+        {floor.hall.zones.length > 1
+          ? floor.hall.zones.map((zone) => (
+              <Row detail={`${zone.teamCount} placed`} key={zone.id} label={zone.name} />
+            ))
+          : null}
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}

@@ -95,6 +95,11 @@ export const overview = query({
     ]);
     const visibleZones = zones.filter((_, index) => (grantsByZone[index]?.length ?? 0) > 0);
     if (visibleZones.length === 0) {
+      // Thrown, not null: this is the operations desk's view, and a desk that
+      // has lost its read grant must see a refusal, not a hall that looks
+      // empty. Mapper phones never run this query — their remaining-work
+      // picture rides on floorMapping.available, which answers null to a
+      // caller without grants instead of blowing up a live subscription.
       throw new ConvexError({ code: "ACCESS_DENIED", message: "This account cannot read a floor-plan zone." });
     }
     const [landmarks, locations, teams] = await Promise.all([

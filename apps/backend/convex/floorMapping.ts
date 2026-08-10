@@ -44,6 +44,24 @@ const placedTeamView = v.object({
 /** How many teams are sitting in each part of a zone, in reading order. */
 const areaLoadView = v.object({ area: floorArea, teamCount: v.number() });
 
+/**
+ * How much of the hall is done, told to the people doing it. A mapper holds
+ * floor.location.map, not floor.location.read, and that is right: read hands
+ * over every team's name and exact position across the whole hall, which the
+ * operations desk needs and a mapper does not — so it would be dishonest to
+ * grant read just to answer "am I finished". But how many teams still have no
+ * recorded spot, and how full each zone is, name nobody and place nobody;
+ * they are the crew's own progress, visible to anyone standing in the room
+ * counting dots, so they ride on the mapping grant instead of demanding a
+ * wider one. Zone counts cover the whole plan, not just the caller's zones,
+ * because "where is the hall still thin" is the question that sends a mapper
+ * somewhere next.
+ */
+const hallProgressView = v.object({
+  unplacedTeamCount: v.number(),
+  zones: v.array(v.object({ id: v.id("floorZones"), name: v.string(), teamCount: v.number() })),
+});
+
 const claimView = v.object({
   id: v.id("floorMappingClaims"),
   version: v.number(),
@@ -81,6 +99,7 @@ export const available = query({
         mappingState: floorActiveMappingState,
       }),
       mode: floorMappingMode,
+      hall: hallProgressView,
       zones: v.array(
         v.object({
           id: v.id("floorZones"),
@@ -134,9 +153,20 @@ export const available = query({
         .collect(),
     ]);
     const teamById = new Map(teams.map((team) => [team._id, team]));
+    const mappedTeamIds = new Set(locations.map((location) => location.teamId));
     return {
       plan: { id: plan._id, name: plan.name, version: plan.version, mappingState: plan.mappingState },
       mode,
+      hall: {
+        unplacedTeamCount: teams.filter(
+          (team) => teamCanBeMapped(team.status) && !mappedTeamIds.has(team._id),
+        ).length,
+        zones: zones.map((zone) => ({
+          id: zone._id,
+          name: zone.name,
+          teamCount: locations.filter((location) => location.zoneId === zone._id).length,
+        })),
+      },
       zones: visibleZones.map((zone) => {
         const placed = placedTeamsInZone(locations, teamById, zone._id);
         return {

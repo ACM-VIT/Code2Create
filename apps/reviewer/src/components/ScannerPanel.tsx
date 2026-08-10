@@ -6,7 +6,7 @@ import {
 } from '@code2create/domain'
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
-import { useAction, useQuery } from 'convex/react'
+import { useAction, usePaginatedQuery, useQuery } from 'convex/react'
 import { ConvexError } from 'convex/values'
 import { Host, Picker, Text as NativeText } from '@expo/ui/swift-ui'
 import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers'
@@ -23,6 +23,7 @@ import { Stack, useRouter } from 'expo-router'
 import {
   AppState,
   Dimensions,
+  FlatList,
   Platform,
   ScrollView,
   StyleSheet,
@@ -369,13 +370,17 @@ function ScannerSurface({
   const [chosenTransition, setChosenTransition] = useState<ScanTransition | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   /**
-   * The server hands back only the last eight receipts per device, so every
-   * receipt this session earns is also kept here, keyed by the device sequence
-   * that already makes it unique. Only server receipts land in the log — a
-   * queued offline scan is pending, not history, until its replay is answered.
+   * The device's whole receipt trail, paged from the server newest-first. It
+   * replaces the session-local log this screen used to keep: every receipt in
+   * that log was a server receipt to begin with, and the subscription delivers
+   * new ones reactively, so a second copy only invited the two to disagree.
+   * It stays mounted while the sheet is closed so the row under the viewfinder
+   * can show the latest receipt without waiting for the sheet to open.
    */
-  const [scanLog, setScanLog] = useState<ReadonlyMap<number, DeviceReceipt>>(
-    () => new Map(),
+  const deviceHistory = usePaginatedQuery(
+    api.attendanceScanner.history,
+    { eventSlug, installationId: deviceRecord.installationId },
+    { initialNumItems: 25 },
   )
   const sessionIsOpen = assignment.openSession !== null
   const barcodeTypes = useMemo(
@@ -405,29 +410,6 @@ function ScannerSurface({
   useEffect(() => {
     serverOffsetRef.current = assignment.serverNow - Date.now()
   }, [assignment.serverNow])
-
-  const logReceipt = useCallback((entry: DeviceReceipt) => {
-    setScanLog((previous) => {
-      const next = new Map(previous)
-      next.set(entry.deviceSequence, entry)
-      /* A door can run to thousands of scans; the oldest fall off so the
-         history list never becomes the slowest thing on the screen. */
-      if (next.size > 200) {
-        const excess = [...next.keys()].sort((a, b) => a - b).slice(0, next.size - 200)
-        for (const key of excess) next.delete(key)
-      }
-      return next
-    })
-  }, [])
-
-  const history = useMemo(() => {
-    const merged = new Map<number, DeviceReceipt>()
-    for (const entry of assignment.recentReceipts) merged.set(entry.deviceSequence, entry)
-    for (const [sequence, entry] of scanLog) {
-      if (!merged.has(sequence)) merged.set(sequence, entry)
-    }
-    return [...merged.values()].sort((a, b) => b.deviceSequence - a.deviceSequence)
-  }, [assignment.recentReceipts, scanLog])
 
   const refreshPendingSummary = useCallback(async () => {
     const summary = await pendingAttendanceSummary({
@@ -463,7 +445,7 @@ function ScannerSurface({
           continue
         }
         try {
-          const result = await recordScan({
+          await recordScan({
             eventSlug,
             stationId: assignment.station.id,
             expectedConfigurationVersion: operation.expectedConfigurationVersion,
@@ -475,19 +457,6 @@ function ScannerSurface({
             deviceSequence: operation.deviceSequence,
             capturedAt: operation.capturedAt,
             isOfflineReplay: true,
-          })
-          logReceipt({
-            id: result.presenceEventId,
-            outcome: result.outcome,
-            reasonCode: result.reasonCode,
-            transition: result.transition,
-            receivedAt: result.serverTime,
-            capturedAt: operation.capturedAt,
-            isOfflineReplay: true,
-            deviceSequence: operation.deviceSequence,
-            ...(result.participant
-              ? { participantName: result.participant.displayName }
-              : {}),
           })
           await removePendingAttendanceScan({
             eventSlug,
@@ -540,7 +509,6 @@ function ScannerSurface({
     deviceRecord.deviceSecret,
     deviceRecord.installationId,
     eventSlug,
-    logReceipt,
     recordScan,
     refreshPendingSummary,
   ])
@@ -732,17 +700,6 @@ function ScannerSurface({
     } catch (error) {
       setReplayStatus(errorMessage(error, 'The accepted scan will be cleared from the local queue on its idempotent retry.'))
     }
-    logReceipt({
-      id: result.presenceEventId,
-      outcome: result.outcome,
-      reasonCode: result.reasonCode,
-      transition: result.transition,
-      receivedAt: result.serverTime,
-      capturedAt,
-      isOfflineReplay: false,
-      deviceSequence: reserved.lastIssuedSequence,
-      ...(result.participant ? { participantName: result.participant.displayName } : {}),
-    })
     setReceipt(result)
   }
 
@@ -1388,7 +1345,9 @@ function ScannerSurface({
                   </Meta>
                 ) : null}
                 <Row
-                  {...(history[0] ? { detail: receiptLine(history[0]) } : {})}
+                  {...(deviceHistory.results[0]
+                    ? { detail: receiptLine(deviceHistory.results[0]) }
+                    : {})}
                   label="Scan history"
                   onPress={() => setHistoryOpen(true)}
                 />
@@ -1398,27 +1357,41 @@ function ScannerSurface({
         }
       />
       {/* One sheet, two heights: it opens on the last handful of scans and
-          pulls up to nearly the whole screen for everything this phone has
-          been told about. */}
+          pulls up to nearly the whole screen for everything this device has
+          ever produced, paged in as the list is scrolled. */}
       <Sheet
         detents={[0.45, 0.92]}
         onClose={() => setHistoryOpen(false)}
         title="Scan history"
         visible={historyOpen}
       >
-        {history.length === 0 ? (
-          <Nothing>No receipts have come back to this phone yet.</Nothing>
+        {deviceHistory.results.length === 0 ? (
+          deviceHistory.status === 'LoadingFirstPage' ? (
+            <Meta>Loading…</Meta>
+          ) : (
+            <Nothing>No receipts have come back to this phone yet.</Nothing>
+          )
         ) : (
-          <ScrollView contentContainerStyle={styles.historyContent} style={styles.historyList}>
-            {history.map((entry) => (
+          <FlatList
+            contentContainerStyle={styles.historyContent}
+            data={deviceHistory.results}
+            keyExtractor={(entry) => String(entry.deviceSequence)}
+            onEndReached={() => {
+              if (deviceHistory.status === 'CanLoadMore') deviceHistory.loadMore(50)
+            }}
+            onEndReachedThreshold={0.5}
+            renderItem={({ item: entry }) => (
               <Row
                 danger={entry.outcome === 'rejected' || entry.outcome === 'needs_review'}
                 detail={receiptDetail(entry)}
-                key={entry.deviceSequence}
                 label={entry.participantName ?? outcomeName(entry.outcome)}
               />
-            ))}
-          </ScrollView>
+            )}
+            style={styles.historyList}
+            {...(deviceHistory.status === 'LoadingMore'
+              ? { ListFooterComponent: <Meta>Loading…</Meta> }
+              : {})}
+          />
         )}
       </Sheet>
       </>

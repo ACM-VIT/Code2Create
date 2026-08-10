@@ -1,6 +1,6 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
-import { useAction } from 'convex/react'
+import { useAction, useQuery } from 'convex/react'
 import { useRef, useState } from 'react'
 import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 
@@ -24,6 +24,8 @@ type OpenedFigmaPreview = FunctionReturnType<typeof api.reviewEvidenceActions.op
 type OpenedFigmaComparison = FunctionReturnType<typeof api.reviewEvidenceActions.openFigmaComparison> & {
   nodeId: string
 }
+type TeamContext = FunctionReturnType<typeof api.reviewer.teamContext>
+type PriorReview = TeamContext['priorReviews'][number]
 
 export function ProjectEvidence({
   eventSlug,
@@ -32,9 +34,22 @@ export function ProjectEvidence({
   eventSlug: string
   review: ActiveReview
 }) {
+  const context = useQuery(api.reviewer.teamContext, { eventSlug, reviewSessionId: review.id })
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>Project</Text>
+      <Text style={styles.fact}>
+        {review.project.trackName}
+        {review.project.sponsorTracks.length > 0
+          ? ` · ${review.project.sponsorTracks.map((sponsorTrack) => sponsorTrack.name).join(', ')}`
+          : ''}
+      </Text>
+      {context ? (
+        <Text style={styles.meta}>
+          {context.team.name} · {context.team.publicCode} · {context.team.memberCount} members ·
+          {' '}v{context.team.projectVersion} submitted {formatMoment(context.team.projectSubmittedAt)}
+        </Text>
+      ) : null}
       <Text style={styles.idea}>{review.project.initialIdea}</Text>
       {review.project.intakeResponses.map((response) => (
         <View key={response.ordinal}>
@@ -55,6 +70,27 @@ export function ProjectEvidence({
       ) : (
         <Text style={styles.guidance}>No team checkpoint had been submitted when this review was fixed.</Text>
       )}
+      {/*
+        History arrives without numbers on purpose. The backend hands over only
+        what a prior panel chose to share, so nothing rendered here can anchor
+        this panel's own scores.
+      */}
+      {context ? (
+        <>
+          <View style={styles.evidenceHeader}>
+            <Text style={styles.sectionTitle}>Previous reviews</Text>
+            {context.priorReviews.length > 0 ? (
+              <Text style={styles.meta}>{context.priorReviews.length}</Text>
+            ) : null}
+          </View>
+          {context.priorReviews.map((prior) => (
+            <PriorReviewCard key={prior.id} prior={prior} />
+          ))}
+          {context.priorReviews.length === 0 ? (
+            <Text style={styles.guidance}>No panel had reviewed this team before this session.</Text>
+          ) : null}
+        </>
+      ) : null}
       <View style={styles.evidenceHeader}>
         <Text style={styles.sectionTitle}>Fixed evidence</Text>
         <Text style={styles.meta}>
@@ -83,6 +119,42 @@ export function ProjectEvidence({
       {review.evidence.expectedResourceCount === 0 ? (
         <Text style={styles.body}>No repository or Figma file was connected for this checkpoint.</Text>
       ) : null}
+    </View>
+  )
+}
+
+function PriorReviewCard({ prior }: { prior: PriorReview }) {
+  const completed = prior.outcome === 'completed'
+  return (
+    <View style={styles.evidenceCard}>
+      <View style={styles.priorHeading}>
+        <Text style={styles.value}>{prior.roundName}</Text>
+        <Text style={completed ? styles.priorReviewed : styles.priorCancelled}>
+          {completed ? 'Reviewed' : 'Cancelled'}
+        </Text>
+      </View>
+      <Text style={styles.meta}>{prior.panelName} · {formatMoment(prior.endedAt)}</Text>
+      {completed ? (
+        <>
+          {prior.sharedFindings ? (
+            <>
+              <Text style={styles.question}>Panel findings</Text>
+              <Text style={styles.body}>{prior.sharedFindings}</Text>
+            </>
+          ) : null}
+          {prior.sharedCommitments ? (
+            <>
+              <Text style={styles.question}>Team commitments</Text>
+              <Text style={styles.body}>{prior.sharedCommitments}</Text>
+            </>
+          ) : null}
+          {!prior.sharedFindings && !prior.sharedCommitments ? (
+            <Text style={styles.guidance}>The panel completed this review without shared notes.</Text>
+          ) : null}
+        </>
+      ) : (
+        <Text style={styles.guidance}>This review ended before the panel finished.</Text>
+      )}
     </View>
   )
 }
@@ -1084,6 +1156,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   evidenceCard: { borderTopWidth: 1, borderTopColor: palette.tile, paddingTop: 12, gap: 5 },
+  priorHeading: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
+  priorReviewed: { color: palette.judging, fontSize: 13, lineHeight: 18 },
+  priorCancelled: { color: palette.faint, fontSize: 13, lineHeight: 18 },
   browser: { marginTop: 7, gap: 8, borderWidth: 1, borderColor: palette.tile, borderRadius: radius.tile, padding: 10 },
   browserHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   browserTitle: { flex: 1, gap: 1 },
