@@ -1,5 +1,9 @@
 const intelligenceIngressSecret = 'code2create-local-intelligence-ingress-2026-v1'
 const intelligenceCallbackSecret = 'code2create-local-intelligence-callback-2026-v1'
+/* The copilot reads the platform over its own signed channel. A separate
+   secret from the callback's, because they run in opposite directions and one
+   leaking should not hand over the other. */
+const intelligenceReadSecret = 'code2create-local-intelligence-read-2026-v1'
 
 const privateEnvironmentKeys = [
   'BETTER_AUTH_SECRET',
@@ -25,12 +29,17 @@ export const localConvexEnvironment = Object.freeze({
   INTELLIGENCE_WORKER_URL: 'http://localhost:8791',
   INTELLIGENCE_INGRESS_SECRET: intelligenceIngressSecret,
   INTELLIGENCE_CALLBACK_SECRET: intelligenceCallbackSecret,
+  INTELLIGENCE_READ_SECRET: intelligenceReadSecret,
   ...localPrivateEnvironment,
 })
 
 export const localIntelligenceWorkerEnvironment = Object.freeze({
   INTELLIGENCE_INGRESS_SECRET: intelligenceIngressSecret,
   INTELLIGENCE_CALLBACK_SECRET: intelligenceCallbackSecret,
+  INTELLIGENCE_READ_SECRET: intelligenceReadSecret,
   CONVEX_INTELLIGENCE_CALLBACK_URL:
     'http://127.0.0.1:3211/intelligence/operations-briefs/callback',
+  CONVEX_INTELLIGENCE_READ_URL: 'http://127.0.0.1:3211/intelligence/operations-reads',
+  CONVEX_INTELLIGENCE_RECOMMENDATION_URL:
+    'http://127.0.0.1:3211/intelligence/operations-recommendations',
 })

@@ -3,6 +3,8 @@ import { httpRouter } from "convex/server";
 import { authComponent, createAuth } from "./auth";
 import { figmaWebhook } from "./figmaWebhook";
 import { githubWebhook } from "./githubWebhook";
+import { intelligenceReadEndpoint } from "./intelligenceReads";
+import { intelligenceRecommendationWebhook } from "./intelligenceRecommendations";
 import { operationsIntelligenceWebhook } from "./operationsIntelligenceWebhook";
 import { participantEmailEvent } from "./participantEmailEvent";
 
@@ -28,6 +30,16 @@ http.route({
   path: "/intelligence/operations-briefs/callback",
   method: "POST",
   handler: operationsIntelligenceWebhook,
+});
+http.route({
+  path: "/intelligence/operations-reads",
+  method: "POST",
+  handler: intelligenceReadEndpoint,
+});
+http.route({
+  path: "/intelligence/operations-recommendations",
+  method: "POST",
+  handler: intelligenceRecommendationWebhook,
 });
 
 export default http;

@@ -1,7 +1,9 @@
 import {
+	operationsCopilotRecommendationSignatureContext,
 	operationsIntelligenceCallbackSignatureContext,
 	operationsIntelligenceIngressSignatureContext,
 	operationsIntelligenceProtocolVersion,
+	operationsIntelligenceReadSignatureContext,
 	signServiceBody,
 	verifyServiceBody,
 	type OperationsIntelligenceCallback,
@@ -10,7 +12,12 @@ import { describe, expect, test } from 'vitest';
 import * as v from 'valibot';
 
 import { deliverCallback } from './lib/callback.ts';
-import { operationsIntelligenceRequestSchema } from './protocol.ts';
+import { deliverProposal, performPlatformRead } from './lib/reads.ts';
+import {
+	operationsCopilotRequestSchema,
+	operationsIntelligenceRequestSchema,
+	type CopilotProposal,
+} from './protocol.ts';
 
 const secret = 'f'.repeat(64);
 
@@ -127,5 +134,121 @@ describe('operations intelligence transport', () => {
 			request,
 		);
 		expect(received).toBe(true);
+	});
+
+	test('signs platform reads with the read context and re-validates the response shape', async () => {
+		let received = false;
+		const request: typeof fetch = async (input, init) => {
+			const outbound = new Request(input, init);
+			const body = await outbound.text();
+			received = await verifyServiceBody({
+				context: operationsIntelligenceReadSignatureContext,
+				secret,
+				timestamp: outbound.headers.get('x-c2c-timestamp') ?? '',
+				signature: outbound.headers.get('x-c2c-signature') ?? '',
+				body,
+				now: Date.now(),
+				maximumAgeMs: 60_000,
+			});
+			expect(JSON.parse(body)).toEqual({
+				protocolVersion: operationsIntelligenceProtocolVersion,
+				read: 'support_load',
+				eventSlug: 'code2create-7',
+			});
+			return Response.json({
+				read: 'support_load',
+				data: {
+					generatedAt: 1,
+					byState: { open: 2, investigating: 1, waiting: 0, resolved: 5, closed: 3 },
+					openByCategory: [{ category: 'queue', count: 2 }],
+					unassignedOpenCount: 1,
+					atLeast: false,
+				},
+			});
+		};
+
+		const result = await performPlatformRead(
+			'support_load',
+			'code2create-7',
+			{
+				CONVEX_INTELLIGENCE_READ_URL: 'https://example.test/reads',
+				INTELLIGENCE_READ_SECRET: secret,
+			},
+			request,
+		);
+		expect(received).toBe(true);
+		expect(result).toMatchObject({ unassignedOpenCount: 1 });
+
+		// A response whose shape breaks the read's contract must never reach a
+		// model, however well it was signed.
+		const wrongShape: typeof fetch = async () =>
+			Response.json({ read: 'support_load', data: { generatedAt: 1, leaked: 'value' } });
+		await expect(
+			performPlatformRead(
+				'support_load',
+				'code2create-7',
+				{
+					CONVEX_INTELLIGENCE_READ_URL: 'https://example.test/reads',
+					INTELLIGENCE_READ_SECRET: secret,
+				},
+				wrongShape,
+			),
+		).rejects.toThrow();
+	});
+
+	test('signs recommendation proposals with their own context', async () => {
+		const proposal: CopilotProposal = {
+			protocolVersion: operationsIntelligenceProtocolVersion,
+			proposalKey: 'conversation-1:hold-team',
+			conversationId: 'conversation-1',
+			eventSlug: 'code2create-7',
+			agentVersion: 'operations-copilot-v1',
+			model: 'cloudflare/test-model',
+			statement: 'Hold the repeatedly-absent team so the queue can move.',
+			reasoning: 'The review_exceptions read shows two missed calls for this team.',
+			citations: [{ read: 'review_exceptions', generatedAt: 1, keys: ['state-1'] }],
+			arguments: {
+				kind: 'hold_review_team',
+				teamRoundStateId: 'state-1',
+				reason: 'Two calls went unanswered while the queue waited.',
+			},
+		};
+		let received = false;
+		const request: typeof fetch = async (input, init) => {
+			const outbound = new Request(input, init);
+			const body = await outbound.text();
+			received = await verifyServiceBody({
+				context: operationsCopilotRecommendationSignatureContext,
+				secret,
+				timestamp: outbound.headers.get('x-c2c-timestamp') ?? '',
+				signature: outbound.headers.get('x-c2c-signature') ?? '',
+				body,
+				now: Date.now(),
+				maximumAgeMs: 60_000,
+			});
+			return Response.json({ state: 'accepted' }, { status: 202 });
+		};
+
+		const receipt = await deliverProposal(
+			proposal,
+			{
+				CONVEX_INTELLIGENCE_RECOMMENDATION_URL: 'https://example.test/recommendations',
+				INTELLIGENCE_CALLBACK_SECRET: secret,
+			},
+			request,
+		);
+		expect(received).toBe(true);
+		expect(receipt).toEqual({ state: 'accepted' });
+	});
+
+	test('rejects unknown fields at the conversational ingress boundary', () => {
+		const parsed = v.safeParse(operationsCopilotRequestSchema, {
+			protocolVersion: operationsIntelligenceProtocolVersion,
+			conversationId: 'conversation-1',
+			eventSlug: 'code2create-7',
+			message: 'How is review going?',
+			unexpected: true,
+		});
+		expect(parsed.success).toBe(false);
 	});
 });

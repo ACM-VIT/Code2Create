@@ -71,6 +71,11 @@ import {
   venuePresenceState,
 } from "./values";
 import {
+  intelligenceRecommendationArguments,
+  intelligenceRecommendationCitation,
+  intelligenceRecommendationStatus,
+} from "./lib/intelligenceRecommendationValidators";
+import {
   operationsBriefPriority,
   operationsHealthArea,
   operationsHealthSeverity,
@@ -4284,6 +4289,47 @@ export default defineSchema({
   })
     .index("by_event_requested", ["eventId", "requestedAt"])
     .index("by_event_state_updated", ["eventId", "state", "updatedAt"]),
+
+  /**
+   * A typed action the operations copilot proposes and a human decides. The
+   * agent can only ever create rows in `proposed`; the three settlements —
+   * approved, rejected, superseded-with-a-suggestion — belong to mutations
+   * behind the operator's own sign-in and grants, so the author of a
+   * recommendation is structurally unable to settle it. On approval the
+   * ordinary command for the kind runs with the approving operator as the
+   * actor; this row only records which command that was and where it landed.
+   */
+  intelligenceRecommendations: defineTable({
+    eventId: v.id("events"),
+    /**
+     * The agent's create-only identity for the proposal. Tool delivery is
+     * at-least-once, so a retry must land on the row the first attempt made.
+     */
+    proposalKey: v.string(),
+    conversationId: v.string(),
+    arguments: intelligenceRecommendationArguments,
+    /** One plain sentence of what approval would do, shown to the operator. */
+    statement: v.string(),
+    reasoning: v.string(),
+    /** Never empty: an uncited recommendation is rejected at the boundary. */
+    citations: v.array(intelligenceRecommendationCitation),
+    status: intelligenceRecommendationStatus,
+    agentVersion: v.string(),
+    model: v.string(),
+    proposedAt: v.number(),
+    decidedByPersonId: v.optional(v.id("people")),
+    decidedAt: v.optional(v.number()),
+    /** The operator's own words: a rejection reason or a revision suggestion. */
+    operatorNote: v.optional(v.string()),
+    executedTargetType: v.optional(v.string()),
+    executedTargetId: v.optional(v.string()),
+    version: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_event_proposal", ["eventId", "proposalKey"])
+    .index("by_event_status_proposed", ["eventId", "status", "proposedAt"])
+    .index("by_event_proposed", ["eventId", "proposedAt"]),
 
   /**
    * The durable record of what needs a human, one row per named thing that is

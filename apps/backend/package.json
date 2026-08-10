@@ -42,7 +42,7 @@
     "test:attendance-replay": "vitest run convex/lib/attendanceOfflineReplay.test.ts",
     "test:admission-routing": "vitest run convex/admissionReviewAssignments.test.ts",
     "test:offers": "vitest run convex/admissionOffers.test.ts",
-    "test:intelligence": "vitest run convex/operationsIntelligence.test.ts convex/operationsIntelligenceAutomation.test.ts",
+    "test:intelligence": "vitest run convex/operationsIntelligence.test.ts convex/operationsIntelligenceAutomation.test.ts convex/intelligenceReads.test.ts convex/intelligenceRecommendations.test.ts",
     "test:push": "node --test convex/lib/pushTokens.test.ts",
     "test:github-repositories": "vitest run convex/githubRepositoryOrder.test.ts convex/githubTeamMetrics.test.ts",
     "test:figma-evidence": "vitest run convex/figmaTeamMetrics.test.ts && node --test convex/lib/figmaEvidenceBrowser.test.ts",

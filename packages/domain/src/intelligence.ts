@@ -112,6 +112,73 @@ export const operationsIntelligenceIngressSignatureContext =
   "code2create.operations-intelligence.ingress.v1";
 export const operationsIntelligenceCallbackSignatureContext =
   "code2create.operations-intelligence.callback.v1";
+// Each signed boundary gets its own context so a body captured on one route can
+// never replay on another, even where two routes share a direction and secret.
+export const operationsIntelligenceReadSignatureContext =
+  "code2create.operations-intelligence.read.v1";
+export const operationsCopilotIngressSignatureContext =
+  "code2create.operations-copilot.ingress.v1";
+export const operationsCopilotRecommendationSignatureContext =
+  "code2create.operations-copilot.recommendation.v1";
+
+/**
+ * The whitelist of named reads the intelligence Worker may ask Convex for.
+ * The copilot never executes a query of its own composition: it names one of
+ * these and Convex runs its own redacted projection. Adding a read means
+ * adding it here, to the Convex endpoint, and to the Worker's schema for it.
+ */
+export const operationsIntelligenceReadNames = [
+  "operations_health",
+  "operations_attention",
+  "review_rounds",
+  "review_exceptions",
+  "attendance_counts",
+  "floor_mapping_progress",
+  "support_load",
+  "recommendation_history",
+] as const;
+export type OperationsIntelligenceReadName =
+  (typeof operationsIntelligenceReadNames)[number];
+
+export type OperationsIntelligenceReadRequest = {
+  protocolVersion: typeof operationsIntelligenceProtocolVersion;
+  read: OperationsIntelligenceReadName;
+  eventSlug: string;
+};
+
+/**
+ * The action kinds the copilot may propose. Every kind maps onto one existing
+ * operator mutation, so approval executes the ordinary command under the
+ * approving operator's own grants — the agent holds no authority of its own.
+ */
+export const intelligenceRecommendationKinds = [
+  "hold_review_team",
+  "page_reserve_reviewer",
+  "open_support_case",
+  "dismiss_attention_item",
+] as const;
+export type IntelligenceRecommendationKind =
+  (typeof intelligenceRecommendationKinds)[number];
+
+export const intelligenceRecommendationStatuses = [
+  "proposed",
+  "approved",
+  "rejected",
+  "superseded",
+] as const;
+export type IntelligenceRecommendationStatus =
+  (typeof intelligenceRecommendationStatuses)[number];
+
+/**
+ * What the agent read before proposing: the read it came from, the read's own
+ * generation time, and the row keys inside it that carry the evidence. A
+ * recommendation without at least one citation is rejected at the boundary.
+ */
+export type IntelligenceRecommendationCitation = {
+  read: OperationsIntelligenceReadName;
+  generatedAt: number;
+  keys: string[];
+};
 
 export type OperationsIntelligenceRequest = {
   protocolVersion: typeof operationsIntelligenceProtocolVersion;

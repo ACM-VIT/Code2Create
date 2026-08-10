@@ -5,7 +5,8 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"observability": { "enabled": true, "traces": { "enabled": true } },
 	"migrations": [
-		{ "tag": "v1", "new_sqlite_classes": ["FlueOperationsBriefAgent"] }
+		{ "tag": "v1", "new_sqlite_classes": ["FlueOperationsBriefAgent"] },
+		{ "tag": "v2", "new_sqlite_classes": ["FlueOperationsCopilotAgent"] }
 	],
 	"env": {
 		"staging": { "name": "code2create-intelligence-staging" },
