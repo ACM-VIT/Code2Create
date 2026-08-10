@@ -1,3 +1,4 @@
+import Constants from 'expo-constants'
 import * as IntentLauncher from 'expo-intent-launcher'
 import { Linking, Platform } from 'react-native'
 
@@ -22,7 +23,13 @@ export async function openPagingSetting(fix: NonNullable<PagingReadinessCheck['f
     return
   }
 
-  const packageName = 'com.anonymous.code2createops'
+  /* The package is set per environment, so a literal here would send a
+     production reviewer to the settings of an app that is not installed. */
+  const packageName = Constants.expoConfig?.android?.package
+  if (!packageName) {
+    await Linking.openSettings()
+    return
+  }
   const intents: Record<NonNullable<PagingReadinessCheck['fix']>, {
     action: string
     params?: IntentLauncher.IntentLauncherParams
