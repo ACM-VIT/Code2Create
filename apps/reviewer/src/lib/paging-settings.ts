@@ -1,5 +1,4 @@
 import Constants from 'expo-constants'
-import * as IntentLauncher from 'expo-intent-launcher'
 import { Linking, Platform } from 'react-native'
 
 import type { PagingReadinessCheck } from '@/lib/push-notifications'
@@ -30,9 +29,14 @@ export async function openPagingSetting(fix: NonNullable<PagingReadinessCheck['f
     await Linking.openSettings()
     return
   }
+  /* Loaded here rather than at the top of the file: it is a native module
+     that only Android ever reaches, and importing it on iOS ties this screen
+     to whether the current build happens to contain it. */
+  const IntentLauncher = await import('expo-intent-launcher')
+
   const intents: Record<NonNullable<PagingReadinessCheck['fix']>, {
     action: string
-    params?: IntentLauncher.IntentLauncherParams
+    params?: Record<string, unknown>
   }> = {
     app_settings: {
       action: 'android.settings.APPLICATION_DETAILS_SETTINGS',

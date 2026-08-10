@@ -13,6 +13,8 @@ import {
 } from '@expo/ui/swift-ui/modifiers'
 import { useMutation } from 'convex/react'
 import { randomUUID } from 'expo-crypto'
+
+import { startPagerAlarm, stopPagerAlarm } from '@/lib/pager-alarm'
 import type { FunctionReturnType } from 'convex/server'
 import { useEffect, useRef, useState } from 'react'
 import { Dimensions, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
@@ -63,6 +65,19 @@ export function PagerAlert({
   const urgent = remaining <= 15
   const accent = urgent ? palette.urgent : palette.judging
   const expired = remaining === 0
+
+  /* A page that has arrived and not been answered keeps buzzing. Answering it
+     takes this screen away, so unmount is the stop — which also covers the
+     page being answered somewhere else, rather than leaving this phone
+     shaking in somebody's pocket over a seat that is already filled. */
+  useEffect(() => {
+    if (expired) {
+      stopPagerAlarm()
+      return
+    }
+    startPagerAlarm()
+    return stopPagerAlarm
+  }, [expired])
 
   // Acknowledging arrival is the app's job, not the reviewer's — the panel
   // needs to know the phone woke up even if nobody has decided yet.

@@ -319,6 +319,45 @@ export function Sheet({
 }
 
 /**
+ * One thing that has to be true before a shift starts.
+ *
+ * The mark on the left is the whole status, and the line under the title says
+ * what is lost while it is unmet rather than restating the title in other
+ * words. A chevron appears only where pressing does something, so a row that
+ * cannot be acted on does not look broken.
+ */
+export function CheckRow({
+  consequence,
+  met,
+  onPress,
+  title,
+}: {
+  consequence: string
+  met: boolean
+  /** Absent when nothing can be done from here, as with a pending grant. */
+  onPress?: () => void | Promise<void>
+  title: string
+}) {
+  const actionable = onPress !== undefined && !met
+  return (
+    <Pressable
+      accessibilityRole={actionable ? 'button' : undefined}
+      accessibilityState={{ checked: met }}
+      disabled={!actionable}
+      onPress={() => void onPress?.()}
+      style={({ pressed }) => [styles.checkRow, pressed ? styles.pressed : null]}
+    >
+      <View style={[styles.checkMark, met ? styles.checkMarkOn : null]} />
+      <View style={styles.checkText}>
+        <Text style={styles.checkTitle}>{title}</Text>
+        <Text style={styles.checkConsequence}>{met ? 'Ready' : consequence}</Text>
+      </View>
+      {actionable ? <Text style={styles.rowChevron}>›</Text> : null}
+    </Pressable>
+  )
+}
+
+/**
  * One line of a sheet: what it is, where it stands, and a chevron when it
  * leads somewhere. A sheet is a list of choices, not a page folded in half.
  */
@@ -671,6 +710,26 @@ const styles = StyleSheet.create({
 
   progress: { flexDirection: 'row', height: 8, borderRadius: 4, overflow: 'hidden' },
   progressGap: { width: 3 },
+
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: 16,
+    backgroundColor: palette.tile,
+    borderRadius: radius.tile,
+  },
+  checkMark: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: palette.faint,
+  },
+  checkMarkOn: { borderColor: palette.judging, backgroundColor: palette.judging },
+  checkText: { flex: 1, gap: 2 },
+  checkTitle: { color: palette.text, fontSize: 17 },
+  checkConsequence: { color: palette.muted, fontSize: 14, lineHeight: 19 },
 
   ringWrap: { alignItems: 'center', paddingVertical: 18 },
   ring: {

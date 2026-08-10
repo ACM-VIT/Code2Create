@@ -17,6 +17,7 @@ import {
 
 import { PagingSetup } from '@/components/PagingSetup'
 import { ProjectEvidence } from '@/components/ProjectEvidence'
+import { ReviewerSetup } from '@/components/ReviewerSetup'
 import {
   Action,
   Body,
@@ -402,52 +403,52 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
         </View>
       ) : null}
 
-      {!cameraReady && round?.requiresCamera ? (
-        <Button label="Allow camera" secondary onPress={async () => { await requestCameraPermission() }} />
-      ) : null}
-      {/* Not gated on the round requiring notifications. A reserve who cannot
-          be paged is the failure this app exists to prevent, and the round
-          flag only says whether clock-in is blocked by it. */}
-      {!notificationsReady ? (
-        <Button
-          label={notificationState.status === 'loading' ? 'Checking…' : 'Getting paged'}
-          disabled={notificationState.status === 'loading'}
-          secondary
-          onPress={() => setPagingOpen(true)}
+      {!deviceIsCurrent && assignment ? (
+        <ReviewerSetup
+          busy={busy !== null || notificationState.status === 'loading'}
+          cameraReady={cameraReady}
+          draftsReady={encryptedDraftReady}
+          onOpenPaging={() => setPagingOpen(true)}
+          onRegister={saveDeviceRegistration}
+          onRequestCamera={async () => {
+            await requestCameraPermission()
+          }}
+          pagingReady={notificationsReady}
+          ready={checksMeetRound}
+          registerLabel={
+            busy === 'register'
+              ? 'Saving…'
+              : current.device
+                ? 'Update this phone'
+                : 'Register this phone'
+          }
         />
       ) : null}
-      <Sheet
-        onClose={() => setPagingOpen(false)}
-        title="Getting paged"
-        visible={pagingOpen}
-      >
+
+      {/* Reachable from the checklist, and on Android from the duty screen too:
+          two of its switches cannot be read back, so granting notifications
+          must not hide the screen explaining why a page still arrives
+          silently. */}
+      {deviceIsCurrent && (!notificationsReady || Platform.OS === 'android') ? (
+        <Button label="Getting paged" secondary onPress={() => setPagingOpen(true)} />
+      ) : null}
+      <Sheet onClose={() => setPagingOpen(false)} title="Getting paged" visible={pagingOpen}>
         <PagingSetup
           onDone={() => setPagingOpen(false)}
           requestPermission={requestNotifications}
+          tokenRejected={current.device?.pushTokenStatus === 'invalid'}
         />
       </Sheet>
+
+      {/* The checklist says what is missing; these say the phone itself is the
+          problem, which no amount of pressing will fix. */}
       {notificationState.status === 'unavailable' && round?.requiresNotifications ? (
         <Text style={styles.error}>{notificationState.message}</Text>
-      ) : null}
-      {current.device?.pushTokenStatus === 'invalid' && round?.requiresNotifications ? (
-        <Text style={styles.error}>
-          The push provider rejected this token. Re-enable notifications or reinstall the signed build before clock-in.
-        </Text>
       ) : null}
       {draftStorageState.status === 'unavailable' ? (
         <Text style={styles.error}>{draftStorageState.message}</Text>
       ) : null}
-      {!deviceIsCurrent && assignment ? (
-        <Button
-          label={busy === 'register' ? 'Saving checks…' : current.device ? 'Update device checks' : 'Register this phone'}
-          disabled={
-            busy !== null ||
-            !checksMeetRound ||
-            notificationState.status === 'loading'
-          }
-          onPress={saveDeviceRegistration}
-        />
-      ) : null}
+
       {deviceIsCurrent && assignment && !review ? (
         <DutyRing
           accent={palette.judging}
@@ -1043,7 +1044,6 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Ac
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>Panel notes</Text>
-      <Text style={styles.body}>Shared findings are separate from every reviewer’s private scorecard.</Text>
       <Text style={styles.label}>What did the panel observe?</Text>
       <TextInput
         editable={!busy}
@@ -1302,14 +1302,7 @@ function ScorecardEditor({
       {/* How far through, before anything else. A judge wants to know how many
           are left far more often than they want to be told the rules. */}
       <Progress done={scored} total={review.criteria.length} />
-      <Meta>
-        {scored === review.criteria.length
-          ? 'All scored. Submit when you are ready.'
-          : `${scored} of ${review.criteria.length} scored`}
-      </Meta>
-      {correcting ? (
-        <Body>Change only what needs correcting. The submitted version stays in the history.</Body>
-      ) : null}
+      <Meta>{`${scored} of ${review.criteria.length} scored`}</Meta>
       {localError ? <Problem>{localError}</Problem> : null}
 
       {review.criteria.map((criterion) => {

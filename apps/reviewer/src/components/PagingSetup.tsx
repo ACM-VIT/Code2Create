@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, View } from 'react-native'
 
-import { Action, QuietAction } from '@/components/ui'
+import { Action, CheckRow, QuietAction } from '@/components/ui'
 import { openPagingSetting } from '@/lib/paging-settings'
 import { pagingReadiness, type PagingReadinessCheck } from '@/lib/push-notifications'
 import { palette, radius } from '@/theme'
@@ -21,10 +21,13 @@ import { palette, radius } from '@/theme'
 export function PagingSetup({
   onDone,
   requestPermission,
+  tokenRejected = false,
 }: {
   /** Absent while this is a step in a flow rather than a screen of its own. */
   onDone?: () => void
   requestPermission: () => Promise<void>
+  /** The server tried to page this phone and the push provider refused it. */
+  tokenRejected?: boolean
 }) {
   const [checks, setChecks] = useState<PagingReadinessCheck[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -40,11 +43,51 @@ export function PagingSetup({
 
   return (
     <View style={styles.body}>
+      {/* The page itself, as it arrives. Every priming screen worth copying
+          shows the notification rather than describing it, because what a
+          reviewer is agreeing to is this arriving at three in the morning. */}
+      <View accessibilityElementsHidden style={styles.preview}>
+        <View style={styles.previewIcon} />
+        <View style={styles.previewText}>
+          <Text style={styles.previewTitle}>Substitute request</Text>
+          <Text numberOfLines={2} style={styles.previewBody}>
+            A reviewer seat on Panel A needs coverage.
+          </Text>
+        </View>
+        <Text style={styles.previewWhen}>now</Text>
+      </View>
+
       <Text style={styles.lead}>A panel short a reviewer waits on this phone.</Text>
 
       <View style={styles.rows}>
+        {/* The phone can hold every permission and still be unreachable: only
+            the server knows a page was refused, so it is a row here rather
+            than a sentence somewhere else. */}
+        {tokenRejected ? (
+          <CheckRow
+            consequence="This phone was refused by the push service — allow notifications again, or reinstall"
+            met={false}
+            onPress={() => void openPagingSetting('notification_settings')}
+            title="Reachable"
+          />
+        ) : null}
         {(checks ?? []).map((check) => (
-          <CheckRow key={check.key} check={check} onOpened={refresh} />
+          <CheckRow
+            consequence={check.consequence}
+            key={check.key}
+            met={check.met}
+            title={check.title}
+            {...(check.fix
+              ? {
+                  onPress: async () => {
+                    await openPagingSetting(check.fix!)
+                    /* The switch is thrown in another app, so the only honest
+                       moment to re-read it is on the way back. */
+                    refresh()
+                  },
+                }
+              : {})}
+          />
         ))}
       </View>
 
@@ -75,46 +118,31 @@ export function PagingSetup({
   )
 }
 
-function CheckRow({
-  check,
-  onOpened,
-}: {
-  check: PagingReadinessCheck
-  onOpened: () => void
-}) {
-  const openable = check.fix !== undefined && !check.met
-  return (
-    <Pressable
-      accessibilityHint={openable ? 'Opens this phone’s settings' : undefined}
-      accessibilityRole={openable ? 'button' : undefined}
-      disabled={!openable}
-      onPress={async () => {
-        if (!check.fix) return
-        await openPagingSetting(check.fix)
-        /* The switch is thrown in another app, so the only honest moment to
-           re-read it is when this one is looked at again. */
-        onOpened()
-      }}
-      style={({ pressed }) => [styles.row, pressed ? styles.pressed : null]}
-    >
-      <View style={styles.rowMark}>
-        <View style={[styles.dot, check.met ? styles.dotOn : null]} />
-      </View>
-      <View style={styles.rowText}>
-        <Text style={styles.rowTitle}>{check.title}</Text>
-        <Text style={styles.rowConsequence}>
-          {check.met ? 'Ready' : check.consequence}
-        </Text>
-      </View>
-      {openable ? <Text style={styles.rowChevron}>›</Text> : null}
-    </Pressable>
-  )
-}
-
 const styles = StyleSheet.create({
   body: { gap: 14 },
   lead: { color: palette.muted, fontSize: 17, lineHeight: 24 },
   rows: { gap: 8, paddingTop: 4 },
+
+  /* A lock-screen notification, drawn rather than screenshotted so it stays
+     right when the copy changes. */
+  preview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    backgroundColor: palette.tile,
+    borderRadius: 18,
+  },
+  previewIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 9,
+    backgroundColor: palette.judging,
+  },
+  previewText: { flex: 1, gap: 2 },
+  previewTitle: { color: palette.text, fontSize: 15, fontWeight: '600' },
+  previewBody: { color: palette.muted, fontSize: 14, lineHeight: 19 },
+  previewWhen: { color: palette.faint, fontSize: 13 },
 
   row: {
     flexDirection: 'row',
