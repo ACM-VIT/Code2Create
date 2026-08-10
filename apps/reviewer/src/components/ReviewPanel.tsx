@@ -1,4 +1,10 @@
 import { api } from '@code2create/backend/api'
+import { Host, Picker, Text as WheelText } from '@expo/ui/swift-ui'
+import {
+  disabled as disabledModifier,
+  pickerStyle,
+  tag,
+} from '@expo/ui/swift-ui/modifiers'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { randomUUID } from 'expo-crypto'
@@ -73,6 +79,11 @@ type BusyAction = 'create' | 'register' | 'clock_in' | 'start' | null
 type CorrectionCategory = 'reviewer_error' | 'technical_error' | 'other'
 
 const scores = [0, 1, 2, 3, 4] as const
+
+/* The lengths a break actually comes in. A free-typed minute field accepted
+   whatever a tired thumb produced; a wheel of these cannot express a value
+   the availability mutation would refuse. */
+const returnChoices = [5, 10, 15, 20, 30, 45, 60] as const
 
 export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const eventSlug = runtime.configuration.eventSlug
@@ -680,7 +691,7 @@ function AvailabilityControl({
   const setAvailability = useMutation(api.reviewer.setAvailability)
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('')
-  const [returnMinutes, setReturnMinutes] = useState('10')
+  const [returnMinutes, setReturnMinutes] = useState<number>(10)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const operationRef = useRef<string | null>(null)
@@ -694,7 +705,10 @@ function AvailabilityControl({
   }
 
   const stepAway = async () => {
-    const minutes = Number(returnMinutes)
+    /* The wheel only offers valid durations, but the mutation's contract is a
+       positive whole number of minutes, so the guard outlives the control that
+       currently happens to satisfy it. */
+    const minutes = returnMinutes
     if (!Number.isSafeInteger(minutes) || minutes < 1) {
       setError('Expected return must be a positive whole number of minutes.')
       return
@@ -739,17 +753,22 @@ function AvailabilityControl({
         value={reason}
       />
       <Text style={styles.label}>Expected return in minutes</Text>
-      <TextInput
-        editable={!busy}
-        inputMode="numeric"
-        keyboardType="number-pad"
-        onChangeText={(value) => {
-          setReturnMinutes(value)
-          changed()
-        }}
-        style={styles.shortInput}
-        value={returnMinutes}
-      />
+      <Host style={styles.wheel}>
+        <Picker
+          modifiers={[pickerStyle('wheel'), disabledModifier(busy)]}
+          onSelectionChange={(minutes: number) => {
+            setReturnMinutes(minutes)
+            changed()
+          }}
+          selection={returnMinutes}
+        >
+          {returnChoices.map((minutes) => (
+            <WheelText key={minutes} modifiers={[tag(minutes)]}>
+              {String(minutes)}
+            </WheelText>
+          ))}
+        </Picker>
+      </Host>
       <Button
         label={busy ? 'Updating…' : 'Confirm step away'}
         disabled={busy || reason.trim().length < 3}
@@ -1582,16 +1601,9 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   privateInput: { minHeight: 96 },
-  shortInput: {
-    width: 100,
-    minHeight: 44,
-    borderWidth: 1,
-    borderColor: palette.tile,
-    borderRadius: radius.tile,
-    color: palette.text,
-    paddingHorizontal: 12,
-    fontSize: 14,
-  },
+  /* UIPickerView's shortest system height. The Host has to state a height
+     because SwiftUI's intrinsic one never crosses the bridge. */
+  wheel: { height: 162 },
   codeInput: {
     minHeight: 48,
     borderWidth: 1,
