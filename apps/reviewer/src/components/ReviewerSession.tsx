@@ -16,7 +16,7 @@ import { palette, radius, type } from '@/theme'
  * exist, which cards the grid shows, which routes resolve — is derived from
  * this one list, so a person is never shown a door they cannot open.
  */
-export type Surface = 'reviews' | 'attendance' | 'floor' | 'support'
+export type Surface = 'reviews' | 'attendance' | 'floor' | 'support' | 'operations' | 'incidents'
 
 type ReviewerSession = {
   runtime: ReviewerRuntime
@@ -25,6 +25,7 @@ type ReviewerSession = {
   email: string
   surfaces: Surface[]
   canCreateSupport: boolean
+  canManageAttention: boolean
   signOut: () => void
 }
 
@@ -67,6 +68,12 @@ export function ReviewerSessionProvider({
     'attendance.scan.execute',
   )
   const hasFloor = has('floor.location.map', 'floor.location.override')
+  // The board duties. Holding the health read is what makes someone an
+  // operator here, exactly as holding a station grant makes someone a door —
+  // never a role name. Incident read may arrive scoped to one incident, and
+  // that person still needs somewhere to see it.
+  const hasOperations = has('operations.health.read')
+  const hasIncidents = has('incident.read')
   const scopedToSelfOrEvent = (key: string) =>
     grants.some(
       (grant) =>
@@ -165,6 +172,8 @@ export function ReviewerSessionProvider({
     ...(hasAttendance ? (['attendance'] as const) : []),
     ...(hasFloor ? (['floor'] as const) : []),
     ...(hasSupport ? (['support'] as const) : []),
+    ...(hasOperations ? (['operations'] as const) : []),
+    ...(hasIncidents ? (['incidents'] as const) : []),
   ]
 
   if (surfaces.length === 0) {
@@ -188,6 +197,7 @@ export function ReviewerSessionProvider({
         email: session.user.email,
         surfaces,
         canCreateSupport: scopedToSelfOrEvent('support.case.create'),
+        canManageAttention: has('operations.attention.manage'),
         signOut,
       }}
     >

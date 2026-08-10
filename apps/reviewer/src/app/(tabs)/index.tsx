@@ -13,7 +13,9 @@ import {
   useDoorStatus,
   useHallStatus,
   useHelpStatus,
+  useIncidentStatus,
   useJudgingStatus,
+  usePulseStatus,
 } from '@/lib/duty-status'
 import { duty, type DutyKey } from '@/theme'
 
@@ -27,6 +29,8 @@ export default function DutiesScreen() {
     attendance: useDoorStatus(eventSlug, surfaces.includes('attendance')),
     floor: useHallStatus(eventSlug, surfaces.includes('floor')),
     support: useHelpStatus(eventSlug, surfaces.includes('support')),
+    operations: usePulseStatus(eventSlug, surfaces.includes('operations')),
+    incidents: useIncidentStatus(eventSlug, surfaces.includes('incidents')),
   }
 
   return (
@@ -52,6 +56,8 @@ export const dutyMeta: Record<Surface, { key: DutyKey; label: string; icon: Duty
   attendance: { key: 'door', label: 'Door', icon: 'door' },
   floor: { key: 'hall', label: 'Hall map', icon: 'hall' },
   support: { key: 'help', label: 'Help', icon: 'help' },
+  operations: { key: 'pulse', label: 'Pulse', icon: 'pulse' },
+  incidents: { key: 'incident', label: 'Incidents', icon: 'incident' },
 }
 
 function dutyTile(surface: Surface, state: DutyStatus, onPress: () => void): DutyTile {
@@ -79,10 +85,20 @@ function dutyTile(surface: Surface, state: DutyStatus, onPress: () => void): Dut
  * the one that is actually moving. With nothing live it counts the duties held.
  *
  * Several duties may run at once and every one of them fills its own tile; this
- * order only decides which of them gets the big number. Judging outranks the
- * door because a panel is waiting on a person, not on a queue.
+ * order only decides which of them gets the big number. A live incident
+ * outranks everything, because it means part of the event is broken. Judging
+ * outranks the door because a panel is waiting on a person, not on a queue,
+ * and the attention ledger sits behind both: its rows name work anyone with
+ * the grant could pick up, not work this person is already mid-way through.
  */
-const dutyPriority: Surface[] = ['reviews', 'attendance', 'floor', 'support']
+const dutyPriority: Surface[] = [
+  'incidents',
+  'reviews',
+  'attendance',
+  'operations',
+  'floor',
+  'support',
+]
 
 function homeHeadline(
   statuses: Record<Surface, DutyStatus>,

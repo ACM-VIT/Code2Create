@@ -30,6 +30,7 @@ export const palette = {
   door: '#4C9BFF',
   hall: '#FF6B00',
   setup: '#B79CFF',
+  pulse: '#FFD60A',
   urgent: '#FF453A',
 
   /** Ink used on top of a filled tile, per duty. */
@@ -37,6 +38,7 @@ export const palette = {
   onDoor: '#050D18',
   onHall: '#180A00',
   onSetup: '#120A24',
+  onPulse: '#171200',
   onUrgent: '#1B0503',
 } as const
 
@@ -84,7 +86,7 @@ export const type = {
 /** Card proportions: noticeably taller than wide. */
 export const tileAspectRatio = 176 / 213
 
-export type DutyKey = 'judging' | 'door' | 'hall' | 'help'
+export type DutyKey = 'judging' | 'door' | 'hall' | 'help' | 'pulse' | 'incident'
 
 /** Colour and ink for a duty, so a tile never has to choose them itself. */
 export const duty: Record<DutyKey, { accent: string; ink: string }> = {
@@ -92,4 +94,8 @@ export const duty: Record<DutyKey, { accent: string; ink: string }> = {
   door: { accent: palette.door, ink: palette.onDoor },
   hall: { accent: palette.hall, ink: palette.onHall },
   help: { accent: palette.setup, ink: palette.onSetup },
+  pulse: { accent: palette.pulse, ink: palette.onPulse },
+  /* An incident borrows the urgent red outright: a declared emergency and the
+     colour the whole app already uses for one are the same fact. */
+  incident: { accent: palette.urgent, ink: palette.onUrgent },
 }

@@ -143,6 +143,46 @@ export function useHallStatus(eventSlug: string, enabled: boolean): DutyStatus {
   }
 }
 
+export function usePulseStatus(eventSlug: string, enabled: boolean): DutyStatus {
+  const attention = useQuery(api.operationsAttention.overview, enabled ? { eventSlug } : 'skip')
+  if (!enabled) return { status: '', active: false }
+  if (attention === undefined) return { status: '—', active: false }
+  // What matters on the grid is the unclaimed work: an acknowledged item has a
+  // person already, so it stops asking for this one.
+  const unclaimed = attention.summary.rowCount - attention.summary.acknowledgedCount
+  if (unclaimed > 0) {
+    return {
+      status: `${unclaimed} need${unclaimed === 1 ? 's' : ''} someone`,
+      active: true,
+      headline: { value: String(unclaimed), unit: unclaimed === 1 ? 'needs someone' : 'need someone' },
+    }
+  }
+  if (attention.summary.rowCount > 0) return { status: 'All picked up', active: false }
+  return { status: 'All clear', active: false }
+}
+
+export function useIncidentStatus(eventSlug: string, enabled: boolean): DutyStatus {
+  const live = useQuery(api.incidents.active, enabled ? { eventSlug } : 'skip')
+  if (!enabled) return { status: '', active: false }
+  if (live === undefined) return { status: '—', active: false }
+  if (live.length === 0) return { status: 'None live', active: false }
+  // A pending paper-fallback approval is a queue of people standing still, so
+  // it outranks the bare count on the tile.
+  const waiting = live.filter((incident) => incident.manualModeState === 'pending').length
+  if (waiting > 0) {
+    return {
+      status: 'Awaiting approval',
+      active: true,
+      headline: { value: String(live.length), unit: 'live' },
+    }
+  }
+  return {
+    status: `${live.length} live`,
+    active: true,
+    headline: { value: String(live.length), unit: 'live' },
+  }
+}
+
 export function useHelpStatus(eventSlug: string, enabled: boolean): DutyStatus {
   const cases = useQuery(api.support.mine, enabled ? { eventSlug } : 'skip')
   if (!enabled) return { status: '', active: false }
