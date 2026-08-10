@@ -8,6 +8,8 @@ import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useAction, useQuery } from 'convex/react'
 import { ConvexError } from 'convex/values'
+import { Host, Picker, Text as NativeText } from '@expo/ui/swift-ui'
+import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers'
 import { randomUUID } from 'expo-crypto'
 import * as Network from 'expo-network'
 import {
@@ -18,7 +20,14 @@ import {
 } from 'expo-camera'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Stack, useRouter } from 'expo-router'
-import { AppState, Platform, ScrollView, StyleSheet, View } from 'react-native'
+import {
+  AppState,
+  Dimensions,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native'
 
 import {
   Action,
@@ -33,8 +42,10 @@ import {
   Nothing,
   Problem,
   QuietAction,
+  Row,
   ScanSurface,
   Section,
+  Sheet,
   Shell,
   Viewfinder,
 } from '@/components/ui'
@@ -80,6 +91,7 @@ type ActiveVenueCheckInView = {
 type ScanCredential =
   | AttendanceQr
   | { kind: 'vit_id_barcode'; rawBarcodeValue: string; symbology: BarcodeSymbology }
+type DeviceReceipt = ScannerAssignment['recentReceipts'][number]
 type DeviceState =
   | { status: 'loading' }
   | { status: 'ready'; record: ScannerDeviceRecord | null }
@@ -355,6 +367,16 @@ function ScannerSurface({
   })
   const [appIsActive, setAppIsActive] = useState(AppState.currentState === 'active')
   const [chosenTransition, setChosenTransition] = useState<ScanTransition | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  /**
+   * The server hands back only the last eight receipts per device, so every
+   * receipt this session earns is also kept here, keyed by the device sequence
+   * that already makes it unique. Only server receipts land in the log — a
+   * queued offline scan is pending, not history, until its replay is answered.
+   */
+  const [scanLog, setScanLog] = useState<ReadonlyMap<number, DeviceReceipt>>(
+    () => new Map(),
+  )
   const sessionIsOpen = assignment.openSession !== null
   const barcodeTypes = useMemo(
     () => scannerBarcodeTypes(assignment),
@@ -383,6 +405,29 @@ function ScannerSurface({
   useEffect(() => {
     serverOffsetRef.current = assignment.serverNow - Date.now()
   }, [assignment.serverNow])
+
+  const logReceipt = useCallback((entry: DeviceReceipt) => {
+    setScanLog((previous) => {
+      const next = new Map(previous)
+      next.set(entry.deviceSequence, entry)
+      /* A door can run to thousands of scans; the oldest fall off so the
+         history list never becomes the slowest thing on the screen. */
+      if (next.size > 200) {
+        const excess = [...next.keys()].sort((a, b) => a - b).slice(0, next.size - 200)
+        for (const key of excess) next.delete(key)
+      }
+      return next
+    })
+  }, [])
+
+  const history = useMemo(() => {
+    const merged = new Map<number, DeviceReceipt>()
+    for (const entry of assignment.recentReceipts) merged.set(entry.deviceSequence, entry)
+    for (const [sequence, entry] of scanLog) {
+      if (!merged.has(sequence)) merged.set(sequence, entry)
+    }
+    return [...merged.values()].sort((a, b) => b.deviceSequence - a.deviceSequence)
+  }, [assignment.recentReceipts, scanLog])
 
   const refreshPendingSummary = useCallback(async () => {
     const summary = await pendingAttendanceSummary({
@@ -418,7 +463,7 @@ function ScannerSurface({
           continue
         }
         try {
-          await recordScan({
+          const result = await recordScan({
             eventSlug,
             stationId: assignment.station.id,
             expectedConfigurationVersion: operation.expectedConfigurationVersion,
@@ -430,6 +475,19 @@ function ScannerSurface({
             deviceSequence: operation.deviceSequence,
             capturedAt: operation.capturedAt,
             isOfflineReplay: true,
+          })
+          logReceipt({
+            id: result.presenceEventId,
+            outcome: result.outcome,
+            reasonCode: result.reasonCode,
+            transition: result.transition,
+            receivedAt: result.serverTime,
+            capturedAt: operation.capturedAt,
+            isOfflineReplay: true,
+            deviceSequence: operation.deviceSequence,
+            ...(result.participant
+              ? { participantName: result.participant.displayName }
+              : {}),
           })
           await removePendingAttendanceScan({
             eventSlug,
@@ -482,6 +540,7 @@ function ScannerSurface({
     deviceRecord.deviceSecret,
     deviceRecord.installationId,
     eventSlug,
+    logReceipt,
     recordScan,
     refreshPendingSummary,
   ])
@@ -673,6 +732,17 @@ function ScannerSurface({
     } catch (error) {
       setReplayStatus(errorMessage(error, 'The accepted scan will be cleared from the local queue on its idempotent retry.'))
     }
+    logReceipt({
+      id: result.presenceEventId,
+      outcome: result.outcome,
+      reasonCode: result.reasonCode,
+      transition: result.transition,
+      receivedAt: result.serverTime,
+      capturedAt,
+      isOfflineReplay: false,
+      deviceSequence: reserved.lastIssuedSequence,
+      ...(result.participant ? { participantName: result.participant.displayName } : {}),
+    })
     setReceipt(result)
   }
 
@@ -1260,6 +1330,20 @@ function ScannerSurface({
             style={StyleSheet.absoluteFill}
           />
         }
+        controls={
+          /* The direction sits above the aim window, in reading order: what
+             the next scan will write, then where to point, then who was just
+             read. Down in the dock it changed places with the receipt on
+             every scan, which is how it kept getting missed. */
+          <DirectionControl
+            onChange={(option) => {
+              setChosenTransition(option)
+              setScanError(null)
+            }}
+            options={availableTransitions}
+            selected={transition}
+          />
+        }
         {...(receipt
           ? {
               outcome: {
@@ -1297,28 +1381,46 @@ function ScannerSurface({
               </>
             ) : (
               <>
-                <ChipRow
-                  accent={palette.door}
-                  onSelect={(option) => {
-                    setChosenTransition(option)
-                    setScanError(null)
-                  }}
-                  options={availableTransitions.map(
-                    (option) => [option, transitionName(option)] as const,
-                  )}
-                  selected={transition}
-                />
                 {scanError ? <Problem>{scanError}</Problem> : null}
                 {pendingSummary.count > 0 ? (
                   <Meta>
                     {pendingSummary.count} scan{pendingSummary.count === 1 ? '' : 's'} still to send
                   </Meta>
                 ) : null}
+                <Row
+                  {...(history[0] ? { detail: receiptLine(history[0]) } : {})}
+                  label="Scan history"
+                  onPress={() => setHistoryOpen(true)}
+                />
               </>
             )}
           </>
         }
       />
+      {/* One sheet, two heights: it opens on the last handful of scans and
+          pulls up to nearly the whole screen for everything this phone has
+          been told about. */}
+      <Sheet
+        detents={[0.45, 0.92]}
+        onClose={() => setHistoryOpen(false)}
+        title="Scan history"
+        visible={historyOpen}
+      >
+        {history.length === 0 ? (
+          <Nothing>No receipts have come back to this phone yet.</Nothing>
+        ) : (
+          <ScrollView contentContainerStyle={styles.historyContent} style={styles.historyList}>
+            {history.map((entry) => (
+              <Row
+                danger={entry.outcome === 'rejected' || entry.outcome === 'needs_review'}
+                detail={receiptDetail(entry)}
+                key={entry.deviceSequence}
+                label={entry.participantName ?? outcomeName(entry.outcome)}
+              />
+            ))}
+          </ScrollView>
+        )}
+      </Sheet>
       </>
     )
   }
@@ -1333,6 +1435,39 @@ function ScannerSurface({
   )
 }
 
+
+/**
+ * The Arriving-or-Leaving choice as the system's own segmented control, hosted
+ * the same way Action hosts its button, because a real UISegmentedControl
+ * brings its own translucent material and stays legible over whatever the
+ * camera behind it is showing. It lives here rather than in ui.tsx because no
+ * other duty screen chooses between modes on top of a camera.
+ */
+function DirectionControl({
+  onChange,
+  options,
+  selected,
+}: {
+  onChange: (value: ScanTransition) => void
+  options: readonly ScanTransition[]
+  selected: ScanTransition
+}) {
+  return (
+    <Host style={styles.direction}>
+      <Picker
+        modifiers={[pickerStyle('segmented')]}
+        onSelectionChange={onChange}
+        selection={selected}
+      >
+        {options.map((option) => (
+          <NativeText key={option} modifiers={[tag(option)]}>
+            {transitionName(option)}
+          </NativeText>
+        ))}
+      </Picker>
+    </Host>
+  )
+}
 
 function CredentialSetupInstructions({
   credentialSetup,
@@ -1711,6 +1846,29 @@ function transitionName(transition: ScanTransition) {
   return 'Stepped out'
 }
 
+/** The whole receipt on one line, for the row that opens the history. */
+function receiptLine(entry: DeviceReceipt) {
+  return [entry.participantName ?? outcomeName(entry.outcome), receiptDetail(entry)].join(' · ')
+}
+
+/**
+ * Everything about a receipt except its headline. The outcome only appears
+ * here when a name has taken the headline and the outcome still needs saying —
+ * an accepted scan does not repeat "Recorded" on every row.
+ */
+function receiptDetail(entry: DeviceReceipt) {
+  return [
+    entry.participantName && entry.outcome !== 'accepted'
+      ? outcomeName(entry.outcome)
+      : null,
+    transitionName(entry.transition),
+    entry.isOfflineReplay ? 'replayed' : null,
+    new Date(entry.capturedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+  ]
+    .filter((part) => part !== null)
+    .join(' · ')
+}
+
 function outcomeName(outcome: ScanReceipt['outcome']) {
   if (outcome === 'accepted') return 'Recorded'
   if (outcome === 'duplicate') return 'Already recorded'
@@ -1762,4 +1920,15 @@ const styles = StyleSheet.create({
 
   /* A run of related controls inside a card, set off from the identity above. */
   block: { gap: 10, paddingTop: 12, borderTopWidth: 1, borderTopColor: palette.strong },
+
+  /* The SwiftUI host has no intrinsic height in this layout, so the control
+     gets the segmented control's own. */
+  direction: { alignSelf: 'stretch', height: 32 },
+
+  /* The sheet does not hand its children a height, so an unbounded list would
+     run its tail past the sheet edge where no scroll can reach it. This is the
+     tall detent minus the grabber, title, and body padding, measured rather
+     than derived. */
+  historyList: { maxHeight: Math.round(Dimensions.get('window').height * 0.92) - 156 },
+  historyContent: { gap: 8 },
 })
