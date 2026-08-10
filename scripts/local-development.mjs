@@ -1,3 +1,19 @@
+import { existsSync } from 'node:fs'
+import { loadEnvFile } from 'node:process'
+
+/*
+ * The developer's own secrets live in the repository-root `.env.local`, and
+ * this module is imported by config files — a Vite config, a setup script —
+ * that are not run through anything which loads it. Reading `process.env`
+ * without this loaded the file's values silently as undefined, so the
+ * intelligence worker booted, served health, and could not call a model.
+ *
+ * Values already in the environment win, so an explicit override on the
+ * command line still beats the file.
+ */
+const rootEnvironmentPath = new URL('../.env.local', import.meta.url)
+if (existsSync(rootEnvironmentPath)) loadEnvFile(rootEnvironmentPath)
+
 const intelligenceIngressSecret = 'code2create-local-intelligence-ingress-2026-v1'
 const intelligenceCallbackSecret = 'code2create-local-intelligence-callback-2026-v1'
 /* The copilot reads the platform over its own signed channel. A separate
@@ -33,6 +49,16 @@ export const localConvexEnvironment = Object.freeze({
   ...localPrivateEnvironment,
 })
 
+/* The agents call a model, and the key for it lives in the developer's own
+   .env.local rather than in this file. Absent, the worker still boots and
+   serves health — it just cannot think. */
+const localModelEnvironment = Object.fromEntries(
+  ['OPENAI_API_KEY'].flatMap((key) => {
+    const value = process.env[key]?.trim()
+    return value ? [[key, value]] : []
+  }),
+)
+
 export const localIntelligenceWorkerEnvironment = Object.freeze({
   INTELLIGENCE_INGRESS_SECRET: intelligenceIngressSecret,
   INTELLIGENCE_CALLBACK_SECRET: intelligenceCallbackSecret,
@@ -42,4 +68,5 @@ export const localIntelligenceWorkerEnvironment = Object.freeze({
   CONVEX_INTELLIGENCE_READ_URL: 'http://127.0.0.1:3211/intelligence/operations-reads',
   CONVEX_INTELLIGENCE_RECOMMENDATION_URL:
     'http://127.0.0.1:3211/intelligence/operations-recommendations',
+  ...localModelEnvironment,
 })
