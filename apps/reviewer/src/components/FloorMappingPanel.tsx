@@ -258,12 +258,11 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
       </View>
 
       <Sheet
-        detents={[0.9]}
+        detents={['auto']}
         onClose={() => setShowScanner(false)}
         title="Scan a team"
         visible={showScanner}
       >
-        <Body>The QR is on the team’s own dashboard. There are no table stickers.</Body>
         {!permission ? <Meta>Checking camera access…</Meta> : null}
         {permission && !permission.granted ? (
           <Action
@@ -428,6 +427,10 @@ function HallCanvas({
   /* The plan names its fixtures; the stage is the one worth drawing rather
      than pinning, because it spans the end of the room instead of sitting at
      a point in it. */
+  /* The plan's other fixtures are no longer drawn: they named themselves on
+     the map and again in the sentence the server writes, and the pills sat on
+     top of the grid a mapper is trying to read. The stage stays, because it is
+     drawn as the end of the room rather than labelled as a point in it. */
   const stage = landmarks.find((landmark) => landmark.name === 'the stage') ?? null
   const stageDepth = stage ? Math.max(6, stage.y * 2) : 0
 
@@ -524,31 +527,6 @@ function HallCanvas({
           {/* Each fixture is a dot at its true point with its name beside it,
               growing toward the middle of the room, so a name against a wall
               hugs the wall it names instead of being clipped by it. */}
-          {landmarks.filter((landmark) => landmark !== stage).map((landmark) => (
-            <View
-              key={landmark.id}
-              pointerEvents="none"
-              style={[
-                styles.landmark,
-                landmark.x <= 50
-                  ? [styles.landmarkFromLeft, { left: `${landmark.x}%` }]
-                  : [styles.landmarkFromRight, { right: `${100 - landmark.x}%` }],
-                { top: `${landmark.y}%` },
-                landmark.y > 88 ? styles.landmarkHigh : styles.landmarkMid,
-              ]}
-            >
-              <View style={styles.landmarkDot} />
-              <Text numberOfLines={1} style={styles.landmarkText}>
-                {landmark.name}
-              </Text>
-            </View>
-          ))}
-
-          {/* Teams already placed, so a crowded corner is visible before you
-              add to it. The name is set at a size meant for the zoomed-in map:
-              the scroll view scales text with everything else, so a label that
-              would be clutter over the whole room is exactly readable at the
-              zoom where a busy corner separates into teams. */}
           {teams.map((team) => (
             <View
               key={team.teamId}
@@ -662,10 +640,11 @@ const styles = StyleSheet.create({
   },
   openButton: {
     height: 50,
-    paddingHorizontal: 20,
+    paddingHorizontal: 22,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: palette.hall,
+    borderRadius: radius.control,
   },
   openButtonText: { color: palette.onHall, fontSize: 16, fontWeight: '600' },
   disabled: { opacity: 0.4 },
@@ -707,24 +686,10 @@ const styles = StyleSheet.create({
   gridCellCount: { color: palette.text, fontSize: 16, fontWeight: '700' },
   gridCellTextLit: { color: palette.hall },
 
-  landmark: { position: 'absolute', maxWidth: '60%', alignItems: 'center', gap: 5 },
-  landmarkFromLeft: { flexDirection: 'row', transform: [{ translateX: -3 }] },
-  landmarkFromRight: { flexDirection: 'row-reverse', transform: [{ translateX: 3 }] },
   /* Vertically centred on its point, except against the bottom edge, where
      the name would leave the room. */
   landmarkMid: { marginTop: -12 },
   landmarkHigh: { marginTop: -27 },
-  landmarkDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: palette.faint },
-  landmarkText: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    color: palette.text,
-    fontSize: 12,
-    fontWeight: '600',
-    backgroundColor: 'rgba(10,10,11,0.78)',
-    borderRadius: radius.pill,
-    overflow: 'hidden',
-  },
 
   team: { position: 'absolute', alignItems: 'center', gap: 4 },
   teamFromLeft: { flexDirection: 'row', transform: [{ translateX: -5 }, { translateY: -6 }] },

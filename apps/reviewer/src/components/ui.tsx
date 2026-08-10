@@ -278,6 +278,14 @@ export function Viewfinder({
  * visible. Anything that is not the one job a screen exists for belongs in
  * here rather than as a link sitting on top of the job.
  */
+/**
+ * Presenting and dismissing race against the native view's own lifecycle — a
+ * sheet unmounting while it closes, or closing twice as a screen goes away.
+ * Losing that race is not a failure anybody can act on, and an unhandled
+ * rejection would surface to a reviewer as a crash overlay.
+ */
+function swallowSheetRace() {}
+
 export function Sheet({
   children,
   detents = ['auto'],
@@ -293,10 +301,20 @@ export function Sheet({
   visible: boolean
 }) {
   const sheet = useRef<TrueSheet>(null)
+  const shown = useRef(false)
 
   useEffect(() => {
-    if (visible) void sheet.current?.present()
-    else void sheet.current?.dismiss()
+    if (visible) {
+      shown.current = true
+      void sheet.current?.present().catch(swallowSheetRace)
+      return
+    }
+    /* Dismissing a sheet that was never presented throws "No sheet found with
+       tag" from the native side, and every closed sheet on a screen would do
+       that on its first render. Only a sheet that has actually been opened has
+       anything to close. */
+    if (!shown.current) return
+    void sheet.current?.dismiss().catch(swallowSheetRace)
   }, [visible])
 
   return (
