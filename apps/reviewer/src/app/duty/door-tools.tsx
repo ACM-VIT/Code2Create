@@ -4,20 +4,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import { Row } from '@/components/ui'
 import { palette } from '@/theme'
 
-/**
- * Everything this door can do that is not reading a badge.
- *
- * A real iOS form sheet: system grabber, a detent it rests at, the scanner
- * still visible behind it, and a drag down to dismiss.
- *
- * It takes what it shows as route parameters rather than subscribing again.
- * The scanner behind it already holds every one of these values, so a second
- * subscription would only add a way for the two to disagree, and a sheet is
- * open for seconds — nothing here changes underneath it.
- *
- * Laid out with a plain view: a scroll view inside a form sheet has no height
- * to measure against and collapses, which renders the whole sheet empty.
- */
+// ScrollView has no measurable height inside this form sheet.
 export default function DoorToolsRoute() {
   const router = useRouter()
   const { station, zone, session, pending, sent } = useLocalSearchParams<{
@@ -49,7 +36,12 @@ export default function DoorToolsRoute() {
         <Row
           detail="Issue badges and enrol ID cards instead of recording presence"
           label="Arrival and credentials"
-          onPress={() => router.back()}
+          onPress={() =>
+            router.dismissTo({
+              pathname: '/duty/[surface]',
+              params: { surface: 'attendance', task: 'staffed' },
+            })
+          }
         />
       </View>
     </View>

@@ -1,0 +1,287 @@
+diff --git a/dist/builtin-providers-DW08g5fh.mjs b/dist/builtin-providers-DW08g5fh.mjs
+index 33bee3895e9240ff9a4838886ff81368072d3b1d..98afa8d2f0739947f155b37a9fe2d68b8126d699 100644
+--- a/dist/builtin-providers-DW08g5fh.mjs
++++ b/dist/builtin-providers-DW08g5fh.mjs
+@@ -573,7 +573,11 @@ async function initializeRootHarness(agent, config, emitEvent, delivery) {
+ 		toolFactory,
+ 		conversationWriter: config.conversationWriter,
+ 		attachmentStore: config.attachmentStore,
+-		executionContext: { instanceId: config.id },
++		executionContext: {
++			instanceId: config.id,
++			...config.agentName === void 0 ? {} : { agentName: config.agentName },
++			initialData
++		},
+ 		hookState,
+ 		rerender,
+ 		output: outputChannel,
+diff --git a/dist/cloudflare/workers-ai-provider.mjs b/dist/cloudflare/workers-ai-provider.mjs
+index acfc3f9038ddcc1923a3e6c6d123c12fab747ee1..8a9add2c0537023b3231c06dbc73780d9e3cc94a 100644
+--- a/dist/cloudflare/workers-ai-provider.mjs
++++ b/dist/cloudflare/workers-ai-provider.mjs
+@@ -221,7 +221,7 @@ function* parseSseEvents(block) {
+ 	try {
+ 		yield JSON.parse(data);
+ 	} catch {
+-		console.error(`Workers AI: dropping unparseable SSE data payload: ${data.slice(0, 200)}`);
++		console.error("Workers AI: dropping an unparseable SSE data payload.");
+ 	}
+ }
+ function isAbortError(error) {
+@@ -740,11 +740,8 @@ function normalizeAnthropicGatewayPayload(payload) {
+ }
+ async function assertSuccessfulBindingResponse(response) {
+ 	if (response.ok) return;
+-	const body = await safeReadText(response);
+ 	throw new CloudflareAIBindingError({
+-		status: response.status,
+-		statusText: response.statusText,
+-		body
++		status: response.status
+ 	});
+ }
+ function pickReasoning(delta) {
+diff --git a/dist/dispatch-nU3cIlT-.mjs b/dist/dispatch-nU3cIlT-.mjs
+index c661b214b2c1e0e33c5fe696e23f44e3ac96a474..fdec545fcdbe4851f3eb6e7e176ea981c0eb1af3 100644
+--- a/dist/dispatch-nU3cIlT-.mjs
++++ b/dist/dispatch-nU3cIlT-.mjs
+@@ -1792,12 +1792,52 @@ function classifyConversationSubmission(conversation, inputEntryId, options) {
+ 		ownSubmissionId: path[inputIndex]?.submissionId
+ 	});
+ }
+-function projectConversationUi(conversation, streamOffset) {
++function messageProjectionKey(entry) {
++	if (entry.type !== "message" || entry.message.role === "toolResult") return;
++	if (entry.message.role === "assistant" && entry.submissionId) return `assistant:${entry.submissionId}`;
++	return `message:${entry.id}`;
++}
++function latestMessageProjection(conversation, messageLimit, beforeMessageKey) {
++	if (messageLimit === void 0) {
++		if (beforeMessageKey !== void 0) throw new InvalidRequestError({ reason: "A history cursor requires a message limit." });
++		return;
++	}
++	const selected = /* @__PURE__ */ new Set();
++	const path = getActiveConversationPath(conversation);
++	let exclusiveEnd = path.length;
++	if (beforeMessageKey !== void 0) {
++		exclusiveEnd = path.findIndex((entry) => messageProjectionKey(entry) === beforeMessageKey);
++		if (exclusiveEnd === -1) throw new InvalidRequestError({ reason: "The internal history cursor does not name this conversation." });
++	}
++	for (let index = exclusiveEnd - 1; index >= 0 && selected.size < messageLimit; index--) {
++		const entry = path[index];
++		if (!entry) continue;
++		const key = messageProjectionKey(entry);
++		if (key) selected.add(key);
++	}
++	const earliestMessageKey = [...selected].at(-1);
++	let hasEarlier = false;
++	if (earliestMessageKey !== void 0) {
++		const earliestIndex = path.findIndex((entry) => messageProjectionKey(entry) === earliestMessageKey);
++		for (let index = earliestIndex - 1; index >= 0; index--) {
++			if (messageProjectionKey(path[index])) {
++				hasEarlier = true;
++				break;
++			}
++		}
++	}
++	return { selected, earliestMessageKey, hasEarlier };
++}
++function projectConversationUi(conversation, streamOffset, messageLimit, beforeMessageKey) {
+ 	const messages = [];
+ 	const byId = /* @__PURE__ */ new Map();
+ 	const responseBySubmission = /* @__PURE__ */ new Map();
++	const projection = latestMessageProjection(conversation, messageLimit, beforeMessageKey);
++	const selectedMessageKeys = projection?.selected;
+ 	for (const entry of getActiveConversationPath(conversation)) {
+ 		if (entry.type !== "message") continue;
++		const projectionKey = messageProjectionKey(entry);
++		if (projectionKey && selectedMessageKeys && !selectedMessageKeys.has(projectionKey)) continue;
+ 		const projected = projectCompletedMessage(entry);
+ 		if (projected) {
+ 			if (projected.role === "assistant" && projected.submissionId) {
+@@ -1853,10 +1893,13 @@ function projectConversationUi(conversation, streamOffset) {
+ 		if (projected.submissionId) applyResponseMetadata(projected, conversation);
+ 		messages.push(projected);
+ 	}
++	const boundedMessages = messageLimit === void 0 ? messages : messages.slice(-messageLimit);
+ 	return {
+ 		conversationId: conversation.conversationId,
+ 		streamOffset,
+-		messages
++		messages: boundedMessages,
++		earliestMessageKey: projection?.earliestMessageKey,
++		hasEarlier: projection?.hasEarlier ?? false
+ 	};
+ }
+ /**
+@@ -2025,18 +2068,35 @@ function selectRootConversation(state) {
+ 	const roots = [...state.conversations.values()].filter((conversation) => conversation.kind === "root");
+ 	return roots.find((conversation) => conversation.harness === DEFAULT_HARNESS && conversation.session === DEFAULT_SESSION) ?? roots[0];
+ }
+-function projectAgentConversationSnapshot(state) {
++function projectAgentConversationHistoryPage(state, messageLimit, beforeMessageKey) {
+ 	const conversation = selectRootConversation(state);
+ 	if (!conversation) return void 0;
+-	const ui = projectConversationUi(conversation, state.recordsThroughOffset);
++	const ui = projectConversationUi(conversation, state.recordsThroughOffset, messageLimit, beforeMessageKey);
++	const allSettlements = projectSettlements(state, conversation.conversationId);
++	let settlements = allSettlements;
++	if (messageLimit !== void 0) {
++		const visibleSubmissions = new Set(ui.messages.flatMap((message) => message.submissionId ? [message.submissionId] : []));
++		settlements = settlements.filter((settlement) => visibleSubmissions.has(settlement.submissionId) || settlement.answeredBySubmissionId && visibleSubmissions.has(settlement.answeredBySubmissionId));
++		if (beforeMessageKey === void 0 && settlements.length === 0 && ui.messages.length === 0) {
++			const latestSettlement = allSettlements.at(-1);
++			if (latestSettlement) settlements = [latestSettlement];
++		}
++	}
+ 	return {
+-		v: 1,
+-		conversationId: conversation.conversationId,
+-		offset: ui.streamOffset,
+-		messages: ui.messages,
+-		settlements: projectSettlements(state, conversation.conversationId)
++		snapshot: {
++			v: 1,
++			conversationId: conversation.conversationId,
++			offset: ui.streamOffset,
++			messages: ui.messages,
++			settlements
++		},
++		earliestMessageKey: ui.earliestMessageKey,
++		hasEarlier: ui.hasEarlier
+ 	};
+ }
++function projectAgentConversationSnapshot(state, messageLimit) {
++	return projectAgentConversationHistoryPage(state, messageLimit)?.snapshot;
++}
+ function projectAgentConversationBatch(options) {
+ 	const conversation = selectRootConversation(options.state) ?? (options.previousState ? selectRootConversation(options.previousState) : void 0);
+ 	if (!conversation) return [];
+@@ -2044,7 +2104,7 @@ function projectAgentConversationBatch(options) {
+ 	const relevant = options.records.filter((record) => record.conversationId === conversationId);
+ 	if (relevant.length === 0) return [];
+ 	if (relevant.some(requiresSnapshotReset)) {
+-		const snapshot = projectAgentConversationSnapshot(options.state);
++		const snapshot = projectAgentConversationSnapshot(options.state, options.messageLimit);
+ 		return snapshot ? withPositions([{
+ 			type: "conversation-reset",
+ 			conversationId,
+@@ -2694,7 +2754,7 @@ const DURABLE_POLL_INTERVAL_MS = 250;
+ * Project one durable read window into public conversation chunks,
+ * advancing the reduced state batch by batch.
+ */
+-function projectConversationRead(initialState, read) {
++function projectConversationRead(initialState, read, messageLimit) {
+ 	let state = initialState;
+ 	const items = [];
+ 	let offset = initialState.recordsThroughOffset;
+@@ -2705,7 +2765,8 @@ function projectConversationRead(initialState, read) {
+ 			state,
+ 			previousState,
+ 			records: batch.records,
+-			batchOrdinal: parseOffset(batch.offset)
++			batchOrdinal: parseOffset(batch.offset),
++			messageLimit
+ 		}));
+ 		offset = batch.offset;
+ 	}
+@@ -3065,6 +3126,24 @@ const SECURITY_HEADERS = {
+ 	"Cross-Origin-Resource-Policy": "cross-origin"
+ };
+ const SSE_HEARTBEAT_MS = 15e3;
++const INTERNAL_HISTORY_MESSAGE_LIMIT_HEADER = "x-flue-history-message-limit";
++const INTERNAL_HISTORY_BEFORE_MESSAGE_KEY_HEADER = "x-flue-history-before-message-key";
++const INTERNAL_HISTORY_EARLIEST_MESSAGE_KEY_HEADER = "x-flue-history-earliest-message-key";
++const INTERNAL_HISTORY_HAS_EARLIER_HEADER = "x-flue-history-has-earlier";
++function historyMessageLimit(request) {
++	const value = request.headers.get(INTERNAL_HISTORY_MESSAGE_LIMIT_HEADER);
++	if (value === null) return;
++	if (!/^[1-9]\d{0,2}$/.test(value)) throw new InvalidRequestError({ reason: "Invalid internal history message limit." });
++	const parsed = Number(value);
++	if (parsed > 100) throw new InvalidRequestError({ reason: "Invalid internal history message limit." });
++	return parsed;
++}
++function historyBeforeMessageKey(request) {
++	const value = request.headers.get(INTERNAL_HISTORY_BEFORE_MESSAGE_KEY_HEADER);
++	if (value === null) return;
++	if (value.length > 600 || !/^(?:assistant|message):[^\u0000-\u001f\u007f]{1,512}$/.test(value)) throw new InvalidRequestError({ reason: "Invalid internal history cursor." });
++	return value;
++}
+ async function handleAgentConversationRead(options) {
+ 	const view = new URL(options.request.url).searchParams.get("view") ?? "history";
+ 	if (view === "history") return historyResponse(options);
+@@ -3115,8 +3194,13 @@ async function historyResponse(options) {
+ 	if (url.searchParams.has("offset") || url.searchParams.has("tail") || url.searchParams.has("live")) return errorResponse(new InvalidRequestError({ reason: "History reads do not accept offset, tail, or live parameters." }));
+ 	const meta = await options.store.getMeta(options.path);
+ 	if (!meta) return errorResponse(new StreamNotFoundError({ path: options.path }));
+-	const snapshot = projectAgentConversationSnapshot(await getConversationFoldHost(options.store, options.path).getStateAtHead());
+-	if (!snapshot) return errorResponse(new StreamNotFoundError({ path: options.path }));
++	const page = projectAgentConversationHistoryPage(
++		await getConversationFoldHost(options.store, options.path).getStateAtHead(),
++		historyMessageLimit(options.request),
++		historyBeforeMessageKey(options.request)
++	);
++	if (!page) return errorResponse(new StreamNotFoundError({ path: options.path }));
++	const snapshot = page.snapshot;
+ 	return Response.json({
+ 		...snapshot,
+ 		incarnation: meta.incarnation
+@@ -3124,6 +3208,8 @@ async function historyResponse(options) {
+ 		"cache-control": "no-store",
+ 		"Stream-Next-Offset": snapshot.offset,
+ 		"Stream-Up-To-Date": "true",
++		...page.earliestMessageKey ? { [INTERNAL_HISTORY_EARLIEST_MESSAGE_KEY_HEADER]: page.earliestMessageKey } : {},
++		[INTERNAL_HISTORY_HAS_EARLIER_HEADER]: String(page.hasEarlier),
+ 		...SECURITY_HEADERS
+ 	} });
+ }
+@@ -3145,7 +3231,8 @@ async function updatesResponse(options) {
+ 		type: "stream-checkpoint",
+ 		incarnation: meta.incarnation
+ 	};
+-	if (live === "sse") return sseResponse(options.store, options.path, offset, checkpoint, options.request.signal);
++	const messageLimit = historyMessageLimit(options.request);
++	if (live === "sse") return sseResponse(options.store, options.path, offset, checkpoint, options.request.signal, messageLimit);
+ 	const state = await stateAtOffset(options.store, options.path, offset);
+ 	let read = await options.store.read(options.path, { offset });
+ 	if (live === "long-poll" && read.batches.length === 0) {
+@@ -3156,7 +3243,7 @@ async function updatesResponse(options) {
+ 		});
+ 		read = waited;
+ 	}
+-	const projected = projectConversationRead(state, read);
++	const projected = projectConversationRead(state, read, messageLimit);
+ 	return dsJsonResponse([checkpoint, ...projected.items], read, projected.offset);
+ }
+ /**
+@@ -3184,7 +3271,7 @@ function dsJsonResponse(items, read, offset) {
+ 		...SECURITY_HEADERS
+ 	} });
+ }
+-function sseResponse(store, path, offset, checkpoint, signal) {
++function sseResponse(store, path, offset, checkpoint, signal, messageLimit) {
+ 	const encoder = new TextEncoder();
+ 	let active = true;
+ 	let unsubscribe = () => {};
+@@ -3212,7 +3299,7 @@ function sseResponse(store, path, offset, checkpoint, signal) {
+ 				while (active) {
+ 					pending = false;
+ 					const read = await store.read(path, { offset: currentOffset });
+-					const projected = projectConversationRead(state, read);
++					const projected = projectConversationRead(state, read, messageLimit);
+ 					state = projected.state;
+ 					if (projected.items.length > 0) controller.enqueue(encoder.encode(`event: data\ndata:${JSON.stringify(projected.items)}\n\n`));
+ 					currentOffset = read.nextOffset;
+diff --git a/dist/observation-IWUJUvRg.d.mts b/dist/observation-IWUJUvRg.d.mts
+index 03d98158230866792cd9d60d17c76048e4081173..3ec42a617136b99e9f50cca017b7504dae22c5a4 100644
+--- a/dist/observation-IWUJUvRg.d.mts
++++ b/dist/observation-IWUJUvRg.d.mts
+@@ -50,6 +50,8 @@ interface FlueTraceCarrier {
+ interface FlueExecutionContext {
+   eventContext?: FlueEventContext;
+   instanceId?: string;
++  /** Schema-validated durable creation data, private to execution interceptors. */
++  initialData?: unknown;
+   submissionId?: string;
+   agentName?: string;
+   conversationId?: string;

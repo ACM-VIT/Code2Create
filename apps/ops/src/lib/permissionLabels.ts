@@ -150,6 +150,8 @@ const permissionSubjectNames: Readonly<Record<string, string>> = {
   'configuration intake draft': 'idea questions setup draft',
   'configuration intelligence': 'operations brief setup',
   'configuration intelligence draft': 'operations brief setup draft',
+  'configuration integration': 'code and design policy',
+  'configuration integration draft': 'code and design policy draft',
   'configuration novelty': 'idea originality setup',
   'configuration novelty draft': 'idea originality setup draft',
   'configuration novelty entries': 'past-project comparison set',

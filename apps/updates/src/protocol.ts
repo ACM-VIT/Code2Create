@@ -4,6 +4,10 @@ import {
   activationRequestSchema,
   assetKeySchema,
   currentReleaseResponseSchema,
+  maximumUpdateActivationBytes,
+  maximumUpdateAssetBytes,
+  maximumUpdateFutureSkewMs,
+  maximumUpdateReleaseBytes,
   noUpdateDirectiveSchema,
   releaseIdSchema,
   releaseRecordSchema,
@@ -17,6 +21,13 @@ import {
   type UpdatePlatform,
 } from './contracts.js'
 import type { UpdateStore } from './store.js'
+import {
+  HttpBodyInvalidJsonError,
+  HttpBodyNotJsonError,
+  HttpBodyTooLargeError,
+  readBoundedRequestBytes,
+  readBoundedRequestJson,
+} from './boundedHttpBody.js'
 
 interface RequestContext {
   store: UpdateStore
@@ -40,6 +51,15 @@ export async function handleUpdateRequest(
   try {
     return await routeRequest(request, context)
   } catch (error) {
+    if (error instanceof HttpBodyTooLargeError) {
+      return jsonResponse(413, { error: 'Payload too large.' })
+    }
+    if (error instanceof HttpBodyNotJsonError) {
+      return jsonResponse(415, { error: 'Unsupported media type.' })
+    }
+    if (error instanceof HttpBodyInvalidJsonError) {
+      return jsonResponse(400, { error: 'Invalid JSON.' })
+    }
     if (error instanceof HttpError) return jsonResponse(error.status, { error: error.message })
     if (error instanceof z.ZodError) {
       const issue = error.issues[0]
@@ -152,7 +172,7 @@ async function serveAsset(
   const asset = await store.getAsset(key)
   if (!asset || asset.sha256 !== key) throw new HttpError(404, 'Asset not found.')
 
-  return new Response(method === 'HEAD' ? null : asset.bytes, {
+  return new Response(method === 'HEAD' ? null : asset.body, {
     status: 200,
     headers: {
       'cache-control': 'public, max-age=31536000, immutable',
@@ -169,7 +189,7 @@ async function uploadAsset(request: Request, key: string, store: UpdateStore): P
     throw new HttpError(400, 'A valid Content-Type is required.')
   }
 
-  const bytes = await request.arrayBuffer()
+  const bytes = await readBoundedRequestBytes(request, maximumUpdateAssetBytes)
   const actualKey = await sha256Hex(bytes)
   if (actualKey !== key) throw new HttpError(409, 'Asset hash does not match its key.')
 
@@ -184,9 +204,14 @@ async function registerRelease(
   requestOrigin: string,
   context: RequestContext,
 ): Promise<Response> {
-  const release = releaseRecordSchema.parse(await request.json())
+  const release = releaseRecordSchema.parse(
+    await readBoundedRequestJson(request, maximumUpdateReleaseBytes),
+  )
   if (release.releaseId !== releaseId) throw new HttpError(400, 'Release ID does not match the path.')
   if (release.channel !== context.channel) throw new HttpError(400, 'Release channel is incorrect.')
+  if (Date.parse(release.createdAt) > Date.now() + maximumUpdateFutureSkewMs) {
+    throw new HttpError(400, 'Release creation time is too far in the future.')
+  }
 
   await validateRelease(release, requestOrigin, context.store)
   const body = JSON.stringify(release)
@@ -223,12 +248,17 @@ async function activateRelease(
   releaseId: string,
   context: RequestContext,
 ): Promise<Response> {
-  const activation = activationRequestSchema.parse(await request.json())
+  const activation = activationRequestSchema.parse(
+    await readBoundedRequestJson(request, maximumUpdateActivationBytes),
+  )
   const storedRelease = await context.store.getRelease(releaseId)
   if (!storedRelease) throw new HttpError(404, 'Release not found.')
 
   const release = parseReleaseRecord(storedRelease.body)
   if (release.channel !== context.channel) throw new Error('Stored release channel is inconsistent.')
+  if (Date.parse(release.createdAt) > Date.now() + maximumUpdateFutureSkewMs) {
+    throw new HttpError(409, 'Release creation time is too far in the future.')
+  }
 
   const current = await context.store.getCurrent(release.runtimeVersion)
   const currentRelease = current ? parseReleaseRecord(current.body) : null

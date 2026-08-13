@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom'
 import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 type FloorOverviewResult = NonNullable<FunctionReturnType<typeof api.floorOperations.overview>>
 type FloorZoneView = FloorOverviewResult['zones'][number]
@@ -45,6 +46,7 @@ export function FloorOverview({
   const createDraft = useMutation(api.floorConfiguration.createDraft)
   const publish = useMutation(api.floorConfiguration.publish)
   const freeze = useMutation(api.floorConfiguration.freeze)
+  const operations = useOperationRunner()
   const [planName, setPlanName] = useState('Code2Create hall map')
   const [csv, setCsv] = useState(csvHeader)
   const [draftReason, setDraftReason] = useState('Prepared from the verified hall layout')
@@ -81,14 +83,14 @@ export function FloorOverview({
     setBusy(true)
     setError(null)
     try {
-      await createDraft({
+      await operations.run('floor-plan-draft', (clientOperationId) => () => createDraft({
         eventSlug,
         name: planName,
         zones: parseFloorCsv(csv),
         expectedEventVersion: configuration.eventVersion,
         reason: draftReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -98,17 +100,18 @@ export function FloorOverview({
 
   const publishDraft = async () => {
     if (!configuration?.draftPlan) return
+    const { draftPlan } = configuration
     setBusy(true)
     setError(null)
     try {
-      await publish({
+      await operations.run('floor-plan-publish', (clientOperationId) => () => publish({
         eventSlug,
-        planVersionId: configuration.draftPlan.id,
-        expectedPlanVersion: configuration.draftPlan.version,
+        planVersionId: draftPlan.id,
+        expectedPlanVersion: draftPlan.version,
         expectedEventVersion: configuration.eventVersion,
         reason: publishReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
       setPublishArmed(false)
     } catch (caught) {
       setError(readableError(caught))
@@ -119,16 +122,17 @@ export function FloorOverview({
 
   const freezeMap = async () => {
     if (!configuration?.publishedPlan) return
+    const { publishedPlan } = configuration
     setBusy(true)
     setError(null)
     try {
-      await freeze({
+      await operations.run('floor-plan-freeze', (clientOperationId) => () => freeze({
         eventSlug,
-        planVersionId: configuration.publishedPlan.id,
-        expectedPlanVersion: configuration.publishedPlan.version,
+        planVersionId: publishedPlan.id,
+        expectedPlanVersion: publishedPlan.version,
         reason: freezeReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
       setFreezeArmed(false)
     } catch (caught) {
       setError(readableError(caught))
@@ -173,10 +177,6 @@ export function FloorOverview({
             </details>
           ) : null}
 
-          {/* "Teams not yet placed" and "Teams expecting a place" were separate
-              columns showing the same 14 until somebody was placed, because
-              placed plus unplaced is the eligible total. Placement now reads as
-              one ratio, which leaves the work left as the only bare number. */}
           <dl className="catalog-summary">
             {overview.unmappedTeams ? (
               <div><dt>Still to place</dt><dd>{overview.unmappedTeams.length}</dd></div>
@@ -317,11 +317,6 @@ export function FloorOverview({
   )
 }
 
-/**
- * One zone drawn at the proportions of the real room, with its landmarks and a
- * dot for every team in it. Two dots close together is two teams sitting near
- * each other, which is what the hall looks like.
- */
 function FloorZoneMap({ zone }: { zone: FloorZoneView }) {
   const crowded = [...zone.areas].sort((left, right) => right.teamCount - left.teamCount)[0]
   return (
@@ -375,10 +370,6 @@ function FloorZoneMap({ zone }: { zone: FloorZoneView }) {
   )
 }
 
-/**
- * The one sentence the numbers add up to. A team nobody has located is a team
- * no runner, judge or medic can be sent to, which is the whole point of the map.
- */
 function FloorLead({ overview }: { overview: FloorOverviewResult }) {
   const unmapped = overview.unmappedTeams?.length
   if (unmapped === undefined || overview.eligibleTeamCount === undefined) {
@@ -426,7 +417,6 @@ function FloorLead({ overview }: { overview: FloorOverviewResult }) {
   )
 }
 
-/** The part of the hall a runner should expect to push through. */
 function busiestArea(overview: FloorOverviewResult) {
   const ranked = overview.zones
     .flatMap((zone) => zone.areas.map((area) => ({ zoneName: zone.name, ...area })))
@@ -435,7 +425,6 @@ function busiestArea(overview: FloorOverviewResult) {
   return `${floorAreaLabels[ranked.area]}, ${ranked.zoneName} · ${ranked.teamCount}`
 }
 
-/** Three bands is all a glance can read, so crowding is coarse on purpose. */
 function loadBand(teamCount: number, zoneTeamCount: number): 'empty' | 'some' | 'busy' {
   if (teamCount === 0) return 'empty'
   return teamCount * 9 >= zoneTeamCount * 2 ? 'busy' : 'some'

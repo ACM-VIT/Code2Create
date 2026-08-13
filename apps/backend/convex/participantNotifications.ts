@@ -2,7 +2,8 @@ import { ConvexError, v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { mutation, query } from "./_generated/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import {
@@ -14,8 +15,12 @@ import {
 } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
-import { applicationMatchesNotification } from "./lib/participantNotificationDelivery";
+import {
+  applicationMatchesNotification,
+  ensureApplicationNotification,
+} from "./lib/participantNotificationDelivery";
 import { normalizeEmail, normalizedText } from "./lib/strings";
+import { appendParticipantDeliveryReadFactById } from "./lib/operationsAutonomyReadFacts/participantDeliveries";
 
 const notificationTemplateKey = v.union(
   v.literal("accept"),
@@ -81,6 +86,79 @@ const operationsRecipientView = v.object({
   canManage: v.boolean(),
 });
 
+const notificationRosterBatchSize = 50;
+
+export const enqueueRosterBatch = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    applicationId: v.id("applications"),
+    teamId: v.id("teams"),
+    lockedRosterSnapshotId: v.id("teamSubmissionAttempts"),
+    lockedMemberCount: v.number(),
+    communicationsPolicyVersionId: v.id("communicationsPolicyVersions"),
+    templateKey: notificationTemplateKey,
+    applicationVersion: v.number(),
+    cursor: v.union(v.string(), v.null()),
+    processedMemberCount: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const [application, snapshot, communicationsPolicy] = await Promise.all([
+      ctx.db.get(args.applicationId),
+      ctx.db.get(args.lockedRosterSnapshotId),
+      ctx.db.get(args.communicationsPolicyVersionId),
+    ]);
+    if (
+      !application ||
+      application.eventId !== args.eventId ||
+      application.teamId !== args.teamId ||
+      !snapshot ||
+      snapshot.eventId !== args.eventId ||
+      snapshot.teamId !== args.teamId ||
+      snapshot.state !== "complete" ||
+      snapshot.processedMemberCount !== args.lockedMemberCount ||
+      !communicationsPolicy ||
+      communicationsPolicy.eventId !== args.eventId ||
+      (communicationsPolicy.status !== "published" &&
+        communicationsPolicy.status !== "superseded")
+    ) {
+      throw new Error("The participant notification batch context is invalid.");
+    }
+    const page = await ctx.db
+      .query("teamSubmissionMembers")
+      .withIndex("by_submission_attempt_and_ordinal", (index) =>
+        index.eq("submissionAttemptId", snapshot._id),
+      )
+      .paginate({ numItems: notificationRosterBatchSize, cursor: args.cursor });
+    const now = Date.now();
+    for (const snapshotMember of page.page) {
+      await ensureApplicationNotification(ctx, {
+        eventId: args.eventId,
+        applicationId: application._id,
+        teamId: args.teamId,
+        snapshotMember,
+        communicationsPolicyVersionId: communicationsPolicy._id,
+        templateKey: args.templateKey,
+        applicationVersion: args.applicationVersion,
+        now,
+      });
+    }
+    const processedMemberCount = args.processedMemberCount + page.page.length;
+    if (page.isDone) {
+      if (processedMemberCount !== args.lockedMemberCount) {
+        throw new Error("The participant notification roster is incomplete.");
+      }
+      return null;
+    }
+    await ctx.scheduler.runAfter(0, internal.participantNotifications.enqueueRosterBatch, {
+      ...args,
+      cursor: page.continueCursor,
+      processedMemberCount,
+    });
+    return null;
+  },
+});
+
 export const mine = query({
   args: { eventSlug: v.string() },
   returns: v.union(v.null(), participantDeliveryView),
@@ -118,8 +196,9 @@ export const forApplication = query({
   args: {
     eventSlug: v.string(),
     applicationId: v.id("applications"),
+    paginationOpts: paginationOptsValidator,
   },
-  returns: v.array(operationsRecipientView),
+  returns: paginationResultValidator(operationsRecipientView),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -136,13 +215,21 @@ export const forApplication = query({
       throw new Error("The submitted project snapshot is missing.");
     }
 
+    const page = await ctx.db
+      .query("teamSubmissionMembers")
+      .withIndex("by_submission_attempt_and_ordinal", (index) =>
+        index.eq("submissionAttemptId", project.lockedRosterSnapshotId),
+      )
+      .paginate(args.paginationOpts);
     const recipients = [];
-    for (const teamMemberId of project.lockedTeamMemberIds) {
-      const teamMember = await ctx.db.get(teamMemberId);
-      if (!teamMember || teamMember.teamId !== application.teamId) {
-        throw new Error("The locked team snapshot is missing a member.");
+    for (const snapshotMember of page.page) {
+      if (
+        snapshotMember.eventId !== event._id ||
+        snapshotMember.teamId !== application.teamId
+      ) {
+        throw new Error("The locked team snapshot is invalid.");
       }
-      const membership = await ctx.db.get(teamMember.membershipId);
+      const membership = await ctx.db.get(snapshotMember.membershipId);
       if (!membership || membership.eventId !== event._id) {
         throw new Error("The locked team snapshot is missing a participant membership.");
       }
@@ -155,7 +242,7 @@ export const forApplication = query({
       });
       if (readGrantIds.length === 0) continue;
       const [recipient, destination, delivery, manageGrantIds] = await Promise.all([
-        ctx.db.get(membership.personId),
+        ctx.db.get(snapshotMember.personId),
         ctx.db
           .query("participantNotificationDestinations")
           .withIndex("by_event_person_channel", (index) =>
@@ -230,7 +317,7 @@ export const forApplication = query({
         canManage: manageGrantIds.length > 0,
       });
     }
-    return recipients;
+    return { ...page, page: recipients };
   },
 });
 
@@ -357,6 +444,7 @@ export const retry = mutation({
       version: source.version + 1,
       updatedAt: now,
     });
+    await appendParticipantDeliveryReadFactById(ctx, source._id, now);
     const deliveryId = await ctx.db.insert("participantNotificationDeliveries", {
       eventId: source.eventId,
       applicationId: source.applicationId,
@@ -379,6 +467,7 @@ export const retry = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await appendParticipantDeliveryReadFactById(ctx, deliveryId, now);
     await ctx.scheduler.runAfter(0, internal.participantEmail.deliver, { deliveryId });
     await recordOperation(ctx, {
       eventId: event._id,
@@ -532,6 +621,7 @@ export const disableDestination = mutation({
         version: delivery.version + 1,
         updatedAt: now,
       });
+      await appendParticipantDeliveryReadFactById(ctx, delivery._id, now);
     }
     await recordOperation(ctx, {
       eventId: event._id,

@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
+import { reviewerPagePushData } from "./lib/reviewerPagePush";
 
 const firebaseAppName = "code2create-reviewer-push";
 
@@ -70,31 +71,19 @@ async function sendFcmNotification(claim: PushClaim): Promise<PushOutcome> {
   try {
     const app = firebaseApp();
     const ttl = Math.max(1_000, claim.expiresAt - Date.now());
+    // Data-only FCM reaches PagerMessagingService for full-screen handling.
     const messageId = await getMessaging(app).send({
       token: claim.token,
-      notification: {
-        title: "Substitute request",
-        body: pageBody(claim),
-      },
-      data: {
-        kind: "reviewer_substitute_page",
+      data: reviewerPagePushData({
         pageId: claim.pageId,
-      },
+        roundName: claim.roundName,
+        ...(claim.tableLabel !== undefined ? { tableLabel: claim.tableLabel } : {}),
+        expiresAt: claim.expiresAt,
+      }),
       android: {
         priority: "high",
         ttl,
         collapseKey: `reviewer-page-${claim.pageId}`,
-        notification: {
-          channelId: "reviewer-pages",
-          sound: "default",
-          priority: "max",
-          /* Android will put this over the lock screen like an incoming call,
-             which is as close to a real pager as either platform gets without
-             an entitlement granted by hand. */
-          visibility: "public",
-          defaultVibrateTimings: false,
-          vibrateTimingsMillis: [0, 250, 200, 250],
-        },
       },
     });
     return { ok: true, messageId };
@@ -185,12 +174,14 @@ async function sendApnsNotification(claim: PushClaim): Promise<PushOutcome> {
         aps: {
           alert: {
             title: "Substitute request",
-            body: pageBody(claim),
+            body: reviewerPagePushData({
+              pageId: claim.pageId,
+              roundName: claim.roundName,
+              ...(claim.tableLabel !== undefined ? { tableLabel: claim.tableLabel } : {}),
+              expiresAt: claim.expiresAt,
+            }).body,
           },
-          /* A reviewer's phone is in a pocket, face down, in a loud hall, at
-             three in the morning. Time Sensitive is what carries a page
-             through a Focus mode without an entitlement Apple grants by hand
-             for life-safety apps only; the ringer switch still wins. */
+          // Time-sensitive alerts can bypass Focus without critical-alert entitlement.
           "interruption-level": "time-sensitive",
           "relevance-score": 1,
           sound: "default",
@@ -198,6 +189,7 @@ async function sendApnsNotification(claim: PushClaim): Promise<PushOutcome> {
         },
         kind: "reviewer_substitute_page",
         pageId: claim.pageId,
+        expiresAt: claim.expiresAt,
       }),
     });
     if (response.status === 200) {
@@ -299,24 +291,9 @@ type PushClaim = {
   provider: "fcm" | "apns";
   environment: "development" | "production";
   roundName: string;
-  teamName?: string;
   tableLabel?: string;
   expiresAt: number;
 };
-
-/**
- * Names where the reviewer has to walk. The panel has no table of its own, so
- * the only true location is the team's table for this round. Each step down
- * drops a fact rather than guessing one.
- */
-function pageBody(claim: PushClaim) {
-  const where = claim.teamName === undefined
-    ? claim.roundName
-    : claim.tableLabel === undefined
-      ? `${claim.roundName} · ${claim.teamName}`
-      : `${claim.roundName} · ${claim.teamName} at ${claim.tableLabel}`;
-  return `${where}. Open Code2Create Ops now.`;
-}
 
 type PushOutcome = { ok: true; messageId: string } | PushFailure;
 

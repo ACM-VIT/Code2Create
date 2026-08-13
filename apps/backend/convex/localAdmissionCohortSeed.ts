@@ -1,24 +1,4 @@
-/**
- * An OPT-IN local seeder for a realistic admissions cohort: hundreds of idea
- * submissions with varied team sizes, year bands, review coverage, AI
- * criterion assessments, and novelty signals, so the capacity-driven cohort
- * view in `admissionCohort.ts` can be exercised at the scale it was built for
- * (300-400 teams against a people capacity) instead of the sixteen
- * demonstration teams `localDemoSeed.ts` creates.
- *
- * It is deliberately NOT part of the ordinary local seed: setting up local
- * development should stay fast, so this runs only when asked for by name,
- * with its own confirmation literal, and only against a local deployment.
- * Every chain it writes — person, subject, membership, profile, team member,
- * team, draft, project version, application — follows the same shape
- * `localDemoSeed.ts` builds, so the seeded rows are indistinguishable from
- * real ones to the queries under test. The one deliberate omission is the
- * per-participant self-service permission grants: they exist for participants
- * to act on their own team, which no admissions surface reads.
- *
- * Everything is deterministic in the team index, so re-running the seeder is
- * idempotent per team and two developers see the same cohort.
- */
+/** Opt-in deterministic local seed for a large admission cohort. */
 
 import { ConvexError, v } from "convex/values";
 
@@ -27,11 +7,15 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalMutation, type MutationCtx } from "./_generated/server";
 import { initializeAttendanceTeamAvailability } from "./lib/attendanceTeamAvailability";
 import { requireLocalDeployment } from "./lib/localBrowserFixtures";
+import {
+  completeLocalSubmissionSnapshot,
+  createLocalSubmissionSnapshot,
+} from "./lib/localSubmissionSnapshot";
 import { noveltyBandForScore, noveltyInputFingerprint } from "./lib/novelty";
+import { appendAdmissionJobReadFactById } from "./lib/operationsAutonomyReadFacts/admissionJobs";
 
 const hour = 60 * 60 * 1_000;
-// The same local event `localDevelopment.ts` seeds and `localDemoSeed.ts`
-// extends; this seeder adds to it rather than owning an event of its own.
+// Adds to the event created by localDevelopment.ts and extended by localDemoSeed.ts.
 const cohortEventSlug = "code2create-7";
 const cohortSourcePrefix = "local-admission-cohort";
 const teamsPerBatch = 15;
@@ -121,12 +105,7 @@ const noveltyThemes = [
   "Sustainable operations",
 ] as const;
 
-/**
- * Team sizes cycle through a weighted pattern rather than a uniform one so a
- * people capacity is meaningfully different from a team count: singles and
- * six-person teams both exist, and the running sum crosses any given capacity
- * mid-team somewhere. Average size ≈ 3.4 people, so 350 teams ≈ 1,190 people.
- */
+/** Weighted sizes make capacity in people differ from team count. */
 const teamSizePattern = [3, 4, 2, 4, 3, 5, 1, 4, 3, 6, 2, 4, 3, 5, 4, 2, 3, 4] as const;
 
 const bandPattern = [
@@ -150,9 +129,7 @@ const studyYearForBand: Record<(typeof bandPattern)[number], Doc<"participantPro
   mixed_or_external: "not_applicable",
 };
 
-// How many current human reviews a team carries. Zeroes are on purpose: an
-// application short of `minimumHumanReviews` is a state the cohort view has
-// to present honestly as "not decidable yet", so the seed must contain some.
+// Include review shortfalls so the not-decidable state is exercised.
 const reviewCountPattern = [2, 1, 0, 2, 3, 1, 2, 0, 1, 2] as const;
 
 type SeededDecision = "accept" | "waitlist" | "decline";
@@ -182,11 +159,7 @@ async function requireCohortEvent(ctx: MutationCtx) {
   return event;
 }
 
-/**
- * Three reviewer accounts shared by every seeded review, created on first use
- * and found by their deterministic auth ids afterwards. Reviews reference a
- * person, so these need no event membership or team.
- */
+/** Shared deterministic reviewers need person records but no event membership. */
 async function ensureCohortReviewers(ctx: MutationCtx, eventId: Id<"events">, now: number) {
   const reviewers: Id<"people">[] = [];
   for (const key of ["reviewer-1", "reviewer-2", "reviewer-3"]) {
@@ -238,12 +211,7 @@ function initialIdea(teamIndex: number) {
   return `We want to build ${mechanism} for ${subject} ${outcome}.`;
 }
 
-/**
- * A quality tier in 0..9, spread so it does not correlate with the band or
- * size patterns (their cycle lengths share no factor with 13). The tier
- * drives review recommendations and the AI outcome together, the way a
- * genuinely stronger submission tends to collect consistent signals.
- */
+/** Uses a coprime cycle so quality does not correlate with band or team size. */
 function qualityTier(teamIndex: number) {
   return (teamIndex * 13 + 5) % 10;
 }
@@ -365,9 +333,7 @@ async function createCohortTeam(
   const leadMembership = memberships[0];
   if (!leadMembership) throw new Error("A cohort team has no lead membership.");
 
-  // Which stage the application sits at. Most teams are live candidates; a
-  // sparse sprinkling of already-decided teams populates the committed and
-  // decided-out buckets so the capacity arithmetic has real seats to subtract.
+  // Seed a few terminal states so capacity calculations include committed seats.
   const decided: SeededDecision | null =
     (teamIndex + 1) % 23 === 0
       ? "accept"
@@ -393,6 +359,13 @@ async function createCohortTeam(
     publicCode,
     leadMembershipId: leadMembership._id,
     status: decided === "accept" ? "admitted" : "submitted",
+    activeMemberCount: memberships.length,
+    activeVitMemberCount: memberships.filter(
+      (membership) => membership.participantClass === "vit_student",
+    ).length,
+    activeExternalMemberCount: memberships.filter(
+      (membership) => membership.participantClass === "external_participant",
+    ).length,
     membershipLocked: true,
     trackLocked: true,
     version: 1,
@@ -417,10 +390,9 @@ async function createCohortTeam(
   }
 
   const idea = initialIdea(teamIndex);
-  // Roughly one team in six never ran the optional novelty preview, because
-  // "no novelty signal" is a case the cohort ordering has to handle.
+  // Leave some teams without the optional novelty signal.
   const noveltyScore = teamIndex % 6 === 5 ? null : (teamIndex * 37 + tier) % 101;
-  await ctx.db.insert("projectDrafts", {
+  const projectDraftId = await ctx.db.insert("projectDrafts", {
     eventId: event._id,
     teamId,
     trackCatalogVersionId: args.trackCatalogVersionId,
@@ -447,6 +419,18 @@ async function createCohortTeam(
     updatedAt: submittedAt,
   });
   const trackVersionId = cycle(args.trackVersionIds, teamIndex);
+  const submissionAttemptId = await createLocalSubmissionSnapshot(ctx, {
+    eventId: event._id,
+    team,
+    draftId: projectDraftId,
+    teamMemberIds,
+    participantPolicyVersionId: args.participantPolicyVersionId,
+    admissionPolicyVersionId: args.policy._id,
+    coreTrackVersionId: trackVersionId,
+    requesterMembershipId: leadMembership._id,
+    requesterPersonId: leadMembership.personId,
+    submittedAt,
+  });
   const projectVersionId = await ctx.db.insert("projectVersions", {
     eventId: event._id,
     teamId,
@@ -456,7 +440,8 @@ async function createCohortTeam(
     intakeResponses: [],
     coreTrackVersionId: trackVersionId,
     sponsorTrackVersionIds: [],
-    lockedTeamMemberIds: teamMemberIds,
+    lockedRosterSnapshotId: submissionAttemptId,
+    lockedMemberCount: teamMemberIds.length,
     lockedLeadMembershipId: leadMembership._id,
     freshForEventAttestation: {
       participantPolicyVersionId: args.participantPolicyVersionId,
@@ -502,6 +487,12 @@ async function createCohortTeam(
     version: decided ? 2 : 1,
     submittedAt,
   });
+  await completeLocalSubmissionSnapshot(ctx, {
+    submissionAttemptId,
+    projectVersionId,
+    applicationId,
+    completedAt: submittedAt,
+  });
 
   for (let reviewOrdinal = 0; reviewOrdinal < reviewCount; reviewOrdinal += 1) {
     const recommendation = reviewRecommendation(tier, reviewOrdinal);
@@ -518,9 +509,7 @@ async function createCohortTeam(
     });
   }
 
-  // Roughly two in three undecided applications carry a completed AI
-  // recommendation, assessed against every published criterion; the rest have
-  // none, which is the "unavailable" disposition path.
+  // Leave some undecided applications without an AI recommendation.
   if (!decided && teamIndex % 3 !== 2) {
     const assessments = ["meets", "partly_meets", "not_yet_clear"] as const;
     const recommendationId = await ctx.db.insert("admissionAIRecommendations", {
@@ -547,10 +536,12 @@ async function createCohortTeam(
       createdAt: submittedAt + 5 * 60_000,
       completedAt: submittedAt + 6 * 60_000,
     });
+    await appendAdmissionJobReadFactById(ctx, recommendationId, now);
     await ctx.db.patch(applicationId, { aiRecommendationId: recommendationId });
   }
 
   await ctx.db.patch(teamId, {
+    submissionAttemptId,
     lockedProjectVersionId: projectVersionId,
     lockedAt: submittedAt,
     lockParticipantPolicyVersionId: args.participantPolicyVersionId,
@@ -627,8 +618,7 @@ export const seedAdmissionCohort = action({
       Math.min(maximumTeamCount, Math.floor(args.teamCount ?? defaultTeamCount)),
     );
     let createdTeams = 0;
-    // Batched because one transaction cannot hold a whole cohort: a team is
-    // ~25 writes across its people, memberships, project, and signals.
+    // A whole cohort exceeds one transaction at roughly 25 writes per team.
     for (let startIndex = 0; startIndex < requestedTeams; startIndex += teamsPerBatch) {
       createdTeams += await ctx.runMutation(internal.localAdmissionCohortSeed.seedCohortBatch, {
         startIndex,

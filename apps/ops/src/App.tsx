@@ -14,6 +14,8 @@ import {
 import type { ConfigurationTabsVisibility } from './components/ConfigurationTabs'
 import { eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
+import { useOperationRunner } from './lib/operations'
+import { firstAvailablePath } from './lib/workspaceAccess'
 import { InitialEventSetup } from './screens/InitialEventSetup'
 
 const AdmissionDetail = lazy(() =>
@@ -43,8 +45,8 @@ const IntegrationOverview = lazy(() =>
 const HealthOverview = lazy(() =>
   import('./screens/HealthOverview').then((module) => ({ default: module.HealthOverview })),
 )
-const IntelligenceActivity = lazy(() =>
-  import('./screens/IntelligenceActivity').then((module) => ({ default: module.IntelligenceActivity })),
+const IntelligenceWorkspace = lazy(() =>
+  import('./screens/IntelligenceWorkspace').then((module) => ({ default: module.IntelligenceWorkspace })),
 )
 const EventSetupOverview = lazy(() =>
   import('./screens/EventSetupOverview').then((module) => ({ default: module.EventSetupOverview })),
@@ -107,6 +109,9 @@ const AdmissionPolicyConfiguration = lazy(() =>
 const CommunicationsPolicyConfiguration = lazy(() =>
   import('./screens/CommunicationsPolicyConfiguration').then((module) => ({ default: module.CommunicationsPolicyConfiguration })),
 )
+const IntegrationPolicyConfiguration = lazy(() =>
+  import('./screens/IntegrationPolicyConfiguration').then((module) => ({ default: module.IntegrationPolicyConfiguration })),
+)
 const IntelligencePolicyConfiguration = lazy(() =>
   import('./screens/IntelligencePolicyConfiguration').then((module) => ({ default: module.IntelligencePolicyConfiguration })),
 )
@@ -118,7 +123,7 @@ const CheckpointConfiguration = lazy(() =>
 )
 
 export default function App({ authClient }: { authClient: Code2CreateAuthClient }) {
-  const publicState = useQuery(api.system.getPublicState, { eventSlug })
+  const publicState = useQuery(api.system.getPublicShellState, { eventSlug })
   if (publicState === undefined) return <Centered>Loading…</Centered>
 
   return (
@@ -147,7 +152,7 @@ function Operations({
   authClient: Code2CreateAuthClient
   eventStatus: EventStage
 }) {
-  const access = useQuery(api.access.mine, { eventSlug })
+  const access = useQuery(api.access.operationsCapabilities, { eventSlug })
   const invitation = useQuery(api.accessInvitations.mine, { eventSlug })
   const roster = useQuery(api.rosters.mine, { eventSlug })
   const { data: session } = authClient.useSession()
@@ -163,114 +168,45 @@ function Operations({
   if (!access) {
     return <NoOperationsAccess authClient={authClient} />
   }
-  const canViewAdmissions = access.grants.some((grant) => grant.permissionKey.startsWith('application.'))
-  const canViewEventLifecycle = access.grants.some(
-    (grant) => grant.permissionKey === 'event.lifecycle.read' && grant.scopeType === 'event',
-  )
-  const canViewTrackConfiguration = access.grants.some(
-    (grant) => grant.permissionKey === 'configuration.read' && grant.scopeType === 'event',
-  )
-  const canViewPhaseConfiguration = access.grants.some(
-    (grant) => grant.permissionKey === 'configuration.phase.read' && grant.scopeType === 'event',
-  )
-  const canViewIntakeConfiguration = access.grants.some(
-    (grant) => grant.permissionKey === 'configuration.intake.read' && grant.scopeType === 'event',
-  )
-  const canViewNoveltyConfiguration = access.grants.some(
-    (grant) => grant.permissionKey === 'configuration.novelty.read' && grant.scopeType === 'event',
-  )
-  const canViewParticipantConfiguration = access.grants.some(
-    (grant) => grant.permissionKey === 'configuration.participant.read' && grant.scopeType === 'event',
-  )
-  const canViewAdmissionConfiguration = access.grants.some(
-    (grant) => grant.permissionKey === 'configuration.admission.read' && grant.scopeType === 'event',
-  )
-  const canViewCommunicationsConfiguration = access.grants.some(
-    (grant) => grant.permissionKey === 'configuration.communications.read' && grant.scopeType === 'event',
-  )
-  const canViewIntelligenceConfiguration = access.grants.some(
-    (grant) => grant.permissionKey === 'configuration.intelligence.read' && grant.scopeType === 'event',
-  )
-  const canViewCheckpointConfiguration = access.grants.some(
-    (grant) => grant.permissionKey === 'configuration.checkpoint.read' && grant.scopeType === 'event',
-  )
-  const canViewAttendance = access.grants.some(
-    (grant) => grant.permissionKey.startsWith('attendance.') || grant.permissionKey === 'configuration.manage',
-  )
-  const canSetupAttendance = access.grants.some(
-    (grant) => grant.permissionKey === 'configuration.manage' || grant.permissionKey === 'attendance.plan.publish',
-  )
-  const canReadPeople = access.grants.some(
-    (grant) => grant.permissionKey === 'access.permissions.read',
-  )
-  const canInvite = access.grants.some(
-    (grant) => grant.permissionKey === 'access.subjects.invite' && grant.scopeType === 'event',
-  )
-  const canReadBundles = access.grants.some(
-    (grant) => grant.permissionKey === 'access.permission_bundles.read',
-  )
-  const canReadRoster = access.grants.some(
-    (grant) => grant.permissionKey.startsWith('access.roster.'),
-  )
+  const capabilities = access
+  const canViewAdmissions = capabilities.admissions
+  const canViewEventLifecycle = capabilities.eventLifecycle
+  const canViewTrackConfiguration = capabilities.trackConfiguration
+  const canViewPhaseConfiguration = capabilities.phaseConfiguration
+  const canViewIntakeConfiguration = capabilities.intakeConfiguration
+  const canViewNoveltyConfiguration = capabilities.noveltyConfiguration
+  const canViewParticipantConfiguration = capabilities.participantConfiguration
+  const canViewAdmissionConfiguration = capabilities.admissionConfiguration
+  const canViewCommunicationsConfiguration = capabilities.communicationsConfiguration
+  const canViewIntegrationConfiguration = capabilities.integrationConfiguration
+  const canViewIntelligenceConfiguration = capabilities.intelligenceConfiguration
+  const canViewCheckpointConfiguration = capabilities.checkpointConfiguration
+  const canViewAttendance = capabilities.attendance
+  const canSetupAttendance = capabilities.attendanceSetup
+  const canReadPeople = capabilities.accessPeople
+  const canBrowsePeople = capabilities.accessDirectory
+  const canInvite = capabilities.invitations
+  const canReadBundles = capabilities.bundles
+  const canReadRoster = capabilities.roster
   const canViewAccess = canReadPeople || canInvite || canReadBundles || canReadRoster
-  const canViewIntegrations = access.grants.some(
-    (grant) => grant.permissionKey === 'integration.read',
-  )
-  const canViewProjectCheckpoints = access.grants.some(
-    (grant) => grant.permissionKey === 'project.checkpoint.read' && grant.scopeType === 'event',
-  )
-  const canViewReviews = access.grants.some(
-    (grant) =>
-      grant.permissionKey.startsWith('review.') ||
-      grant.permissionKey.startsWith('reviewer.') ||
-      grant.permissionKey.startsWith('round.') ||
-      grant.permissionKey.startsWith('panel.') ||
-      grant.permissionKey.startsWith('queue.'),
-  )
-  const canViewScores = access.grants.some(
-    (grant) => grant.permissionKey === 'score.completeness.read',
-  )
-  const canViewSynesthesia = access.grants.some(
-    (grant) => grant.permissionKey.startsWith('synesthesia.'),
-  )
-  const canViewHealth = access.grants.some(
-    (grant) => grant.permissionKey === 'operations.health.read' && grant.scopeType === 'event',
-  )
-  const canReadIntelligence = access.grants.some(
-    (grant) => grant.permissionKey === 'operations.intelligence.read' && grant.scopeType === 'event',
-  )
-  const canGenerateIntelligence = access.grants.some(
-    (grant) => grant.permissionKey === 'operations.intelligence.generate' && grant.scopeType === 'event',
-  )
-  const canManageAttention = access.grants.some(
-    (grant) => grant.permissionKey === 'operations.attention.manage' && grant.scopeType === 'event',
-  )
-  const canViewSupport = access.grants.some(
-    (grant) =>
-      (grant.permissionKey === 'support.case.create' && grant.scopeType === 'event') ||
-      ((grant.permissionKey === 'support.case.read' || grant.permissionKey === 'support.case.manage') &&
-        (grant.scopeType === 'event' || grant.scopeType === 'support_case')),
-  )
-  const canViewRehearsal = access.grants.some(
-    (grant) => grant.permissionKey.startsWith('rehearsal.'),
-  )
-  const canReadEmergencyPack = access.grants.some(
-    (grant) => grant.permissionKey === 'emergency_pack.read' && grant.scopeType === 'event',
-  )
-  const canPrepareEmergencyPack = access.grants.some(
-    (grant) => grant.permissionKey === 'emergency_pack.prepare' && grant.scopeType === 'event',
-  )
-  const canPrintEmergencyPack = access.grants.some(
-    (grant) => grant.permissionKey === 'emergency_pack.print' && grant.scopeType === 'event',
-  )
-  const canViewEmergencyPack =
-    canReadEmergencyPack || canPrepareEmergencyPack || canPrintEmergencyPack
-  const canReadFloorLocations = access.grants.some(
-    (grant) => grant.permissionKey === 'floor.location.read',
-  )
-  const canReadFloorConfiguration = access.grants.some(
-    (grant) => grant.permissionKey.startsWith('floor.plan.'),
-  )
+  const canViewIntegrations = capabilities.integrations
+  const canViewProjectCheckpoints = capabilities.projectCheckpoints
+  const canViewReviews = capabilities.reviews
+  const canViewScores = capabilities.scores
+  const canViewSynesthesia = capabilities.synesthesia
+  const canViewHealth = capabilities.health
+  const canReadIntelligence = capabilities.intelligenceRead
+  const canGenerateIntelligence = capabilities.intelligenceGenerate
+  const canViewIntelligence = capabilities.intelligence
+  const canManageAttention = capabilities.attentionManage
+  const canViewSupport = capabilities.support
+  const canViewRehearsal = capabilities.rehearsal
+  const canReadEmergencyPack = capabilities.emergencyPackRead
+  const canPrepareEmergencyPack = capabilities.emergencyPackPrepare
+  const canPrintEmergencyPack = capabilities.emergencyPackPrint
+  const canViewEmergencyPack = capabilities.emergencyRecovery
+  const canReadFloorLocations = capabilities.floorLocations
+  const canReadFloorConfiguration = capabilities.floorConfiguration
   const configurationPath = canViewEventLifecycle ||
     canViewTrackConfiguration ||
     canViewParticipantConfiguration ||
@@ -278,12 +214,12 @@ function Operations({
     canViewIntakeConfiguration ||
     canViewNoveltyConfiguration ||
     canViewCommunicationsConfiguration ||
+    canViewIntegrationConfiguration ||
     canViewIntelligenceConfiguration ||
     canViewPhaseConfiguration ||
     canViewCheckpointConfiguration ||
     canSetupAttendance ||
-    canReadFloorConfiguration ||
-    canViewIntegrations
+    canReadFloorConfiguration
     ? '/configuration'
     : null
   const configurationTabs: ConfigurationTabsVisibility = {
@@ -296,27 +232,21 @@ function Operations({
     showAdmissions: canViewAdmissionConfiguration,
     showCommunications: canViewCommunicationsConfiguration,
     showFloor: canReadFloorConfiguration,
-    showIntegrations: canViewIntegrations,
+    showIntegrations: canViewIntegrationConfiguration,
     showIntelligence: canViewIntelligenceConfiguration,
     showPhases: canViewPhaseConfiguration,
     showCheckpoints: canViewCheckpointConfiguration,
   }
-  const canReadReviewConfiguration = access.grants.some(
-    (grant) => grant.permissionKey === 'review.configuration.read' && grant.scopeType === 'event',
-  )
-  const canPublishReviewConfiguration = access.grants.some(
-    (grant) => grant.permissionKey === 'review.configuration.publish' && grant.scopeType === 'event',
-  )
-  const canReadReviewerProfiles = access.grants.some(
-    (grant) => grant.permissionKey === 'reviewer.profile.read' && grant.scopeType === 'event',
-  )
+  const canReadReviewConfiguration = capabilities.reviewConfigurationRead
+  const canPublishReviewConfiguration = capabilities.reviewConfigurationPublish
+  const canReadReviewerProfiles = capabilities.reviewerProfilesRead
   const canOpenReviewSetup = canReadReviewConfiguration || canReadReviewerProfiles
   const navigation: OperationsNavigationGroup[] = [
     {
       label: 'Now',
       items: [
         ...(canViewHealth ? [{ label: 'Overview', to: '/', icon: 'home' as const }] : []),
-        ...(canReadIntelligence ? [{ label: 'Agent activity', to: '/intelligence', icon: 'pulse' as const }] : []),
+        ...(canViewIntelligence ? [{ label: 'Intelligence', to: '/intelligence', icon: 'pulse' as const }] : []),
         ...(canViewSupport ? [{ label: 'Help desk', to: '/support', icon: 'lifebuoy' as const }] : []),
       ],
     },
@@ -345,15 +275,13 @@ function Operations({
       label: 'Manage',
       items: [
         ...(configurationPath ? [{ label: 'Event setup', to: configurationPath, icon: 'sliders' as const }] : []),
+        ...(canOpenReviewSetup && !canViewReviews ? [{ label: 'Review setup', to: '/review-setup', icon: 'gavel' as const }] : []),
         ...(canViewAccess ? [{ label: 'People and permissions', to: '/access', icon: 'users' as const }] : []),
         ...(canViewRehearsal ? [{ label: 'Test run', to: '/rehearsal', icon: 'flask' as const }] : []),
         ...(canViewEmergencyPack ? [{ label: 'Recovery', to: '/emergency-pack', icon: 'shield' as const }] : []),
       ],
     },
   ].filter((group) => group.items.length > 0)
-  // The event moves through stages and only a few destinations matter in each.
-  // Showing all fourteen at once is what makes the shell unreadable, so this
-  // stage's destinations come first and the rest stay one click away.
   const stage = eventStageGuidance[eventStatus]
   const allItems = navigation.flatMap((group) => group.items)
   const nowItems = stage.primaryPaths
@@ -367,11 +295,13 @@ function Operations({
     .filter((group) => group.items.length > 0)
   const defaultPath = firstAvailablePath(
     [canViewHealth, '/'],
+    [canViewIntelligence, '/intelligence'],
     [canViewAdmissions, '/admissions'],
     [canViewAttendance, '/attendance'],
     [canReadFloorLocations, '/floor'],
     [canReadFloorConfiguration, '/floor-setup'],
     [canViewReviews, '/reviews'],
+    [canOpenReviewSetup, '/review-setup'],
     [canViewSupport, '/support'],
     [canViewScores, '/scores'],
     [canViewProjectCheckpoints, '/checkpoints'],
@@ -401,19 +331,37 @@ function Operations({
             path="/"
             element={(
               <HealthOverview
-                canGenerateIntelligence={canGenerateIntelligence}
-                canReadIntelligence={canReadIntelligence}
                 canManageAttention={canManageAttention}
               />
             )}
           />
         ) : null}
-        {canReadIntelligence ? <Route path="/intelligence" element={<IntelligenceActivity />} /> : null}
+        {canViewIntelligence ? (
+          <Route
+            path="/intelligence"
+            element={(
+              <IntelligenceWorkspace
+                canGenerate={canGenerateIntelligence}
+                canRead={canReadIntelligence}
+              />
+            )}
+          />
+        ) : null}
         {canViewRehearsal ? <Route path="/rehearsal" element={<Rehearsal />} /> : null}
         {canViewSupport ? <Route path="/support" element={<SupportDesk />} /> : null}
-        {canViewAdmissions ? <Route path="/admissions" element={<AdmissionsQueue access={access} />} /> : null}
         {canViewAdmissions ? (
-          <Route path="/admissions/:applicationId" element={<AdmissionDetail access={access} />} />
+          <Route
+            path="/admissions"
+            element={(
+              <AdmissionsQueue
+                canReadApplications={capabilities.applicationRead}
+                canReadAssignments={capabilities.applicationReviewRead}
+              />
+            )}
+          />
+        ) : null}
+        {canViewAdmissions ? (
+          <Route path="/admissions/:applicationId" element={<AdmissionDetail />} />
         ) : null}
         {configurationPath ? (
           <Route
@@ -485,6 +433,16 @@ function Operations({
             )}
           />
         ) : null}
+        {canViewIntegrationConfiguration ? (
+          <Route
+            path="/configuration/integrations"
+            element={(
+              <Suspense fallback={<p className="muted">Loading code and design policy…</p>}>
+                <IntegrationPolicyConfiguration tabs={configurationTabs} />
+              </Suspense>
+            )}
+          />
+        ) : null}
         {canViewIntelligenceConfiguration ? (
           <Route
             path="/configuration/intelligence"
@@ -550,7 +508,7 @@ function Operations({
               <Suspense fallback={<p className="muted">Loading emergency pack…</p>}>
                 <EmergencyPack
                   canPrepare={canPrepareEmergencyPack}
-                  canPrint={canPrintEmergencyPack}
+                  canPrint={canReadEmergencyPack && canPrintEmergencyPack}
                   canRead={canReadEmergencyPack}
                 />
               </Suspense>
@@ -569,7 +527,6 @@ function Operations({
             path="/review-setup"
             element={(
               <ReviewSetup
-                access={access}
                 canPublish={canPublishReviewConfiguration}
                 canReadConfiguration={canReadReviewConfiguration}
                 canReadProfiles={canReadReviewerProfiles}
@@ -585,6 +542,7 @@ function Operations({
               <AccessDirectory
                 canInvite={canInvite}
                 canReadBundles={canReadBundles}
+                canBrowsePeople={canBrowsePeople}
                 canReadPeople={canReadPeople}
                 canReadRoster={canReadRoster}
               />
@@ -612,17 +570,13 @@ function Operations({
           />
         ) : null}
         {canReadPeople ? (
-          <Route path="/access/:personId" element={<AccessPerson access={access} />} />
+          <Route path="/access/:personId" element={<AccessPerson />} />
         ) : null}
           <Route path="*" element={<Navigate replace to={defaultPath} />} />
         </Routes>
       </Suspense>
     </OperationsLayout>
   )
-}
-
-function firstAvailablePath(...options: readonly (readonly [enabled: boolean, path: string])[]) {
-  return options.find(([enabled]) => enabled)?.[1] ?? null
 }
 
 type Invitation = NonNullable<FunctionReturnType<typeof api.accessInvitations.mine>>
@@ -636,6 +590,7 @@ function RosterClaim({
   roster: RosterEntry
 }) {
   const claim = useMutation(api.rosters.claim)
+  const operations = useOperationRunner()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -643,12 +598,12 @@ function RosterClaim({
     setBusy(true)
     setError(null)
     try {
-      await claim({
+      await operations.run('roster-claim', (clientOperationId) => () => claim({
         eventSlug,
         rosterEntryId: roster.id,
         expectedVersion: roster.version,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
     } catch (caught) {
       setError(readableError(caught))
       setBusy(false)
@@ -693,6 +648,7 @@ function InvitationClaim({
   invitation: Invitation
 }) {
   const claim = useMutation(api.accessInvitations.claim)
+  const operations = useOperationRunner()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -700,12 +656,12 @@ function InvitationClaim({
     setBusy(true)
     setError(null)
     try {
-      await claim({
+      await operations.run('invitation-claim', (clientOperationId) => () => claim({
         eventSlug,
         invitationId: invitation.id,
         expectedVersion: invitation.version,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
     } catch (caught) {
       setError(readableError(caught))
       setBusy(false)
@@ -771,9 +727,14 @@ function SignIn({
   const signIn = async () => {
     setBusy(true)
     setError(null)
-    const result = await authClient.signIn.social({ provider: 'google', callbackURL: window.location.href })
-    if (result.error) setError(result.error.message || 'Google sign-in could not be completed.')
-    setBusy(false)
+    try {
+      const result = await authClient.signIn.social({ provider: 'google', callbackURL: window.location.href })
+      if (result.error) setError(result.error.message || 'Google sign-in could not be completed.')
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
   }
   const signInLocally = async () => {
     setBusy(true)

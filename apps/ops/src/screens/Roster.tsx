@@ -10,6 +10,7 @@ import { Icon, type IconName } from '../components/Icon'
 import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 type Workspace = FunctionReturnType<typeof api.rosters.workspace>
 type Entry = Workspace['entries'][number]
@@ -17,11 +18,8 @@ type PreviewRequest = FunctionArgs<typeof api.rosters.previewImport>
 type ImportRow = PreviewRequest['rows'][number]
 type RosterRole = ImportRow['role']
 type BundleVersionId = PreviewRequest['bundleVersionIds'][number]
+type ImportResult = FunctionReturnType<typeof api.rosters.confirmImport>
 
-/**
- * What a reader is doing on this screen, in the order they need it: someone who
- * was invited and has not arrived is work; someone who signed in is done.
- */
 type EntryGroup = 'lapsed' | 'waiting' | 'signed_in' | 'ended'
 
 const maximumCsvBytes = 256 * 1024
@@ -30,10 +28,6 @@ const maximumBundleSelections = 8
 const rosterRoles = ['supreme', 'board', 'sc', 'jc', 'external_judge'] as const
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-/**
- * The CSV takes the role written the way the dashboard says it, as well as the
- * stored key, so nobody has to know that Senior Core is filed as `sc`.
- */
 const roleByWrittenForm = new Map<string, RosterRole>(
   rosterRoles.flatMap((role) => [
     [role, role] as const,
@@ -57,6 +51,7 @@ export function Roster() {
     { initialNumItems: 50 },
   )
   const confirmImport = useMutation(api.rosters.confirmImport)
+  const operations = useOperationRunner<ImportResult>()
   const [showImport, setShowImport] = useState(false)
   const [loadedRoster, setLoadedRoster] = useState<{
     fileName: string
@@ -176,11 +171,13 @@ export function Roster() {
     setError(null)
     setMessage(null)
     try {
-      const result = await confirmImport({
-        ...previewRequest,
-        previewChecksum: preview.previewChecksum,
-        clientOperationId: crypto.randomUUID(),
-      })
+      const result = await operations.run(
+        'roster-import', (clientOperationId) => () => confirmImport({
+          ...previewRequest,
+          previewChecksum: preview.previewChecksum,
+          clientOperationId,
+        }),
+      )
       setMessage(
         `Added ${result.createdCount} ${people(result.createdCount)}, replaced ${result.replacedCount} ${invitations(result.replacedCount)}, left ${result.unchangedCount} unchanged, and skipped ${result.alreadyClaimedCount} who had already signed in.`,
       )
@@ -397,8 +394,6 @@ export function Roster() {
         </section>
       ) : null}
 
-      {/* An empty list needs no marker of its own: the block at the top of the
-          page already says nobody has been added and what that costs. */}
       {loadingPeople ? (
         <SkeletonList rows={5} />
       ) : entries.length === 0 ? null : (
@@ -481,6 +476,7 @@ function RosterPreview({
 
 function RosterEntry({ entry }: { entry: Entry }) {
   const revoke = useMutation(api.rosters.revoke)
+  const operations = useOperationRunner()
   const [confirming, setConfirming] = useState(false)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
@@ -495,13 +491,15 @@ function RosterEntry({ entry }: { entry: Entry }) {
     setBusy(true)
     setError(null)
     try {
-      await revoke({
-        eventSlug,
-        rosterEntryId: entry.id,
-        expectedVersion: entry.version,
-        reason,
-        clientOperationId: crypto.randomUUID(),
-      })
+      await operations.run(
+        'roster-revoke', (clientOperationId) => () => revoke({
+          eventSlug,
+          rosterEntryId: entry.id,
+          expectedVersion: entry.version,
+          reason,
+          clientOperationId,
+        }),
+      )
       setConfirming(false)
       setReason('')
     } catch (caught) {
@@ -561,7 +559,6 @@ function RosterEntry({ entry }: { entry: Entry }) {
   )
 }
 
-/** Work first: people who cannot get in, then people who have not arrived. */
 function orderedEntries(entries: readonly Entry[], group: EntryGroup) {
   const rows = entries.filter((entry) => entryGroup(entry.status) === group)
   return rows.sort((left, right) =>

@@ -30,6 +30,9 @@ yarn-error.log*
 !apps/ops/.env.development
 !apps/handbook/.env.development
 
+# local native provider configuration
+/apps/reviewer/google-services.json
+
 # build output and local tool state, at any workspace depth
 dist/
 .wrangler/

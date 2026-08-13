@@ -7,13 +7,28 @@ import {
 	operationsHealthStatuses,
 	operationsIntelligenceProtocolVersion,
 	operationsIntelligenceReadNames,
+	supportCaseCategoryOrder,
 } from '@code2create/domain';
 import * as v from 'valibot';
+
+import { autonomyDeepReadSchemas } from './lib/autonomyDeepReadSchemas.ts';
 
 const boundedText = (minimum: number, maximum: number) =>
 	v.pipe(v.string(), v.minLength(minimum), v.maxLength(maximum));
 
 const nonNegativeInteger = v.pipe(v.number(), v.integer(), v.minValue(0));
+const positiveInteger = v.pipe(v.number(), v.integer(), v.minValue(1));
+const maximumAttentionRows = 100;
+const maximumReviewRounds = 20;
+const maximumReviewPanelsPerRound = 100;
+const maximumReviewExceptionRows = 100;
+const maximumAttendanceSessions = 64;
+const maximumFloorZones = 30;
+const maximumAutonomySupportRows = 4;
+const maximumRecommendationHistoryRows = 50;
+const maximumAdmissionSearchRows = 25;
+const maximumAdmissionPolicyCriteria = 20;
+const maximumAdmissionCohortCandidates = 48;
 
 const healthSignal = v.strictObject({
 	key: v.picklist(operationsHealthSignalKeys),
@@ -21,8 +36,8 @@ const healthSignal = v.strictObject({
 	severity: v.picklist(operationsHealthSeverities),
 	title: boundedText(1, 160),
 	detail: boundedText(1, 500),
-	owner: boundedText(1, 100),
-	nextAction: boundedText(1, 300),
+	owner: boundedText(2, 80),
+	nextAction: boundedText(4, 240),
 	count: nonNegativeInteger,
 	atLeast: v.boolean(),
 	oldestAt: v.optional(nonNegativeInteger),
@@ -78,6 +93,20 @@ export const operationsBriefOutputSchema = v.strictObject({
 	priorities: v.pipe(v.array(operationsBriefPrioritySchema), v.maxLength(3)),
 });
 
+/** The only model-authored input accepted by the authoritative brief renderer. */
+export const operationsBriefSelectionSchema = v.strictObject({
+	prioritySignalGroups: v.pipe(
+		v.array(
+			v.pipe(
+				v.array(v.picklist(operationsHealthSignalKeys)),
+				v.minLength(1),
+				v.maxLength(6),
+			),
+		),
+		v.maxLength(3),
+	),
+});
+
 export type OperationsIntelligenceInput = v.InferOutput<
 	typeof operationsIntelligenceRequestSchema
 >;
@@ -91,11 +120,7 @@ const callbackBase = {
 	completedAt: nonNegativeInteger,
 };
 
-/**
- * The signed body this Worker delivers to Convex. Convex re-validates it; the
- * evaluation suite parses the delivered body with this schema so a live run is
- * scored against a named type rather than an untyped payload.
- */
+/** Shared validation for signed callbacks at Convex and in live evaluations. */
 export const operationsIntelligenceCallbackSchema = v.variant('status', [
 	v.strictObject({
 		...callbackBase,
@@ -115,38 +140,35 @@ export type OperationsIntelligenceCallbackBody = v.InferOutput<
 	typeof operationsIntelligenceCallbackSchema
 >;
 
-/**
- * Convex document ids travel as opaque strings on this boundary. The Worker
- * never derives meaning from one; it only hands them back to Convex, which
- * normalizes them into the right table or refuses.
- */
+/** Keeps Convex IDs opaque until Convex validates their table and ownership. */
 const convexId = boundedText(1, 64);
 
 export const operationsCopilotRequestSchema = v.strictObject({
 	protocolVersion: v.literal(operationsIntelligenceProtocolVersion),
-	conversationId: boundedText(1, 200),
-	eventSlug: boundedText(1, 120),
+	conversationId: v.pipe(v.string(), v.regex(/^cv_[a-f0-9]{64}$/u)),
+	turnId: v.pipe(v.string(), v.minLength(1), v.maxLength(200), v.regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/)),
+	eventSlug: v.pipe(
+		boundedText(1, 120),
+		v.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+	),
 	message: boundedText(1, 4_000),
 });
 
 export type OperationsCopilotRequest = v.InferOutput<typeof operationsCopilotRequestSchema>;
 
 export const operationsCopilotInitialDataSchema = v.strictObject({
-	conversationId: boundedText(1, 200),
-	eventSlug: boundedText(1, 120),
+	conversationId: v.pipe(v.string(), v.regex(/^cv_[a-f0-9]{64}$/u)),
+	eventSlug: v.pipe(
+		boundedText(1, 120),
+		v.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+	),
 });
 
 export type OperationsCopilotInitialData = v.InferOutput<
 	typeof operationsCopilotInitialDataSchema
 >;
 
-/**
- * What Convex returns for each whitelisted read, re-validated on this side so
- * the model only ever sees data that matches the shape Convex promised.
- * Aggregate counts, operational labels, statuses, ids, and timestamps; the
- * enums Convex owns (detector keys, statuses that may grow) are validated as
- * bounded text so a new backend value does not break a deployed Worker.
- */
+/** Validates redacted operations-read responses before model access. */
 const attentionSeverity = v.picklist(['critical', 'attention', 'watch']);
 
 const reviewStateCounts = v.strictObject({
@@ -175,7 +197,8 @@ export const platformReadSchemas = {
 	operations_health: operationsHealthSnapshotSchema,
 	operations_attention: v.strictObject({
 		generatedAt: nonNegativeInteger,
-		items: v.array(
+		atLeast: v.boolean(),
+		items: v.pipe(v.array(
 			v.strictObject({
 				itemId: convexId,
 				detectorKey: boundedText(1, 80),
@@ -183,75 +206,99 @@ export const platformReadSchemas = {
 				severity: attentionSeverity,
 				statement: boundedText(1, 500),
 				state: v.picklist(['open', 'acknowledged']),
+				version: positiveInteger,
 				recurrenceCount: nonNegativeInteger,
 				firstObservedAt: nonNegativeInteger,
 				lastObservedAt: nonNegativeInteger,
 			}),
-		),
+		), v.maxLength(maximumAttentionRows)),
 	}),
 	review_rounds: v.strictObject({
 		generatedAt: nonNegativeInteger,
-		rounds: v.array(
+		rounds: v.pipe(v.array(
 			v.strictObject({
 				roundId: convexId,
 				name: boundedText(1, 160),
-				status: boundedText(1, 40),
+				status: v.picklist(['draft', 'published', 'open', 'closing', 'closed']),
 				startsAt: nonNegativeInteger,
 				endsAt: nonNegativeInteger,
 				isPaused: v.boolean(),
 				stateCounts: reviewStateCounts,
-				panels: v.array(
+				panels: v.pipe(v.array(
 					v.strictObject({
 						panelId: convexId,
 						name: boundedText(1, 160),
-						status: boundedText(1, 40),
+						status: v.picklist([
+							'draft',
+							'ready',
+							'needs_reviewer',
+							'paused',
+							'closed',
+						]),
 						queuedCount: nonNegativeInteger,
 						activeReviewCount: nonNegativeInteger,
 					}),
-				),
+				), v.maxLength(maximumReviewPanelsPerRound)),
 			}),
-		),
+		), v.maxLength(maximumReviewRounds)),
 	}),
 	review_exceptions: v.strictObject({
 		generatedAt: nonNegativeInteger,
-		vacancies: v.array(
+		vacancies: v.pipe(v.array(
 			v.strictObject({
 				missingPanelMemberId: convexId,
 				panelId: convexId,
 				panelName: boundedText(1, 160),
+				panelVersion: positiveInteger,
 				roundId: convexId,
 				roundName: boundedText(1, 160),
 				vacantSince: v.optional(nonNegativeInteger),
 			}),
-		),
-		teams: v.array(
+		), v.maxLength(maximumReviewExceptionRows)),
+		teams: v.pipe(v.array(
 			v.strictObject({
 				teamRoundStateId: convexId,
 				roundId: convexId,
-				state: boundedText(1, 40),
+				state: v.picklist(['queued', 'called', 'at_table', 'held', 'missed']),
+				version: positiveInteger,
 				callAttemptCount: nonNegativeInteger,
 				queuedAt: v.optional(nonNegativeInteger),
 				heldAt: v.optional(nonNegativeInteger),
 				missedAt: v.optional(nonNegativeInteger),
 				tableLabel: v.optional(boundedText(1, 80)),
 			}),
-		),
+		), v.maxLength(maximumReviewExceptionRows)),
 		atLeast: v.boolean(),
 	}),
 	attendance_counts: v.strictObject({
 		generatedAt: nonNegativeInteger,
 		venueCheckedIn: nonNegativeInteger,
-		sessions: v.array(
+		sessions: v.pipe(v.array(
 			v.strictObject({
 				sessionId: convexId,
 				name: boundedText(1, 160),
-				kind: boundedText(1, 40),
-				status: boundedText(1, 40),
+				kind: v.picklist([
+					'hacking',
+					'briefing',
+					'review_preparation',
+					'overnight_access',
+					'workshop',
+					'other',
+				]),
+				status: v.picklist([
+					'scheduled',
+					'preparing',
+					'ready',
+					'open',
+					'closing',
+					'closed',
+					'cancelled',
+				]),
 				startsAt: nonNegativeInteger,
 				endsAt: nonNegativeInteger,
 				counts: attendanceStateCounts,
 			}),
-		),
+		), v.maxLength(maximumAttendanceSessions)),
 	}),
 	floor_mapping_progress: v.strictObject({
 		generatedAt: nonNegativeInteger,
@@ -259,20 +306,20 @@ export const platformReadSchemas = {
 			v.strictObject({
 				name: boundedText(1, 160),
 				planNumber: nonNegativeInteger,
-				mappingState: boundedText(1, 40),
+				mappingState: v.picklist(['setup', 'open', 'frozen']),
 			}),
 		),
 		eligibleTeamCount: nonNegativeInteger,
 		mappedTeamCount: nonNegativeInteger,
 		unmappedTeamCount: nonNegativeInteger,
 		lastMappedAt: v.optional(nonNegativeInteger),
-		zones: v.array(
+		zones: v.pipe(v.array(
 			v.strictObject({
 				zoneId: convexId,
 				name: boundedText(1, 160),
 				mappedTeamCount: nonNegativeInteger,
 			}),
-		),
+		), v.maxLength(maximumFloorZones)),
 	}),
 	support_load: v.strictObject({
 		generatedAt: nonNegativeInteger,
@@ -283,26 +330,55 @@ export const platformReadSchemas = {
 			resolved: nonNegativeInteger,
 			closed: nonNegativeInteger,
 		}),
-		openByCategory: v.array(
-			v.strictObject({ category: boundedText(1, 60), count: nonNegativeInteger }),
+		openByCategory: v.pipe(
+			v.array(
+				v.strictObject({
+					category: v.picklist(supportCaseCategoryOrder),
+					count: nonNegativeInteger,
+				}),
+			),
+			v.maxLength(supportCaseCategoryOrder.length),
 		),
-		unassignedOpenCount: nonNegativeInteger,
+		unassignedActiveCount: nonNegativeInteger,
 		oldestOpenAt: v.optional(nonNegativeInteger),
 		atLeast: v.boolean(),
+		cases: v.pipe(
+			v.array(v.strictObject({
+				caseId: convexId,
+				category: v.picklist(supportCaseCategoryOrder),
+				state: v.picklist([
+					'open',
+					'investigating',
+					'waiting',
+					'resolved',
+					'closed',
+				]),
+				createdAt: nonNegativeInteger,
+				teamId: v.optional(convexId),
+				roundId: v.optional(convexId),
+			})),
+			v.maxLength(maximumAutonomySupportRows),
+		),
 	}),
+	...autonomyDeepReadSchemas,
 	recommendation_history: v.strictObject({
 		generatedAt: nonNegativeInteger,
-		recommendations: v.array(
+		recommendations: v.pipe(v.array(
 			v.strictObject({
 				proposalKey: boundedText(1, 200),
-				kind: boundedText(1, 60),
+				kind: v.picklist([
+					'hold_review_team',
+					'page_reserve_reviewer',
+					'open_support_case',
+					'dismiss_attention_item',
+				]),
 				statement: boundedText(1, 300),
 				status: v.picklist(['proposed', 'approved', 'rejected', 'superseded']),
 				operatorNote: v.optional(boundedText(1, 1_000)),
 				proposedAt: nonNegativeInteger,
 				decidedAt: v.optional(nonNegativeInteger),
 			}),
-		),
+		), v.maxLength(maximumRecommendationHistoryRows)),
 	}),
 } as const;
 
@@ -311,18 +387,7 @@ export const platformReadEnvelopeSchema = v.strictObject({
 	data: v.unknown(),
 });
 
-/**
- * What Convex returns for the admission reads, re-validated here for the same
- * reason as the operations reads: the model only sees data matching the shape
- * Convex promised. These reads carry team names (already operator-visible on
- * the admissions list), ids, aggregate counts, year bands, and signals scored
- * against published policy — and by construction never a participant's name
- * or email. Enums Convex owns (states, bands, novelty bands, criterion
- * assessments) travel as bounded text so a new backend value does not break a
- * deployed Worker; whole-number checks are skipped where a value can be
- * legitimately negative (`remainingPeople` when committed seats already
- * exceed a proposed capacity).
- */
+/** Validates redacted admission-read responses before model access. */
 const admissionReviewCoverage = v.strictObject({
 	assigned: nonNegativeInteger,
 	completed: nonNegativeInteger,
@@ -333,29 +398,38 @@ const admissionReviewCoverage = v.strictObject({
 
 const admissionNoveltySignal = v.nullable(
 	v.strictObject({
-		score: nonNegativeInteger,
-		band: boundedText(1, 40),
+		score: v.pipe(nonNegativeInteger, v.maxValue(100)),
+		band: v.picklist(['familiar', 'developing', 'distinct']),
 		nearestThemeLabel: boundedText(1, 160),
-		nearestSimilarity: v.optional(v.number()),
+		nearestSimilarity: v.optional(v.pipe(v.number(), v.minValue(-1), v.maxValue(1))),
 	}),
 );
-
-const admissionRosterRow = v.strictObject({
-	applicationId: convexId,
-	teamId: convexId,
-	teamName: boundedText(1, 160),
-	state: boundedText(1, 40),
-	teamSize: nonNegativeInteger,
-});
 
 const admissionCohortCandidate = v.strictObject({
 	applicationId: convexId,
 	teamId: convexId,
 	teamName: boundedText(1, 160),
-	state: boundedText(1, 40),
+	state: v.picklist([
+		'submitted',
+		'under_review',
+		'needs_information',
+		'accepted',
+		'waitlisted',
+		'declined',
+		'offer_sent',
+		'confirmed',
+		'offer_expired',
+		'withdrawn',
+	]),
 	submittedAt: nonNegativeInteger,
-	experienceBand: boundedText(1, 40),
-	teamSize: nonNegativeInteger,
+	experienceBand: v.picklist([
+		'first_year',
+		'early_year',
+		'later_year',
+		'postgraduate_or_professional',
+		'mixed_or_external',
+	]),
+	teamSize: positiveInteger,
 	reviewCoverage: admissionReviewCoverage,
 	reviewSignal: v.strictObject({
 		accept: nonNegativeInteger,
@@ -365,22 +439,38 @@ const admissionCohortCandidate = v.strictObject({
 	}),
 	aiRecommendation: v.optional(
 		v.strictObject({
-			state: boundedText(1, 40),
+			state: v.picklist([
+				'pending',
+				'running',
+				'succeeded',
+				'refused',
+				'invalid',
+				'timed_out',
+				'rate_limited',
+				'failed',
+				'stale',
+				'disabled',
+			]),
 			current: v.boolean(),
-			recommendation: v.optional(boundedText(1, 40)),
-			confidence: v.optional(boundedText(1, 20)),
-			criterionAssessments: v.array(
-				v.strictObject({
-					criterionKey: boundedText(1, 80),
-					assessment: boundedText(1, 40),
-				}),
+			recommendation: v.optional(
+				v.picklist(['accept', 'waitlist', 'decline', 'needs_information']),
+			),
+			confidence: v.optional(v.picklist(['low', 'medium', 'high'])),
+			criterionAssessments: v.pipe(
+				v.array(
+					v.strictObject({
+						criterionKey: boundedText(1, 80),
+						assessment: v.picklist(['meets', 'partly_meets', 'not_yet_clear']),
+					}),
+				),
+				v.maxLength(maximumAdmissionPolicyCriteria),
 			),
 		}),
 	),
 	novelty: admissionNoveltySignal,
-	rank: nonNegativeInteger,
-	cumulativePeople: nonNegativeInteger,
-	entryCapacityPeople: nonNegativeInteger,
+	rank: positiveInteger,
+	cumulativePeople: positiveInteger,
+	entryCapacityPeople: positiveInteger,
 	suggestedIn: v.boolean(),
 });
 
@@ -392,12 +482,12 @@ export const admissionReadSchemas = {
 			version: boundedText(1, 80),
 			minimumHumanReviews: nonNegativeInteger,
 			overallParticipantCapacity: nonNegativeInteger,
-			criteria: v.array(
+			criteria: v.pipe(v.array(
 				v.strictObject({
 					criterionKey: boundedText(1, 80),
 					label: boundedText(1, 160),
 				}),
-			),
+			), v.maxLength(maximumAdmissionPolicyCriteria)),
 		}),
 		summary: v.strictObject({
 			capacityPeople: nonNegativeInteger,
@@ -406,36 +496,74 @@ export const admissionReadSchemas = {
 			remainingPeople: v.pipe(v.number(), v.integer()),
 			suggestedInTeamCount: nonNegativeInteger,
 			suggestedInNotYetDecidableCount: nonNegativeInteger,
-			bandMix: v.array(
-				v.strictObject({
-					band: boundedText(1, 40),
-					teamsIn: nonNegativeInteger,
-					peopleIn: nonNegativeInteger,
-					teamsOut: nonNegativeInteger,
-					peopleOut: nonNegativeInteger,
-				}),
+			bandMix: v.pipe(
+				v.array(
+					v.strictObject({
+						band: v.picklist([
+							'first_year',
+							'early_year',
+							'later_year',
+							'postgraduate_or_professional',
+							'mixed_or_external',
+						]),
+						teamsIn: nonNegativeInteger,
+						peopleIn: nonNegativeInteger,
+						teamsOut: nonNegativeInteger,
+						peopleOut: nonNegativeInteger,
+					}),
+				),
+				v.maxLength(5),
 			),
 		}),
-		committed: v.array(admissionRosterRow),
-		decidedOut: v.array(admissionRosterRow),
-		candidates: v.array(admissionCohortCandidate),
+		counts: v.strictObject({
+			committedTeams: nonNegativeInteger,
+			decidedOutTeams: nonNegativeInteger,
+			candidateTeams: nonNegativeInteger,
+		}),
+		window: v.strictObject({
+			startRank: nonNegativeInteger,
+			endRank: nonNegativeInteger,
+			hasEarlier: v.boolean(),
+			hasLater: v.boolean(),
+		}),
+		candidates: v.pipe(
+			v.array(admissionCohortCandidate),
+			v.maxLength(maximumAdmissionCohortCandidates),
+		),
 	}),
 	admission_submission_search: v.strictObject({
 		generatedAt: nonNegativeInteger,
 		searchQuery: boundedText(1, 200),
-		matches: v.array(
+		matches: v.pipe(v.array(
 			v.strictObject({
 				applicationId: convexId,
 				teamId: convexId,
 				teamName: boundedText(1, 160),
-				state: boundedText(1, 40),
-				experienceBand: boundedText(1, 40),
-				teamSize: nonNegativeInteger,
+				state: v.picklist([
+					'submitted',
+					'under_review',
+					'needs_information',
+					'accepted',
+					'waitlisted',
+					'declined',
+					'offer_sent',
+					'confirmed',
+					'offer_expired',
+					'withdrawn',
+				]),
+				experienceBand: v.picklist([
+					'first_year',
+					'early_year',
+					'later_year',
+					'postgraduate_or_professional',
+					'mixed_or_external',
+				]),
+				teamSize: positiveInteger,
 				ideaExcerpt: v.pipe(v.string(), v.maxLength(320)),
 				novelty: admissionNoveltySignal,
 				reviewCoverage: admissionReviewCoverage,
 			}),
-		),
+		), v.maxLength(maximumAdmissionSearchRows)),
 		truncated: v.boolean(),
 	}),
 } as const;
@@ -445,42 +573,23 @@ export const admissionReadEnvelopeSchema = v.strictObject({
 	data: v.unknown(),
 });
 
-/**
- * The support-case categories Convex accepts, restated for the proposal
- * schema: this one enum is load-bearing on a write path, so the Worker
- * refuses an unknown category before it travels.
- */
-export const copilotSupportCaseCategories = [
-	'identity',
-	'team',
-	'project_intake',
-	'track_configuration',
-	'attendance_credential',
-	'missing_scan',
-	'scanner_device',
-	'table_location',
-	'integration',
-	'queue',
-	'reviewer_device',
-	'scorecard',
-	'accessibility',
-	'safety',
-] as const;
-
+/** Rejects unsupported support categories before proposal delivery. */
 export const copilotRecommendationArgumentsSchema = v.variant('kind', [
 	v.strictObject({
 		kind: v.literal('hold_review_team'),
 		teamRoundStateId: convexId,
+		expectedTeamRoundStateVersion: positiveInteger,
 		reason: boundedText(5, 500),
 	}),
 	v.strictObject({
 		kind: v.literal('page_reserve_reviewer'),
 		missingPanelMemberId: convexId,
+		expectedPanelVersion: positiveInteger,
 		reason: boundedText(5, 500),
 	}),
 	v.strictObject({
 		kind: v.literal('open_support_case'),
-		category: v.picklist(copilotSupportCaseCategories),
+		category: v.picklist(supportCaseCategoryOrder),
 		description: boundedText(10, 2_000),
 		roundId: v.optional(convexId),
 		teamId: v.optional(convexId),
@@ -488,6 +597,7 @@ export const copilotRecommendationArgumentsSchema = v.variant('kind', [
 	v.strictObject({
 		kind: v.literal('dismiss_attention_item'),
 		itemId: convexId,
+		expectedItemVersion: positiveInteger,
 		reason: boundedText(5, 500),
 	}),
 ]);
@@ -498,11 +608,7 @@ export const copilotCitationSchema = v.strictObject({
 	keys: v.pipe(v.array(boundedText(1, 200)), v.minLength(1), v.maxLength(16)),
 });
 
-/**
- * The model-facing half of a proposal. The Worker adds the envelope facts —
- * protocol version, conversation, event, agent version, model — so the model
- * cannot claim to be a different agent or aim at a different event.
- */
+/** The Worker supplies envelope identity so the model cannot choose its agent or event. */
 export const copilotProposalInputSchema = v.strictObject({
 	proposalKey: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9-]{7,99}$/)),
 	statement: boundedText(10, 300),
@@ -513,9 +619,12 @@ export const copilotProposalInputSchema = v.strictObject({
 
 export const copilotProposalSchema = v.strictObject({
 	protocolVersion: v.literal(operationsIntelligenceProtocolVersion),
-	proposalKey: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9-]{7,99}$/)),
-	conversationId: boundedText(1, 200),
-	eventSlug: boundedText(1, 120),
+	proposalKey: boundedText(8, 200),
+	conversationId: v.pipe(v.string(), v.regex(/^cv_[a-f0-9]{64}$/u)),
+	eventSlug: v.pipe(
+		boundedText(1, 120),
+		v.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+	),
 	agentVersion: boundedText(1, 80),
 	model: boundedText(3, 160),
 	statement: boundedText(10, 300),

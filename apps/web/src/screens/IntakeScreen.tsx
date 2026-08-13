@@ -3,7 +3,8 @@ import { useAction, useMutation, useQuery } from 'convex/react'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { ErrorNotice, TextArea } from '../components/Form'
 import { eventSlug } from '../lib/config'
-import { operationId, readableError } from '../lib/errors'
+import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 import type { CurrentIntake, CurrentTeam } from '../types'
 
 type NoveltySignal = {
@@ -27,11 +28,23 @@ function normalizedIdeaLength(value: string) {
 
 export function IntakeScreen({
   team,
-  intake,
+  submissionFailureMessage,
 }: {
   team: CurrentTeam
-  intake: CurrentIntake
+  submissionFailureMessage?: string
 }) {
+  const intake = useQuery(api.intake.current, { eventSlug })
+  if (intake === undefined) return <p className="muted">Loading your application…</p>
+  if (intake === null) return <ErrorNotice message="Your application is unavailable." />
+  return (
+    <>
+      <ErrorNotice message={submissionFailureMessage ?? null} />
+      <IntakeWorkspace team={team} intake={intake} />
+    </>
+  )
+}
+
+function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentIntake }) {
   const draft = intake.draft
   const previewNovelty = useAction(api.novelty.preview)
   const saveIdea = useMutation(api.intake.saveInitialIdea)
@@ -53,10 +66,18 @@ export function IntakeScreen({
   const [editingIdea, setEditingIdea] = useState(false)
   const [editingTrack, setEditingTrack] = useState(false)
   const [confirmedSnapshotKey, setConfirmedSnapshotKey] = useState<string | null>(null)
+  const [pendingTrackId, setPendingTrackId] = useState<string | null>(null)
+  const [pendingFollowUpKind, setPendingFollowUpKind] = useState<'answer' | 'skip' | null>(null)
+  const [pendingRevisionId, setPendingRevisionId] = useState<string | null>(null)
+  const [pendingRevisionKind, setPendingRevisionKind] = useState<'answer' | 'skip' | null>(null)
+  const [pendingSponsorIds, setPendingSponsorIds] = useState<readonly string[] | null>(null)
+  const [pendingFreshnessAccepted, setPendingFreshnessAccepted] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [noveltyState, setNoveltyState] = useState<NoveltyState>({ status: 'idle' })
   const noveltySequence = useRef(0)
+  const commandInFlight = useRef(false)
+  const operations = useOperationRunner()
 
   const ideaEditorOpen = !draft || draft.stage === 'opening' || editingIdea
   const novelty = draft?.novelty ?? opening?.novelty ?? null
@@ -65,6 +86,17 @@ export function IntakeScreen({
     if (draft?.initialIdea !== undefined) setIdea(draft.initialIdea)
   }, [draft?.initialIdea])
   const activeFollowUp = draft?.followUps.find((followUp) => followUp.state === 'active')
+  const ideaPending = operations.hasPending('idea')
+  const followUpSlot = activeFollowUp ? `follow-up:${activeFollowUp.id}` : null
+  const followUpPending = followUpSlot !== null && operations.hasPending(followUpSlot)
+  const trackSlot = pendingTrackId ? `track-choice:${pendingTrackId}` : null
+  const trackPending = trackSlot !== null && operations.hasPending(trackSlot)
+  const revisionSlot = pendingRevisionId ? `follow-up-revision:${pendingRevisionId}` : null
+  const revisionPending = revisionSlot !== null && operations.hasPending(revisionSlot)
+  const sponsorPending = operations.hasPending('sponsor-tracks')
+  const freshnessPending = operations.hasPending('freshness')
+  const submitPending = operations.hasPending('final-submit')
+  const reviewOperationPending = revisionPending || sponsorPending || freshnessPending || submitPending
   useEffect(() => setAnswer(''), [activeFollowUp?.id])
 
   useEffect(() => {
@@ -100,7 +132,7 @@ export function IntakeScreen({
         eventSlug,
         corpusVersionId: novelty.corpusVersionId,
         idea,
-        clientRequestId: operationId('novelty-preview'),
+        clientRequestId: crypto.randomUUID(),
       })
         .then((result) => {
           if (noveltySequence.current !== sequence) return
@@ -142,6 +174,8 @@ export function IntakeScreen({
   ])
 
   const run = async (command: () => Promise<unknown>) => {
+    if (commandInFlight.current) return
+    commandInFlight.current = true
     setBusy(true)
     setError(null)
     try {
@@ -149,6 +183,7 @@ export function IntakeScreen({
     } catch (caught) {
       setError(readableError(caught))
     } finally {
+      commandInFlight.current = false
       setBusy(false)
     }
   }
@@ -156,13 +191,13 @@ export function IntakeScreen({
   const submitIdea = (event: FormEvent) => {
     event.preventDefault()
     void run(async () => {
-      await saveIdea({
-        eventSlug,
-        idea,
-        ...(novelty ? { noveltyCorpusVersionId: novelty.corpusVersionId } : {}),
-        expectedDraftVersion: draft?.version ?? 0,
-        clientOperationId: operationId('idea'),
-      })
+      await operations.run('idea', (clientOperationId) => () => saveIdea({
+          eventSlug,
+          idea,
+          ...(novelty ? { noveltyCorpusVersionId: novelty.corpusVersionId } : {}),
+          expectedDraftVersion: draft?.version ?? 0,
+          clientOperationId,
+        }))
       setEditingIdea(false)
     })
   }
@@ -170,16 +205,19 @@ export function IntakeScreen({
   const submitAnswer = (event: FormEvent) => {
     event.preventDefault()
     if (!activeFollowUp) return
-    void run(() =>
-      respondToFollowUp({
-        eventSlug,
-        questionId: activeFollowUp.id,
-        answer,
-        skipped: false,
-        expectedDraftVersion: draft?.version ?? 0,
-        clientOperationId: operationId('follow-up'),
-      }),
-    )
+    void run(async () => {
+      const slot = `follow-up:${activeFollowUp.id}`
+      if (!operations.hasPending(slot)) setPendingFollowUpKind('answer')
+      await operations.run(slot, (clientOperationId) => () => respondToFollowUp({
+          eventSlug,
+          questionId: activeFollowUp.id,
+          answer,
+          skipped: false,
+          expectedDraftVersion: draft?.version ?? 0,
+          clientOperationId,
+        }))
+      setPendingFollowUpKind(null)
+    })
   }
 
   const tracks = draft?.tracks.filter((track) => track.type === 'core') ?? []
@@ -203,6 +241,7 @@ export function IntakeScreen({
             minLength={initialIdeaMinLength}
             maxLength={initialIdeaMaxLength}
             rows={9}
+            disabled={ideaPending || busy}
             value={idea}
             onChange={(event) => setIdea(event.target.value)}
             placeholder="Describe your idea…"
@@ -215,13 +254,13 @@ export function IntakeScreen({
           <ErrorNotice message={error} />
           <div className="minimal-surface-actions">
             {editingIdea ? (
-              <button type="button" className="minimal-back" onClick={() => setEditingIdea(false)}>
+              <button type="button" className="minimal-back" disabled={ideaPending || busy} onClick={() => setEditingIdea(false)}>
                 Cancel
               </button>
               ) : <span className="character-count">{idea.length} / {initialIdeaMaxLength}</span>}
             <span className="minimal-privacy">Do not include private contact details.</span>
-            <button type="submit" className="minimal-continue" disabled={busy || idea.trim().length < initialIdeaMinLength}>
-              {busy ? 'Saving…' : 'Continue'} <span aria-hidden="true">→</span>
+            <button type="submit" className="minimal-continue" disabled={busy || (!ideaPending && idea.trim().length < initialIdeaMinLength)}>
+              {busy ? 'Saving…' : ideaPending ? 'Confirm earlier idea' : 'Continue'} <span aria-hidden="true">→</span>
             </button>
           </div>
         </form>
@@ -246,15 +285,18 @@ export function IntakeScreen({
                 type="button"
                 key={track.id}
                 className={`minimal-track${recommended ? ' recommended' : ''}${selected ? ' selected' : ''}`}
-                disabled={busy}
+                disabled={busy || (trackPending && pendingTrackId !== track.id)}
                 onClick={() =>
                   void run(async () => {
-                    await chooseTrack({
-                      eventSlug,
-                      trackVersionId: track.id,
-                      expectedDraftVersion: draft.version,
-                      clientOperationId: operationId('track-choice'),
-                    })
+                    const slot = `track-choice:${track.id}`
+                    if (!operations.hasPending(slot)) setPendingTrackId(track.id)
+                    await operations.run(slot, (clientOperationId) => () => chooseTrack({
+                        eventSlug,
+                        trackVersionId: track.id,
+                        expectedDraftVersion: draft.version,
+                        clientOperationId,
+                      }))
+                    setPendingTrackId(null)
                     setEditingTrack(false)
                   })
                 }
@@ -267,7 +309,9 @@ export function IntakeScreen({
                     <span className="minimal-recommendation">Suggested · {draft.recommendationReason}</span>
                   ) : null}
                 </span>
-                <span className="minimal-track-action">{selected ? '✓' : '↗'}</span>
+                <span className="minimal-track-action">
+                  {trackPending && pendingTrackId === track.id ? 'Confirm' : selected ? '✓' : '↗'}
+                </span>
               </button>
             )
           })}
@@ -297,32 +341,38 @@ export function IntakeScreen({
             minLength={draft.intakePolicy.followUpAnswerMinLength}
             maxLength={draft.intakePolicy.followUpAnswerMaxLength}
             rows={6}
+            disabled={followUpPending || busy}
             value={answer}
             onChange={(event) => setAnswer(event.target.value)}
             placeholder="Type your answer…"
           />
           <ErrorNotice message={error} />
           <div className="minimal-surface-actions">
-            <button type="button" className="minimal-back" onClick={() => setEditingTrack(true)}>
+            <button type="button" className="minimal-back" disabled={followUpPending || busy} onClick={() => setEditingTrack(true)}>
               Change track
             </button>
             <button
               type="button"
               className="minimal-back"
-              disabled={busy}
-              onClick={() => void run(() => respondToFollowUp({
-                eventSlug,
-                questionId: activeFollowUp.id,
-                skipped: true,
-                expectedDraftVersion: draft.version,
-                clientOperationId: operationId('follow-up-skip'),
-              }))}
+              disabled={busy || (followUpPending && pendingFollowUpKind !== 'skip')}
+              onClick={() => void run(async () => {
+                const slot = `follow-up:${activeFollowUp.id}`
+                if (!operations.hasPending(slot)) setPendingFollowUpKind('skip')
+                await operations.run(slot, (clientOperationId) => () => respondToFollowUp({
+                  eventSlug,
+                  questionId: activeFollowUp.id,
+                  skipped: true,
+                  expectedDraftVersion: draft.version,
+                  clientOperationId,
+                }))
+                setPendingFollowUpKind(null)
+              })}
             >
-              Skip
+              {followUpPending && pendingFollowUpKind === 'skip' ? 'Confirm earlier skip' : 'Skip'}
             </button>
             <span className="character-count">{answer.length} / {draft.intakePolicy.followUpAnswerMaxLength}</span>
-            <button type="submit" className="minimal-continue" disabled={busy || answer.trim().length < draft.intakePolicy.followUpAnswerMinLength}>
-              {busy ? 'Saving…' : 'Continue'} <span aria-hidden="true">→</span>
+            <button type="submit" className="minimal-continue" disabled={busy || (followUpPending && pendingFollowUpKind !== 'answer') || (!followUpPending && answer.trim().length < draft.intakePolicy.followUpAnswerMinLength)}>
+              {busy ? 'Saving…' : followUpPending ? 'Confirm earlier answer' : 'Continue'} <span aria-hidden="true">→</span>
             </button>
           </div>
         </form>
@@ -364,18 +414,16 @@ export function IntakeScreen({
               <div className="review-block team-review-block">
                 <span className="field-label">Team</span>
                 <ul className="plain-list">
-                  {preview.members.map((member) => (
-                    <li key={member.teamMemberId}>
-                      <span>{member.displayName}</span>
-                      <small>{member.role === 'lead' ? 'Lead' : 'Member'}</small>
-                    </li>
-                  ))}
+                  <li>
+                    <span>{preview.memberCount} members</span>
+                    <small>See the team panel for the paginated roster.</small>
+                  </li>
                 </ul>
               </div>
               <div className="review-block">
                 <span className="field-label">Core track</span>
                 <h2>{preview.track?.name ?? 'Not chosen'}</h2>
-                <button type="button" className="text-button" onClick={() => setEditingTrack(true)}>
+                <button type="button" className="text-button" disabled={reviewOperationPending || busy} onClick={() => setEditingTrack(true)}>
                   Change track
                 </button>
               </div>
@@ -392,17 +440,21 @@ export function IntakeScreen({
                         <input
                           type="checkbox"
                           checked={selected}
-                          disabled={busy}
+                          disabled={busy || reviewOperationPending}
                           onChange={(event) => {
                             const nextIds = event.target.checked
                               ? [...draft.chosenSponsorTrackVersionIds, track.id]
                               : draft.chosenSponsorTrackVersionIds.filter((id) => id !== track.id)
-                            void run(() => setSponsorTracks({
-                              eventSlug,
-                              sponsorTrackVersionIds: nextIds,
-                              expectedDraftVersion: draft.version,
-                              clientOperationId: operationId('sponsor-tracks'),
-                            }))
+                            void run(async () => {
+                              if (!operations.hasPending('sponsor-tracks')) setPendingSponsorIds(nextIds)
+                              await operations.run('sponsor-tracks', (clientOperationId) => () => setSponsorTracks({
+                                eventSlug,
+                                sponsorTrackVersionIds: nextIds,
+                                expectedDraftVersion: draft.version,
+                                clientOperationId,
+                              }))
+                              setPendingSponsorIds(null)
+                            })
                           }}
                         />
                         <span>
@@ -413,6 +465,19 @@ export function IntakeScreen({
                     )
                   })}
                 </div>
+                {sponsorPending && pendingSponsorIds ? (
+                  <button
+                    className="secondary"
+                    type="button"
+                    disabled={busy || revisionPending || freshnessPending || submitPending}
+                    onClick={() => void run(async () => {
+                      await operations.run('sponsor-tracks', () => () => {
+                        throw new Error('There is no earlier sponsor-track change to confirm.')
+                      })
+                      setPendingSponsorIds(null)
+                    })}
+                  >Confirm earlier sponsor-track change</button>
+                ) : null}
               </div>
             ) : null}
             <div className="review-block project-review-block">
@@ -427,14 +492,21 @@ export function IntakeScreen({
                       onSubmit={(event) => {
                         event.preventDefault()
                         void run(async () => {
-                          await reviseFollowUp({
-                            eventSlug,
-                            questionId: followUp.id,
-                            answer: editedFollowUpAnswer,
-                            skipped: false,
-                            expectedDraftVersion: preview.draftVersion,
-                            clientOperationId: operationId('follow-up-revision'),
-                          })
+                          const slot = `follow-up-revision:${followUp.id}`
+                          if (!operations.hasPending(slot)) {
+                            setPendingRevisionId(followUp.id)
+                            setPendingRevisionKind('answer')
+                          }
+                          await operations.run(slot, (clientOperationId) => () => reviseFollowUp({
+                              eventSlug,
+                              questionId: followUp.id,
+                              answer: editedFollowUpAnswer,
+                              skipped: false,
+                              expectedDraftVersion: preview.draftVersion,
+                              clientOperationId,
+                            }))
+                          setPendingRevisionId(null)
+                          setPendingRevisionKind(null)
                           setEditingFollowUpId(null)
                         })
                       }}
@@ -445,22 +517,32 @@ export function IntakeScreen({
                         minLength={draft.intakePolicy.followUpAnswerMinLength}
                         maxLength={draft.intakePolicy.followUpAnswerMaxLength}
                         rows={4}
+                        disabled={revisionPending || busy}
                         value={editedFollowUpAnswer}
                         onChange={(event) => setEditedFollowUpAnswer(event.target.value)}
                       />
                       <div className="button-row">
-                        <button className="secondary" disabled={busy} type="button" onClick={() => setEditingFollowUpId(null)}>Cancel</button>
-                        <button className="secondary" disabled={busy} type="button" onClick={() => void run(async () => {
-                          await reviseFollowUp({
-                            eventSlug,
-                            questionId: followUp.id,
-                            skipped: true,
-                            expectedDraftVersion: preview.draftVersion,
-                            clientOperationId: operationId('follow-up-revision-skip'),
-                          })
+                        <button className="secondary" disabled={busy || reviewOperationPending} type="button" onClick={() => setEditingFollowUpId(null)}>Cancel</button>
+                        <button className="secondary" disabled={busy || (revisionPending && pendingRevisionKind !== 'skip') || sponsorPending || freshnessPending || submitPending} type="button" onClick={() => void run(async () => {
+                          const slot = `follow-up-revision:${followUp.id}`
+                          if (!operations.hasPending(slot)) {
+                            setPendingRevisionId(followUp.id)
+                            setPendingRevisionKind('skip')
+                          }
+                          await operations.run(slot, (clientOperationId) => () => reviseFollowUp({
+                              eventSlug,
+                              questionId: followUp.id,
+                              skipped: true,
+                              expectedDraftVersion: preview.draftVersion,
+                              clientOperationId,
+                            }))
+                          setPendingRevisionId(null)
+                          setPendingRevisionKind(null)
                           setEditingFollowUpId(null)
-                        })}>Skip answer</button>
-                        <button className="primary" disabled={busy || editedFollowUpAnswer.trim().length < draft.intakePolicy.followUpAnswerMinLength} type="submit">Save</button>
+                        })}>{revisionPending && pendingRevisionKind === 'skip' ? 'Confirm earlier skip' : 'Skip answer'}</button>
+                        <button className="primary" disabled={busy || sponsorPending || freshnessPending || submitPending || (revisionPending && pendingRevisionKind !== 'answer') || (!revisionPending && editedFollowUpAnswer.trim().length < draft.intakePolicy.followUpAnswerMinLength)} type="submit">
+                          {revisionPending && pendingRevisionKind === 'answer' ? 'Confirm earlier answer' : 'Save'}
+                        </button>
                       </div>
                     </form>
                   ) : (
@@ -469,6 +551,7 @@ export function IntakeScreen({
                       <button
                         className="text-button"
                         type="button"
+                        disabled={reviewOperationPending || busy}
                         onClick={() => {
                           setEditingFollowUpId(followUp.id)
                           setEditedFollowUpAnswer(followUp.answer ?? '')
@@ -487,23 +570,41 @@ export function IntakeScreen({
               <input
                 type="checkbox"
                 checked={preview.freshnessAttested}
-                onChange={(event) =>
-                  void run(() =>
-                    setFreshness({
+                disabled={busy || reviewOperationPending}
+                onChange={(event) => {
+                  const accepted = event.target.checked
+                  void run(async () => {
+                    if (!operations.hasPending('freshness')) setPendingFreshnessAccepted(accepted)
+                    await operations.run('freshness', (clientOperationId) => () => setFreshness({
                       eventSlug,
-                      accepted: event.target.checked,
+                      accepted,
                       expectedDraftVersion: preview.draftVersion,
-                      clientOperationId: operationId('freshness'),
-                    }),
-                  )
-                }
+                      clientOperationId,
+                    }))
+                    setPendingFreshnessAccepted(null)
+                  })
+                }}
               />
               <span>We will begin project-specific implementation and design after the official start.</span>
             </label>
+            {freshnessPending && pendingFreshnessAccepted !== null ? (
+              <button
+                className="secondary"
+                type="button"
+                disabled={busy || revisionPending || sponsorPending || submitPending}
+                onClick={() => void run(async () => {
+                  await operations.run('freshness', () => () => {
+                    throw new Error('There is no earlier freshness confirmation to retry.')
+                  })
+                  setPendingFreshnessAccepted(null)
+                })}
+              >Confirm earlier policy answer</button>
+            ) : null}
             <label className="check-row lock-confirmation strong-warning">
               <input
                 type="checkbox"
                 checked={confirmedLock}
+                disabled={busy || reviewOperationPending}
                 onChange={(event) => setConfirmedSnapshotKey(event.target.checked ? confirmationKey : null)}
               />
               <span>{preview.warning}</span>
@@ -516,28 +617,32 @@ export function IntakeScreen({
             {team.currentRole !== 'lead' ? <p className="notice">The team lead must submit.</p> : null}
             <ErrorNotice message={error} />
             <div className="minimal-surface-actions">
-              <button type="button" className="minimal-back" onClick={() => setEditingIdea(true)}>Edit idea</button>
+              <button type="button" className="minimal-back" disabled={busy || reviewOperationPending} onClick={() => setEditingIdea(true)}>Edit idea</button>
               <button
                 type="button"
                 className="minimal-continue"
-                disabled={busy || !canSubmit}
+                disabled={busy || revisionPending || sponsorPending || freshnessPending || (!submitPending && !canSubmit)}
                 onClick={() => {
                   const selectedTrack = preview.track
                   if (!selectedTrack) return
-                  void run(() =>
-                    submitApplication({
+                  void run(() => operations.run('final-submit', (clientOperationId) => async () => {
+                    const result = await submitApplication({
                       eventSlug,
                       expectedDraftVersion: preview.draftVersion,
                       expectedTeamVersion: preview.teamVersion,
                       expectedTrackVersionId: selectedTrack.id,
                       expectedSponsorTrackVersionIds: preview.sponsorTracks.map((track) => track.id),
                       participantPolicyVersionId: preview.participantPolicyVersionId,
-                      clientOperationId: operationId('final-submit'),
-                    }),
-                  )
+                      clientOperationId,
+                    })
+                    if (result.state === 'failed') {
+                      throw new Error(result.failureMessage ?? 'The submitted roster could not be validated.')
+                    }
+                    return result
+                  }))
                 }}
               >
-                {busy ? 'Submitting…' : 'Confirm and submit'} <span aria-hidden="true">→</span>
+                {busy ? 'Starting validation…' : submitPending ? 'Confirm earlier submission' : 'Confirm and submit'} <span aria-hidden="true">→</span>
               </button>
             </div>
           </div>

@@ -29,6 +29,7 @@ import {
   participantPolicyChecksum,
 } from "./lib/participantPolicy.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
+import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -42,6 +43,8 @@ const readSecret = "read-secret-".padEnd(48, "r");
 const savedEnvironment = {
   INTELLIGENCE_READ_SECRET: process.env.INTELLIGENCE_READ_SECRET,
   LOCAL_DEVELOPMENT_SEED_ENABLED: process.env.LOCAL_DEVELOPMENT_SEED_ENABLED,
+  CONVEX_CLOUD_URL: process.env.CONVEX_CLOUD_URL,
+  CONVEX_SITE_URL: process.env.CONVEX_SITE_URL,
   AUTH_SITE_URL: process.env.AUTH_SITE_URL,
   PARTICIPANT_SITE_URL: process.env.PARTICIPANT_SITE_URL,
   OPERATIONS_SITE_URL: process.env.OPERATIONS_SITE_URL,
@@ -50,6 +53,8 @@ const savedEnvironment = {
 
 process.env.INTELLIGENCE_READ_SECRET = readSecret;
 process.env.LOCAL_DEVELOPMENT_SEED_ENABLED = "true";
+process.env.CONVEX_CLOUD_URL = "http://127.0.0.1:3210";
+process.env.CONVEX_SITE_URL = "http://127.0.0.1:3211";
 process.env.AUTH_SITE_URL = "http://localhost:3211";
 process.env.PARTICIPANT_SITE_URL = "http://localhost:4173";
 process.env.OPERATIONS_SITE_URL = "http://localhost:4174";
@@ -77,9 +82,6 @@ function candidate(overrides: Partial<AdmissionCohortSignals>): AdmissionCohortS
 
 describe("admission cohort arithmetic", () => {
   test("capacity is spent in people and the line is a strict prefix of the ranking", () => {
-    // Three teams already ranked by review support: sizes 2, 3, 1. With a
-    // capacity of 3 people only the first team fits; the one-person team is
-    // NOT pulled forward past the three-person team it ranks below.
     const selection = selectAdmissionCohort(
       [
         candidate({ applicationId: "a", teamSize: 2, reviewAccepts: 2 }),
@@ -102,8 +104,6 @@ describe("admission cohort arithmetic", () => {
       7,
     );
     expect(selection[0]).toMatchObject({ entryCapacityPeople: 11, suggestedIn: false });
-    // The entry capacity is the smallest capacity that admits the team, so a
-    // client can move the capacity without refetching: at 11 it enters.
     expect(selectAdmissionCohort([candidate({ applicationId: "a", teamSize: 4 })], 11, 7)[0])
       .toMatchObject({ suggestedIn: true });
   });
@@ -129,7 +129,6 @@ describe("admission cohort arithmetic", () => {
       candidate({ submittedAt: 2 }),
     );
     expect(byTime).toBeLessThan(0);
-    // A decline recommendation counts against, symmetric with an accept.
     const declineDrops = compareAdmissionCohortCandidates(
       candidate({}),
       candidate({ reviewDeclines: 1 }),
@@ -164,7 +163,6 @@ describe("admission cohort query and decisions", () => {
       "Night Kiln",
       "Split Signal",
     ]);
-    // Sizes 2, 3, 1 against 3 people: strict prefix, no bin-packing.
     expect(view.candidates.map((entry) => entry.entryCapacityPeople)).toEqual([2, 5, 6]);
     expect(view.candidates.map((entry) => entry.suggestedIn)).toEqual([true, false, false]);
     expect(view.summary).toMatchObject({
@@ -174,8 +172,6 @@ describe("admission cohort query and decisions", () => {
       remainingPeople: 1,
       suggestedInTeamCount: 1,
     });
-    // Two reviews satisfy the published minimum of two; one does not, and the
-    // view says so instead of hiding the application.
     const decidable = view.candidates.find((entry) => entry.teamName === "Steady Loom");
     const short = view.candidates.find((entry) => entry.teamName === "Night Kiln");
     expect(decidable?.reviewCoverage).toMatchObject({
@@ -191,7 +187,6 @@ describe("admission cohort query and decisions", () => {
       shortfall: 1,
     });
     expect(decidable?.experienceBand).toBe("early_year");
-    // Omitting the capacity evaluates the published participant capacity.
     const published = await operator.query(api.admissionCohort.cohort, {
       eventSlug: fixture.eventSlug,
     });
@@ -206,8 +201,6 @@ describe("admission cohort query and decisions", () => {
       subject: fixture.onlookerAuthUserId,
       sessionId: fixture.onlookerAuthSessionId,
     });
-    // An event account without grants sees the aggregate arithmetic, the way
-    // stageCounts is visible, but not one row.
     const view = await onlooker.query(api.admissionCohort.cohort, {
       eventSlug: fixture.eventSlug,
       capacityPeople: 3,
@@ -215,7 +208,6 @@ describe("admission cohort query and decisions", () => {
     expect(view.candidates).toEqual([]);
     expect(view.hiddenApplicationCount).toBe(3);
     expect(view.summary.committedPeople).toBe(0);
-    // No event access subject at all: refused outright.
     const stranger = backend.withIdentity({
       subject: fixture.strangerAuthUserId,
       sessionId: fixture.strangerAuthSessionId,
@@ -235,8 +227,6 @@ describe("admission cohort query and decisions", () => {
       subject: fixture.operatorAuthUserId,
       sessionId: fixture.operatorAuthSessionId,
     });
-    // One review against a minimum of two: refused as data, with the
-    // arithmetic the surface needs to say "one more review".
     const refused = await operator.mutation(api.admissionCohort.applyDecision, {
       eventSlug: fixture.eventSlug,
       applicationId: fixture.shortApplicationId,
@@ -258,7 +248,6 @@ describe("admission cohort query and decisions", () => {
     const untouched = await backend.run((ctx) => ctx.db.get(fixture.shortApplicationId));
     expect(untouched?.state).toBe("under_review");
 
-    // A decidable application goes through admissions.decide as the operator.
     const applied = await operator.mutation(api.admissionCohort.applyDecision, {
       eventSlug: fixture.eventSlug,
       applicationId: fixture.decidableApplicationId,
@@ -285,7 +274,6 @@ describe("admission cohort query and decisions", () => {
     );
     expect(decisionAudit?.actorPersonId).toBe(fixture.operatorPersonId);
 
-    // A retried apply replays the recorded decision instead of refusing.
     const retried = await operator.mutation(api.admissionCohort.applyDecision, {
       eventSlug: fixture.eventSlug,
       applicationId: fixture.decidableApplicationId,
@@ -298,7 +286,6 @@ describe("admission cohort query and decisions", () => {
     });
     expect(retried).toMatchObject({ applied: true, state: "accepted" });
 
-    // Without the decide grant the wrapper refuses before revealing anything.
     const onlooker = backend.withIdentity({
       subject: fixture.onlookerAuthUserId,
       sessionId: fixture.onlookerAuthSessionId,
@@ -359,8 +346,6 @@ describe("admission cohort query and decisions", () => {
       false,
       false,
     ]);
-    // The read carries team names and signals, never members: no field of any
-    // candidate row is a person.
     expect(JSON.stringify(payload)).not.toContain("Cohort Member");
     expect(JSON.stringify(payload)).not.toContain("@example.test");
   });
@@ -387,66 +372,76 @@ describe("admission cohort at seeded scale", () => {
         if (!event) throw new Error("The seeded event is missing.");
         return event._id;
       });
+      await backend.run(async (ctx) => {
+        const recommendations = await ctx.db
+          .query("admissionAIRecommendations")
+          .withIndex("by_event_state_created", (index) => index.eq("eventId", eventId))
+          .collect();
+        const factIds = (await ctx.db
+          .query("operationsAutonomyReadFacts")
+          .withIndex("by_event_source_sequence_entity", (index) =>
+            index.eq("eventId", eventId).eq("source", "admission_jobs"),
+          )
+          .collect())
+          .flatMap((fact) => fact.source === "admission_jobs" ? [fact.value.jobId] : []);
+        expect(new Set(factIds)).toEqual(
+          new Set(recommendations.map((recommendation) => recommendation._id)),
+        );
+      });
       const capacity = 600;
       const view = await backend.query(internal.admissionCohort.cohortRead, {
         eventId,
         capacityPeople: capacity,
       });
-      // Every seeded application lands in exactly one bucket.
       expect(
-        view.candidates.length + view.committed.length + view.decidedOut.length,
+        view.counts.candidateTeams +
+          view.counts.committedTeams +
+          view.counts.decidedOutTeams,
       ).toBe(350);
-      // Capacity is spent in people: entry capacities are the committed
-      // people plus a running sum of team sizes, strictly non-decreasing.
-      let runningPeople = view.summary.committedPeople;
-      for (const entry of view.candidates) {
-        runningPeople += entry.teamSize;
-        expect(entry.entryCapacityPeople).toBe(runningPeople);
+      expect(view.candidates.length).toBeLessThanOrEqual(48);
+      expect(view.window.startRank).toBe(view.candidates[0]?.rank ?? 0);
+      expect(view.window.endRank).toBe(view.candidates.at(-1)?.rank ?? 0);
+      for (const [index, entry] of view.candidates.entries()) {
+        expect(entry.rank).toBe(view.window.startRank + index);
         expect(entry.suggestedIn).toBe(entry.entryCapacityPeople <= capacity);
       }
+      const visibleIn = view.candidates.filter((entry) => entry.suggestedIn);
+      const visibleOut = view.candidates.filter((entry) => !entry.suggestedIn);
+      expect(visibleIn.length).toBeLessThanOrEqual(24);
+      expect(visibleOut.length).toBeLessThanOrEqual(24);
+      if (view.window.hasEarlier) expect(visibleIn).toHaveLength(24);
+      if (view.window.hasLater) expect(visibleOut).toHaveLength(24);
+      expect(JSON.stringify(view).length).toBeLessThan(256 * 1_024);
       expect(view.summary.suggestedPeople).toBeLessThanOrEqual(capacity);
-      // The suggestion fills the room to within one team of the line.
       const firstOut = view.candidates.find((entry) => !entry.suggestedIn);
       expect(firstOut).toBeDefined();
       expect(view.summary.suggestedPeople + (firstOut?.teamSize ?? 0)).toBeGreaterThan(capacity);
-      // All five year bands are represented, and the mix is reported rather
-      // than balanced: in + out per band covers every candidate.
       expect(view.summary.bandMix).toHaveLength(5);
       const mixTotal = view.summary.bandMix.reduce(
         (total, band) => total + band.teamsIn + band.teamsOut,
         0,
       );
-      expect(mixTotal).toBe(view.candidates.length);
+      expect(mixTotal).toBe(view.counts.candidateTeams);
       for (const band of view.summary.bandMix) {
         expect(band.teamsIn + band.teamsOut).toBeGreaterThan(0);
       }
-      // Both review-coverage states exist, and not-yet-decidable teams are
-      // ranked and flagged, never hidden or decided.
       expect(view.candidates.some((entry) => entry.reviewCoverage.decidable)).toBe(true);
       expect(view.candidates.some((entry) => !entry.reviewCoverage.decidable)).toBe(true);
-      // Novelty signals exist for most teams and are absent for some.
       expect(view.candidates.some((entry) => entry.novelty !== null)).toBe(true);
       expect(view.candidates.some((entry) => entry.novelty === null)).toBe(true);
 
-      // Moving the capacity moves exactly the teams whose entry capacity the
-      // new number crosses — computable client-side, verified server-side.
       const widerCapacity = capacity + 40;
       const wider = await backend.query(internal.admissionCohort.cohortRead, {
         eventId,
         capacityPeople: widerCapacity,
       });
-      const before = new Map(
-        view.candidates.map((entry) => [entry.applicationId, entry.suggestedIn]),
-      );
+      expect(wider.counts).toEqual(view.counts);
+      expect(wider.candidates.length).toBeLessThanOrEqual(48);
       for (const entry of wider.candidates) {
         expect(entry.suggestedIn).toBe(entry.entryCapacityPeople <= widerCapacity);
-        const crossed =
-          entry.entryCapacityPeople > capacity && entry.entryCapacityPeople <= widerCapacity;
-        expect(entry.suggestedIn).toBe(Boolean(before.get(entry.applicationId)) || crossed);
       }
+      expect(wider.window.startRank).toBeGreaterThanOrEqual(view.window.startRank);
 
-      // The submission search matches idea words and returns only stored
-      // novelty and coverage signals.
       const search = await backend.query(internal.admissionCohort.submissionSearchRead, {
         eventId,
         searchQuery: "librarians",
@@ -560,13 +555,6 @@ async function insertAccount(
   return { personId, subjectId };
 }
 
-/**
- * Publish the policy chain the cohort seeder expects on the local event slug,
- * without running the full local-development seed: participant, intake, and
- * communications policies, one core track, and an admission policy with a
- * one-review minimum so the seeded review pattern produces both decidable and
- * not-yet-decidable applications.
- */
 async function seedLocalCohortEvent(backend: BackendTest) {
   const now = Date.now();
   return backend.run(async (ctx) => {
@@ -730,12 +718,6 @@ async function insertPolicyChain(
   };
 }
 
-/**
- * Three candidate teams with distinct review support, sizes 2, 3, and 1, so
- * the ranking, the people arithmetic, and the decidability flags all separate
- * cleanly: "Steady Loom" (two accepts, decidable), "Night Kiln" (one accept,
- * one review short of the minimum), "Split Signal" (an accept and a decline).
- */
 async function seedCohortFixture(backend: BackendTest) {
   const now = Date.now();
   const eventSlug = `cohort-${crypto.randomUUID()}`;
@@ -761,7 +743,6 @@ async function seedCohortFixture(backend: BackendTest) {
     });
     const operator = await insertAccount(ctx, eventId, "operator", now, operatorAuthUserId);
     const onlooker = await insertAccount(ctx, eventId, "onlooker", now, onlookerAuthUserId);
-    // The stranger has an auth user but no event access subject at all.
     await ctx.db.insert("people", {
       authUserId: strangerAuthUserId,
       googleSubject: `google-stranger-${crypto.randomUUID()}`,
@@ -828,6 +809,9 @@ async function seedCohortFixture(backend: BackendTest) {
         publicCode: args.publicCode,
         leadMembershipId,
         status: "submitted",
+        activeMemberCount: args.size,
+        activeVitMemberCount: args.size,
+        activeExternalMemberCount: 0,
         membershipLocked: true,
         trackLocked: true,
         version: 1,
@@ -848,6 +832,16 @@ async function seedCohortFixture(backend: BackendTest) {
           }),
         );
       }
+      const lockedRosterSnapshotId = await createTestSubmissionSnapshot(ctx, {
+        eventId,
+        teamId,
+        teamMemberIds,
+        intakePolicyVersionId: chain.intakePolicyId,
+        participantPolicyVersionId: chain.participantPolicyId,
+        admissionPolicyVersionId: chain.admissionPolicyId,
+        coreTrackVersionId: chain.trackId,
+        submittedAt: now,
+      });
       const projectVersionId = await ctx.db.insert("projectVersions", {
         eventId,
         teamId,
@@ -857,7 +851,8 @@ async function seedCohortFixture(backend: BackendTest) {
         intakeResponses: [],
         coreTrackVersionId: chain.trackId,
         sponsorTrackVersionIds: [],
-        lockedTeamMemberIds: teamMemberIds,
+        lockedRosterSnapshotId,
+        lockedMemberCount: teamMemberIds.length,
         lockedLeadMembershipId: leadMembershipId,
         freshForEventAttestation: {
           participantPolicyVersionId: chain.participantPolicyId,

@@ -44,6 +44,14 @@ type AvailableRepository = {
   pushedAt?: number;
 };
 
+type AvailableRepositoryPage = {
+  repositories: AvailableRepository[];
+  totalCount: number;
+  nextPage?: number;
+};
+
+const repositoryPageSize = 50;
+
 type RepositorySyncContext = {
   bindingId: Id<"githubRepositoryBindings">;
   installationId: string;
@@ -172,29 +180,25 @@ export const completeConnection = action({
       const installationId = safeGitHubId(args.installationId, "Installation ID");
       const token = await app.oauth.createToken({ code: args.code });
       const userOctokit = new GitHubOctokit({ auth: token.authentication.token });
-      const userInstallations = await userOctokit.paginate(
-        userOctokit.rest.apps.listInstallationsForAuthenticatedUser,
-        { per_page: 100 },
-      );
-      const userInstallation = userInstallations.find(
-        (installation) =>
-          installation.id === installationId &&
-          String(installation.app_id) === configuration.appId,
-      );
-      if (!userInstallation) {
-        throw new ConvexError({
-          code: "GITHUB_INSTALLER_MISMATCH",
-          message: "The signed-in GitHub account cannot verify this installation.",
-        });
-      }
+      await userOctokit.rest.apps.listInstallationReposForAuthenticatedUser({
+        installation_id: installationId,
+        per_page: 1,
+        page: 1,
+      });
       const verifiedInstallation = await app.octokit.rest.apps.getInstallation({
         installation_id: installationId,
       });
-      const account = verifiedInstallation.data.account;
-      if (!account || account.id !== userInstallation.account?.id) {
+      if (String(verifiedInstallation.data.app_id) !== configuration.appId) {
         throw new ConvexError({
           code: "GITHUB_INSTALLER_MISMATCH",
-          message: "The GitHub installation account could not be verified.",
+          message: "The selected installation does not belong to this GitHub App.",
+        });
+      }
+      const account = verifiedInstallation.data.account;
+      if (!account) {
+        throw new ConvexError({
+          code: "GITHUB_INSTALLER_MISMATCH",
+          message: "The GitHub installation account could not be resolved.",
         });
       }
       const accountLogin = "login" in account ? account.login : account.slug;
@@ -234,36 +238,49 @@ export const listAvailableRepositories = action({
   args: {
     eventSlug: v.string(),
     connectionId: v.id("githubInstallationConnections"),
+    page: v.number(),
   },
-  returns: v.array(
-    v.object({
-      repositoryId: v.string(),
-      repositoryNodeId: v.string(),
-      owner: v.string(),
-      name: v.string(),
-      fullName: v.string(),
-      url: v.string(),
-      isPrivate: v.boolean(),
-      isFork: v.boolean(),
-      defaultBranch: v.string(),
-      pushedAt: v.optional(v.number()),
-    }),
-  ),
-  handler: async (ctx, args): Promise<AvailableRepository[]> => {
+  returns: v.object({
+    repositories: v.array(
+      v.object({
+        repositoryId: v.string(),
+        repositoryNodeId: v.string(),
+        owner: v.string(),
+        name: v.string(),
+        fullName: v.string(),
+        url: v.string(),
+        isPrivate: v.boolean(),
+        isFork: v.boolean(),
+        defaultBranch: v.string(),
+        pushedAt: v.optional(v.number()),
+      }),
+    ),
+    totalCount: v.number(),
+    nextPage: v.optional(v.number()),
+  }),
+  handler: async (ctx, args): Promise<AvailableRepositoryPage> => {
+    if (!Number.isSafeInteger(args.page) || args.page < 1) {
+      throw new ConvexError({
+        code: "GITHUB_PAGE_INVALID",
+        message: "The requested GitHub repository page is invalid.",
+      });
+    }
     const connection: ConnectionContext = await ctx.runQuery(
       internal.githubIntegrations.connectionContext,
       {
-      eventSlug: args.eventSlug,
-      connectionId: args.connectionId,
-      requireLiveEvent: false,
+        eventSlug: args.eventSlug,
+        connectionId: args.connectionId,
+        requireLiveEvent: false,
+        serverNow: Date.now(),
       },
     );
     const octokit = await installationOctokit(connection.installationId);
-    const repositories = await octokit.paginate(
-      octokit.rest.apps.listReposAccessibleToInstallation,
-      { per_page: 100 },
-    );
-    return repositories
+    const response = await octokit.rest.apps.listReposAccessibleToInstallation({
+      per_page: repositoryPageSize,
+      page: args.page,
+    });
+    const totalCount = providerCount(response.data.total_count, "repository count");
+    const repositories = response.data.repositories
       .map((repository): AvailableRepository => {
         const pushedAt = unixTime(repository.pushed_at);
         return {
@@ -280,6 +297,13 @@ export const listAvailableRepositories = action({
         };
       })
       .sort((left, right) => left.fullName.localeCompare(right.fullName));
+    return {
+      repositories,
+      totalCount,
+      ...(args.page < Math.ceil(totalCount / repositoryPageSize)
+        ? { nextPage: args.page + 1 }
+        : {}),
+    };
   },
 });
 
@@ -305,6 +329,7 @@ export const addRepository = action({
         eventSlug: args.eventSlug,
         connectionId: args.connectionId,
         requireLiveEvent: true,
+        serverNow: Date.now(),
       },
     );
     const octokit = await repositoryOctokit(connection.installationId, args.repositoryId);
@@ -345,30 +370,30 @@ export const addRepository = action({
     const result: { bindingId: Id<"githubRepositoryBindings"> } = await ctx.runMutation(
       internal.githubIntegrations.commitRepository,
       {
-      eventSlug: args.eventSlug,
-      connectionId: args.connectionId,
-      integrationPolicyId: connection.integrationPolicyId,
-      repositoryId: String(repository.data.id),
-      repositoryNodeId: repository.data.node_id,
-      owner: repository.data.owner.login,
-      name: repository.data.name,
-      fullName: repository.data.full_name,
-      url: repository.data.html_url,
-      isPrivate: repository.data.private,
-      isFork: repository.data.fork,
-      defaultBranch: repository.data.default_branch,
-      providerCreatedAt,
-      kind: args.kind,
-      ...(args.customKind !== undefined ? { customKind: args.customKind } : {}),
-      purpose: args.purpose,
-      trackedBranch: args.trackedBranch,
-      ...(args.rootPath !== undefined ? { rootPath: args.rootPath } : {}),
-      topicState: topics.data.names.includes(connection.requiredGitHubTopic)
-        ? "present"
-        : "missing",
-      headSha: branch.data.commit.sha,
-      ...(providerCommitAt !== undefined ? { providerCommitAt } : {}),
-      languageBytes: normalizedLanguages(languages.data),
+        eventSlug: args.eventSlug,
+        connectionId: args.connectionId,
+        integrationPolicyId: connection.integrationPolicyId,
+        repositoryId: String(repository.data.id),
+        repositoryNodeId: repository.data.node_id,
+        owner: repository.data.owner.login,
+        name: repository.data.name,
+        fullName: repository.data.full_name,
+        url: repository.data.html_url,
+        isPrivate: repository.data.private,
+        isFork: repository.data.fork,
+        defaultBranch: repository.data.default_branch,
+        providerCreatedAt,
+        kind: args.kind,
+        ...(args.customKind !== undefined ? { customKind: args.customKind } : {}),
+        purpose: args.purpose,
+        trackedBranch: args.trackedBranch,
+        ...(args.rootPath !== undefined ? { rootPath: args.rootPath } : {}),
+        topicState: topics.data.names.includes(connection.requiredGitHubTopic)
+          ? "present"
+          : "missing",
+        headSha: branch.data.commit.sha,
+        ...(providerCommitAt !== undefined ? { providerCommitAt } : {}),
+        languageBytes: normalizedLanguages(languages.data),
         clientOperationId: args.clientOperationId,
       },
     );

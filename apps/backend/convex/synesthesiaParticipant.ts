@@ -7,14 +7,22 @@ import { findOperation, operationFingerprint, recordOperation } from "./lib/oper
 import { optionalNormalizedText } from "./lib/strings";
 import {
   activeSynesthesiaWindow,
-  compareSongRequests,
   maximumCatalogSearchResults,
   maximumRequestsPerWindow,
   requireSynesthesiaParticipant,
   synesthesiaParticipantContext,
   trackFitsWindow,
 } from "./lib/synesthesia";
-import { songRequestState, synesthesiaWindowKind } from "./values";
+import {
+  insertSongVote,
+  setSongVoteState,
+  songRequestVoteCounts,
+} from "./lib/synesthesiaVotes";
+import { songQueueMode, songRequestState, synesthesiaWindowKind } from "./values";
+import {
+  appendSongRequestReadFactById,
+  appendSynesthesiaReportReadFactById,
+} from "./lib/operationsAutonomyReadFacts/synesthesiaOperations";
 
 const participantWindow = v.object({
   id: v.id("synesthesiaWindows"),
@@ -41,7 +49,7 @@ const participantRequest = v.object({
   isExplicit: v.boolean(),
   energyTag: v.string(),
   state: songRequestState,
-  voteCount: v.number(),
+  queueMode: songQueueMode,
   publicReason: v.optional(v.string()),
   scheduledFor: v.optional(v.number()),
   isMine: v.boolean(),
@@ -137,7 +145,7 @@ export const state = query({
       ctx.db
         .query("songRequests")
         .withIndex("by_window_created", (index) => index.eq("windowId", window._id))
-        .take(maximumRequestsPerWindow),
+        .take(maximumRequestsPerWindow + 1),
       ctx.db
         .query("songVotes")
         .withIndex("by_window_member_state", (index) =>
@@ -164,6 +172,11 @@ export const state = query({
         )
         .take(window.maxRequestsPerParticipant + 1),
     ]);
+    if (requests.length > maximumRequestsPerWindow) {
+      throw new Error(
+        `A Synesthesia window cannot contain more than ${maximumRequestsPerWindow} requests.`,
+      );
+    }
     const votedRequestIds = new Set(votes.map((vote) => vote.requestId));
     const reportedRequestIds = new Set(reports.map((report) => report.requestId));
     const canChangeVotes = window.votingOpen && !suspended;
@@ -190,7 +203,6 @@ export const state = query({
       usage: { requests: ownRequests.length, votes: votes.length },
       requests: requests
         .filter((request) => isParticipantVisible(request, context.membership._id))
-        .sort(compareSongRequests)
         .map((request) => ({
           id: request._id,
           title: request.title,
@@ -200,7 +212,7 @@ export const state = query({
           isExplicit: request.isExplicit,
           energyTag: request.energyTag,
           state: request.state,
-          voteCount: request.voteCount,
+          queueMode: request.queueMode,
           ...(request.publicReason !== undefined
             ? { publicReason: request.publicReason }
             : {}),
@@ -216,6 +228,44 @@ export const state = query({
           version: request.version,
           createdAt: request.createdAt,
         })),
+    };
+  },
+});
+
+export const voteCounts = query({
+  args: { eventSlug: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      windowId: v.id("synesthesiaWindows"),
+      counts: v.array(
+        v.object({
+          requestId: v.id("songRequests"),
+          voteCount: v.number(),
+        }),
+      ),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const context = await synesthesiaParticipantContext(ctx, args.eventSlug);
+    if (!context.eligible) return null;
+    const window = await activeSynesthesiaWindow(ctx, context.event._id, Date.now());
+    if (!window) return null;
+    const requests = await ctx.db
+      .query("songRequests")
+      .withIndex("by_window_created", (index) => index.eq("windowId", window._id))
+      .take(maximumRequestsPerWindow + 1);
+    if (requests.length > maximumRequestsPerWindow) {
+      throw new Error(
+        `A Synesthesia window cannot contain more than ${maximumRequestsPerWindow} requests.`,
+      );
+    }
+    const visible = requests.filter((request) =>
+      isParticipantVisible(request, context.membership._id),
+    );
+    return {
+      windowId: window._id,
+      counts: await songRequestVoteCounts(ctx, visible),
     };
   },
 });
@@ -387,13 +437,13 @@ export const requestTrack = mutation({
       energyTag: track.energyTag,
       ...(note !== undefined ? { note } : {}),
       state: window.autoApproveRequests ? "approved" : "pending",
-      voteCount: 0,
       openReportCount: 0,
       queueMode: "normal",
       version: 1,
       createdAt: now,
       updatedAt: now,
     });
+    await appendSongRequestReadFactById(ctx, requestId, now);
     await recordOperation(ctx, {
       eventId: context.event._id,
       actorPersonId: context.person._id,
@@ -434,7 +484,7 @@ async function changeVote(
   if (!request || request.eventId !== context.event._id) {
     throw new ConvexError({ code: "REQUEST_NOT_FOUND", message: "Song request not found." });
   }
-  if (prior) return { requestId: request._id, voteCount: request.voteCount };
+  if (prior) return { requestId: request._id };
   const window = await participantWindowForWrite(ctx, context.event._id, request.windowId);
   if (!window.votingOpen || !requestAllowsVote(request.state)) {
     throw new ConvexError({
@@ -462,7 +512,7 @@ async function changeVote(
       resultJson: args.active ? "active" : "removed",
       createdAt: now,
     });
-    return { requestId: request._id, voteCount: request.voteCount };
+    return { requestId: request._id };
   }
   if (args.active) {
     const activeVotes = await ctx.db
@@ -484,11 +534,12 @@ async function changeVote(
   const now = Date.now();
   let voteId: Id<"songVotes">;
   if (existing) {
-    await ctx.db.patch("songVotes", existing._id, {
-      state: args.active ? "active" : "removed",
-      version: existing.version + 1,
-      updatedAt: now,
-    });
+    await setSongVoteState(
+      ctx,
+      existing,
+      args.active ? "active" : "removed",
+      now,
+    );
     voteId = existing._id;
   } else {
     if (!args.active) {
@@ -503,9 +554,9 @@ async function changeVote(
         resultJson: "removed",
         createdAt: now,
       });
-      return { requestId: request._id, voteCount: request.voteCount };
+      return { requestId: request._id };
     }
-    voteId = await ctx.db.insert("songVotes", {
+    const vote = await insertSongVote(ctx, {
       eventId: context.event._id,
       windowId: window._id,
       requestId: request._id,
@@ -516,15 +567,8 @@ async function changeVote(
       createdAt: now,
       updatedAt: now,
     });
+    voteId = vote._id;
   }
-  const voteCount = args.active
-    ? request.voteCount + 1
-    : Math.max(0, request.voteCount - 1);
-  await ctx.db.patch("songRequests", request._id, {
-    voteCount,
-    version: request.version + 1,
-    updatedAt: now,
-  });
   await recordOperation(ctx, {
     eventId: context.event._id,
     actorPersonId: context.person._id,
@@ -536,7 +580,7 @@ async function changeVote(
     resultJson: args.active ? "active" : "removed",
     createdAt: now,
   });
-  return { requestId: request._id, voteCount };
+  return { requestId: request._id };
 }
 
 export const vote = mutation({
@@ -545,7 +589,7 @@ export const vote = mutation({
     requestId: v.id("songRequests"),
     clientOperationId: v.string(),
   },
-  returns: v.object({ requestId: v.id("songRequests"), voteCount: v.number() }),
+  returns: v.object({ requestId: v.id("songRequests") }),
   handler: (ctx, args) => changeVote(ctx, { ...args, active: true }),
 });
 
@@ -555,7 +599,7 @@ export const removeVote = mutation({
     requestId: v.id("songRequests"),
     clientOperationId: v.string(),
   },
-  returns: v.object({ requestId: v.id("songRequests"), voteCount: v.number() }),
+  returns: v.object({ requestId: v.id("songRequests") }),
   handler: (ctx, args) => changeVote(ctx, { ...args, active: false }),
 });
 
@@ -642,11 +686,13 @@ export const reportRequest = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await appendSynesthesiaReportReadFactById(ctx, reportId, now);
     await ctx.db.patch("songRequests", request._id, {
       openReportCount: request.openReportCount + 1,
       version: request.version + 1,
       updatedAt: now,
     });
+    await appendSongRequestReadFactById(ctx, request._id, now);
     await recordOperation(ctx, {
       eventId: context.event._id,
       actorPersonId: context.person._id,

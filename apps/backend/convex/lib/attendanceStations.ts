@@ -3,6 +3,10 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { revokeSourceGrantGroups } from "./permissions";
+import {
+  appendAttendanceDeviceReadFactById,
+  appendAttendanceStationReadFactById,
+} from "./operationsAutonomyReadFacts/attendanceOperations";
 
 export function stationAssignmentSourceId(args: {
   stationId: Id<"attendanceStations">;
@@ -39,12 +43,14 @@ async function disableAssignedAttendanceStationRows(
     status: "revoked",
     revokedAt: args.now,
   });
+  await appendAttendanceDeviceReadFactById(ctx, device._id, args.now);
   await ctx.db.patch(args.station._id, {
     deviceInstallationId: undefined,
     status: "disabled",
     configurationVersion,
     updatedAt: args.now,
   });
+  await appendAttendanceStationReadFactById(ctx, args.station._id, args.now);
   return {
     configurationVersion,
     deviceInstallationId: device._id,
@@ -101,6 +107,7 @@ export async function enableDisabledAttendanceStation(
     configurationVersion,
     updatedAt: args.now,
   });
+  await appendAttendanceStationReadFactById(ctx, args.station._id, args.now);
   return { configurationVersion };
 }
 
@@ -111,13 +118,14 @@ export function requireReplaceableAttendancePlan(
     sessions.some(
       (session) =>
         session.status === "preparing" ||
+        session.status === "ready" ||
         session.status === "open" ||
         session.status === "closing",
     )
   ) {
     throw new ConvexError({
       code: "PLAN_REPLACEMENT_BLOCKED",
-      message: "Finish the current attendance preparation or live session before replacing its plan.",
+      message: "Cancel or finish every prepared or live attendance session before replacing its plan.",
     });
   }
 }
@@ -152,6 +160,7 @@ export async function retireAttendancePlanStations(
         configurationVersion: station.configurationVersion + 1,
         updatedAt: args.now,
       });
+      await appendAttendanceStationReadFactById(ctx, station._id, args.now);
     }
   }
   await revokeSourceGrantGroups(ctx, {

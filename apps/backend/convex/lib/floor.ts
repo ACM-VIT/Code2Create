@@ -9,6 +9,9 @@ import type { FloorArea } from "../values";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
+export const maximumFloorZones = 30;
+export const maximumFloorLandmarksPerZone = 12;
+
 /** A landmark is called "near" a team only within this many metres of it. */
 const nearLandmarkMeters = 5;
 
@@ -42,11 +45,7 @@ export function floorStableKey(value: string, label: string) {
   return key;
 }
 
-/**
- * A percentage of a zone rectangle's width or depth. Positions are recorded by
- * a finger on a phone, so two decimal places is already past the accuracy of
- * the gesture; it exists only so a dot lands where it was drawn.
- */
+/** Rounds touch positions beyond the accuracy of a phone gesture. */
 export function floorCoordinate(value: number, label: string) {
   if (!Number.isFinite(value) || value < 0 || value > 100) {
     throw new ConvexError({
@@ -58,11 +57,7 @@ export function floorCoordinate(value: number, label: string) {
 }
 
 
-/**
- * What an operator says to a reviewer who has to walk over. A coarse area on
- * its own is not enough in a hall the size of this one, so the nearest
- * published landmark is named whenever the team is standing by one.
- */
+/** Adds a nearby published landmark when the zone area alone is too coarse. */
 export function floorLocationDescription(
   zoneName: string,
   area: FloorArea,
@@ -72,11 +67,7 @@ export function floorLocationDescription(
   return landmarkName === undefined ? place : `${place}, near ${landmarkName}`;
 }
 
-/**
- * The landmark a team is standing by, if any. Distance is measured in real
- * metres from the zone's published width and depth, because "near the windows"
- * has to mean a few paces rather than a share of a rectangle.
- */
+/** Measures landmark proximity in metres so differently sized zones behave consistently. */
 export function nearestLandmarkName(
   zone: { widthMeters: number; depthMeters: number },
   landmarks: readonly { name: string; x: number; y: number }[],
@@ -104,11 +95,7 @@ export type PlacedTeam = {
   mappedAt: number;
 };
 
-/**
- * Every team currently sitting in one zone, as points to draw. Teams are not
- * competing for anything here, so two of them close together is a normal
- * reading of a busy corner rather than a clash to resolve.
- */
+/** Nearby team positions are valid observations, not placement conflicts. */
 export function placedTeamsInZone(
   locations: readonly Doc<"teamFloorLocations">[],
   teamById: ReadonlyMap<Id<"teams">, Doc<"teams">>,
@@ -130,11 +117,7 @@ export function placedTeamsInZone(
     });
 }
 
-/**
- * How many teams sit in each of a zone's nine parts. All nine are returned,
- * including the empty ones, because the point of the view is seeing where the
- * room has filled up relative to everywhere else.
- */
+/** Includes empty areas so load comparisons always cover the whole zone. */
 export function floorAreaLoad(placed: readonly PlacedTeam[]) {
   return floorAreas.map((area) => ({
     area,
@@ -189,9 +172,6 @@ export async function activeTeamFloorLocation(
     .unique();
 }
 
-/**
- * Spells out a recorded location for whoever has to find the team.
- */
 export async function describeTeamFloorLocation(
   ctx: ReadCtx,
   location: Doc<"teamFloorLocations">,
@@ -209,23 +189,14 @@ export async function describeTeamFloorLocation(
   };
 }
 
-/**
- * Where a review panel walks for this team. Panels have no table of their own,
- * so the only location in a review is where the team was last seen sitting.
- * The string names a part of the hall and the nearest fixed landmark; no table
- * in this venue is numbered, and none stays where it was put.
- */
+/** Resolves the team location where its review panel must walk. */
 export async function teamTableLabel(ctx: ReadCtx, teamId: Id<"teams">) {
   const location = await activeTeamFloorLocation(ctx, teamId);
   if (!location) return undefined;
   return (await describeTeamFloorLocation(ctx, location)).description;
 }
 
-/**
- * The location recorded for this team in this round, which is where the panel
- * walks. Undefined until the team is queued or when the team has no recorded
- * location, and callers must say so rather than name a place that is not real.
- */
+/** Returns no destination until this round has a recorded team location. */
 export async function teamRoundTableLabel(
   ctx: ReadCtx,
   roundId: Id<"reviewRounds">,

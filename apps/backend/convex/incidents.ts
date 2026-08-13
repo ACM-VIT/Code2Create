@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
+import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
@@ -13,6 +14,7 @@ import {
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
+import { appendIncidentReadFactById } from "./lib/operationsAutonomyReadFacts/incidentReadiness";
 
 const severity = v.union(
   v.literal("service_disruption"),
@@ -64,6 +66,61 @@ type ActiveIncidentView = {
   version: number;
 };
 
+const maximumActiveIncidentsPerEvent = 20;
+
+async function visibleActiveIncidents(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+) {
+  const [open, monitoring, eventGrantIds] = await Promise.all([
+    ctx.db
+      .query("incidents")
+      .withIndex("by_event_state_opened", (index) =>
+        index.eq("eventId", eventId).eq("state", "open"),
+      )
+      .order("desc")
+      .take(maximumActiveIncidentsPerEvent + 1),
+    ctx.db
+      .query("incidents")
+      .withIndex("by_event_state_opened", (index) =>
+        index.eq("eventId", eventId).eq("state", "monitoring"),
+      )
+      .order("desc")
+      .take(maximumActiveIncidentsPerEvent + 1),
+    matchingPermissionGrantIds(ctx, {
+      eventId,
+      eventAccessSubjectId,
+      permissionKey: "incident.read",
+      scopeType: "event",
+    }),
+  ]);
+  const candidates = [...open, ...monitoring];
+  if (candidates.length > maximumActiveIncidentsPerEvent) {
+    throw new Error(
+      `An event cannot have more than ${maximumActiveIncidentsPerEvent} active incidents.`,
+    );
+  }
+  const visible =
+    eventGrantIds.length > 0
+      ? candidates
+      : (
+          await Promise.all(
+            candidates.map(async (incident) => {
+              const grantIds = await matchingPermissionGrantIds(ctx, {
+                eventId,
+                eventAccessSubjectId,
+                permissionKey: "incident.read",
+                scopeType: "incident",
+                scopeId: incident._id,
+              });
+              return grantIds.length > 0 ? incident : null;
+            }),
+          )
+        ).filter((incident) => incident !== null);
+  return visible.sort((left, right) => right.openedAt - left.openedAt);
+}
+
 export const active = query({
   args: { eventSlug: v.string() },
   returns: v.array(
@@ -88,78 +145,41 @@ export const active = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const now = Date.now();
-    const grants = await ctx.db
-      .query("permissionGrants")
-      .withIndex("by_subject_permission_status", (index) =>
-        index
-          .eq("eventAccessSubjectId", subject._id)
-          .eq("permissionKey", "incident.read")
-          .eq("status", "active"),
-      )
-      .collect();
-    const activeGrants = grants.filter(
-      (grant) =>
-        grant.eventId === event._id &&
-        grant.validFrom <= now &&
-        (grant.validUntil === undefined || grant.validUntil > now),
-    );
-    const canReadEvent = activeGrants.some(
-      (grant) => grant.scopeType === "event" && grant.scopeId === undefined,
-    );
-    const candidates = canReadEvent
-      ? (
-          await Promise.all([
-            ctx.db
-              .query("incidents")
-              .withIndex("by_event_state_opened", (index) =>
-                index.eq("eventId", event._id).eq("state", "open"),
-              )
-              .order("desc")
-              .take(20),
-            ctx.db
-              .query("incidents")
-              .withIndex("by_event_state_opened", (index) =>
-                index.eq("eventId", event._id).eq("state", "monitoring"),
-              )
-              .order("desc")
-              .take(20),
-          ])
-        ).flat()
-      : (
-          await Promise.all(
-            activeGrants.map(async (grant) => {
-              if (grant.scopeType !== "incident" || grant.scopeId === undefined) return null;
-              const incidentId = ctx.db.normalizeId("incidents", grant.scopeId);
-              return incidentId ? ctx.db.get("incidents", incidentId) : null;
-            }),
-          )
-        ).filter((incident) => incident !== null);
-    const uniqueCandidates = new Map(candidates.map((incident) => [incident._id, incident]));
+    const incidents = await visibleActiveIncidents(ctx, event._id, subject._id);
     const visible: ActiveIncidentView[] = [];
-    for (const incident of [...uniqueCandidates.values()]
-      .filter(
-        (candidate) =>
-          candidate.eventId === event._id &&
-          (candidate.state === "open" || candidate.state === "monitoring"),
-      )
-      .sort((left, right) => right.openedAt - left.openedAt)
-      .slice(0, 20)) {
+    for (const incident of incidents) {
       if (incident.state === "open" || incident.state === "monitoring") {
         visible.push({
-        id: incident._id,
-        title: incident.title,
-        summary: incident.summary,
-        severity: incident.severity,
-        affectedService: incident.affectedService,
-        state: incident.state,
-        manualModeState: incident.manualModeState,
-        openedAt: incident.openedAt,
-        version: incident.version,
+          id: incident._id,
+          title: incident.title,
+          summary: incident.summary,
+          severity: incident.severity,
+          affectedService: incident.affectedService,
+          state: incident.state,
+          manualModeState: incident.manualModeState,
+          openedAt: incident.openedAt,
+          version: incident.version,
         });
       }
     }
     return visible;
+  },
+});
+
+export const activeSummary = query({
+  args: { eventSlug: v.string() },
+  returns: v.object({ liveCount: v.number(), pendingManualModeCount: v.number() }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const incidents = await visibleActiveIncidents(ctx, event._id, subject._id);
+    return {
+      liveCount: incidents.length,
+      pendingManualModeCount: incidents.filter(
+        (incident) => incident.manualModeState === "pending",
+      ).length,
+    };
   },
 });
 
@@ -300,6 +320,24 @@ export const create = mutation({
       scopeType: "event",
     });
     await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
+    const activeIncidents = (
+      await Promise.all(
+        (["open", "monitoring"] as const).map((state) =>
+          ctx.db
+            .query("incidents")
+            .withIndex("by_event_state_opened", (index) =>
+              index.eq("eventId", event._id).eq("state", state),
+            )
+            .take(maximumActiveIncidentsPerEvent + 1),
+        ),
+      )
+    ).flat();
+    if (activeIncidents.length >= maximumActiveIncidentsPerEvent) {
+      throw new ConvexError({
+        code: "INCIDENT_LIMIT_REACHED",
+        message: `Resolve an active incident before opening more than ${maximumActiveIncidentsPerEvent}.`,
+      });
+    }
     const now = Date.now();
     const incidentId = await ctx.db.insert("incidents", {
       eventId: event._id,
@@ -315,6 +353,7 @@ export const create = mutation({
       version: 1,
       updatedAt: now,
     });
+    await appendIncidentReadFactById(ctx, incidentId, now);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -439,6 +478,7 @@ export const approveManualMode = mutation({
       version,
       updatedAt: now,
     });
+    await appendIncidentReadFactById(ctx, incident._id, now);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -582,6 +622,7 @@ export const resolve = mutation({
       version,
       updatedAt: now,
     });
+    await appendIncidentReadFactById(ctx, incident._id, now);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,

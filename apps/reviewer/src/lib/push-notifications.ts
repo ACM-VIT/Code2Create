@@ -22,22 +22,12 @@ Notifications.setNotificationHandler({
   }),
 })
 
-/**
- * What still stands between this phone and a page it would actually notice.
- *
- * A page that only exists as pixels needs somebody to already be looking at
- * the screen, which is the one moment they do not need paging. These are the
- * settings that decide whether a locked, pocketed, silenced phone makes a
- * noise, and each one is somewhere different on each platform — so the app
- * has to check them and say where to go rather than hope.
- */
 export type PagingReadinessCheck = {
   key: 'permission' | 'critical' | 'full_screen' | 'battery'
   title: string
-  /** What a reviewer loses while this is unmet. Never a description of itself. */
   consequence: string
-  met: boolean
-  /** Absent when nothing can be opened, as with an entitlement Apple owns. */
+  /** `unknown` means Android exposes the switch but no read API. */
+  met: boolean | 'unknown'
   fix?: 'app_settings' | 'notification_settings' | 'full_screen_settings' | 'battery_settings'
 }
 
@@ -59,9 +49,7 @@ export async function pagingReadiness(): Promise<PagingReadinessCheck[]> {
       key: 'critical',
       title: 'Critical alerts',
       consequence: 'A page will stay silent while your phone is on silent',
-      /* Apple grants this entitlement by hand for life-safety apps. Until it
-         is granted the switch does not exist, so this reports honestly rather
-         than sending somebody to look for a setting that is not there. */
+      // Apple grants this entitlement manually; no settings link exists without it.
       met: permission.ios?.allowsCriticalAlerts === true,
     })
   }
@@ -71,17 +59,16 @@ export async function pagingReadiness(): Promise<PagingReadinessCheck[]> {
       {
         key: 'full_screen',
         title: 'Full-screen alerts',
-        consequence: 'A page will sit in the shade instead of taking the screen',
-        /* Android 14 moved this behind its own switch. There is no read API,
-           so it is offered rather than asserted. */
-        met: false,
+        consequence: 'Lets a page take the screen instead of sitting in the shade',
+        // Android 14 exposes this switch but no read API.
+        met: 'unknown',
         fix: 'full_screen_settings',
       },
       {
         key: 'battery',
         title: 'Battery optimisation',
-        consequence: 'Android may hold a page back for minutes',
-        met: false,
+        consequence: 'Stops Android holding a page back for minutes',
+        met: 'unknown',
         fix: 'battery_settings',
       },
     )
@@ -184,11 +171,9 @@ async function prepareAndroidChannel() {
   if (Platform.OS !== 'android') return
   await Notifications.setNotificationChannelAsync('reviewer-pages', {
     name: 'Reviewer pages',
-    /* MAX is what lets Android put a page over the lock screen rather than
-       into the shade. Everything else the app might ever send belongs on a
-       quieter channel than this one. */
+    // Full-screen lock-screen notifications require maximum importance.
     importance: Notifications.AndroidImportance.MAX,
-    sound: 'default',
+    // Omitting `sound` uses the system sound; `default` is treated as default.wav.
     vibrationPattern: [0, 250, 200, 250],
     enableVibrate: true,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,

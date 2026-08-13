@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import {
@@ -14,53 +14,27 @@ import {
   QuietAction,
   Section,
   Sheet,
-  Shell,
   Lead,
   Problem,
 } from '@/components/ui'
 import { describeError } from '@/lib/errors'
 import type { ReviewerRuntime } from '@/lib/runtime'
 import { duty, palette } from '@/theme'
+import { PulseSkeleton } from '@/components/skeletons'
 
 type AttentionRow = FunctionReturnType<typeof api.operationsAttention.overview>['rows'][number]
 type AttentionSeverity = AttentionRow['severity']
 
-/**
- * The health query is pure, so Convex would happily serve it forever from the
- * moment it was first read; the changing bucket is what makes it re-run. The
- * dashboard ticks every thirty seconds because somebody is watching it — a
- * phone is glanced at, so a minute is enough.
- */
-const healthRefreshMs = 60_000
-
-/**
- * The event's vitals, for the person whose duty is the whole event.
- *
- * The attention ledger leads because its rows are the walking work: each one
- * names a table, a team or a seat that needs a person, and picking one up from
- * wherever you are standing is exactly what a phone is for. Following a row to
- * its workspace — the round board, the queue — stays on the dashboard; what
- * belongs here is claiming the job and silencing the false alarms.
- */
 export function PulsePanel({ canManage, runtime }: { canManage: boolean; runtime: ReviewerRuntime }) {
   const eventSlug = runtime.configuration.eventSlug
   const attention = useQuery(api.operationsAttention.overview, { eventSlug })
-  const [refreshBucket, setRefreshBucket] = useState(() => Math.floor(Date.now() / healthRefreshMs))
-  useEffect(() => {
-    const interval = setInterval(
-      () => setRefreshBucket(Math.floor(Date.now() / healthRefreshMs)),
-      healthRefreshMs,
-    )
-    return () => clearInterval(interval)
-  }, [])
-  const health = useQuery(api.operationsHealth.overview, { eventSlug, refreshBucket })
+  const healthState = useQuery(api.operationsHealth.overview, { eventSlug })
+  const health = healthState?.state === 'ready' ? healthState.snapshot : undefined
 
-  // The sheet holds an id, not a copy of the row: the ledger keeps moving
-  // underneath it, and acting on a stale version is exactly what the server's
-  // version check exists to refuse.
+  // Resolve the current ledger row by ID before acting on its version.
   const [selectedId, setSelectedId] = useState<AttentionRow['id'] | null>(null)
 
-  if (attention === undefined) return <Shell />
+  if (attention === undefined) return <PulseSkeleton />
 
   const rows = attention.rows
   const unclaimed = rows.filter((row) => !row.acknowledged).length
@@ -70,7 +44,16 @@ export function PulsePanel({ canManage, runtime }: { canManage: boolean; runtime
     <>
       <Lead
         accent={unclaimed > 0 ? duty.pulse.accent : palette.text}
-        {...(health === undefined ? {} : { detail: systemLine(health.summary.status) })}
+        {...(healthState === undefined
+          ? {}
+          : healthState.state === 'ready'
+            ? { detail: systemLine(healthState.snapshot.summary.status) }
+            : {
+                detail:
+                  healthState.state === 'missing'
+                    ? 'System checks are starting'
+                    : 'System checks are delayed',
+              })}
         unit={unclaimed === 1 ? 'needs someone' : 'need someone'}
         value={String(unclaimed)}
       />
@@ -81,7 +64,6 @@ export function PulsePanel({ canManage, runtime }: { canManage: boolean; runtime
         <Section title="Needs someone">
           {rows.map((row) => (
             <Card
-              accent={severityColour(row.severity)}
               key={row.id}
               onPress={() => setSelectedId(row.id)}
               selected={row.severity === 'critical' && !row.acknowledged}
@@ -96,6 +78,9 @@ export function PulsePanel({ canManage, runtime }: { canManage: boolean; runtime
               {row.acknowledged ? <Meta>Someone has picked this up</Meta> : null}
             </Card>
           ))}
+          {attention.summary.hasMore ? (
+            <Meta>{`Showing the ${attention.summary.limit} highest-priority items. More remain in the ledger.`}</Meta>
+          ) : null}
         </Section>
       )}
 
@@ -127,10 +112,6 @@ export function PulsePanel({ canManage, runtime }: { canManage: boolean; runtime
   )
 }
 
-/**
- * One row, held open. Picking it up is one press; dismissing asks why first,
- * because a dismissal tells every other operator to stop looking at it.
- */
 function AttentionSheet({
   canManage,
   eventSlug,
@@ -199,8 +180,6 @@ function AttentionSheet({
 
   return (
     <Sheet onClose={close} title={row ? severityWord(row.severity) : 'Attention'} visible={visible}>
-      {/* The sweep may resolve the row while this sheet is open. That is good
-          news, and the sheet says so instead of acting on a ghost. */}
       {!row ? (
         <Nothing>This cleared while you were reading.</Nothing>
       ) : (
@@ -265,7 +244,6 @@ function systemLine(status: 'healthy' | 'watch' | 'attention' | 'critical') {
   return 'Systems critical'
 }
 
-/** How long it has been open and whether tonight has seen it before. */
 function sinceLine(row: { firstObservedAt: number; recurrenceCount: number }) {
   const since = new Date(row.firstObservedAt).toLocaleTimeString([], {
     hour: '2-digit',

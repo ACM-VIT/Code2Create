@@ -25,6 +25,7 @@ import {
 } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import {
+  hasAnyActivePermissionGrant,
   insertPermissionGrant,
   matchingPermissionGrantIds,
   requirePermission,
@@ -68,14 +69,7 @@ const listItem = v.object({
   version: v.number(),
 });
 
-/**
- * How many applications sit at each stage.
- *
- * The queue filters by one stage at a time, so without these an operator who
- * lands on an empty stage cannot tell whether there are no applications at all
- * or simply none here. specs/06:169 asks the workspace to group records by the
- * next real action; that only reads if the sizes of the groups are visible.
- */
+/** Returns whole-queue stage counts independently of the selected stage. */
 export const stageCounts = query({
   args: { eventSlug: v.string() },
   returns: v.array(v.object({ state: applicationState, count: v.number() })),
@@ -298,6 +292,95 @@ const reviewAssignmentView = v.object({
   cancellationReason: v.optional(v.string()),
 });
 
+export const members = query({
+  args: {
+    eventSlug: v.string(),
+    applicationId: v.id("applications"),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: paginationResultValidator(memberView),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const application = await ctx.db.get(args.applicationId);
+    if (!application || application.eventId !== event._id) {
+      throw new ConvexError({
+        code: "APPLICATION_NOT_FOUND",
+        message: "The application does not exist in this event.",
+      });
+    }
+    const permissionRequest = {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      scopeType: "application" as const,
+      scopeId: application._id,
+    };
+    const [fullReadGrantIds, reviewReadGrantIds, profileGrantIds, project] =
+      await Promise.all([
+        matchingPermissionGrantIds(ctx, {
+          ...permissionRequest,
+          permissionKey: "application.read",
+        }),
+        matchingPermissionGrantIds(ctx, {
+          ...permissionRequest,
+          permissionKey: "application.review.read",
+        }),
+        matchingPermissionGrantIds(ctx, {
+          ...permissionRequest,
+          permissionKey: "application.profile_context.read",
+        }),
+        ctx.db.get(application.submittedProjectVersionId),
+      ]);
+    if (fullReadGrantIds.length === 0 && reviewReadGrantIds.length === 0) {
+      throw new ConvexError({
+        code: "ACCESS_DENIED",
+        message: "This account cannot read that application or assigned review.",
+      });
+    }
+    if (!project || project.eventId !== event._id || project.teamId !== application.teamId) {
+      throw new Error("The submitted project snapshot is missing.");
+    }
+    const snapshot = await ctx.db.get(project.lockedRosterSnapshotId);
+    if (
+      !snapshot ||
+      snapshot.state !== "complete" ||
+      snapshot.processedMemberCount !== project.lockedMemberCount
+    ) {
+      throw new Error("The immutable submitted roster is incomplete.");
+    }
+    const page = await ctx.db
+      .query("teamSubmissionMembers")
+      .withIndex("by_submission_attempt_and_ordinal", (index) =>
+        index.eq("submissionAttemptId", snapshot._id),
+      )
+      .paginate(args.paginationOpts);
+    return {
+      ...page,
+      page: page.page.map((snapshotMember) => {
+        if (
+          snapshotMember.eventId !== event._id ||
+          snapshotMember.teamId !== application.teamId
+        ) {
+          throw new Error("The immutable submitted roster belongs to another team.");
+        }
+        return {
+          membershipId: snapshotMember.membershipId,
+          displayName: snapshotMember.displayName,
+          profileContext:
+            profileGrantIds.length > 0
+              ? {
+                  participantClass: snapshotMember.participantClass,
+                  yearOfStudy: snapshotMember.yearOfStudy,
+                  institution: snapshotMember.institution,
+                }
+              : null,
+        };
+      }),
+    };
+  },
+});
+
 export const detail = query({
   args: { eventSlug: v.string(), applicationId: v.string() },
   returns: v.union(
@@ -317,7 +400,7 @@ export const detail = query({
         humanReasonCode: v.optional(v.string()),
         aiDisposition: v.optional(admissionAiDisposition),
       }),
-      team: v.object({ id: v.id("teams"), name: v.string(), members: v.array(memberView) }),
+      team: v.object({ id: v.id("teams"), name: v.string(), memberCount: v.number() }),
       project: v.object({
         id: v.id("projectVersions"),
         initialIdea: v.string(),
@@ -429,6 +512,13 @@ export const detail = query({
         v.null(),
         v.object({ capacity: v.number(), reserved: v.number() }),
       ),
+      permissions: v.object({
+        review: v.boolean(),
+        assign: v.boolean(),
+        decide: v.boolean(),
+        offerManage: v.boolean(),
+        participantDeliveryRead: v.boolean(),
+      }),
     }),
   ),
   handler: async (ctx, args) => {
@@ -450,6 +540,10 @@ export const detail = query({
       profileGrantIds,
       aiGrantIds,
       assignmentGrantIds,
+      reviewGrantIds,
+      decideGrantIds,
+      offerGrantIds,
+      participantDeliveryRead,
     ] = await Promise.all([
       matchingPermissionGrantIds(ctx, {
         ...permissionRequest,
@@ -470,6 +564,23 @@ export const detail = query({
       matchingPermissionGrantIds(ctx, {
         ...permissionRequest,
         permissionKey: "application.assign",
+      }),
+      matchingPermissionGrantIds(ctx, {
+        ...permissionRequest,
+        permissionKey: "application.review",
+      }),
+      matchingPermissionGrantIds(ctx, {
+        ...permissionRequest,
+        permissionKey: "application.decide",
+      }),
+      matchingPermissionGrantIds(ctx, {
+        ...permissionRequest,
+        permissionKey: "application.offer.manage",
+      }),
+      hasAnyActivePermissionGrant(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "communications.delivery.read",
       }),
     ]);
     const canReadApplication = fullReadGrantIds.length > 0;
@@ -535,35 +646,6 @@ export const detail = query({
       ctx,
       project,
     );
-    const members = [];
-    for (const teamMemberId of project.lockedTeamMemberIds) {
-      const teamMember = await ctx.db.get(teamMemberId);
-      if (!teamMember || teamMember.teamId !== team._id) return null;
-      const membership = await ctx.db.get(teamMember.membershipId);
-      if (!membership || membership.eventId !== event._id) return null;
-      const [profile, memberPerson] = await Promise.all([
-        canReadProfileContext
-          ? ctx.db
-          .query("participantProfiles")
-          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
-              .unique()
-          : Promise.resolve(null),
-        ctx.db.get(membership.personId),
-      ]);
-      if (!memberPerson || (canReadProfileContext && !profile)) return null;
-      members.push({
-        membershipId: membership._id,
-        displayName:
-          profile?.preferredName ?? profile?.fullName ?? memberPerson.displayName,
-        profileContext: profile
-          ? {
-              participantClass: membership.participantClass,
-              yearOfStudy: profile.yearOfStudy,
-              institution: profile.institution,
-            }
-          : null,
-      });
-    }
     const currentReviews = reviews.filter(
       (review) => review.applicationContentVersion === application.contentVersion,
     );
@@ -644,7 +726,7 @@ export const detail = query({
           ? { aiDisposition: application.aiDisposition }
           : {}),
       },
-      team: { id: team._id, name: team.name, members },
+      team: { id: team._id, name: team.name, memberCount: project.lockedMemberCount },
       project: {
         id: project._id,
         initialIdea: project.initialIdea,
@@ -744,6 +826,13 @@ export const detail = query({
       capacity: capacity
         ? { capacity: capacity.capacity, reserved: capacity.reserved }
         : null,
+      permissions: {
+        review: reviewGrantIds.length > 0,
+        assign: assignmentGrantIds.length > 0,
+        decide: decideGrantIds.length > 0,
+        offerManage: offerGrantIds.length > 0,
+        participantDeliveryRead,
+      },
     };
   },
 });
@@ -1545,7 +1634,7 @@ async function reserveAdmissionCapacity(
       message: "This application already has an active admission reservation.",
     });
   }
-  const participantCount = args.project.lockedTeamMemberIds.length;
+  const participantCount = args.project.lockedMemberCount;
   const overall = await ctx.db
     .query("admissionCapacityBuckets")
     .withIndex("by_policy_scope_track", (index) =>
@@ -1858,22 +1947,20 @@ export const decide = mutation({
         version: team.version + 1,
         updatedAt: now,
       });
-      for (const teamMemberId of project.lockedTeamMemberIds) {
-        const teamMember = await ctx.db.get(teamMemberId);
-        if (!teamMember || teamMember.teamId !== team._id) {
-          throw new Error("Locked team membership is missing.");
-        }
-        await ctx.db.patch(teamMember.membershipId, {
-          onboardingStatus: "selected",
-          updatedAt: now,
-        });
-      }
+      await ctx.scheduler.runAfter(0, internal.admissions.updateRosterOnboardingStatus, {
+        applicationId: application._id,
+        expectedApplicationVersion: applicationVersion,
+        lockedRosterSnapshotId: project.lockedRosterSnapshotId,
+        onboardingStatus: "selected",
+        cursor: null,
+      });
     }
     const notificationDeliveryIds = await enqueueAdmissionDecisionNotifications(ctx, {
       eventId: event._id,
       applicationId: application._id,
       teamId: application.teamId,
-      lockedTeamMemberIds: project.lockedTeamMemberIds,
+      lockedRosterSnapshotId: project.lockedRosterSnapshotId,
+      lockedMemberCount: project.lockedMemberCount,
       decision: args.decision,
       applicationVersion,
       now,
@@ -1906,7 +1993,7 @@ export const decide = mutation({
         aiDisposition: args.aiDisposition,
         humanReviewCount: currentReviews.length,
         informationQuestionCount: informationRequest.informationQuestionCount,
-        notificationDeliveryCount: notificationDeliveryIds.length,
+        notificationDeliveryCount: notificationDeliveryIds,
         version: applicationVersion,
       }),
       reason: "Published the human admission decision",
@@ -2016,7 +2103,7 @@ export async function respondToAdmissionInformationRequest(
     !project ||
     !member ||
     member.teamId !== team._id ||
-    !project.lockedTeamMemberIds.includes(member._id) ||
+    project.lockedRosterSnapshotId !== team.submissionAttemptId ||
     member.role !== "lead" ||
     team.leadMembershipId !== args.membership._id ||
     project.lockedLeadMembershipId !== args.membership._id
@@ -2073,7 +2160,8 @@ export async function respondToAdmissionInformationRequest(
     intakeResponses: project.intakeResponses,
     coreTrackVersionId: project.coreTrackVersionId,
     sponsorTrackVersionIds: project.sponsorTrackVersionIds,
-    lockedTeamMemberIds: project.lockedTeamMemberIds,
+    lockedRosterSnapshotId: project.lockedRosterSnapshotId,
+    lockedMemberCount: project.lockedMemberCount,
     lockedLeadMembershipId: project.lockedLeadMembershipId,
     freshForEventAttestation: project.freshForEventAttestation,
     finalConfirmation: project.finalConfirmation,
@@ -2353,10 +2441,8 @@ export async function transitionOffer(
     args.project._id !== args.application.submittedProjectVersionId ||
     args.project.teamId !== args.team._id ||
     args.team.lockedProjectVersionId !== args.project._id ||
-    args.offer.offeredTeamMemberIds.length !== args.project.lockedTeamMemberIds.length ||
-    args.offer.offeredTeamMemberIds.some(
-      (teamMemberId, index) => teamMemberId !== args.project.lockedTeamMemberIds[index],
-    )
+    args.offer.lockedRosterSnapshotId !== args.project.lockedRosterSnapshotId ||
+    args.offer.participantCount !== args.project.lockedMemberCount
   ) {
     throw new Error("The application, offer, team, and locked roster do not match.");
   }
@@ -2397,9 +2483,6 @@ export async function transitionOffer(
 
   await ctx.db.patch(args.offer._id, {
     state: args.transition,
-    ...(args.transition === "confirmed"
-      ? { confirmedTeamMemberIds: args.project.lockedTeamMemberIds }
-      : {}),
     ...(args.actorPersonId !== undefined
       ? { decidedByPersonId: args.actorPersonId }
       : {}),
@@ -2423,21 +2506,18 @@ export async function transitionOffer(
       : args.transition === "revoked"
         ? "selected"
         : "submitted";
-  for (const teamMemberId of args.offer.offeredTeamMemberIds) {
-    const teamMember = await ctx.db.get(teamMemberId);
-    if (!teamMember || teamMember.teamId !== args.team._id || teamMember.status !== "active") {
-      throw new Error("The offered roster no longer matches an active locked team member.");
-    }
-    await ctx.db.patch(teamMember.membershipId, {
-      onboardingStatus: onboardingStatusAfter,
-      updatedAt: args.now,
-    });
-  }
+  await ctx.scheduler.runAfter(0, internal.admissions.updateRosterOnboardingStatus, {
+    applicationId: args.application._id,
+    expectedApplicationVersion: applicationVersion,
+    lockedRosterSnapshotId: args.offer.lockedRosterSnapshotId,
+    onboardingStatus: onboardingStatusAfter,
+    cursor: null,
+  });
   if (args.transition === "confirmed") {
     await initializeAttendanceTeamAvailability(ctx, {
       eventId: args.offer.eventId,
       teamId: args.team._id,
-      activeMemberCount: args.offer.offeredTeamMemberIds.length,
+      activeMemberCount: args.offer.participantCount,
       now: args.now,
     });
   }
@@ -2453,7 +2533,8 @@ export async function transitionOffer(
       eventId: args.offer.eventId,
       applicationId: args.application._id,
       teamId: args.team._id,
-      lockedTeamMemberIds: args.project.lockedTeamMemberIds,
+      lockedRosterSnapshotId: args.project.lockedRosterSnapshotId,
+      lockedMemberCount: args.project.lockedMemberCount,
       templateKey,
       applicationVersion,
       now: args.now,
@@ -2502,8 +2583,8 @@ export async function createAdmissionOffer(
     eventId: args.event._id,
     applicationId: args.application._id,
     teamId: args.team._id,
-    offeredTeamMemberIds: args.project.lockedTeamMemberIds,
-    participantCount: args.project.lockedTeamMemberIds.length,
+    lockedRosterSnapshotId: args.project.lockedRosterSnapshotId,
+    participantCount: args.project.lockedMemberCount,
     reservedCoreTrackVersionId: args.project.coreTrackVersionId,
     source: "accepted_decision",
     state: "offered",
@@ -2527,25 +2608,19 @@ export async function createAdmissionOffer(
     currentOfferId: offerId,
     version: applicationVersion,
   });
-  for (const teamMemberId of args.project.lockedTeamMemberIds) {
-    const teamMember = await ctx.db.get(teamMemberId);
-    if (
-      !teamMember ||
-      teamMember.teamId !== args.team._id ||
-      teamMember.status !== "active"
-    ) {
-      throw new Error("The locked team roster changed before the offer was sent.");
-    }
-    await ctx.db.patch(teamMember.membershipId, {
-      onboardingStatus: "offer_pending",
-      updatedAt: args.now,
-    });
-  }
+  await ctx.scheduler.runAfter(0, internal.admissions.updateRosterOnboardingStatus, {
+    applicationId: args.application._id,
+    expectedApplicationVersion: applicationVersion,
+    lockedRosterSnapshotId: args.project.lockedRosterSnapshotId,
+    onboardingStatus: "offer_pending",
+    cursor: null,
+  });
   await enqueueApplicationNotifications(ctx, {
     eventId: args.event._id,
     applicationId: args.application._id,
     teamId: args.team._id,
-    lockedTeamMemberIds: args.project.lockedTeamMemberIds,
+    lockedRosterSnapshotId: args.project.lockedRosterSnapshotId,
+    lockedMemberCount: args.project.lockedMemberCount,
     templateKey: "offer",
     applicationVersion,
     now: args.now,
@@ -2559,6 +2634,72 @@ export async function createAdmissionOffer(
   if (!offer || !updatedApplication) throw new Error("The admission offer did not persist.");
   return { offer, application: updatedApplication };
 }
+
+const rosterOnboardingStatus = v.union(
+  v.literal("submitted"),
+  v.literal("selected"),
+  v.literal("offer_pending"),
+  v.literal("accepted"),
+);
+
+export const updateRosterOnboardingStatus = internalMutation({
+  args: {
+    applicationId: v.id("applications"),
+    expectedApplicationVersion: v.number(),
+    lockedRosterSnapshotId: v.id("teamSubmissionAttempts"),
+    onboardingStatus: rosterOnboardingStatus,
+    cursor: v.union(v.string(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const [application, attempt] = await Promise.all([
+      ctx.db.get(args.applicationId),
+      ctx.db.get(args.lockedRosterSnapshotId),
+    ]);
+    if (
+      !application ||
+      application.version !== args.expectedApplicationVersion ||
+      !attempt ||
+      attempt.state !== "complete"
+    ) {
+      return null;
+    }
+    if (application.eventId !== attempt.eventId || application.teamId !== attempt.teamId) {
+      throw new Error("The immutable submitted roster is unavailable.");
+    }
+    const project = await ctx.db.get(application.submittedProjectVersionId);
+    if (!project || project.lockedRosterSnapshotId !== attempt._id) {
+      throw new Error("The application does not own the immutable submitted roster.");
+    }
+    const page = await ctx.db
+      .query("teamSubmissionMembers")
+      .withIndex("by_submission_attempt_and_ordinal", (index) =>
+        index.eq("submissionAttemptId", attempt._id),
+      )
+      .paginate({ numItems: 100, cursor: args.cursor });
+    const now = Date.now();
+    for (const snapshotMember of page.page) {
+      const membership = await ctx.db.get(snapshotMember.membershipId);
+      if (!membership || membership.eventId !== attempt.eventId) {
+        throw new Error("A submitted roster membership no longer resolves.");
+      }
+      await ctx.db.patch(membership._id, {
+        onboardingStatus: args.onboardingStatus,
+        updatedAt: now,
+      });
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.admissions.updateRosterOnboardingStatus, {
+        applicationId: application._id,
+        expectedApplicationVersion: args.expectedApplicationVersion,
+        lockedRosterSnapshotId: attempt._id,
+        onboardingStatus: args.onboardingStatus,
+        cursor: page.continueCursor,
+      });
+    }
+    return null;
+  },
+});
 
 export const sendOffer = mutation({
   args: {
@@ -2669,7 +2810,7 @@ export const sendOffer = mutation({
       nextSummary: JSON.stringify({
         applicationState: "offer_sent",
         applicationVersion,
-        participantCount: project.lockedTeamMemberIds.length,
+        participantCount: project.lockedMemberCount,
         expiresAt: args.expiresAt,
       }),
       reason: "Sent an admission offer to the locked team",

@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import {
+  HttpBodyTooLargeError,
+  readBoundedRequestBytes,
+} from "./lib/boundedHttpBody";
 
 const installation = z.object({ id: z.number().int().positive() });
 const repository = z.object({ id: z.number().int().positive() });
@@ -52,7 +56,7 @@ function equalBytes(left: Uint8Array, right: Uint8Array) {
   return difference === 0;
 }
 
-async function verifySignature(secret: string, body: ArrayBuffer, header: string) {
+async function verifySignature(secret: string, body: Uint8Array, header: string) {
   if (!header.startsWith("sha256=")) return false;
   const received = hexBytes(header.slice("sha256=".length).toLowerCase());
   if (!received) return false;
@@ -63,12 +67,16 @@ async function verifySignature(secret: string, body: ArrayBuffer, header: string
     false,
     ["sign"],
   );
-  const expected = new Uint8Array(await crypto.subtle.sign("HMAC", key, body));
+  const expected = new Uint8Array(
+    await crypto.subtle.sign("HMAC", key, Uint8Array.from(body)),
+  );
   return equalBytes(received, expected);
 }
 
-async function payloadHash(body: ArrayBuffer) {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", body));
+async function payloadHash(body: Uint8Array) {
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", Uint8Array.from(body)),
+  );
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
@@ -81,18 +89,21 @@ function providerTime(value: string | undefined) {
 export const githubWebhook = httpAction(async (ctx, request) => {
   const secret = process.env.GITHUB_WEBHOOK_SECRET?.trim();
   if (!secret) return new Response("GitHub webhook is not configured.", { status: 503 });
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > 2_000_000) {
-    return new Response("Payload too large.", { status: 413 });
-  }
   const signature = request.headers.get("x-hub-signature-256");
   const deliveryId = request.headers.get("x-github-delivery")?.trim();
   const eventName = request.headers.get("x-github-event")?.trim();
   if (!signature || !deliveryId || !eventName || deliveryId.length > 100 || eventName.length > 80) {
     return new Response("Required GitHub headers are missing.", { status: 400 });
   }
-  const body = await request.arrayBuffer();
-  if (body.byteLength > 2_000_000) return new Response("Payload too large.", { status: 413 });
+  let body: Uint8Array;
+  try {
+    body = await readBoundedRequestBytes(request, 2_000_000);
+  } catch (error) {
+    if (error instanceof HttpBodyTooLargeError) {
+      return new Response("Payload too large.", { status: 413 });
+    }
+    throw error;
+  }
   if (!(await verifySignature(secret, body, signature))) {
     return new Response("Invalid signature.", { status: 401 });
   }

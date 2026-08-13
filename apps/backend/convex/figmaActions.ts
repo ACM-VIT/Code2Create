@@ -16,7 +16,22 @@ import {
   type StoredArtifact,
   type StoredFigmaPreviewArtifact,
 } from "./lib/artifactStorage";
-import { decryptProviderSecret, encryptProviderSecret } from "./lib/providerSecrets";
+import {
+  HttpBodyTooLargeError,
+  readBoundedJsonResponse,
+  readBoundedResponseText,
+} from "./lib/boundedHttpBody";
+import {
+  currentProviderSecretKeyVersion,
+  decryptProviderSecret,
+  encryptProviderSecret,
+  providerSecretKeyVersion,
+  reencryptProviderSecret,
+} from "./lib/providerSecrets";
+import {
+  downloadFigmaPreview,
+  FigmaPreviewDownloadError,
+} from "./lib/figmaPreviewDownload";
 
 const figmaApiOrigin = "https://api.figma.com";
 const figmaAuthorizationUrl = "https://www.figma.com/oauth";
@@ -43,6 +58,124 @@ const figmaScopes = [
   "file_comments:read",
   "webhooks:write",
 ] as const;
+
+export const rotateProviderSecrets = internalAction({
+  args: {
+    owner: v.union(
+      v.literal("active_credentials"),
+      v.literal("pending_intents"),
+      v.literal("verifying_intents"),
+    ),
+    cursor: v.optional(v.string()),
+    limit: v.number(),
+    dryRun: v.boolean(),
+  },
+  returns: v.object({
+    owner: v.union(
+      v.literal("active_credentials"),
+      v.literal("pending_intents"),
+      v.literal("verifying_intents"),
+    ),
+    targetKeyVersion: v.string(),
+    scanned: v.number(),
+    live: v.number(),
+    needingRotation: v.number(),
+    rotated: v.number(),
+    continueCursor: v.string(),
+    isDone: v.boolean(),
+    dryRun: v.boolean(),
+  }),
+  handler: async (ctx, args): Promise<ProviderSecretRotationResult> => {
+    if (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 50) {
+      throw new ConvexError({
+        code: "INVALID_ROTATION_LIMIT",
+        message: "Provider secret rotation batches must contain between 1 and 50 rows.",
+      });
+    }
+    const targetKeyVersion = currentProviderSecretKeyVersion();
+    const paginationOpts = {
+      cursor: args.cursor ?? null,
+      numItems: args.limit,
+    };
+    if (args.owner === "active_credentials") {
+      const page: CredentialSecretRotationPage = await ctx.runQuery(
+        internal.providerSecretRotation.activeCredentialPage,
+        { paginationOpts },
+      );
+      const needingRotation = page.page.filter(
+        (credential) =>
+          providerSecretKeyVersion(credential.accessTokenCiphertext) !== targetKeyVersion ||
+          providerSecretKeyVersion(credential.refreshTokenCiphertext) !== targetKeyVersion,
+      );
+      const rotated = args.dryRun
+        ? 0
+        : await ctx.runMutation(
+            internal.providerSecretRotation.commitCredentialRotations,
+            {
+              rotations: needingRotation.map((credential) => ({
+                credentialId: credential.id,
+                expectedVersion: credential.version,
+                expectedAccessTokenCiphertext: credential.accessTokenCiphertext,
+                expectedRefreshTokenCiphertext: credential.refreshTokenCiphertext,
+                accessTokenCiphertext: reencryptProviderSecret(
+                  credential.accessTokenCiphertext,
+                ),
+                refreshTokenCiphertext: reencryptProviderSecret(
+                  credential.refreshTokenCiphertext,
+                ),
+              })),
+            },
+          );
+      return {
+        owner: args.owner,
+        targetKeyVersion,
+        scanned: page.page.length,
+        live: page.page.length,
+        needingRotation: needingRotation.length,
+        rotated,
+        continueCursor: page.continueCursor,
+        isDone: page.isDone,
+        dryRun: args.dryRun,
+      };
+    }
+
+    const status = args.owner === "pending_intents" ? "pending" : "verifying";
+    const page: IntentSecretRotationPage = await ctx.runQuery(
+      internal.providerSecretRotation.liveIntentPage,
+      { status, paginationOpts },
+    );
+    const now = Date.now();
+    const live = page.page.filter((intent) => intent.expiresAt > now);
+    const needingRotation = live.filter(
+      (intent) =>
+        providerSecretKeyVersion(intent.pkceVerifierCiphertext) !== targetKeyVersion,
+    );
+    const rotated = args.dryRun
+      ? 0
+      : await ctx.runMutation(internal.providerSecretRotation.commitIntentRotations, {
+          now,
+          rotations: needingRotation.map((intent) => ({
+            intentId: intent.id,
+            expectedStatus: intent.status,
+            expectedPkceVerifierCiphertext: intent.pkceVerifierCiphertext,
+            pkceVerifierCiphertext: reencryptProviderSecret(
+              intent.pkceVerifierCiphertext,
+            ),
+          })),
+        });
+    return {
+      owner: args.owner,
+      targetKeyVersion,
+      scanned: page.page.length,
+      live: live.length,
+      needingRotation: needingRotation.length,
+      rotated,
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+      dryRun: args.dryRun,
+    };
+  },
+});
 
 type FigmaConfiguration = {
   clientId: string;
@@ -80,6 +213,45 @@ type CredentialRefreshClaim =
       refreshTokenCiphertext: string;
       credentialVersion: number;
     };
+
+type ProviderSecretRotationOwner =
+  | "active_credentials"
+  | "pending_intents"
+  | "verifying_intents";
+
+type ProviderSecretRotationResult = {
+  owner: ProviderSecretRotationOwner;
+  targetKeyVersion: string;
+  scanned: number;
+  live: number;
+  needingRotation: number;
+  rotated: number;
+  continueCursor: string;
+  isDone: boolean;
+  dryRun: boolean;
+};
+
+type CredentialSecretRotationPage = {
+  page: Array<{
+    id: Id<"figmaOAuthCredentials">;
+    accessTokenCiphertext: string;
+    refreshTokenCiphertext: string;
+    version: number;
+  }>;
+  continueCursor: string;
+  isDone: boolean;
+};
+
+type IntentSecretRotationPage = {
+  page: Array<{
+    id: Id<"figmaSetupIntents">;
+    pkceVerifierCiphertext: string;
+    expiresAt: number;
+    status: "pending" | "verifying";
+  }>;
+  continueCursor: string;
+  isDone: boolean;
+};
 
 type FileSyncContext = {
   bindingId: Id<"figmaFileBindings">;
@@ -464,126 +636,6 @@ type FigmaRequest = {
   timeoutMs?: number;
 };
 
-async function readResponseText(response: Response, maximumBytes: number) {
-  const declaredLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
-    throw new ConvexError({
-      code: "FIGMA_RESPONSE_TOO_LARGE",
-      message: "The Figma response exceeds the supported checkpoint size.",
-    });
-  }
-  if (!response.body) {
-    const text = await response.text();
-    if (Buffer.byteLength(text, "utf8") > maximumBytes) {
-      throw new ConvexError({
-        code: "FIGMA_RESPONSE_TOO_LARGE",
-        message: "The Figma response exceeds the supported checkpoint size.",
-      });
-    }
-    return text;
-  }
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-  while (true) {
-    const result = await reader.read();
-    if (result.done) break;
-    if (!result.value) continue;
-    totalBytes += result.value.byteLength;
-    if (totalBytes > maximumBytes) {
-      await reader.cancel();
-      throw new ConvexError({
-        code: "FIGMA_RESPONSE_TOO_LARGE",
-        message: "The Figma response exceeds the supported checkpoint size.",
-      });
-    }
-    chunks.push(result.value);
-  }
-  const bytes = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
-}
-
-class FigmaPreviewDownloadError extends Error {
-  readonly code: string;
-
-  constructor(code: string) {
-    super(code);
-    this.name = "FigmaPreviewDownloadError";
-    this.code = code;
-  }
-}
-
-function validPreviewUrl(value: string) {
-  if (value.length > 8_192) return null;
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== "https:" || url.username || url.password) return null;
-  return url;
-}
-
-async function readResponseBytes(response: Response, maximumBytes: number) {
-  const declaredLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
-    throw new FigmaPreviewDownloadError("preview_too_large");
-  }
-  if (!response.body) {
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > maximumBytes) {
-      throw new FigmaPreviewDownloadError("preview_too_large");
-    }
-    return bytes;
-  }
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-  while (true) {
-    const result = await reader.read();
-    if (result.done) break;
-    if (!result.value) continue;
-    totalBytes += result.value.byteLength;
-    if (totalBytes > maximumBytes) {
-      await reader.cancel();
-      throw new FigmaPreviewDownloadError("preview_too_large");
-    }
-    chunks.push(result.value);
-  }
-  const bytes = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
-
-async function downloadPreview(value: string) {
-  const url = validPreviewUrl(value);
-  if (!url) throw new FigmaPreviewDownloadError("preview_url_invalid");
-  let response: Response;
-  try {
-    response = await fetch(url, { headers: { Accept: "image/png" } });
-  } catch {
-    throw new FigmaPreviewDownloadError("preview_download_failed");
-  }
-  if (!response.ok || !validPreviewUrl(response.url)) {
-    throw new FigmaPreviewDownloadError("preview_download_failed");
-  }
-  const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim();
-  if (contentType !== "image/png" && contentType !== "application/octet-stream") {
-    throw new FigmaPreviewDownloadError("preview_content_type_invalid");
-  }
-  return readResponseBytes(response, maximumPreviewBytes);
-}
-
 async function figmaResponseText(
   accessToken: string,
   path: string,
@@ -601,7 +653,24 @@ async function figmaResponseText(
     ...(request.body !== undefined ? { body: request.body } : {}),
   });
   if (!response.ok) throw new FigmaHttpError(response);
-  return readResponseText(response, maximumBytes);
+  const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim();
+  if (contentType !== "application/json" && !contentType?.endsWith("+json")) {
+    throw new ConvexError({
+      code: "FIGMA_RESPONSE_INVALID",
+      message: "Figma returned an unsupported response type.",
+    });
+  }
+  try {
+    return await readBoundedResponseText(response, maximumBytes);
+  } catch (caught) {
+    if (caught instanceof HttpBodyTooLargeError) {
+      throw new ConvexError({
+        code: "FIGMA_RESPONSE_TOO_LARGE",
+        message: "The Figma response exceeds the supported checkpoint size.",
+      });
+    }
+    throw caught;
+  }
 }
 
 async function figmaRequest<T>(
@@ -642,7 +711,7 @@ async function figmaTokenRequest<T>(
   if (!response.ok) throw new FigmaHttpError(response);
   let parsedJson: unknown;
   try {
-    parsedJson = JSON.parse(await response.text());
+    parsedJson = await readBoundedJsonResponse(response, 64 * 1_024);
   } catch {
     throw new ConvexError({
       code: "FIGMA_RESPONSE_INVALID",
@@ -1322,6 +1391,7 @@ export const addFile = action({
         eventSlug: args.eventSlug,
         credentialConnectionId: args.credentialConnectionId,
         requireLiveEvent: true,
+        serverNow: Date.now(),
       },
     );
     let accessToken: string;
@@ -1524,7 +1594,7 @@ async function renderPreviewResults(
             factId: node.factId,
             nodeId: node.nodeId,
             state: "downloaded" as const,
-            bytes: await downloadPreview(renderedUrl),
+            bytes: await downloadFigmaPreview(renderedUrl, maximumPreviewBytes),
           };
         } catch (error) {
           return {

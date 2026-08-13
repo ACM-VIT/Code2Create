@@ -1,6 +1,6 @@
 import { api } from '@code2create/backend/api'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
-import { useMutation, useQuery } from 'convex/react'
+import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { TeamPanel } from './components/TeamPanel'
@@ -49,25 +49,18 @@ export function ParticipantApp({
 }) {
   const location = useLocation()
   const me = useQuery(api.participants.me, { eventSlug })
-  const access = useQuery(api.access.mine, { eventSlug })
+  const access = useQuery(api.access.participantCapabilities, { eventSlug })
   const team = useQuery(api.teams.current, { eventSlug })
-  const intake = useQuery(api.intake.current, { eventSlug })
+  const teamMembers = usePaginatedQuery(api.teams.members, { eventSlug }, { initialNumItems: 25 })
+  const intakeStatus = useQuery(api.intake.status, { eventSlug })
 
-  if (me === undefined || access === undefined || team === undefined || intake === undefined) {
+  if (me === undefined || access === undefined || team === undefined || intakeStatus === undefined) {
     return <PortalLoading />
   }
 
   const signOut = () => void authClient.signOut()
-  const canReadSupport = Boolean(access?.grants.some(
-    (grant) =>
-      grant.permissionKey === 'support.case.read' &&
-      (grant.scopeType === 'self' || grant.scopeType === 'event'),
-  ))
-  const canCreateSupport = Boolean(access?.grants.some(
-    (grant) =>
-      grant.permissionKey === 'support.case.create' &&
-      (grant.scopeType === 'self' || grant.scopeType === 'event'),
-  ))
+  const canReadSupport = access?.supportRead ?? false
+  const canCreateSupport = access?.supportCreate ?? false
 
   if (!me?.membership) {
     return (
@@ -96,7 +89,7 @@ export function ParticipantApp({
             ? team
               ? (
                   <div className="portal-grid">
-                    <TeamPanel team={team} />
+                    <TeamPanel team={team} members={teamMembers.results} rosterStatus={teamMembers.status} loadMore={teamMembers.loadMore} />
                     <PolicyConsentScreen me={me} />
                   </div>
                 )
@@ -104,7 +97,7 @@ export function ParticipantApp({
           : team
             ? (
                 <div className="portal-grid">
-                  <TeamPanel team={team} />
+                  <TeamPanel team={team} members={teamMembers.results} rosterStatus={teamMembers.status} loadMore={teamMembers.loadMore} />
                   <ProfileScreen key={profileKey} me={me} />
                 </div>
               )
@@ -131,7 +124,22 @@ export function ParticipantApp({
     )
   }
 
-  if (!intake) return <PortalLoading />
+  if (!intakeStatus) return <PortalLoading />
+
+  if (intakeStatus.submissionState === 'validating') {
+    return (
+      <>
+        <PortalHeader name={me.person.displayName} email={me.person.verifiedEmail} onSignOut={signOut} showSupport={canReadSupport} />
+        <main className="portal-main">
+          <section className="intake-panel">
+            <p className="eyebrow">Final submission</p>
+            <h1>Validating your team…</h1>
+            <p className="lead">The server is freezing the exact roster in bounded batches. You can leave this page; the result updates here automatically.</p>
+          </section>
+        </main>
+      </>
+    )
+  }
 
   const portalContent = location.pathname === '/integrations/github/callback'
     ? <GitHubCallbackScreen />
@@ -145,12 +153,19 @@ export function ParticipantApp({
         ? <SynesthesiaScreen />
       : location.pathname === '/integrations'
         ? <IntegrationsScreen />
-        : intake.application
-          ? <SubmittedScreen publicState={publicState} intake={intake} />
-          : <IntakeScreen team={team} intake={intake} />
-  const applicationFlow = !intake.application && location.pathname === '/'
-  const acceptedFeatures = intake.application
-    ? ['accepted', 'offer_sent', 'confirmed'].includes(intake.application.state)
+        : intakeStatus.applicationState !== null
+          ? <SubmittedScreen publicState={publicState} />
+          : (
+              <IntakeScreen
+                team={team}
+                {...(intakeStatus.submissionFailureMessage === undefined
+                  ? {}
+                  : { submissionFailureMessage: intakeStatus.submissionFailureMessage })}
+              />
+            )
+  const applicationFlow = intakeStatus.applicationState === null && location.pathname === '/'
+  const acceptedFeatures = intakeStatus.applicationState !== null
+    ? ['accepted', 'offer_sent', 'confirmed'].includes(intakeStatus.applicationState)
     : false
 
   return (
@@ -173,23 +188,23 @@ export function ParticipantApp({
             <summary>
               <span>Team</span>
               <strong>{team.name}</strong>
-              <small>{team.members.length} of {team.teamMaximumSize}</small>
+              <small>{team.activeMemberCount} of {team.teamMaximumSize}</small>
             </summary>
-            <TeamPanel team={team} />
+            <TeamPanel team={team} members={teamMembers.results} rosterStatus={teamMembers.status} loadMore={teamMembers.loadMore} />
           </details>
           <main className="minimal-flow-main">
             <Suspense fallback={<PortalContentLoading />}>{portalContent}</Suspense>
           </main>
         </div>
-      ) : intake.application ? (
+      ) : intakeStatus.applicationState !== null ? (
         <div className="participant-home">
           <details className="minimal-team-access submitted-team-access">
             <summary>
               <span>Team</span>
               <strong>{team.name}</strong>
-              <small>{team.members.length} {team.members.length === 1 ? 'member' : 'members'}</small>
+              <small>{team.activeMemberCount} {team.activeMemberCount === 1 ? 'member' : 'members'}</small>
             </summary>
-            <TeamPanel team={team} />
+            <TeamPanel team={team} members={teamMembers.results} rosterStatus={teamMembers.status} loadMore={teamMembers.loadMore} />
           </details>
           <main className="portal-main participant-home-main">
             <Suspense fallback={<PortalContentLoading />}>{portalContent}</Suspense>
@@ -197,7 +212,7 @@ export function ParticipantApp({
         </div>
       ) : (
         <div className="portal-grid">
-          <TeamPanel team={team} />
+          <TeamPanel team={team} members={teamMembers.results} rosterStatus={teamMembers.status} loadMore={teamMembers.loadMore} />
           <main className="portal-main">
             <Suspense fallback={<PortalContentLoading />}>{portalContent}</Suspense>
           </main>

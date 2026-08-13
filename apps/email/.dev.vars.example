@@ -1,4 +1,5 @@
 CONVEX_EMAIL_EVENT_CALLBACK_URL=https://example.convex.site/communications/cloudflare-email/events
 EMAIL_EVENT_CALLBACK_SECRET=replace-with-the-same-32-character-secret-as-convex
+EMAIL_ROUTING_ADDRESS=support@example.org
 EMAIL_ROUTING_FORWARD_TO=verified-operations-inbox@example.org
 EMAIL_SENDING_DOMAIN=example.org

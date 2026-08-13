@@ -3,6 +3,7 @@ import {
 	operationsIntelligenceProtocolVersion,
 	operationsIntelligenceReadSignatureContext,
 	signServiceBody,
+	type OperationsIntelligenceReadRequest,
 	type OperationsIntelligenceReadName,
 } from '@code2create/domain';
 import * as v from 'valibot';
@@ -12,6 +13,9 @@ import {
 	platformReadSchemas,
 	type CopilotProposal,
 } from '../protocol.ts';
+import { readBoundedJsonResponse } from './boundedHttpBody.ts';
+import { requireStrongServiceSecret } from './serviceSecret.ts';
+import { serviceUrl } from './serviceUrl.ts';
 
 type ReadBindings = Pick<
 	Cloudflare.Env,
@@ -23,46 +27,45 @@ type ProposalBindings = Pick<
 	'CONVEX_INTELLIGENCE_RECOMMENDATION_URL' | 'INTELLIGENCE_CALLBACK_SECRET'
 >;
 
-function serviceUrl(value: string, label: string) {
-	const url = new URL(value);
-	const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
-	if (url.protocol !== 'https:' && !(local && url.protocol === 'http:')) {
-		throw new Error(`The Convex ${label} endpoint must use HTTPS outside local development.`);
-	}
-	return url;
-}
+const maximumPlatformReadResponseBytes = 256 * 1_024;
 
 export type PlatformReadResult = v.InferOutput<
 	(typeof platformReadSchemas)[OperationsIntelligenceReadName]
 >;
 
-/**
- * Ask Convex for one whitelisted read. The request names the read and the
- * event and nothing else — there is no query language on this boundary — and
- * the response is re-parsed against the read's declared shape before any of
- * it can reach a model, so the platform's redaction contract is checked on
- * both sides of the wire.
- */
+/** Performs one signed, whitelisted platform read and validates its response. */
 export async function performPlatformRead(
 	name: OperationsIntelligenceReadName,
-	eventSlug: string,
+	context: { eventSlug: string; conversationId: string },
 	bindings: ReadBindings,
 	request: typeof fetch = fetch,
 ): Promise<PlatformReadResult> {
-	const body = JSON.stringify({
-		protocolVersion: operationsIntelligenceProtocolVersion,
-		read: name,
-		eventSlug,
-	});
+	const secret = requireStrongServiceSecret(
+		bindings.INTELLIGENCE_READ_SECRET,
+		'INTELLIGENCE_READ_SECRET',
+	);
+	const readRequest: OperationsIntelligenceReadRequest = name === 'recommendation_history'
+		? {
+			protocolVersion: operationsIntelligenceProtocolVersion,
+			read: name,
+			eventSlug: context.eventSlug,
+			conversationId: context.conversationId,
+		}
+		: {
+			protocolVersion: operationsIntelligenceProtocolVersion,
+			read: name,
+			eventSlug: context.eventSlug,
+		};
+	const body = JSON.stringify(readRequest);
 	const timestamp = Date.now().toString();
 	const signature = await signServiceBody({
 		context: operationsIntelligenceReadSignatureContext,
-		secret: bindings.INTELLIGENCE_READ_SECRET,
+		secret,
 		timestamp,
 		body,
 	});
 	const response = await request(
-		serviceUrl(bindings.CONVEX_INTELLIGENCE_READ_URL, 'intelligence read'),
+		serviceUrl(bindings.CONVEX_INTELLIGENCE_READ_URL, 'Convex intelligence read'),
 		{
 			method: 'POST',
 			headers: {
@@ -74,14 +77,25 @@ export async function performPlatformRead(
 			signal: AbortSignal.timeout(20_000),
 		},
 	);
-	if (!response.ok) {
+	if (response.status !== 200) {
 		throw new Error(`Convex refused the ${name} read with HTTP ${response.status}.`);
 	}
-	const envelope = v.parse(platformReadEnvelopeSchema, await response.json());
+	const parsedEnvelope = v.safeParse(
+		platformReadEnvelopeSchema,
+		await readBoundedJsonResponse(response, maximumPlatformReadResponseBytes),
+	);
+	if (!parsedEnvelope.success) {
+		throw new Error(`The Convex ${name} read envelope is invalid.`);
+	}
+	const envelope = parsedEnvelope.output;
 	if (envelope.read !== name) {
 		throw new Error(`Convex answered the ${name} read with ${envelope.read} data.`);
 	}
-	return v.parse(platformReadSchemas[name], envelope.data);
+	const parsedData = v.safeParse(platformReadSchemas[name], envelope.data);
+	if (!parsedData.success) {
+		throw new Error(`The Convex ${name} read data is invalid.`);
+	}
+	return parsedData.output;
 }
 
 const proposalReceiptSchema = v.strictObject({
@@ -90,28 +104,26 @@ const proposalReceiptSchema = v.strictObject({
 
 export type ProposalReceipt = v.InferOutput<typeof proposalReceiptSchema>;
 
-/**
- * Deliver one recommendation proposal for human triage. This is the copilot's
- * only write path, and it is not a write to event state: Convex records a
- * `proposed` row and every state it could ever move to belongs to a signed-in
- * operator's mutations. Delivery is at-least-once under durable-tool retry,
- * so Convex deduplicates on the proposal key.
- */
+/** Delivers a proposed row; Convex deduplicates at-least-once tool retries. */
 export async function deliverProposal(
 	proposal: CopilotProposal,
 	bindings: ProposalBindings,
 	request: typeof fetch = fetch,
 ): Promise<ProposalReceipt> {
+	const secret = requireStrongServiceSecret(
+		bindings.INTELLIGENCE_CALLBACK_SECRET,
+		'INTELLIGENCE_CALLBACK_SECRET',
+	);
 	const body = JSON.stringify(proposal);
 	const timestamp = Date.now().toString();
 	const signature = await signServiceBody({
 		context: operationsCopilotRecommendationSignatureContext,
-		secret: bindings.INTELLIGENCE_CALLBACK_SECRET,
+		secret,
 		timestamp,
 		body,
 	});
 	const response = await request(
-		serviceUrl(bindings.CONVEX_INTELLIGENCE_RECOMMENDATION_URL, 'recommendation'),
+		serviceUrl(bindings.CONVEX_INTELLIGENCE_RECOMMENDATION_URL, 'Convex recommendation'),
 		{
 			method: 'POST',
 			headers: {
@@ -123,8 +135,15 @@ export async function deliverProposal(
 			signal: AbortSignal.timeout(20_000),
 		},
 	);
-	if (!response.ok) {
+	if (response.status !== 202) {
 		throw new Error(`Convex rejected the recommendation proposal with HTTP ${response.status}.`);
 	}
-	return v.parse(proposalReceiptSchema, await response.json());
+	const receipt = v.safeParse(
+		proposalReceiptSchema,
+		await readBoundedJsonResponse(response, 8 * 1_024),
+	);
+	if (!receipt.success) {
+		throw new Error('The Convex recommendation receipt is invalid.');
+	}
+	return receipt.output;
 }

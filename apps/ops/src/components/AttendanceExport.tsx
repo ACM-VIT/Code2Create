@@ -1,10 +1,11 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useAction, useMutation, useQuery } from 'convex/react'
-import { useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 
 type AttendanceOverview = FunctionReturnType<typeof api.attendanceOperations.overview>
 type AttendanceSession = AttendanceOverview['sessions'][number]
@@ -60,10 +61,10 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
     Record<string, { url: string; expiresAt: number; sha256: string }>
   >({})
   const [error, setError] = useState<string | null>(null)
-  const requestRef = useRef<{ clientOperationId: string; expiresAt: number } | null>(null)
+  const requestAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceExports.request>>()
+  const requestPending = requestAttempt.hasPending('attendance-export-request')
 
   const invalidateRequest = () => {
-    requestRef.current = null
     setError(null)
   }
 
@@ -76,24 +77,21 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    const identity = requestRef.current ?? {
-      clientOperationId: crypto.randomUUID(),
-      expiresAt: Date.now() + lifetimeMilliseconds(lifetime),
-    }
-    requestRef.current = identity
     setBusy(true)
     setError(null)
     try {
-      await requestExport({
-        eventSlug,
-        sessionId: session.id,
-        expectedSessionVersion: session.version,
-        purpose,
-        fields,
-        expiresAt: identity.expiresAt,
-        clientOperationId: identity.clientOperationId,
+      await requestAttempt.run('attendance-export-request', () => {
+        const args = {
+          eventSlug,
+          sessionId: session.id,
+          expectedSessionVersion: session.version,
+          purpose,
+          fields: [...fields],
+          expiresAt: Date.now() + lifetimeMilliseconds(lifetime),
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => requestExport(args)
       })
-      requestRef.current = null
       setPurpose('')
       setOpen(false)
     } catch (caught) {
@@ -136,6 +134,7 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
             <span>Purpose</span>
             <textarea
               required
+              disabled={busy || requestPending}
               value={purpose}
               onChange={(event) => {
                 invalidateRequest()
@@ -150,6 +149,7 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
               <label key={option.field}>
                 <input
                   type="checkbox"
+                  disabled={busy || requestPending}
                   checked={fields.includes(option.field)}
                   onChange={(event) => toggleField(option.field, event.target.checked)}
                 />
@@ -160,6 +160,7 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
           <label className="field attendance-export-lifetime">
             <span>Available for</span>
             <select
+              disabled={busy || requestPending}
               value={lifetime}
               onChange={(event) => {
                 invalidateRequest()
@@ -180,14 +181,13 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
               type="submit"
               disabled={busy || purpose.trim().length < 10 || fields.length === 0}
             >
-              {busy ? 'Requesting…' : 'Create protected CSV'}
+              {busy ? 'Requesting…' : requestPending ? 'Confirm export request' : 'Create protected CSV'}
             </button>
             <button
               className="secondary"
               type="button"
-              disabled={busy}
+              disabled={busy || requestPending}
               onClick={() => {
-                requestRef.current = null
                 setOpen(false)
                 setError(null)
               }}

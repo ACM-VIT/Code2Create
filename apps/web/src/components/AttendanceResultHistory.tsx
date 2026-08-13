@@ -1,38 +1,32 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
-import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useMutation, usePaginatedQuery } from 'convex/react'
+import { useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 
 type RemedySessions = FunctionReturnType<typeof api.attendanceRemedies.mine>
-type RemedySession = RemedySessions[number]
+type RemedySession = RemedySessions['page'][number]
 
 export function AttendanceResultHistory() {
-  const sessions = useQuery(api.attendanceRemedies.mine, { eventSlug })
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const { results: sessions, status, loadMore } = usePaginatedQuery(
+    api.attendanceRemedies.mine,
+    historyOpen ? { eventSlug } : 'skip',
+    { initialNumItems: 5 },
+  )
   const openRemedy = useMutation(api.attendanceRemedies.openMine)
   const [selectedSessionId, setSelectedSessionId] = useState<RemedySession['sessionId'] | null>(null)
   const [description, setDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationId = useRef<string | null>(null)
+  const remedyAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceRemedies.openMine>>()
+  const remedyPending = remedyAttempt.hasPending('attendance-remedy-open')
   const selectedSession = sessions?.find((session) => session.sessionId === selectedSessionId)
 
-  useEffect(() => {
-    operationId.current = null
-  }, [
-    description,
-    selectedSession?.participantVersion,
-    selectedSession?.sessionId,
-    selectedSession?.sessionVersion,
-  ])
-
-  if (sessions === undefined) return <p className="muted">Loading final session results…</p>
-  if (sessions.length === 0) return null
-
   const cancel = () => {
-    operationId.current = null
     setSelectedSessionId(null)
     setDescription('')
     setError(null)
@@ -40,19 +34,21 @@ export function AttendanceResultHistory() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!selectedSession) return
-    const clientOperationId = operationId.current ?? crypto.randomUUID()
-    operationId.current = clientOperationId
+    if (!remedyPending && !selectedSession) return
     setBusy(true)
     setError(null)
     try {
-      await openRemedy({
-        eventSlug,
-        sessionId: selectedSession.sessionId,
-        expectedSessionVersion: selectedSession.sessionVersion,
-        expectedParticipantVersion: selectedSession.participantVersion,
-        description,
-        clientOperationId,
+      await remedyAttempt.run('attendance-remedy-open', () => {
+        if (!selectedSession) throw new Error('The attendance session is no longer available for review.')
+        const args = {
+          eventSlug,
+          sessionId: selectedSession.sessionId,
+          expectedSessionVersion: selectedSession.sessionVersion,
+          expectedParticipantVersion: selectedSession.participantVersion,
+          description,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => openRemedy(args)
       })
       cancel()
     } catch (caught) {
@@ -62,13 +58,35 @@ export function AttendanceResultHistory() {
     }
   }
 
+  if (!historyOpen) {
+    return (
+      <button className="text-button" type="button" onClick={() => setHistoryOpen(true)}>
+        View past session results
+      </button>
+    )
+  }
+
   return (
     <div className="attendance-results">
-      <div>
-        <strong>Session results</strong>
-        <p className="muted">Final results appear here after each hacking session closes.</p>
+      <div className="attendance-result-summary">
+        <div>
+          <strong>Session results</strong>
+          <p className="muted">Final results appear here after each hacking session closes.</p>
+        </div>
+        <button
+          className="text-button"
+          type="button"
+          disabled={busy || remedyPending}
+          onClick={() => setHistoryOpen(false)}
+        >
+          Hide results
+        </button>
       </div>
-      <ul className="attendance-result-list">
+      {status === 'LoadingFirstPage' ? (
+        <p className="muted">Loading final session results…</p>
+      ) : sessions.length === 0 && status === 'Exhausted' ? (
+        <p className="muted">No finalized session results yet.</p>
+      ) : <ul className="attendance-result-list">
         {sessions.map((session) => (
           <li key={session.sessionId}>
             <div className="attendance-result-summary">
@@ -94,6 +112,7 @@ export function AttendanceResultHistory() {
               <button
                 className="text-button"
                 type="button"
+                disabled={busy || remedyPending}
                 onClick={() => {
                   setSelectedSessionId(session.sessionId)
                   setDescription('')
@@ -112,6 +131,7 @@ export function AttendanceResultHistory() {
                     required
                     minLength={10}
                     maxLength={1_000}
+                    disabled={busy || remedyPending}
                     value={description}
                     onChange={(event) => setDescription(event.target.value)}
                     placeholder="For example: I checked in, but my final result says absent."
@@ -119,17 +139,28 @@ export function AttendanceResultHistory() {
                 </label>
                 <p className="fine-print">Staff will review the frozen result and scanner history. Sending a report does not change the result by itself.</p>
                 <div className="button-row">
-                  <button className="secondary" type="submit" disabled={busy || description.trim().length < 10}>
-                    {busy ? 'Sending…' : 'Send for review'}
+                  <button
+                    className="secondary"
+                    type="submit"
+                    disabled={busy || (!remedyPending && description.trim().length < 10)}
+                  >
+                    {busy ? 'Sending…' : remedyPending ? 'Confirm report' : 'Send for review'}
                   </button>
-                  <button className="text-button" type="button" disabled={busy} onClick={cancel}>Cancel</button>
+                  <button className="text-button" type="button" disabled={busy || remedyPending} onClick={cancel}>Cancel</button>
                 </div>
                 {error ? <p className="notice notice-error" role="alert">{error}</p> : null}
               </form>
             ) : null}
           </li>
         ))}
-      </ul>
+      </ul>}
+      {status === 'CanLoadMore' ? (
+        <button className="text-button" type="button" onClick={() => loadMore(5)}>
+          Load older results
+        </button>
+      ) : status === 'LoadingMore' ? (
+        <p className="muted">Loading older results…</p>
+      ) : null}
     </div>
   )
 }

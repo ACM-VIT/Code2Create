@@ -1,17 +1,18 @@
 import { api } from '@code2create/backend/api'
-import type { FunctionArgs, FunctionReturnType } from 'convex/server'
+import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { ErrorNotice } from '../components/Form'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 
 type SupportCase = FunctionReturnType<typeof api.support.mine>[number]
 type SupportCaseId = SupportCase['id']
 type SupportCategory = SupportCase['category']
-type CreateSelfArgs = FunctionArgs<typeof api.support.createSelf>
-type ReplySelfArgs = FunctionArgs<typeof api.support.replySelf>
+type CreateSelfResult = FunctionReturnType<typeof api.support.createSelf>
+type ReplySelfResult = FunctionReturnType<typeof api.support.replySelf>
 
 const categories = [
   ['identity', 'Identity or sign-in'],
@@ -36,7 +37,8 @@ export function SupportScreen({ canCreate }: { canCreate: boolean }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const busyRef = useRef(false)
-  const operationRef = useRef<CreateSelfArgs | null>(null)
+  const createAttempt = useMutationAttempt<CreateSelfResult>()
+  const createPending = createAttempt.hasPending('create-support-case')
 
   const visibleSelectedId = selectedId ?? cases?.at(0)?.id ?? null
 
@@ -46,16 +48,16 @@ export function SupportScreen({ canCreate }: { canCreate: boolean }) {
     busyRef.current = true
     setBusy(true)
     setError(null)
-    const args = operationRef.current ?? {
-      eventSlug,
-      category,
-      description,
-      clientOperationId: crypto.randomUUID(),
-    }
-    operationRef.current = args
     try {
-      const result = await createCase(args)
-      operationRef.current = null
+      const result = await createAttempt.run('create-support-case', () => {
+        const args = {
+          eventSlug,
+          category,
+          description,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => createCase(args)
+      })
       setDescription('')
       setSelectedId(result.id)
     } catch (caught) {
@@ -81,9 +83,9 @@ export function SupportScreen({ canCreate }: { canCreate: boolean }) {
           <label className="field">
             <span className="field-label">What is this about?</span>
             <select
+              disabled={busy || createPending}
               value={category}
               onChange={(event) => {
-                operationRef.current = null
                 setCategory(parseCategory(event.target.value))
               }}
             >
@@ -96,17 +98,18 @@ export function SupportScreen({ canCreate }: { canCreate: boolean }) {
               required
               minLength={10}
               maxLength={2000}
+              disabled={busy || createPending}
               value={description}
               onChange={(event) => {
-                operationRef.current = null
                 setDescription(event.target.value)
               }}
               placeholder="A short, factual description is enough."
             />
           </label>
           <button className="primary" type="submit" disabled={busy || description.trim().length < 10}>
-            {busy ? 'Sending…' : 'Ask for help'}
+            {busy ? 'Sending…' : createPending ? 'Confirm request' : 'Ask for help'}
           </button>
+          {createPending ? <p className="fine-print">Confirm the earlier request before writing another.</p> : null}
           <ErrorNotice message={error} />
         </form>
       ) : null}
@@ -140,14 +143,8 @@ function SupportCaseDetail({ supportCaseId }: { supportCaseId: SupportCaseId }) 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const busyRef = useRef(false)
-  const operationRef = useRef<ReplySelfArgs | null>(null)
-
-  useEffect(() => {
-    const pending = operationRef.current
-    if (detail && pending && pending.expectedVersion !== detail.supportCase.version) {
-      operationRef.current = null
-    }
-  }, [detail])
+  const replyAttempt = useMutationAttempt<ReplySelfResult>()
+  const replyPending = replyAttempt.hasPending('reply-to-support-case')
 
   if (detail === undefined) return <article className="support-case-detail"><p className="muted">Loading request…</p></article>
 
@@ -157,17 +154,17 @@ function SupportCaseDetail({ supportCaseId }: { supportCaseId: SupportCaseId }) 
     busyRef.current = true
     setBusy(true)
     setError(null)
-    const args = operationRef.current ?? {
-      eventSlug,
-      supportCaseId,
-      expectedVersion: detail.supportCase.version,
-      message,
-      clientOperationId: crypto.randomUUID(),
-    }
-    operationRef.current = args
     try {
-      await reply(args)
-      operationRef.current = null
+      await replyAttempt.run('reply-to-support-case', () => {
+        const args = {
+          eventSlug,
+          supportCaseId,
+          expectedVersion: detail.supportCase.version,
+          message,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => reply(args)
+      })
       setMessage('')
     } catch (caught) {
       setError(readableError(caught))
@@ -204,15 +201,15 @@ function SupportCaseDetail({ supportCaseId }: { supportCaseId: SupportCaseId }) 
               required
               minLength={2}
               maxLength={2000}
+              disabled={busy || replyPending}
               value={message}
               onChange={(event) => {
-                operationRef.current = null
                 setMessage(event.target.value)
               }}
             />
           </label>
           <button className="secondary" type="submit" disabled={busy || message.trim().length < 2}>
-            {busy ? 'Sending…' : 'Send reply'}
+            {busy ? 'Sending…' : replyPending ? 'Confirm reply' : 'Send reply'}
           </button>
           <ErrorNotice message={error} />
         </form>

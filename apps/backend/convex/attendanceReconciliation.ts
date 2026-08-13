@@ -15,6 +15,7 @@ import {
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
+import { maximumAttendanceIntervalsPerParticipantSession } from "./lib/attendanceSessionTransition";
 
 type SessionState = Doc<"attendanceSessionParticipants">["state"];
 type DirectCorrectionKind =
@@ -291,7 +292,13 @@ export const reconcile = mutation({
       .withIndex("by_session_membership", (index) =>
         index.eq("sessionId", session._id).eq("membershipId", membership._id),
       )
-      .collect();
+      .take(maximumAttendanceIntervalsPerParticipantSession + 1);
+    if (intervals.length > maximumAttendanceIntervalsPerParticipantSession) {
+      throw new ConvexError({
+        code: "ATTENDANCE_INTERVAL_LIMIT_EXCEEDED",
+        message: "This session has more presence intervals than the attendance policy permits.",
+      });
+    }
     const openIntervals = intervals.filter((interval) => interval.status === "open");
     const now = Date.now();
     let nextState: SessionState;
@@ -457,6 +464,12 @@ export const reconcile = mutation({
           });
           currentIntervalId = existingOpenInterval._id;
         } else {
+          if (intervals.length >= maximumAttendanceIntervalsPerParticipantSession) {
+            throw new ConvexError({
+              code: "ATTENDANCE_INTERVAL_LIMIT_REACHED",
+              message: "This session reached its presence-interval limit. Keep the result in review.",
+            });
+          }
           currentIntervalId = await ctx.db.insert("attendancePresenceIntervals", {
             eventId: event._id,
             membershipId: membership._id,

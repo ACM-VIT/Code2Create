@@ -101,12 +101,13 @@ The device record stores no Google password or raw OAuth token.
 The clock-in screen shows:
 
 - event and review window;
+- published clock-in opening and reviewer report time;
 - assigned panel and venue zone, when published;
 - availability end time;
 - declared criterion coverage;
 - unresolved conflict or training block.
 
-Clock-in is one server write. The app then subscribes to `reviewer.now`, which contains the reviewer’s current panel, page, assignment, and review.
+Clock-in is one server write. The server, not the phone clock, enforces the published opening and round end and rechecks declared availability. The app keeps the control unavailable before the published opening and treats the server refusal as authoritative. It then subscribes to `reviewer.now`, which contains the reviewer’s current panel, page, assignment, and review.
 
 The reviewer can mark **Temporarily unavailable** with a reason and expected return time. Operations sees it immediately and decides whether to replace the seat.
 

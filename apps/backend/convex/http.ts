@@ -7,6 +7,13 @@ import { githubWebhook } from "./githubWebhook";
 import { intelligenceReadEndpoint } from "./intelligenceReads";
 import { intelligenceRecommendationWebhook } from "./intelligenceRecommendations";
 import { operationsIntelligenceWebhook } from "./operationsIntelligenceWebhook";
+import {
+  autonomyCallbackEndpoint,
+  autonomyReadEndpoint,
+  autonomyRecommendationEndpoint,
+  autonomyRecommendationEvidenceEndpoint,
+  autonomyWorkEndpoint,
+} from "./operationsAutonomyHttp";
 import { participantEmailEvent } from "./participantEmailEvent";
 
 const http = httpRouter();
@@ -41,6 +48,31 @@ http.route({
   path: "/intelligence/operations-recommendations",
   method: "POST",
   handler: intelligenceRecommendationWebhook,
+});
+http.route({
+  path: "/intelligence/operations-autonomy/reads",
+  method: "POST",
+  handler: autonomyReadEndpoint,
+});
+http.route({
+  path: "/intelligence/operations-autonomy/work",
+  method: "POST",
+  handler: autonomyWorkEndpoint,
+});
+http.route({
+  path: "/intelligence/operations-autonomy/recommendation-evidence",
+  method: "POST",
+  handler: autonomyRecommendationEvidenceEndpoint,
+});
+http.route({
+  path: "/intelligence/operations-autonomy/recommendations",
+  method: "POST",
+  handler: autonomyRecommendationEndpoint,
+});
+http.route({
+  path: "/intelligence/operations-autonomy/callback",
+  method: "POST",
+  handler: autonomyCallbackEndpoint,
 });
 http.route({
   path: "/intelligence/admission-reads",

@@ -22,15 +22,7 @@ export type ObservedPace = {
   basis: "configured" | "observed";
 };
 
-/**
- * How long one review is actually taking.
- *
- * A median of the last few completed reviews tracks the floor without letting
- * one forty-minute argument or one two-minute walkout move the number, and the
- * clamp keeps a thin or unlucky sample from producing a pace nobody would say
- * out loud. Both the participant's queue window and the round-completion
- * forecast read the floor the same way, so they never disagree.
- */
+/** Uses a clamped median so participant and operations forecasts share one stable pace. */
 export function observedPace(
   configuredDurationSeconds: number,
   completedDurationsSeconds: readonly number[],

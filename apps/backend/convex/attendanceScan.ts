@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { requireAssignedDevice, requireStationPermission } from "./lib/attendance";
+import { appendAttendanceDeviceReadFactById } from "./lib/operationsAutonomyReadFacts/attendanceOperations";
 import { moveZoneCounter } from "./lib/attendanceCounters";
 import { moveAttendanceTeamAvailability } from "./lib/attendanceTeamAvailability";
 import {
@@ -19,14 +20,14 @@ import {
 } from "./lib/attendanceSessionTransition";
 import {
   attendanceSessionWindowRejection,
-  openAttendanceSessionInZone,
 } from "./lib/attendanceSessionLifecycle";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson } from "./lib/identity";
 import { operationFingerprint } from "./lib/operations";
-import { attendanceScanTransition } from "./values";
+import { attendanceScanTransition, attendanceStationMode } from "./values";
 
 type Transition = Infer<typeof attendanceScanTransition>;
+type StationMode = Infer<typeof attendanceStationMode>;
 type VenueTransition = Extract<Transition, "venue_entry" | "venue_exit">;
 type Outcome = "accepted" | "duplicate" | "rejected" | "needs_review";
 type VenueState = Doc<"attendanceVenueStates">["state"];
@@ -67,6 +68,8 @@ const receipt = v.object({
       membershipId: v.id("eventMemberships"),
       displayName: v.string(),
       teamName: v.optional(v.string()),
+      /* Printed profile fields distinguish people who share a name. */
+      vitRegistrationNumber: v.optional(v.string()),
     }),
   ),
 });
@@ -83,6 +86,7 @@ type Receipt = {
     membershipId: Id<"eventMemberships">;
     displayName: string;
     teamName?: string;
+    vitRegistrationNumber?: string;
   };
 };
 
@@ -116,6 +120,28 @@ function venueProjectionState(state: ProjectionState): VenueState {
     return state;
   }
   return "unknown";
+}
+
+function stationTransition(
+  mode: StationMode,
+  rovingTransition: Transition | undefined,
+): Transition {
+  if (mode === "roving") {
+    if (rovingTransition === undefined) {
+      throw new ConvexError({
+        code: "ROVING_TRANSITION_REQUIRED",
+        message: "Choose the roving station's transition before scanning.",
+      });
+    }
+    return rovingTransition;
+  }
+  if (rovingTransition !== undefined) {
+    throw new ConvexError({
+      code: "STATION_TRANSITION_FIXED",
+      message: "This station's transition is fixed by its configuration.",
+    });
+  }
+  return mode;
 }
 
 async function resolveCredential(
@@ -167,7 +193,9 @@ async function resolveCredential(
   const active = matches.filter(
     (credential) => credential.kind === expectedKind && credential.state === "active",
   );
-  if (active.length > 1) throw new Error("More than one active attendance credential has the same lookup hash.");
+  if (active.length > 1) {
+    throw new ConvexError({ code: "CREDENTIAL_CONFLICT", message: "Two credentials answer to this card. Send the participant to the help desk." });
+  }
   const credential = active[0];
   if (!credential) return { resolved: false, reasonCode: "credential_not_found" };
   return {
@@ -205,6 +233,9 @@ async function participantForReceipt(
     membershipId: membership._id,
     displayName: profile?.preferredName ?? profile?.fullName ?? person.displayName,
     ...(team ? { teamName: team.name } : {}),
+    ...(profile?.vitRegistrationNumber
+      ? { vitRegistrationNumber: profile.vitRegistrationNumber }
+      : {}),
   };
 }
 
@@ -213,7 +244,7 @@ async function receiptForEvent(
   event: Doc<"attendancePresenceEvents">,
 ): Promise<Receipt> {
   if (event.transition === "manual_reconcile" || event.outcome === "reconciled") {
-    throw new Error("A staff reconciliation cannot be returned as a scanner receipt.");
+    throw new ConvexError({ code: "RECEIPT_KIND_MISMATCH", message: "This scan was resolved by operations, not a door. Check the operations dashboard for the outcome." });
   }
   return {
     presenceEventId: event._id,
@@ -242,7 +273,7 @@ export const recordScan = internalMutation({
       v.literal("portal_qr"),
     ),
     lookupHash: v.string(),
-    transition: attendanceScanTransition,
+    rovingTransition: v.optional(attendanceScanTransition),
     clientOperationId: v.string(),
     deviceSequence: v.number(),
     capturedAt: v.number(),
@@ -259,7 +290,7 @@ export const recordScan = internalMutation({
       args.deviceSecretHash,
       args.credentialKind,
       args.lookupHash,
-      args.transition,
+      args.rovingTransition ?? null,
       args.deviceSequence,
       args.capturedAt,
     ]);
@@ -276,6 +307,12 @@ export const recordScan = internalMutation({
         throw new ConvexError({ code: "OPERATION_ID_REUSED", message: "Operation ID was reused." });
       }
       return receiptForEvent(ctx, prior);
+    }
+    if (args.isOfflineReplay && args.credentialKind === "portal_qr") {
+      throw new ConvexError({
+        code: "PORTAL_QR_REQUIRES_ONLINE_SCAN",
+        message: "A portal QR must begin at an online scanner.",
+      });
     }
     if (!Number.isSafeInteger(args.deviceSequence) || args.deviceSequence < 1) {
       throw new ConvexError({ code: "INVALID_DEVICE_SEQUENCE", message: "Scanner sequence is invalid." });
@@ -355,11 +392,23 @@ export const recordScan = internalMutation({
     ) {
       throw new ConvexError({ code: "STATION_NOT_ACTIVE", message: "This station assignment is not active." });
     }
-    const transition = args.transition;
+    if (!station.allowedCredentialKinds.includes(args.credentialKind)) {
+      throw new ConvexError({
+        code: "CREDENTIAL_NOT_ALLOWED_AT_STATION",
+        message: "This credential method is not enabled at this station.",
+      });
+    }
+    const transition = stationTransition(station.mode, args.rovingTransition);
     const usesSession =
       transition === "session_confirm" ||
       transition === "zone_entry" ||
       transition === "zone_exit";
+    if (usesSession && station.sessionId === undefined) {
+      throw new ConvexError({
+        code: "STATION_SESSION_REQUIRED",
+        message: "This transition requires a session-bound station.",
+      });
+    }
     const resolved = await resolveCredential(ctx, {
       eventId: event._id,
       credentialKind: args.credentialKind,
@@ -386,12 +435,17 @@ export const recordScan = internalMutation({
         rejectionReason = "participant_not_active";
       } else if (usesSession) {
         const activeMembership = membership;
-        const session = await openAttendanceSessionInZone(ctx, {
-          eventId: event._id,
-          zoneId: station.zoneId,
-        });
+        const session = station.sessionId === undefined
+          ? null
+          : await ctx.db.get(station.sessionId);
         attendanceSession = session;
-        if (!session) {
+        if (
+          !session ||
+          session.eventId !== event._id ||
+          session.planVersionId !== station.planVersionId ||
+          session.zoneId !== station.zoneId ||
+          session.status !== "open"
+        ) {
           rejectionReason = args.isOfflineReplay ? "offline_scan_needs_reconciliation" : "session_not_open";
         } else if (
           resolved.portalQrSessionId !== undefined &&
@@ -468,7 +522,7 @@ export const recordScan = internalMutation({
         : venueState?.lastEventId;
       const priorEvent = priorEventId ? await ctx.db.get(priorEventId) : null;
       if (priorEventId && (!priorEvent || priorEvent.eventId !== event._id)) {
-        throw new Error("The latest attendance projection event is invalid.");
+        throw new ConvexError({ code: "ATTENDANCE_STATE_CORRUPT", message: "This participant's attendance history is inconsistent. Operations needs to reconcile it before more scans." });
       }
       offlineReplayConflict = offlineReplayConflictsWithNewerEvidence({
         capturedAt: args.capturedAt,
@@ -580,10 +634,17 @@ export const recordScan = internalMutation({
           currentIntervalId = undefined;
         }
         const nextVenueState = venueProjectionState(decision.nextState);
+        const previousZoneId = venueState?.zoneId;
+        const nextZoneId =
+          nextVenueState === "inside"
+            ? station.zoneId
+            : nextVenueState === "unknown"
+              ? previousZoneId ?? station.zoneId
+              : undefined;
         if (venueState) {
           await ctx.db.patch(venueState._id, {
             state: nextVenueState,
-            ...(nextVenueState === "inside" ? { zoneId: station.zoneId } : {}),
+            ...(nextZoneId !== undefined ? { zoneId: nextZoneId } : {}),
             currentIntervalId,
             lastEventId: presenceEventId,
             version: venueState.version + 1,
@@ -594,7 +655,7 @@ export const recordScan = internalMutation({
             eventId: event._id,
             membershipId: membership._id,
             state: nextVenueState,
-            ...(nextVenueState === "inside" ? { zoneId: station.zoneId } : {}),
+            ...(nextZoneId !== undefined ? { zoneId: nextZoneId } : {}),
             ...(currentIntervalId !== undefined ? { currentIntervalId } : {}),
             lastEventId: presenceEventId,
             version: 1,
@@ -603,10 +664,11 @@ export const recordScan = internalMutation({
         }
         await moveZoneCounter(ctx, {
           eventId: event._id,
-          zoneId: station.zoneId,
           membershipId: membership._id,
           previousState: venueState?.state ?? "not_arrived",
+          ...(previousZoneId !== undefined ? { previousZoneId } : {}),
           nextState: nextVenueState,
+          ...(nextZoneId !== undefined ? { nextZoneId } : {}),
           now,
         });
         await moveAttendanceTeamAvailability(ctx, {
@@ -616,7 +678,7 @@ export const recordScan = internalMutation({
           nextState: nextVenueState,
           now,
         });
-        const nextZoneId = nextVenueState === "inside" ? station.zoneId : venueState?.zoneId;
+        const rollCallZoneId = nextZoneId ?? venueState?.zoneId;
         await updateActiveRollCallsForVenueChange(ctx, {
           eventId: event._id,
           membershipId: membership._id,
@@ -628,7 +690,7 @@ export const recordScan = internalMutation({
             : null,
           nextVenue: {
             state: nextVenueState,
-            ...(nextZoneId !== undefined ? { zoneId: nextZoneId } : {}),
+            ...(rollCallZoneId !== undefined ? { zoneId: rollCallZoneId } : {}),
           },
           now,
         });
@@ -650,8 +712,11 @@ export const recordScan = internalMutation({
       lastSeenAt: now,
       lastSequence: Math.max(device.lastSequence ?? 0, args.deviceSequence),
     });
+    await appendAttendanceDeviceReadFactById(ctx, device._id, now);
     const presenceEvent = await ctx.db.get(presenceEventId);
-    if (!presenceEvent) throw new Error("Presence event did not persist.");
+    if (!presenceEvent) {
+      throw new ConvexError({ code: "SCAN_NOT_SAVED", message: "The scan did not save. Scan the same card again." });
+    }
     return receiptForEvent(ctx, presenceEvent);
   },
 });

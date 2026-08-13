@@ -10,16 +10,17 @@ This Worker consumes Cloudflare Email Sending lifecycle events. It also forwards
    pnpm --filter @code2create/email queue:create:staging
    ```
 
-2. Set the four Worker secrets:
+2. Set the five Worker secrets:
 
    ```sh
    pnpm --filter @code2create/email exec wrangler secret put CONVEX_EMAIL_EVENT_CALLBACK_URL --env staging --config wrangler.jsonc
    pnpm --filter @code2create/email exec wrangler secret put EMAIL_EVENT_CALLBACK_SECRET --env staging --config wrangler.jsonc
+   pnpm --filter @code2create/email exec wrangler secret put EMAIL_ROUTING_ADDRESS --env staging --config wrangler.jsonc
    pnpm --filter @code2create/email exec wrangler secret put EMAIL_ROUTING_FORWARD_TO --env staging --config wrangler.jsonc
    pnpm --filter @code2create/email exec wrangler secret put EMAIL_SENDING_DOMAIN --env staging --config wrangler.jsonc
    ```
 
-   `EMAIL_EVENT_CALLBACK_SECRET` must equal the backend secret. `EMAIL_ROUTING_FORWARD_TO` must be a verified Email Routing destination.
+   `EMAIL_EVENT_CALLBACK_SECRET` must equal the backend secret. `EMAIL_ROUTING_ADDRESS` is the one literal inbound alias accepted by the Worker. `EMAIL_ROUTING_FORWARD_TO` must be a verified Email Routing destination.
 
 3. Deploy the Worker:
 

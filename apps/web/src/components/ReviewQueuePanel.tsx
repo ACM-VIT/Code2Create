@@ -8,6 +8,7 @@ import { readableError } from '../lib/errors'
 import { countdownName } from '../lib/time'
 
 type TeamQr = {
+  reviewSessionId: string
   payload: string
   manualCode: string
   expiresAt: number
@@ -40,6 +41,7 @@ export function ReviewQueuePanel() {
         reviewSessionId: queue.review.id,
       })
       setTeamQr({
+        reviewSessionId: queue.review.id,
         payload: minted.payload,
         manualCode: minted.manualCode,
         expiresAt: minted.expiresAt,
@@ -60,7 +62,12 @@ export function ReviewQueuePanel() {
   if (!queue) return null
 
   const secondsLeft = teamQr ? Math.max(0, Math.ceil((teamQr.expiresAt - now) / 1_000)) : 0
-  const currentQr = teamQr && secondsLeft > 0 && queue.review?.canShowTeamQr ? teamQr : null
+  const currentQr = teamQr &&
+    secondsLeft > 0 &&
+    queue.review?.canShowTeamQr &&
+    teamQr.reviewSessionId === queue.review.id
+    ? teamQr
+    : null
 
   return (
     <section className="attendance-panel" aria-labelledby="review-queue-heading">

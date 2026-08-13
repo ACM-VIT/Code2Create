@@ -1,10 +1,11 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 
 type AttendanceOverview = FunctionReturnType<typeof api.attendanceOperations.overview>
 type AttendanceSession = AttendanceOverview['sessions'][number]
@@ -13,6 +14,10 @@ type AttendanceParticipant = AttendanceRoster['page'][number]
 type RemedyReview = FunctionReturnType<typeof api.attendanceRemedies.forParticipant>
 type ApprovalResult = 'attended' | 'absent' | 'partial' | 'excused' | 'needs_review'
 type DecisionKind = 'approve' | 'decline'
+type MutationAttempt<Result> = {
+  hasPending: (slot: string) => boolean
+  run: (slot: string, createCommand: () => () => Promise<Result>) => Promise<Result>
+}
 
 export function AttendanceRemedy({
   session,
@@ -23,6 +28,10 @@ export function AttendanceRemedy({
 }) {
   const eligible = session.status === 'closed' && session.canReadRemedies
   const [open, setOpen] = useState(false)
+  const openAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceRemedies.open>>()
+  const decisionAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceRemedies.decide>>()
+  const operationPending = openAttempt.hasPending('attendance-remedy-open') ||
+    decisionAttempt.hasPending('attendance-remedy-decision')
   const review = useQuery(
     api.attendanceRemedies.forParticipant,
     eligible && open
@@ -50,14 +59,25 @@ export function AttendanceRemedy({
           <strong>Final result review</strong>
           <span>Scanner records stay unchanged. An approval changes only the derived result.</span>
         </div>
-        <button className="text-button" type="button" onClick={() => setOpen(false)}>
+        <button
+          className="text-button"
+          type="button"
+          disabled={operationPending}
+          onClick={() => setOpen(false)}
+        >
           Close
         </button>
       </div>
       {review === undefined ? (
         <p className="muted">Loading frozen result and evidence…</p>
       ) : (
-        <RemedyReviewBody session={session} participant={participant} review={review} />
+        <RemedyReviewBody
+          session={session}
+          participant={participant}
+          review={review}
+          openAttempt={openAttempt}
+          decisionAttempt={decisionAttempt}
+        />
       )}
     </div>
   )
@@ -67,10 +87,14 @@ function RemedyReviewBody({
   session,
   participant,
   review,
+  openAttempt,
+  decisionAttempt,
 }: {
   session: AttendanceSession
   participant: AttendanceParticipant
   review: RemedyReview
+  openAttempt: MutationAttempt<FunctionReturnType<typeof api.attendanceRemedies.open>>
+  decisionAttempt: MutationAttempt<FunctionReturnType<typeof api.attendanceRemedies.decide>>
 }) {
   const openRemedy = useMutation(api.attendanceRemedies.open)
   const decideRemedy = useMutation(api.attendanceRemedies.decide)
@@ -84,27 +108,9 @@ function RemedyReviewBody({
   const [participantNote, setParticipantNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const openOperationId = useRef<string | null>(null)
-  const decisionOperationId = useRef<string | null>(null)
+  const openPending = openAttempt.hasPending('attendance-remedy-open')
+  const decisionPending = decisionAttempt.hasPending('attendance-remedy-decision')
   const openCase = review.cases.find((remedy) => remedy.state === 'open')
-
-  useEffect(() => {
-    openOperationId.current = null
-  }, [description, review.sessionVersion, review.participantVersion])
-
-  useEffect(() => {
-    decisionOperationId.current = null
-  }, [
-    confirmedAt,
-    decisionKind,
-    openCase?.version,
-    participantNote,
-    presentMinutes,
-    reason,
-    result,
-    review.participantVersion,
-    review.sessionVersion,
-  ])
 
   const beginDecision = () => {
     setDecisionKind('approve')
@@ -119,21 +125,21 @@ function RemedyReviewBody({
 
   const submitOpen = async (event: FormEvent) => {
     event.preventDefault()
-    const clientOperationId = openOperationId.current ?? crypto.randomUUID()
-    openOperationId.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await openRemedy({
-        eventSlug,
-        sessionId: session.id,
-        membershipId: participant.membershipId,
-        expectedSessionVersion: review.sessionVersion,
-        expectedParticipantVersion: review.participantVersion,
-        description,
-        clientOperationId,
+      await openAttempt.run('attendance-remedy-open', () => {
+        const args = {
+          eventSlug,
+          sessionId: session.id,
+          membershipId: participant.membershipId,
+          expectedSessionVersion: review.sessionVersion,
+          expectedParticipantVersion: review.participantVersion,
+          description,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => openRemedy(args)
       })
-      openOperationId.current = null
       setDescription('')
     } catch (caught) {
       setError(readableError(caught))
@@ -144,42 +150,39 @@ function RemedyReviewBody({
 
   const submitDecision = async (event: FormEvent) => {
     event.preventDefault()
-    if (!openCase) return
-    const clientOperationId = decisionOperationId.current ?? crypto.randomUUID()
-    decisionOperationId.current = clientOperationId
+    if (!decisionPending && !openCase) return
     setBusy(true)
     setError(null)
     try {
-      if (decisionKind === 'decline') {
-        await decideRemedy({
-          eventSlug,
-          caseId: openCase.id,
-          expectedCaseVersion: openCase.version,
-          expectedSessionVersion: review.sessionVersion,
-          expectedParticipantVersion: review.participantVersion,
-          resolution: { kind: 'decline', participantNote },
-          reason,
-          clientOperationId,
-        })
-      } else {
-        const duration = Number(presentMinutes)
-        if (!Number.isSafeInteger(duration)) {
-          setError('Present duration must be a whole number of minutes.')
-          return
+      await decisionAttempt.run('attendance-remedy-decision', () => {
+        if (!openCase) throw new Error('The attendance review case is no longer open.')
+        if (decisionKind === 'decline') {
+          const args = {
+            eventSlug,
+            caseId: openCase.id,
+            expectedCaseVersion: openCase.version,
+            expectedSessionVersion: review.sessionVersion,
+            expectedParticipantVersion: review.participantVersion,
+            resolution: { kind: 'decline' as const, participantNote },
+            reason,
+            clientOperationId: crypto.randomUUID(),
+          }
+          return () => decideRemedy(args)
         }
+        const duration = Number(presentMinutes)
+        if (!Number.isSafeInteger(duration)) throw new Error('Present duration must be a whole number of minutes.')
         const confirmation = confirmedAt === '' ? undefined : Date.parse(confirmedAt)
         if (confirmation !== undefined && !Number.isSafeInteger(confirmation)) {
-          setError('Choose a valid confirmation time.')
-          return
+          throw new Error('Choose a valid confirmation time.')
         }
-        await decideRemedy({
+        const args = {
           eventSlug,
           caseId: openCase.id,
           expectedCaseVersion: openCase.version,
           expectedSessionVersion: review.sessionVersion,
           expectedParticipantVersion: review.participantVersion,
           resolution: {
-            kind: 'approve',
+            kind: 'approve' as const,
             result,
             presentDurationMinutes: result === 'absent' ? 0 : duration,
             ...(result !== 'absent' && confirmation !== undefined
@@ -188,10 +191,10 @@ function RemedyReviewBody({
             participantNote,
           },
           reason,
-          clientOperationId,
-        })
-      }
-      decisionOperationId.current = null
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => decideRemedy(args)
+      })
       setDecisionOpen(false)
       setReason('')
       setParticipantNote('')
@@ -218,10 +221,17 @@ function RemedyReviewBody({
           <p><strong>Open case:</strong> {openCase.description}</p>
           <small>Opened by {openCase.openedByKind === 'participant' ? 'the participant' : 'staff'} · {dateTimeName(openCase.createdAt)}</small>
           {session.canDecideRemedy && !decisionOpen ? (
-            <button className="secondary" type="button" onClick={beginDecision}>Resolve case</button>
+            <button
+              className="secondary"
+              type="button"
+              disabled={busy || openPending || decisionPending}
+              onClick={beginDecision}
+            >Resolve case</button>
           ) : null}
         </div>
-      ) : session.canOpenRemedy ? (
+      ) : null}
+
+      {openPending || (!openCase && session.canOpenRemedy) ? (
         <form className="attendance-remedy-form" onSubmit={submitOpen}>
           <label className="field">
             <span>Why this result needs review</span>
@@ -229,25 +239,30 @@ function RemedyReviewBody({
               required
               minLength={10}
               maxLength={1_000}
+              disabled={busy || openPending}
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               placeholder="Describe the missing scan, boundary case, or evidence to review."
             />
           </label>
           <div className="button-row">
-            <button className="secondary" type="submit" disabled={busy || description.trim().length < 10}>
-              {busy ? 'Opening…' : 'Open review'}
+            <button
+              className="secondary"
+              type="submit"
+              disabled={busy || (!openPending && description.trim().length < 10)}
+            >
+              {busy ? 'Opening…' : openPending ? 'Confirm review request' : 'Open review'}
             </button>
           </div>
         </form>
       ) : null}
 
-      {openCase && session.canDecideRemedy && decisionOpen ? (
+      {session.canDecideRemedy && decisionOpen && (openCase !== undefined || decisionPending) ? (
         <form className="attendance-remedy-form" onSubmit={submitDecision}>
           <div className="attendance-remedy-fields">
             <label className="field">
               <span>Decision</span>
-              <select value={decisionKind} onChange={(event) => setDecisionKind(parseDecisionKind(event.target.value))}>
+              <select disabled={busy || decisionPending} value={decisionKind} onChange={(event) => setDecisionKind(parseDecisionKind(event.target.value))}>
                 <option value="approve">Approve a corrected result</option>
                 <option value="decline">Keep the current result</option>
               </select>
@@ -256,7 +271,7 @@ function RemedyReviewBody({
               <>
                 <label className="field">
                   <span>Final result</span>
-                  <select value={result} onChange={(event) => setResult(parseApprovalResult(event.target.value))}>
+                  <select disabled={busy || decisionPending} value={result} onChange={(event) => setResult(parseApprovalResult(event.target.value))}>
                     <option value="attended">Attended</option>
                     <option value="partial">Partial</option>
                     <option value="absent">Absent</option>
@@ -271,7 +286,7 @@ function RemedyReviewBody({
                     min="0"
                     max={review.maximumPresentDurationMinutes}
                     step="1"
-                    disabled={result === 'absent'}
+                    disabled={busy || decisionPending || result === 'absent'}
                     value={result === 'absent' ? '0' : presentMinutes}
                     onChange={(event) => setPresentMinutes(event.target.value)}
                   />
@@ -282,6 +297,7 @@ function RemedyReviewBody({
                     <input
                       type="datetime-local"
                       step="60"
+                      disabled={busy || decisionPending}
                       value={confirmedAt}
                       onChange={(event) => setConfirmedAt(event.target.value)}
                     />
@@ -291,11 +307,11 @@ function RemedyReviewBody({
             ) : null}
             <label className="field attendance-remedy-wide">
               <span>Internal reason</span>
-              <textarea required minLength={5} maxLength={300} value={reason} onChange={(event) => setReason(event.target.value)} />
+              <textarea disabled={busy || decisionPending} required minLength={5} maxLength={300} value={reason} onChange={(event) => setReason(event.target.value)} />
             </label>
             <label className="field attendance-remedy-wide">
               <span>Note shown to the participant</span>
-              <textarea required minLength={3} maxLength={400} value={participantNote} onChange={(event) => setParticipantNote(event.target.value)} />
+              <textarea disabled={busy || decisionPending} required minLength={3} maxLength={400} value={participantNote} onChange={(event) => setParticipantNote(event.target.value)} />
             </label>
           </div>
           <p className="muted">Requires a Google sign-in from the last 15 minutes. The decision and before/after result are audited.</p>
@@ -303,16 +319,24 @@ function RemedyReviewBody({
             <button
               className="primary"
               type="submit"
-              disabled={busy || resultChanged || reason.trim().length < 5 || participantNote.trim().length < 3}
+              disabled={busy || (!decisionPending && (
+                resultChanged || reason.trim().length < 5 || participantNote.trim().length < 3
+              ))}
             >
-              {busy ? 'Saving…' : decisionKind === 'approve' ? 'Apply corrected result' : 'Decline review'}
+              {busy ? 'Saving…' : decisionPending ? 'Confirm earlier decision' : decisionKind === 'approve' ? 'Apply corrected result' : 'Decline review'}
             </button>
-            <button className="secondary" type="button" disabled={busy} onClick={() => setDecisionOpen(false)}>Cancel</button>
+            <button className="secondary" type="button" disabled={busy || decisionPending} onClick={() => setDecisionOpen(false)}>Cancel</button>
           </div>
         </form>
       ) : null}
 
-      {resultChanged ? <p className="notice error" role="alert">The result changed while this review was open. Close it and review the latest state.</p> : null}
+      {resultChanged ? (
+        <p className="notice error" role="alert">
+          {decisionPending
+            ? 'The result changed after the earlier decision was sent. Confirm that exact decision before continuing.'
+            : 'The result changed while this review was open. Close it and review the latest state.'}
+        </p>
+      ) : null}
       {error ? <p className="notice error" role="alert">{error}</p> : null}
 
       {review.recentEvents.length > 0 ? (

@@ -25,6 +25,7 @@ import {
   participantPolicyChecksum,
 } from "./lib/participantPolicy.ts";
 import { permissionCatalog } from "./lib/permissionCatalog.ts";
+import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -173,13 +174,13 @@ describe("admission policy configuration", () => {
       expectedModelConfigId: nextDraft.modelConfigVersionId,
       expectedModelChecksum: nextDraft.modelChecksum,
       now: fixture.now + 4,
-    }))).rejects.toThrow("closes after the first project submission");
+    }))).rejects.toThrow("closes when the first project submission begins");
     await expect(backend.run((ctx) => saveAdmissionConfigurationDraft(ctx, {
       event: currentEvent,
       actorPersonId: fixture.personId,
       configuration: configuration("admission-v4", 975, false),
       now: fixture.now + 5,
-    }))).rejects.toThrow("closes after the first project submission");
+    }))).rejects.toThrow("closes when the first project submission begins");
     const afterRejectedPublication = await backend.run((ctx) => ctx.db.get(fixture.event._id));
     expect(afterRejectedPublication?.publishedAdmissionPolicyId).toBe(draft.policyVersionId);
   });
@@ -404,6 +405,9 @@ async function insertSubmittedApplication(
     publicCode: "ADMTEST",
     leadMembershipId: membershipId,
     status: "submitted",
+    activeMemberCount: 1,
+      activeVitMemberCount: 0,
+    activeExternalMemberCount: 1,
     membershipLocked: true,
     trackLocked: true,
     version: 1,
@@ -453,6 +457,16 @@ async function insertSubmittedApplication(
     createdAt: fixture.now,
     publishedAt: fixture.now,
   });
+  const lockedRosterSnapshotId = await createTestSubmissionSnapshot(ctx, {
+    eventId: fixture.event._id,
+    teamId,
+    teamMemberIds: [memberId],
+    intakePolicyVersionId: intakePolicyId,
+    participantPolicyVersionId: fixture.participantPolicyId,
+    admissionPolicyVersionId: fixture.policyId,
+    coreTrackVersionId: trackId,
+    submittedAt: fixture.now,
+  });
   const projectId = await ctx.db.insert("projectVersions", {
     eventId: fixture.event._id,
     teamId,
@@ -462,7 +476,8 @@ async function insertSubmittedApplication(
     intakeResponses: [],
     coreTrackVersionId: trackId,
     sponsorTrackVersionIds: [],
-    lockedTeamMemberIds: [memberId],
+    lockedRosterSnapshotId,
+    lockedMemberCount: 1,
     lockedLeadMembershipId: membershipId,
     freshForEventAttestation: {
       participantPolicyVersionId: fixture.participantPolicyId,

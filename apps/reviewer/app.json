@@ -64,7 +64,9 @@
           "useSQLCipher": true
         }
       ],
-      "@sentry/react-native"
+      "@sentry/react-native",
+      "./plugins/withPagerLockScreen",
+      "./plugins/withPagerService"
     ],
     "experiments": {
       "typedRoutes": true,

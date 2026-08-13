@@ -1,9 +1,9 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 
-import type { CurrentIntake, PublicState } from '../types'
+import type { PublicState, SubmittedIntake } from '../types'
 import { AttendancePanel } from '../components/AttendancePanel'
 import { ReviewQueuePanel } from '../components/ReviewQueuePanel'
 import { ReleasedFeedbackPanel } from '../components/ReleasedFeedbackPanel'
@@ -11,10 +11,11 @@ import { TeamLocationPanel } from '../components/TeamLocationPanel'
 import { ProjectCheckpointsPanel } from '../components/ProjectCheckpointsPanel'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 
 type ParticipantDelivery = FunctionReturnType<typeof api.participantNotifications.mine>
 type ParticipantDeliveryState = NonNullable<ParticipantDelivery>['state']
-type CurrentApplication = NonNullable<CurrentIntake['application']>
+type CurrentApplication = SubmittedIntake['application']
 type InformationRequest = NonNullable<CurrentApplication['informationRequest']>
 
 const deliveryStatusCopy: Record<ParticipantDeliveryState, string> = {
@@ -33,15 +34,33 @@ const deliveryStatusCopy: Record<ParticipantDeliveryState, string> = {
 
 export function SubmittedScreen({
   publicState,
+}: {
+  publicState: PublicState
+}) {
+  const intake = useQuery(api.intake.submitted, { eventSlug })
+  if (intake === undefined) return <p className="muted">Loading your application…</p>
+  if (intake === null) return null
+  return <SubmittedWorkspace publicState={publicState} intake={intake} />
+}
+
+function SubmittedWorkspace({
+  publicState,
   intake,
 }: {
   publicState: PublicState
-  intake: CurrentIntake
+  intake: SubmittedIntake
 }) {
+  const application = intake.application
+  const selected = ['accepted', 'offer_sent', 'confirmed'].includes(application.state)
   const delivery = useQuery(api.participantNotifications.mine, { eventSlug })
-  const communications = useQuery(api.participantCommunications.current, { eventSlug })
+  const communications = useQuery(
+    api.participantCommunications.current,
+    selected ? { eventSlug } : 'skip',
+  )
   const respondToOffer = useMutation(api.admissions.respondToOffer)
-  const operationRef = useRef<{ key: string; id: string } | null>(null)
+  const responseAttempt = useMutationAttempt<FunctionReturnType<typeof api.admissions.respondToOffer>>()
+  const [pendingResponse, setPendingResponse] = useState<'confirm' | 'decline' | null>(null)
+  const responsePending = responseAttempt.hasPending('offer-response')
   const [busy, setBusy] = useState<'confirm' | 'decline' | null>(null)
   const [confirmDecline, setConfirmDecline] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -60,16 +79,10 @@ export function SubmittedScreen({
     )
     return () => window.clearTimeout(timer)
   }, [phaseTime, phases])
-  const application = intake.application
-  if (!event || !application) return null
-  const selected = ['accepted', 'offer_sent', 'confirmed'].includes(application.state)
+  if (!event) return null
   const confirmed = application.state === 'confirmed'
-  const track = intake.draft?.tracks.find(
-    (candidate) => candidate.id === intake.draft?.chosenCoreTrackVersionId,
-  )
-  const sponsorTracks = intake.draft?.tracks.filter(
-    (candidate) => intake.draft?.chosenSponsorTrackVersionIds.includes(candidate.id),
-  ) ?? []
+  const track = intake.project.coreTrack
+  const sponsorTracks = intake.project.sponsorTracks
   const currentPhase = event.phases.find(
     (phase) => phase.startsAt <= phaseTime && phaseTime < phase.endsAt,
   )
@@ -81,26 +94,26 @@ export function SubmittedScreen({
 
   const respond = async (response: 'confirm' | 'decline') => {
     const offer = application.currentOffer
-    if (!offer) return
-    const operationKey = `${response}:${application.version}:${offer.version}`
-    const operation = operationRef.current?.key === operationKey
-      ? operationRef.current
-      : { key: operationKey, id: crypto.randomUUID() }
-    operationRef.current = operation
+    if (!offer || (pendingResponse !== null && pendingResponse !== response)) return
+    if (!responsePending) setPendingResponse(response)
     setBusy(response)
     setError(null)
     try {
-      await respondToOffer({
-        eventSlug,
-        applicationId: application.id,
-        expectedApplicationVersion: application.version,
-        expectedOfferVersion: offer.version,
-        response,
-        clientOperationId: operation.id,
+      await responseAttempt.run('offer-response', () => {
+        const args = {
+          eventSlug,
+          applicationId: application.id,
+          expectedApplicationVersion: application.version,
+          expectedOfferVersion: offer.version,
+          response,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => respondToOffer(args)
       })
-      operationRef.current = null
+      setPendingResponse(null)
       setConfirmDecline(false)
     } catch (caught) {
+      if (!responseAttempt.hasPending('offer-response')) setPendingResponse(null)
       setError(readableError(caught))
     } finally {
       setBusy(null)
@@ -140,17 +153,17 @@ export function SubmittedScreen({
             confirmDecline ? (
               <div className="offer-actions">
                 <p>Declining releases the whole team’s places. You cannot undo this in the portal.</p>
-                <button type="button" className="secondary" disabled={busy !== null} onClick={() => setConfirmDecline(false)}>Keep offer</button>
-                <button type="button" className="secondary danger-confirm" disabled={busy !== null} onClick={() => void respond('decline')}>
-                  {busy === 'decline' ? 'Declining…' : 'Decline for team'}
+                <button type="button" className="secondary" disabled={busy !== null || responsePending} onClick={() => setConfirmDecline(false)}>Keep offer</button>
+                <button type="button" className="secondary danger-confirm" disabled={busy !== null || pendingResponse === 'confirm'} onClick={() => void respond('decline')}>
+                  {busy === 'decline' ? 'Declining…' : pendingResponse === 'decline' ? 'Confirm earlier decline' : 'Decline for team'}
                 </button>
               </div>
             ) : (
               <div className="offer-actions">
-                <button type="button" className="primary" disabled={busy !== null} onClick={() => void respond('confirm')}>
-                  {busy === 'confirm' ? 'Confirming…' : 'Confirm for team'}
+                <button type="button" className="primary" disabled={busy !== null || pendingResponse === 'decline'} onClick={() => void respond('confirm')}>
+                  {busy === 'confirm' ? 'Confirming…' : pendingResponse === 'confirm' ? 'Confirm earlier response' : 'Confirm for team'}
                 </button>
-                <button type="button" className="text-button" disabled={busy !== null} onClick={() => setConfirmDecline(true)}>Decline offer</button>
+                <button type="button" className="text-button" disabled={busy !== null || responsePending} onClick={() => setConfirmDecline(true)}>Decline offer</button>
               </div>
             )
           ) : (
@@ -215,10 +228,10 @@ export function SubmittedScreen({
           <ReleasedFeedbackPanel />
         </div>
       ) : null}
-      {intake.draft?.initialIdea ? (
+      {intake.project.initialIdea ? (
         <details className="submitted-summary">
           <summary>Your project</summary>
-          <p>{intake.draft.initialIdea}</p>
+          <p>{intake.project.initialIdea}</p>
         </details>
       ) : null}
       {delivery && deliveryNeedsAttention(delivery.state) ? (
@@ -234,11 +247,12 @@ function InformationResponsePanel({
   request,
 }: {
   application: CurrentApplication
-  currentRole: CurrentIntake['currentRole']
+  currentRole: SubmittedIntake['currentRole']
   request: InformationRequest
 }) {
   const respondToInformationRequest = useMutation(api.admissions.respondToInformationRequest)
-  const operationRef = useRef<{ key: string; id: string } | null>(null)
+  const responseAttempt = useMutationAttempt<FunctionReturnType<typeof api.admissions.respondToInformationRequest>>()
+  const responsePending = responseAttempt.hasPending(`information-response:${request.id}`)
   const [draft, setDraft] = useState(() => ({
     requestId: request.id,
     answers: request.questions.map((question) => ({
@@ -258,34 +272,25 @@ function InformationResponsePanel({
         answer: '',
       })),
     })
-    operationRef.current = null
   }, [draft.requestId, request])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    const operationKey = JSON.stringify([
-      application.version,
-      request.id,
-      request.version,
-      draft.answers,
-    ])
-    const operation = operationRef.current?.key === operationKey
-      ? operationRef.current
-      : { key: operationKey, id: crypto.randomUUID() }
-    operationRef.current = operation
     setBusy(true)
     setError(null)
     try {
-      await respondToInformationRequest({
-        eventSlug,
-        applicationId: application.id,
-        expectedApplicationVersion: application.version,
-        requestId: request.id,
-        expectedRequestVersion: request.version,
-        answers: draft.answers,
-        clientOperationId: operation.id,
+      await responseAttempt.run(`information-response:${request.id}`, () => {
+        const args = {
+          eventSlug,
+          applicationId: application.id,
+          expectedApplicationVersion: application.version,
+          requestId: request.id,
+          expectedRequestVersion: request.version,
+          answers: draft.answers.map((answer) => ({ ...answer })),
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => respondToInformationRequest(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -306,6 +311,7 @@ function InformationResponsePanel({
                 required
                 minLength={2}
                 maxLength={1200}
+                disabled={responsePending}
                 value={draft.answers[index]?.answer ?? ''}
                 onChange={(event) => setDraft((current) => ({
                   ...current,
@@ -324,7 +330,7 @@ function InformationResponsePanel({
             type="submit"
             disabled={busy || draft.answers.some((answer) => answer.answer.trim().length < 2)}
           >
-            {busy ? 'Submitting…' : 'Submit answers'}
+            {busy ? 'Submitting…' : responsePending ? 'Confirm earlier answers' : 'Submit answers'}
           </button>
         </form>
       ) : <p className="fine-print">The locked team lead submits these answers for the team.</p>}

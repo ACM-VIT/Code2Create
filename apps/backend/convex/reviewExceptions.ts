@@ -13,6 +13,7 @@ import {
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import { appendReviewPanelVacancyReadFactById } from "./lib/operationsAutonomyReadFacts";
 import {
   matchingPermissionGrantIds,
   requirePermission,
@@ -23,6 +24,7 @@ import {
   findReviewParticipantAvailabilityWaiver,
   readReviewParticipantAvailability,
 } from "./lib/reviewParticipantAvailability";
+import { patchTeamRoundState } from "./lib/reviewQueueProjection";
 import { normalizedText } from "./lib/strings";
 
 type QueueExceptionPermission =
@@ -284,7 +286,7 @@ export const holdTeam = mutation({
     });
     const stateBeforeHold =
       state.state === "called" || state.state === "at_table" ? "queued" : state.state;
-    await ctx.db.patch(state._id, {
+    await patchTeamRoundState(ctx, state, {
       state: "held",
       stateBeforeHold,
       holdReason: reason,
@@ -399,7 +401,7 @@ export const resumeTeam = mutation({
       nextState = "queued";
       preserveQueueTime = false;
     }
-    await ctx.db.patch(state._id, {
+    await patchTeamRoundState(ctx, state, {
       state: nextState,
       ...(nextState === "queued" && state.panelId ? { panelId: state.panelId } : { panelId: undefined }),
       ...(nextState === "queued" ? { tableLabel: resumedTableLabel } : { tableLabel: undefined }),
@@ -505,7 +507,7 @@ export const recordCallAttempt = mutation({
       state,
     });
     const now = Date.now();
-    await ctx.db.patch(state._id, {
+    await patchTeamRoundState(ctx, state, {
       callAttemptCount: state.callAttemptCount + 1,
       lastCallAttemptAt: now,
       version: state.version + 1,
@@ -614,7 +616,7 @@ export const markMissed = mutation({
       reason: `Pending review cancelled after published missed-call policy: ${reason}`,
       now,
     });
-    await ctx.db.patch(state._id, {
+    await patchTeamRoundState(ctx, state, {
       state: "missed",
       missedAt: now,
       calledAt: undefined,
@@ -727,7 +729,7 @@ export const moveQueuedTeam = mutation({
     });
     const now = Date.now();
     const sourcePanelId = state.panelId;
-    await ctx.db.patch(state._id, {
+    await patchTeamRoundState(ctx, state, {
       panelId: targetPanel._id,
       movedFromPanelId: sourcePanelId,
       lastMovedAt: now,
@@ -842,6 +844,7 @@ export const setPanelAvailability = mutation({
       version: panel.version + 1,
       updatedAt: now,
     });
+    await appendReviewPanelVacancyReadFactById(ctx, panel._id, now);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,

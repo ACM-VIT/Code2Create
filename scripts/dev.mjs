@@ -27,14 +27,14 @@ async function waitForBackend(backendExit) {
   const ready = (async () => {
     for (let attempt = 0; attempt < 120; attempt += 1) {
       try {
-        const response = await fetch('http://127.0.0.1:3212/version')
+        const response = await fetch('http://127.0.0.1:3210/version')
         if (response.ok) return
       } catch {
         // The local backend has not opened its port yet.
       }
       await delay(250)
     }
-    throw new Error('The local Convex backend did not become ready on port 3212.')
+    throw new Error('The local Convex backend did not become ready on port 3210.')
   })()
   const result = await Promise.race([
     ready.then(() => ({ ready: true })),
@@ -74,8 +74,7 @@ try {
   const applications = start([
     '--parallel',
     '--stream',
-    // Without this one application failing to boot takes the whole local stack
-    // with it, so a transient Worker crash costs you the backend as well.
+    // Keep sibling applications running if one development process exits.
     '--no-bail',
     '--filter',
     '@code2create/web',

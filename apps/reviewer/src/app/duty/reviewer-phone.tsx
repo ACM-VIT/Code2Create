@@ -4,17 +4,6 @@ import { StyleSheet, Text, View } from 'react-native'
 import { KeyValue } from '@/components/ui'
 import { palette, radius } from '@/theme'
 
-/**
- * What this phone is, for the one time somebody asks.
- *
- * A reviewer between reviews does not need to be told their app build or that
- * their encrypted drafts are ready — they need to know whether they are on
- * duty. These are the checks an operator asks about when something is wrong,
- * so they live one press away instead of on the duty screen.
- *
- * Takes what it shows as route parameters: the screen behind it already holds
- * every one of these values, and a sheet is open for seconds.
- */
 export default function ReviewerPhoneSheet() {
   const params = useLocalSearchParams<{
     build?: string
@@ -49,8 +38,7 @@ export default function ReviewerPhoneSheet() {
 const styles = StyleSheet.create({
   sheet: { flex: 1, backgroundColor: palette.background, padding: 20, gap: 16 },
   title: { color: palette.text, fontSize: 28, fontWeight: '600', letterSpacing: -0.6 },
-  /* A plain view: a scroll view in a form sheet has no height to measure
-     against and collapses, which renders the whole sheet empty. */
+  // ScrollView has no measurable height inside this form sheet.
   body: { gap: 10 },
   row: {
     backgroundColor: palette.tile,

@@ -8,6 +8,10 @@ import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import {
+  HttpBodyTooLargeError,
+  readBoundedRequestText,
+} from "./lib/boundedHttpBody";
 
 const maximumBodyBytes = 16 * 1_024;
 const maximumSignatureAgeMs = 5 * 60 * 1_000;
@@ -43,13 +47,14 @@ export const participantEmailEvent = httpAction(async (ctx, request) => {
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim() !== "application/json") {
     return new Response("Unsupported media type.", { status: 415 });
   }
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > maximumBodyBytes) {
-    return new Response("Payload too large.", { status: 413 });
-  }
-  const body = await request.text();
-  if (new TextEncoder().encode(body).byteLength > maximumBodyBytes) {
-    return new Response("Payload too large.", { status: 413 });
+  let body: string;
+  try {
+    body = await readBoundedRequestText(request, maximumBodyBytes);
+  } catch (error) {
+    if (error instanceof HttpBodyTooLargeError) {
+      return new Response("Payload too large.", { status: 413 });
+    }
+    throw error;
   }
   const verified = await verifyServiceBody({
     context: participantEmailEventSignatureContext,

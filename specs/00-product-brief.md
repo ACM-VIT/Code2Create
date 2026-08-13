@@ -56,7 +56,7 @@ The responsive participant portal provides these functions:
 
 One immutable participant-policy version controls profile collection and team eligibility. The portal shows only the fields that the policy permits. The portal records acceptance of the exact version. Before a relevant write commits, the server rechecks the current version, team-size bounds, mixed-team rule, and lock warning. A later publication updates open portals and requires explicit acceptance. It never rewrites an earlier profile or submitted project snapshot.
 
-Final submission also resolves one immutable admission release. Before applications begin, authorized operations users publish the complete year-adjusted rubric. They also publish the human-review minimum, human decision reasons, and participant capacity. The release contains either one exact admission-model release or an explicit human-only mode. The first submitted application freezes the release for the event. Publication cannot split teams across rubrics or reset capacity after admissions begins.
+Final submission also resolves one immutable admission release. Before applications begin, authorized operations users publish the complete year-adjusted rubric. They also publish the human-review minimum, human decision reasons, and participant capacity. The release contains either one exact admission-model release or an explicit human-only mode. Starting the first submission attempt freezes the release for the event; a failed attempt may unlock participant work but does not reopen admission configuration after an application exists. Publication cannot split teams across rubrics or reset capacity after admissions begins.
 
 An authenticated exact-team query returns the selected-team venue, dates, ordered next steps, and Discord. These values come from one current immutable communications policy. The public event payload does not contain these values. Important status email remains generic and pins the policy version that rendered it. The signed-in portal follows later publications in realtime.
 
@@ -100,7 +100,7 @@ An operations user can handle a missing reviewer, team hold, table move, scan fa
 - Google sign-in and participant classification;
 - staff/reviewer roster claims, role defaults, and person-specific scoped permission grants;
 - participant, team, and project onboarding;
-- a fresh-project rule, configurable event checkpoints, sequential intake, five core-track positions, and optional sponsor-track eligibility;
+- a fresh-project rule, configurable event checkpoints, sequential intake, a published core-track count, and optional sponsor-track eligibility;
 - a versioned participant novelty corpus, native 1,536-dimension `text-embedding-3-small` comparison, and independently permissioned corpus operations;
 - a final submission confirmation that atomically locks team membership, the confirmed core track, and the selected sponsor-track set;
 - pre-event human application review, a structured year-adjusted AI recommendation, a one-or-two-question locked-lead information loop, shortlist, waitlist, capacity-backed offer, locked-lead confirmation, selected-team next steps, Discord handoff, and participant notifications;
@@ -146,8 +146,8 @@ An operations user can handle a missing reviewer, team hold, table move, scan fa
 - The intake model may generate one bounded follow-up at a time, identify missing fields, and recommend one published track. Participants provide every answer and choose the track; a different choice has no adverse admission effect.
 - The live novelty signal is a drafting aid only. It may invite differentiation, but it cannot block submission, enter an application or reviewer view, change an admission recommendation, or become a judging score.
 - A separate admission-analysis model may produce a structured recommendation against the published year-adjusted application rubric. It cannot publish or silently change an application decision, and it cannot set or recommend a judging score.
-- Admission policy, optional admission-model configuration, and the initial overall capacity bucket publish in one transaction. The first submitted application permanently closes ordinary publication for that event. Publication racing submission has one serial winner. The application pins the winner's exact policy.
-- The final application command requires an explicit preview of the active members, track, and project summary and locks membership and track in the same transaction.
+- Admission policy, optional admission-model configuration, and the initial overall capacity bucket publish in one transaction. A validating/finalizing submission attempt or an existing application closes ordinary publication for that event. Publication racing submission start has one serial winner. The attempt and resulting application pin the winner's exact policy.
+- The final application command requires an explicit preview of the active members, track, and project summary. Its first transaction locks membership and track; bounded resumable mutations materialize the exact roster snapshot before creating the application.
 - A participant-facing queue gives teams ahead and a time window. It does not promise an exact start minute.
 - Support is a diagnostic route only. A linked team, attendance session, queue, review, scorecard, or owner creates no authority and changes no underlying domain state.
 - A timer is calculated from the server start time. Clients do not write a database record every second.

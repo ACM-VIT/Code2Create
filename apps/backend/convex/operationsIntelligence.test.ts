@@ -118,6 +118,45 @@ describe("operations intelligence brief", () => {
     expect(brief?.workerSubmissionId).toBeUndefined();
   });
 
+  test("keeps a dispatching brief recoverable after an ambiguous action failure", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedBrief(backend, { state: "dispatching" });
+
+    await backend.mutation(internal.operationsIntelligence.generationFinished, {
+      workId: "ambiguous-dispatch-work",
+      context: fixture.briefId,
+      result: { kind: "failed", error: "The dispatch response was lost." },
+    });
+    expect(await backend.run((ctx) => ctx.db.get(fixture.briefId))).toMatchObject({
+      state: "dispatching",
+      version: 1,
+    });
+
+    expect(
+      await backend.mutation(internal.operationsIntelligence.completeFromWorker, {
+        callback: successCallback(fixture.briefId, fixture.sourceChecksum),
+      }),
+    ).toBe("accepted");
+    expect(await backend.run((ctx) => ctx.db.get(fixture.briefId))).toMatchObject({
+      state: "succeeded",
+      version: 2,
+    });
+  });
+
+  test("rejects a callback before dispatch starts", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedBrief(backend, { state: "pending" });
+
+    const result = await backend.mutation(
+      internal.operationsIntelligence.completeFromWorker,
+      { callback: successCallback(fixture.briefId, fixture.sourceChecksum) },
+    );
+    const brief = await backend.run((ctx) => ctx.db.get(fixture.briefId));
+
+    expect(result).toBe("stale");
+    expect(brief).toMatchObject({ state: "pending", version: 1 });
+  });
+
   test("does not let a callback reopen a timed-out brief", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedBrief(backend, {
@@ -159,14 +198,14 @@ describe("operations intelligence brief", () => {
         change: (priority) => {
           priority.owner = "Invented owner";
         },
-        message: "must come from one of its cited health signals",
+        message: "must come from the same cited health signal",
       },
       {
         label: "next action",
         change: (priority) => {
           priority.nextAction = "Take an action that was not in the source.";
         },
-        message: "must come from one of its cited health signals",
+        message: "must come from the same cited health signal",
       },
     ];
 
@@ -185,6 +224,46 @@ describe("operations intelligence brief", () => {
       const brief = await backend.run((ctx) => ctx.db.get(fixture.briefId));
       expect(brief?.state).toBe("accepted");
     }
+  });
+
+  test("rejects an owner and next action spliced across two cited signals", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedBrief(backend);
+    await backend.run(async (ctx) => {
+      const brief = await ctx.db.get(fixture.briefId);
+      if (!brief) throw new Error("The intelligence brief fixture is missing.");
+      await ctx.db.patch(brief._id, {
+        sourceSnapshot: {
+          ...brief.sourceSnapshot,
+          signals: [
+            ...brief.sourceSnapshot.signals,
+            {
+              key: "stale_scanner_stations",
+              area: "attendance",
+              severity: "attention",
+              title: "Scanner needs attention",
+              detail: "A scanner stopped reporting during the active session.",
+              owner: "Attendance lead",
+              nextAction: "Bring the scanner back online.",
+              count: 1,
+              atLeast: false,
+              oldestAt: Date.now(),
+            },
+          ],
+        },
+      });
+    });
+    const callback = successCallback(fixture.briefId, fixture.sourceChecksum);
+    const priority = callback.priorities[0];
+    if (!priority) throw new Error("The fixture brief has no priority.");
+    priority.signalKeys = ["active_round_pauses", "stale_scanner_stations"];
+    priority.owner = "Review lead";
+    priority.nextAction = "Bring the scanner back online.";
+
+    await expect(
+      backend.mutation(internal.operationsIntelligence.completeFromWorker, { callback }),
+    ).rejects.toThrow("must come from the same cited health signal");
+    expect((await backend.run((ctx) => ctx.db.get(fixture.briefId)))?.state).toBe("accepted");
   });
 });
 
@@ -224,7 +303,7 @@ function successCallback(
 async function seedBrief(
   backend: BackendTest,
   options: {
-    state?: "accepted" | "dispatching";
+    state?: "accepted" | "dispatching" | "pending";
     requestedAt?: number;
   } = {},
 ) {
@@ -253,7 +332,6 @@ async function seedBrief(
     const briefId = await ctx.db.insert("operationsIntelligenceBriefs", {
       eventId,
       requestedByPersonId: personId,
-      origin: "manual",
       state: options.state ?? "accepted",
       sourceChecksum,
       sourceSnapshot: {
@@ -288,7 +366,9 @@ async function seedBrief(
       },
       requestedAt: options.requestedAt ?? now,
       updatedAt: now,
-      workerAcceptedAt: now,
+      ...(options.state === undefined || options.state === "accepted"
+        ? { workerAcceptedAt: now }
+        : {}),
       version: 1,
     });
     return { briefId, sourceChecksum };

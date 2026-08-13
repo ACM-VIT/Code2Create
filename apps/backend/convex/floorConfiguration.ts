@@ -8,6 +8,8 @@ import {
   floorConfigurationChecksum,
   floorCoordinate,
   floorStableKey,
+  maximumFloorLandmarksPerZone,
+  maximumFloorZones,
   teamCanBeMapped,
 } from "./lib/floor";
 import { requireEventBySlug } from "./lib/events";
@@ -17,13 +19,7 @@ import { findOperation, operationFingerprint, recordOperation } from "./lib/oper
 import { normalizedText } from "./lib/strings";
 import { floorMappingState, floorPlanStatus } from "./values";
 
-/**
- * A published plan is no longer a seating chart. The tables in this hall are
- * dragged around by the people using them and carry no numbers, so a plan of
- * addressable spots would be a list of places nobody can point at. What the
- * plan publishes instead is the shape of each zone and the fixed things inside
- * it, which is all a mapper needs to align a drawn rectangle with the room.
- */
+/** Publishes zone shapes and fixed landmarks because tables have no stable addresses. */
 const landmarkInput = v.object({
   stableKey: v.string(),
   name: v.string(),
@@ -190,8 +186,8 @@ export const createDraft = mutation({
       permissionKey: "floor.plan.create",
       scopeType: "event",
     });
-    if (args.zones.length < 1 || args.zones.length > 30) {
-      throw new ConvexError({ code: "INVALID_FLOOR_PLAN", message: "Use between one and 30 hall zones." });
+    if (args.zones.length < 1 || args.zones.length > maximumFloorZones) {
+      throw new ConvexError({ code: "INVALID_FLOOR_PLAN", message: `Use between one and ${maximumFloorZones} hall zones.` });
     }
     const zones = args.zones.map((zone) => ({
       stableKey: floorStableKey(zone.stableKey, "Zone key"),
@@ -557,10 +553,10 @@ function requireLandmarks(
   landmarks: readonly { stableKey: string; name: string; x: number; y: number; displayOrder: number }[],
   zoneName: string,
 ) {
-  if (landmarks.length < 1 || landmarks.length > 12) {
+  if (landmarks.length < 1 || landmarks.length > maximumFloorLandmarksPerZone) {
     throw new ConvexError({
       code: "INVALID_FLOOR_ZONE",
-      message: `${zoneName} needs between one and 12 landmarks so floor staff can tell which way the zone faces.`,
+      message: `${zoneName} needs between one and ${maximumFloorLandmarksPerZone} landmarks so floor staff can tell which way the zone faces.`,
     });
   }
   const checked = landmarks.map((landmark) => ({

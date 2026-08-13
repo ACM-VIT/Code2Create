@@ -2,7 +2,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { loadPublishedCommunicationsPolicy } from "./communicationsPolicy";
-import { normalizeEmail } from "./strings";
+import { appendParticipantDeliveryReadFactById } from "./operationsAutonomyReadFacts/participantDeliveries";
 
 type AdmissionDecision = NonNullable<Doc<"applications">["humanDecision"]>;
 export type ParticipantNotificationTemplate =
@@ -54,30 +54,73 @@ export async function enqueueApplicationNotifications(
     eventId: Id<"events">;
     applicationId: Id<"applications">;
     teamId: Id<"teams">;
-    lockedTeamMemberIds: Id<"teamMembers">[];
+    lockedRosterSnapshotId: Id<"teamSubmissionAttempts">;
+    lockedMemberCount: number;
     templateKey: ParticipantNotificationTemplate;
     applicationVersion: number;
     now: number;
+    schedule?: false;
   },
 ) {
   const event = await ctx.db.get(args.eventId);
   if (!event) throw new Error("Participant notification event is missing.");
   const { policy: communicationsPolicy } = await loadPublishedCommunicationsPolicy(ctx, event);
-  const deliveryIds: Id<"participantNotificationDeliveries">[] = [];
-  for (const teamMemberId of args.lockedTeamMemberIds) {
-    const teamMember = await ctx.db.get(teamMemberId);
-    if (!teamMember || teamMember.teamId !== args.teamId || teamMember.status !== "active") {
-      throw new Error("Locked team membership is missing for participant notification.");
+  const snapshot = await ctx.db.get(args.lockedRosterSnapshotId);
+  if (
+    !snapshot ||
+    snapshot.eventId !== args.eventId ||
+    snapshot.teamId !== args.teamId ||
+    snapshot.state !== "complete" ||
+    snapshot.processedMemberCount !== args.lockedMemberCount
+  ) {
+    throw new Error("Locked roster snapshot is invalid for participant notification.");
+  }
+  if (args.schedule === false) return args.lockedMemberCount;
+  await ctx.scheduler.runAfter(0, internal.participantNotifications.enqueueRosterBatch, {
+    eventId: args.eventId,
+    applicationId: args.applicationId,
+    teamId: args.teamId,
+    lockedRosterSnapshotId: args.lockedRosterSnapshotId,
+    lockedMemberCount: args.lockedMemberCount,
+    communicationsPolicyVersionId: communicationsPolicy._id,
+    templateKey: args.templateKey,
+    applicationVersion: args.applicationVersion,
+    cursor: null,
+    processedMemberCount: 0,
+  });
+  return args.lockedMemberCount;
+}
+
+export async function ensureApplicationNotification(
+  ctx: MutationCtx,
+  args: {
+    eventId: Id<"events">;
+    applicationId: Id<"applications">;
+    teamId: Id<"teams">;
+    snapshotMember: Doc<"teamSubmissionMembers">;
+    communicationsPolicyVersionId: Id<"communicationsPolicyVersions">;
+    templateKey: ParticipantNotificationTemplate;
+    applicationVersion: number;
+    now: number;
+  },
+) {
+    const { snapshotMember } = args;
+    if (snapshotMember.eventId !== args.eventId || snapshotMember.teamId !== args.teamId) {
+      throw new Error("Locked roster snapshot is invalid for participant notification.");
     }
-    const membership = await ctx.db.get(teamMember.membershipId);
-    if (!membership || membership.eventId !== args.eventId) {
+    const membership = await ctx.db.get(snapshotMember.membershipId);
+    if (
+      !membership ||
+      membership.eventId !== args.eventId ||
+      membership.personId !== snapshotMember.personId
+    ) {
       throw new Error("Participant membership is missing for participant notification.");
     }
-    const person = await ctx.db.get(membership.personId);
+    const person = await ctx.db.get(snapshotMember.personId);
     if (!person || person.status !== "active") {
       throw new Error("Participant identity is missing for participant notification.");
     }
-    const emailNormalized = normalizeEmail(person.verifiedEmail);
+    const emailNormalized = snapshotMember.destinationEmailNormalized;
     let destination = await ctx.db
       .query("participantNotificationDestinations")
       .withIndex("by_event_person_channel", (index) =>
@@ -128,8 +171,7 @@ export async function enqueueApplicationNotifications(
       )
       .first();
     if (existing) {
-      deliveryIds.push(existing._id);
-      continue;
+      return existing._id;
     }
     const destinationActive = destination.status === "active";
     const deliveryId = await ctx.db.insert("participantNotificationDeliveries", {
@@ -139,7 +181,7 @@ export async function enqueueApplicationNotifications(
       membershipId: membership._id,
       personId: person._id,
       destinationId: destination._id,
-      communicationsPolicyVersionId: communicationsPolicy._id,
+      communicationsPolicyVersionId: args.communicationsPolicyVersionId,
       channel: "verified_email",
       destinationEmailNormalized: destination.emailNormalized,
       templateKey: args.templateKey,
@@ -159,12 +201,11 @@ export async function enqueueApplicationNotifications(
       createdAt: args.now,
       updatedAt: args.now,
     });
-    deliveryIds.push(deliveryId);
+    await appendParticipantDeliveryReadFactById(ctx, deliveryId, args.now);
     if (destinationActive) {
       await ctx.scheduler.runAfter(0, internal.participantEmail.deliver, { deliveryId });
     }
-  }
-  return deliveryIds;
+    return deliveryId;
 }
 
 export async function enqueueAdmissionDecisionNotifications(
@@ -173,7 +214,8 @@ export async function enqueueAdmissionDecisionNotifications(
     eventId: Id<"events">;
     applicationId: Id<"applications">;
     teamId: Id<"teams">;
-    lockedTeamMemberIds: Id<"teamMembers">[];
+    lockedRosterSnapshotId: Id<"teamSubmissionAttempts">;
+    lockedMemberCount: number;
     decision: AdmissionDecision;
     applicationVersion: number;
     now: number;

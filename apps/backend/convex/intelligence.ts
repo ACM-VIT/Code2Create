@@ -20,6 +20,7 @@ import {
   nextQuestionOrdinal,
 } from "./lib/intakeQuestions";
 import { redactProjectText } from "./lib/projectText";
+import { appendIntakeJobReadFactById } from "./lib/operationsAutonomyReadFacts/intakeJobs";
 import { requirePinnedTrackCatalog } from "./lib/trackCatalog";
 import { intakeAnswerLength, intakeQuestionPurpose } from "./values";
 
@@ -183,6 +184,7 @@ export const beginIntakeInterpretation = internalMutation({
         : {}),
       createdAt: now,
     });
+    await appendIntakeJobReadFactById(ctx, interpretationId, now);
     if (!assisted || normalized.model.mode !== "assisted") {
       await applyDeterministicPath(ctx, {
         draft,
@@ -273,6 +275,7 @@ export const finishIntakeInterpretation = internalMutation({
         latencyMs: args.latencyMs,
         failureCategory: "draft_unavailable",
       });
+      await appendIntakeJobReadFactById(ctx, interpretation._id, Date.now());
       return null;
     }
     const [{ policy, normalized }, pinnedCatalog, responses, answers] = await Promise.all([
@@ -300,6 +303,7 @@ export const finishIntakeInterpretation = internalMutation({
         latencyMs: args.latencyMs,
         failureCategory: "input_or_question_changed",
       });
+      await appendIntakeJobReadFactById(ctx, interpretation._id, Date.now());
       return null;
     }
 
@@ -387,6 +391,7 @@ export const finishIntakeInterpretation = internalMutation({
           : args.failureCategory,
       completedAt: now,
     });
+    await appendIntakeJobReadFactById(ctx, interpretation._id, now);
 
     let questionId: Id<"intakeGeneratedQuestions"> | null = null;
     if (

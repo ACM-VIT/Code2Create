@@ -1,36 +1,28 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { useState } from 'react'
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { duty, palette, radius, space, tileAspectRatio, type, type DutyKey } from '@/theme'
 
+// Android overlays the tab bar, so content needs an explicit bottom inset.
+const androidTabBarHeight = 80
+
 export type DutyTile = {
   key: DutyKey
-  /** What the duty is called, in the words a volunteer would use. */
   label: string
-  /** Its live state — a fact, never an instruction. */
   status: string
-  /** True while this duty is actually running. Several may be at once. */
   active?: boolean
-  /** Dimmed: available, but nothing is happening in it. */
   resting?: boolean
   icon: React.ReactNode
   onPress: () => void
 }
 
 export type DutyHeadline = {
-  /**
-   * Two short lines, stacked, the way a car app stacks charge over range. Each
-   * has to survive being set at 36px, so both are numerals or near enough.
-   */
   primary: string
   secondary?: string
-  /** Where the person is, then what that adds up to. */
   context: string
-  summary: string
-  /** 0–1. Drawn as one thick bar split at the fill point. */
-  progress?: number
+  summary?: string
   accent: string
-  /** Sits behind the header, enormous and barely visible. Identity, not data. */
   ghost?: string
 }
 
@@ -40,10 +32,16 @@ export function DutyHome({
   tiles,
 }: {
   headline: DutyHeadline
-  /** Something that has already happened and cannot be undone. Rare by design. */
   notice?: string
   tiles: DutyTile[]
 }) {
+  const insets = useSafeAreaInsets()
+  // Enable scrolling only when content extends behind the Android tab bar.
+  const [viewportHeight, setViewportHeight] = useState(0)
+  const [contentHeight, setContentHeight] = useState(0)
+  const barHeight = Platform.OS === 'android' ? androidTabBarHeight + insets.bottom : 0
+  const overflows =
+    viewportHeight > 0 && contentHeight + barHeight > viewportHeight + 1
   const rows: DutyTile[][] = []
   for (let index = 0; index < tiles.length; index += 2) {
     rows.push(tiles.slice(index, index + 2))
@@ -53,13 +51,25 @@ export function DutyHome({
     <View style={styles.root}>
       <SafeAreaView edges={['top']} style={styles.body}>
         <ScrollView
-          contentContainerStyle={styles.scroll}
+          contentContainerStyle={[
+            styles.scroll,
+            Platform.OS === 'android' && overflows
+              ? { paddingBottom: 18 + androidTabBarHeight + insets.bottom }
+              : null,
+          ]}
           contentInsetAdjustmentBehavior="automatic"
+          scrollEnabled={overflows}
           showsVerticalScrollIndicator={false}
+          onContentSizeChange={(_, height) => setContentHeight(height)}
+          onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
         >
           <View style={styles.head}>
             {headline.ghost ? (
-              <Text allowFontScaling={false} numberOfLines={1} style={styles.ghost}>
+              <Text
+                allowFontScaling={false}
+                numberOfLines={1}
+                style={[styles.ghost, ghostSize(headline.ghost.length)]}
+              >
                 {headline.ghost}
               </Text>
             ) : null}
@@ -73,21 +83,18 @@ export function DutyHome({
               </Text>
             ) : null}
 
-            {headline.progress === undefined ? null : (
-              <ValueBar accent={headline.accent} progress={headline.progress} />
-            )}
 
-            {/* The pause below the bar is the signature. With no bar to pause
-                after it is just a hole, so it closes up. */}
             <View
-              style={[styles.identity, headline.progress === undefined ? styles.identityTight : null]}
+              style={styles.identity}
             >
               <Text numberOfLines={1} style={styles.context}>
                 {headline.context}
               </Text>
-              <Text numberOfLines={1} style={styles.summary}>
-                {headline.summary}
-              </Text>
+              {headline.summary ? (
+                <Text numberOfLines={1} style={styles.summary}>
+                  {headline.summary}
+                </Text>
+              ) : null}
             </View>
           </View>
 
@@ -113,23 +120,6 @@ export function DutyHome({
   )
 }
 
-/**
- * One thick bar cut in two at the fill point, rather than a track with a filled
- * portion inside it. The gap is what makes the fraction legible without anyone
- * measuring the ends.
- */
-function ValueBar({ accent, progress }: { accent: string; progress: number }) {
-  const filled = Math.max(0, Math.min(1, progress))
-  const whole = filled === 0 || filled === 1
-  return (
-    <View style={styles.bar}>
-      {filled > 0 ? <View style={{ flex: filled, backgroundColor: accent }} /> : null}
-      {whole ? null : <View style={styles.barGap} />}
-      {filled < 1 ? <View style={{ flex: 1 - filled, backgroundColor: palette.strong }} /> : null}
-    </View>
-  )
-}
-
 function Tile({ tile }: { tile: DutyTile }) {
   const { accent, ink } = duty[tile.key]
   const filled = tile.active === true
@@ -151,13 +141,16 @@ function Tile({ tile }: { tile: DutyTile }) {
       <Text numberOfLines={2} style={[styles.tileStatus, { color: statusColour }]}>
         {tile.status}
       </Text>
-      {/* Empty space above the icon is what makes a card legible at arm's
-          length instead of cramped. */}
       <View style={[styles.tileIcon, filled || tile.resting !== true ? null : styles.dim]}>
         {tile.icon}
       </View>
     </Pressable>
   )
+}
+
+function ghostSize(length: number) {
+  if (length <= 3) return { fontSize: 170, letterSpacing: -7, lineHeight: 160 }
+  return { fontSize: 126, letterSpacing: -5, lineHeight: 120 }
 }
 
 const styles = StyleSheet.create({
@@ -181,13 +174,8 @@ const styles = StyleSheet.create({
   },
   value: { color: palette.text, ...type.value },
 
-  /* Narrow and thick: a wide thin bar reads as a progress meter, which this is
-     not — it is a state at a glance. */
-  bar: { flexDirection: 'row', width: 117, height: 29, marginTop: 13 },
-  barGap: { width: 3 },
 
-  identity: { marginTop: space.breath },
-  identityTight: { marginTop: 42 },
+  identity: { marginTop: 42 },
   context: { color: palette.muted, ...type.context },
   summary: { marginTop: 3, color: palette.text, ...type.summary },
 
@@ -195,12 +183,10 @@ const styles = StyleSheet.create({
     marginHorizontal: space.grid,
     marginBottom: space.tileGapY,
     padding: 14,
-    borderLeftWidth: 3,
-    borderLeftColor: palette.urgent,
     backgroundColor: palette.tile,
     borderRadius: radius.tile,
   },
-  noticeText: { color: palette.text, fontSize: 15, lineHeight: 21 },
+  noticeText: { color: palette.urgent, fontSize: 15, lineHeight: 21 },
 
   grid: { paddingHorizontal: space.grid, gap: space.tileGapY },
   gridRow: { flexDirection: 'row', gap: space.tileGapX },

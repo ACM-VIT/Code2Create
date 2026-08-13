@@ -27,12 +27,7 @@ import type {
   venuePresenceState,
 } from "../values";
 
-/**
- * Ties each stored state union to the user-facing wording in
- * `@code2create/domain`. Adding a state to `values.ts` without adding its
- * label makes one of the checks below stop being `true`, which fails the
- * type check rather than shipping a screen that title-cases the raw key.
- */
+/** Fails type-checking when a stored state has no user-facing domain label. */
 type SameUnion<Stored, Labelled> = [Stored] extends [Labelled]
   ? [Labelled] extends [Stored]
     ? true

@@ -6,9 +6,11 @@ import { Link } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 type InvitationPage = FunctionReturnType<typeof api.accessInvitations.open>
 type Invitation = InvitationPage['page'][number]
+type CreateInvitationResult = FunctionReturnType<typeof api.accessInvitations.create>
 
 const fiveMinutesMs = 5 * 60 * 1_000
 const sevenDaysMs = 7 * 24 * 60 * 60 * 1_000
@@ -21,6 +23,7 @@ export function AccessInvitations({ canReadPeople }: { canReadPeople: boolean })
     { initialNumItems: 20 },
   )
   const create = useMutation(api.accessInvitations.create)
+  const operations = useOperationRunner<CreateInvitationResult>()
   const [email, setEmail] = useState('')
   const [validUntil, setValidUntil] = useState(() => localDateTime(Date.now() + sevenDaysMs))
   const [reason, setReason] = useState('')
@@ -30,24 +33,27 @@ export function AccessInvitations({ canReadPeople }: { canReadPeople: boolean })
     personId?: string
     error: boolean
   } | null>(null)
+  const createPending = operations.hasPending('access-invitation-create')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     const expiry = new Date(validUntil).getTime()
-    if (!Number.isFinite(expiry)) {
+    if (!createPending && !Number.isFinite(expiry)) {
       setMessage({ text: 'Choose a valid invitation expiry.', error: true })
       return
     }
     setBusy(true)
     setMessage(null)
     try {
-      const result = await create({
-        eventSlug,
-        email,
-        validUntil: expiry,
-        reason,
-        clientOperationId: crypto.randomUUID(),
-      })
+      const result = await operations.run(
+        'access-invitation-create', (clientOperationId) => () => create({
+          eventSlug,
+          email,
+          validUntil: expiry,
+          reason,
+          clientOperationId,
+        }),
+      )
       if (result.outcome === 'already_linked') {
         setMessage({
           text: 'That Google account is already linked to this event.',
@@ -89,6 +95,7 @@ export function AccessInvitations({ canReadPeople }: { canReadPeople: boolean })
             inputMode="email"
             type="email"
             value={email}
+            disabled={busy || createPending}
             onChange={(event) => setEmail(event.target.value)}
           />
         </label>
@@ -100,20 +107,23 @@ export function AccessInvitations({ canReadPeople }: { canReadPeople: boolean })
             min={localDateTime(Date.now() + fiveMinutesMs)}
             max={localDateTime(Date.now() + thirtyDaysMs)}
             value={validUntil}
+            disabled={busy || createPending}
             onChange={(event) => setValidUntil(event.target.value)}
           />
         </label>
         <label className="field full-field">
           <span>Why they are being invited</span>
-          <textarea required value={reason} onChange={(event) => setReason(event.target.value)} />
+          <textarea required value={reason} disabled={busy || createPending} onChange={(event) => setReason(event.target.value)} />
         </label>
         <div className="full-field invitation-submit">
           <button
             className="primary"
             type="submit"
-            disabled={busy || !email.trim() || reason.trim().length < 5 || !validUntil}
+            disabled={busy || (!createPending && (
+              !email.trim() || reason.trim().length < 5 || !validUntil
+            ))}
           >
-            {busy ? 'Creating…' : 'Allow this account to sign in'}
+            {busy ? 'Creating…' : createPending ? 'Confirm earlier invitation' : 'Allow this account to sign in'}
           </button>
           <small>You may be asked to sign in again before this access change.</small>
         </div>
@@ -145,22 +155,26 @@ export function AccessInvitations({ canReadPeople }: { canReadPeople: boolean })
 
 function InvitationRow({ invitation }: { invitation: Invitation }) {
   const revoke = useMutation(api.accessInvitations.revoke)
+  const operations = useOperationRunner()
   const [confirming, setConfirming] = useState(false)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const revokePending = operations.hasPending('access-invitation-revoke')
 
   const confirmRevoke = async () => {
     setBusy(true)
     setError(null)
     try {
-      await revoke({
-        eventSlug,
-        invitationId: invitation.id,
-        expectedVersion: invitation.version,
-        reason,
-        clientOperationId: crypto.randomUUID(),
-      })
+      await operations.run(
+        'access-invitation-revoke', (clientOperationId) => () => revoke({
+          eventSlug,
+          invitationId: invitation.id,
+          expectedVersion: invitation.version,
+          reason,
+          clientOperationId,
+        }),
+      )
       setConfirming(false)
       setReason('')
     } catch (caught) {
@@ -180,7 +194,12 @@ function InvitationRow({ invitation }: { invitation: Invitation }) {
         <small>{invitation.createdBy} · {invitation.reason}</small>
       </div>
       {invitation.status === 'pending' ? (
-        <button className="text-button" type="button" onClick={() => setConfirming((value) => !value)}>
+        <button
+          className="text-button"
+          type="button"
+          disabled={busy || revokePending}
+          onClick={() => setConfirming((value) => !value)}
+        >
           {confirming ? 'Keep' : 'Revoke'}
         </button>
       ) : null}
@@ -188,18 +207,18 @@ function InvitationRow({ invitation }: { invitation: Invitation }) {
         <div className="revoke-confirmation invitation-revoke">
           <label className="field">
             <span>Why revoke this invitation?</span>
-            <textarea required value={reason} onChange={(event) => setReason(event.target.value)} />
+            <textarea required value={reason} disabled={busy || revokePending} onChange={(event) => setReason(event.target.value)} />
           </label>
           <div className="button-row">
             <button
               className="secondary"
               type="button"
-              disabled={busy || reason.trim().length < 5}
+              disabled={busy || (!revokePending && reason.trim().length < 5)}
               onClick={() => void confirmRevoke()}
             >
-              {busy ? 'Revoking…' : 'Revoke invitation'}
+              {busy ? 'Revoking…' : revokePending ? 'Confirm earlier revocation' : 'Revoke invitation'}
             </button>
-            <button className="text-button" type="button" disabled={busy} onClick={() => setConfirming(false)}>
+            <button className="text-button" type="button" disabled={busy || revokePending} onClick={() => setConfirming(false)}>
               Cancel
             </button>
           </div>

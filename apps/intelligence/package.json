@@ -16,16 +16,17 @@
 	},
 	"dependencies": {
 		"@code2create/domain": "workspace:*",
-		"@earendil-works/pi-ai": "^0.83.0",
-		"@flue/runtime": "^2.0.3",
+		"@flue/runtime": "2.0.3",
 		"hono": "^4.7.0",
 		"valibot": "^1.1.0"
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "^1.51.1",
 		"@cloudflare/workers-types": "^5.20260804.1",
-		"@flue/cli": "^2.0.3",
-		"@flue/vite": "^2.0.3",
+		"@earendil-works/pi-ai": "0.83.0",
+		"@flue/cli": "2.0.3",
+		"@flue/sdk": "2.0.3",
+		"@flue/vite": "2.0.3",
 		"@types/node": "^24.13.3",
 		"oxlint": "^1.75.0",
 		"typescript": "~6.0.3",

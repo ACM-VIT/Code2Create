@@ -8,6 +8,7 @@ import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../componen
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 type Configuration = FunctionReturnType<typeof api.communicationsPolicyConfiguration.current>
 type Policy = Configuration['publishedPolicy']['policy']
@@ -23,6 +24,7 @@ export function CommunicationsPolicyConfiguration({
   const configuration = useQuery(api.communicationsPolicyConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.communicationsPolicyConfiguration.createDraft)
   const publish = useMutation(api.communicationsPolicyConfiguration.publish)
+  const operations = useOperationRunner()
   const validation = useQuery(
     api.communicationsPolicyConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPolicy
@@ -36,6 +38,8 @@ export function CommunicationsPolicyConfiguration({
   const [publishArmed, setPublishArmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const draftPending = operations.hasPending('communications-policy-draft')
+  const publishPending = operations.hasPending('communications-policy-publish')
 
   useEffect(() => {
     if (!configuration) return
@@ -98,7 +102,7 @@ export function CommunicationsPolicyConfiguration({
     setBusy(true)
     setError(null)
     try {
-      await createDraft({
+      await operations.run('communications-policy-draft', (clientOperationId) => () => createDraft({
         eventSlug,
         policy: fromEditorPolicy(policy, configuration.timezone),
         expectedEventVersion: configuration.eventVersion,
@@ -106,8 +110,8 @@ export function CommunicationsPolicyConfiguration({
           ? { expectedDraftPolicyId: configuration.draftPolicy.id }
           : {}),
         reason: draftReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -121,14 +125,14 @@ export function CommunicationsPolicyConfiguration({
     setBusy(true)
     setError(null)
     try {
-      await publish({
+      await operations.run('communications-policy-publish', (clientOperationId) => () => publish({
         eventSlug,
         draftPolicyId: draft.id,
         expectedDraftChecksum: draft.checksum,
         expectedEventVersion: configuration.eventVersion,
         reason: publishReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
       setPublishArmed(false)
     } catch (caught) {
       setError(readableError(caught))
@@ -202,19 +206,20 @@ export function CommunicationsPolicyConfiguration({
           <p className="muted">Accepted and offer-stage teams see the changes immediately.</p>
           <label className="field">
             <span>Why this changed</span>
-            <textarea required value={publishReason} onChange={(event) => setPublishReason(event.currentTarget.value)} />
+            <textarea disabled={publishPending} required value={publishReason} onChange={(event) => setPublishReason(event.currentTarget.value)} />
           </label>
           <div className="button-row">
             <button className="primary" disabled={busy || publishReason.trim().length < 5} type="button" onClick={() => void publishDraft()}>
-              {busy ? 'Publishing…' : 'Publish details'}
+              {busy ? 'Publishing…' : publishPending ? 'Confirm earlier publication' : 'Publish details'}
             </button>
-            <button className="secondary" disabled={busy} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
+            <button className="secondary" disabled={busy || publishPending} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
           </div>
         </section>
       ) : null}
 
       {configuration.canDraft ? (
         <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
+          <fieldset disabled={draftPending} style={{ display: 'contents' }}>
           <PolicySection title="Event details" description="Dates follow the event window and cannot be changed here.">
             <div className="intake-policy-grid">
               <label className="field">
@@ -298,13 +303,14 @@ export function CommunicationsPolicyConfiguration({
             </div>
           </PolicySection>
 
+          </fieldset>
           <section className="track-save">
             <label className="field">
               <span>Why this changed</span>
-              <textarea required value={draftReason} onChange={(event) => setDraftReason(event.currentTarget.value)} />
+              <textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.currentTarget.value)} />
             </label>
             <button className="primary" disabled={busy || draftReason.trim().length < 5} type="submit">
-              {busy ? 'Saving…' : configuration.draftPolicy ? 'Replace draft' : 'Save draft'}
+              {busy ? 'Saving…' : draftPending ? 'Confirm earlier draft' : configuration.draftPolicy ? 'Replace draft' : 'Save draft'}
             </button>
           </section>
         </form>

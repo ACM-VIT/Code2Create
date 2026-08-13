@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react'
 import { ErrorNotice, Field, Select, TextInput } from '../components/Form'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 import type { ParticipantMe } from '../types'
 
 type StudyYear = NonNullable<ParticipantMe['profile']>['yearOfStudy']
@@ -40,6 +41,8 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
   const [externalCountry, setExternalCountry] = useState(existing?.externalCountry ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const operations = useOperationRunner()
+  const savePending = operations.hasPending('profile-save')
 
   if (!membership) return null
 
@@ -48,7 +51,7 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
     setBusy(true)
     setError(null)
     try {
-      await saveProfile({
+      await operations.run('profile-save', (clientOperationId) => () => saveProfile({
         eventSlug,
         participantPolicyVersionId: me.participantPolicy.id,
         fullName,
@@ -63,8 +66,8 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
         ...(externalCity ? { externalCity } : {}),
         ...(externalCountry ? { externalCountry } : {}),
         expectedProfileVersion: existing?.profileVersion ?? 0,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -81,6 +84,7 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
         <p className="muted">Your profile</p>
         <h1>A few basics.</h1>
         <form onSubmit={submit} className="form-grid">
+          <fieldset disabled={busy || savePending} style={{ display: 'contents' }}>
           <Field label="Full name">
             <TextInput required value={fullName} onChange={(event) => setFullName(event.target.value)} />
           </Field>
@@ -153,10 +157,11 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
             <p>{policy.profileNotice}</p>
             <a href={policy.privacyNoticeUrl} target="_blank" rel="noreferrer">Read the privacy notice</a>
           </div>
+          </fieldset>
           <ErrorNotice message={error} />
           <div className="form-actions form-span">
             <button type="submit" className="primary" disabled={busy}>
-              {busy ? 'Saving…' : 'Save and continue'}
+              {busy ? 'Saving…' : savePending ? 'Confirm earlier profile' : 'Save and continue'}
             </button>
           </div>
         </form>

@@ -18,10 +18,6 @@ const deliveryClaim = v.union(
     provider: v.union(v.literal("fcm"), v.literal("apns")),
     environment: v.union(v.literal("development"), v.literal("production")),
     roundName: v.string(),
-    // Where the reviewer has to walk. A panel has no table of its own, so this
-    // is the team being reviewed and the table that team sits at for this
-    // round. Both are absent until the page is tied to a review session.
-    teamName: v.optional(v.string()),
     tableLabel: v.optional(v.string()),
     expiresAt: v.number(),
   }),
@@ -42,6 +38,19 @@ export const claimDelivery = internalMutation({
       (delivery.state === "retry_wait" && (delivery.nextAttemptAt ?? 0) <= now) ||
       (delivery.state === "sending" && (delivery.claimExpiresAt ?? 0) <= now);
     if (!canClaim) return null;
+    if (delivery.logicalAttempt === undefined) {
+      await ctx.db.patch(delivery._id, {
+        state: "failed",
+        attemptId: undefined,
+        claimExpiresAt: undefined,
+        nextAttemptAt: undefined,
+        providerErrorCode: "delivery_attempt_missing",
+        version: delivery.version + 1,
+        updatedAt: now,
+        completedAt: now,
+      });
+      return null;
+    }
 
     const [page, device] = await Promise.all([
       ctx.db.get(delivery.pageId),
@@ -146,21 +155,13 @@ export const claimDelivery = internalMutation({
   },
 });
 
-/**
- * The team a paged reviewer would be walking to, and that team's table for the
- * round. A page raised before a review session exists covers a panel seat
- * rather than a specific team, so both stay absent.
- */
+/** Resolves a destination only after the page targets a review session. */
 async function pageDestination(ctx: MutationCtx, page: Doc<"reviewerPages">) {
   if (page.reviewSessionId === undefined) return {};
   const session = await ctx.db.get(page.reviewSessionId);
   if (!session) return {};
-  const [team, tableLabel] = await Promise.all([
-    ctx.db.get(session.teamId),
-    teamRoundTableLabel(ctx, session.roundId, session.teamId),
-  ]);
+  const tableLabel = await teamRoundTableLabel(ctx, session.roundId, session.teamId);
   return {
-    ...(team ? { teamName: team.name } : {}),
     ...(tableLabel !== undefined ? { tableLabel } : {}),
   };
 }

@@ -23,6 +23,8 @@ import { z } from 'zod'
 
 import {
   currentReleaseResponseSchema,
+  maximumUpdateAssetBytes,
+  maximumUpdateReleaseBytes,
   noUpdateDirectiveSchema,
   releaseIdSchema,
   releaseRecordSchema,
@@ -36,6 +38,10 @@ import {
   type SignedPayload,
   type UpdatePlatform,
 } from '../src/contracts.ts'
+import {
+  readBoundedJsonResponse,
+  readBoundedResponseText,
+} from '../src/boundedHttpBody.ts'
 
 const updatesDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repositoryRoot = resolve(updatesDirectory, '../..')
@@ -114,7 +120,9 @@ async function publish(selectedChannel: 'staging' | 'production', isRollback: bo
         adminToken,
       )
 
-  await putJson(updatesUrl, `/admin/releases/${releaseId}`, release, adminToken)
+  validateReleaseSize(release)
+  const serializedRelease = JSON.stringify(release)
+  await putJson(updatesUrl, `/admin/releases/${releaseId}`, serializedRelease, adminToken)
   await activateRelease(
     updatesUrl,
     releaseId,
@@ -212,11 +220,7 @@ async function createUpdateRelease(
       ),
     }
 
-    await forEachConcurrent([...assets.values()], 6, (asset) =>
-      uploadAsset(updatesUrl, asset, adminToken),
-    )
-
-    return releaseRecordSchema.parse({
+    const release = releaseRecordSchema.parse({
       schemaVersion: 1,
       kind: 'update',
       channel: selectedChannel,
@@ -226,6 +230,12 @@ async function createUpdateRelease(
       noUpdate,
       platforms: manifests,
     })
+    validateReleaseSize(release)
+    for (const asset of assets.values()) validateAssetSize(asset)
+    await forEachConcurrent([...assets.values()], 6, (asset) =>
+      uploadAsset(updatesUrl, asset, adminToken),
+    )
+    return release
   } finally {
     await rm(exportDirectory, { recursive: true, force: true })
   }
@@ -337,14 +347,14 @@ function verifySigningPair(privateKey: string, certificate: X509Certificate) {
 }
 
 async function uploadAsset(updatesUrl: URL, asset: UploadAsset, adminToken: string) {
-  const response = await fetch(new URL(`/admin/assets/${asset.key}`, updatesUrl.origin), {
+  const response = await updateFetch(new URL(`/admin/assets/${asset.key}`, updatesUrl.origin), {
     method: 'PUT',
     headers: {
       authorization: `Bearer ${adminToken}`,
       'content-type': asset.contentType,
     },
     body: asset.bytes,
-  })
+  }, 120_000)
   if (!response.ok) throw await responseError(response, `upload asset ${asset.key}`)
 }
 
@@ -352,9 +362,11 @@ async function verifyUpdateService(
   updatesUrl: URL,
   selectedChannel: 'staging' | 'production',
 ) {
-  const response = await fetch(new URL('/health', updatesUrl.origin))
+  const response = await updateFetch(new URL('/health', updatesUrl.origin))
   if (!response.ok) throw await responseError(response, 'check update service')
-  const health = updateHealthResponseSchema.parse(await response.json())
+  const health = updateHealthResponseSchema.parse(
+    await readBoundedJsonResponse(response, 4 * 1_024),
+  )
   if (health.channel !== selectedChannel) {
     throw new Error(
       `The ${selectedChannel} publisher points at the ${health.channel} update service.`,
@@ -365,32 +377,49 @@ async function verifyUpdateService(
 async function getCurrentRelease(updatesUrl: URL, runtimeVersion: string, adminToken: string) {
   const url = new URL('/admin/current', updatesUrl.origin)
   url.searchParams.set('runtimeVersion', runtimeVersion)
-  const response = await fetch(url, {
+  const response = await updateFetch(url, {
     headers: { authorization: `Bearer ${adminToken}` },
   })
   if (!response.ok) throw await responseError(response, 'read current release')
-  return currentReleaseResponseSchema.parse(await response.json())
+  return currentReleaseResponseSchema.parse(
+    await readBoundedJsonResponse(response, 4 * 1_024),
+  )
 }
 
 async function getRelease(updatesUrl: URL, releaseId: string, adminToken: string) {
-  const response = await fetch(new URL(`/admin/releases/${releaseId}`, updatesUrl.origin), {
+  const response = await updateFetch(new URL(`/admin/releases/${releaseId}`, updatesUrl.origin), {
     headers: { authorization: `Bearer ${adminToken}` },
   })
   if (response.status === 404) return null
   if (!response.ok) throw await responseError(response, 'read release')
-  return releaseRecordSchema.parse(await response.json())
+  return releaseRecordSchema.parse(
+    await readBoundedJsonResponse(response, 10 * 1_024 * 1_024),
+  )
 }
 
-async function putJson(updatesUrl: URL, path: string, value: object, adminToken: string) {
-  const response = await fetch(new URL(path, updatesUrl.origin), {
+async function putJson(updatesUrl: URL, path: string, body: string, adminToken: string) {
+  const response = await updateFetch(new URL(path, updatesUrl.origin), {
     method: 'PUT',
     headers: {
       authorization: `Bearer ${adminToken}`,
       'content-type': 'application/json',
     },
-    body: JSON.stringify(value),
+    body,
   })
   if (!response.ok) throw await responseError(response, `write ${path}`)
+}
+
+function validateAssetSize(asset: UploadAsset) {
+  if (asset.bytes.byteLength > maximumUpdateAssetBytes) {
+    throw new Error(`Update asset ${asset.key} exceeds the service limit.`)
+  }
+  return asset
+}
+
+function validateReleaseSize(release: ReleaseRecord) {
+  if (Buffer.byteLength(JSON.stringify(release), 'utf8') > maximumUpdateReleaseBytes) {
+    throw new Error('The update release metadata exceeds the service limit.')
+  }
 }
 
 async function activateRelease(
@@ -399,7 +428,7 @@ async function activateRelease(
   expectedCurrentReleaseId: string | null,
   adminToken: string,
 ) {
-  const response = await fetch(
+  const response = await updateFetch(
     new URL(`/admin/releases/${releaseId}/activate`, updatesUrl.origin),
     {
       method: 'POST',
@@ -414,8 +443,31 @@ async function activateRelease(
 }
 
 async function responseError(response: Response, operation: string) {
-  const body = await response.text()
-  return new Error(`${operation} failed (${response.status}): ${body.slice(0, 1_000)}`)
+  let detail = 'The response body was unavailable.'
+  try {
+    detail = (await readBoundedResponseText(response, 4 * 1_024)).slice(0, 1_000)
+  } catch {
+    // The status and operation remain sufficient when an error body is malformed or oversized.
+  }
+  return new Error(`${operation} failed (${response.status}): ${detail}`)
+}
+
+function updateFetch(
+  input: string | URL | Request,
+  init: RequestInit = {},
+  timeoutMs = 30_000,
+) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+    throw new RangeError('The update request timeout must be a positive integer.')
+  }
+  const callerSignal = init.signal ?? (input instanceof Request ? input.signal : undefined)
+  const timeoutSignal = AbortSignal.timeout(timeoutMs)
+  return fetch(input, {
+    ...init,
+    signal: callerSignal
+      ? AbortSignal.any([callerSignal, timeoutSignal])
+      : timeoutSignal,
+  })
 }
 
 async function readExpoConfig(

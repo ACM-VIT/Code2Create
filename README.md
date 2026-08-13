@@ -33,11 +33,41 @@ Run `pnpm dev` from the repository root. It starts the local Convex deployment, 
 
 The local identities create ordinary Better Auth sessions and use the normal Convex permission and workflow boundaries. The reviewer fixture is available only inside the locally compiled native app; it does not create a browser replacement for camera, push, encrypted storage, or offline behavior. Local email follows the normal delivery state machine with a localhost-only synthetic provider event. None of these fixtures can run outside the full localhost stack. Real deployments still require Google OAuth and Cloudflare Email configuration.
 
-On an empty staging or production deployment, the operations surface becomes the first-run setup after Google sign-in. Only an email listed in `INITIAL_SUPREME_EMAILS` can use it. The owner enters the event window, venue, Discord invite, VIT email domain, team bounds, participant capacity, and five starting tracks. One Convex mutation creates the draft event, its safe baseline policies, the owner's event account and role label, and the owner's exact scoped grants. Applications remain closed until an authorized organizer opens them from Event setup.
+On an empty staging or production deployment, the operations surface becomes the first-run setup after Google sign-in. Only an email listed in `INITIAL_SUPREME_EMAILS` can create the event slug pinned by `INITIAL_EVENT_SLUG`. The owner enters the event window, venue, Discord invite, VIT email domain, team bounds, participant capacity, and starting core tracks. One Convex mutation creates the draft event, its safe baseline policies, the owner's event account and role label, and the owner's exact scoped grants. Applications remain closed until an authorized organizer opens them from Event setup.
 
-Local operations briefs use the normal signed Convex-to-Flue dispatch and signed callback. The local Worker uses the configured remote Workers AI binding; it does not replace the model result with a browser fixture.
+Local briefs, copilot turns, and autonomous runs use the normal signed Convex-to-Flue boundaries. The local Worker uses the configured remote Workers AI binding; it does not replace model work with a browser fixture. Autonomous runs still use the durable semantic inbox, paginated redacted reads, human-only proposal approval, and Worker admission fence used outside development.
 
 If the backend is already running and only the fixtures or seed need repair, run `pnpm dev:prepare`.
+
+## Encryption key rotation
+
+Attendance event keys and Figma OAuth secrets use named current keys and at most one named previous key. Validate the deployment values before release:
+
+```sh
+pnpm --filter @code2create/backend keys:check
+```
+
+This command reads the actual process environment and prints only key-version status, never key material. `test:release-environment` runs the parser's unit tests.
+
+For attendance, deploy the new current `ATTENDANCE_WRAPPING_KEY_VERSION` and `ATTENDANCE_WRAPPING_KEY` while retaining the old pair as `ATTENDANCE_PREVIOUS_WRAPPING_KEY_VERSION` and `ATTENDANCE_PREVIOUS_WRAPPING_KEY`. Check and then rewrap each event:
+
+```sh
+pnpm --filter @code2create/backend exec convex run attendanceActions:rewrapEventKey '{"eventSlug":"code2create-7","dryRun":true}' --prod
+pnpm --filter @code2create/backend exec convex run attendanceActions:rewrapEventKey '{"eventSlug":"code2create-7","dryRun":false}' --prod
+pnpm --filter @code2create/backend exec convex run attendanceActions:rewrapEventKey '{"eventSlug":"code2create-7","dryRun":true}' --prod
+```
+
+The final result is complete only when `fromVersion` equals `toVersion`. Rewrapping authenticates the event-bound AES-GCM ciphertext and changes it only when the complete stored ciphertext tuple still matches; credential fingerprints do not change.
+
+For Figma, deploy the new current `PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION` and `PROVIDER_TOKEN_ENCRYPTION_KEY` while retaining the old pair as `PROVIDER_TOKEN_PREVIOUS_ENCRYPTION_KEY_VERSION` and `PROVIDER_TOKEN_PREVIOUS_ENCRYPTION_KEY`. Run all three bounded owners. Follow each returned `continueCursor` until `isDone` is true, first with `dryRun: true`, then from the beginning with `dryRun: false`:
+
+```sh
+pnpm --filter @code2create/backend exec convex run figmaActions:rotateProviderSecrets '{"owner":"active_credentials","limit":50,"dryRun":false}' --prod
+pnpm --filter @code2create/backend exec convex run figmaActions:rotateProviderSecrets '{"owner":"pending_intents","limit":50,"dryRun":false}' --prod
+pnpm --filter @code2create/backend exec convex run figmaActions:rotateProviderSecrets '{"owner":"verifying_intents","limit":50,"dryRun":false}' --prod
+```
+
+Pass the returned cursor as `"cursor":"..."` on the next call. After the write pass, repeat a dry run from the beginning for all three owners. Remove previous-key variables only after every page reports a total of zero `needingRotation`; expired OAuth intents are not live ciphertext owners. Keep the previous key if any page fails or remains incomplete. A later K2-to-K3 rotation starts only after K1 has been removed and every live owner is on K2.
 
 ## Confirmed requirements
 
@@ -124,7 +154,7 @@ If the backend is already running and only the fixtures or seed need repair, run
 
 ### Tracks, evidence, and recovery
 
-- The plan has five core-track positions.
+- Operations publishes the required number of core tracks with each catalog; the initial setup starts with five editable rows.
 - Core-track definitions, prompt bindings, and sponsor tracks are versioned event configuration. They are not hard-coded problem statements.
 - A team can select zero or more sponsor tracks from its pinned catalog.
 - The team must read each published sponsor requirement before selection.
@@ -214,12 +244,15 @@ The repository contains working slices for these review and operations functions
 - Privacy-filtered Sentry boundaries for web and event app.
 - An event-scoped realtime operations-health overview.
 - An operator-requested operations brief from a separate signed Flue and Cloudflare Worker. The Worker uses a frozen, redacted health snapshot.
+- An event-scoped autonomous operations agent that exhaustively traverses its published redacted read allowlist, delegates focused investigations, and records typed recommendations for human review.
 - An auditable 61-scenario release-rehearsal workspace with exact-run permissions and final sign-off.
 - A protected, manually triggered staging release-verification workflow. It verifies the two controlled browser accounts against staging Convex before Playwright starts, then checks public/authenticated participant and operations surfaces plus read-only synthetic OpenAI, GitHub, Figma, and intelligence paths.
 - An optional protected-handbook integration test generated from the repository Markdown.
 - The first operator-controlled Synesthesia release with live participant requests, votes, reports, scoped moderation, queue scheduling, access suspension, and playback acknowledgment.
 
-Operations can publish one proactive-intelligence policy under four independent permissions. A due scheduler commits one redacted signal, outbox item, and brief in one transaction. It suppresses unchanged health and starts again after recovery. It enforces cooldown, an event-local daily limit, relevance expiry, and accountable ownership before the advisory-only Flue job runs.
+Operations can publish one autonomy policy under four independent permissions. Each distinct manual request, due schedule slot, or changed health fingerprint becomes durable work; exact duplicates coalesce, but an active run never discards later work. The agent may use as many model turns, redacted reads, investigator delegations, and durable continuation submissions as it needs. Its hard boundary is authority and effect: it cannot execute a consequential event command, and every typed recommendation still requires an authorized human to inspect and approve the exact versioned mutation. A reasoned kill switch, policy replacement, owner revocation, or the event leaving live operation cancels the authoritative run, records a durable Worker-side admission fence, and retries its abort intent.
+
+Recommendation evidence is lossless rather than limited to one model response. Derived findings name a bounded set of parent records, forming a private support DAG whose source-leaf closure can grow without a product cap. The Worker uploads those exact leaves in small signed pages; Convex grounds each leaf against its completed read receipt and seals the ordered hash chain before accepting the proposal. The operations card cursor-pages every sealed leaf. If a later run reaches the same still-open action, the event keeps one human decision while attaching that run's own statement, reasoning, model provenance, and sealed evidence as another immutable observation.
 
 The event phase schedule is an immutable configuration with independent permissions. Operations edits all five timezone-aware windows as one version. Publication uses current server time to protect completed and active history. The realtime event projection gives portals the current or next phase.
 
@@ -277,7 +310,7 @@ The deployed permission catalog contains only working permissions and scope reso
 | Live novelty signal | OpenAI `text-embedding-3-small` at its native 1,536 dimensions and a Convex vector index | A versioned corpus supports one low-latency nearest-project comparison. Embeddings return atomically. The browser debounces requests and discards stale results. It does not claim that vectors stream. |
 | Adaptive intake | OpenAI Responses API with Structured Outputs | The API produces bounded, source-linked interpretations and follow-up questions. It cannot own participant or judging state. |
 | Admission analysis | Optional OpenAI Structured Outputs release paired with the admission policy | The release produces a policy-versioned, year-adjusted recommendation for human review. Human-only mode remains valid. The model cannot publish a decision or read judging data. |
-| Durable intelligence jobs | Flue on a separate Cloudflare Worker with Workers AI | Flue gives bounded jobs durable retry and deduplication state. Convex remains authoritative. The first job can publish only a validated operations brief. |
+| Durable intelligence jobs | Flue on a separate Cloudflare Worker with Workers AI | Flue provides durable turns, tool lifecycle, retry, and deduplication. Convex owns authority, the semantic work inbox, exact read-page receipts, resumable continuations, recommendation provenance, and the kill switch. Autonomous work can observe and propose but cannot execute consequential event commands. |
 | External job control | `@convex-dev/workpool` | The workpool bounds intake, GitHub, Figma, push, and export work. External work cannot block review traffic. |
 | Large artifacts | Private S3 in `ap-south-1` | S3 stores compressed Figma checkpoints and previews, short-lived GitHub blob cache, protected exports, expiring emergency packs, and backups outside one-megabyte live records. |
 | Participant email | Cloudflare Email Sending, Email Routing, Event Subscriptions, and Queues | Cloudflare sends transactional mail and routes approved inbound addresses. A Queue Worker sends signed lifecycle events to Convex. Ambiguous sends are never retried automatically. |
@@ -296,7 +329,7 @@ The platform does not use Clerk. It does not have a second application database,
 | --- | --- |
 | Participant portal | Sign-in, profile, live team area, sequential project intake, core-track choice, optional sponsor-track choice, final lock confirmation, admission result, team-lead offer response, next steps, shared phase updates, GitHub and Figma connection, attendance status and QR, team-owned hall-location QR and recorded place in the hall, staff-managed queue status, support cases, review progress, and Synesthesia |
 | Event mobile app | Reviewer workflow, self-service support cases, and separate capability-gated camera modes for attendance, review presence, and hall-location mapping |
-| Operations dashboard | Event lifecycle, event health, bounded briefs, configuration, support, project updates, release rehearsal, exact-person access, permissions, attendance, roll call, emergency packs, hall mapping, Synesthesia, rounds, rosters, panels, queues, substitutes, reviews, score completeness, exceptions, and audit |
+| Operations dashboard | Event lifecycle, event health, autonomous agent runs and recommendations, manual briefs, copilot, configuration, support, project updates, release rehearsal, exact-person access, permissions, attendance, roll call, emergency packs, hall mapping, Synesthesia, rounds, rosters, panels, queues, substitutes, reviews, score completeness, exceptions, and audit |
 | Canonical handbook mirror | Read-only Markdown navigation at [code2create-specs.theg1239.chatgpt.site](https://code2create-specs.theg1239.chatgpt.site), protected by a simple planning password. Repository Markdown remains authoritative. |
 | Optional handbook integration | Google sign-in, exact `handbook.read` enforcement, Markdown navigation, and server-side search for staging tests. No public bundle contains the documents. |
 
@@ -360,7 +393,7 @@ An open policy must exist in versioned event configuration or remain blocked. Cl
 - Published year-of-study bands for mixed-year, postgraduate, professional, and external teams.
 - Human admissions rubric and disclosure text.
 - Accepted-team Discord destination, official participant notification channel, Cloudflare email message templates, and delivery or retention policy.
-- Intelligence model approval, brief and trigger-signal retention, production triggers, cooldown, event-local daily limit, relevance period, accountable owner, and model-call cost limit.
+- Intelligence model approval, brief and autonomous-run retention, production triggers, accountable owner, redacted read scope, recommendation scope, and sanitized trace retention.
 - Final Synesthesia catalog, licensed playback account, moderation owner, and venue license.
 
 The decision register assigns an owner and deadline to each decision.

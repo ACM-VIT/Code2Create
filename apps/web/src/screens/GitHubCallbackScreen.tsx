@@ -27,7 +27,10 @@ export function GitHubCallbackScreen() {
     if (!completion) {
       completion = completeConnection({ eventSlug, state, code, installationId })
       pendingCompletions.set(key, completion)
-      void completion.finally(() => pendingCompletions.delete(key))
+      void completion.then(
+        () => pendingCompletions.delete(key),
+        () => pendingCompletions.delete(key),
+      )
     }
     let active = true
     void completion

@@ -28,8 +28,24 @@ export type TrackCatalogTrack = {
   eligibilityText?: string;
 };
 
+export const maximumCoreTrackCount = 10;
+export const maximumSponsorTrackCount = 10;
+
 function invalidCatalog(message: string): never {
   throw new ConvexError({ code: "INVALID_TRACK_CATALOG", message });
+}
+
+export function normalizeRequiredCoreTrackCount(value: number) {
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > maximumCoreTrackCount
+  ) {
+    invalidCatalog(
+      `The required core-track count must be a whole number from 1 through ${maximumCoreTrackCount}.`,
+    );
+  }
+  return value;
 }
 
 function normalizeStableKey(value: string) {
@@ -49,18 +65,27 @@ function normalizeSlug(value: string) {
 }
 
 export function normalizeTrackCatalog(
+  requiredCoreTrackCount: number,
   tracks: readonly TrackCatalogTrack[],
 ): TrackCatalogTrack[] {
-  if (tracks.length < 5 || tracks.length > 15) {
-    invalidCatalog("A catalog must contain five core tracks and no more than ten sponsor tracks.");
+  const coreCount = normalizeRequiredCoreTrackCount(requiredCoreTrackCount);
+  if (tracks.length < coreCount || tracks.length > coreCount + maximumSponsorTrackCount) {
+    invalidCatalog(
+      `A catalog must contain ${coreCount} core tracks and no more than ${maximumSponsorTrackCount} sponsor tracks.`,
+    );
   }
   const normalized = tracks.map((track) => {
+    const maximumDisplayOrder = track.type === "core"
+      ? maximumCoreTrackCount - 1
+      : maximumSponsorTrackCount - 1;
     if (
       !Number.isSafeInteger(track.displayOrder) ||
       track.displayOrder < 0 ||
-      track.displayOrder > 14
+      track.displayOrder > maximumDisplayOrder
     ) {
-      invalidCatalog("Track display positions must be whole numbers from zero through fourteen.");
+      invalidCatalog(
+        `A ${track.type} track position must be a whole number from zero through ${maximumDisplayOrder}.`,
+      );
     }
     if (track.examples.length < 1 || track.examples.length > 4) {
       invalidCatalog("Each track needs between one and four short examples.");
@@ -84,7 +109,7 @@ export function normalizeTrackCatalog(
       ...(eligibilityText !== undefined ? { eligibilityText } : {}),
     };
   });
-  const issues = trackCatalogIssues(normalized);
+  const issues = trackCatalogIssues(coreCount, normalized);
   const firstIssue = issues[0];
   if (firstIssue !== undefined) invalidCatalog(firstIssue);
   return normalized.toSorted((left, right) => {
@@ -93,10 +118,22 @@ export function normalizeTrackCatalog(
   });
 }
 
-export function trackCatalogIssues(tracks: readonly TrackCatalogTrack[]) {
+export function trackCatalogIssues(
+  requiredCoreTrackCount: number,
+  tracks: readonly TrackCatalogTrack[],
+) {
   const issues: string[] = [];
+  const coreCount = normalizeRequiredCoreTrackCount(requiredCoreTrackCount);
   const coreTracks = tracks.filter((track) => track.type === "core");
-  if (coreTracks.length !== 5) issues.push("The catalog must contain exactly five core tracks.");
+  const sponsorTracks = tracks.filter((track) => track.type === "sponsor");
+  if (coreTracks.length !== coreCount) {
+    issues.push(`The catalog must contain exactly ${coreCount} core tracks.`);
+  }
+  if (sponsorTracks.length > maximumSponsorTrackCount) {
+    issues.push(
+      `The catalog cannot contain more than ${maximumSponsorTrackCount} sponsor tracks.`,
+    );
+  }
   if (new Set(tracks.map((track) => track.stableKey)).size !== tracks.length) {
     issues.push("Every track key must be unique.");
   }
@@ -114,28 +151,42 @@ export function trackCatalogIssues(tracks: readonly TrackCatalogTrack[]) {
   return issues;
 }
 
-export function trackCatalogChecksum(tracks: readonly TrackCatalogTrack[]) {
-  return fingerprintText(JSON.stringify(tracks));
+export function trackCatalogChecksum(
+  requiredCoreTrackCount: number,
+  tracks: readonly TrackCatalogTrack[],
+) {
+  return fingerprintText(JSON.stringify({ requiredCoreTrackCount, tracks }));
 }
 
 export async function loadTrackCatalogTracks(
   ctx: ReadCtx,
   catalogVersionId: Id<"trackCatalogVersions">,
 ) {
+  const catalog = await ctx.db.get(catalogVersionId);
+  if (!catalog) throw new Error("A track catalog version does not exist.");
+  const requiredCoreTrackCount = normalizeRequiredCoreTrackCount(
+    catalog.requiredCoreTrackCount,
+  );
   const [core, sponsor] = await Promise.all([
     ctx.db
       .query("trackVersions")
       .withIndex("by_catalog_type_order", (index) =>
         index.eq("catalogVersionId", catalogVersionId).eq("type", "core"),
       )
-      .collect(),
+      .take(requiredCoreTrackCount + 1),
     ctx.db
       .query("trackVersions")
       .withIndex("by_catalog_type_order", (index) =>
         index.eq("catalogVersionId", catalogVersionId).eq("type", "sponsor"),
       )
-      .collect(),
+      .take(maximumSponsorTrackCount + 1),
   ]);
+  if (
+    core.length !== requiredCoreTrackCount ||
+    sponsor.length > maximumSponsorTrackCount
+  ) {
+    throw new Error("A track catalog does not match its published track limits.");
+  }
   return [...core, ...sponsor];
 }
 
@@ -162,6 +213,12 @@ export function requireSponsorTrackSelection(
   tracks: readonly Doc<"trackVersions">[],
   selectedIds: readonly Id<"trackVersions">[],
 ) {
+  if (selectedIds.length > maximumSponsorTrackCount) {
+    throw new ConvexError({
+      code: "SPONSOR_TRACK_NOT_AVAILABLE",
+      message: `Choose no more than ${maximumSponsorTrackCount} sponsor tracks.`,
+    });
+  }
   const selectedIdSet = new Set(selectedIds);
   if (selectedIdSet.size !== selectedIds.length) {
     throw new ConvexError({
@@ -192,6 +249,9 @@ export async function requireProjectTrackSelection(
   ctx: ReadCtx,
   project: Doc<"projectVersions">,
 ) {
+  if (project.sponsorTrackVersionIds.length > maximumSponsorTrackCount) {
+    throw new Error("A submitted project exceeds the sponsor-track limit.");
+  }
   const coreTrack = await ctx.db.get(project.coreTrackVersionId);
   if (
     !coreTrack ||
@@ -230,13 +290,17 @@ export async function saveTrackCatalogDraft(
   args: {
     event: Doc<"events">;
     actorPersonId: Id<"people">;
+    requiredCoreTrackCount: number;
     tracks: readonly TrackCatalogTrack[];
     expectedDraftCatalogId?: Id<"trackCatalogVersions">;
     now: number;
   },
 ) {
-  const tracks = normalizeTrackCatalog(args.tracks);
-  const checksum = trackCatalogChecksum(tracks);
+  const requiredCoreTrackCount = normalizeRequiredCoreTrackCount(
+    args.requiredCoreTrackCount,
+  );
+  const tracks = normalizeTrackCatalog(requiredCoreTrackCount, args.tracks);
+  const checksum = trackCatalogChecksum(requiredCoreTrackCount, tracks);
   const currentDraft = await ctx.db
     .query("trackCatalogVersions")
     .withIndex("by_event_status", (index) =>
@@ -273,7 +337,7 @@ export async function saveTrackCatalogDraft(
     eventId: args.event._id,
     version,
     status: "draft",
-    requiredCoreTrackCount: 5,
+    requiredCoreTrackCount,
     checksum,
     createdByPersonId: args.actorPersonId,
     createdAt: args.now,
@@ -319,6 +383,7 @@ export async function publishTrackCatalog(
   }
   const tracks = await loadTrackCatalogTracks(ctx, draft._id);
   const normalizedTracks = normalizeTrackCatalog(
+    draft.requiredCoreTrackCount,
     tracks.map((track) => ({
       stableKey: track.stableKey,
       slug: track.slug,
@@ -332,7 +397,10 @@ export async function publishTrackCatalog(
         : {}),
     })),
   );
-  if (trackCatalogChecksum(normalizedTracks) !== draft.checksum) {
+  if (
+    trackCatalogChecksum(draft.requiredCoreTrackCount, normalizedTracks) !==
+    draft.checksum
+  ) {
     throw new Error("The track draft checksum does not match its rows.");
   }
   const publishedCatalogId = args.event.publishedTrackCatalogId;

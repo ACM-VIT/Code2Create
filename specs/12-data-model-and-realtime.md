@@ -235,6 +235,8 @@ Key fields:
 
 Any event-linked person may hold any permission regardless of role. Several active grants may independently provide the same permission/scope; revoking one source does not remove access while another matching grant remains. Assignment teardown queries `sourceType + sourceId` and revokes only grants created by that assignment.
 
+Current authorization reads use the exact subject/permission/status/scope index. One exact permission scope has at most 32 current independent owner rows, and one source has at most 256 current rows; the grant insertion boundary enforces both ceilings and rejects duplicate source ownership. Domain queries that intentionally enumerate scoped authority supply a product limit and fail when either the grant-row or distinct-resource ceiling is exceeded. They never truncate authority or scan a subject's complete grant history.
+
 Participant provisioning and approved roster claim create three `event_subject`-sourced self grants for support case create, read, and reply. They are ordinary independently revocable grants, not hard-coded account powers. Reusing an existing subject does not recreate a revoked support grant. An access-invitation-only subject remains grantless until an authorized grant command explicitly adds a capability.
 
 The schema does not predeclare placeholder scope types. A later feature adds its scope literal only in the same change that adds the event-ownership resolver, grant picker, protected command, and acceptance check. The exhaustive server switch and catalog typing make a new unresolved scope a compile failure rather than an inert grant.
@@ -305,13 +307,13 @@ One immutable registration and team-policy release.
 
 - `eventId`, monotonic numeric version, and `status: draft | published | superseded | retired`;
 - participant-facing label;
-- team minimum/maximum from one through twelve and whether VIT/external mixed teams are allowed;
+- positive whole-number team minimum/maximum chosen by operations, with the maximum no greater than the current published admission participant capacity, and whether VIT/external mixed teams are allowed;
 - `not_collected | optional | required` modes for phone, VIT registration number, VIT programme, VIT campus, external city, and external country;
 - profile-use notice, project-text processing notice, and credential-free HTTPS privacy-notice URL;
 - the fixed fresh-project acknowledgment and a bounded final warning that must state that the team and track lock;
 - checksum, creator/time, and optional publication time.
 
-One event has at most one draft and one published row. Draft replacement is optimistic and retires the previous draft. Publication revalidates the complete content, exact draft/checksum/event version, recent Google session, and reason, then supersedes the old row and moves `events.publishedParticipantPolicyId` in the same transaction. `events` no longer duplicates team-size, warning, or participant-policy strings.
+One event has at most one draft and one published row. Draft replacement is optimistic and retires the previous draft. Publication revalidates the complete content, admission capacity, exact draft/checksum/event version, recent Google session, and reason. When the minimum increases, maximum decreases, or mixed teams become disallowed, the same transaction reads the bounded non-withdrawn event-team set and enough indexed active-member rows to prove every roster conforms. Withdrawn teams are history and do not block a future policy. An incompatible current roster blocks publication, and a concurrent join conflicts with that proof. A valid publication supersedes the old row and moves `events.publishedParticipantPolicyId` in the same transaction. `events` no longer duplicates team-size, warning, or participant-policy strings.
 
 Event memberships retain the exact policy IDs their owner accepted. Participant reads derive current completeness from membership acceptance, the published policy, and saved profile fields. An eligible participant can create or join a team after accepting the current publication even when the profile is incomplete; join also checks capacity and the mixed-class rule. Final preview returns the exact policy ID and warning. Submission rechecks that ID, every active member's acceptance and complete class-aware profile, team bounds, mixed-class rule, draft, tracks, and lead in one transaction, then pins the ID in the project snapshot and team lock.
 
@@ -337,7 +339,7 @@ One immutable catalog release.
 
 - `eventId`, version number;
 - `status: draft | published | superseded | retired`;
-- required core-track count, initially five;
+- required core-track count, explicitly configured from one through ten and initially five;
 - published actor/time;
 - checksum.
 
@@ -443,7 +445,7 @@ One immutable release owns the complete human admissions contract.
 
 - `eventId`, unique public version label, and `status: draft | published | superseded | retired`;
 - explicit `aiRecommendationMode: enabled | disabled`;
-- minimum human-review count from one through five and overall participant capacity from one through 5,000;
+- minimum human-review count from one through five and a positive whole-number overall participant capacity chosen by operations;
 - one through twelve uniquely keyed criteria, each with a label and complete guidance for `firstYear`, `earlyYear`, `laterYear`, `postgraduateOrProfessional`, and `mixedOrExternal`;
 - four through twenty uniquely keyed human decision reasons, each permitting one or more of `accept | waitlist | decline | needs_information`, with every disposition covered by at least one reason;
 - checksum, creator/time, and optional publication time.
@@ -461,13 +463,13 @@ The optional model release is a child of exactly one admission-policy version.
 
 Draft replacement retires the previous policy and its model together. Publication checks the exact policy/model IDs and checksums, event version, fresh Google session, reason, and idempotent operation ID. One mutation supersedes the prior pair, publishes the new pair or explicit human-only policy, creates its empty overall `admissionCapacityBuckets` row, and moves both event pointers. An enabled policy must have its own matching model; a disabled policy has neither a model row nor model pointer.
 
-The first submitted application permanently closes admission draft replacement and publication for the event. Application submission loads the published pair inside its transaction and pins the policy ID on both the immutable project and application. A publication/submission race therefore has one serial result rather than two policy cohorts or a half-updated model/capacity state.
+The first validating/finalizing submission attempt, and then the first submitted application, permanently closes admission draft replacement and publication for the event. Submission start pins the published pair on its durable attempt; successful finalization copies that policy ID to both the immutable project and application. A publication/submission race therefore has one serial result rather than two policy cohorts or a half-updated model/capacity state.
 
 The separately reviewed runtime contract still enforces `store: false`, no tools or background response, closed recommendation and criterion enums, source references, bounded explanations/questions, prohibited identity/prestige/judging inputs, and human review on every provider failure. The version labels identify that approved contract; they are not a claim that an evaluation suite ran unless release evidence records that run.
 
 ### Configuration publication checks
 
-Participant, admission, track, intake, novelty, phase, checkpoint, communications, and intelligence editors each replace one complete draft under separate scoped permissions. Session-pinned configuration publication never migrates active participant state. Admission publication closes permanently at the first submitted application. Each validator has one boundary:
+Participant, admission, track, intake, novelty, phase, checkpoint, communications, and intelligence editors each replace one complete draft under separate scoped permissions. Session-pinned configuration publication never migrates active participant state. Admission publication closes permanently when the first submission attempt begins validating and remains closed once an application exists. Each validator has one boundary:
 
 - track validation owns core/sponsor structure;
 - intake validation owns opening, answer, question, fallback, safety, pattern, and model bounds;
@@ -484,7 +486,7 @@ Admission publication treats the human policy and optional model as one release.
 
 - `eventId`, stable key, sequence, and name;
 - `status: draft | published | open | closing | closed`;
-- scheduled start/end times;
+- immutable `clockInOpensAt`, `reviewerReportAt`, `noShowGraceSeconds`, scheduled start/end times, and `correctionRequestsCloseAt`;
 - review duration and ordinary-extension policy;
 - missed-call, queue re-entry, substitute-response, panel-size, scorer, participant-presence, reviewer-build, camera, and notification requirements;
 - pinned rubric-version ID and configuration checksum;
@@ -493,6 +495,8 @@ Admission publication treats the human policy and optional model as one release.
 - optional closed actor/time.
 
 A round in `closing` points to exactly one normalized snapshot and active export. A closed round keeps those pointers to a verified export and cannot change without the independent reopen command. Reopen clears only the active pointers; the snapshot, entries, export manifest, exact object versions, and audit history remain.
+
+Publication requires `clockInOpensAt <= reviewerReportAt <= startsAt < endsAt`, bounds the no-show grace, keeps the report-plus-grace boundary at or before round start, and places the correction deadline inclusively within the round. These policy fields participate in the immutable configuration checksum.
 
 ### `reviewRoundPauses`
 
@@ -525,8 +529,8 @@ The criterion array is frozen after publication. Scorecards store its version ID
 - name and public code;
 - lead membership ID;
 - `status: forming | profile_in_progress | submitted | admitted | confirmed | checked_in | active | completed | withdrawn | disqualified`;
-- join-code hash and rotation time;
-- membership/track lock state, locked project-version ID, locked time, and exact participant-policy version ID used for the lock;
+- authoritative active-member, VIT-member, and external-member counts maintained with every active-member transition;
+- membership/track lock state, current submission-attempt ID, locked project-version ID, locked time, and exact participant-policy version ID used for the lock;
 - `version`;
 - created/updated time.
 
@@ -540,6 +544,12 @@ The criterion array is frozen after publication. Scorecards store its version ID
 The mutation that adds an active member first queries `by_event_membership_status`, preventing a person from joining two active teams in the same event.
 
 Exactly one active team member has `role: lead`. Ordinary membership and role mutations require the team to be unlocked.
+
+### `teamSubmissionAttempts` and `teamSubmissionMembers`
+
+One durable attempt owns final-submission materialization. The attempt pins the event, team, draft, requester, authorizing grants, operation fingerprint, source and locked versions, participant/admission policies, chosen tracks, pagination cursor, processed class/year projections, terminal result, and a bounded failure code/message. Its state is `validating | finalizing | complete | failed`.
+
+`teamSubmissionMembers` stores one immutable row per active member for that attempt: stable ordinal, team-member/membership/person IDs, role and participant class, display/profile fields, verified destination email, and materialization time. Indexed pages by attempt are the roster consumed by applications, offers, notifications, and review projections. No submitted document embeds an operations-configurable roster-sized array.
 
 ### `teamInvites`
 
@@ -627,7 +637,7 @@ Immutable submission snapshots.
 - required intake-policy-version ID;
 - `fresh_for_event` attestation with exact participant-policy version ID and accepted member/time;
 - core-track version ID and sponsor-track version IDs;
-- locked active team-member IDs and locked lead membership ID;
+- locked roster-snapshot ID, locked member count, and locked lead membership ID;
 - final confirmation `{ participantPolicyVersionId, previewedDraftVersion, previewedTeamVersion, previewedTrackVersionId, previewedSponsorTrackVersionIds, confirmedBy, confirmedAt }`;
 - exact participant- and admission-policy version IDs;
 - optional cumulative admission-information response snapshots, each carrying the request ID, source project-version ID, exact question keys/text and participant answers, responding membership, and response time;
@@ -873,7 +883,7 @@ One immutable published plan for session interpretation.
 - `status: draft | published | superseded | retired`;
 - validation result, checksum, published actor/time.
 
-Publishing validates every zone, method, cohort rule, fallback, accessibility path, station capacity assumption, and retention reference. A replacement is rejected while a current-plan session is `preparing`, `open`, or `closing`. Otherwise the same publication transaction disables the prior plan's stations, revokes their assigned devices and source grants, supersedes the prior plan, and points the event at the new published version.
+Publishing validates every zone, method, cohort rule, fallback, accessibility path, station capacity assumption, and retention reference. The owner boundary permits at most 32 zones, 64 sessions, 128 stations, four possibly applicable simultaneous sessions for one participant, and one such required session. Draft creation, publication, and session extension enforce the same limits. A replacement is rejected while a current-plan session is `preparing`, `ready`, `open`, or `closing`; a prepared session must be cancelled and terminalized before replacement. Otherwise the same publication transaction disables the prior plan's stations, revokes their assigned devices and source grants, supersedes the prior plan, and points the event at the new published version.
 
 ### `attendanceSessions`
 
@@ -943,7 +953,7 @@ The same participant-first resolution supports staffed venue arrival without cou
 
 - `eventId`, monotonic key-set version;
 - random event lookup key encrypted with authenticated encryption under the server-held attendance wrapping key;
-- wrapping-key version, encryption nonce/tag, and non-secret key-check digest;
+- wrapping-key version and authenticated-encryption nonce/tag;
 - `status: staged | active | retired | compromised`;
 - created/activated/retired actor, time, and reason.
 
@@ -1061,9 +1071,19 @@ One derived result per participant/session.
 - result-rule/session version used;
 - operational flags and `version`.
 
-Recalculation changes this projection only. It never rewrites the events or intervals used to derive it.
+Recalculation changes this projection only. It never rewrites the events or intervals used to derive it. One participant/session owns at most 64 presence intervals. The shared transition boundary sends another entry to review, reconciliation refuses another insertion, and terminalization fails visibly on a pre-existing excess instead of issuing an unbounded read.
 
 Venue state is stored once in `participantPresence`. Every applicable or overlapping attendance session has its own `sessionAttendance` row.
+
+### `attendanceParticipantCurrentSessions`
+
+One required participant-facing projection per nonterminal prepared session assignment.
+
+- event, published attendance-plan version, attendance session, source `sessionAttendance` row, and participant membership;
+- copied session start for the membership/plan/start index;
+- creation time.
+
+Expectation building inserts the source row and projection together. A projection never stores credentials or participant profile data. Open, close, and cancel require the projection set to equal the prepared source set. Finalization and cancellation validate and delete each projection with its source transition. The participant live query reads this table for the published plan and returns all current rows plus the earliest upcoming row. Closed results stay on the source table and load only through explicit newest-first pagination.
 
 ### `attendanceResultRemedyCases`
 
@@ -1141,8 +1161,10 @@ The source snapshot and generated bytes have separate checksums. Generation writ
 - languages;
 - reviewer type for staffing;
 - training state;
-- availability windows;
+- canonical, sorted, non-overlapping availability windows;
 - current operational state.
+
+An active trained profile has at least one availability window. Publication requires one window to cover the complete staffing interval from the round's clock-in opening through its end for every assigned and reserve reviewer; it never infers availability from role, panel state, or a prior clock-in.
 
 ### `reviewerConflicts`
 
@@ -1162,6 +1184,8 @@ The routing query uses only active confirmed conflicts.
 - last heartbeat;
 - reason and actor for operator changes;
 - `version`.
+
+Clock-in accepts the exact published opening boundary using server time, requires current declared availability, and rejects attempts at or after round end. Confirmed no-show requires the report-plus-grace boundary (or a temporarily-unavailable return-plus-grace boundary) and rejects a present reviewer. Both transitions re-read current presence and panel versions transactionally, so concurrent clock-in and no-show commands cannot both commit.
 
 ### `panelPlans`
 
@@ -1332,55 +1356,100 @@ No correction deletes a submitted version.
 
 ## 10. Operations, incidents, and audit
 
-### `operationsIntelligencePolicyVersions`
+### `operationsHealthSnapshots`
 
-One complete immutable automation policy version for an event.
+One current server-owned aggregate-health materialization per event.
+
+- event ID, the exact event version observed during computation, and `ready | stale` state with its deadline;
+- one fully validated bounded redacted health snapshot, including server generation time.
+
+The 30-second cron discovers at most two events and rejects a deployment containing more than one. Its action calls one broad bounded internal query, then one narrow `by_event` upsert mutation. An exact retry is a no-op and an older result cannot replace a newer snapshot. Each accepted generation schedules its own 90-second stale marker; the marker compares the expected generation before changing state, so an old deadline cannot expire a newer snapshot. Bootstrap and local seed schedule the initial refresh. Reads return explicit `missing`, `stale`, or `ready` state and never recompute live.
+
+### `operationsAutonomyPolicyVersions`
+
+One complete immutable autonomy policy version for an event.
 
 - event, monotonic version, and `draft | published | superseded | retired` status;
-- enabled flag plus non-empty selected health severities and areas;
-- cooldown minutes, maximum briefs per event-local day, and relevance minutes;
-- accountable owner and fixed `operations_dashboard` audience;
+- enabled flag and `observe | recommend` mode;
+- schedule cadence plus selected health severities and areas;
+- closed read-tool and typed recommendation-kind allowlists;
+- escalation severity, accountable owner, and fixed `operations_dashboard` audience;
 - checksum, creator, creation time, and optional publication time.
 
-The normalized checksum covers the complete ordered policy. One event has at most one draft and one published policy. Publishing supersedes the old policy and scheduler state in the same mutation that updates the event pointer.
+The normalized checksum covers the complete ordered policy. `operations_health` is mandatory so every run refreshes current state. Observe mode has no recommendation kinds. Recommend mode can record only the selected typed proposals, never execute them. The policy contains no model-turn, delegation, read-byte, wall-clock, proposal, or daily cognitive quota.
 
-### `operationsIntelligenceAutomationStates`
+### `operationsAutonomyStates`
 
-The current scheduling cursor for one published policy, plus superseded history.
+One current scheduler cursor for a published policy.
 
 - event and exact policy version;
-- `active | disabled | superseded` state and next evaluation time;
-- optional last evaluation/trigger times and last semantic trigger fingerprint;
-- recovery cycle, event-local budget date, and briefs started on that date;
-- optimistic version and update time.
+- `active | disabled | superseded` lifecycle and next evaluation time;
+- exact pending-work count and optional last evaluation, run, signal, and schedule-slot times;
+- current semantic signal fingerprint, recurrence cycle, optimistic version, and update time.
 
-Only an active state appears in the due-state index. Every evaluation compares the observed version and due time before it can advance the cursor or create work.
+The kill switch changes authority immediately. A new publication supersedes the prior state and cancels its active run. Neither transition waits for queued work to be deleted; cancellation and abort delivery are resumable server-owned cleanup.
 
-### `operationsIntelligenceSignals`
+### `operationsAutonomyInbox`
 
-One committed machine trigger and outbox record.
+One immutable semantic work item for a manual request, schedule slot, or qualifying signal episode.
 
-- event, policy version, scheduler state, recovery cycle, and semantic fingerprint;
-- frozen bounded health snapshot and checksum;
-- `pending | claimed | succeeded | failed | expired` state and optional linked brief;
-- observed, relevance-expiry, and optional settlement times.
+- event, exact policy version, stable operation key, typed trigger, and frozen redacted source/checksum;
+- technical next-attempt time and `pending | claimed | canceled` lifecycle;
+- creation and update time.
 
-The signal exists before external provider work. Signal, brief, Workpool enqueue, scheduler count, fingerprint, and next evaluation commit together. Worker completion or timeout settles the link; relevance expiry cannot change event operations.
+Exact duplicate observations coalesce, but distinct signal states, a cleared-and-recurring condition, every schedule slot, and every idempotent manual request remain separate. The inbox is written independently of whether an executor is busy and is drained fairly across events. Only one run per event policy is executable at a time.
+
+### `operationsAutonomyRuns` and `operationsAutonomyRunCheckpoints`
+
+A run freezes the claimed inbox item's event, policy/checksum, trigger, effect mode, read/recommendation allowlists, source/checksum, and operation key. Admission records the current Flue submission head. Executor identity is unknown until the first signed callback, then fixes agent version and model. Lifecycle is `pending | active | succeeded | no_op | escalated | failed | canceled` with typed failure or effect-authority cancellation provenance.
+
+The one mutable checkpoint owns the monotonic server sequence, public phase, cumulative audit telemetry, observed signal keys, and any one active read reservation. Telemetry reports work performed; it is not a ceiling. A renewable lease is infrastructure supervision only: expiry causes reconciliation or continuation, not cognitive termination.
+
+### `operationsAutonomyOperationReceipts`
+
+One bounded-size receipt per external work authorization, read page, recommendation-evidence chunk, proposal, or callback, uniquely indexed by run plus stable operation ID and by run plus server sequence. The complete response/effect fingerprint is durable, so a lost response can replay after later operations without a second read, evidence append, or proposal. Read receipts bind the exact traversal snapshot, requested/next cursor, row tuples, response bytes, and terminal/page state. This ledger is allowed to grow with a run; each row remains individually bounded and history is paginated.
+
+### `operationsAutonomyReadFactStates`, `operationsAutonomyReadFacts`, and `operationsAutonomyReadTraversals`
+
+Unbounded actionable sources—operations attention, review exceptions, active support work, intake and admission jobs, participant deliveries, integration jobs, round exports, Synesthesia operations, incident readiness, and attendance operations—append a complete redacted fact from the same transaction that changes the source. Each event/source state owns a monotonic sequence. Updating an entity closes the prior fact's effective interval and appends the next version; inactive or absent versions are explicit. Signal, schedule, and manual inbox rows freeze the high-watermark vector for every policy-allowed fact source, and the run copies that vector unchanged. The full vector participates in the source checksum; the coordinates belonging to a signal's currently qualifying policy areas also participate in its episode identity, so a 102nd qualifying row or a same-count replacement cannot disappear behind a capped aggregate-health fingerprint. A traversal pages facts by sequence and returns only versions effective at the run's frozen watermark. It advances across inactive facts as well as visible rows, so removals cannot stall a cursor. Later inserts, updates, and removals never alter that traversal, and queued source episodes remain independently reconstructible after intervening changes. Operations health, review-round summaries, attendance counts, and floor progress are bounded projections and are captured once as immutable JSON before their first page. Frozen pages pack complete top-level rows until adding the next row would cross the per-response byte limit, then continue from the exact next row; a maximum valid single domain row must fit. No autonomy page wraps or slices a capped interactive-copilot query.
+
+### `operationsAutonomyContinuations` and `operationsAutonomyRunSupervision`
+
+Continuation outbox rows bind one run and prior Flue submission head to one stable next work item. The Worker proves the prior submission settled before dispatching the next submission. Callback and recovery races coalesce on that submission head. Accepted continuation delivery advances the run's current head atomically.
+
+Supervision owns renewable liveness, one explicit outbound admission attempt, and durable `abort_pending` delivery. Initial and continuation signatures share a 30-second acceptance window. The attempt persists the signing time before the action leaves Convex; a delayed action must use that exact time and cannot mint fresh authority after revocation. Convex keeps an ambiguous request in flight beyond the signature window, refuses to acknowledge a not-found Flue abort while an ordinary request may still return, and sends another abort after any late acceptance. Correctness does not depend on that finite timer: the Worker stores a durable run-bound cancellation fence even before a Flue instance exists, and both admission paths check it before creating a submission. Authority loss or the operator kill switch terminalizes the Convex run immediately and retries the exact signed Worker abort until its durable intent is recorded. The public lifecycle calls that state `abort_recorded`, not physical Worker settlement. Transient provider, network, or Worker congestion never silently drops a semantic work item.
+
+### `operationsAutonomyRecommendationEvidenceSets`, `operationsAutonomyRecommendationEvidenceChunks`, and `operationsAutonomyRecommendationEvidenceLeaves`
+
+One recommendation evidence set belongs to one run and proposal key. Signed chunks contain one to four canonical citations, an exact page index, the prior page hash, and a terminal flag. Convex grounds every leaf against the same run's completed read-page receipt before appending it, rejects gaps, reordering, duplicates, set reuse, and cross-run or cross-page splicing, and stores the exact receipt for response-loss replay. The terminal append seals the evidence set with its ID, root hash, leaf count, chunk count, and server sequence. A proposal must reference that exact seal; any versioned target must name one leaf identity contained in the sealed set and grounded to the target ID/version. Leaves remain independently cursor-pageable, so the proposal row stays bounded without making later evidence unreachable.
 
 ### `operationsIntelligenceBriefs`
 
-One bounded operations brief from the aggregate event-health projection.
+One operator-requested bounded operations brief from the aggregate event-health projection.
 
-- event, `manual | automation` origin, and optional requesting person;
-- optional automation policy/signal provenance and relevance expiry;
+- event and required requesting person;
 - `state: pending | dispatching | accepted | succeeded | failed`;
-- optional frozen `sourceSnapshot` and SHA-256 `sourceChecksum`, written together before the first dispatch;
+- required frozen `sourceSnapshot` and SHA-256 `sourceChecksum`, written together before work is enqueued;
 - Convex Workpool job ID, optional Flue submission ID, and Worker acceptance time;
 - optional validated headline, summary, and no more than three priorities containing severity, title, explanation, copied owner/next action, and cited health-signal keys;
 - optional agent version, model ID, and terminal `dispatch_failed | agent_timed_out | model_did_not_publish | callback_rejected` category;
 - requested, updated, and completed times plus optimistic version.
 
-The source snapshot contains only the bounded redacted signal projection, not its protected underlying records. A proactive brief receives the frozen pair when its signal commits; a requested brief freezes it before first dispatch. The brief ID is the create-only Durable Object identity. Once the snapshot/checksum pair exists it cannot change, and only the first matching callback or timeout settles the row. Later work creates another row rather than rewriting brief history.
+The source snapshot contains only the bounded redacted signal projection, not its protected underlying records. A requested brief copies the current materialized pair before enqueue. Missing or stale health prevents new work. The brief ID is the Durable Object identity. The snapshot/checksum pair cannot change. A priority's owner and next action must match one same cited frozen signal, so separate citations cannot be spliced into a new responsibility. Only the first matching callback or timeout settles the row. Later work creates another row rather than rewriting brief history. Scheduled and signal-driven work belongs exclusively to the autonomy inbox and runs above.
+
+### `intelligenceRecommendations` and `intelligenceRecommendationAutonomyObservations`
+
+One signed copilot or autonomy proposal that no agent can execute directly.
+
+- event, stable proposal/effect keys, and discriminated copilot-conversation or autonomy-run/evidence-set provenance;
+- closed typed arguments containing the exact target ID and required target version for versioned commands;
+- bounded statement, reasoning, citations, agent version, and model;
+- `proposed | approved | rejected | superseded` status, optimistic version, and proposal/update times;
+- optional deciding person/time, operator feedback, and executed target reference.
+
+The proposal key is unique inside the event. An identical at-least-once delivery returns the original record; different content under the same key conflicts. If a later autonomous run proposes the same still-open semantic effect, it does not create a second human command or lose the later analysis: one append-only observation links that run, its statement/reasoning/model provenance, and its independently sealed evidence set to the existing recommendation. Observation and evidence history are cursor-paginated. There is no product cap on open proposals: pending work is oldest-first and cursor-paginated, while settled history is independently newest-first and cursor-paginated. Copilot citations keep a short interactive freshness policy. Autonomy evidence binds exact completed read operations and traversal snapshots, so a recovered long-running review remains usable; the expected target version is rechecked when the human approves. Approval, rejection, and revision require the ordinary permission of the underlying command. Approval invokes that command as the authenticated human and both layers audit the human actor. No model callback can approve or execute a recommendation.
+
+Flue Durable Object history is the canonical transcript and stream. Convex does not store token deltas, raw tool calls, or a conversation copy. It stores only business records such as a validated brief or recommendation. A deterministic opaque conversation ID scopes recommendation history to one event-access subject without creating a conversation registry row.
 
 ### `operationResults`
 
@@ -1403,6 +1472,7 @@ The unique lookup is `(actorPersonId, clientOperationId)`. Entries can expire af
 - optional subject person, team, round, review-session, and attendance-session references validated against the same event;
 - optional owner person;
 - `state: open | investigating | waiting | resolved | closed`;
+- write-owned `lastActionAt`, optional `firstResponseAt`, and `awaitingStaffReply` summary;
 - optimistic `version`, created/updated time, and optional resolved/closed time.
 
 The case is a diagnostic work record. A linked resource and owner convey no authority. Creation and staff updates are idempotent actor operations; updates compare `version` and append actions in the same transaction.
@@ -1417,6 +1487,10 @@ The case is a diagnostic work record. A linked resource and owner convey no auth
 - created time.
 
 Actions are append-only. Reporter queries exclude `internal`; a staff reader covered by exact-case or event-wide support read may receive both. The opening description remains on the case and opening action so the timeline is self-contained.
+
+### `supportCaseStatShards`
+
+Sixteen deterministic event shards store exact counts by case state plus live unowned, awaiting-staff-reply, and safety counts. Each case always writes its own shard, so simultaneous work on unrelated cases does not serialize through one event row. Case creation, reporter reply, and staff update change the shard in the same transaction as the case and timeline actions. List queries read the fixed shard set and never rebuild totals or reply duty from historical action rows.
 
 ### `rehearsalRuns`
 
@@ -1820,7 +1894,7 @@ Update delivery is deliberately outside Convex and contains no participant, revi
 - `releases/<releaseId>.json`: one immutable strict release record containing channel, runtime, release time, signed no-update response, and either signed iOS/Android manifests or a signed rollback-to-embedded directive;
 - `runtimes/<runtimeVersion>/current.json`: the only mutable pointer, containing one release ID.
 
-Assets and release records use create-if-absent writes; an identical retry is unchanged and different content conflicts. Registration verifies every referenced asset first. Pointer activation requires the ETag observed before export, or absence when seeding a runtime. R2's conditional write makes two concurrent activations converge on one winner. The Expo app checks this service on launch; it does not turn release metadata into a Convex realtime table.
+Assets and release records use create-if-absent writes; an identical retry is unchanged and different content conflicts. Asset writes are limited to 25 MiB, release records to 10 MiB, and activation bodies to 1 KiB. Public asset reads stream the verified R2 object rather than buffering it in Worker memory. Registration verifies every referenced asset first and rejects a release clock more than five minutes ahead of Worker time. Pointer activation repeats the clock check and requires the ETag observed before export, or absence when seeding a runtime. R2's conditional write makes two concurrent activations converge on one winner. The Expo app checks this service on launch; it does not turn release metadata into a Convex realtime table.
 
 ### `participantNotificationDestinations`
 
@@ -1926,22 +2000,43 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `permissionGrantBatches.by_event_target_created` | Inspect one person’s bundle-application history |
 | `permissionGrantBatches.by_event_bundle_version_status_created` | Page completed source applications for one retired bundle version without scanning event history |
 | `operationResults.by_actor_operation` | Make a client operation ID idempotent for the authenticated actor |
-| `operationsIntelligencePolicyVersions.by_event_status` | Resolve the event's one draft or published automation policy without scanning history |
-| `operationsIntelligencePolicyVersions.by_event_version` | Allocate and inspect immutable event policy versions |
-| `operationsIntelligenceAutomationStates.by_state_next_evaluation` | Read only bounded active scheduler states that are due |
-| `operationsIntelligenceAutomationStates.by_event` | Enforce one current scheduler state while retaining superseded history |
-| `operationsIntelligenceAutomationStates.by_policy` | Return the runtime state for the published policy |
-| `operationsIntelligenceSignals.by_event_observed` | Inspect bounded event trigger provenance newest first |
-| `operationsIntelligenceSignals.by_policy_cycle_fingerprint` | Inspect semantic trigger provenance inside a policy recovery cycle |
+| `operationsHealthSnapshots.by_event` | Read and upsert the event's one current aggregate-health materialization |
+| `operationsAutonomyPolicyVersions.by_event_status` | Resolve the event's one draft or published autonomy policy without scanning history |
+| `operationsAutonomyPolicyVersions.by_event_version` | Allocate and inspect immutable event policy versions |
+| `operationsAutonomyStates.by_lifecycle_next_evaluation` | Read only active scheduler states that are due |
+| `operationsAutonomyStates.by_event` | Resolve the event's current scheduler state |
+| `operationsAutonomyStates.by_policy` | Return the runtime state for one published policy |
+| `operationsAutonomyInbox.by_event_operation_key` | Deduplicate one exact manual, schedule-slot, or signal-episode work item |
+| `operationsAutonomyInbox.by_lifecycle_next_attempt_at` | Fairly claim due semantic work without busy events hiding other events |
+| `operationsAutonomyRuns.by_event_policy_lifecycle` | Enforce one executable run for an event policy and supervise its lifecycle |
+| `operationsAutonomyRuns.by_event_created_at` | Cursor-page complete run history newest first |
+| `operationsAutonomyOperationReceipts.by_run_operation` | Replay one exact lost response without repeating its effect |
+| `operationsAutonomyOperationReceipts.by_run_sequence` | Preserve the run's authoritative operation order |
+| `operationsAutonomyRecommendationEvidenceSets.by_run_set` | Resolve and seal one run-owned recommendation support chain |
+| `operationsAutonomyRecommendationEvidenceSets.by_run_proposal` | Prevent one proposal key from silently switching evidence-set identity |
+| `operationsAutonomyRecommendationEvidenceChunks.by_run_set_page` | Enforce one exact ordered page at each support-chain index |
+| `operationsAutonomyRecommendationEvidenceLeaves.by_run_set_ordinal` | Cursor-page every canonical leaf in one sealed evidence set |
+| `operationsAutonomyRecommendationEvidenceLeaves.by_run_set_identity` | Ground a target against one exact leaf in its sealed set |
+| `operationsAutonomyContinuations.by_lifecycle_next_attempt` | Retry one durable next-submission outbox item after its prior submission settles |
 | `operationsIntelligenceBriefs.by_event_requested` | Return the latest event brief and preserve request history without scanning other events |
 | `operationsIntelligenceBriefs.by_event_state_updated` | Bound diagnostics and recovery to one event and current brief state |
+| `intelligenceRecommendations.by_event_proposal` | Make at-least-once proposal delivery idempotent and conflicting reuse definitive |
+| `intelligenceRecommendations.by_event_status_proposed` | Cursor-page every pending human decision oldest first and conversation feedback by status/time |
+| `intelligenceRecommendations.by_event_decided_at` | Cursor-page settled recommendation history newest first |
+| `intelligenceRecommendations.by_event_copilot_conversation_proposed` | Return only one subject-private copilot conversation's feedback history |
+| `intelligenceRecommendations.by_event_autonomy_run_proposed` | Audit proposals from one exact autonomous run |
+| `intelligenceRecommendationAutonomyObservations.by_recommendation_observed_at` | Cursor-page every run observation attached to one deduplicated human action |
+| `intelligenceRecommendationAutonomyObservations.by_recommendation_run_set` | Idempotently attach one exact run and sealed evidence set to that action |
 | `supportCases.by_event_code` | Resolve one public support code inside one event and serialize code allocation collisions |
 | `supportCases.by_event_updated` | Return a bounded event-wide support list newest update first |
 | `supportCases.by_event_state_updated` | Return bounded active, resolved, or closed support queues without a table scan |
+| `supportCases.by_event_state_created` | Resolve the exact oldest open support case without sampling by last update time |
 | `supportCases.by_event_reporter_updated` | Return only the current reporter's newest cases |
 | `supportCases.by_event_owner_state_updated` | Inspect one owner's routed work by state when an owner view is needed |
 | `supportCaseActions.by_case_time` | Return one case's ordered append-only timeline |
 | `supportCaseActions.by_event_time` | Retain and audit support actions inside the event boundary |
+| `supportCaseStatShards.by_event_shard` | Return exact help-desk totals from a fixed write-sharded event projection |
+| `permissionGrants.by_event_permission_status` | Resolve a bounded support-owner picker from the exact active manager grant instead of scanning event accounts |
 | `rehearsalRuns.by_event_created` | List recent event rehearsal runs without scanning history |
 | `rehearsalRuns.by_event_state_created` | Enforce one active event run and list state-specific history |
 | `rehearsalWorkstreamOwners.by_run_workstream` | Resolve the one owner for each required workstream |
@@ -1953,7 +2048,10 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `rehearsalScenarioActions.by_scenario_time` | Return one scenario's append-only action history |
 | `rehearsalScenarioActions.by_run_time` | Audit accepted actions across one run in time order |
 | `permissionGrants.by_subject_permission_status` | Resolve candidate grants for a protected function inside one event access subject |
-| `permissionGrants.by_person_status` | Inspect bounded current or historical grants for one event person |
+| `permissionGrants.by_subject_permission_status_scope` | Resolve one exact scope, or a bounded ordered set of one resource scope type, without reading unrelated grants |
+| `permissionGrants.by_subject_permission_status_valid_until` | Resolve one current capability bit without loading every scoped grant for that permission |
+| `permissionGrants.by_subject_permission_status_scope_type_valid_until` | Resolve a capability restricted to explicit scope kinds without loading scope IDs |
+| `permissionGrants.by_person_status` | Paginate current or historical grants for one event person |
 | `permissionGrants.by_source` | Resolve only grants created by one membership, assignment, or resolved bundle source |
 | `permissionGrants.by_status_valid_from` | Activate a bounded due set of scheduled grants without scanning unrelated history |
 | `permissionGrants.by_status_valid_until` | Expire a bounded due set of active grants without scanning indefinite grants |
@@ -2019,6 +2117,9 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `attendanceSessions.by_event_status_start` | Active/upcoming session board |
 | `attendanceExpectations.by_session_membership` | Resolve one participant’s session requirement |
 | `attendanceExpectations.by_session_expectation` | Expected/optional/excused lists |
+| `attendanceSessionParticipants.by_membership_completed` | Paginate one participant's finalized attendance results newest first without mounting current state |
+| `attendanceParticipantCurrentSessions.by_membership_plan_start` | Subscribe one participant to current-plan session state in schedule order |
+| `attendanceParticipantCurrentSessions.by_session_membership` | Enforce one exact current projection for each prepared session participant |
 | `attendanceSessionJobs.by_session_kind` | Resolve expectation and close/cancellation history for one session |
 | `attendanceSessionJobs.by_status_updated` | Operate stalled internal work |
 | `attendanceSessionJobs.by_event_status_updated` | Diagnose bounded event job state without scanning another event or historical parent |
@@ -2170,11 +2271,11 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 
 ## 14. Realtime projections
 
-### `access.mine` and `access.detail`
+### Surface capabilities and `access.detail`
 
-`access.mine` returns the current person, event access version, optional role label, and only currently effective atomic grant summaries used to assemble navigation. It returns no raw roster, provider record, or authority beyond the grant rows themselves; every later function authorizes again.
+`access.participantCapabilities`, `access.reviewerCapabilities`, `access.handbookCapabilities`, and `access.operationsCapabilities` each return only the fixed server-derived navigation capabilities used by that product surface. A participant session never evaluates the operations or reviewer permission matrix. These projections return no grant IDs, permission-key ledger, source, scope ID, expiry, roster, provider record, person profile, or role label. Each capability uses bounded indexed existence reads, and every later domain function authorizes the exact resource again.
 
-`access.detail` requires `access.permissions.read` for the exact target person or event. It returns that person’s role label, scheduled/current/historical grants, source, exact scope label, validity, materialized activation/expiry/revocation times, the stable catalog, and separate grant/revoke ceilings. Each current row includes whether this caller may revoke it, so the UI does not suggest an impossible action. Creating an exact-person delegation accepts one verified event email inside the unrestricted grant command; it does not grant general people search.
+`access.detail` requires `access.permissions.read` for the exact target person or event. It returns that person’s role label, separate effective and current-or-scheduled permission-key projections, the stable catalog, exact target actions, and separate grant/revoke ceilings. `access.grantLedger` separately paginates at most 50 scheduled/current/historical rows at a time, with optional permission/status narrowing; each row resolves its source, exact scope label, validity, materialized lifecycle times, and whether this caller may revoke it. Creating an exact-person delegation accepts one verified event email inside the unrestricted grant command; it does not grant general people search.
 
 ### `permissionBundles.workspace` and `permissionBundles.detail`
 
@@ -2216,9 +2317,9 @@ Returns only the caller’s venue state; applicable active/next sessions and per
 
 `support.mine` requires the caller's self-scoped support read grant and returns at most their 20 newest reported cases. It derives reply availability from the independent self reply grant and closed state. `support.detail` returns reporter-visible actions only for the reporter; an exact-case or event-wide staff reader receives the internal timeline as well. Reporter and staff access are recomputed on every query.
 
-`support.staffList` returns at most 80 cases covered by event-wide read or the caller's exact-case grants. Active state merges bounded indexed open, investigating, and waiting ranges; resolved and closed use their own state ranges. Every row reports management capability separately. Event-scoped create capability is independent from read and manage.
+`support.staffList` returns at most 80 cases covered by event-wide read or the caller's exact-case grants and reports when that display limit is reached. Active state merges bounded indexed open, investigating, and waiting ranges; resolved and closed use their own state ranges. Exact totals come from the fixed `supportCaseStatShards` set, and row summaries come from `supportCases`; the list never reads action history. Every row reports management capability separately. Event-scoped create capability is independent from read and manage.
 
-All three subscribe to `supportCases` and the selected case's `supportCaseActions`. A reply, state change, note, or owner change appears on the participant, event-app, and operations surfaces after the accepted transaction without polling or a client-owned case state.
+The lists subscribe to bounded `supportCases` ranges and the event statistics row. Only the selected detail subscribes to `supportCaseActions`. A reply, state change, note, or owner change appears on the participant, event-app, and operations surfaces after the accepted transaction without polling or a client-owned case state.
 
 ### `rehearsals.list`, `rehearsals.detail`, and `rehearsals.scenarioHistory`
 
@@ -2288,23 +2389,37 @@ Returns at most 20 newest open or monitoring incidents visible through the calle
 
 Requires the independent event-scoped `operations.health.read` grant. It returns the event state, server generation time, a severity summary, and only non-zero bounded signals. Each signal contains its stable key, area, severity, count/`atLeast`, optional oldest time, owner, and next action. It returns no resource ID or underlying incident, participant, team, project, repository, Figma, delivery, model, Synesthesia, or score detail.
 
-The query reads current operational parents and compound event/state indexes rather than scanning historical logs. A 30-second client refresh bucket makes server-time expiry and heartbeat thresholds reactive even when no source document changes. Reaching a source bound produces a separate coverage-limited signal. The query grants no action; drill-down and remediation use their ordinary separately scoped reads and commands.
+One server-owned action reads current operational parents and compound event/state indexes rather than scanning historical logs. It materializes the bounded projection every 30 seconds. The authenticated public query reads only that indexed document and returns explicit `missing`, `stale`, or `ready` state. Reaching a source bound produces a separate coverage-limited signal. The query grants no action; drill-down and remediation use their ordinary separately scoped reads and commands.
 
 ### `eventLifecycle.current`
 
 Requires event-scoped `event.lifecycle.read`. It returns the current event status/version, whether the caller independently holds `event.lifecycle.manage`, and only the legal next transitions. Each next transition contains its current setup blockers as stable keys and product labels. It returns no participant, application, review, or score record.
 
-`eventLifecycle.transition` requires `event.lifecycle.manage`, a Google session created within 15 minutes, the exact current event version, a reason, and an idempotent operation ID. It rechecks the transition path and blockers in the write transaction, increments the event version once, and records the authorizing grants and before/after state in audit. Registration close and reopen therefore reach all clients through the ordinary event subscription. Participant profile, team, and intake mutations recheck `registration_open` after committed-operation replay and before new work.
+`eventLifecycle.transition` requires `event.lifecycle.manage`, a Google session created within 15 minutes, the exact current event version, a reason, and an idempotent operation ID. It rechecks the transition path and blockers in the write transaction, increments the event version once, and records the authorizing grants and before/after state in audit. Registration close and reopen therefore reach all clients through the ordinary event subscription. Participant profile, team, and intake mutations recheck `registration_open` after committed-operation replay and before new work. Leaving `live` also disables the autonomy scheduler, revokes its active run, persists Worker abort intent, and starts resumable inbox cleanup in that transaction.
 
 ### `operationsIntelligence.latest`
 
-Requires event-scoped `operations.intelligence.read` independently from health read or generation. It returns the newest brief ID/state, manual/automatic origin, automatic-policy accountable owner and relevance expiry where present, source generation time, validated headline/summary/priorities, terminal category, request/Worker/completion times, and agent/model provenance. It does not return the frozen source snapshot, service identifiers, signatures, or a remediation control.
+Requires event-scoped `operations.intelligence.read` independently from health read or generation. It returns the newest operator-requested brief ID/state, source generation time, validated headline/summary/priorities, terminal category, request/Worker/completion times, and agent/model provenance. It does not return the frozen source snapshot, service identifiers, signatures, or a remediation control. Scheduled and signal-driven intelligence belongs exclusively to the autonomy inbox and run model.
 
 `operationsIntelligence.request` separately requires event-scoped `operations.intelligence.generate`, a stable client operation ID, and no existing active event brief. It inserts the pending row, enqueues the bounded dispatch, schedules expiry, and records the operation/audit event in one mutation. A caller without read permission receives only the new brief ID.
 
-### `operationsIntelligencePolicyConfiguration.current`
+`operationsIntelligenceActions.openBriefStream` and `openCopilotStream` separately require `operations.intelligence.read`. Each returns the exact Worker read URL and a capability expiring within 60 seconds. The brief ticket is bound to the brief ID; the copilot ticket is bound to the deterministic event-subject conversation and instance. Their routes and signature contexts differ. Neither ticket permits POST, abort, attachments, or a domain command.
 
-Requires `configuration.intelligence.read`. It returns the immutable published policy, optional current draft, current non-superseded scheduler state, event version, and booleans for the caller's independently resolved draft, validation, and publication grants. Validation requires its own key. Draft replacement and publication are idempotent optimistic mutations; publication also requires fresh authentication and revalidates the exact draft checksum server-side.
+`intelligenceObservability.briefHistory` independently cursor-pages manual brief lifecycle records newest first. The activity workspace loads older pages explicitly; it never presents a latest-25 sample as complete history.
+
+`operationsIntelligenceActions.submitCopilotTurn` requires `operations.intelligence.generate`, accepts a stable turn ID and bounded message, and sends the exact signed body to the Worker service ingress. A validated accepted receipt must echo the derived conversation and instance. Network failure, HTTP 5xx, or a malformed/lost receipt remains ambiguous and is retried with the same turn ID and message. Only a validated same-ID/different-content conflict is definitive.
+
+`intelligenceRecommendations.detail` requires `operations.intelligence.read` and returns one event-owned proposal's typed arguments, exact provenance/citations, reasoning, status, and version. `intelligenceRecommendations.proposed` cursor-pages every pending item oldest first; `settled` cursor-pages decisions newest first. Triage independently rechecks the current underlying command grant and target version. No top-N overview can hide an actionable proposal.
+
+### `operationsAutonomyPolicyConfiguration.current`
+
+Requires `configuration.intelligence.read`. It returns the immutable published autonomy policy, optional current draft, current non-superseded scheduler state, event version, the exact selected owner with current read/generate capability, and booleans for the caller's independently resolved draft, validation, and publication grants. `ownerOptionsPage` separately searches or cursor-pages active event accounts with the required read grant and reports their generate capability; it has no event-population cap, and clients continue through sparse pages until `isDone`. Validation requires its own key. Draft replacement and publication are idempotent optimistic mutations; publication also requires fresh authentication and revalidates the exact draft checksum server-side. `disable` resolves the current state transactionally rather than trusting a displayed version, revokes authority immediately, and starts durable cancellation/abort cleanup.
+
+### `operationsAutonomy.status`, `history`, `queuedWork`, and `startManual`
+
+The status query returns the event status, authoritative `canStart`, current published policy summary, scheduler lifecycle/count, and exact active run, including its frozen source checksum and bounded fact high-watermark vector. Run history and queued semantic work are separate cursor-paginated queries, so no old run or waiting trigger becomes unreachable. Worker shutdown is an explicit `not_required | pending | abort_recorded` state. `not_required` means no Worker abort obligation exists; after authority is revoked for admitted work, it remains `pending` until the signed abort intent is accepted and then becomes `abort_recorded`. It never claims that Flue has already settled physically. `startManual` requires `operations.intelligence.generate` and enqueues one idempotent semantic work item. It returns `started` only when it actually claims the event's executor; otherwise it returns `queued` and the item remains visible until serially drained. An exact client-operation retry returns that original receipt after later claim or cancellation.
+
+`operationsAutonomyActions.openRunStream` requires `operations.intelligence.read` and an accepted event-owned run. The ticket is bound to the autonomy agent, run ID, route, and short expiry. Convex run/checkpoint lifecycle remains authoritative; Flue settlement or visible prose cannot mark a business run complete.
 
 ### `participantPolicyConfiguration.current`
 
@@ -2340,9 +2455,16 @@ Requires exact event-scoped `configuration.intake.read` and returns the publishe
 
 Returns answer-save and interpretation latency, Workpool depth/age, success/refusal/invalid/question-policy-rejection/timeout/rate-limit/fallback counts, skips by purpose/fallback key, aggregate question-length/quality evaluation metrics, and affected configuration versions. It excludes answer text, generated-question text, contact data, and provider payloads.
 
-### `operations.scoreCompleteness`
+### `scoreGovernance.completeness`, `scoreGovernance.completenessReviews`, `scoreGovernance.roundValueCriteria`, and `scoreGovernance.roundValues`
 
-Returns required/submitted scorecard and criterion counts, unresolved team/correction/paper-review blockers, and the active export state/revision. Score values and `reviewEvaluations` require another capability and query.
+`completeness` returns the exact round-wide blocker counts, rubric labels, capability flags, and active
+export/release state without expanding every review session. `completenessReviews` requires the same
+exact-round completeness permission and paginates review sessions through the round/status/update
+index before reading their scorecards, immutable submitted versions, reviewers, evaluation, or
+correction cases. A page accepts at most 30 sessions. `roundValueCriteria` and the paginated
+`roundValues` require the separate exact-round numeric-values permission and are subscribed only
+after the operator explicitly opens numeric values. The client may sort loaded rows for display, but
+round-wide counts always come from `completeness` and never from the loaded pages.
 
 ### `synesthesiaParticipant.state` and `synesthesiaParticipant.searchCatalog`
 
@@ -2368,7 +2490,7 @@ Subscriptions update only when records read by the query change. Screens use sta
 | --- | --- |
 | Identity/access | provision participant, preview/confirm/list/revoke roster and claim own exact-email row, claim/revoke access invitation, suspend/reactivate event subject, assign/replace role label, preview/apply/migrate permission bundle, grant/revoke one permission, batch grant/revoke, register/revoke device |
 | Team/project | create/join/leave team, request/accept/decline/cancel lead transfer, start/resume intake, save answer, request a debounced novelty preview, skip generated question, choose track, accept fresh-project attestation, confirm brief, preview final lock, atomically submit-and-lock, start/confirm team integration, add/classify/reorder/archive/replace repository |
-| Configuration | draft/validate/publish participant, admission, track, intake, phase, checkpoint, accepted-team communications, and operations-intelligence policy versions; create novelty draft, replace its complete curated entry set, and publish its exact ready revision under four independent novelty grants |
+| Configuration | draft/validate/publish participant, admission, track, intake, phase, checkpoint, accepted-team communications, and operations-autonomy policy versions; create novelty draft, replace its complete curated entry set, and publish its exact ready revision under four independent novelty grants |
 | Admissions | assign application, generate/refresh structured AI recommendation, submit own human recommendation, request information, prepare/use/clear/override/publish human decision, correct locked snapshot under exception, send/respond/expire offer, promote waitlist |
 | Communications | read/draft/validate/publish next-steps/Discord/notification policy under four independent event grants, enqueue a policy-pinned participant status notice, record provider result, and retry/disable an exact destination under separate person grants |
 | Venue | resolve one fresh participant QR; record/read staffed venue check-in, approved identity exception, or reversal under independent person scopes; assign/freeze table; report mismatch |
@@ -2378,7 +2500,7 @@ Subscriptions update only when records read by the query change. Screens use sta
 | Score | save own draft, submit own scorecard, enter/upload/read/verify or reject one signed paper review, request/approve correction, resubmit, void |
 | Support | create/read/reply to own case; event staff log a walk-up case; exact-case or event-wide readers inspect; exact-case or event-wide managers assign/clear owner, add public/internal note, and change state |
 | Rehearsal | create one run from the 61-scenario template; assign workstream owners; start/cancel the run; record scenario start/pass/fail/block/rerun; sign off only after every scenario passes |
-| Operations | read or request a bounded intelligence brief through independent event grants; evaluate a due published intelligence policy through an internal scheduler that can only create a brief; prepare/read/open an expiring emergency pack through three independent event grants; read/create/approve/resolve incident; pause/resume new calls and review starts for one exact open round linked to a readable active review incident; import/verify paper record; start close/export, retry export, issue protected export download, independently verify/close, reopen/supersede |
+| Operations | read or request a source-bounded manual intelligence brief; use the private copilot; publish/stop an effect-bounded autonomy policy; enqueue a manual autonomous run; supervise durable schedule/signal work; inspect paginated sanitized traces; review exact cited typed proposals; prepare/read/open an expiring emergency pack through three independent event grants; read/create/approve/resolve incident; pause/resume new calls and review starts for one exact open round linked to a readable active review incident; import/verify paper record; start close/export, retry export, issue protected export download, independently verify/close, reopen/supersede |
 | Integration | verify/deduplicate provider event, refresh metadata/content, reconcile, render, retry/pause/disable binding |
 | Synesthesia | search/request catalog track, add/remove vote, report request, add/update catalog track, create/update/publish/close window, pause/resume playback, read queue, approve/reject/hide request, queue/pin/defer request, acknowledge start/played/skip, resolve/dismiss report, suspend/restore requester music access |
 
@@ -2472,7 +2594,7 @@ Choosing a different core track before final submission increments the session v
 
 ### Final submission versus membership or track change
 
-The preview records draft, team, member-set, lead, and chosen-track versions. Submit reads those values and the idempotency key in one mutation, then creates the immutable project/application and writes the team/membership/track lock. A concurrent join, leave, lead transfer, answer edit, or track change either commits first and makes the preview stale, or sees the completed lock and fails. It cannot produce an application whose roster or track differs from the explicit confirmation screen.
+The preview records draft, team, authoritative member counts, lead, and chosen-track versions. Submission start reads those values and the idempotency key in one mutation, then creates a durable attempt and writes the membership/track lock. Bounded mutations page the now-stable active roster into immutable member rows and finalize the project/application only after row totals and class totals equal the team-root projection and pinned policy. A concurrent join, leave, lead transfer, profile edit, answer edit, or track change either commits first and makes the preview stale, or sees the lock and fails. A failed validation unlocks the team but retains the failed attempt for participant feedback. It cannot produce an application whose roster or track differs from the explicit confirmation screen.
 
 ### Roster preview versus import, claim, revoke, replacement, or expiry
 
@@ -2486,7 +2608,7 @@ Completion compares the application/project version, input checksum, experience-
 
 ### Admission publication versus first submission
 
-Publication reads the event's entire application range and requires it to be empty; final submission reads the current published admission pair and inserts into that range. Convex's transaction conflicts serialize a race. If publication commits first, submission retries and pins the new policy. If submission commits first, publication retries, observes the application, and fails with `ADMISSION_POLICY_FROZEN`. The policy pointer, optional model pointer, capacity bucket, immutable project, and application cannot represent different releases.
+Publication requires both the event application range and the indexed validating/finalizing submission-attempt range to be empty. Submission start reads the current published admission pair, writes its pinned attempt, and locks the team in one mutation. Convex's transaction conflicts serialize a race. If publication commits first, submission retries and pins the new policy. If submission starts first, publication retries, observes the active attempt, and fails with `ADMISSION_POLICY_FROZEN`. The policy pointer, optional model pointer, capacity bucket, immutable project, and application cannot represent different releases.
 
 ### Config publication during an active session
 
@@ -2582,17 +2704,21 @@ Completion requires the independent exact-run complete grant, a recent Google se
 
 One event may have only one active brief. The request mutation reads the newest event row before inserting, so concurrent requests conflict and retry; the later request then sees the active row and fails. Repeating the accepted client operation ID returns the original brief.
 
-The first dispatch writes the frozen snapshot/checksum and changes `pending` to `dispatching`. Workpool retry reuses that pair. The brief ID is passed to Flue with create-only `uid: null`; one request creates the Durable Object instance and later identical requests return `already_exists`. Either receipt can move a still-dispatching row to `accepted`. A callback that arrives first may settle it directly, making the later receipt a no-op.
+The first dispatch writes the frozen snapshot/checksum and changes `pending` to `dispatching`. Workpool retry reuses that pair. The brief ID is passed to Flue with create-only `uid: null`; one request creates the Durable Object instance and later identical requests return `already_exists`. Either receipt can move a still-dispatching row to `accepted`. A callback that arrives first may settle it directly, making the later receipt a no-op. If the dispatch action eventually fails after entering `dispatching`, the outcome remains callback-eligible until the fixed completion deadline because a lost admission receipt is ambiguous; only that deadline turns an unresolved run into failure.
 
 Callback and expiry both read and patch the same brief row. Convex optimistic concurrency makes one commit first; the retry observes `succeeded | failed` and changes nothing. A callback with another source checksum returns `stale`. After either successful or failed settlement, any duplicate callback returns `already_settled`. Invalid model content is rejected before a completion mutation commits, so it cannot consume the first valid settlement. The scheduled deadline classifies an accepted job as `agent_timed_out` and a never-accepted dispatch as `dispatch_failed`.
 
-### Proactive intelligence evaluation
+The browser does not subscribe to a Convex transcript table. It loads Flue's bounded Durable Object history and follows its opaque update offset over the read-only stream. Message positions are monotonic within a stream incarnation; reconnect is at-least-once, so the client deduplicates positions and resets only when the stream reports a new incarnation. The Worker projection exposes permitted user/assistant text and sanitized lifecycle labels only, never hidden reasoning, raw tool input/output, metadata, files, or provider errors.
 
-The cron reads only active due scheduler rows and carries each row's observed version into evaluation. Two evaluators may read the same row, but both mutations write it. Convex retries the later mutation; its version check returns `stale`, leaving one committed signal, brief, Workpool job, budget increment, and next-evaluation time.
+### Autonomous intelligence enqueue, execution, and continuation
 
-The fingerprint excludes the changing projection-generation time and canonically covers the selected signal facts. The same condition updates only the evaluation cursor. A changed condition during cooldown, an active brief, or an exhausted event-local budget also updates only that cursor. A projection with no selected signal clears the fingerprint and increments the recovery cycle once; a later recurrence can then claim one new fingerprint in that cycle. The local-day count resets from the event timezone inside the same evaluation mutation.
+The cron reads only active due scheduler rows. Each evaluation transaction records every newly due schedule slot and every changed qualifying signal episode as immutable inbox work before advancing the cursor. A busy executor never suppresses this write. Exact concurrent observations collide on the same operation key; distinct schedule slots, signal facts, manual requests, and a cleared-then-recurring signal keep distinct keys.
 
-Policy publication reads and supersedes the prior non-superseded scheduler row before inserting the new one and changing the event pointer. Concurrent publications conflict on the event/draft rows, so only the exact current draft and event version can become current. A disabled policy has no due row in the active-state index.
+Claiming is single-flight per event policy and fair across events. A claimed inbox row freezes the policy and source into one run. Every signed model/delegation authorization, read page, proposal, and callback revalidates the event, published policy, accountable owner, kill state, frozen allowlist, and current run identity. Reads are snapshot-stable and cursor-paginated; the Worker persists every page and continues until the traversal is complete. It retains a lossless append-only catalog of redacted findings and candidates and uses bounded summaries only as navigation indexes. Durable synthesis pages through the catalog until every artifact is considered. Bounded provider prompts and HTTP pages are implementation batches, never total cognition or evidence caps.
+
+One Flue submission handles a recoverable slice. Before dispatching a continuation, the Worker proves the exact prior submission settled. Convex owns one next-submission outbox item per current submission head; callback and supervision recovery coalesce on it. An accepted receipt advances the head. Network, provider, or Worker congestion retries the same semantic work rather than marking it complete or dropping it.
+
+Policy publication supersedes the prior state and cancels its active run transactionally. The kill switch disables authority without a stale UI-version dependency. Both paths leave a durable abort outbox supervised until the Worker acknowledges it, while unlimited queued rows are canceled or ignored under the disabled policy without blocking the safety command.
 
 ### Two queue moves
 
@@ -2641,7 +2767,7 @@ Board must set exact periods. The schema supports separate policies:
 - reviewer private notes;
 - submitted scorecards and audit events;
 - support/incident records and linked round-pause/resume history;
-- intelligence source snapshots, validated outputs, model/agent provenance, failure records, and durable Worker instance state as one separately approved retention class;
+- intelligence source snapshots, validated outputs, sealed recommendation evidence, model/agent provenance, failure records, and durable Worker instance state as one separately approved retention class; every product-terminal, canceled, or revoked path durably schedules an idempotent purge of private Worker read/finding/candidate/support artifacts before terminal settlement or abort acknowledgement, and the run Durable Object completes deletion independently; a recoverable provider/transport interruption remains nonterminal and retains those artifacts for continuation; exact admission receipts have no timer while the run is active, the terminal-callback outbox atomically persists its strict payload and wakeup and retries before closing admission, and terminal settlement or a recorded abort deletes receipts in bounded pages and leaves only its durable run-bound closed tombstone;
 - release-rehearsal runs, workstream routing, copied scenario contracts, and append-only outcomes/sign-off as a separate launch-audit retention class;
 - Synesthesia catalog metadata, windows, requests, votes, reports, playback acknowledgements, and participant music-access state as separate retention classes;
 - exports, logical-backup ZIP/manifests, staging safeguard backups, and rehearsal results as separate retention classes.
@@ -2683,7 +2809,7 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - Scenario updates require an active run and current scenario version, append exactly one action, preserve terminal history through an explicit rerun, and resolve a repeated operation without duplication.
 - Final sign-off requires all 61 current scenarios to be passed, a current run version, the separate complete grant, and fresh authentication; a concurrent scenario change cannot cross the completion boundary.
 - Participant profile records distinguish full/preferred name, permitted contact, institution, current year/role, and class-specific fields, while model inputs exclude those identity/contact values.
-- A published catalog contains the configured five core tracks, and every submitted project names exactly one published core-track version.
+- A published catalog contains its configured number of core tracks, and every submitted project names exactly one published core-track version.
 - A Synesthesia catalog entry is unique by event/provider/track, participant search is bounded to active tracks allowed by the current published window, and no media/provider token is stored.
 - One window/track has one request; one participant/request has one vote and one report; one window has at most one playing request.
 - Synesthesia window, request, report, catalog, playback, and access commands reject stale versions and resolve repeated operation IDs without duplicate effects.
@@ -2707,10 +2833,10 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - Editing an answer, changing a pre-submission track, or publishing configuration cannot erase answer history or rewrite a submitted project version.
 - A participant cannot hold two active team memberships.
 - One active team has exactly one lead; an accepted transfer atomically moves role/grants, and no ordinary transfer can run after final submission.
-- Final submission explicitly confirms and atomically freezes one exact draft, active-member set, lead, core track, and ordered sponsor-track set; stale previews and later ordinary membership/track commands fail.
+- Final submission explicitly confirms and atomically starts a durable freeze for one exact draft, roster projection, lead, core track, and ordered sponsor-track set; bounded resumable mutations materialize the exact active-member rows before the application exists, while stale previews and later ordinary membership/track commands fail.
 - Participant-policy read, draft, validation, and publication fail independently. Two writers from one observed draft state leave one current draft; stale publication changes neither policy pointer nor event version.
 - Publishing a participant policy edits no membership or profile. Completeness is derived from the current immutable version. Consent appends that exact version to the event membership once. A participant must accept it before saving a profile, creating or joining a team, or submitting the project.
-- Team creation and join load the current participant policy inside their transaction and require eligibility plus current acceptance, but they do not require profile completion. Final submission loads the same policy, enforces complete class-aware profiles, team bounds, and mixed-class eligibility, and pins the exact policy ID in the immutable project and team lock.
+- Team creation, joins, leaves, and removals load the current participant policy inside their transaction and maintain authoritative class-aware counts on the team root. Roster UI reads paginate independently of the configured maximum. Creation and join require eligibility plus current acceptance, but they do not require profile completion. Submission start pins that policy and validates root counts; its bounded roster materializer enforces complete class-aware profiles, exact counts, team bounds, and mixed-class eligibility before pinning the exact policy ID in the immutable project and team lock.
 - Admission-policy read, draft, validation, and publication fail independently. A complete policy and its optional model replace and publish together; two competing draft saves leave one current pair, and a stale publication changes neither event pointer nor capacity.
 - Publication creates one zero-reserved overall capacity bucket for the exact policy and atomically moves the policy/model pointers. An enabled policy always has one matching model child; disabled mode has no model pointer and never blocks human review.
 - The first application submission freezes the event's admission release. A concurrent publication either commits first and becomes the application's pin or loses without changing any policy, model, capacity, project, or application row.
@@ -2759,14 +2885,18 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - Operations health, intelligence read, and intelligence generation are separate grants. The generated result exposes no frozen snapshot or domain-control token, and generation creates no corrective state.
 - One brief freezes one bounded redacted source/checksum, maps to one create-only durable agent instance, and has one terminal settlement. Every priority cites only frozen signal keys and preserves a cited highest severity, owner, and next action.
 - A stale, invalid, late, duplicate, or competing Worker callback cannot change a settled brief. Loss of the intelligence Worker changes no participant, application, attendance, queue, review, score, incident, access, or Synesthesia record.
-- Intelligence-policy read, draft, validation, and publication are independent event grants. Publication replaces the policy pointer and scheduler state atomically and requires the exact draft checksum, current event version, recent Google session, reason, and idempotent operation ID.
-- Two due evaluations of one scheduler version leave one signal and one brief. Unchanged signals, cooldown, active work, daily limit, recovery, and relevance expiry are decided from committed server state and cannot create a domain action.
+- Operations-autonomy-policy read, draft, validation, and publication are independent event grants. Publication replaces the published policy and scheduler state atomically and requires the exact draft checksum, current event version, recent Google session, reason, and idempotent operation ID.
+- Concurrent evaluation coalesces only an exact duplicate. Distinct signal episodes, schedule slots, and manual requests remain in a durable inbox while one event executor works, and fair draining prevents another busy event from starving them.
+- Autonomous reads exhaust every page of the closed allowlist through durable continuation. Provider/request/prompt bounds constrain one batch only; they do not impose a total turn, delegation, evidence, runtime, proposal, or history cap.
+- Every autonomous recommendation references a sealed, hash-chained, cursor-pageable set of exact completed read-operation leaves and traversal snapshots. A repeated still-open effect preserves every later run as a separately sealed observation while keeping one human command. All pending decisions, settled decisions, observations, evidence leaves, runs, and queued work remain cursor-pageable from the operations dashboard.
+- The agent can observe and record typed proposals only. Access, identity, participant, judging, score, notification, money, release, and other materially consequential effects require the ordinary authorized human command with current target versions.
+- Kill, policy supersession, owner revocation, and event closure revoke authority immediately and drive a durable idempotent Worker abort until acknowledged.
 - A panel has no table; it walks to the team it is reviewing. A location change cannot call, route, start, or complete a review.
 - A team hall-location QR comes from the participant dashboard, never a physical table sticker, and cannot be accepted by attendance or reviewer-presence commands.
 - One published floor plan has at most one active location per team, and that location is a point in a zone rectangle rather than a claim on a seat. Two teams recorded next to each other is a valid reading; a stale or concurrent mapper still cannot overwrite the one-location-per-team boundary.
 - Ordinary mapping requires exact destination-zone authority and, for a cross-zone move, exact origin-zone authority. Frozen mapping rejects the ordinary key and requires the separate override key plus a reason.
 - Floor-plan freeze fails while any currently confirmed/checked-in/active team is unmapped. A selected or offer-pending team is not yet mapping-eligible. Freeze does not rewrite location history.
-- Participant, mapper, and operations hall views derive from the same location records, draw every recorded position on the zone rectangle at once with per-area counts, and update without refresh.
+- Participant, mapper, and operations hall views derive from the same location records and update without refresh. A mapper subscribes only to zones covered by their exact grants and receives every recorded position and landmark in those zones; the operations overview owns event-wide progress.
 - A participant queue estimate is absent outside a queued state or during a round pause, uses configured duration before three valid panel samples, and remains a widened five-minute window rather than an appointment.
 - Participant provisioning and approved roster claim create independently revocable self support create/read/reply grants. Revoking one is effective immediately, reusing the subject never silently recreates it, and invitation-only account creation remains grantless.
 - A reporter can create, list, open, and reply to only their own support cases; internal notes and ownership actions are absent from that view. A closed case rejects reporter replies.

@@ -6,11 +6,13 @@ import { useState, type FormEvent } from 'react'
 import { BundleBindingField } from './BundleBindingField'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 import { permissionName, scopeName } from '../lib/permissionLabels'
 
 type TargetPersonId = FunctionArgs<typeof api.permissionBundles.applicableToTarget>['targetPersonId']
 type Applicable = FunctionReturnType<typeof api.permissionBundles.applicableToTarget>[number]
 type VersionId = Applicable['versionId']
+type ApplyBundleResult = FunctionReturnType<typeof api.permissionBundles.apply>
 type PreviewRequest = {
   bundleVersionId: VersionId
   bindings: { key: string; scopeId: string }[]
@@ -27,6 +29,7 @@ export function PermissionBundleApplication({
     targetPersonId,
   })
   const applyBundle = useMutation(api.permissionBundles.apply)
+  const operations = useOperationRunner<ApplyBundleResult>()
   const [selectedVersionId, setSelectedVersionId] = useState<VersionId | null>(null)
   const [bindingValues, setBindingValues] = useState<Record<string, string>>({})
   const [validUntil, setValidUntil] = useState('')
@@ -35,6 +38,7 @@ export function PermissionBundleApplication({
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const applyPending = operations.hasPending('permission-bundle-apply')
   const selected = applicable?.find((bundle) => bundle.versionId === selectedVersionId)
   const preview = useQuery(
     api.permissionBundles.previewApplication,
@@ -52,9 +56,10 @@ export function PermissionBundleApplication({
   )
 
   if (applicable === undefined) return <p className="muted">Checking applicable bundles…</p>
-  if (applicable.length === 0) return null
+  if (applicable.length === 0 && !applyPending) return null
 
   const chooseBundle = (value: string) => {
+    if (applyPending) return
     const versionId = applicable.find((bundle) => bundle.versionId === value)?.versionId ?? null
     setSelectedVersionId(versionId)
     setBindingValues({})
@@ -65,6 +70,7 @@ export function PermissionBundleApplication({
 
   const requestPreview = (event: FormEvent) => {
     event.preventDefault()
+    if (applyPending) return
     if (!selected) return
     const bindings = selected.bindings.map((binding) => ({
       key: binding.key,
@@ -86,26 +92,30 @@ export function PermissionBundleApplication({
   }
 
   const apply = async () => {
-    if (!preview || !previewRequest) return
+    if (!applyPending && (!preview || !previewRequest)) return
     setBusy(true)
     setError(null)
     setMessage(null)
     try {
-      const result = await applyBundle({
-        eventSlug,
-        targetPersonId,
-        bundleVersionId: preview.bundleVersionId,
-        bindings: previewRequest.bindings,
-        ...(previewRequest.validUntil !== undefined
-          ? { validUntil: previewRequest.validUntil }
-          : {}),
-        expectedAccessVersion: preview.expectedAccessVersion,
-        previewChecksum: preview.previewChecksum,
-        reason,
-        clientOperationId: crypto.randomUUID(),
+      const result = await operations.run('permission-bundle-apply', (clientOperationId) => {
+        if (!preview || !previewRequest) throw new Error('The access preview is no longer available.')
+        const command = {
+          eventSlug,
+          targetPersonId,
+          bundleVersionId: preview.bundleVersionId,
+          bindings: previewRequest.bindings,
+          ...(previewRequest.validUntil !== undefined
+            ? { validUntil: previewRequest.validUntil }
+            : {}),
+          expectedAccessVersion: preview.expectedAccessVersion,
+          previewChecksum: preview.previewChecksum,
+          reason,
+          clientOperationId,
+        }
+        return () => applyBundle(command)
       })
       setMessage(
-        `${result.createdCount} permission${result.createdCount === 1 ? '' : 's'} added from ${preview.bundleLabel}.`,
+        `${result.createdCount} permission${result.createdCount === 1 ? '' : 's'} added from ${preview?.bundleLabel ?? 'the access set'}.`,
       )
       setPreviewRequest(null)
       setReason('')
@@ -125,6 +135,7 @@ export function PermissionBundleApplication({
         </p>
       </div>
       <form className="bundle-application-form" onSubmit={requestPreview}>
+        <fieldset disabled={busy || applyPending} style={{ display: 'contents' }}>
         <label className="field">
           <span>Access set</span>
           <select value={selectedVersionId ?? ''} onChange={(event) => chooseBundle(event.target.value)}>
@@ -169,39 +180,44 @@ export function PermissionBundleApplication({
         >
           Review permissions
         </button>
+        </fieldset>
       </form>
 
       {previewRequest && preview === undefined ? <p className="muted">Preparing access…</p> : null}
-      {preview ? (
+      {preview || applyPending ? (
         <div className="bundle-application-preview">
-          <div>
-            <strong>{preview.bundleLabel}</strong>
-            <span>
-              {preview.grants.length} permissions · {preview.grants.filter((grant) => grant.alreadyEffective).length} already available another way
-            </span>
-          </div>
-          <ol>
-            {preview.grants.map((grant, index) => (
-              <li key={`${grant.permissionKey}:${grant.scopeType}:${grant.scopeId ?? 'event'}:${index}`}>
-                <span>{permissionName(grant.permissionKey)}</span>
-                <small>
-                  {scopeName(grant.scopeType)}
-                  {grant.alreadyEffective ? ' · already available' : ''}
-                </small>
-              </li>
-            ))}
-          </ol>
+          {preview ? (
+            <>
+              <div>
+                <strong>{preview.bundleLabel}</strong>
+                <span>
+                  {preview.grants.length} permissions · {preview.grants.filter((grant) => grant.alreadyEffective).length} already available another way
+                </span>
+              </div>
+              <ol>
+                {preview.grants.map((grant, index) => (
+                  <li key={`${grant.permissionKey}:${grant.scopeType}:${grant.scopeId ?? 'event'}:${index}`}>
+                    <span>{permissionName(grant.permissionKey)}</span>
+                    <small>
+                      {scopeName(grant.scopeType)}
+                      {grant.alreadyEffective ? ' · already available' : ''}
+                    </small>
+                  </li>
+                ))}
+              </ol>
+            </>
+          ) : <p className="notice">Confirm the earlier access update before making another change.</p>}
           <label className="field">
             <span>Why this person needs it</span>
-            <textarea required value={reason} onChange={(event) => setReason(event.target.value)} />
+            <textarea required disabled={busy || applyPending} value={reason} onChange={(event) => setReason(event.target.value)} />
           </label>
           <button
             className="primary"
             type="button"
-            disabled={busy || reason.trim().length < 5}
+            disabled={busy || (!applyPending && reason.trim().length < 5)}
             onClick={() => void apply()}
           >
-            {busy ? 'Adding…' : 'Add this access'}
+            {busy ? 'Adding…' : applyPending ? 'Confirm earlier access update' : 'Add this access'}
           </button>
           <small className="muted">You may be asked to sign in again before this access change.</small>
         </div>

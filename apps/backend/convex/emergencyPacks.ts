@@ -17,6 +17,7 @@ import {
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
+import { appendEmergencyPackReadFactById } from "./lib/operationsAutonomyReadFacts/incidentReadiness";
 import { exportWorkpool } from "./workpools";
 
 const maximumRosterRows = 1_200;
@@ -530,6 +531,7 @@ export const generationFinished = exportWorkpool.defineOnComplete<
       failureCode: result.kind === "canceled" ? "generation_canceled" : "generation_failed",
       version: pack.version + 1,
     });
+    await appendEmergencyPackReadFactById(ctx, pack._id, now);
   },
 });
 
@@ -607,6 +609,7 @@ export const request = mutation({
       requestedAt,
       version: 1,
     });
+    await appendEmergencyPackReadFactById(ctx, packId, requestedAt);
     const workId = await exportWorkpool.enqueueAction(
       ctx,
       internal.emergencyPackActions.generate,
@@ -774,6 +777,7 @@ export const complete = internalMutation({
         failureCode: "expired_before_completion",
         version: pack.version + 1,
       });
+      await appendEmergencyPackReadFactById(ctx, pack._id, now);
       return null;
     }
     await ctx.db.patch(pack._id, {
@@ -790,6 +794,7 @@ export const complete = internalMutation({
       completedAt: now,
       version: pack.version + 1,
     });
+    await appendEmergencyPackReadFactById(ctx, pack._id, now);
     return null;
   },
 });

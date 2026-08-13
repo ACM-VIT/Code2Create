@@ -3,7 +3,8 @@ import { useMutation } from 'convex/react'
 import { useState, type FormEvent } from 'react'
 import { ErrorNotice } from '../components/Form'
 import { eventSlug } from '../lib/config'
-import { operationId, readableError } from '../lib/errors'
+import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 import type { ParticipantMe } from '../types'
 
 export function PolicyConsentScreen({ me }: { me: ParticipantMe }) {
@@ -12,18 +13,20 @@ export function PolicyConsentScreen({ me }: { me: ParticipantMe }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const policy = me.participantPolicy.policy
+  const operations = useOperationRunner()
+  const acceptPending = operations.hasPending('participant-policy-accept')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      await acceptPolicy({
-        eventSlug,
-        participantPolicyVersionId: me.participantPolicy.id,
-        accepted,
-        clientOperationId: operationId('participant-policy-accept'),
-      })
+      await operations.run('participant-policy-accept', (clientOperationId) => () => acceptPolicy({
+          eventSlug,
+          participantPolicyVersionId: me.participantPolicy.id,
+          accepted,
+          clientOperationId,
+        }))
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -46,14 +49,15 @@ export function PolicyConsentScreen({ me }: { me: ParticipantMe }) {
             <input
               type="checkbox"
               checked={accepted}
+              disabled={busy || acceptPending}
               onChange={(event) => setAccepted(event.target.checked)}
             />
             <span>I accept the participant policy.</span>
           </label>
           <ErrorNotice message={error} />
           <div className="form-actions">
-            <button type="submit" className="primary" disabled={busy || !accepted}>
-              {busy ? 'Saving…' : 'Accept and continue'}
+            <button type="submit" className="primary" disabled={busy || (!acceptPending && !accepted)}>
+              {busy ? 'Saving…' : acceptPending ? 'Confirm earlier acceptance' : 'Accept and continue'}
             </button>
           </div>
         </form>

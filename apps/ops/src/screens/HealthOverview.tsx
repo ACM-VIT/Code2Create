@@ -9,69 +9,18 @@ import type { FunctionReturnType } from 'convex/server'
 
 import { Icon, type IconName } from '../components/Icon'
 import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
 
-const refreshIntervalMs = 30_000
-
-/**
- * Health signals whose subjects the named rows above now report concretely.
- * Showing the aggregate count as well would state one problem twice.
- */
 const attentionCoveredSignalKeys = ['panels_needing_reviewer', 'overdue_reviews']
 
 type AttentionRow = FunctionReturnType<typeof api.operationsAttention.overview>['rows'][number]
 
-function currentRefreshBucket() {
-  return Math.floor(Date.now() / refreshIntervalMs)
-}
-
-type HealthOverviewProps = {
-  canGenerateIntelligence: boolean
-  canReadIntelligence: boolean
-  canManageAttention: boolean
-}
-
-export function HealthOverview({
-  canGenerateIntelligence,
-  canReadIntelligence,
-  canManageAttention,
-}: HealthOverviewProps) {
-  const [refreshBucket, setRefreshBucket] = useState(currentRefreshBucket)
-
-  useEffect(() => {
-    const interval = setInterval(() => setRefreshBucket(currentRefreshBucket()), refreshIntervalMs)
-    return () => clearInterval(interval)
-  }, [])
-
-  const overview = useQuery(api.operationsHealth.overview, { eventSlug, refreshBucket })
-  const brief = useQuery(
-    api.operationsIntelligence.latest,
-    canReadIntelligence ? { eventSlug } : 'skip',
-  )
-  const requestBrief = useMutation(api.operationsIntelligence.request)
-  const operationRef = useRef<string | null>(null)
-  const [requestingBrief, setRequestingBrief] = useState(false)
-  const [briefError, setBriefError] = useState<string | null>(null)
-
-  async function generateBrief() {
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
-    setRequestingBrief(true)
-    setBriefError(null)
-    try {
-      await requestBrief({ eventSlug, clientOperationId })
-      operationRef.current = null
-    } catch (error) {
-      setBriefError(error instanceof Error ? error.message : 'Could not request the brief.')
-    } finally {
-      setRequestingBrief(false)
-    }
-  }
-
-  if (overview === undefined) {
+export function HealthOverview({ canManageAttention }: { canManageAttention: boolean }) {
+  const health = useQuery(api.operationsHealth.overview, { eventSlug })
+  if (health === undefined) {
     return (
       <section className="health-shell">
         <LoadingLabel>Loading the event overview</LoadingLabel>
@@ -80,12 +29,37 @@ export function HealthOverview({
       </section>
     )
   }
+  if (health.state !== 'ready') {
+    return (
+      <section className="health-shell">
+        <header className="health-heading">
+          <div>
+            <p className="eyebrow">Event operations</p>
+            <h1>Overview</h1>
+          </div>
+        </header>
+        <StageBlock />
+        <AttentionSection canManageAttention={canManageAttention} />
+        <section className="attention-section">
+          <div className="section-heading"><h2>System checks</h2></div>
+          <div className="health-empty">
+            <strong>
+              {health.state === 'missing' ? 'System checks are starting.' : 'System checks are delayed.'}
+            </strong>
+            <span>
+              {health.state === 'missing'
+                ? 'The first event-wide check has not completed yet.'
+                : `The last complete check was ${formatDateTime(health.lastGeneratedAt)}.`}
+            </span>
+          </div>
+        </section>
+      </section>
+    )
+  }
+  const overview = health.snapshot
   const systemSignals = overview.signals.filter(
     (signal) => !attentionCoveredSignalKeys.some((covered) => covered === signal.key),
   )
-  const briefInProgress = brief?.state === 'pending' || brief?.state === 'dispatching' || brief?.state === 'accepted'
-  const briefExpired = brief?.relevanceExpiresAt !== undefined && Date.now() >= brief.relevanceExpiresAt
-
   return (
     <section className="health-shell">
       <header className="health-heading">
@@ -135,79 +109,10 @@ export function HealthOverview({
         )}
       </section>
 
-      {canReadIntelligence || canGenerateIntelligence ? (
-        <section className="intelligence-brief" aria-labelledby="intelligence-brief-heading">
-          <div className="intelligence-brief-heading">
-            <div>
-              <h2 id="intelligence-brief-heading">Operations brief</h2>
-              <p className="muted">Current issues, owners, and next actions.</p>
-            </div>
-            {canGenerateIntelligence ? (
-              <button
-                type="button"
-                className="secondary"
-                disabled={requestingBrief || briefInProgress}
-                onClick={() => void generateBrief()}
-              >
-                {requestingBrief || briefInProgress ? 'Preparing…' : brief ? 'Refresh' : 'Prepare brief'}
-              </button>
-            ) : null}
-          </div>
-          {briefError ? <p className="notice error">{briefError}</p> : null}
-          {canReadIntelligence ? (
-            brief === undefined ? (
-              <p className="muted">Loading the latest brief…</p>
-            ) : brief === null ? (
-              <p className="muted">No brief has been prepared yet.</p>
-            ) : brief.state === 'succeeded' ? (
-              <div className="intelligence-brief-result">
-                <p className="eyebrow">
-                  {brief.origin === 'automation' ? 'Prepared automatically' : 'Requested by an operator'} · Source checked {brief.sourceGeneratedAt ? formatDateTime(brief.sourceGeneratedAt) : 'recently'}
-                </p>
-                {briefExpired ? <p className="notice">This brief is outside its relevance window.</p> : null}
-                <h3>{brief.headline}</h3>
-                <p>{brief.summary}</p>
-                {brief.accountableOwner ? <p className="intelligence-owner">Accountable owner: {brief.accountableOwner}</p> : null}
-                {brief.priorities.length > 0 ? (
-                  <ol className="intelligence-priorities">
-                    {brief.priorities.map((priority) => (
-                      <li key={priority.signalKeys.join(':')}>
-                        <span className="health-severity">{severityLabel(priority.severity)}</span>
-                        <h4>{priority.title}</h4>
-                        <p>{priority.why}</p>
-                        <dl className="health-action">
-                          <div><dt>Owner</dt><dd>{priority.owner}</dd></div>
-                          <div><dt>Next</dt><dd>{priority.nextAction}</dd></div>
-                        </dl>
-                      </li>
-                    ))}
-                  </ol>
-                ) : null}
-              </div>
-            ) : brief.state === 'failed' ? (
-              <p className="muted">The brief could not be prepared.</p>
-            ) : (
-              <p className="muted">Preparing from a frozen copy of the current health signals…</p>
-            )
-          ) : (
-            <p className="muted">You can request a brief but not read the result.</p>
-          )}
-        </section>
-      ) : null}
-
     </section>
   )
 }
 
-/**
- * The open work, read from the durable attention ledger.
- *
- * This list used to be recomputed inside the page query, so it had no memory:
- * a row could not be picked up, a problem that had cleared left no trace, and
- * the same condition looked new on every refresh. Each row now carries how long
- * it has been open, whether this is the first time tonight, and whether
- * somebody has it.
- */
 function AttentionSection({ canManageAttention }: { canManageAttention: boolean }) {
   const attention = useQuery(api.operationsAttention.overview, { eventSlug })
   const acknowledge = useMutation(api.operationsAttention.acknowledge)
@@ -233,8 +138,8 @@ function AttentionSection({ canManageAttention }: { canManageAttention: boolean 
         {attention && attention.rows.length > 0 ? (
           <span>
             {attention.summary.acknowledgedCount > 0
-              ? `${attention.rows.length}, ${attention.summary.acknowledgedCount} picked up`
-              : attention.rows.length}
+              ? `${attention.rows.length}${attention.summary.hasMore ? '+' : ''}, ${attention.summary.acknowledgedCount} picked up`
+              : `${attention.rows.length}${attention.summary.hasMore ? '+' : ''}`}
           </span>
         ) : null}
       </div>
@@ -281,13 +186,17 @@ function AttentionSection({ canManageAttention }: { canManageAttention: boolean 
               </span>
             </article>
           ))}
+          {attention.summary.hasMore ? (
+            <p className="notice">
+              Showing the {attention.summary.limit} highest-priority items. More remain in the ledger.
+            </p>
+          ) : null}
         </div>
       )}
     </section>
   )
 }
 
-/** How long it has been open, whether it has happened before, and who has it. */
 function rowMeta(row: {
   firstObservedAt: number
   recurrenceCount: number
@@ -308,13 +217,6 @@ function ordinal(value: number) {
   return `${value}th`
 }
 
-/**
- * Where the event is, and what stands between it and the next step.
- *
- * The backend already computes exactly what is missing before each transition;
- * until now nothing showed it, so an operator faced twelve settings with no way
- * to tell which were required, which were optional, and whether they were done.
- */
 function StageBlock() {
   const lifecycle = useQuery(api.eventLifecycle.current, { eventSlug })
   if (lifecycle === undefined) return null
@@ -368,12 +270,6 @@ function severityIcon(value: 'watch' | 'attention' | 'critical'): IconName {
   if (value === 'critical') return 'alert'
   if (value === 'attention') return 'clock'
   return 'pause'
-}
-
-function severityLabel(value: 'watch' | 'attention' | 'critical') {
-  if (value === 'attention') return 'Needs attention'
-  if (value === 'critical') return 'Critical'
-  return 'Watch'
 }
 
 function formatTime(value: number) {

@@ -1,43 +1,23 @@
 import { api } from '@code2create/backend/api'
-import { Button, Gauge, Host, Text as NativeText } from '@expo/ui/swift-ui'
-import {
-  buttonStyle,
-  controlSize,
-  font,
-  disabled as disabledModifier,
-  foregroundStyle,
-  frame,
-  gaugeStyle,
-  scaleEffect,
-  tint,
-} from '@expo/ui/swift-ui/modifiers'
 import { useMutation } from 'convex/react'
 import { randomUUID } from 'expo-crypto'
 
 import { startPagerAlarm, stopPagerAlarm } from '@/lib/pager-alarm'
 import type { FunctionReturnType } from 'convex/server'
 import { useEffect, useRef, useState } from 'react'
-import { Dimensions, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import Svg, { Circle } from 'react-native-svg'
 
+import { Action, ErrorSheet, QuietAction } from '@/components/ui'
 import { describeError } from '@/lib/errors'
+import { useMutationAttempt } from '@/lib/mutation-attempt'
 import { palette, radius, type } from '@/theme'
 
 export type SubstitutePage = NonNullable<
   FunctionReturnType<typeof api.reviewSubstitutions.currentPage>
 >
 
-/**
- * The pager.
- *
- * A substitute request is the one thing in this app that cannot wait for
- * someone to notice it. It takes the whole screen over whatever they were
- * doing, states the table and the clock, and offers two answers — because a
- * panel is sitting at a table unable to start until this person says yes or no.
- *
- * It deliberately looks like nothing else here: the rest of the app is calm and
- * dark, and this is not.
- */
 export function PagerAlert({
   eventSlug,
   installationId,
@@ -54,22 +34,18 @@ export function PagerAlert({
   const [busy, setBusy] = useState<'accept' | 'decline' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [openAttempt, setOpenAttempt] = useState(0)
-  const operationRef = useRef<{ response: 'accept' | 'decline'; id: string } | null>(null)
+  const responseAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewSubstitutions.respondToPage>>()
+  const [pendingResponse, setPendingResponse] = useState<'accept' | 'decline' | null>(null)
+  const responsePending = responseAttempt.hasPending(`page-response:${page.id}`)
   const openedPageRef = useRef<string | null>(null)
   const remaining = useSecondsRemaining(page.expiresAt, page.serverNow)
 
   const total = Math.max(1, Math.round((page.expiresAt - page.sentAt) / 1_000))
   const fraction = Math.max(0, Math.min(1, remaining / total))
-  // The ring turns as the window closes, so the colour alone answers "how long
-  // have I got" from across a room.
   const urgent = remaining <= 15
   const accent = urgent ? palette.urgent : palette.judging
   const expired = remaining === 0
 
-  /* A page that has arrived and not been answered keeps buzzing. Answering it
-     takes this screen away, so unmount is the stop — which also covers the
-     page being answered somewhere else, rather than leaving this phone
-     shaking in somebody's pocket over a seat that is already filled. */
   useEffect(() => {
     if (expired) {
       stopPagerAlarm()
@@ -79,8 +55,6 @@ export function PagerAlert({
     return stopPagerAlarm
   }, [expired])
 
-  // Acknowledging arrival is the app's job, not the reviewer's — the panel
-  // needs to know the phone woke up even if nobody has decided yet.
   useEffect(() => {
     if (page.state !== 'sent' || openedPageRef.current === page.id) return
     openedPageRef.current = page.id
@@ -90,15 +64,9 @@ export function PagerAlert({
     })
   }, [eventSlug, openAttempt, openPage, page.id, page.state, page.version])
 
-  const operationId = (response: 'accept' | 'decline') => {
-    if (operationRef.current?.response === response) return operationRef.current.id
-    const id = randomUUID()
-    operationRef.current = { response, id }
-    return id
-  }
-
   const respond = async (response: 'accept' | 'decline') => {
     if (page.state !== 'opened' || busy !== null || expired) return
+    if (pendingResponse !== null && pendingResponse !== response) return
     if (response === 'decline' && reason.trim().length < 3) return
     if (installationId === undefined) {
       setError('Register this phone before answering.')
@@ -106,25 +74,31 @@ export function PagerAlert({
     }
     setBusy(response)
     setError(null)
+    if (!responsePending) setPendingResponse(response)
     try {
-      await respondToPage({
-        eventSlug,
-        pageId: page.id,
-        response,
-        ...(response === 'decline' ? { reason } : {}),
-        installationId,
-        expectedVersion: page.version,
-        clientOperationId: operationId(response),
+      await responseAttempt.run(`page-response:${page.id}`, () => {
+        const args = {
+          eventSlug,
+          pageId: page.id,
+          response,
+          ...(response === 'decline' ? { reason } : {}),
+          installationId,
+          expectedVersion: page.version,
+          clientOperationId: randomUUID(),
+        }
+        return () => respondToPage(args)
       })
-      operationRef.current = null
+      setPendingResponse(null)
+      stopPagerAlarm()
     } catch (caught) {
+      if (!responseAttempt.hasPending(`page-response:${page.id}`)) setPendingResponse(null)
       setError(errorMessage(caught, 'The answer could not be saved.'))
     } finally {
       setBusy(null)
     }
   }
 
-  const answerable = page.state === 'opened' && !expired && busy === null
+  const answerable = page.state === 'opened' && !expired && busy === null && pendingResponse === null
 
   const destination = page.team?.tableLabel ?? page.team?.name ?? page.panel.name
   const beneath = page.team
@@ -135,78 +109,66 @@ export function PagerAlert({
     <Modal animationType="fade" statusBarTranslucent transparent={false} visible>
       <View style={styles.root}>
         <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
-          <View style={[styles.stripe, { backgroundColor: accent }]} />
-
-          <Text style={[styles.eyebrow, { color: accent }]}>
-            {expired ? 'REQUEST EXPIRED' : 'YOU ARE NEEDED'}
-          </Text>
-
-          <View style={styles.middle}>
-          {/* A native circular gauge: the ring drains, and the seconds sit in
-              the middle of it, in the platform's own monospaced digits. */}
-          <Host style={styles.ring}>
-            <Gauge
-              max={1}
-              min={0}
-              value={fraction}
-              currentValueLabel={
-                <NativeText
-                  modifiers={[
-                    font({ size: 64, weight: 'semibold', design: 'rounded' }),
-                    foregroundStyle(accent),
-                  ]}
-                >
-                  {countdownLabel(remaining)}
-                </NativeText>
-              }
-              // The gauge draws at its label's size, so it is scaled up rather
-              // than framed — a frame only crops it.
-              modifiers={[gaugeStyle('circular'), tint(accent), scaleEffect(2.1)]}
-            />
-          </Host>
-
-          {/* Largest is wherever the person has to walk. A panel walks to the
-              team, so the team's table is the real destination; without one the
-              team's name is the next most useful thing to shout, and a page
-              raised before a session exists can only name the seat. */}
-          <Text style={styles.table}>{destination}</Text>
-          <Text style={styles.where}>{beneath}</Text>
-          {page.team?.tableLabel ? <Text style={styles.team}>{page.team.name}</Text> : null}
-
-          <Text style={styles.reason}>{page.reason}</Text>
-          {page.criteria.length > 0 ? (
-            <Text style={styles.criteria}>
-              You would score {page.criteria.map((criterion) => criterion.label).join(', ')}
-            </Text>
-          ) : null}
-
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <View style={styles.eyebrowRow}>
+            <View style={[styles.eyebrowPill, { backgroundColor: `${accent}1F` }]}>
+              <View style={[styles.eyebrowDot, { backgroundColor: accent }]} />
+              <Text style={[styles.eyebrow, { color: accent }]}>
+                {expired ? 'Request expired' : 'You are needed'}
+              </Text>
+            </View>
           </View>
+
+          <ScrollView
+            contentContainerStyle={styles.middleContent}
+            showsVerticalScrollIndicator={false}
+            style={styles.middle}
+          >
+          <CountdownRing accent={accent} fraction={fraction} label={countdownLabel(remaining)} />
+
+          <Text numberOfLines={1} style={styles.table}>{destination}</Text>
+          <Text numberOfLines={1} style={styles.where}>{beneath}</Text>
+
+          <View style={styles.detail}>
+            {page.team?.tableLabel ? (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Team</Text>
+                <Text numberOfLines={1} style={styles.detailValue}>{page.team.name}</Text>
+              </View>
+            ) : null}
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Why</Text>
+              <Text style={styles.detailValue}>{page.reason}</Text>
+            </View>
+            {page.criteria.length > 0 ? (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>You score</Text>
+                <Text style={styles.detailValue}>
+                  {page.criteria.map((criterion) => criterion.label).join(', ')}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          </ScrollView>
 
           <View style={styles.answers}>
             {page.state === 'sent' && !expired ? (
-              <Pressable
-                accessibilityRole="button"
+              <QuietAction
                 disabled={error === null}
+                label={error ? 'Try again' : 'Connecting to the panel…'}
                 onPress={() => {
                   setError(null)
                   setOpenAttempt((current) => current + 1)
                 }}
-                style={styles.retry}
-              >
-                <Text style={styles.retryText}>
-                  {error ? 'Try again' : 'Connecting to the panel…'}
-                </Text>
-              </Pressable>
+              />
             ) : declining ? (
               <>
                 <Text style={styles.label}>Why not? The coordinator sees this.</Text>
                 <TextInput
                   autoFocus
-                  editable={busy === null}
+                  editable={busy === null && !responsePending}
                   onChangeText={(value) => {
                     setReason(value)
-                    operationRef.current = null
                     setError(null)
                   }}
                   placeholder="Stepping away now"
@@ -214,78 +176,45 @@ export function PagerAlert({
                   style={styles.input}
                   value={reason}
                 />
-                <Host style={styles.control}>
-                  <Button
-                    modifiers={[
-                      buttonStyle('borderedProminent'),
-                      controlSize('extraLarge'),
-                      tint(palette.urgent),
-                      disabledModifier(busy !== null || reason.trim().length < 3),
-                    ]}
-                    role="destructive"
-                    onPress={() => void respond('decline')}
-                  >
-                    <NativeText modifiers={[frame({ width: controlWidth, height: 30 }), font({ size: 19, weight: 'semibold' })]}>
-                      {busy === 'decline' ? 'Sending…' : 'Send'}
-                    </NativeText>
-                  </Button>
-                </Host>
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={busy !== null}
+                <Action
+                  destructive
+                  disabled={busy !== null || reason.trim().length < 3 || pendingResponse === 'accept'}
+                  label={busy === 'decline' ? 'Sending…' : pendingResponse === 'decline' ? 'Confirm earlier decline' : 'Send'}
+                  onPress={() => respond('decline')}
+                />
+                <QuietAction
+                  disabled={busy !== null || responsePending}
+                  label="Back"
                   onPress={() => {
-                    operationRef.current = null
                     setDeclining(false)
                   }}
-                  style={styles.retry}
-                >
-                  <Text style={styles.retryText}>Back</Text>
-                </Pressable>
+                />
               </>
             ) : (
               <>
-                <Host style={styles.control}>
-                  <Button
-                    modifiers={[
-                      buttonStyle('borderedProminent'),
-                      controlSize('extraLarge'),
-                      tint(palette.judging),
-                      disabledModifier(!answerable),
-                    ]}
-                    onPress={() => void respond('accept')}
-                  >
-                    <NativeText modifiers={[frame({ width: controlWidth, height: 30 }), font({ size: 19, weight: 'semibold' })]}>
-                      {busy === 'accept' ? 'Accepting…' : "I'll take it"}
-                    </NativeText>
-                  </Button>
-                </Host>
-                <Pressable
-                  accessibilityRole="button"
+                <Action
+                  accent={palette.judging}
+                  disabled={!answerable && pendingResponse !== 'accept'}
+                  label={busy === 'accept' ? 'Accepting…' : pendingResponse === 'accept' ? 'Confirm earlier acceptance' : "I'll take it"}
+                  onPress={() => respond('accept')}
+                />
+                <QuietAction
                   disabled={!answerable}
+                  label={expired ? 'The panel has moved on' : "I can't"}
                   onPress={() => setDeclining(true)}
-                  style={styles.retry}
-                >
-                  <Text style={styles.retryText}>
-                    {expired ? 'The panel has moved on' : "I can't"}
-                  </Text>
-                </Pressable>
+                />
               </>
             )}
           </View>
         </SafeAreaView>
+
+        <ErrorSheet message={error} onClose={() => setError(null)} />
       </View>
     </Modal>
   )
 }
 
-/**
- * Counts down against the server's clock, carried forward by the device's own
- * elapsed time between updates rather than its wall clock.
- */
 function useSecondsRemaining(expiresAt: number, serverNow: number) {
-  // The device's wall clock is only ever read as a delta between ticks, never
-  // as an absolute, so a phone set to the wrong date still counts down right.
-  // A newer server clock only ever moves the estimate forward.
   const [estimated, setEstimated] = useState(serverNow)
   useEffect(() => {
     const observedAt = Date.now()
@@ -305,24 +234,98 @@ function errorMessage(caught: unknown, fallback: string) {
   return describeError(caught, fallback)
 }
 
+function CountdownRing({
+  accent,
+  fraction,
+  label,
+}: {
+  accent: string
+  fraction: number
+  label: string
+}) {
+  const filled = Math.max(0, Math.min(1, fraction))
+  const radiusPx = (ringSize - ringStroke) / 2
+  const circumference = 2 * Math.PI * radiusPx
+  return (
+    <View style={styles.ring}>
+      <Svg height={ringSize} width={ringSize}>
+        <Circle
+          cx={ringSize / 2}
+          cy={ringSize / 2}
+          fill="none"
+          r={radiusPx}
+          stroke={palette.strong}
+          strokeWidth={ringStroke}
+        />
+        <Circle
+          cx={ringSize / 2}
+          cy={ringSize / 2}
+          fill="none"
+          r={radiusPx}
+          stroke={accent}
+          strokeDasharray={`${circumference} ${circumference}`}
+          strokeDashoffset={circumference * (1 - filled)}
+          strokeLinecap="round"
+          strokeWidth={ringStroke}
+          transform={`rotate(-90 ${ringSize / 2} ${ringSize / 2})`}
+        />
+      </Svg>
+      <View style={styles.ringCentre} pointerEvents="none">
+        <Text allowFontScaling={false} style={[styles.ringLabel, { color: accent }]}>
+          {label}
+        </Text>
+      </View>
+    </View>
+  )
+}
+
 const screenPadding = 24
-const controlWidth = Dimensions.get('window').width - screenPadding * 2
+const ringSize = 176
+const ringStroke = 12
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#121213' },
   safe: { flex: 1, paddingHorizontal: screenPadding, alignItems: 'center' },
 
-  /* A colour bar across the very top. Peripheral vision catches it before
-     anyone has read a word. */
-  stripe: { height: 5, alignSelf: 'stretch', marginHorizontal: -screenPadding },
+  eyebrowRow: { marginTop: 22, alignSelf: 'stretch', alignItems: 'center' },
+  eyebrowPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: radius.control,
+  },
+  eyebrowDot: { width: 8, height: 8, borderRadius: 4 },
+  eyebrow: { fontSize: 15, fontWeight: '600', letterSpacing: 0.2 },
+  middle: { flex: 1, alignSelf: 'stretch' },
+  middleContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 8 },
+  ring: { width: ringSize, height: ringSize, alignItems: 'center', justifyContent: 'center' },
+  ringCentre: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ringLabel: { fontSize: 46, fontWeight: '600', letterSpacing: -1.5, fontVariant: ['tabular-nums'] },
 
-  eyebrow: { marginTop: 26, fontSize: 13, fontWeight: '700', letterSpacing: 1.6 },
-  middle: { flex: 1, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' },
-  ring: { height: 200, alignSelf: 'stretch' },
+  table: { marginTop: 24, color: palette.text, fontSize: 38, fontWeight: '700', letterSpacing: -1 },
+  where: { marginTop: 6, color: palette.muted, fontSize: 16 },
 
-  table: { marginTop: 30, color: palette.text, fontSize: 40, fontWeight: '600', letterSpacing: -1 },
-  where: { marginTop: 4, color: palette.muted, fontSize: 16 },
-  team: { marginTop: 12, color: palette.text, fontSize: 20, fontWeight: '500' },
+  detail: {
+    marginTop: 20,
+    alignSelf: 'stretch',
+    gap: 12,
+    padding: 18,
+    borderRadius: radius.tile,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  detailRow: { flexDirection: 'row', gap: 14, alignItems: 'flex-start' },
+  detailLabel: { width: 88, color: palette.faint, fontSize: 15 },
+  detailValue: { flex: 1, color: palette.text, fontSize: 16, lineHeight: 22 },
 
   reason: {
     marginTop: 18,
@@ -332,10 +335,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   criteria: { marginTop: 8, color: palette.muted, fontSize: 15, textAlign: 'center' },
-  error: { marginTop: 14, color: palette.urgent, fontSize: 15, textAlign: 'center' },
 
-  /* Answers sit on the bottom edge, where a thumb already is. */
-  answers: { alignSelf: 'stretch', paddingBottom: 8 },
+  answers: { alignSelf: 'stretch', paddingTop: 14, paddingBottom: 8 },
   control: { alignSelf: 'stretch', height: 66 },
   label: { color: palette.muted, ...type.small, marginBottom: 8 },
   input: {
@@ -347,6 +348,4 @@ const styles = StyleSheet.create({
     backgroundColor: palette.tile,
     borderRadius: radius.tile,
   },
-  retry: { marginTop: 14, alignItems: 'center', paddingVertical: 10 },
-  retryText: { color: palette.muted, fontSize: 17 },
 })

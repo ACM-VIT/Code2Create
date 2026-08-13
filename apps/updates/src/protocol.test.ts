@@ -7,6 +7,10 @@ import {
 import { describe, expect, test } from 'vitest'
 
 import {
+  maximumUpdateActivationBytes,
+  maximumUpdateAssetBytes,
+  maximumUpdateFutureSkewMs,
+  maximumUpdateReleaseBytes,
   noUpdateDirectiveSchema,
   rollbackDirectiveSchema,
   updateManifestSchema,
@@ -14,7 +18,6 @@ import {
 import { handleUpdateRequest } from './protocol.js'
 import type {
   ImmutableWriteResult,
-  StoredAsset,
   StoredText,
   UpdateStore,
 } from './store.js'
@@ -151,7 +154,58 @@ describe('Expo Updates protocol service', () => {
       parameters: { commitTime: createdAt },
     })
   })
+
+  test.each([
+    ['/admin/assets/' + 'a'.repeat(64), 'application/octet-stream', maximumUpdateAssetBytes],
+    ['/admin/releases/oversized', 'application/json', maximumUpdateReleaseBytes],
+    ['/admin/releases/oversized/activate', 'application/json', maximumUpdateActivationBytes],
+  ])('stops an undeclared oversized write to %s', async (path, contentType, maximumBytes) => {
+    const store = new MemoryUpdateStore()
+    const body = repeatedBody(maximumBytes + 1)
+    const response = await request(store, path, {
+      method: path.includes('/activate') ? 'POST' : 'PUT',
+      headers: { 'content-type': contentType },
+      body,
+    })
+
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({ error: 'Payload too large.' })
+  })
+
+  test('requires JSON media types for release and activation writes', async () => {
+    const store = new MemoryUpdateStore()
+    const release = await request(store, '/admin/releases/release-text', {
+      method: 'PUT',
+      headers: { 'content-type': 'text/plain' },
+      body: '{}',
+    })
+    const activation = await request(store, '/admin/releases/release-text/activate', {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: '{}',
+    })
+    expect(release.status).toBe(415)
+    expect(activation.status).toBe(415)
+  })
+
+  test('rejects a future-dated release before it can poison activation order', async () => {
+    const store = new MemoryUpdateStore()
+    const future = new Date(Date.now() + maximumUpdateFutureSkewMs + 60_000).toISOString()
+    const release = createRelease('future-release', future, [fixtureAsset('future')])
+    const response = await request(store, '/admin/releases/future-release', {
+      method: 'PUT',
+      body: JSON.stringify(release),
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: 'Release creation time is too far in the future.',
+    })
+  })
 })
+
+function repeatedBody(totalBytes: number) {
+  return 'a'.repeat(totalBytes)
+}
 
 async function uploadAndRegisterRelease(
   store: MemoryUpdateStore,
@@ -287,13 +341,17 @@ interface FixtureAsset {
 }
 
 class MemoryUpdateStore implements UpdateStore {
-  private readonly assets = new Map<string, StoredAsset>()
+  private readonly assets = new Map<string, { bytes: ArrayBuffer; contentType: string; sha256: string }>()
   private readonly releases = new Map<string, StoredText>()
   private readonly current = new Map<string, StoredText>()
   private nextEtag = 1
 
   async getAsset(key: string) {
-    return this.assets.get(key) ?? null
+    const asset = this.assets.get(key)
+    if (!asset) return null
+    const body = new Response(asset.bytes).body
+    if (!body) throw new Error('The fixture asset has no response body.')
+    return { body, contentType: asset.contentType, sha256: asset.sha256 }
   }
 
   async hasAsset(key: string) {

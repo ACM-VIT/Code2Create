@@ -34,11 +34,11 @@ import {
   noveltyCorpusChecksum,
 } from "./lib/novelty";
 import {
-  defaultOperationsIntelligencePolicy,
-  localDateKey,
-  normalizeOperationsIntelligencePolicy,
-  operationsIntelligencePolicyChecksum,
-} from "./lib/operationsIntelligencePolicy";
+  defaultOperationsAutonomyPolicy,
+  normalizeOperationsAutonomyPolicy,
+  operationsAutonomyPolicyChecksum,
+} from "./lib/operationsAutonomyPolicy";
+import { appendAttendanceStationReadFactById } from "./lib/operationsAutonomyReadFacts/attendanceOperations";
 import {
   localBrowserFixtureOrigins,
   requireLocalDeployment,
@@ -50,7 +50,8 @@ import {
 } from "./lib/participantPolicy";
 import {
   addEventSubjectSelfGrants,
-  insertPermissionGrant,
+  insertPermissionGrantGroup,
+  type PermissionGrantPlan,
 } from "./lib/permissions";
 import {
   normalizePhaseSchedule,
@@ -65,6 +66,7 @@ import {
   projectCheckpointPlanChecksum,
 } from "./lib/projectCheckpointPlan";
 import { fingerprintText } from "./lib/strings";
+import { normalizeTrackCatalog, trackCatalogChecksum } from "./lib/trackCatalog";
 
 const localTracks = [
   {
@@ -325,15 +327,35 @@ function localAttendanceSessions(eventStartsAt: number) {
   }));
 }
 
-const localAttendanceStations = [1, 2, 3].map((stationNumber) => ({
-  stableKey: `main_hall_scanner_${stationNumber}`,
-  name: `Main hall scanner ${stationNumber}`,
-  zoneKey: "main_hall",
-}));
+const localAttendanceStations = [
+  {
+    stableKey: "main_hall_entry",
+    name: "Main hall entry",
+    zoneKey: "main_hall",
+    mode: "venue_entry" as const,
+    allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"] as const,
+  },
+  {
+    stableKey: "main_hall_exit",
+    name: "Main hall exit",
+    zoneKey: "main_hall",
+    mode: "venue_exit" as const,
+    allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"] as const,
+  },
+  {
+    stableKey: "hacking_start_confirmation",
+    name: "Hacking start confirmation",
+    zoneKey: "main_hall",
+    mode: "session_confirm" as const,
+    sessionKey: "hacking_1",
+    allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"] as const,
+  },
+];
 
 export function localAttendancePlanContent(eventStartsAt: number) {
   return {
     name: "Code2Create hacking sessions",
+    // Accept only the Code 128 symbology used by VIT identity cards.
     vitBarcodeSymbologies: ["code128" as const],
     vitBarcodeNormalizationVersion: "trim-v1",
     offlineQueueMaxScans: 8,
@@ -355,15 +377,12 @@ export function localIntegrationPolicy(eventStartsAt: number) {
   };
 }
 
-// Anna Auditorium, which is where this runs: one flat floor of roughly
-// 15,436 sq ft with a stage at one end, green rooms beside it, and removable
-// chairs — so teams lay out on the floor rather than in fixed seating.
-// Nothing here is a table: participants drag those around all weekend.
+// Model Anna Auditorium as one flat floor with movable tables.
 const localFloorZones = [
   {
     stableKey: "anna_auditorium",
     name: "Anna Auditorium",
-    // 44 x 33 is 1,452 m², the published 15,436 sq ft to within a percent.
+    // Approximate the auditorium's published floor area.
     widthMeters: 44,
     depthMeters: 33,
     displayOrder: 0,
@@ -507,6 +526,7 @@ async function createLocalSession(
     authUserId: user._id,
     googleSubject: fixture.googleSubject,
     verifiedEmail: fixture.email,
+    displayName: fixture.name,
     ...(actor === "vitParticipant"
       ? { hostedDomain: localActors.vitParticipant.hostedDomain }
       : {}),
@@ -714,6 +734,13 @@ export const ensureSupremeAccess = internalMutation({
       personId: person._id,
       eventAccessSubjectId: subject._id,
     });
+    const supremeGrantPlans: PermissionGrantPlan[] = [
+      {
+        permissionKey: "reviewer.device.register",
+        scopeType: "self",
+        scopeId: subject._id,
+      },
+    ];
     for (const permissionKey of Object.keys(permissionCatalog)) {
       if (!isPermissionKey(permissionKey)) {
         throw new Error(`The permission catalog contains an invalid key: ${permissionKey}.`);
@@ -725,19 +752,22 @@ export const ensureSupremeAccess = internalMutation({
       ) {
         continue;
       }
-      const result = await insertPermissionGrant(ctx, {
-        eventId: event._id,
-        personId: person._id,
-        eventAccessSubjectId: subject._id,
+      supremeGrantPlans.push({
         permissionKey,
         scopeType: "event",
-        sourceType: "production_seed",
-        sourceId: `local-development:${event._id}`,
-        grantedByPersonId: person._id,
-        reason: "Local full-flow fixture",
       });
-      if (result.created) createdGrantCount += 1;
     }
+    const supremeGrants = await insertPermissionGrantGroup(ctx, {
+      eventId: event._id,
+      personId: person._id,
+      eventAccessSubjectId: subject._id,
+      sourceType: "production_seed",
+      sourceId: `local-development:${event._id}`,
+      grantedByPersonId: person._id,
+      reason: "Local full-flow fixture",
+      grants: supremeGrantPlans,
+    });
+    createdGrantCount += supremeGrants.createdCount;
     if (createdGrantCount > 0) {
       await ctx.db.patch("eventAccessSubjects", subject._id, {
         accessVersion: subject.accessVersion + 1,
@@ -835,8 +865,14 @@ export const seedEvent = mutation({
       existingEvent.publishedAttendancePlanVersionId &&
       existingEvent.publishedFloorPlanVersionId &&
       existingEvent.publishedIntegrationPolicyId &&
-      existingEvent.publishedOperationsIntelligencePolicyId
+      (await ctx.db
+        .query("operationsAutonomyPolicyVersions")
+        .withIndex("by_event_status", (index) =>
+          index.eq("eventId", existingEvent._id).eq("status", "published"),
+        )
+        .unique())
     ) {
+      await ctx.scheduler.runAfter(0, internal.operationsHealth.refresh, {});
       return {
         eventId: existingEvent._id,
         catalogVersionId: existingEvent.publishedTrackCatalogId,
@@ -882,29 +918,43 @@ export const seedEvent = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    const seedSubjectId = await ctx.db.insert("eventAccessSubjects", {
+      eventId,
+      personId: seedPerson._id,
+      emailNormalized: seedPerson.verifiedEmail,
+      displayName: seedPerson.displayName,
+      status: "active",
+      linkedBy: "access_invitation",
+      accessVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
 
+    const localTrackCatalog = normalizeTrackCatalog(
+      localTracks.length,
+      localTracks.map((track, displayOrder) => ({
+        ...track,
+        examples: [...track.examples],
+        displayOrder,
+        type: "core" as const,
+      })),
+    );
     const catalogVersionId = await ctx.db.insert("trackCatalogVersions", {
       eventId,
       version: 1,
       status: "published",
-      requiredCoreTrackCount: localTracks.length,
-      checksum: "local-development-v1",
+      requiredCoreTrackCount: localTrackCatalog.length,
+      checksum: trackCatalogChecksum(localTrackCatalog.length, localTrackCatalog),
       createdByPersonId: seedPerson._id,
       createdAt: now,
       publishedAt: now,
     });
 
-    for (const [displayOrder, track] of localTracks.entries()) {
+    for (const track of localTrackCatalog) {
       await ctx.db.insert("trackVersions", {
         eventId,
         catalogVersionId,
-        stableKey: track.stableKey,
-        slug: track.slug,
-        displayName: track.displayName,
-        description: track.description,
-        examples: [...track.examples],
-        displayOrder,
-        type: "core",
+        ...track,
         status: "published",
         createdAt: now,
       });
@@ -1122,17 +1172,28 @@ export const seedEvent = mutation({
     for (const station of localAttendanceStations) {
       const zoneId = attendanceZoneIds.get(station.zoneKey);
       if (!zoneId) throw new Error("The local attendance station has no zone.");
-      await ctx.db.insert("attendanceStations", {
+      const sessionKey = "sessionKey" in station ? station.sessionKey : undefined;
+      const sessionId = sessionKey !== undefined
+        ? attendanceSessionIds.get(sessionKey)
+        : undefined;
+      if (sessionKey !== undefined && sessionId === undefined) {
+        throw new Error("The local attendance station has no session.");
+      }
+      const stationId = await ctx.db.insert("attendanceStations", {
         eventId,
         planVersionId: attendancePlanVersionId,
         zoneId,
+        ...(sessionId !== undefined ? { sessionId } : {}),
         stableKey: station.stableKey,
         name: station.name,
+        mode: station.mode,
+        allowedCredentialKinds: [...station.allowedCredentialKinds],
         status: "inactive",
         configurationVersion: 1,
         createdAt: now,
         updatedAt: now,
       });
+      await appendAttendanceStationReadFactById(ctx, stationId, now);
     }
     const floorPlanName = "Main hall layout";
     const floorPlanVersionId = await ctx.db.insert("floorPlanVersions", {
@@ -1187,30 +1248,31 @@ export const seedEvent = mutation({
       createdAt: now,
       publishedAt: now,
     });
-    const intelligencePolicy = normalizeOperationsIntelligencePolicy(
-      defaultOperationsIntelligencePolicy,
+    const autonomyPolicy = normalizeOperationsAutonomyPolicy(
+      defaultOperationsAutonomyPolicy(seedSubjectId),
     );
-    const intelligencePolicyVersionId = await ctx.db.insert(
-      "operationsIntelligencePolicyVersions",
-      {
-        eventId,
-        version: 1,
-        status: "published",
-        ...intelligencePolicy,
-        checksum: operationsIntelligencePolicyChecksum(intelligencePolicy),
-        createdByPersonId: seedPerson._id,
-        createdAt: now,
-        publishedAt: now,
-      },
-    );
-    await ctx.db.insert("operationsIntelligenceAutomationStates", {
+    const autonomyPolicyVersionId = await ctx.db.insert("operationsAutonomyPolicyVersions", {
       eventId,
-      policyVersionId: intelligencePolicyVersionId,
-      state: "disabled",
+      version: 1,
+      status: "published",
+      ...autonomyPolicy,
+      checksum: operationsAutonomyPolicyChecksum(autonomyPolicy),
+      createdByPersonId: seedPerson._id,
+      createdAt: now,
+      publishedAt: now,
+    });
+    await ctx.db.insert("operationsAutonomyStates", {
+      eventId,
+      policyVersionId: autonomyPolicyVersionId,
+      lifecycle: {
+        kind: "disabled",
+        disabledAt: now,
+        disabledByPersonId: seedPerson._id,
+        reason: "Autonomous operations start disabled.",
+      },
       nextEvaluationAt: now,
+      pendingWorkCount: 0,
       cycle: 1,
-      localBudgetDate: localDateKey(now, "Asia/Kolkata"),
-      briefsStartedToday: 0,
       version: 1,
       updatedAt: now,
     });
@@ -1226,10 +1288,10 @@ export const seedEvent = mutation({
       publishedAttendancePlanVersionId: attendancePlanVersionId,
       publishedFloorPlanVersionId: floorPlanVersionId,
       publishedIntegrationPolicyId: integrationPolicyVersionId,
-      publishedOperationsIntelligencePolicyId: intelligencePolicyVersionId,
       updatedAt: now,
     });
 
+    await ctx.scheduler.runAfter(0, internal.operationsHealth.refresh, {});
     return { eventId, catalogVersionId, created: true };
   },
 });

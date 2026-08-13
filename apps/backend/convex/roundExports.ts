@@ -30,6 +30,7 @@ import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions
 import { activeRoundPause } from "./lib/reviewRoundPauses";
 import { roundExportCsvRow } from "./lib/roundExportFormat";
 import { normalizedText } from "./lib/strings";
+import { appendRoundExportJobReadFactById } from "./lib/operationsAutonomyReadFacts/roundExportJobs";
 import { requireProjectTrackSelection } from "./lib/trackCatalog";
 import { exportWorkpool } from "./workpools";
 
@@ -358,6 +359,7 @@ export const generationFinished = exportWorkpool.defineOnComplete<
       version: exportRecord.version + 1,
       updatedAt: now,
     });
+    await appendRoundExportJobReadFactById(ctx, exportRecord._id, now);
   },
 });
 
@@ -687,6 +689,7 @@ export const start = mutation({
       version: 1,
       updatedAt: now,
     });
+    await appendRoundExportJobReadFactById(ctx, roundExportId, now);
     const workId = await exportWorkpool.enqueueAction(
       ctx,
       internal.roundExportActions.generate,
@@ -1097,8 +1100,7 @@ async function teamExportContext(
   ) {
     throw new Error("A close entry's review context no longer resolves.");
   }
-  // Panels walk to teams, so the archived location is the team's table for the
-  // round. It stays blank when the team was never mapped to one.
+  // Leave the archived location blank when the team had no mapped table.
   const exportTableLabel = (await teamRoundTableLabel(ctx, round._id, team._id)) ?? "";
   const teamCheckpointSubmission = evidence.teamCheckpointSubmissionId
     ? await ctx.db.get(evidence.teamCheckpointSubmissionId)
@@ -1546,6 +1548,7 @@ export const completeGeneration = internalMutation({
       version: exportRecord.version + 1,
       updatedAt: now,
     });
+    await appendRoundExportJobReadFactById(ctx, exportRecord._id, now);
     return null;
   },
 });
@@ -1626,6 +1629,7 @@ export const retry = mutation({
       version: nextVersion,
       updatedAt: now,
     });
+    await appendRoundExportJobReadFactById(ctx, exportRecord._id, now);
     const workId = await exportWorkpool.enqueueAction(
       ctx,
       internal.roundExportActions.generate,
@@ -1966,6 +1970,7 @@ export const completeVerification = internalMutation({
         version: round.version + 1,
       }),
     ]);
+    await appendRoundExportJobReadFactById(ctx, exportRecord._id, now);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -2117,6 +2122,7 @@ export const reopen = mutation({
         version: nextRoundVersion,
       }),
     ]);
+    await appendRoundExportJobReadFactById(ctx, exportRecord._id, now);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,

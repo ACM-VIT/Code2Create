@@ -4,43 +4,52 @@ import {
   supportCaseCategoryOrder,
   supportCaseStateLabels,
 } from '@code2create/domain'
-import type { FunctionArgs, FunctionReturnType } from 'convex/server'
+import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { randomUUID } from 'expo-crypto'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'expo-router'
-import { StyleSheet, Text, View } from 'react-native'
+import { Platform, StyleSheet, Text, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
   Action,
   Body,
   Card,
   ChipRow,
+  Lead,
   Field,
   Meta,
-  Nothing,
   Problem,
-  QuietAction,
+  Row,
   Section,
   Sheet,
-  Shell,
 } from '@/components/ui'
 import { describeError } from '@/lib/errors'
+import { useMutationAttempt } from '@/lib/mutation-attempt'
 import type { ReviewerRuntime } from '@/lib/runtime'
 import { palette } from '@/theme'
+import { CaseListSkeleton } from '@/components/skeletons'
 
 type SupportCase = FunctionReturnType<typeof api.support.mine>[number]
 type SupportCaseId = SupportCase['id']
 type SupportCategory = SupportCase['category']
 type SupportState = SupportCase['state']
-type CreateSelfArgs = FunctionArgs<typeof api.support.createSelf>
-type ReplySelfArgs = FunctionArgs<typeof api.support.replySelf>
+type CreateSelfResult = FunctionReturnType<typeof api.support.createSelf>
+type ReplySelfResult = FunctionReturnType<typeof api.support.replySelf>
 
 const categories = supportCaseCategoryOrder.map(
   (category) => [category, supportCaseCategoryLabels[category]] as const,
 )
 
-/** Cases the desk owes you an answer on come first; settled ones sink. */
+const quickReports: readonly (readonly [SupportCategory, string])[] = [
+  ['safety', 'Someone is unsafe or unwell'],
+  ['scanner_device', 'This phone or its scanner is misbehaving'],
+  ['missing_scan', 'A scan did not record'],
+  ['attendance_credential', 'A card or badge will not work'],
+  ['table_location', 'A team cannot be found in the hall'],
+]
+
 const stateRank: Record<SupportState, number> = {
   waiting: 0,
   open: 1,
@@ -54,13 +63,16 @@ export function SupportPanel({ canCreate, runtime }: { canCreate: boolean; runti
   const cases = useQuery(api.support.mine, { eventSlug })
   const createCase = useMutation(api.support.createSelf)
   const router = useRouter()
+  const insets = useSafeAreaInsets()
+  const [quickAreaHeight, setQuickAreaHeight] = useState(0)
   const [reporting, setReporting] = useState(false)
   const [category, setCategory] = useState<SupportCategory>('reviewer_device')
   const [description, setDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const busyRef = useRef(false)
-  const operationRef = useRef<CreateSelfArgs | null>(null)
+  const createAttempt = useMutationAttempt<CreateSelfResult>()
+  const createPending = createAttempt.hasPending('create-support-case')
 
   const sorted = cases
     ? [...cases].sort((left, right) => stateRank[left.state] - stateRank[right.state])
@@ -72,19 +84,19 @@ export function SupportPanel({ canCreate, runtime }: { canCreate: boolean; runti
     busyRef.current = true
     setBusy(true)
     setError(null)
-    const args = operationRef.current ?? {
-      eventSlug,
-      category,
-      description: normalizedDescription,
-      clientOperationId: randomUUID(),
-    }
-    operationRef.current = args
     try {
-      const result = await createCase(args)
-      operationRef.current = null
+      const result = await createAttempt.run('create-support-case', () => {
+        const args = {
+          eventSlug,
+          category,
+          description: normalizedDescription,
+          clientOperationId: randomUUID(),
+        }
+        return () => createCase(args)
+      })
       setDescription('')
       setReporting(false)
-      router.push(`/help/${result.id}`)
+      router.push(`/help/${result.publicCode}`)
     } catch (caught) {
       setError(errorMessage(caught, 'The case could not be created.'))
     } finally {
@@ -93,23 +105,44 @@ export function SupportPanel({ canCreate, runtime }: { canCreate: boolean; runti
     }
   }
 
-  if (sorted === undefined) return <Shell />
+  if (sorted === undefined) return <CaseListSkeleton />
+
+  const quickCount =
+    quickAreaHeight === 0
+      ? 2
+      : Math.max(2, Math.min(quickReports.length, Math.floor((quickAreaHeight - 34) / 66)))
 
   return (
-    <>
-      <Body>
-        {open.length === 0
-          ? 'Nothing of yours is open.'
-          : `${open.length} of your ${open.length === 1 ? 'case is' : 'cases are'} still open.`}
-      </Body>
+    <View
+      style={[
+        styles.fixedRoot,
+        Platform.OS === 'android' ? { paddingBottom: 18 + insets.bottom } : { paddingBottom: 18 },
+      ]}
+    >
+      <Lead
+        accent={palette.setup}
+        detail={
+          open.length > 0
+            ? 'The help desk replies here.'
+            : 'Nothing of yours is waiting on the help desk.'
+        }
+        unit={open.length === 1 ? 'open case' : 'open cases'}
+        value={String(open.length)}
+      />
 
       {sorted.length > 0 ? (
-        <Section title="Your cases">
+        <Section
+          title="Your cases"
+          {...(open.length > 0
+            ? {
+                lead: `${open.length} still ${open.length === 1 ? 'open' : 'open'} — the help desk replies here.`,
+              }
+            : { lead: 'Everything you reported is resolved.' })}
+        >
           {sorted.map((supportCase) => (
             <Card
-              accent={palette.setup}
               key={supportCase.id}
-              onPress={() => router.push(`/help/${supportCase.id}`)}
+              onPress={() => router.push(`/help/${supportCase.publicCode}`)}
             >
               <View style={styles.row}>
                 <Text style={styles.code}>{supportCase.publicCode}</Text>
@@ -119,20 +152,39 @@ export function SupportPanel({ canCreate, runtime }: { canCreate: boolean; runti
             </Card>
           ))}
         </Section>
-      ) : (
-        <Nothing>You have not reported anything.</Nothing>
-      )}
+      ) : null}
 
-      {/* Reporting is a one-in-a-shift act, so it opens as a sheet over the
-          cases you came here to read rather than unfolding above them. */}
+      <View
+        style={styles.quickArea}
+        onLayout={(event) => setQuickAreaHeight(event.nativeEvent.layout.height)}
+      >
+        {canCreate ? (
+          <Section title="Something wrong?">
+            {quickReports.slice(0, quickCount).map(([value, label]) => (
+              <Row
+                key={value}
+                label={label}
+                onPress={() => {
+                  if (!createPending) setCategory(value)
+                  setReporting(true)
+                }}
+              />
+            ))}
+          </Section>
+        ) : null}
+      </View>
+
       {canCreate ? (
-        <QuietAction label="Report a problem" onPress={() => setReporting(true)} />
+        <Action
+          accent={palette.setup}
+          label="Report something else"
+          onPress={() => setReporting(true)}
+        />
       ) : null}
 
       {canCreate ? (
         <Sheet
           onClose={() => {
-            operationRef.current = null
             setReporting(false)
           }}
           title="Report a problem"
@@ -141,54 +193,54 @@ export function SupportPanel({ canCreate, runtime }: { canCreate: boolean; runti
           <ChipRow
             accent={palette.setup}
             onSelect={(value: SupportCategory) => {
-              operationRef.current = null
-              setCategory(value)
+              if (!createPending) setCategory(value)
             }}
             options={categories}
             selected={category}
           />
           <Field
-            editable={!busy}
+            editable={!busy && !createPending}
             label="What happened"
             maxLength={2000}
             multiline
             onChangeText={(value) => {
-              operationRef.current = null
               setDescription(value)
             }}
             placeholder="Short and factual is enough."
             value={description}
           />
           {error ? <Problem>{error}</Problem> : null}
+          {createPending ? <Meta>Confirm the earlier report before writing another.</Meta> : null}
           <Action
             accent={palette.setup}
             disabled={busy || description.trim().length < 10}
-            label={busy ? 'Sending…' : 'Send to the help desk'}
+            label={busy ? 'Sending…' : createPending ? 'Confirm report' : 'Send to the help desk'}
             onPress={submit}
           />
         </Sheet>
       ) : null}
-    </>
+    </View>
   )
 }
 
-export function SupportCaseDetail({ eventSlug, supportCaseId }: { eventSlug: string; supportCaseId: SupportCaseId }) {
-  const detail = useQuery(api.support.detail, { eventSlug, supportCaseId })
+type SupportCaseDetailResult = FunctionReturnType<typeof api.support.detailByPublicCode>
+
+export function SupportCaseDetail({
+  detail,
+  eventSlug,
+  supportCaseId,
+}: {
+  detail: SupportCaseDetailResult
+  eventSlug: string
+  supportCaseId: SupportCaseId
+}) {
   const reply = useMutation(api.support.replySelf)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const busyRef = useRef(false)
-  const operationRef = useRef<ReplySelfArgs | null>(null)
-
-  useEffect(() => {
-    const pending = operationRef.current
-    if (detail && pending && pending.expectedVersion !== detail.supportCase.version) {
-      operationRef.current = null
-    }
-  }, [detail])
-
-  if (detail === undefined) return <Shell />
+  const replyAttempt = useMutationAttempt<ReplySelfResult>()
+  const replyPending = replyAttempt.hasPending('reply-to-support-case')
 
   const sendReply = async () => {
     const normalizedMessage = message.trim()
@@ -196,17 +248,17 @@ export function SupportCaseDetail({ eventSlug, supportCaseId }: { eventSlug: str
     busyRef.current = true
     setBusy(true)
     setError(null)
-    const args = operationRef.current ?? {
-      eventSlug,
-      supportCaseId,
-      expectedVersion: detail.supportCase.version,
-      message: normalizedMessage,
-      clientOperationId: randomUUID(),
-    }
-    operationRef.current = args
     try {
-      await reply(args)
-      operationRef.current = null
+      await replyAttempt.run('reply-to-support-case', () => {
+        const args = {
+          eventSlug,
+          supportCaseId,
+          expectedVersion: detail.supportCase.version,
+          message: normalizedMessage,
+          clientOperationId: randomUUID(),
+        }
+        return () => reply(args)
+      })
       setMessage('')
     } catch (caught) {
       setError(errorMessage(caught, 'The reply could not be sent.'))
@@ -226,8 +278,6 @@ export function SupportCaseDetail({ eventSlug, supportCaseId }: { eventSlug: str
         <Body>{detail.supportCase.description}</Body>
       </Card>
 
-      {/* The case as a conversation, oldest first, so the last thing you read
-          is the last thing that happened. */}
       {detail.actions.map((action) => (
         <Card key={action.id}>
           <View style={styles.row}>
@@ -242,12 +292,11 @@ export function SupportCaseDetail({ eventSlug, supportCaseId }: { eventSlug: str
       {detail.supportCase.canReply ? (
         <>
           <Field
-            editable={!busy}
+            editable={!busy && !replyPending}
             label="Reply"
             maxLength={2000}
             multiline
             onChangeText={(value) => {
-              operationRef.current = null
               setMessage(value)
             }}
             placeholder="Add anything that would help."
@@ -257,7 +306,7 @@ export function SupportCaseDetail({ eventSlug, supportCaseId }: { eventSlug: str
           <Action
             accent={palette.setup}
             disabled={busy || message.trim().length < 2}
-            label={busy ? 'Sending…' : 'Send reply'}
+            label={busy ? 'Sending…' : replyPending ? 'Confirm reply' : 'Send reply'}
             onPress={sendReply}
           />
         </>
@@ -290,6 +339,8 @@ function errorMessage(caught: unknown, fallback: string) {
 }
 
 const styles = StyleSheet.create({
+  fixedRoot: { flex: 1, paddingHorizontal: 20, paddingTop: 14, gap: 18 },
+  quickArea: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
   code: { color: palette.text, fontSize: 17, fontWeight: '600' },
   state: { color: palette.muted, fontSize: 15 },

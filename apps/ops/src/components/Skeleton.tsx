@@ -1,17 +1,8 @@
-/**
- * Loading shells.
- *
- * Every screen used to render the word "Loading…" on an empty page, so the
- * layout jumped once data arrived and there was no sense of what was coming.
- * These stand in for the real shape at the real size, which keeps the page
- * still and tells you what to expect.
- */
 
 export function SkeletonLine({ width = '100%' }: { width?: string }) {
   return <span className="skeleton-line" style={{ width }} />
 }
 
-/** A stand-in for one row of a list: glyph, two lines, trailing control. */
 export function SkeletonRow() {
   return (
     <div className="list-row skeleton-row">
@@ -33,7 +24,6 @@ export function SkeletonList({ rows = 4 }: { rows?: number }) {
   )
 }
 
-/** A stand-in for a stat strip, so the numbers do not shift in when they land. */
 export function SkeletonStats({ columns = 4 }: { columns?: number }) {
   return (
     <div className="catalog-summary" aria-hidden="true">
@@ -57,10 +47,6 @@ export function SkeletonCard({ lines = 3 }: { lines?: number }) {
   )
 }
 
-/**
- * Announces to a screen reader what the shells above are standing in for,
- * since they are hidden from the accessibility tree.
- */
 export function LoadingLabel({ children }: { children: string }) {
   return <span className="visually-hidden" role="status">{children}</span>
 }

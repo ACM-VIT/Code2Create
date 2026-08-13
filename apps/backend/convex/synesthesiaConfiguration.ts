@@ -17,6 +17,7 @@ import {
   synesthesiaWindowFields,
 } from "./lib/synesthesia";
 import { synesthesiaWindowKind, synesthesiaWindowStatus } from "./values";
+import { appendSynesthesiaWindowReadFactById } from "./lib/operationsAutonomyReadFacts/synesthesiaOperations";
 
 const maximumCatalogTracks = 500;
 type ReadCtx = QueryCtx | MutationCtx;
@@ -115,36 +116,43 @@ export const overview = query({
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "synesthesia.catalog.read",
+        maximumScopeCount: maximumSynesthesiaWindows,
       }),
       activeGrantScopes(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "synesthesia.catalog.manage",
+        maximumScopeCount: maximumSynesthesiaWindows,
       }),
       activeGrantScopes(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "synesthesia.window.read",
+        maximumScopeCount: maximumSynesthesiaWindows,
       }),
       activeGrantScopes(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "synesthesia.window.manage",
+        maximumScopeCount: maximumSynesthesiaWindows,
       }),
       activeGrantScopes(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "synesthesia.window.publish",
+        maximumScopeCount: maximumSynesthesiaWindows,
       }),
       activeGrantScopes(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "synesthesia.queue.read",
+        maximumScopeCount: maximumSynesthesiaWindows,
       }),
       activeGrantScopes(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "synesthesia.playback.pause",
+        maximumScopeCount: maximumSynesthesiaWindows,
       }),
       ctx.db
         .query("synesthesiaWindows")
@@ -525,6 +533,7 @@ export const createWindow = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await appendSynesthesiaWindowReadFactById(ctx, windowId, now);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -611,6 +620,7 @@ export const updateWindow = mutation({
       updatedByPersonId: person._id,
       updatedAt: now,
     });
+    await appendSynesthesiaWindowReadFactById(ctx, window._id, Date.now());
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -732,6 +742,7 @@ export const publishWindow = mutation({
       updatedByPersonId: person._id,
       updatedAt: now,
     });
+    await appendSynesthesiaWindowReadFactById(ctx, window._id, Date.now());
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -829,6 +840,7 @@ export const closeWindow = mutation({
       updatedByPersonId: person._id,
       updatedAt: now,
     });
+    await appendSynesthesiaWindowReadFactById(ctx, window._id, Date.now());
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -930,6 +942,7 @@ export const setPlaybackPause = mutation({
       updatedByPersonId: person._id,
       updatedAt: now,
     });
+    await appendSynesthesiaWindowReadFactById(ctx, window._id, Date.now());
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,

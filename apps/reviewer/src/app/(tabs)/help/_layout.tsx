@@ -1,8 +1,7 @@
 import { Stack } from 'expo-router'
 
-import { palette } from '@/theme'
+import { screenHeader } from '@/lib/screen-header'
 
-/** Its own stack, so this tab can push a screen and keep a real iOS header. */
 export default function HelpLayout() {
-  return <Stack screenOptions={{ contentStyle: { backgroundColor: palette.background } }} />
+  return <Stack screenOptions={screenHeader} />
 }

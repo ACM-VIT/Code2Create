@@ -1,14 +1,4 @@
-/**
- * The work the Overview leads with, read from the ledger.
- *
- * This used to recompute seven conditions inside the page query, which meant
- * the heaviest read on the dashboard ran on every refresh and the result had no
- * memory. The sweep now owns the detection; this is a plain indexed read of
- * what is open, filtered exactly as before by what the caller is allowed to
- * open. A row only exists for a caller who could already open the workspace it
- * links to, and `canAct` is the finer distinction: whether they also hold the
- * command grant behind its proposal, or are only looking.
- */
+/** Reads the durable attention ledger and filters visibility and actions by grant. */
 
 import { ConvexError, v } from "convex/values";
 
@@ -18,7 +8,12 @@ import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { sortAttentionItems } from "./lib/operationsAttention";
-import { assertPermissionKey, requirePermission } from "./lib/permissions";
+import { appendOperationsAttentionReadFactById } from "./lib/operationsAutonomyReadFacts";
+import {
+  assertPermissionKey,
+  matchingPermissionGrantIds,
+  requirePermission,
+} from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
 import {
   attentionDetectorKey,
@@ -46,28 +41,17 @@ const attentionRow = v.object({
   proposal: v.optional(attentionProposal),
 });
 
-type ActiveGrant = Doc<"permissionGrants">;
-
-/**
- * A grant matches when it names the exact resource, or when it is event-wide.
- * This is the same rule `matchingPermissionGrantIds` applies, evaluated once
- * over the caller's grants instead of once per row.
- */
-function grantMatcher(grants: readonly ActiveGrant[]) {
-  return (permissionKey: string, scopeType: string, scopeId: string) =>
-    grants.some(
-      (grant) =>
-        grant.permissionKey === permissionKey &&
-        ((grant.scopeType === scopeType && grant.scopeId === scopeId) ||
-          (grant.scopeType === "event" && grant.scopeId === undefined)),
-    );
-}
+/** The feed is deliberately a next-work queue, not an unbounded ledger export. */
+export const maximumAttentionOverviewRows = 20;
+const maximumCurrentAttentionRounds = 10;
 
 export const overview = query({
   args: { eventSlug: v.string() },
   returns: v.object({
     rows: v.array(attentionRow),
     summary: v.object({
+      limit: v.number(),
+      hasMore: v.boolean(),
       rowCount: v.number(),
       criticalCount: v.number(),
       attentionCount: v.number(),
@@ -86,43 +70,76 @@ export const overview = query({
       scopeType: "event",
     });
 
-    const now = Date.now();
-    const grants = await ctx.db
-      .query("permissionGrants")
-      .withIndex("by_subject_permission_status", (index) =>
-        index.eq("eventAccessSubjectId", subject._id),
+    const sweepStates = await ctx.db
+      .query("operationsAttentionSweepStates")
+      .withIndex("by_event_state", (index) =>
+        index.eq("eventId", event._id).eq("state", "active"),
       )
-      .collect();
-    const allows = grantMatcher(
-      grants.filter(
-        (grant) =>
-          grant.eventId === event._id &&
-          grant.status === "active" &&
-          grant.validFrom <= now &&
-          (grant.validUntil === undefined || grant.validUntil > now),
-      ),
-    );
-
-    const items: Doc<"operationsAttentionItems">[] = [];
-    for (const state of ["open", "acknowledged"] as const) {
-      items.push(
-        ...(await ctx.db
-          .query("operationsAttentionItems")
-          .withIndex("by_event_state_severity_first", (index) =>
-            index.eq("eventId", event._id).eq("state", state),
-          )
-          .collect()),
-      );
+      .take(maximumCurrentAttentionRounds + 1);
+    if (sweepStates.length > maximumCurrentAttentionRounds) {
+      throw new Error("The attention feed exceeds the current-round limit.");
     }
-    const visible = items.filter((item) =>
-      allows(item.visibility.permissionKey, item.visibility.scopeType, item.visibility.scopeId),
-    );
+    const readableRoundIds: Id<"reviewRounds">[] = [];
+    for (const sweepState of sweepStates) {
+      const grantIds = await matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "round.read",
+        scopeType: "round",
+        scopeId: sweepState.roundId,
+      });
+      if (grantIds.length > 0) readableRoundIds.push(sweepState.roundId);
+    }
 
-    const rows = sortAttentionItems(visible).map((item) => {
+    const candidates: Doc<"operationsAttentionItems">[] = [];
+    for (const roundId of readableRoundIds) {
+      for (const state of ["open", "acknowledged"] as const) {
+        for (const severity of ["critical", "attention", "watch"] as const) {
+          candidates.push(
+            ...(await ctx.db
+              .query("operationsAttentionItems")
+              .withIndex("by_round_state_severity_first", (index) =>
+                index
+                  .eq("roundId", roundId)
+                  .eq("state", state)
+                  .eq("severity", severity),
+              )
+              .take(maximumAttentionOverviewRows + 1)),
+          );
+        }
+      }
+    }
+    for (const item of candidates) {
+      if (
+        item.eventId !== event._id ||
+        item.roundId === undefined ||
+        item.visibility.permissionKey !== "round.read" ||
+        item.visibility.scopeType !== "round" ||
+        item.visibility.scopeId !== item.roundId
+      ) {
+        throw new Error("A current attention row has an invalid visibility owner.");
+      }
+    }
+
+    const visible = sortAttentionItems(candidates);
+    const hasMore = visible.length > maximumAttentionOverviewRows;
+    const now = Date.now();
+    const rows = await Promise.all(visible.slice(0, maximumAttentionOverviewRows).map(async (item) => {
       const proposal =
         item.proposal !== undefined && item.proposal.expiresAt > now
           ? item.proposal
           : undefined;
+      const canAct =
+        proposal !== undefined &&
+        (
+          await matchingPermissionGrantIds(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            permissionKey: assertPermissionKey(proposal.permissionKey),
+            scopeType: proposal.scopeType,
+            scopeId: proposal.scopeId,
+          })
+        ).length > 0;
       return {
         id: item._id,
         detectorKey: item.detectorKey,
@@ -137,20 +154,20 @@ export const overview = query({
         firstObservedAt: item.firstObservedAt,
         lastObservedAt: item.lastObservedAt,
         version: item.version,
-        canAct:
-          proposal !== undefined &&
-          allows(proposal.permissionKey, proposal.scopeType, proposal.scopeId),
+        canAct,
         ...(proposal === undefined
           ? {}
           : {
               proposal,
             }),
       };
-    });
+    }));
 
     return {
       rows,
       summary: {
+        limit: maximumAttentionOverviewRows,
+        hasMore,
         rowCount: rows.length,
         criticalCount: rows.filter((row) => row.severity === "critical").length,
         attentionCount: rows.filter((row) => row.severity === "attention").length,
@@ -161,11 +178,7 @@ export const overview = query({
   },
 });
 
-/**
- * "Somebody is on this." The item stays in the ledger and the sweep keeps
- * updating it; it simply stops being an unclaimed job. Resolution still belongs
- * to the sweep, because only the condition clearing proves it is over.
- */
+/** Acknowledgement assigns ownership; only a cleared condition resolves the item. */
 export const acknowledge = mutation({
   args: {
     eventSlug: v.string(),
@@ -189,6 +202,7 @@ export const acknowledge = mutation({
       acknowledgedAt: now,
       version,
     });
+    await appendOperationsAttentionReadFactById(ctx, item._id, now);
     await writeAuditEvent(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -206,12 +220,7 @@ export const acknowledge = mutation({
   },
 });
 
-/**
- * "This is not a problem." The sweep keeps the item current so the evidence
- * stays honest, but the board stops leading with it. If the condition clears
- * and later returns, the sweep opens a fresh item and the dismissal does not
- * carry over, because the second occurrence is a different judgement.
- */
+/** Dismissal hides this occurrence; a later recurrence creates a new item. */
 export const dismiss = mutation({
   args: {
     eventSlug: v.string(),
@@ -237,6 +246,7 @@ export const dismiss = mutation({
       dismissedAt: now,
       version,
     });
+    await appendOperationsAttentionReadFactById(ctx, item._id, now);
     await writeAuditEvent(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -254,12 +264,7 @@ export const dismiss = mutation({
   },
 });
 
-/**
- * Clearing a row is an operations command, so it needs the operations grant.
- * It also needs the same grant that let the caller see the row in the first
- * place, otherwise an operator could clear work in a workspace they cannot
- * open.
- */
+/** Clearing requires both the operations grant and the item's visibility grant. */
 async function requireOpenItem(
   ctx: MutationCtx,
   args: {
@@ -278,7 +283,7 @@ async function requireOpenItem(
     scopeType: "event",
   });
   const item = await ctx.db.get(args.itemId);
-  if (!item || item.eventId !== event._id) {
+  if (!item || item.eventId !== event._id || item.roundId === undefined) {
     throw new ConvexError({
       code: "ATTENTION_ITEM_NOT_FOUND",
       message: "That attention item is unavailable.",

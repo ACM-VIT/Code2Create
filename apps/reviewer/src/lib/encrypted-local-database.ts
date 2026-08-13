@@ -5,17 +5,13 @@ import { z } from 'zod'
 
 const cipherVersionSchema = z.object({ cipher_version: z.string().min(1) }).passthrough()
 const databasePromises = new Map<string, Promise<SQLite.SQLiteDatabase>>()
+const databaseOperationTails = new Map<string, Promise<void>>()
+const resetPromises = new Map<string, Promise<void>>()
 
-/**
- * Set once per launch when the store on this phone could not be opened and had
- * to be recreated. Anything queued but unsent went with it, and the person
- * holding the phone has to be told that rather than left to assume their scans
- * are still waiting to go.
- */
+/** True after recovery deletes unreadable local work during this launch. */
 let storeWasReset = false
 const resetListeners = new Set<() => void>()
 
-/** Subscribable, because the store is opened lazily and long after first paint. */
 export function subscribeToLocalStoreReset(listener: () => void) {
   resetListeners.add(listener)
   return () => {
@@ -33,8 +29,17 @@ function recordStoreReset() {
   for (const listener of resetListeners) listener()
 }
 
-export function encryptedLocalDatabase(eventSlug: string) {
+export function withEncryptedLocalDatabase<T>(
+  eventSlug: string,
+  operation: (database: SQLite.SQLiteDatabase) => Promise<T>,
+): Promise<T> {
   validateEventSlug(eventSlug)
+  return enqueueDatabaseOperation(eventSlug, async () =>
+    operation(await encryptedLocalDatabase(eventSlug)),
+  )
+}
+
+function encryptedLocalDatabase(eventSlug: string): Promise<SQLite.SQLiteDatabase> {
   const existing = databasePromises.get(eventSlug)
   if (existing) return existing
   const opening = openEncryptedDatabase(eventSlug)
@@ -51,9 +56,7 @@ async function openEncryptedDatabase(eventSlug: string) {
   try {
     return await openWithKey(name, key)
   } catch (caught) {
-    // A store the key will not open is a store nothing can read, so there is
-    // no recovery to attempt and no data to salvage. Failing forever instead
-    // leaves a phone at a door permanently unable to scan.
+    // An unreadable encrypted store has no recoverable local data.
     if (!unreadableStore(caught)) throw caught
     await SQLite.deleteDatabaseAsync(name)
     recordStoreReset()
@@ -61,20 +64,77 @@ async function openEncryptedDatabase(eventSlug: string) {
   }
 }
 
-/**
- * SQLite reports a wrong key and a corrupt file the same way: not a database.
- *
- * expo-sqlite wraps the native failure, so the useful text is on the cause
- * rather than the message. Reading only the message finds nothing and leaves a
- * phone stuck on an error it could have recovered from.
- */
-function unreadableStore(caught: unknown) {
+/** Closes and deletes the one shared local database for this event. */
+export function resetEncryptedLocalDatabase(eventSlug: string) {
+  validateEventSlug(eventSlug)
+  const current = resetPromises.get(eventSlug)
+  if (current) return current
+  let resetting: Promise<void>
+  resetting = enqueueDatabaseOperation(eventSlug, () => performDatabaseReset(eventSlug)).finally(() => {
+    if (resetPromises.get(eventSlug) === resetting) resetPromises.delete(eventSlug)
+  })
+  resetPromises.set(eventSlug, resetting)
+  return resetting
+}
+
+async function performDatabaseReset(eventSlug: string) {
+  const name = `c2c-reviewer-${eventSlug}.db`
+  const opened = databasePromises.get(eventSlug)
+  databasePromises.delete(eventSlug)
+  // Close the cached handle before deleting its file.
+  if (opened) await opened.then((database) => database.closeAsync()).catch(() => undefined)
+  await SQLite.deleteDatabaseAsync(name).catch(() => undefined)
+  recordStoreReset()
+}
+
+function enqueueDatabaseOperation<T>(eventSlug: string, operation: () => Promise<T>) {
+  const prior = databaseOperationTails.get(eventSlug) ?? Promise.resolve()
+  const result = prior.catch(() => undefined).then(operation)
+  const tail = result.then(
+    () => undefined,
+    () => undefined,
+  )
+  databaseOperationTails.set(eventSlug, tail)
+  void tail.then(() => {
+    if (databaseOperationTails.get(eventSlug) === tail) {
+      databaseOperationTails.delete(eventSlug)
+    }
+  })
+  return result
+}
+
+/** Detects wrong-key and corrupt-file errors through wrapped native causes. */
+export function unreadableStore(caught: unknown) {
   for (let error: unknown = caught, depth = 0; error && depth < 5; depth += 1) {
     const message = error instanceof Error ? error.message : String(error)
-    if (message.includes('file is not a database') || message.includes('code 26')) return true
-    error = error instanceof Error ? error.cause : null
+    if (
+      message.includes('file is not a database') ||
+      message.includes('SQLITE_NOTADB') ||
+      /(?:^|[\s([,:=])code\s*[:=]?\s*26(?:$|[\s\]),;])/iu.test(message) ||
+      structuredNotADatabaseCode(error)
+    ) {
+      return true
+    }
+    error = errorCause(error)
   }
   return false
+}
+
+function structuredNotADatabaseCode(error: unknown) {
+  if (typeof error !== 'object' || error === null) return false
+  if ('code' in error && isNotADatabaseCode(error.code)) return true
+  if ('sqliteCode' in error && isNotADatabaseCode(error.sqliteCode)) return true
+  if ('resultCode' in error && isNotADatabaseCode(error.resultCode)) return true
+  return false
+}
+
+function isNotADatabaseCode(value: unknown) {
+  return value === 26 || value === '26' || value === 'SQLITE_NOTADB'
+}
+
+function errorCause(error: unknown): unknown {
+  if (typeof error !== 'object' || error === null || !('cause' in error)) return null
+  return error.cause
 }
 
 async function openWithKey(name: string, key: string) {
@@ -86,14 +146,11 @@ async function openWithKey(name: string, key: string) {
       throw new Error('Encrypted local storage requires the signed reviewer build.')
     }
     await database.execAsync('PRAGMA cipher_memory_security = ON;')
-    // Pragmas never read a page, so a wrong key or a corrupt file opens happily
-    // and only fails on the first real statement, deep inside whichever screen
-    // asked for it. Reading the schema forces that failure into the one place
-    // that can do something about it.
+    // Force a page read because PRAGMA statements do not validate the key.
     await database.getFirstAsync('SELECT count(*) AS tables FROM sqlite_master')
     return database
   } catch (caught) {
-    // The handle has to let go of the file before it can be replaced.
+    // Close the handle so recovery can replace the file.
     await database.closeAsync().catch(() => undefined)
     throw caught
   }

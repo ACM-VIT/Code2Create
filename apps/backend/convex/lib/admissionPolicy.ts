@@ -192,6 +192,13 @@ function wholeNumber(value: number, label: string, minimum: number, maximum: num
   return value;
 }
 
+function positiveWholeNumber(value: number, label: string) {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    invalidPolicy(`${label} must be a positive whole number.`);
+  }
+  return value;
+}
+
 function stableKey(value: string, label: string) {
   const normalized = normalizedText(value, label, 2, 60).toLowerCase();
   if (!/^[a-z0-9]+(?:_[a-z0-9]+)*$/u.test(normalized)) {
@@ -286,11 +293,9 @@ export function normalizeAdmissionConfiguration(
       1,
       5,
     ),
-    overallParticipantCapacity: wholeNumber(
+    overallParticipantCapacity: positiveWholeNumber(
       input.overallParticipantCapacity,
       "Participant capacity",
-      1,
-      5_000,
     ),
     criteria,
     decisionReasonCodes,
@@ -504,14 +509,28 @@ async function ensureModelReleaseLabelIsAvailable(
 }
 
 async function ensureAdmissionConfigurationOpen(ctx: ReadCtx, eventId: Id<"events">) {
-  const firstApplication = await ctx.db
-    .query("applications")
-    .withIndex("by_event_state_submitted", (index) => index.eq("eventId", eventId))
-    .first();
-  if (firstApplication) {
+  const [firstApplication, validatingSubmission, finalizingSubmission] = await Promise.all([
+    ctx.db
+      .query("applications")
+      .withIndex("by_event_state_submitted", (index) => index.eq("eventId", eventId))
+      .first(),
+    ctx.db
+      .query("teamSubmissionAttempts")
+      .withIndex("by_event_and_state_and_created_at", (index) =>
+        index.eq("eventId", eventId).eq("state", "validating"),
+      )
+      .first(),
+    ctx.db
+      .query("teamSubmissionAttempts")
+      .withIndex("by_event_and_state_and_created_at", (index) =>
+        index.eq("eventId", eventId).eq("state", "finalizing"),
+      )
+      .first(),
+  ]);
+  if (firstApplication || validatingSubmission || finalizingSubmission) {
     throw new ConvexError({
       code: "ADMISSION_POLICY_FROZEN",
-      message: "Admission configuration closes after the first project submission.",
+      message: "Admission configuration closes when the first project submission begins.",
     });
   }
 }

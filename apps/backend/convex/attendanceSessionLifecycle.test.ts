@@ -3,12 +3,17 @@ import { describe, expect, test } from "vitest";
 
 import { internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
+import { requireParticipantAttendanceHistoryPageSize } from "./attendanceRemedies.ts";
 import { attendanceCounterShardFor } from "./lib/attendanceCounters.ts";
 import {
   attendanceSessionCutoffAt,
   attendanceSessionWindowRejection,
   extendedAttendanceSessionTiming,
 } from "./lib/attendanceSessionLifecycle.ts";
+import {
+  maximumAttendanceIntervalsPerParticipantSession,
+  prepareSessionTransition,
+} from "./lib/attendanceSessionTransition.ts";
 import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -89,7 +94,7 @@ describe("attendance session lifecycle", () => {
     });
 
     const state = await backend.run(async (ctx) => {
-      const [session, participant, interval, job, counter, presenceEvent] = await Promise.all([
+      const [session, participant, interval, job, counter, presenceEvent, projection] = await Promise.all([
         ctx.db.get(fixture.sessionId),
         ctx.db.get(fixture.participantId),
         ctx.db.get(fixture.intervalId),
@@ -101,8 +106,14 @@ describe("attendance session lifecycle", () => {
           )
           .unique(),
         ctx.db.get(fixture.presenceEventId),
+        ctx.db
+          .query("attendanceParticipantCurrentSessions")
+          .withIndex("by_session_membership", (index) =>
+            index.eq("sessionId", fixture.sessionId).eq("membershipId", fixture.membershipId),
+          )
+          .unique(),
       ]);
-      return { session, participant, interval, job, counter, presenceEvent };
+      return { session, participant, interval, job, counter, presenceEvent, projection };
     });
 
     expect(state.session).toMatchObject({
@@ -122,6 +133,98 @@ describe("attendance session lifecycle", () => {
     expect(state.job).toMatchObject({ status: "complete", scannedCount: 1, affectedCount: 1 });
     expect(state.counter).toMatchObject({ present: 0, complete: 1, expected: 1, version: 2 });
     expect(state.presenceEvent).toEqual(eventBefore);
+    expect(state.projection).toBeNull();
+  });
+
+  test("terminalization fails without consuming a source row when its projection is missing", async () => {
+    const now = Date.UTC(2027, 7, 8, 13, 0, 0);
+    const cutoffAt = now - 5 * 60_000;
+    const openedAt = cutoffAt - 25 * 60_000;
+    const backend = convexTest(schema, modules);
+    const fixture = await seedCancellationFixture(backend, { now, cutoffAt, openedAt });
+    await backend.run(async (ctx) => {
+      const projection = await ctx.db
+        .query("attendanceParticipantCurrentSessions")
+        .withIndex("by_session_membership", (index) =>
+          index.eq("sessionId", fixture.sessionId).eq("membershipId", fixture.membershipId),
+        )
+        .unique();
+      if (!projection) throw new Error("Expected participant projection fixture.");
+      await ctx.db.delete(projection._id);
+    });
+
+    await backend.mutation(internal.attendanceSessions.cancelResultBatch, {
+      jobId: fixture.jobId,
+    });
+
+    const state = await backend.run(async (ctx) => ({
+      participant: await ctx.db.get(fixture.participantId),
+      job: await ctx.db.get(fixture.jobId),
+    }));
+    expect(state.job).toMatchObject({
+      status: "failed",
+      failureCode: "participant_projection_incomplete",
+    });
+    expect(state.participant).toMatchObject({
+      state: "present",
+      version: 1,
+    });
+    expect(state.participant?.completedAt).toBeUndefined();
+  });
+
+  test("participant result history rejects unbounded pages", () => {
+    expect(() => requireParticipantAttendanceHistoryPageSize(0)).toThrow(
+      "between 1 and 10",
+    );
+    expect(() => requireParticipantAttendanceHistoryPageSize(10)).not.toThrow();
+    expect(() => requireParticipantAttendanceHistoryPageSize(11)).toThrow(
+      "between 1 and 10",
+    );
+  });
+
+  test("a participant cannot create an unbounded session interval history", async () => {
+    const now = Date.UTC(2027, 7, 8, 14, 0, 0);
+    const cutoffAt = now - 5 * 60_000;
+    const openedAt = cutoffAt - 25 * 60_000;
+    const backend = convexTest(schema, modules);
+    const fixture = await seedCancellationFixture(backend, { now, cutoffAt, openedAt });
+    const decision = await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.intervalId, {
+        status: "closed",
+        closedByEventId: fixture.presenceEventId,
+        closedAt: openedAt + 1,
+      });
+      await ctx.db.patch(fixture.participantId, {
+        state: "temporarily_out",
+        currentIntervalId: undefined,
+      });
+      for (let index = 1; index < maximumAttendanceIntervalsPerParticipantSession; index += 1) {
+        await ctx.db.insert("attendancePresenceIntervals", {
+          eventId: fixture.eventId,
+          membershipId: fixture.membershipId,
+          zoneId: fixture.zoneId,
+          sessionId: fixture.sessionId,
+          kind: "session",
+          status: "closed",
+          openedByEventId: fixture.presenceEventId,
+          openedAt: openedAt + index * 2,
+          closedByEventId: fixture.presenceEventId,
+          closedAt: openedAt + index * 2 + 1,
+        });
+      }
+      const participant = await ctx.db.get(fixture.participantId);
+      if (!participant) throw new Error("Expected attendance participant fixture.");
+      return (await prepareSessionTransition(ctx, {
+        participant,
+        transition: "zone_entry",
+      })).decision;
+    });
+
+    expect(decision).toMatchObject({
+      outcome: "needs_review",
+      reasonCode: "session_interval_limit_reached",
+      nextState: "needs_review",
+    });
   });
 });
 
@@ -260,6 +363,15 @@ async function seedCancellationFixture(
       version: 1,
       updatedAt: timing.openedAt,
     });
+    await ctx.db.insert("attendanceParticipantCurrentSessions", {
+      eventId,
+      planVersionId,
+      sessionId,
+      sessionParticipantId: participantId,
+      membershipId,
+      sessionStartsAt: timing.openedAt - 30 * 60_000,
+      createdAt: timing.now,
+    });
     const shard = attendanceCounterShardFor(membershipId);
     await ctx.db.insert("attendanceSessionCounterShards", {
       eventId,
@@ -292,7 +404,9 @@ async function seedCancellationFixture(
     return {
       eventId,
       sessionId,
+      zoneId,
       participantId,
+      membershipId,
       intervalId,
       presenceEventId,
       jobId,
@@ -300,7 +414,9 @@ async function seedCancellationFixture(
     } satisfies {
       eventId: Id<"events">;
       sessionId: Id<"attendanceSessions">;
+      zoneId: Id<"attendanceZones">;
       participantId: Id<"attendanceSessionParticipants">;
+      membershipId: Id<"eventMemberships">;
       intervalId: Id<"attendancePresenceIntervals">;
       presenceEventId: Id<"attendancePresenceEvents">;
       jobId: Id<"attendanceSessionJobs">;

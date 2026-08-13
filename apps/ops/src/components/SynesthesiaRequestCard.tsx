@@ -6,9 +6,10 @@ import { useState } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 type QueueResult = FunctionReturnType<typeof api.synesthesiaOperations.queue>
-type QueueRequest = QueueResult['requests'][number]
+type QueueRequest = QueueResult['requests'][number] & { voteCount: number }
 type OpenReport = QueueRequest['openReports'][number]
 
 type RequestActionKind =
@@ -71,6 +72,7 @@ export function SynesthesiaRequestCard({
   const acknowledge = useMutation(api.synesthesiaOperations.acknowledgePlayback)
   const resolveReport = useMutation(api.synesthesiaOperations.resolveReport)
   const setAccess = useMutation(api.synesthesiaOperations.setRequesterAccess)
+  const operations = useOperationRunner()
   const [action, setAction] = useState<RequestAction | null>(null)
   const [reportAction, setReportAction] = useState<ReportAction | null>(null)
   const [reason, setReason] = useState('')
@@ -79,8 +81,13 @@ export function SynesthesiaRequestCard({
   const [scheduledFor, setScheduledFor] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const actionSlot = action ? `synesthesia-request-${action.kind}` : null
+  const actionPending = actionSlot !== null && operations.hasPending(actionSlot)
+  const reportPending = operations.hasPending('synesthesia-report-resolve')
+  const operationPending = actionPending || reportPending
 
   const chooseAction = (kind: RequestActionKind) => {
+    if (operationPending || busy) return
     setAction({
       kind,
       expectedVersion: request.version,
@@ -98,6 +105,7 @@ export function SynesthesiaRequestCard({
     report: OpenReport,
     disposition: ReportAction['disposition'],
   ) => {
+    if (operationPending || busy) return
     setAction(null)
     setReportAction({
       reportId: report.id,
@@ -111,6 +119,7 @@ export function SynesthesiaRequestCard({
   }
 
   const finish = () => {
+    if (operationPending || busy) return
     setAction(null)
     setReportAction(null)
     setReason('')
@@ -121,55 +130,64 @@ export function SynesthesiaRequestCard({
 
   const submitRequestAction = async () => {
     if (!action) return
+    const actionKind = action.kind
     setBusy(true)
     setError(null)
     try {
-      if (action.kind === 'approve' || action.kind === 'reject' || action.kind === 'hide') {
-        await moderate({
-          eventSlug,
-          requestId: request.id,
-          decision: action.kind,
-          ...(publicText.trim() ? { publicReason: publicText } : {}),
-          ...(internalText.trim() ? { internalNote: internalText } : {}),
-          expectedVersion: action.expectedVersion,
-          reason,
-          clientOperationId: crypto.randomUUID(),
-        })
-      } else if (action.kind === 'queue' || action.kind === 'pin' || action.kind === 'defer') {
-        const deferredTimestamp = action.kind === 'defer'
+      if (actionKind === 'approve' || actionKind === 'reject' || actionKind === 'hide') {
+        await operations.run(
+          `synesthesia-request-${actionKind}`, (clientOperationId) => () => moderate({
+            eventSlug,
+            requestId: request.id,
+            decision: actionKind,
+            ...(publicText.trim() ? { publicReason: publicText } : {}),
+            ...(internalText.trim() ? { internalNote: internalText } : {}),
+            expectedVersion: action.expectedVersion,
+            reason,
+            clientOperationId,
+          }),
+        )
+      } else if (actionKind === 'queue' || actionKind === 'pin' || actionKind === 'defer') {
+        const deferredTimestamp = actionKind === 'defer'
           ? timestampFromLocal(scheduledFor)
           : null
-        if (action.kind === 'defer' && deferredTimestamp === null) {
+        if (actionKind === 'defer' && deferredTimestamp === null) {
           setError('Choose a valid future time for the deferred request.')
           return
         }
-        await schedule({
-          eventSlug,
-          requestId: request.id,
-          mode: action.kind === 'pin' ? 'pinned' : action.kind === 'defer' ? 'deferred' : 'normal',
-          ...(deferredTimestamp !== null ? { scheduledFor: deferredTimestamp } : {}),
-          expectedVersion: action.expectedVersion,
-          reason,
-          clientOperationId: crypto.randomUUID(),
-        })
-      } else if (action.kind === 'suspend' || action.kind === 'restore') {
-        await setAccess({
-          eventSlug,
-          requestId: request.id,
-          state: action.kind === 'suspend' ? 'suspended' : 'active',
-          expectedAccessVersion: action.expectedAccessVersion,
-          reason,
-          clientOperationId: crypto.randomUUID(),
-        })
+        await operations.run(
+          `synesthesia-request-${actionKind}`, (clientOperationId) => () => schedule({
+            eventSlug,
+            requestId: request.id,
+            mode: actionKind === 'pin' ? 'pinned' : actionKind === 'defer' ? 'deferred' : 'normal',
+            ...(deferredTimestamp !== null ? { scheduledFor: deferredTimestamp } : {}),
+            expectedVersion: action.expectedVersion,
+            reason,
+            clientOperationId,
+          }),
+        )
+      } else if (actionKind === 'suspend' || actionKind === 'restore') {
+        await operations.run(
+          `synesthesia-request-${actionKind}`, (clientOperationId) => () => setAccess({
+            eventSlug,
+            requestId: request.id,
+            state: actionKind === 'suspend' ? 'suspended' : 'active',
+            expectedAccessVersion: action.expectedAccessVersion,
+            reason,
+            clientOperationId,
+          }),
+        )
       } else {
-        await acknowledge({
-          eventSlug,
-          requestId: request.id,
-          action: action.kind,
-          expectedVersion: action.expectedVersion,
-          reason,
-          clientOperationId: crypto.randomUUID(),
-        })
+        await operations.run(
+          `synesthesia-request-${actionKind}`, (clientOperationId) => () => acknowledge({
+            eventSlug,
+            requestId: request.id,
+            action: actionKind,
+            expectedVersion: action.expectedVersion,
+            reason,
+            clientOperationId,
+          }),
+        )
       }
       finish()
     } catch (caught) {
@@ -184,16 +202,18 @@ export function SynesthesiaRequestCard({
     setBusy(true)
     setError(null)
     try {
-      await resolveReport({
-        eventSlug,
-        reportId: reportAction.reportId,
-        disposition: reportAction.disposition,
-        publicResolution: publicText,
-        ...(internalText.trim() ? { internalResolution: internalText } : {}),
-        expectedVersion: reportAction.expectedVersion,
-        reason,
-        clientOperationId: crypto.randomUUID(),
-      })
+      await operations.run(
+        'synesthesia-report-resolve', (clientOperationId) => () => resolveReport({
+          eventSlug,
+          reportId: reportAction.reportId,
+          disposition: reportAction.disposition,
+          publicResolution: publicText,
+          ...(internalText.trim() ? { internalResolution: internalText } : {}),
+          expectedVersion: reportAction.expectedVersion,
+          reason,
+          clientOperationId,
+        }),
+      )
       finish()
     } catch (caught) {
       setError(readableError(caught))
@@ -226,35 +246,35 @@ export function SynesthesiaRequestCard({
 
       <div className="synesthesia-request-actions">
         {request.canModerate && request.state === 'pending' ? (
-          <button type="button" className="text-button" onClick={() => chooseAction('approve')}>Approve</button>
+          <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseAction('approve')}>Approve</button>
         ) : null}
         {request.canModerate && ['pending', 'approved', 'queued'].includes(request.state) ? (
           <>
-            <button type="button" className="text-button" onClick={() => chooseAction('reject')}>Decline</button>
-            <button type="button" className="text-button" onClick={() => chooseAction('hide')}>Hide</button>
+            <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseAction('reject')}>Decline</button>
+            <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseAction('hide')}>Hide</button>
           </>
         ) : null}
         {request.canSchedule && (request.state === 'approved' || request.state === 'queued') ? (
           <>
-            <button type="button" className="text-button" onClick={() => chooseAction('queue')}>Queue</button>
-            <button type="button" className="text-button" onClick={() => chooseAction('pin')}>Pin</button>
-            <button type="button" className="text-button" onClick={() => chooseAction('defer')}>Defer</button>
+            <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseAction('queue')}>Queue</button>
+            <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseAction('pin')}>Pin</button>
+            <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseAction('defer')}>Defer</button>
           </>
         ) : null}
         {request.canAcknowledgePlayback && startAvailable && (request.state === 'approved' || request.state === 'queued') ? (
-          <button type="button" className="text-button" onClick={() => chooseAction('start')}>Start</button>
+          <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseAction('start')}>Start</button>
         ) : null}
         {request.canAcknowledgePlayback && request.state === 'playing' ? (
           <>
-            <button type="button" className="text-button" onClick={() => chooseAction('played')}>Played</button>
-            <button type="button" className="text-button" onClick={() => chooseAction('skip')}>Skip</button>
+            <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseAction('played')}>Played</button>
+            <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseAction('skip')}>Skip</button>
           </>
         ) : null}
         {request.canSuspendRequester ? (
-          <button type="button" className="text-button" onClick={() => chooseAction('suspend')}>Pause access</button>
+          <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseAction('suspend')}>Pause access</button>
         ) : null}
         {request.canRestoreRequester ? (
-          <button type="button" className="text-button" onClick={() => chooseAction('restore')}>Restore access</button>
+          <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseAction('restore')}>Restore access</button>
         ) : null}
       </div>
 
@@ -270,29 +290,29 @@ export function SynesthesiaRequestCard({
           {(action.kind === 'reject' || action.kind === 'hide') ? (
             <label className="field">
               <span>Participant message</span>
-              <input value={publicText} minLength={3} maxLength={160} required onChange={(event) => setPublicText(event.target.value)} />
+              <input disabled={operationPending || busy} value={publicText} minLength={3} maxLength={160} required onChange={(event) => setPublicText(event.target.value)} />
             </label>
           ) : null}
           {(action.kind === 'approve' || action.kind === 'reject' || action.kind === 'hide') ? (
             <label className="field">
               <span>Internal note, if useful</span>
-              <input value={internalText} maxLength={300} onChange={(event) => setInternalText(event.target.value)} />
+              <input disabled={operationPending || busy} value={internalText} maxLength={300} onChange={(event) => setInternalText(event.target.value)} />
             </label>
           ) : null}
           {action.kind === 'defer' ? (
             <label className="field">
               <span>Play after</span>
-              <input type="datetime-local" value={scheduledFor} required onChange={(event) => setScheduledFor(event.target.value)} />
+              <input disabled={operationPending || busy} type="datetime-local" value={scheduledFor} required onChange={(event) => setScheduledFor(event.target.value)} />
             </label>
           ) : null}
           <label className="field">
             <span>Audit reason</span>
-            <textarea value={reason} minLength={5} maxLength={200} required onChange={(event) => setReason(event.target.value)} />
+            <textarea disabled={operationPending || busy} value={reason} minLength={5} maxLength={200} required onChange={(event) => setReason(event.target.value)} />
           </label>
           <div className="synesthesia-command-actions">
-            <button type="button" className="text-button" disabled={busy} onClick={finish}>Cancel</button>
-            <button type="submit" className="secondary compact" disabled={busy || reason.trim().length < 5}>
-              {busy ? 'Saving…' : 'Confirm'}
+            <button type="button" className="text-button" disabled={busy || operationPending} onClick={finish}>Cancel</button>
+            <button type="submit" className="secondary compact" disabled={busy || reportPending || (!actionPending && reason.trim().length < 5)}>
+              {busy ? 'Saving…' : actionPending ? 'Confirm earlier action' : 'Confirm'}
             </button>
           </div>
           {error ? <p className="notice error" role="alert">{error}</p> : null}
@@ -312,8 +332,8 @@ export function SynesthesiaRequestCard({
               <small>{new Date(report.createdAt).toLocaleString()}</small>
               {request.canResolveReports ? (
                 <div>
-                  <button type="button" className="text-button" onClick={() => chooseReportAction(report, 'resolved')}>Resolve</button>
-                  <button type="button" className="text-button" onClick={() => chooseReportAction(report, 'dismissed')}>Dismiss</button>
+                  <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseReportAction(report, 'resolved')}>Resolve</button>
+                  <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseReportAction(report, 'dismissed')}>Dismiss</button>
                 </div>
               ) : null}
             </div>
@@ -333,20 +353,20 @@ export function SynesthesiaRequestCard({
           <strong>{reportAction.disposition === 'resolved' ? 'Resolve report' : 'Dismiss report'}</strong>
           <label className="field">
             <span>Participant-facing resolution</span>
-            <input value={publicText} minLength={3} maxLength={160} required onChange={(event) => setPublicText(event.target.value)} />
+            <input disabled={operationPending || busy} value={publicText} minLength={3} maxLength={160} required onChange={(event) => setPublicText(event.target.value)} />
           </label>
           <label className="field">
             <span>Internal resolution, if useful</span>
-            <input value={internalText} maxLength={300} onChange={(event) => setInternalText(event.target.value)} />
+            <input disabled={operationPending || busy} value={internalText} maxLength={300} onChange={(event) => setInternalText(event.target.value)} />
           </label>
           <label className="field">
             <span>Audit reason</span>
-            <textarea value={reason} minLength={5} maxLength={200} required onChange={(event) => setReason(event.target.value)} />
+            <textarea disabled={operationPending || busy} value={reason} minLength={5} maxLength={200} required onChange={(event) => setReason(event.target.value)} />
           </label>
           <div className="synesthesia-command-actions">
-            <button type="button" className="text-button" disabled={busy} onClick={finish}>Cancel</button>
-            <button type="submit" className="secondary compact" disabled={busy || reason.trim().length < 5 || publicText.trim().length < 3}>
-              {busy ? 'Saving…' : 'Confirm'}
+            <button type="button" className="text-button" disabled={busy || operationPending} onClick={finish}>Cancel</button>
+            <button type="submit" className="secondary compact" disabled={busy || actionPending || (!reportPending && (reason.trim().length < 5 || publicText.trim().length < 3))}>
+              {busy ? 'Saving…' : reportPending ? 'Confirm earlier resolution' : 'Confirm'}
             </button>
           </div>
           {error ? <p className="notice error" role="alert">{error}</p> : null}

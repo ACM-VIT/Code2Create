@@ -12,6 +12,7 @@ import { LoadingLabel, SkeletonList, SkeletonStats } from '../components/Skeleto
 import { PermissionBundleApplication } from '../components/PermissionBundleApplication'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 import {
   areaForPermission,
   permissionAreas,
@@ -19,40 +20,34 @@ import {
   scopeName,
 } from '../lib/permissionLabels'
 
-type Access = NonNullable<FunctionReturnType<typeof api.access.mine>>
 type AccessDetail = NonNullable<FunctionReturnType<typeof api.access.detail>>
 type PermissionDefinition = AccessDetail['catalog'][number]
-type GrantView = AccessDetail['grants'][number]
+type GrantView = FunctionReturnType<typeof api.access.grantLedger>['page'][number]
 type DelegationCeiling = AccessDetail['grantDelegations'][number]
 type GrantScopeType = 'event' | PermissionDefinition['scopes'][number]
 type MatrixFilter = 'all' | 'held' | 'missing'
 
-/**
- * One line of the permission matrix: what the person may do, and every grant
- * that currently says so. A permission with no grants is still a row, because
- * the reason to open this screen is usually to add one.
- */
 type PermissionRow = {
   definition: PermissionDefinition
-  held: GrantView[]
+  held: boolean
   ceiling: DelegationCeiling | undefined
 }
 
-/**
- * Granting one of these is not "tick a box"; it hands someone authority over
- * other people's access, and needs its own choices about who and until when.
- * They are kept out of the matrix and given a section that can ask for them.
- */
 function isScopedAuthorityKey(value: string) {
   return value === 'access.permissions.grant_scoped' || value === 'access.permissions.revoke_scoped'
 }
 
-export function AccessPerson({ access }: { access: Access }) {
+export function AccessPerson() {
   const { personId } = useParams<{ personId: string }>()
   const detail = useQuery(api.access.detail, personId ? { eventSlug, personId } : 'skip')
+  const ledger = usePaginatedQuery(
+    api.access.grantLedger,
+    personId && detail ? { eventSlug, personId } : 'skip',
+    { initialNumItems: 30 },
+  )
 
   if (!personId) return <p className="notice error">Person ID is missing.</p>
-  if (detail === undefined) {
+  if (detail === undefined || (detail !== null && ledger.status === 'LoadingFirstPage')) {
     return (
       <section className="access-shell">
         <LoadingLabel>Loading this person’s access</LoadingLabel>
@@ -63,34 +58,15 @@ export function AccessPerson({ access }: { access: Access }) {
   }
   if (!detail) return <p className="notice error">This account is not visible to your permission scope.</p>
 
-  const canAssignRole = access.grants.some(
-    (grant) =>
-      grant.permissionKey === 'access.roles.assign' &&
-      (grant.scopeType === 'event' ||
-        (grant.scopeType === 'person' && grant.scopeId === detail.person.id)),
-  )
+  const canAssignRole = detail.actions.assignRole
   const canSuspend =
     detail.person.status === 'active' &&
-    access.personId !== detail.person.id &&
-    hasPersonPermission(access, 'access.subjects.suspend', detail.person.id)
+    detail.actions.suspend
   const canReactivate =
     detail.person.status === 'suspended' &&
-    hasPersonPermission(access, 'access.subjects.reactivate', detail.person.id)
-  const canUseBundles =
-    access.grants.some((grant) => grant.permissionKey === 'access.permission_bundles.read') &&
-    access.grants.some((grant) => grant.permissionKey === 'access.permission_bundles.apply')
-  const now = Date.now()
-  const live = detail.grants.filter(
-    (grant) =>
-      grant.status === 'active' &&
-      grant.validFrom <= now &&
-      (grant.validUntil === undefined || grant.validUntil > now),
-  )
-  const byHand = live.filter((grant) => isDirectGrant(grant.sourceType))
-  const expiring = live.filter((grant) => grant.validUntil !== undefined)
-  const historical = detail.grants.filter(
-    (grant) => grant.status !== 'active' && grant.status !== 'scheduled',
-  )
+    detail.actions.reactivate
+  const canUseBundles = detail.actions.useBundles
+  const effectivePermissionCount = detail.effectivePermissionKeys.length
 
   return (
     <section className="access-shell">
@@ -106,22 +82,22 @@ export function AccessPerson({ access }: { access: Access }) {
 
       {detail.person.status === 'suspended' ? (
         <p className="notice">
-          This account is blocked, so all {live.length} of its permissions are denied at sign-in.
+          This account is blocked, so all {effectivePermissionCount} of its permission types are denied at sign-in.
         </p>
       ) : null}
 
       <dl className="catalog-summary access-person-summary">
         <div>
           <dt>Things they can do</dt>
-          <dd>{live.length}</dd>
+          <dd>{effectivePermissionCount}</dd>
         </div>
         <div>
-          <dt>Added by hand</dt>
-          <dd>{byHand.length}</dd>
+          <dt>Permission catalog</dt>
+          <dd>{detail.catalog.length}</dd>
         </div>
         <div>
-          <dt>Expiring</dt>
-          <dd>{expiring.length}</dd>
+          <dt>Access version</dt>
+          <dd>{detail.accessVersion}</dd>
         </div>
       </dl>
 
@@ -142,17 +118,22 @@ export function AccessPerson({ access }: { access: Access }) {
         <ScopedAuthorityControl detail={detail} />
       ) : null}
 
-      {historical.length > 0 ? (
+      {ledger.results.length > 0 ? (
         <details className="grant-history">
-          <summary>Permissions this person used to have · {historical.length}</summary>
+          <summary>Permission ledger · {ledger.results.length} loaded</summary>
           <ul>
-            {historical.map((grantItem) => (
+            {ledger.results.map((grantItem) => (
               <li key={grantItem.id}>
                 <span>{permissionName(grantItem.permissionKey)}</span>
                 <small>{grantItem.scopeLabel} · {historicalGrantState(grantItem)} · {grantItem.revokeReason ?? grantItem.reason}</small>
               </li>
             ))}
           </ul>
+          {ledger.status === 'CanLoadMore' ? (
+            <button className="secondary" type="button" onClick={() => ledger.loadMore(30)}>
+              Load more ledger entries
+            </button>
+          ) : null}
         </details>
       ) : null}
 
@@ -160,7 +141,7 @@ export function AccessPerson({ access }: { access: Access }) {
         <AccessSubjectStatus
           key={`${detail.person.id}:${detail.person.status}`}
           accessVersion={detail.accessVersion}
-          effectiveGrantCount={live.length}
+          effectiveGrantCount={effectivePermissionCount}
           personId={detail.person.id}
           status={detail.person.status === 'suspended' ? 'suspended' : 'active'}
         />
@@ -169,45 +150,32 @@ export function AccessPerson({ access }: { access: Access }) {
   )
 }
 
-/**
- * The permission grid.
- *
- * This page used to be four stacked forms with the person's actual access
- * collapsed at the bottom, so answering "what can they do, and how do I change
- * it?" meant reading a form to find out what was possible. Every permission in
- * the catalog is now one row: what it lets them do, where it applies, where it
- * came from, and the single control that adds or removes it.
- */
 function PermissionMatrix({ detail }: { detail: AccessDetail }) {
-  // Open on what the person can actually do. The full catalog is 200 rows, and
-  // reading it end to end is not how anyone answers "what does this account have".
   const [chosen, setFilter] = useState<MatrixFilter | null>(null)
   const [search, setSearch] = useState('')
   const [openKey, setOpenKey] = useState<string | null>(null)
 
   const rows = useMemo<PermissionRow[]>(() => {
-    const active = detail.grants.filter(
-      (grant) => grant.status === 'active' || grant.status === 'scheduled',
-    )
+    const current = new Set<string>(detail.currentPermissionKeys)
     return detail.catalog
       .filter((definition) => !isScopedAuthorityKey(definition.key))
       .map((definition) => ({
         definition,
-        held: active.filter((grant) => grant.permissionKey === definition.key),
+        held: current.has(definition.key),
         ceiling: detail.canGrantAny
           ? undefined
           : detail.grantDelegations.find(
               (candidate) => candidate.permissionKey === definition.key,
             ),
       }))
-  }, [detail.canGrantAny, detail.catalog, detail.grantDelegations, detail.grants])
+  }, [detail.canGrantAny, detail.catalog, detail.currentPermissionKeys, detail.grantDelegations])
 
-  const held = rows.filter((row) => row.held.length > 0).length
+  const held = rows.filter((row) => row.held).length
   const filter = chosen ?? (held > 0 ? 'held' : 'all')
   const term = search.trim().toLowerCase()
   const visible = rows.filter((row) => {
-    if (filter === 'held' && row.held.length === 0) return false
-    if (filter === 'missing' && row.held.length > 0) return false
+    if (filter === 'held' && !row.held) return false
+    if (filter === 'missing' && row.held) return false
     if (term && !permissionName(row.definition.key).toLowerCase().includes(term)) return false
     return true
   })
@@ -215,10 +183,9 @@ function PermissionMatrix({ detail }: { detail: AccessDetail }) {
   const areas = permissionAreas
     .map((area) => ({
       ...area,
-      // Within an area, what they already have reads first as a block.
       rows: visible
         .filter((row) => areaForPermission(row.definition.key) === area.value)
-        .sort((left, right) => Number(right.held.length > 0) - Number(left.held.length > 0)),
+        .sort((left, right) => Number(right.held) - Number(left.held)),
     }))
     .filter((area) => area.rows.length > 0)
 
@@ -274,7 +241,7 @@ function PermissionMatrix({ detail }: { detail: AccessDetail }) {
           <div className="permission-area" key={area.value}>
             <div className="permission-area-heading">
               <h3>{area.label}</h3>
-              <span>{area.rows.filter((row) => row.held.length > 0).length} of {area.rows.length}</span>
+              <span>{area.rows.filter((row) => row.held).length} of {area.rows.length}</span>
             </div>
             <div className="permission-grid">
               <div className="permission-grid-head" aria-hidden="true">
@@ -313,39 +280,31 @@ function PermissionMatrixRow({
 }) {
   const grantable = detail.person.status === 'active' &&
     (detail.canGrantAny || row.ceiling !== undefined)
-  const removable = row.held.some((grant) => grant.canRevoke)
-  const sources = [...new Set(row.held.map((grant) => sourceName(grant.sourceType)))]
 
   return (
     <>
-      <div className={row.held.length > 0 ? 'permission-row held' : 'permission-row'}>
+      <div className={row.held ? 'permission-row held' : 'permission-row'}>
         <div className="permission-row-name">
-          <span className={row.held.length > 0 ? 'permission-mark held' : 'permission-mark'}>
-            {row.held.length > 0 ? <Icon name="shield" size={13} /> : null}
+          <span className={row.held ? 'permission-mark held' : 'permission-mark'}>
+            {row.held ? <Icon name="shield" size={13} /> : null}
           </span>
           <strong>{permissionName(row.definition.key)}</strong>
         </div>
         <span className="permission-row-scope">
-          {row.held.length > 0
-            ? row.held.map((grant) => grant.scopeLabel).join(', ')
+          {row.held
+            ? 'Open to inspect exact scopes'
             : scopeSummary(row.definition)}
         </span>
         <span className="permission-row-source">
-          {sources.length > 0 ? sources.join(', ') : 'Not granted'}
+          {row.held ? 'Current permission' : 'Not granted'}
         </span>
         <div className="permission-row-action">
           {isOpen ? (
             <button className="text-button" type="button" onClick={() => onToggle(null)}>Close</button>
-          ) : removable ? (
+          ) : row.held || grantable ? (
             <button className="row-action" type="button" onClick={() => onToggle(row.definition.key)}>
-              Remove
+              {row.held ? 'Inspect' : 'Grant'}
             </button>
-          ) : grantable ? (
-            <button className="row-action" type="button" onClick={() => onToggle(row.definition.key)}>
-              Grant
-            </button>
-          ) : row.held.length > 0 ? (
-            <span className="permission-row-note">Follows the source</span>
           ) : (
             <span className="permission-row-note">Not yours to grant</span>
           )}
@@ -353,18 +312,78 @@ function PermissionMatrixRow({
       </div>
       {isOpen ? (
         <div className="permission-row-panel">
-          {removable ? (
-            <RemovePanel detail={detail} grants={row.held} onDone={() => onToggle(null)} />
-          ) : (
-            <GrantPanel detail={detail} row={row} onDone={() => onToggle(null)} />
-          )}
+          <PermissionAccessPanel detail={detail} row={row} onDone={() => onToggle(null)} />
         </div>
       ) : null}
     </>
   )
 }
 
-/** Adds one permission. The scope picker only appears when there is a choice to make. */
+function PermissionAccessPanel({
+  detail,
+  onDone,
+  row,
+}: {
+  detail: AccessDetail
+  onDone: () => void
+  row: PermissionRow
+}) {
+  const active = usePaginatedQuery(
+    api.access.grantLedger,
+    {
+      eventSlug,
+      personId: detail.person.id,
+      permissionKey: row.definition.key,
+      status: 'active',
+    },
+    { initialNumItems: 30 },
+  )
+  const scheduled = usePaginatedQuery(
+    api.access.grantLedger,
+    {
+      eventSlug,
+      personId: detail.person.id,
+      permissionKey: row.definition.key,
+      status: 'scheduled',
+    },
+    { initialNumItems: 30 },
+  )
+  const current = [...active.results, ...scheduled.results].filter(
+    (grant) => grant.status === 'active' || grant.status === 'scheduled',
+  )
+  const removable = current.filter((grant) => grant.canRevoke)
+  const grantable = detail.person.status === 'active' &&
+    (detail.canGrantAny || row.ceiling !== undefined)
+  const loading =
+    active.status === 'LoadingFirstPage' || scheduled.status === 'LoadingFirstPage'
+
+  return (
+    <>
+      {loading ? <p className="muted">Loading exact permission sources…</p> : null}
+      {!loading && current.length === 0 ? (
+        <p className="muted">No current grant row remains for this permission.</p>
+      ) : null}
+      {removable.length > 0 ? (
+        <RemovePanel detail={detail} grants={current} onDone={onDone} />
+      ) : null}
+      {active.status === 'CanLoadMore' ? (
+        <button className="text-button" type="button" onClick={() => active.loadMore(30)}>
+          Load more active sources
+        </button>
+      ) : null}
+      {scheduled.status === 'CanLoadMore' ? (
+        <button className="text-button" type="button" onClick={() => scheduled.loadMore(30)}>
+          Load more scheduled sources
+        </button>
+      ) : null}
+      {grantable ? <GrantPanel detail={detail} row={row} onDone={onDone} /> : null}
+      {!loading && removable.length === 0 && !grantable ? (
+        <p className="muted">This permission follows another owner and is not yours to change.</p>
+      ) : null}
+    </>
+  )
+}
+
 function GrantPanel({
   detail,
   onDone,
@@ -375,6 +394,7 @@ function GrantPanel({
   row: PermissionRow
 }) {
   const grant = useMutation(api.access.grant)
+  const operations = useOperationRunner()
   const scopes = scopesFor(row.definition)
   const ceiling = row.ceiling
   const [scopeType, setScopeType] = useState<GrantScopeType>(
@@ -385,6 +405,7 @@ function GrantPanel({
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const grantPending = operations.hasPending('permission-grant')
   const options = usePaginatedQuery(
     api.access.scopeOptions,
     scopeType === 'event' || ceiling !== undefined
@@ -404,27 +425,30 @@ function GrantPanel({
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!ready) return
+    if (!grantPending && !ready) return
     setBusy(true)
     setError(null)
     try {
-      const expiry = validUntil ? new Date(validUntil).getTime() : undefined
-      if (expiry !== undefined && !Number.isFinite(expiry)) {
-        throw new Error('The end time is not a real date.')
-      }
-      if (ceiling && (expiry === undefined || expiry > ceiling.validUntil)) {
-        throw new Error('This permission must end on or before your own authority does.')
-      }
-      await grant({
-        eventSlug,
-        targetPersonId: detail.person.id,
-        permissionKey: row.definition.key,
-        scopeType,
-        ...(scopeType === 'event' ? {} : { scopeId }),
-        ...(expiry !== undefined ? { validUntil: expiry } : {}),
-        expectedAccessVersion: detail.accessVersion,
-        reason,
-        clientOperationId: crypto.randomUUID(),
+      await operations.run('permission-grant', (clientOperationId) => {
+        const expiry = validUntil ? new Date(validUntil).getTime() : undefined
+        if (expiry !== undefined && !Number.isFinite(expiry)) {
+          throw new Error('The end time is not a real date.')
+        }
+        if (ceiling && (expiry === undefined || expiry > ceiling.validUntil)) {
+          throw new Error('This permission must end on or before your own authority does.')
+        }
+        const command = {
+          eventSlug,
+          targetPersonId: detail.person.id,
+          permissionKey: row.definition.key,
+          scopeType,
+          ...(scopeType === 'event' ? {} : { scopeId }),
+          ...(expiry !== undefined ? { validUntil: expiry } : {}),
+          expectedAccessVersion: detail.accessVersion,
+          reason,
+          clientOperationId,
+        }
+        return () => grant(command)
       })
       onDone()
     } catch (caught) {
@@ -441,6 +465,7 @@ function GrantPanel({
           ? `You may grant this until ${new Date(ceiling.validUntil).toLocaleString()}, when your own authority ends.`
           : `Gives ${detail.person.displayName} this permission on top of their role.`}
       </p>
+      <fieldset disabled={busy || grantPending} style={{ display: 'contents' }}>
       {scopes.length > 1 && ceiling === undefined ? (
         <label className="field">
           <span>Where it applies</span>
@@ -497,18 +522,18 @@ function GrantPanel({
         <span>Why they need it</span>
         <textarea required value={reason} onChange={(event) => setReason(event.target.value)} />
       </label>
+      </fieldset>
       {error ? <p className="notice error permission-panel-wide" role="alert">{error}</p> : null}
       <div className="button-row permission-panel-wide">
-        <button className="primary" type="submit" disabled={busy || !ready}>
-          {busy ? 'Granting…' : 'Grant permission'}
+        <button className="primary" type="submit" disabled={busy || (!grantPending && !ready)}>
+          {busy ? 'Granting…' : grantPending ? 'Confirm earlier grant' : 'Grant permission'}
         </button>
-        <button className="secondary" type="button" disabled={busy} onClick={onDone}>Cancel</button>
+        <button className="secondary" type="button" disabled={busy || grantPending} onClick={onDone}>Cancel</button>
       </div>
     </form>
   )
 }
 
-/** Removes the grants behind one permission, one at a time so the reason fits the grant. */
 function RemovePanel({
   detail,
   grants,
@@ -519,6 +544,7 @@ function RemovePanel({
   onDone: () => void
 }) {
   const revoke = useMutation(api.access.revoke)
+  const operations = useOperationRunner()
   const removable = grants.filter((grant) => grant.canRevoke)
   const kept = grants.filter((grant) => !grant.canRevoke)
   const [targetId, setTargetId] = useState(removable[0]?.id ?? '')
@@ -526,20 +552,26 @@ function RemovePanel({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const target = removable.find((grant) => grant.id === targetId)
+  const revokePending = operations.hasPending('permission-revoke')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!target || reason.trim().length < 5) return
+    if (!revokePending && (!target || reason.trim().length < 5)) return
     setBusy(true)
     setError(null)
     try {
-      await revoke({
-        eventSlug,
-        grantId: target.id,
-        expectedAccessVersion: detail.accessVersion,
-        reason,
-        clientOperationId: crypto.randomUUID(),
-      })
+      await operations.run(
+        'permission-revoke', (clientOperationId) => {
+          if (!target) throw new Error('The permission is no longer available to remove.')
+          return () => revoke({
+            eventSlug,
+            grantId: target.id,
+            expectedAccessVersion: detail.accessVersion,
+            reason,
+            clientOperationId,
+          })
+        },
+      )
       onDone()
     } catch (caught) {
       setError(readableError(caught))
@@ -555,6 +587,7 @@ function RemovePanel({
           ? `${detail.person.displayName} also holds this through ${kept.map((grant) => sourceName(grant.sourceType).toLowerCase()).join(' and ')}, so removing this grant leaves it in place.`
           : `${detail.person.displayName} loses this permission as soon as this is removed.`}
       </p>
+      <fieldset disabled={busy || revokePending} style={{ display: 'contents' }}>
       {removable.length > 1 ? (
         <label className="field">
           <span>Which one to remove</span>
@@ -576,26 +609,21 @@ function RemovePanel({
         <span>Why it is being removed</span>
         <textarea required value={reason} onChange={(event) => setReason(event.target.value)} />
       </label>
+      </fieldset>
       {error ? <p className="notice error permission-panel-wide" role="alert">{error}</p> : null}
       <div className="button-row permission-panel-wide">
-        <button className="primary" type="submit" disabled={busy || !target || reason.trim().length < 5}>
-          {busy ? 'Removing…' : 'Remove permission'}
+        <button className="primary" type="submit" disabled={busy || (!revokePending && (!target || reason.trim().length < 5))}>
+          {busy ? 'Removing…' : revokePending ? 'Confirm earlier removal' : 'Remove permission'}
         </button>
-        <button className="secondary" type="button" disabled={busy} onClick={onDone}>Cancel</button>
+        <button className="secondary" type="button" disabled={busy || revokePending} onClick={onDone}>Cancel</button>
       </div>
     </form>
   )
 }
 
-/**
- * Letting this person hand out permissions themselves.
- *
- * Unlike a matrix row this needs three answers — which permission, over which
- * people, and until when — so it keeps a form of its own rather than pretending
- * to be a checkbox.
- */
 function ScopedAuthorityControl({ detail }: { detail: AccessDetail }) {
   const grant = useMutation(api.access.grant)
+  const operations = useOperationRunner()
   const delegable = detail.catalog.filter(
     (definition) =>
       !isScopedAuthorityKey(definition.key) &&
@@ -616,6 +644,7 @@ function ScopedAuthorityControl({ detail }: { detail: AccessDetail }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const delegationPending = operations.hasPending('permission-delegation')
   const verb = authorityKey === 'access.permissions.grant_scoped' ? 'grant' : 'remove'
   const options = usePaginatedQuery(
     api.access.scopeOptions,
@@ -637,29 +666,32 @@ function ScopedAuthorityControl({ detail }: { detail: AccessDetail }) {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!ready) return
+    if (!delegationPending && !ready) return
     setBusy(true)
     setError(null)
     try {
-      const expiry = new Date(validUntil).getTime()
-      if (!Number.isFinite(expiry)) throw new Error('The end time is not a real date.')
-      await grant({
-        eventSlug,
-        targetPersonId: detail.person.id,
-        permissionKey: authorityKey,
-        scopeType: 'event',
-        validUntil: expiry,
-        delegation: {
-          permissionKey,
-          scopeType,
-          ...(scopeType === 'event' ? {} : { scopeId }),
-          target: targetKind === 'any_event_person'
-            ? { kind: 'any_event_person' as const }
-            : { kind: 'exact_email' as const, email: targetEmail },
-        },
-        expectedAccessVersion: detail.accessVersion,
-        reason,
-        clientOperationId: crypto.randomUUID(),
+      await operations.run('permission-delegation', (clientOperationId) => {
+        const expiry = new Date(validUntil).getTime()
+        if (!Number.isFinite(expiry)) throw new Error('The end time is not a real date.')
+        const command = {
+          eventSlug,
+          targetPersonId: detail.person.id,
+          permissionKey: authorityKey,
+          scopeType: 'event' as const,
+          validUntil: expiry,
+          delegation: {
+            permissionKey,
+            scopeType,
+            ...(scopeType === 'event' ? {} : { scopeId }),
+            target: targetKind === 'any_event_person'
+              ? { kind: 'any_event_person' as const }
+              : { kind: 'exact_email' as const, email: targetEmail },
+          },
+          expectedAccessVersion: detail.accessVersion,
+          reason,
+          clientOperationId,
+        }
+        return () => grant(command)
       })
       setOpen(false)
       setReason('')
@@ -691,6 +723,7 @@ function ScopedAuthorityControl({ detail }: { detail: AccessDetail }) {
       </div>
       {open ? (
         <form className="grant-form" onSubmit={submit}>
+          <fieldset disabled={busy || delegationPending} style={{ display: 'contents' }}>
           <label className="field">
             <span>They may</span>
             <select value={authorityKey} onChange={(event) => setAuthorityKey(event.target.value)}>
@@ -781,12 +814,13 @@ function ScopedAuthorityControl({ detail }: { detail: AccessDetail }) {
             <span>Why they need it</span>
             <textarea required value={reason} onChange={(event) => setReason(event.target.value)} />
           </label>
+          </fieldset>
           {error ? <p className="notice error full-field" role="alert">{error}</p> : null}
           <div className="button-row full-field">
-            <button className="primary" type="submit" disabled={busy || !ready}>
-              {busy ? 'Saving…' : 'Pass it on'}
+            <button className="primary" type="submit" disabled={busy || (!delegationPending && !ready)}>
+              {busy ? 'Saving…' : delegationPending ? 'Confirm earlier delegation' : 'Pass it on'}
             </button>
-            <button className="secondary" type="button" disabled={busy} onClick={() => setOpen(false)}>
+            <button className="secondary" type="button" disabled={busy || delegationPending} onClick={() => setOpen(false)}>
               Cancel
             </button>
           </div>
@@ -851,10 +885,6 @@ function roleName(detail: AccessDetail) {
   return parts.length > 0 ? parts.join(' · ') : 'No role'
 }
 
-function isDirectGrant(sourceType: string) {
-  return sourceType === 'manual' || sourceType === 'delegated' || sourceType === 'bundle'
-}
-
 function sourceName(sourceType: string) {
   const names: Readonly<Record<string, string>> = {
     application_assignment: 'Application assignment',
@@ -873,13 +903,4 @@ function sourceName(sourceType: string) {
     team_membership: 'Team membership',
   }
   return names[sourceType] ?? sentenceName(sourceType.replaceAll('_', ' '))
-}
-
-function hasPersonPermission(access: Access, permissionKey: string, personId: string) {
-  return access.grants.some(
-    (grant) =>
-      grant.permissionKey === permissionKey &&
-      (grant.scopeType === 'event' ||
-        (grant.scopeType === 'person' && grant.scopeId === personId)),
-  )
 }

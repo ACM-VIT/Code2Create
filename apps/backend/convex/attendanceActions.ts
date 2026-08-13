@@ -4,11 +4,12 @@ import { ConvexError, v, type Infer } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
-import { action } from "./_generated/server";
+import { action, internalAction } from "./_generated/server";
 import { attendanceScanTransition, barcodeSymbology } from "./values";
 
 type BarcodeSymbology = Infer<typeof barcodeSymbology>;
 type KeySetResult = {
+  keySetId: Id<"attendanceBarcodeKeySets">;
   eventId: Id<"events">;
   eventSlug: string;
   encryptedKey: string;
@@ -24,6 +25,7 @@ type CredentialKeyResult = {
   barcodeNormalizationVersion: string;
 };
 type PortalKeySetResult = {
+  keySetId: Id<"attendanceBarcodeKeySets">;
   eventId: Id<"events">;
   eventSlug: string;
   encryptedKey: string;
@@ -31,6 +33,10 @@ type PortalKeySetResult = {
   authTag: string;
   wrappingKeyVersion: string;
 };
+type WrappedEventKey = Pick<
+  PortalKeySetResult,
+  "encryptedKey" | "iv" | "authTag" | "wrappingKeyVersion"
+>;
 type RegisterDeviceResult = {
   deviceInstallationId: Id<"attendanceDeviceInstallations">;
   stationId: Id<"attendanceStations">;
@@ -135,6 +141,7 @@ type ScanReceipt = {
     membershipId: Id<"eventMemberships">;
     displayName: string;
     teamName?: string;
+    vitRegistrationNumber?: string;
   };
 };
 type MintPortalQrResult = {
@@ -144,6 +151,13 @@ type MintPortalQrResult = {
 };
 
 const textEncoder = new TextEncoder();
+const keyVersionPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
+const encodedKeyPattern = /^[A-Za-z0-9_-]{43}$/u;
+
+type AttendanceWrappingKey = {
+  version: string;
+  key: Uint8Array<ArrayBuffer>;
+};
 
 function bytesToHex(bytes: Uint8Array) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -181,35 +195,74 @@ async function deviceSecretHash(secret: string) {
   return sha256(secret);
 }
 
-function wrappingKey(version: string) {
+function attendanceKeyConfigurationError(): never {
+  throw new ConvexError({
+    code: "ATTENDANCE_KEYS_INVALID",
+    message: "The attendance key configuration is invalid. Tell the platform team before scanning continues.",
+  });
+}
+
+function configuredAttendanceKey(
+  version: string | undefined,
+  encoded: string | undefined,
+): AttendanceWrappingKey {
+  if (!version || !keyVersionPattern.test(version) || !encoded || !encodedKeyPattern.test(encoded)) {
+    return attendanceKeyConfigurationError();
+  }
+  let key: Uint8Array;
+  try {
+    key = base64UrlToBytes(encoded);
+  } catch {
+    return attendanceKeyConfigurationError();
+  }
+  if (key.length !== 32) return attendanceKeyConfigurationError();
+  return { version, key: ownedBytes(key) };
+}
+
+function equalKeyMaterial(left: Uint8Array, right: Uint8Array) {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  }
+  return difference === 0;
+}
+
+function attendanceKeyConfiguration() {
   const currentVersion = process.env.ATTENDANCE_WRAPPING_KEY_VERSION?.trim();
-  const current = process.env.ATTENDANCE_WRAPPING_KEY?.trim();
-  const previousVersion = process.env.ATTENDANCE_PREVIOUS_WRAPPING_KEY_VERSION?.trim();
-  const previous = process.env.ATTENDANCE_PREVIOUS_WRAPPING_KEY?.trim();
-  const encoded =
-    version === currentVersion ? current : version === previousVersion ? previous : undefined;
-  if (!encoded) {
+  const currentEncoded = process.env.ATTENDANCE_WRAPPING_KEY?.trim();
+  if (!currentVersion && !currentEncoded) {
     throw new ConvexError({
       code: "ATTENDANCE_KEYS_NOT_CONFIGURED",
       message: "Attendance credential keys are not configured for this environment.",
     });
   }
-  const key = base64UrlToBytes(encoded);
-  if (key.length !== 32) {
-    throw new Error("Attendance wrapping key must decode to 32 bytes.");
+  const current = configuredAttendanceKey(currentVersion, currentEncoded);
+  const previousVersion = process.env.ATTENDANCE_PREVIOUS_WRAPPING_KEY_VERSION?.trim();
+  const previousEncoded = process.env.ATTENDANCE_PREVIOUS_WRAPPING_KEY?.trim();
+  if (!previousVersion && !previousEncoded) return { current, previous: null };
+  const previous = configuredAttendanceKey(previousVersion, previousEncoded);
+  if (
+    previous.version === current.version ||
+    equalKeyMaterial(previous.key, current.key)
+  ) {
+    return attendanceKeyConfigurationError();
   }
-  return key;
+  return { current, previous };
+}
+
+function wrappingKey(version: string) {
+  const configuration = attendanceKeyConfiguration();
+  if (configuration.current.version === version) return configuration.current.key;
+  if (configuration.previous?.version === version) return configuration.previous.key;
+  throw new ConvexError({
+    code: "ATTENDANCE_KEYS_NOT_CONFIGURED",
+    message: "Attendance credential keys are not configured for this environment.",
+  });
 }
 
 function currentWrappingKey() {
-  const version = process.env.ATTENDANCE_WRAPPING_KEY_VERSION?.trim();
-  if (!version) {
-    throw new ConvexError({
-      code: "ATTENDANCE_KEYS_NOT_CONFIGURED",
-      message: "Attendance credential keys are not configured for this environment.",
-    });
-  }
-  return { version, key: wrappingKey(version) };
+  return attendanceKeyConfiguration().current;
 }
 
 function aad(eventSlug: string) {
@@ -218,6 +271,19 @@ function aad(eventSlug: string) {
 
 async function encryptedKeyCandidate(eventSlug: string) {
   const eventKey = crypto.getRandomValues(new Uint8Array(32));
+  return encryptEventKey(eventSlug, eventKey);
+}
+
+function wrappedEventKey(value: WrappedEventKey): WrappedEventKey {
+  return {
+    encryptedKey: value.encryptedKey,
+    iv: value.iv,
+    authTag: value.authTag,
+    wrappingKeyVersion: value.wrappingKeyVersion,
+  };
+}
+
+export async function encryptEventKey(eventSlug: string, eventKey: Uint8Array) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const { version, key } = currentWrappingKey();
   const cryptoKey = await crypto.subtle.importKey("raw", key, "AES-GCM", false, ["encrypt"]);
@@ -225,7 +291,7 @@ async function encryptedKeyCandidate(eventSlug: string) {
     await crypto.subtle.encrypt(
       { name: "AES-GCM", iv, additionalData: aad(eventSlug), tagLength: 128 },
       cryptoKey,
-      eventKey,
+      ownedBytes(eventKey),
     ),
   );
   const tagOffset = encryptedWithTag.length - 16;
@@ -239,7 +305,7 @@ async function encryptedKeyCandidate(eventSlug: string) {
   };
 }
 
-async function decryptEventKey(args: {
+export async function decryptEventKey(args: {
   eventSlug: string;
   encryptedKey: string;
   iv: string;
@@ -270,7 +336,9 @@ async function decryptEventKey(args: {
       encryptedWithTag,
     ),
   );
-  if (key.length !== 32) throw new Error("Attendance event key is invalid.");
+  if (key.length !== 32) {
+    throw new ConvexError({ code: "ATTENDANCE_KEYS_INVALID", message: "The event's attendance key cannot be read. Tell the platform team before scanning continues." });
+  }
   return key;
 }
 
@@ -289,18 +357,22 @@ async function credentialKey(
   const keySet: KeySetResult = await ctx.runMutation(
     internal.attendanceSecurity.ensureBarcodeKeySet,
     {
-    ...args,
-    candidate,
+      ...args,
+      candidate,
     },
   );
+  const key = await decryptEventKey(keySet);
+  if (keySet.wrappingKeyVersion !== currentWrappingKey().version) {
+    const rewrapped = await encryptEventKey(keySet.eventSlug, key);
+    await ctx.runMutation(internal.attendanceSecurity.commitKeySetRewrap, {
+      keySetId: keySet.keySetId,
+      eventId: keySet.eventId,
+      expected: wrappedEventKey(keySet),
+      rewrapped,
+    });
+  }
   return {
-    key: await decryptEventKey({
-      eventSlug: keySet.eventSlug,
-      encryptedKey: keySet.encryptedKey,
-      iv: keySet.iv,
-      authTag: keySet.authTag,
-      wrappingKeyVersion: keySet.wrappingKeyVersion,
-    }),
+    key,
     barcodeSymbologies: keySet.barcodeSymbologies,
     barcodeNormalizationVersion: keySet.barcodeNormalizationVersion,
   };
@@ -315,14 +387,65 @@ async function participantCredentialKey(
     internal.attendanceSecurity.ensurePortalKeySet,
     { eventSlug, candidate },
   );
-  return decryptEventKey({
-    eventSlug: keySet.eventSlug,
-    encryptedKey: keySet.encryptedKey,
-    iv: keySet.iv,
-    authTag: keySet.authTag,
-    wrappingKeyVersion: keySet.wrappingKeyVersion,
-  });
+  const key = await decryptEventKey(keySet);
+  if (keySet.wrappingKeyVersion !== currentWrappingKey().version) {
+    const rewrapped = await encryptEventKey(keySet.eventSlug, key);
+    await ctx.runMutation(internal.attendanceSecurity.commitKeySetRewrap, {
+      keySetId: keySet.keySetId,
+      eventId: keySet.eventId,
+      expected: wrappedEventKey(keySet),
+      rewrapped,
+    });
+  }
+  return key;
 }
+
+export const rewrapEventKey = internalAction({
+  args: { eventSlug: v.string(), dryRun: v.boolean() },
+  returns: v.object({
+    eventSlug: v.string(),
+    fromVersion: v.string(),
+    toVersion: v.string(),
+    rewrapped: v.boolean(),
+  }),
+  handler: async (ctx, args): Promise<{
+    eventSlug: string;
+    fromVersion: string;
+    toVersion: string;
+    rewrapped: boolean;
+  }> => {
+    const keySet: PortalKeySetResult = await ctx.runQuery(
+      internal.attendanceSecurity.keySetForRotation,
+      { eventSlug: args.eventSlug },
+    );
+    const key = await decryptEventKey(keySet);
+    const toVersion = currentWrappingKey().version;
+    if (args.dryRun || keySet.wrappingKeyVersion === toVersion) {
+      return {
+        eventSlug: keySet.eventSlug,
+        fromVersion: keySet.wrappingKeyVersion,
+        toVersion,
+        rewrapped: false,
+      };
+    }
+    const rewrapped = await encryptEventKey(keySet.eventSlug, key);
+    const committed: boolean = await ctx.runMutation(
+      internal.attendanceSecurity.commitKeySetRewrap,
+      {
+        keySetId: keySet.keySetId,
+        eventId: keySet.eventId,
+        expected: wrappedEventKey(keySet),
+        rewrapped,
+      },
+    );
+    return {
+      eventSlug: keySet.eventSlug,
+      fromVersion: keySet.wrappingKeyVersion,
+      toVersion,
+      rewrapped: committed,
+    };
+  },
+});
 
 async function barcodeLookupHash(args: {
   eventKey: Uint8Array;
@@ -338,7 +461,7 @@ async function barcodeLookupHash(args: {
     });
   }
   if (args.normalizationVersion !== "trim-v1") {
-    throw new Error("Published barcode normalization is not supported by this build.");
+    throw new ConvexError({ code: "SCANNER_UPDATE_REQUIRED", message: "This scanner build is older than the attendance plan. Update the app on this phone." });
   }
   const normalized = args.rawValue.trim();
   if (normalized.length === 0 || normalized.length > 512) {
@@ -359,7 +482,7 @@ async function barcodeLookupHash(args: {
   return bytesToHex(new Uint8Array(signature));
 }
 
-async function bearerLookupHash(args: {
+export async function bearerLookupHash(args: {
   eventKey: Uint8Array;
   kind: "badge_qr" | "portal_qr";
   bearer: string;
@@ -1153,7 +1276,7 @@ export const recordScan = action({
       v.object({ kind: v.literal("badge_qr"), bearer: v.string() }),
       v.object({ kind: v.literal("portal_qr"), bearer: v.string() }),
     ),
-    transition: attendanceScanTransition,
+    rovingTransition: v.optional(attendanceScanTransition),
     clientOperationId: v.string(),
     deviceSequence: v.number(),
     capturedAt: v.number(),
@@ -1178,6 +1301,7 @@ export const recordScan = action({
         membershipId: v.id("eventMemberships"),
         displayName: v.string(),
         teamName: v.optional(v.string()),
+        vitRegistrationNumber: v.optional(v.string()),
       }),
     ),
   }),
@@ -1213,7 +1337,9 @@ export const recordScan = action({
       deviceSecretHash: secretHash,
       credentialKind: args.credential.kind,
       lookupHash,
-      transition: args.transition,
+      ...(args.rovingTransition !== undefined
+        ? { rovingTransition: args.rovingTransition }
+        : {}),
       clientOperationId: args.clientOperationId,
       deviceSequence: args.deviceSequence,
       capturedAt: args.capturedAt,

@@ -18,26 +18,32 @@ import {
 } from '@code2create/domain'
 import { TZDateMini } from '@date-fns/tz'
 import type { FunctionReturnType } from 'convex/server'
-import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 import { Icon } from '../components/Icon'
 import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
 import { ParticipantDeliveryStatus } from '../components/ParticipantDeliveryStatus'
 
 type AdmissionDetailData = NonNullable<FunctionReturnType<typeof api.admissions.detail>>
-type Access = NonNullable<FunctionReturnType<typeof api.access.mine>>
 type AiDisposition = AdmissionAiDisposition
 
-export function AdmissionDetail({ access }: { access: Access }) {
+export function AdmissionDetail() {
   const { applicationId } = useParams()
   const detail = useQuery(
     api.admissions.detail,
     applicationId ? { eventSlug, applicationId } : 'skip',
   )
+  const memberPage = usePaginatedQuery(
+    api.admissions.members,
+    detail ? { eventSlug, applicationId: detail.application.id } : 'skip',
+    { initialNumItems: 25 },
+  )
+  const members = memberPage.results
 
   if (!applicationId) return <p className="notice error">Application ID is missing.</p>
   if (detail === undefined) {
@@ -51,14 +57,12 @@ export function AdmissionDetail({ access }: { access: Access }) {
   }
   if (!detail) return <p className="notice error">This application is not available to your permission scope.</p>
 
-  const canReview = can(access, 'application.review', detail.application.id)
-  const canAssign = can(access, 'application.assign', detail.application.id)
-  const canDecide = can(access, 'application.decide', detail.application.id)
-  const canManageOffer = can(access, 'application.offer.manage', detail.application.id)
+  const canReview = detail.permissions.review
+  const canAssign = detail.permissions.assign
+  const canDecide = detail.permissions.decide
+  const canManageOffer = detail.permissions.offerManage
   const hasRequiredReviews = detail.application.completedReviewCount >= detail.policy.minimumHumanReviews
-  const canReadParticipantDelivery = access.grants.some(
-    (grant) => grant.permissionKey === 'communications.delivery.read',
-  )
+  const canReadParticipantDelivery = detail.permissions.participantDeliveryRead
   const reviewOpen = canAcceptAdmissionReview(detail.application.state)
   const step = nextStep(detail, { canReview, canDecide, canManageOffer })
   const offerActionable = canManageOffer &&
@@ -72,7 +76,7 @@ export function AdmissionDetail({ access }: { access: Access }) {
           <p className="eyebrow">{detail.project.trackName}</p>
           <h1>{detail.team.name}</h1>
           <p className="muted">
-            {teamSizeLabel(detail.team.members.length)} · applied {formatEventTime(detail.application.submittedAt, detail.eventTimezone)}
+            {teamSizeLabel(detail.team.memberCount)} · applied {formatEventTime(detail.application.submittedAt, detail.eventTimezone)}
           </p>
         </div>
         <span className="state-label">{applicationStateLabels[detail.application.state]}</span>
@@ -85,20 +89,16 @@ export function AdmissionDetail({ access }: { access: Access }) {
         {step.blocker ? <p className="application-blocker">{step.blocker}</p> : null}
       </section>
 
-      {/* The decision and the offer rest on reviews that are already in, so they
-          belong with the step that asks for them rather than below the whole
-          dossier. A review is the one command that needs the proposal read
-          first, so its form stays under the project text. */}
       {canDecide && reviewOpen && hasRequiredReviews ? <DecisionForm detail={detail} /> : null}
       {offerActionable ? <OfferControl detail={detail} /> : null}
 
       <section className="detail-section">
-        <h2>Team · {detail.team.members.length}</h2>
-        {detail.team.members.every((member) => member.profileContext === null) ? (
+        <h2>Team · {detail.team.memberCount}</h2>
+        {members.length > 0 && members.every((member) => member.profileContext === null) ? (
           <p className="muted">Year and institution are outside your permission scope.</p>
         ) : null}
         <div className="member-list">
-          {detail.team.members.map((member) => (
+          {members.map((member) => (
             <div className="list-row" key={member.membershipId}>
               <span className="row-glyph"><Icon name="users" /></span>
               <div className="row-text">
@@ -112,6 +112,19 @@ export function AdmissionDetail({ access }: { access: Access }) {
             </div>
           ))}
         </div>
+        {memberPage.status === 'LoadingFirstPage' ? (
+          <><LoadingLabel>Loading submitted team</LoadingLabel><SkeletonList rows={3} /></>
+        ) : null}
+        {memberPage.status === 'CanLoadMore' || memberPage.status === 'LoadingMore' ? (
+          <button
+            className="secondary"
+            type="button"
+            disabled={memberPage.status === 'LoadingMore'}
+            onClick={() => memberPage.loadMore(25)}
+          >
+            {memberPage.status === 'LoadingMore' ? 'Loading members…' : 'Load more members'}
+          </button>
+        ) : null}
       </section>
 
       <section className="detail-section prose-section">
@@ -180,7 +193,7 @@ export function AdmissionDetail({ access }: { access: Access }) {
 function OfferControl({ detail }: { detail: AdmissionDetailData }) {
   const sendOffer = useMutation(api.admissions.sendOffer)
   const revokeOffer = useMutation(api.admissions.revokeOffer)
-  const operationRef = useRef<{ key: string; id: string } | null>(null)
+  const operations = useOperationRunner()
   const [deadline, setDeadline] = useState('')
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState<'send' | 'revoke' | null>(null)
@@ -188,29 +201,20 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
 
   const submitOffer = async (event: FormEvent) => {
     event.preventDefault()
-    let expiresAt: number
-    try {
-      expiresAt = zonedTimestamp(deadline, detail.eventTimezone, 'Offer deadline')
-    } catch (caught) {
-      setError(readableError(caught))
-      return
-    }
-    const operationKey = `send:${detail.application.version}:${expiresAt}`
-    const operation = operationRef.current?.key === operationKey
-      ? operationRef.current
-      : { key: operationKey, id: crypto.randomUUID() }
-    operationRef.current = operation
     setBusy('send')
     setError(null)
     try {
-      await sendOffer({
-        eventSlug,
-        applicationId: detail.application.id,
-        expectedApplicationVersion: detail.application.version,
-        expiresAt,
-        clientOperationId: operation.id,
+      await operations.run('send', (clientOperationId) => {
+        const expiresAt = zonedTimestamp(deadline, detail.eventTimezone, 'Offer deadline')
+        const command = {
+          eventSlug,
+          applicationId: detail.application.id,
+          expectedApplicationVersion: detail.application.version,
+          expiresAt,
+          clientOperationId,
+        }
+        return () => sendOffer(command)
       })
-      operationRef.current = null
       setDeadline('')
     } catch (caught) {
       setError(readableError(caught))
@@ -222,24 +226,22 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
   const revoke = async (event: FormEvent) => {
     event.preventDefault()
     const offer = detail.currentOffer
-    if (!offer || !reason.trim()) return
-    const operationKey = `revoke:${detail.application.version}:${offer.version}:${reason}`
-    const operation = operationRef.current?.key === operationKey
-      ? operationRef.current
-      : { key: operationKey, id: crypto.randomUUID() }
-    operationRef.current = operation
+    if (!operations.hasPending('revoke') && (!offer || !reason.trim())) return
     setBusy('revoke')
     setError(null)
     try {
-      await revokeOffer({
-        eventSlug,
-        applicationId: detail.application.id,
-        expectedApplicationVersion: detail.application.version,
-        expectedOfferVersion: offer.version,
-        reason,
-        clientOperationId: operation.id,
+      await operations.run('revoke', (clientOperationId) => {
+        if (!offer) throw new Error('The offer is no longer available to withdraw.')
+        const command = {
+          eventSlug,
+          applicationId: detail.application.id,
+          expectedApplicationVersion: detail.application.version,
+          expectedOfferVersion: offer.version,
+          reason: reason.trim(),
+          clientOperationId,
+        }
+        return () => revokeOffer(command)
       })
-      operationRef.current = null
       setReason('')
     } catch (caught) {
       setError(readableError(caught))
@@ -249,25 +251,42 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
   }
 
   const offer = detail.currentOffer
+  const sendPending = operations.hasPending('send')
+  const revokePending = operations.hasPending('revoke')
+  const operationPending = sendPending || revokePending
+  const showSend = sendPending || (!offer && !revokePending)
   return (
     <section className="detail-section command-section">
       <h2>Offer</h2>
-      {offer ? (
+      {!showSend ? (
         <>
-          <p className="muted">
-            {admissionOfferStateLabels[offer.state]} · {placesLabel(offer.participantCount)} held until{' '}
-            {formatEventTime(offer.expiresAt, detail.eventTimezone)}.
-          </p>
-          {offer.state === 'offered' ? (
+          {offer ? (
+            <p className="muted">
+              {admissionOfferStateLabels[offer.state]} · {placesLabel(offer.participantCount)} held until{' '}
+              {formatEventTime(offer.expiresAt, detail.eventTimezone)}.
+            </p>
+          ) : null}
+          {offer?.state === 'offered' || revokePending ? (
             <form className="command-form" onSubmit={revoke}>
               <Field
                 label="Why the offer is being withdrawn"
                 hint="Releases the reserved places and returns the application to accepted."
               >
-                <textarea required minLength={3} maxLength={300} value={reason} onChange={(event) => setReason(event.target.value)} />
+                <textarea
+                  required
+                  minLength={3}
+                  maxLength={300}
+                  value={reason}
+                  disabled={operationPending || busy !== null}
+                  onChange={(event) => setReason(event.target.value)}
+                />
               </Field>
-              <button className="secondary" type="submit" disabled={busy !== null || !reason.trim()}>
-                {busy === 'revoke' ? 'Withdrawing…' : 'Withdraw offer'}
+              <button
+                className="secondary"
+                type="submit"
+                disabled={busy !== null || sendPending || (!revokePending && !reason.trim())}
+              >
+                {busy === 'revoke' ? 'Withdrawing…' : revokePending ? 'Confirm earlier withdrawal' : 'Withdraw offer'}
               </button>
             </form>
           ) : null}
@@ -275,17 +294,27 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
       ) : (
         <form className="command-form" onSubmit={submitOffer}>
           <p className="muted">
-            Sending reserves {placesLabel(detail.team.members.length)} until the deadline.
+            Sending reserves {placesLabel(detail.team.memberCount)} until the deadline.
             The places go back to the pool if nobody answers.
           </p>
           <Field label={`Answer by · ${detail.eventTimezone}`}>
-            <input required type="datetime-local" value={deadline} onChange={(event) => setDeadline(event.target.value)} />
+            <input
+              required
+              type="datetime-local"
+              value={deadline}
+              disabled={operationPending || busy !== null}
+              onChange={(event) => setDeadline(event.target.value)}
+            />
           </Field>
           {detail.capacity ? (
             <p className="capacity-line">{detail.capacity.reserved} of {detail.capacity.capacity} places are held or confirmed.</p>
           ) : null}
-          <button className="primary" type="submit" disabled={busy !== null || !deadline}>
-            {busy === 'send' ? 'Sending…' : 'Send offer'}
+          <button
+            className="primary"
+            type="submit"
+            disabled={busy !== null || revokePending || (!sendPending && !deadline)}
+          >
+            {busy === 'send' ? 'Sending…' : sendPending ? 'Confirm earlier offer' : 'Send offer'}
           </button>
         </form>
       )}
@@ -337,7 +366,6 @@ function AiRecommendation(
 function HumanReviews({ detail, reviewOpen }: { detail: AdmissionDetailData; reviewOpen: boolean }) {
   const outstanding = detail.policy.minimumHumanReviews - detail.application.completedReviewCount
   const decision = detail.application.humanDecision
-  // Newest first: the most recent opinion is the one a decider argues with.
   const reviews = [...detail.humanReviews].sort((left, right) => right.createdAt - left.createdAt)
   if (!reviewOpen && reviews.length === 0 && !decision) return null
   return (
@@ -394,7 +422,7 @@ function InformationRequest({ detail }: { detail: AdmissionDetailData }) {
 function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
   const assignReview = useMutation(api.admissions.assignReview)
   const cancelAssignment = useMutation(api.admissions.cancelReviewAssignment)
-  const operationRef = useRef<{ key: string; id: string } | null>(null)
+  const operations = useOperationRunner()
   const [reviewerEmail, setReviewerEmail] = useState('')
   const [cancelTargetId, setCancelTargetId] = useState<string | null>(null)
   const [cancelReason, setCancelReason] = useState('')
@@ -406,23 +434,20 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
   const assign = async (event: FormEvent) => {
     event.preventDefault()
     const normalizedEmail = reviewerEmail.trim().toLowerCase()
-    if (!normalizedEmail) return
-    const operationKey = `assign:${detail.application.version}:${normalizedEmail}`
-    const operation = operationRef.current?.key === operationKey
-      ? operationRef.current
-      : { key: operationKey, id: crypto.randomUUID() }
-    operationRef.current = operation
+    if (!operations.hasPending('assign') && !normalizedEmail) return
     setBusy('assign')
     setError(null)
     try {
-      await assignReview({
-        eventSlug,
-        applicationId: detail.application.id,
-        expectedApplicationVersion: detail.application.version,
-        reviewerEmail: normalizedEmail,
-        clientOperationId: operation.id,
+      await operations.run('assign', (clientOperationId) => {
+        const command = {
+          eventSlug,
+          applicationId: detail.application.id,
+          expectedApplicationVersion: detail.application.version,
+          reviewerEmail: normalizedEmail,
+          clientOperationId,
+        }
+        return () => assignReview(command)
       })
-      operationRef.current = null
       setReviewerEmail('')
     } catch (caught) {
       setError(readableError(caught))
@@ -433,25 +458,23 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
 
   const cancel = async (event: FormEvent) => {
     event.preventDefault()
-    if (!cancelTarget || !cancelReason.trim()) return
-    const operationKey = `cancel:${detail.application.version}:${cancelTarget.id}:${cancelTarget.version}:${cancelReason.trim()}`
-    const operation = operationRef.current?.key === operationKey
-      ? operationRef.current
-      : { key: operationKey, id: crypto.randomUUID() }
-    operationRef.current = operation
+    if (!operations.hasPending('cancel') && (!cancelTarget || !cancelReason.trim())) return
     setBusy('cancel')
     setError(null)
     try {
-      await cancelAssignment({
-        eventSlug,
-        applicationId: detail.application.id,
-        expectedApplicationVersion: detail.application.version,
-        assignmentId: cancelTarget.id,
-        expectedAssignmentVersion: cancelTarget.version,
-        reason: cancelReason,
-        clientOperationId: operation.id,
+      await operations.run('cancel', (clientOperationId) => {
+        if (!cancelTarget) throw new Error('The review assignment is no longer available to cancel.')
+        const command = {
+          eventSlug,
+          applicationId: detail.application.id,
+          expectedApplicationVersion: detail.application.version,
+          assignmentId: cancelTarget.id,
+          expectedAssignmentVersion: cancelTarget.version,
+          reason: cancelReason.trim(),
+          clientOperationId,
+        }
+        return () => cancelAssignment(command)
       })
-      operationRef.current = null
       setCancelTargetId(null)
       setCancelReason('')
     } catch (caught) {
@@ -461,13 +484,15 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
     }
   }
 
-  // Reviewers who still owe a review come first; finished and cancelled work sinks.
   const assignmentOrder = { active: 0, completed: 1, cancelled: 2 }
   const ordered = [...assignments].sort(
     (left, right) => assignmentOrder[left.state] - assignmentOrder[right.state] ||
       left.assignedAt - right.assignedAt,
   )
   const owing = assignments.filter((assignment) => assignment.state === 'active').length
+  const assignPending = operations.hasPending('assign')
+  const cancelPending = operations.hasPending('cancel')
+  const operationPending = assignPending || cancelPending
 
   return (
     <section className="detail-section command-section">
@@ -481,10 +506,20 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
       </p>
       <form className="command-form compact-command" onSubmit={assign}>
         <Field label="Reviewer Google email">
-          <input required type="email" value={reviewerEmail} onChange={(event) => setReviewerEmail(event.target.value)} />
+          <input
+            required
+            type="email"
+            value={reviewerEmail}
+            disabled={operationPending || busy !== null}
+            onChange={(event) => setReviewerEmail(event.target.value)}
+          />
         </Field>
-        <button className="secondary" type="submit" disabled={busy !== null || !reviewerEmail.trim()}>
-          {busy === 'assign' ? 'Assigning…' : 'Assign review'}
+        <button
+          className="secondary"
+          type="submit"
+          disabled={busy !== null || cancelPending || (!assignPending && !reviewerEmail.trim())}
+        >
+          {busy === 'assign' ? 'Assigning…' : assignPending ? 'Confirm earlier assignment' : 'Assign review'}
         </button>
       </form>
       {ordered.length > 0 ? (
@@ -496,13 +531,13 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
                 <span>{admissionReviewAssignmentStateLabels[assignment.state]} · {assignment.reviewerEmail}</span>
               </div>
               {assignment.state === 'active' && cancelTargetId !== assignment.id ? (
-                <button className="text-button" type="button" onClick={() => {
+                <button className="text-button" type="button" disabled={operationPending || busy !== null} onClick={() => {
                   setCancelTargetId(assignment.id)
                   setCancelReason('')
                   setError(null)
                 }}>Cancel</button>
               ) : null}
-              {assignment.state === 'active' && cancelTargetId === assignment.id ? (
+              {(assignment.state === 'active' || cancelPending) && cancelTargetId === assignment.id ? (
                 <form className="inline-cancel-form" onSubmit={cancel}>
                   <input
                     required
@@ -510,12 +545,22 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
                     maxLength={240}
                     placeholder="Cancellation reason"
                     value={cancelReason}
+                    disabled={operationPending || busy !== null}
                     onChange={(event) => setCancelReason(event.target.value)}
                   />
-                  <button className="secondary" type="submit" disabled={busy !== null || cancelReason.trim().length < 3}>
-                    {busy === 'cancel' ? 'Cancelling…' : 'Confirm'}
+                  <button
+                    className="secondary"
+                    type="submit"
+                    disabled={busy !== null || assignPending || (!cancelPending && cancelReason.trim().length < 3)}
+                  >
+                    {busy === 'cancel' ? 'Cancelling…' : cancelPending ? 'Confirm earlier cancellation' : 'Confirm'}
                   </button>
-                  <button className="text-button" type="button" onClick={() => setCancelTargetId(null)}>Keep</button>
+                  <button
+                    className="text-button"
+                    type="button"
+                    disabled={operationPending || busy !== null}
+                    onClick={() => setCancelTargetId(null)}
+                  >Keep</button>
                 </form>
               ) : null}
               {assignment.cancellationReason ? <p>{assignment.cancellationReason}</p> : null}
@@ -530,7 +575,7 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
 
 function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
   const saveReview = useMutation(api.admissions.saveReview)
-  const operationRef = useRef<{ key: string; id: string } | null>(null)
+  const operations = useOperationRunner()
   const [recommendation, setRecommendation] = useState<ApplicationDecision>('accept')
   const reasons = useMemo(
     () => detail.policy.decisionReasonCodes.filter((reason) => reason.allowedDecisions.includes(recommendation)),
@@ -541,34 +586,28 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => setReason(reasons[0]?.key ?? ''), [reasons])
+  const selectedReason = reasons.some((candidate) => candidate.key === reason)
+    ? reason
+    : reasons[0]?.key ?? ''
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!reason) return
-    const operationKey = JSON.stringify([
-      detail.application.contentVersion,
-      recommendation,
-      reason,
-      note.trim(),
-    ])
-    const operation = operationRef.current?.key === operationKey
-      ? operationRef.current
-      : { key: operationKey, id: crypto.randomUUID() }
-    operationRef.current = operation
+    if (!operations.hasPending('save') && !selectedReason) return
     setBusy(true)
     setError(null)
     try {
-      await saveReview({
-        eventSlug,
-        applicationId: detail.application.id,
-        expectedApplicationContentVersion: detail.application.contentVersion,
-        recommendation,
-        reasonCode: reason,
-        ...(note.trim() ? { note } : {}),
-        clientOperationId: operation.id,
+      await operations.run('save', (clientOperationId) => {
+        const command = {
+          eventSlug,
+          applicationId: detail.application.id,
+          expectedApplicationContentVersion: detail.application.contentVersion,
+          recommendation,
+          reasonCode: selectedReason,
+          ...(note.trim() ? { note: note.trim() } : {}),
+          clientOperationId,
+        }
+        return () => saveReview(command)
       })
-      operationRef.current = null
       setNote('')
     } catch (caught) {
       setError(readableError(caught))
@@ -577,26 +616,41 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
     }
   }
 
+  const savePending = operations.hasPending('save')
+
   return (
     <section className="detail-section command-section">
       <h2>Add your review</h2>
       <p className="muted">Your recommendation and reason are visible to whoever publishes the decision.</p>
       <form className="command-form" onSubmit={submit}>
-        <Field label="Recommendation">
-          <select value={recommendation} onChange={(event) => setRecommendation(parseDecision(event.target.value))}>
-            {applicationDecisions.map((decision) => <option key={decision} value={decision}>{applicationDecisionLabels[decision]}</option>)}
-          </select>
-        </Field>
-        <Field label="Published reason">
-          <select value={reason} onChange={(event) => setReason(event.target.value)}>
-            {reasons.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
-          </select>
-        </Field>
-        <Field label="Note" hint="Optional.">
-          <textarea value={note} maxLength={600} onChange={(event) => setNote(event.target.value)} />
-        </Field>
+        <fieldset disabled={savePending || busy} style={{ display: 'contents' }}>
+          <Field label="Recommendation">
+            <select
+              value={recommendation}
+              onChange={(event) => {
+                const next = parseDecision(event.target.value)
+                setRecommendation(next)
+                setReason(detail.policy.decisionReasonCodes.find(
+                  (candidate) => candidate.allowedDecisions.includes(next),
+                )?.key ?? '')
+              }}
+            >
+              {applicationDecisions.map((decision) => <option key={decision} value={decision}>{applicationDecisionLabels[decision]}</option>)}
+            </select>
+          </Field>
+          <Field label="Published reason">
+            <select value={selectedReason} onChange={(event) => setReason(event.target.value)}>
+              {reasons.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Note" hint="Optional.">
+            <textarea value={note} maxLength={600} onChange={(event) => setNote(event.target.value)} />
+          </Field>
+        </fieldset>
         {error ? <p className="notice error" role="alert">{error}</p> : null}
-        <button className="primary" type="submit" disabled={busy || !reason}>{busy ? 'Saving…' : 'Save review'}</button>
+        <button className="primary" type="submit" disabled={busy || (!savePending && !selectedReason)}>
+          {busy ? 'Saving…' : savePending ? 'Confirm earlier review' : 'Save review'}
+        </button>
       </form>
     </section>
   )
@@ -604,52 +658,45 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
 
 function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
   const decide = useMutation(api.admissions.decide)
-  const operationRef = useRef<{ key: string; id: string } | null>(null)
+  const operations = useOperationRunner()
   const [decision, setDecision] = useState<ApplicationDecision>('accept')
   const reasons = useMemo(
     () => detail.policy.decisionReasonCodes.filter((reason) => reason.allowedDecisions.includes(decision)),
     [decision, detail.policy.decisionReasonCodes],
   )
-  const [reason, setReason] = useState('')
+  const [reason, setReason] = useState(() => reasons[0]?.key ?? '')
   const [aiDisposition, setAiDisposition] = useState<AiDisposition>(() => defaultAiDisposition(detail, 'accept'))
   const [informationQuestions, setInformationQuestions] = useState([''])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    setReason(reasons[0]?.key ?? '')
-    setAiDisposition(defaultAiDisposition(detail, decision))
-  }, [decision, detail, reasons])
+  const selectedReason = reasons.some((candidate) => candidate.key === reason)
+    ? reason
+    : reasons[0]?.key ?? ''
+  const availableAiDispositions = aiDispositionOptions(detail, decision)
+  const selectedAiDisposition = availableAiDispositions.includes(aiDisposition)
+    ? aiDisposition
+    : availableAiDispositions[0] ?? 'unavailable'
 
   const publish = async (event: FormEvent) => {
     event.preventDefault()
-    if (!reason) return
-    const submittedQuestions = decision === 'needs_information' ? informationQuestions : []
-    const operationKey = JSON.stringify([
-      detail.application.version,
-      decision,
-      reason,
-      submittedQuestions,
-      aiDisposition,
-    ])
-    const operation = operationRef.current?.key === operationKey
-      ? operationRef.current
-      : { key: operationKey, id: crypto.randomUUID() }
-    operationRef.current = operation
+    if (!operations.hasPending('publish') && !selectedReason) return
     setBusy(true)
     setError(null)
     try {
-      await decide({
-        eventSlug,
-        applicationId: detail.application.id,
-        expectedApplicationVersion: detail.application.version,
-        decision,
-        reasonCode: reason,
-        informationQuestions: submittedQuestions,
-        aiDisposition,
-        clientOperationId: operation.id,
+      await operations.run('publish', (clientOperationId) => {
+        const command = {
+          eventSlug,
+          applicationId: detail.application.id,
+          expectedApplicationVersion: detail.application.version,
+          decision,
+          reasonCode: selectedReason,
+          informationQuestions: decision === 'needs_information' ? [...informationQuestions] : [],
+          aiDisposition: selectedAiDisposition,
+          clientOperationId,
+        }
+        return () => decide(command)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -657,22 +704,35 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
     }
   }
 
+  const publishPending = operations.hasPending('publish')
+
   return (
     <section className="detail-section command-section final-command">
       <h2>Publish the decision</h2>
       <p className="muted">Publishing emails the team straight away and cannot be undone.</p>
       <form className="command-form" onSubmit={publish}>
-        <Field label="Decision">
-          <select value={decision} onChange={(event) => setDecision(parseDecision(event.target.value))}>
+        <fieldset disabled={publishPending || busy} style={{ display: 'contents' }}>
+          <Field label="Decision">
+          <select
+            value={decision}
+            onChange={(event) => {
+              const next = parseDecision(event.target.value)
+              setDecision(next)
+              setReason(detail.policy.decisionReasonCodes.find(
+                (candidate) => candidate.allowedDecisions.includes(next),
+              )?.key ?? '')
+              setAiDisposition(defaultAiDisposition(detail, next))
+            }}
+          >
             {applicationDecisions.map((value) => <option key={value} value={value}>{applicationDecisionLabels[value]}</option>)}
           </select>
-        </Field>
-        <Field label="Published reason">
-          <select value={reason} onChange={(event) => setReason(event.target.value)}>
+          </Field>
+          <Field label="Published reason">
+          <select value={selectedReason} onChange={(event) => setReason(event.target.value)}>
             {reasons.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
           </select>
-        </Field>
-        {decision === 'needs_information' ? (
+          </Field>
+          {decision === 'needs_information' ? (
           <div className="field">
             <span>Questions for the team</span>
             {informationQuestions.map((question, index) => (
@@ -696,22 +756,30 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
               )}
             </div>
           </div>
-        ) : null}
-        <Field label="How you used the AI recommendation" hint="Recorded in the audit trail.">
-          <select value={aiDisposition} onChange={(event) => setAiDisposition(parseAiDisposition(event.target.value))}>
-            {aiDispositionOptions(detail, decision).map((value) => <option key={value} value={value}>{admissionAiDispositionLabels[value]}</option>)}
+          ) : null}
+          <Field label="How you used the AI recommendation" hint="Recorded in the audit trail.">
+          <select value={selectedAiDisposition} onChange={(event) => setAiDisposition(parseAiDisposition(event.target.value))}>
+            {availableAiDispositions.map((value) => <option key={value} value={value}>{admissionAiDispositionLabels[value]}</option>)}
           </select>
-        </Field>
-        {detail.capacity ? (
-          <p className="capacity-line">{detail.capacity.reserved} of {detail.capacity.capacity} places are held or confirmed.</p>
-        ) : null}
+          </Field>
+          {detail.capacity ? (
+            <p className="capacity-line">{detail.capacity.reserved} of {detail.capacity.capacity} places are held or confirmed.</p>
+          ) : null}
+        </fieldset>
         {error ? <p className="notice error" role="alert">{error}</p> : null}
         <button
           className="primary"
           type="submit"
-          disabled={busy || !reason || (decision === 'needs_information' && informationQuestions.some((question) => question.trim().length < 8))}
+          disabled={busy || (!publishPending && (
+            !selectedReason ||
+            (decision === 'needs_information' && informationQuestions.some((question) => question.trim().length < 8))
+          ))}
         >
-          {busy ? 'Publishing…' : `Publish ${applicationDecisionLabels[decision].toLowerCase()}`}
+          {busy
+            ? 'Publishing…'
+            : publishPending
+              ? 'Confirm earlier decision'
+              : `Publish ${applicationDecisionLabels[decision].toLowerCase()}`}
         </button>
       </form>
     </section>
@@ -726,24 +794,10 @@ function TextList({ label, values }: { label: string; values: string[] }) {
   return <div className="text-list"><strong>{label}</strong><ul>{values.map((value) => <li key={value}>{value}</li>)}</ul></div>
 }
 
-function can(access: Access, permissionKey: string, applicationId: string) {
-  return access.grants.some(
-    (grant) => grant.permissionKey === permissionKey &&
-      (grant.scopeType === 'event' || (grant.scopeType === 'application' && grant.scopeId === applicationId)),
-  )
-}
-
 function canAcceptAdmissionReview(state: string) {
   return state === 'submitted' || state === 'under_review' || state === 'needs_information'
 }
 
-/**
- * The one thing this application is waiting on, and who it is waiting on.
- *
- * The dossier used to open with a bare state name, which told a reader where
- * the record sat but never whether it was their move. Each branch below names
- * the action, and when the reader cannot take it, why not.
- */
 function nextStep(
   detail: AdmissionDetailData,
   permissions: { canReview: boolean; canDecide: boolean; canManageOffer: boolean },
@@ -793,7 +847,7 @@ function nextStep(
   if (state === 'confirmed') {
     return {
       title: 'Nothing left to do',
-      detail: `${detail.team.name} confirmed ${placesLabel(detail.team.members.length)} and appears at check-in.`,
+      detail: `${detail.team.name} confirmed ${placesLabel(detail.team.memberCount)} and appears at check-in.`,
     }
   }
   if (state === 'waitlisted') {
@@ -838,7 +892,6 @@ function defaultAiDisposition(detail: AdmissionDetailData, decision: Application
   return aiDispositionOptions(detail, decision)[0] ?? 'unavailable'
 }
 
-/** Team size stated in places, so a reader knows what an offer reserves. */
 function placesLabel(count: number) {
   return `${count} ${count === 1 ? 'place' : 'places'}`
 }
@@ -857,19 +910,10 @@ function sourceName(value: string) {
   return 'follow-up answer'
 }
 
-/**
- * The published reason in the wording the team was given.
- *
- * A reason code is only ever written after it has been checked against the
- * policy version pinned to this application, so a miss here means the record
- * predates the policy it points at. Returning null keeps a storage key such as
- * `clear_and_workable` off the screen; the sentence simply drops the clause.
- */
 function reasonLabel(detail: AdmissionDetailData, key: string): string | null {
   return detail.policy.decisionReasonCodes.find((reason) => reason.key === key)?.label ?? null
 }
 
-/** How a published decision reads once it can no longer be changed. */
 function decidedSentence(detail: AdmissionDetailData, decision: ApplicationDecision) {
   const outcome = applicationDecisionOutcomeLabels[decision]
   const reason = detail.application.humanReasonCode

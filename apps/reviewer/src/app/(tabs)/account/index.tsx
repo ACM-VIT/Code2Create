@@ -39,8 +39,6 @@ const styles = StyleSheet.create({
   identity: { paddingBottom: 22 },
   name: { color: palette.text, fontSize: 28, fontWeight: '600', letterSpacing: -0.5 },
   email: { marginTop: 4, color: palette.muted, fontSize: 16 },
-  /* Tiles rather than hairline rules, so this reads as the same app as every
-     other list rather than as the settings screen it grew out of. */
   rows: { gap: 8 },
   row: {
     flexDirection: 'row',

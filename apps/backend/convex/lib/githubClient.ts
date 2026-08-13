@@ -4,12 +4,32 @@ import { ConvexError } from "convex/values";
 import { App, Octokit } from "octokit";
 
 const githubApiVersion = "2026-03-10";
+const githubRequestTimeoutMs = 30_000;
+
+export async function timedGitHubFetch(
+  input: string | URL | Request,
+  init?: RequestInit,
+  timeoutMs = githubRequestTimeoutMs,
+) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+    throw new RangeError("The GitHub request timeout must be a positive integer.");
+  }
+  const callerSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  return fetch(input, {
+    ...init,
+    signal: callerSignal
+      ? AbortSignal.any([callerSignal, timeoutSignal])
+      : timeoutSignal,
+  });
+}
 
 export const GitHubOctokit = Octokit.defaults({
   headers: {
     accept: "application/vnd.github+json",
     "x-github-api-version": githubApiVersion,
   },
+  request: { fetch: timedGitHubFetch },
 });
 
 export type GitHubConfiguration = {

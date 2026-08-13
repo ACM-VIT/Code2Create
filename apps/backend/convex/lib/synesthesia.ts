@@ -8,7 +8,11 @@ import {
   requireEventSubject,
   requireMembership,
 } from "./identity";
-import type { PermissionKey } from "./permissionCatalog";
+import { permissionCatalog, type PermissionKey } from "./permissionCatalog";
+import {
+  boundedActivePermissionScopeIds,
+  matchingPermissionGrantIds,
+} from "./permissions";
 import { normalizedText, optionalNormalizedText } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -133,35 +137,31 @@ export async function activeGrantScopes(
     eventId: Id<"events">;
     eventAccessSubjectId: Id<"eventAccessSubjects">;
     permissionKey: PermissionKey;
+    maximumScopeCount: number;
   },
 ) {
-  const now = Date.now();
-  const grants = await ctx.db
-    .query("permissionGrants")
-    .withIndex("by_subject_permission_status", (index) =>
-      index
-        .eq("eventAccessSubjectId", args.eventAccessSubjectId)
-        .eq("permissionKey", args.permissionKey)
-        .eq("status", "active"),
-    )
-    .collect();
-  const valid = grants.filter(
-    (grant) =>
-      grant.eventId === args.eventId &&
-      grant.validFrom <= now &&
-      (grant.validUntil === undefined || grant.validUntil > now),
-  );
-  return {
-    eventWide: valid.some(
-      (grant) => grant.scopeType === "event" && grant.scopeId === undefined,
-    ),
-    scopeIds: new Set(
-      valid.flatMap((grant) =>
-        grant.scopeType === "event" || grant.scopeId === undefined
-          ? []
-          : [grant.scopeId],
+  const definition = permissionCatalog[args.permissionKey];
+  const [eventGrantIds, scopedIds] = await Promise.all([
+    definition.eventWide
+      ? matchingPermissionGrantIds(ctx, {
+          eventId: args.eventId,
+          eventAccessSubjectId: args.eventAccessSubjectId,
+          permissionKey: args.permissionKey,
+          scopeType: "event",
+        })
+      : Promise.resolve([]),
+    Promise.all(
+      definition.scopes.map((requestedScopeType) =>
+        boundedActivePermissionScopeIds(ctx, {
+          ...args,
+          scopeType: requestedScopeType,
+        }),
       ),
     ),
+  ]);
+  return {
+    eventWide: eventGrantIds.length > 0,
+    scopeIds: new Set(scopedIds.flatMap((ids) => [...ids])),
   };
 }
 
@@ -333,33 +333,4 @@ export function synesthesiaWindowFields(args: {
     allowExplicit: args.allowExplicit,
     allowedEnergyTags: normalizedEnergyTags(args.allowedEnergyTags),
   };
-}
-
-function queueStateRank(state: Doc<"songRequests">["state"]) {
-  if (state === "playing") return 0;
-  if (state === "queued") return 1;
-  if (state === "approved") return 2;
-  if (state === "pending") return 3;
-  if (state === "played") return 4;
-  if (state === "skipped") return 5;
-  if (state === "rejected") return 6;
-  return 7;
-}
-
-export function compareSongRequests(
-  left: Doc<"songRequests">,
-  right: Doc<"songRequests">,
-) {
-  const stateDifference = queueStateRank(left.state) - queueStateRank(right.state);
-  if (stateDifference !== 0) return stateDifference;
-  if (left.state === "queued" && right.state === "queued") {
-    const leftPinned = left.queueMode === "pinned" ? 1 : 0;
-    const rightPinned = right.queueMode === "pinned" ? 1 : 0;
-    if (leftPinned !== rightPinned) return rightPinned - leftPinned;
-    const leftScheduled = left.scheduledFor ?? left.createdAt;
-    const rightScheduled = right.scheduledFor ?? right.createdAt;
-    if (leftScheduled !== rightScheduled) return leftScheduled - rightScheduled;
-  }
-  if (left.voteCount !== right.voteCount) return right.voteCount - left.voteCount;
-  return left.createdAt - right.createdAt;
 }

@@ -21,8 +21,6 @@ test("a zone rectangle divides into the nine areas people say out loud", () => {
 });
 
 test("the thirds meet without a gap or an overlap", () => {
-  // A finger landing exactly on a boundary still has to produce one area, and
-  // the same one every time, or two mappers describe the same table differently.
   assert.equal(floorAreaAt(100 / 3, 100 / 3), "centre");
   assert.equal(floorAreaAt(100 / 3 - 0.01, 100 / 3), "west");
   assert.equal(floorAreaAt(200 / 3, 200 / 3), "south_east");

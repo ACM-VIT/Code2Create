@@ -51,6 +51,7 @@ async function recordGoogleIdentity(
     claims.sub !== account.accountId ||
     typeof claims.email !== "string" ||
     claims.email_verified !== true ||
+    typeof claims.name !== "string" ||
     typeof claims.iat !== "number" ||
     typeof claims.exp !== "number" ||
     (claims.hd !== undefined && typeof claims.hd !== "string")
@@ -61,6 +62,7 @@ async function recordGoogleIdentity(
     authUserId: account.userId,
     googleSubject: claims.sub,
     verifiedEmail: claims.email,
+    displayName: claims.name,
     ...(claims.hd !== undefined ? { hostedDomain: claims.hd } : {}),
     tokenIssuedAt: claims.iat * 1_000,
     tokenExpiresAt: claims.exp * 1_000,

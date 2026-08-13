@@ -11,15 +11,19 @@ import { requirePermission } from "./lib/permissions";
 import { normalizedText, optionalNormalizedText } from "./lib/strings";
 import {
   activeGrantScopes,
-  compareSongRequests,
   maximumRequestsPerWindow,
   scopeAllows,
 } from "./lib/synesthesia";
+import { songRequestVoteCounts } from "./lib/synesthesiaVotes";
 import {
   songQueueMode,
   songRequestState,
   synesthesiaWindowStatus,
 } from "./values";
+import {
+  appendSongRequestReadFactById,
+  appendSynesthesiaReportReadFactById,
+} from "./lib/operationsAutonomyReadFacts/synesthesiaOperations";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
@@ -40,7 +44,6 @@ const queueRequestView = v.object({
   energyTag: v.string(),
   note: v.optional(v.string()),
   state: songRequestState,
-  voteCount: v.number(),
   openReportCount: v.number(),
   queueMode: songQueueMode,
   scheduledFor: v.optional(v.number()),
@@ -68,6 +71,26 @@ async function staffContext(ctx: ReadCtx, eventSlug: string) {
   return { event, person, subject };
 }
 
+async function requireQueueWindow(
+  ctx: ReadCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  windowId: Id<"synesthesiaWindows">,
+) {
+  const window = await ctx.db.get("synesthesiaWindows", windowId);
+  if (!window || window.eventId !== eventId) {
+    throw new ConvexError({ code: "WINDOW_NOT_FOUND", message: "Window not found." });
+  }
+  await requirePermission(ctx, {
+    eventId,
+    eventAccessSubjectId,
+    permissionKey: "synesthesia.queue.read",
+    scopeType: "synesthesia_window",
+    scopeId: window._id,
+  });
+  return window;
+}
+
 export const queue = query({
   args: { eventSlug: v.string(), windowId: v.id("synesthesiaWindows") },
   returns: v.object({
@@ -86,17 +109,12 @@ export const queue = query({
   }),
   handler: async (ctx, args) => {
     const { event, subject } = await staffContext(ctx, args.eventSlug);
-    const window = await ctx.db.get("synesthesiaWindows", args.windowId);
-    if (!window || window.eventId !== event._id) {
-      throw new ConvexError({ code: "WINDOW_NOT_FOUND", message: "Window not found." });
-    }
-    await requirePermission(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "synesthesia.queue.read",
-      scopeType: "synesthesia_window",
-      scopeId: window._id,
-    });
+    const window = await requireQueueWindow(
+      ctx,
+      event._id,
+      subject._id,
+      args.windowId,
+    );
     const [
       requests,
       openReports,
@@ -122,36 +140,43 @@ export const queue = query({
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "synesthesia.request.moderate",
+        maximumScopeCount: maximumRequestsPerWindow,
       }),
       activeGrantScopes(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "synesthesia.queue.schedule",
+        maximumScopeCount: maximumRequestsPerWindow,
       }),
       activeGrantScopes(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "synesthesia.playback.acknowledge",
+        maximumScopeCount: maximumRequestsPerWindow,
       }),
       activeGrantScopes(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "synesthesia.report.read",
+        maximumScopeCount: maximumRequestsPerWindow,
       }),
       activeGrantScopes(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "synesthesia.report.resolve",
+        maximumScopeCount: maximumRequestsPerWindow,
       }),
       activeGrantScopes(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "synesthesia.access.suspend",
+        maximumScopeCount: maximumRequestsPerWindow,
       }),
       activeGrantScopes(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "synesthesia.access.restore",
+        maximumScopeCount: maximumRequestsPerWindow,
       }),
     ]);
     const visibleRequests = requests.slice(0, maximumRequestsPerWindow);
@@ -189,7 +214,7 @@ export const queue = query({
           : {}),
         version: window.version,
       },
-      requests: visibleRequests.sort(compareSongRequests).map((request) => {
+      requests: visibleRequests.map((request) => {
         const canModerate = scopeAllows(moderate, request._id);
         const canReadReports = scopeAllows(reportRead, request._id);
         const accessState = accessByMembership.get(request.requestedByMembershipId);
@@ -204,7 +229,6 @@ export const queue = query({
           energyTag: request.energyTag,
           ...(request.note !== undefined ? { note: request.note } : {}),
           state: request.state,
-          voteCount: request.voteCount,
           openReportCount: request.openReportCount,
           queueMode: request.queueMode,
           ...(request.scheduledFor !== undefined
@@ -244,6 +268,41 @@ export const queue = query({
         };
       }),
       truncated: requests.length > maximumRequestsPerWindow,
+    };
+  },
+});
+
+export const voteCounts = query({
+  args: { eventSlug: v.string(), windowId: v.id("synesthesiaWindows") },
+  returns: v.object({
+    windowId: v.id("synesthesiaWindows"),
+    counts: v.array(
+      v.object({
+        requestId: v.id("songRequests"),
+        voteCount: v.number(),
+      }),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const { event, subject } = await staffContext(ctx, args.eventSlug);
+    const window = await requireQueueWindow(
+      ctx,
+      event._id,
+      subject._id,
+      args.windowId,
+    );
+    const requests = await ctx.db
+      .query("songRequests")
+      .withIndex("by_window_created", (index) => index.eq("windowId", window._id))
+      .take(maximumRequestsPerWindow + 1);
+    if (requests.length > maximumRequestsPerWindow) {
+      throw new Error(
+        `A Synesthesia window cannot contain more than ${maximumRequestsPerWindow} requests.`,
+      );
+    }
+    return {
+      windowId: window._id,
+      counts: await songRequestVoteCounts(ctx, requests),
     };
   },
 });
@@ -335,6 +394,7 @@ export const moderateRequest = mutation({
       version,
       updatedAt: now,
     });
+    await appendSongRequestReadFactById(ctx, request._id, now);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -440,6 +500,7 @@ export const scheduleRequest = mutation({
       version,
       updatedAt: now,
     });
+    await appendSongRequestReadFactById(ctx, request._id, now);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -576,6 +637,7 @@ export const acknowledgePlayback = mutation({
       version,
       updatedAt: now,
     });
+    await appendSongRequestReadFactById(ctx, request._id, now);
     await ctx.db.insert("synesthesiaPlaybackEvents", {
       eventId: event._id,
       windowId: window._id,
@@ -688,11 +750,13 @@ export const resolveReport = mutation({
       version,
       updatedAt: now,
     });
+    await appendSynesthesiaReportReadFactById(ctx, report._id, now);
     await ctx.db.patch("songRequests", request._id, {
       openReportCount: Math.max(0, request.openReportCount - 1),
       version: request.version + 1,
       updatedAt: now,
     });
+    await appendSongRequestReadFactById(ctx, request._id, now);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,

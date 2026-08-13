@@ -1,7 +1,12 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
+import {
+  maximumAttendanceSessionsPerPlan,
+  maximumSimultaneousAttendanceSessionsPerParticipant,
+} from "./lib/attendancePlanLimits";
 import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
@@ -76,6 +81,7 @@ export const mine = query({
         checkInOpensAt: v.number(),
         checkInClosesAt: v.number(),
         zoneName: v.string(),
+        timing: v.union(v.literal("current"), v.literal("upcoming")),
         state: sessionPresenceState,
         late: v.boolean(),
         updatedAt: v.number(),
@@ -103,12 +109,18 @@ export const mine = query({
       scopeType: "self",
       scopeId: membership._id,
     });
+    const planId = event.publishedAttendancePlanVersionId;
+    const plan = planId ? await ctx.db.get(planId) : null;
+    const planIsPublished = Boolean(
+      plan && plan.eventId === event._id && plan.status === "published",
+    );
+    const publishedPlanId = planIsPublished ? planId : undefined;
     const [
       venueCheckIn,
       venue,
-      sessionParticipants,
+      projections,
       recentEvents,
-      memberCredentials,
+      physicalCredential,
     ] = await Promise.all([
       latestVenueCheckIn(ctx, membership._id),
       ctx.db
@@ -117,55 +129,67 @@ export const mine = query({
           index.eq("eventId", event._id).eq("membershipId", membership._id),
         )
         .unique(),
-      ctx.db
-        .query("attendanceSessionParticipants")
-        .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
-        .collect(),
+      publishedPlanId
+        ? ctx.db
+            .query("attendanceParticipantCurrentSessions")
+            .withIndex("by_membership_plan_start", (index) =>
+              index
+                .eq("membershipId", membership._id)
+                .eq("planVersionId", publishedPlanId),
+            )
+            .take(maximumAttendanceSessionsPerPlan + 1)
+        : [],
       ctx.db
         .query("attendancePresenceEvents")
         .withIndex("by_membership_time", (index) => index.eq("membershipId", membership._id))
         .order("desc")
         .take(5),
-      ctx.db
-        .query("attendanceCredentials")
-        .withIndex("by_membership_state", (index) => index.eq("membershipId", membership._id))
-        .collect(),
+      participantPhysicalCredential(ctx, membership._id, membership.participantClass),
     ]);
-    const sessions = [];
-    for (const participant of sessionParticipants) {
-      const session = await ctx.db.get(participant.sessionId);
-      if (!session || session.eventId !== event._id || session.status === "cancelled") continue;
-      const zone = await ctx.db.get(session.zoneId);
-      if (!zone || zone.eventId !== event._id) continue;
-      sessions.push({
-        id: session._id,
-        name: session.name,
-        requirement: session.requirement,
-        status: session.status,
-        startsAt: session.startsAt,
-        endsAt: session.endsAt,
-        checkInOpensAt: session.checkInOpensAt,
-        checkInClosesAt: session.checkInClosesAt,
-        zoneName: zone.name,
-        state: participant.state,
-        late: participant.late,
-        updatedAt: participant.updatedAt,
+    if (projections.length > maximumAttendanceSessionsPerPlan) {
+      throw new ConvexError({
+        code: "ATTENDANCE_PARTICIPANT_PROJECTION_INVALID",
+        message: "The participant attendance schedule exceeds the published plan limit.",
       });
     }
-    sessions.sort((left, right) => left.startsAt - right.startsAt);
-    const planId = event.publishedAttendancePlanVersionId;
-    const plan = planId ? await ctx.db.get(planId) : null;
-    const physicalCredential = participantPhysicalCredential(
-      membership.participantClass,
-      memberCredentials,
+    const projectedSessions = publishedPlanId
+      ? await Promise.all(projections.map(async (projection) => {
+          const session = await ctx.db.get(projection.sessionId);
+          if (!session) {
+            throw invalidParticipantProjection("A projected attendance session no longer exists.");
+          }
+          return await participantSessionView(ctx, {
+            eventId: event._id,
+            planVersionId: publishedPlanId,
+            membershipId: membership._id,
+            projection,
+            session,
+          });
+        }))
+      : [];
+    const currentSessions = projectedSessions.filter(
+      (session) => session.status === "open" || session.status === "closing",
     );
+    if (currentSessions.length > maximumSimultaneousAttendanceSessionsPerParticipant) {
+      throw new ConvexError({
+        code: "ATTENDANCE_SESSION_CONCURRENCY_LIMIT_REACHED",
+        message: "The published attendance schedule has too many simultaneous sessions.",
+      });
+    }
+    const nextSession = projectedSessions.find(
+      (session) => session.status !== "open" && session.status !== "closing",
+    );
+    const sessions = [
+      ...currentSessions.map((session) => ({ ...session, timing: "current" as const })),
+      ...(nextSession
+        ? [{ ...nextSession, timing: "upcoming" as const }]
+        : []),
+    ];
     return {
       available: Boolean(
         membership.eligibilityStatus === "eligible" &&
           membership.onboardingStatus === "accepted" &&
-          plan &&
-          plan.eventId === event._id &&
-          plan.status === "published",
+          planIsPublished,
       ),
       physicalCredential,
       venueCheckIn: venueCheckIn
@@ -190,29 +214,119 @@ export const mine = query({
   },
 });
 
-function participantPhysicalCredential(
+function invalidParticipantProjection(message: string) {
+  return new ConvexError({
+    code: "ATTENDANCE_PARTICIPANT_PROJECTION_INVALID",
+    message: `${message} Ask an organizer to repair it.`,
+  });
+}
+
+async function participantSessionView(
+  ctx: QueryCtx,
+  args: {
+    eventId: Id<"events">;
+    planVersionId: Id<"attendancePlanVersions">;
+    membershipId: Id<"eventMemberships">;
+    projection: Doc<"attendanceParticipantCurrentSessions">;
+    session: Doc<"attendanceSessions">;
+  },
+) {
+  const participant = await ctx.db.get(args.projection.sessionParticipantId);
+  if (
+    !participant ||
+    args.projection.eventId !== args.eventId ||
+    args.projection.membershipId !== args.membershipId ||
+    args.projection.planVersionId !== args.planVersionId ||
+    participant.eventId !== args.eventId ||
+    participant.membershipId !== args.membershipId ||
+    participant.sessionId !== args.session._id ||
+    participant.completedAt !== undefined ||
+    participant.result !== undefined ||
+    args.session.eventId !== args.eventId ||
+    args.session.planVersionId !== args.planVersionId ||
+    args.session.startsAt !== args.projection.sessionStartsAt ||
+    args.session.status === "closed" ||
+    args.session.status === "cancelled"
+  ) {
+    throw invalidParticipantProjection("The current attendance schedule is inconsistent.");
+  }
+  const zone = await ctx.db.get(args.session.zoneId);
+  if (
+    !zone ||
+    zone.eventId !== args.eventId ||
+    zone.planVersionId !== args.planVersionId
+  ) {
+    throw invalidParticipantProjection("The current attendance area is inconsistent.");
+  }
+  return {
+    id: args.session._id,
+    name: args.session.name,
+    requirement: args.session.requirement,
+    status: args.session.status,
+    startsAt: args.session.startsAt,
+    endsAt: args.session.endsAt,
+    checkInOpensAt: args.session.checkInOpensAt,
+    checkInClosesAt: args.session.checkInClosesAt,
+    zoneName: zone.name,
+    state: participant.state,
+    late: participant.late,
+    updatedAt: participant.updatedAt,
+  };
+}
+
+async function participantPhysicalCredential(
+  ctx: QueryCtx,
+  membershipId: Id<"eventMemberships">,
   participantClass: "vit_student" | "external_participant",
-  credentials: Doc<"attendanceCredentials">[],
-): ParticipantPhysicalCredential {
+): Promise<ParticipantPhysicalCredential> {
   if (participantClass === "vit_student") {
-    const current = credentials.find(
-      (credential) =>
-        credential.kind === "vit_id_barcode" &&
-        (credential.state === "active" || credential.state === "suspended"),
-    );
+    const [active, suspended] = await Promise.all([
+      ctx.db
+        .query("attendanceCredentials")
+        .withIndex("by_membership_state", (index) =>
+          index.eq("membershipId", membershipId).eq("state", "active"),
+        )
+        .take(2),
+      ctx.db
+        .query("attendanceCredentials")
+        .withIndex("by_membership_state", (index) =>
+          index.eq("membershipId", membershipId).eq("state", "suspended"),
+        )
+        .take(2),
+    ]);
+    if (
+      active.length > 1 ||
+      suspended.length > 1 ||
+      (active.length === 1 && suspended.length === 1) ||
+      active[0]?.kind === "badge_qr" ||
+      suspended[0]?.kind === "badge_qr"
+    ) {
+      throw new Error("A VIT participant must have at most one current VIT credential.");
+    }
     return {
       kind: "vit_id_barcode",
-      state:
-        current?.state === "active"
-          ? "active"
-          : current?.state === "suspended"
-            ? "suspended"
-            : "not_enrolled",
+      state: active.length === 1 ? "active" : suspended.length === 1 ? "suspended" : "not_enrolled",
     };
   }
-  const active = credentials.find(
-    (credential) => credential.kind === "badge_qr" && credential.state === "active",
-  );
+  const [activeCredentials, latestRevoked] = await Promise.all([
+    ctx.db
+      .query("attendanceCredentials")
+      .withIndex("by_membership_state", (index) =>
+        index.eq("membershipId", membershipId).eq("state", "active"),
+      )
+      .take(2),
+    ctx.db
+      .query("attendanceCredentials")
+      .withIndex("by_membership_state", (index) =>
+        index.eq("membershipId", membershipId).eq("state", "revoked"),
+      )
+      .order("desc")
+      .first(),
+  ]);
+  if (activeCredentials.length > 1 || activeCredentials[0]?.kind === "vit_id_barcode") {
+    throw new Error("An external participant must have at most one active badge.");
+  }
+  const active = activeCredentials[0];
   if (active) {
     if (!active.badgeReference) {
       throw new Error("An active external badge must have a printed reference.");
@@ -223,14 +337,14 @@ function participantPhysicalCredential(
       badgeReference: active.badgeReference,
     };
   }
-  const wasRevoked = credentials.some(
-    (credential) =>
-      credential.kind === "badge_qr" &&
-      credential.state === "revoked" &&
-      credential.verifiedAt !== undefined,
-  );
+  if (
+    latestRevoked &&
+    (latestRevoked.kind !== "badge_qr" || latestRevoked.verifiedAt === undefined)
+  ) {
+    throw new Error("A revoked external badge must be a verified badge.");
+  }
   return {
     kind: "badge_qr",
-    state: wasRevoked ? "revoked" : "not_issued",
+    state: latestRevoked ? "revoked" : "not_issued",
   };
 }

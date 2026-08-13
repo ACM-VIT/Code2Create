@@ -5,8 +5,13 @@ import { operationFingerprint } from "./operations";
 type SessionState = Doc<"attendanceSessionParticipants">["state"];
 type VenueState = Doc<"attendanceVenueStates">["state"];
 
+export const attendanceCounterShardCount = 32;
+
 export function attendanceCounterShardFor(membershipId: Id<"eventMemberships">) {
-  return Number.parseInt(operationFingerprint([membershipId]).slice(0, 8), 16) % 32;
+  return (
+    Number.parseInt(operationFingerprint([membershipId]).slice(0, 8), 16) %
+    attendanceCounterShardCount
+  );
 }
 
 export async function moveSessionCounter(
@@ -99,44 +104,74 @@ export async function moveZoneCounter(
   ctx: MutationCtx,
   args: {
     eventId: Id<"events">;
-    zoneId: Id<"attendanceZones">;
     membershipId: Id<"eventMemberships">;
     previousState: VenueState;
+    previousZoneId?: Id<"attendanceZones">;
     nextState: VenueState;
+    nextZoneId?: Id<"attendanceZones">;
     now: number;
   },
 ) {
-  if (args.previousState === args.nextState) return;
+  const counted = (state: VenueState) => state === "inside" || state === "unknown";
+  if (counted(args.previousState) && args.previousZoneId === undefined) {
+    throw new Error("A counted attendance venue state must own a zone.");
+  }
+  if (counted(args.nextState) && args.nextZoneId === undefined) {
+    throw new Error("A counted attendance venue state must own a zone.");
+  }
+  if (
+    args.previousState === args.nextState &&
+    args.previousZoneId === args.nextZoneId
+  ) {
+    return;
+  }
   const shard = attendanceCounterShardFor(args.membershipId);
-  const current = await ctx.db
-    .query("attendanceZoneCounterShards")
-    .withIndex("by_zone_shard", (index) =>
-      index.eq("zoneId", args.zoneId).eq("shard", shard),
-    )
-    .unique();
-  let inside = current?.inside ?? 0;
-  let unknown = current?.unknown ?? 0;
-  if (args.previousState === "inside") inside -= 1;
-  if (args.previousState === "unknown") unknown -= 1;
-  if (args.nextState === "inside") inside += 1;
-  if (args.nextState === "unknown") unknown += 1;
-  if (inside < 0 || unknown < 0) throw new Error("Attendance zone counters would become negative.");
-  if (current) {
-    await ctx.db.patch(current._id, {
-      inside,
-      unknown,
-      version: current.version + 1,
-      updatedAt: args.now,
-    });
-  } else {
-    await ctx.db.insert("attendanceZoneCounterShards", {
-      eventId: args.eventId,
-      zoneId: args.zoneId,
-      shard,
-      inside,
-      unknown,
-      version: 1,
-      updatedAt: args.now,
-    });
+  const deltas = new Map<Id<"attendanceZones">, { inside: number; unknown: number }>();
+  const add = (
+    zoneId: Id<"attendanceZones"> | undefined,
+    state: VenueState,
+    amount: -1 | 1,
+  ) => {
+    if (!counted(state)) return;
+    if (zoneId === undefined) throw new Error("A counted attendance venue state has no zone.");
+    const delta = deltas.get(zoneId) ?? { inside: 0, unknown: 0 };
+    if (state === "inside") delta.inside += amount;
+    if (state === "unknown") delta.unknown += amount;
+    deltas.set(zoneId, delta);
+  };
+  add(args.previousZoneId, args.previousState, -1);
+  add(args.nextZoneId, args.nextState, 1);
+
+  for (const [zoneId, delta] of deltas) {
+    if (delta.inside === 0 && delta.unknown === 0) continue;
+    const current = await ctx.db
+      .query("attendanceZoneCounterShards")
+      .withIndex("by_zone_shard", (index) =>
+        index.eq("zoneId", zoneId).eq("shard", shard),
+      )
+      .unique();
+    const inside = (current?.inside ?? 0) + delta.inside;
+    const unknown = (current?.unknown ?? 0) + delta.unknown;
+    if (inside < 0 || unknown < 0) {
+      throw new Error("Attendance zone counters would become negative.");
+    }
+    if (current) {
+      await ctx.db.patch(current._id, {
+        inside,
+        unknown,
+        version: current.version + 1,
+        updatedAt: args.now,
+      });
+    } else {
+      await ctx.db.insert("attendanceZoneCounterShards", {
+        eventId: args.eventId,
+        zoneId,
+        shard,
+        inside,
+        unknown,
+        version: 1,
+        updatedAt: args.now,
+      });
+    }
   }
 }

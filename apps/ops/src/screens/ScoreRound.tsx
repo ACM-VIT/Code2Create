@@ -10,20 +10,39 @@ import {
   scorecardStatusLabels,
 } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
-import { useMutation, useQuery } from 'convex/react'
-import { useRef, useState } from 'react'
+import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 import { LoadingLabel, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { RoundExportControl } from '../components/RoundExportControl'
 
 type Completeness = FunctionReturnType<typeof api.scoreGovernance.completeness>
-type Review = Completeness['reviews'][number]
+type Review = FunctionReturnType<typeof api.scoreGovernance.completenessReviews>['page'][number]
 type Scorecard = Review['scorecards'][number]
 type CorrectionCase = NonNullable<Scorecard['currentCase']>
-type Values = FunctionReturnType<typeof api.scoreGovernance.roundValues>
+type ValueReview = FunctionReturnType<typeof api.scoreGovernance.roundValues>['page'][number]
+type ValueCriteria = FunctionReturnType<typeof api.scoreGovernance.roundValueCriteria>
+
+const scoreGovernancePageSize = 20
+
+function useEstimatedServerNow(serverNow: number | undefined) {
+  const [estimatedServerNow, setEstimatedServerNow] = useState(serverNow ?? 0)
+  useEffect(() => {
+    if (serverNow === undefined) return
+    const observedAt = Date.now()
+    setEstimatedServerNow(serverNow)
+    const timer = window.setInterval(
+      () => setEstimatedServerNow(serverNow + Date.now() - observedAt),
+      1_000,
+    )
+    return () => window.clearInterval(timer)
+  }, [serverNow])
+  return estimatedServerNow
+}
 
 export function ScoreRound() {
   const { roundId } = useParams<{ roundId: string }>()
@@ -33,16 +52,35 @@ export function ScoreRound() {
     api.scoreGovernance.completeness,
     visibleRound ? { eventSlug, roundId: visibleRound.id } : 'skip',
   )
+  const reviews = usePaginatedQuery(
+    api.scoreGovernance.completenessReviews,
+    visibleRound ? { eventSlug, roundId: visibleRound.id } : 'skip',
+    { initialNumItems: scoreGovernancePageSize },
+  )
   const [showValues, setShowValues] = useState(false)
-  const values = useQuery(
-    api.scoreGovernance.roundValues,
+  const estimatedServerNow = useEstimatedServerNow(completeness?.serverNow)
+  const valueCriteria = useQuery(
+    api.scoreGovernance.roundValueCriteria,
     visibleRound && completeness?.canReadValues && showValues
       ? { eventSlug, roundId: visibleRound.id }
       : 'skip',
   )
+  const values = usePaginatedQuery(
+    api.scoreGovernance.roundValues,
+    visibleRound && completeness?.canReadValues && showValues
+      ? { eventSlug, roundId: visibleRound.id }
+      : 'skip',
+    { initialNumItems: scoreGovernancePageSize },
+  )
 
   if (!roundId) return <p className="notice error">Round ID is missing.</p>
-  if (rounds === undefined || (visibleRound && completeness === undefined)) {
+  if (
+    rounds === undefined ||
+    (visibleRound && (
+      completeness === undefined ||
+      reviews.status === 'LoadingFirstPage'
+    ))
+  ) {
     return (
       <section className="review-shell">
         <LoadingLabel>Loading this round’s results</LoadingLabel>
@@ -64,22 +102,12 @@ export function ScoreRound() {
     )
   }
 
-  const openCorrections = completeness.reviews.reduce(
-    (total, review) => total + review.cases.filter(
-      (entry) => entry.state === 'requested' || entry.state === 'open',
-    ).length,
-    0,
-  )
-  // Teams whose result cannot be counted yet come first; settled ones sink. A
-  // round is read to find what is still missing, not to admire what is done.
-  const ordered = [...completeness.reviews].sort(
+  const ordered = [...reviews.results].sort(
     (left, right) => reviewRank(left) - reviewRank(right) || left.teamName.localeCompare(right.teamName),
   )
-  const blocked = ordered.filter((review) => reviewRank(review) === 0)
-  // unresolvedTeamCount counts every team in the round without a countable
-  // result, including teams no panel ever sat down with. Those never appear in
-  // `reviews`, so the difference is the number nobody has judged at all.
-  const unjudged = Math.max(0, completeness.unresolvedTeamCount - blocked.length)
+  const correctionRequestsOpen =
+    completeness.round.status === 'open' &&
+    estimatedServerNow <= completeness.round.correctionRequestsCloseAt
 
   return (
     <section className="review-shell">
@@ -91,13 +119,8 @@ export function ScoreRound() {
           <p className="muted">
             {completeness.unresolvedTeamCount === 0
               ? 'Every team in this round has a countable result.'
-              : `${completeness.unresolvedTeamCount} ${completeness.unresolvedTeamCount === 1 ? 'team has' : 'teams have'} no countable result, so this round cannot close.` +
-                (blocked.length > 0
-                  ? ` ${blocked.length} ${blocked.length === 1 ? 'is' : 'are'} short of scores.`
-                  : '') +
-                (unjudged > 0
-                  ? ` ${unjudged} ${unjudged === 1 ? 'has' : 'have'} no review session at all.`
-                  : '')}
+              : `${completeness.unresolvedTeamCount} ${completeness.unresolvedTeamCount === 1 ? 'team has' : 'teams have'} no countable result, so this round cannot close.`}
+            {' '}Correction requests close {formatTime(completeness.round.correctionRequestsCloseAt)}.
           </p>
         </div>
         {completeness.canReadValues ? (
@@ -108,10 +131,13 @@ export function ScoreRound() {
       </header>
 
       <dl className="score-summary-grid governance-summary">
-        <Summary label="Teams with a session" value={completeness.reviews.length} />
+        <Summary
+          label="Sessions loaded"
+          value={`${reviews.results.length}${reviews.status === 'CanLoadMore' ? '+' : ''}`}
+        />
         <Summary label="Teams with no result" value={completeness.unresolvedTeamCount} />
         <Summary label="Paper sheets to enter" value={completeness.pendingManualReviewCount} />
-        <Summary label="Corrections to decide" value={openCorrections} />
+        <Summary label="Corrections to decide" value={completeness.unresolvedCorrectionCount} />
         <Summary
           label="Round export"
           value={completeness.exportState ? roundExportStateLabels[completeness.exportState] : 'Not started'}
@@ -119,12 +145,26 @@ export function ScoreRound() {
       </dl>
 
       {showValues ? (
-        values === undefined ? (
+        valueCriteria === undefined || values.status === 'LoadingFirstPage' ? (
           <>
             <LoadingLabel>Opening the numeric values</LoadingLabel>
             <SkeletonList rows={4} />
           </>
-        ) : <NumericValues values={values} />
+        ) : (
+          <>
+            <NumericValues criteria={valueCriteria} reviews={values.results} />
+            {values.status === 'CanLoadMore' || values.status === 'LoadingMore' ? (
+              <button
+                className="secondary"
+                type="button"
+                disabled={values.status === 'LoadingMore'}
+                onClick={() => values.loadMore(scoreGovernancePageSize)}
+              >
+                {values.status === 'LoadingMore' ? 'Loading values…' : 'Load more numeric values'}
+              </button>
+            ) : null}
+          </>
+        )
       ) : null}
 
       <div className="score-review-list">
@@ -133,12 +173,24 @@ export function ScoreRound() {
             criteria={completeness.criteria}
             key={review.id}
             review={review}
+            correctionRequestsOpen={correctionRequestsOpen}
             roundStatus={completeness.round.status}
           />
         ))}
       </div>
 
-      {completeness.reviews.length === 0 ? (
+      {reviews.status === 'CanLoadMore' || reviews.status === 'LoadingMore' ? (
+        <button
+          className="secondary"
+          type="button"
+          disabled={reviews.status === 'LoadingMore'}
+          onClick={() => reviews.loadMore(scoreGovernancePageSize)}
+        >
+          {reviews.status === 'LoadingMore' ? 'Loading sessions…' : 'Load more review sessions'}
+        </button>
+      ) : null}
+
+      {reviews.results.length === 0 ? (
         <p className="empty">
           No panel has been given a team to judge in this round.
         </p>
@@ -158,18 +210,18 @@ export function ScoreRound() {
 function ReviewCompleteness({
   review,
   criteria,
+  correctionRequestsOpen,
   roundStatus,
 }: {
   review: Review
   criteria: Completeness['criteria']
+  correctionRequestsOpen: boolean
   roundStatus: Completeness['round']['status']
 }) {
   const short = review.coverage.filter(
     (coverage) => coverage.submittedCount < coverage.requiredCount,
   )
   const disagreeing = review.coverage.filter((coverage) => coverage.spreadFlag)
-  // Reviewers who have not submitted come first: they are the reason the
-  // result is missing, and the finished cards are only here as evidence.
   const scorecards = [...review.scorecards].sort(
     (left, right) => Number(left.status !== 'draft') - Number(right.status !== 'draft'),
   )
@@ -219,8 +271,13 @@ function ReviewCompleteness({
               </span>
             </div>
             <div className="scorecard-actions">
-              {scorecard.currentCase?.state === 'requested' && scorecard.canOpenCorrection ? (
-                <CorrectionDecision correctionCase={scorecard.currentCase} scorecard={scorecard} />
+              {scorecard.currentCase?.state === 'requested' && scorecard.canDecideCorrection ? (
+                <CorrectionDecision
+                  canOpen={scorecard.canOpenCorrection}
+                  correctionRequestsOpen={correctionRequestsOpen}
+                  correctionCase={scorecard.currentCase}
+                  scorecard={scorecard}
+                />
               ) : null}
               {scorecard.status === 'submitted' && scorecard.canVoid && !scorecard.currentCase && roundStatus === 'open' ? (
                 <VoidScorecard scorecard={scorecard} />
@@ -254,42 +311,45 @@ function ReviewCompleteness({
 }
 
 function CorrectionDecision({
+  canOpen,
+  correctionRequestsOpen,
   correctionCase,
   scorecard,
 }: {
+  canOpen: boolean
+  correctionRequestsOpen: boolean
   correctionCase: CorrectionCase
   scorecard: Scorecard
 }) {
   const decideCorrection = useMutation(api.scoreGovernance.decideCorrection)
   const [open, setOpen] = useState(false)
-  const [decision, setDecision] = useState<'open' | 'reject'>('open')
+  const openDecisionAvailable = canOpen && correctionRequestsOpen
+  const [decision, setDecision] = useState<'open' | 'reject'>(openDecisionAvailable ? 'open' : 'reject')
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
-
-  const changed = () => {
-    operationRef.current = null
-    setError(null)
-  }
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.scoreGovernance.decideCorrection>>()
+  const operationSlot = `score-correction-decision:${correctionCase.id}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
+  const effectiveDecision = openDecisionAvailable ? decision : 'reject'
 
   const submit = async () => {
     if (busy || reason.trim().length < 5) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await decideCorrection({
-        eventSlug,
-        correctionCaseId: correctionCase.id,
-        expectedCaseVersion: correctionCase.version,
-        expectedScorecardVersion: scorecard.version,
-        decision,
-        reason,
-        clientOperationId,
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          correctionCaseId: correctionCase.id,
+          expectedCaseVersion: correctionCase.version,
+          expectedScorecardVersion: scorecard.version,
+          decision: effectiveDecision,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => decideCorrection(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -306,33 +366,33 @@ function CorrectionDecision({
       <label className="field">
         <span>Decision</span>
         <select
-          disabled={busy}
-          value={decision}
+          disabled={busy || operationPending}
+          value={effectiveDecision}
           onChange={(event) => {
             setDecision(event.target.value === 'reject' ? 'reject' : 'open')
-            changed()
+            setError(null)
           }}
         >
-          <option value="open">Open correction</option>
+          {openDecisionAvailable ? <option value="open">Open correction</option> : null}
           <option value="reject">Decline request</option>
         </select>
       </label>
       <label className="field">
         <span>Reason</span>
         <textarea
-          disabled={busy}
+          disabled={busy || operationPending}
           value={reason}
           onChange={(event) => {
             setReason(event.target.value)
-            changed()
+            setError(null)
           }}
         />
       </label>
       <div className="button-row">
         <button className="primary" disabled={busy || reason.trim().length < 5} type="button" onClick={() => void submit()}>
-          {busy ? 'Saving…' : decision === 'open' ? 'Open correction' : 'Decline'}
+          {busy ? 'Saving…' : operationPending ? 'Confirm earlier decision' : effectiveDecision === 'open' ? 'Open correction' : 'Decline'}
         </button>
-        <button className="secondary" disabled={busy} type="button" onClick={() => setOpen(false)}>Cancel</button>
+        <button className="secondary" disabled={busy || operationPending} type="button" onClick={() => setOpen(false)}>Cancel</button>
       </div>
       {error ? <p className="notice error">{error}</p> : null}
     </div>
@@ -349,31 +409,30 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.scoreGovernance.voidScorecard>>()
+  const operationSlot = `scorecard-void:${scorecard.id}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
 
-  const changed = () => {
-    operationRef.current = null
-    setError(null)
-  }
+  const changed = () => setError(null)
 
   const submit = async () => {
     if (busy || !confirmed || evidenceReference.trim().length < 3 || reason.trim().length < 5) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await voidScorecard({
-        eventSlug,
-        scorecardId: scorecard.id,
-        expectedScorecardVersion: scorecard.version,
-        category,
-        disposition,
-        evidenceReference,
-        reason,
-        clientOperationId,
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          scorecardId: scorecard.id,
+          expectedScorecardVersion: scorecard.version,
+          category,
+          disposition,
+          evidenceReference,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => voidScorecard(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -391,7 +450,7 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
         <label className="field">
           <span>Category</span>
           <select
-            disabled={busy}
+            disabled={busy || operationPending}
             value={category}
             onChange={(event) => {
               const value = event.target.value
@@ -417,7 +476,7 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
         <label className="field">
           <span>Outcome</span>
           <select
-            disabled={busy}
+            disabled={busy || operationPending}
             value={disposition}
             onChange={(event) => {
               setDisposition(event.target.value === 'exclude' ? 'exclude' : 'replacement_review')
@@ -431,16 +490,16 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
       </div>
       <label className="field">
         <span>Evidence reference</span>
-        <input disabled={busy} value={evidenceReference} onChange={(event) => { setEvidenceReference(event.target.value); changed() }} />
+        <input disabled={busy || operationPending} value={evidenceReference} onChange={(event) => { setEvidenceReference(event.target.value); changed() }} />
       </label>
       <label className="field">
         <span>Reason</span>
-        <textarea disabled={busy} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
+        <textarea disabled={busy || operationPending} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
       </label>
       <label className="check-filter">
         <input
           checked={confirmed}
-          disabled={busy}
+          disabled={busy || operationPending}
           type="checkbox"
           onChange={(event) => {
             setConfirmed(event.target.checked)
@@ -456,9 +515,9 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
           type="button"
           onClick={() => void submit()}
         >
-          {busy ? 'Voiding…' : 'Void scorecard'}
+          {busy ? 'Voiding…' : operationPending ? 'Confirm earlier void' : 'Void scorecard'}
         </button>
-        <button className="secondary" disabled={busy} type="button" onClick={() => setOpen(false)}>Cancel</button>
+        <button className="secondary" disabled={busy || operationPending} type="button" onClick={() => setOpen(false)}>Cancel</button>
       </div>
       {error ? <p className="notice error">{error}</p> : null}
     </div>
@@ -476,34 +535,35 @@ function ReleaseRound({ completeness }: { completeness: Completeness }) {
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.scoreGovernance.publishRelease>>()
+  const operationSlot = `score-release:${completeness.round.id}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
   const hasContent = criterionScores || totalScore || sharedFindings || sharedCommitments
 
   const changed = () => {
-    operationRef.current = null
     setError(null)
   }
 
   const submit = async () => {
     if (busy || !confirmed || !hasContent || policyVersion.trim().length < 3 || reason.trim().length < 5) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await publishRelease({
-        eventSlug,
-        roundId: completeness.round.id,
-        expectedRoundVersion: completeness.round.version,
-        policyVersion,
-        includeCriterionScores: criterionScores,
-        includeTotalScore: totalScore,
-        includeSharedFindings: sharedFindings,
-        includeSharedCommitments: sharedCommitments,
-        reason,
-        clientOperationId,
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          roundId: completeness.round.id,
+          expectedRoundVersion: completeness.round.version,
+          policyVersion,
+          includeCriterionScores: criterionScores,
+          includeTotalScore: totalScore,
+          includeSharedFindings: sharedFindings,
+          includeSharedCommitments: sharedCommitments,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => publishRelease(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -517,20 +577,20 @@ function ReleaseRound({ completeness }: { completeness: Completeness }) {
       <p>The release cannot be undone.</p>
       <label className="field">
         <span>Feedback policy name</span>
-        <input disabled={busy} value={policyVersion} onChange={(event) => { setPolicyVersion(event.target.value); changed() }} />
+        <input disabled={busy || operationPending} value={policyVersion} onChange={(event) => { setPolicyVersion(event.target.value); changed() }} />
       </label>
       <div className="release-fields">
-        <Check label="Criterion scores" checked={criterionScores} disabled={busy} onChange={(value) => { setCriterionScores(value); changed() }} />
-        <Check label="Total score" checked={totalScore} disabled={busy} onChange={(value) => { setTotalScore(value); changed() }} />
-        <Check label="Shared findings" checked={sharedFindings} disabled={busy} onChange={(value) => { setSharedFindings(value); changed() }} />
-        <Check label="Next-checkpoint commitments" checked={sharedCommitments} disabled={busy} onChange={(value) => { setSharedCommitments(value); changed() }} />
+        <Check label="Criterion scores" checked={criterionScores} disabled={busy || operationPending} onChange={(value) => { setCriterionScores(value); changed() }} />
+        <Check label="Total score" checked={totalScore} disabled={busy || operationPending} onChange={(value) => { setTotalScore(value); changed() }} />
+        <Check label="Shared findings" checked={sharedFindings} disabled={busy || operationPending} onChange={(value) => { setSharedFindings(value); changed() }} />
+        <Check label="Next-checkpoint commitments" checked={sharedCommitments} disabled={busy || operationPending} onChange={(value) => { setSharedCommitments(value); changed() }} />
       </div>
       <label className="field">
         <span>Release reason</span>
-        <textarea disabled={busy} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
+        <textarea disabled={busy || operationPending} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
       </label>
       <label className="check-filter">
-        <input checked={confirmed} disabled={busy} type="checkbox" onChange={(event) => { setConfirmed(event.target.checked); changed() }} />
+        <input checked={confirmed} disabled={busy || operationPending} type="checkbox" onChange={(event) => { setConfirmed(event.target.checked); changed() }} />
         I confirm these are the fields approved by the published participant-feedback policy.
       </label>
       <button
@@ -539,14 +599,21 @@ function ReleaseRound({ completeness }: { completeness: Completeness }) {
         type="button"
         onClick={() => void submit()}
       >
-        {busy ? 'Publishing…' : 'Publish feedback'}
+        {busy ? 'Publishing…' : operationPending ? 'Confirm earlier release' : 'Publish feedback'}
       </button>
       {error ? <p className="notice error">{error}</p> : null}
     </section>
   )
 }
 
-function NumericValues({ values }: { values: Values }) {
+function NumericValues({
+  criteria,
+  reviews,
+}: {
+  criteria: ValueCriteria
+  reviews: ValueReview[]
+}) {
+  const ordered = [...reviews].sort((left, right) => left.teamName.localeCompare(right.teamName))
   return (
     <section className="numeric-values">
       <div className="section-heading">
@@ -555,7 +622,7 @@ function NumericValues({ values }: { values: Values }) {
           <p className="muted">Alphabetical by team.</p>
         </div>
       </div>
-      {values.reviews.map((review) => (
+      {ordered.map((review) => (
         <details key={review.reviewSessionId}>
           <summary>
             <span>{review.teamName}</span>
@@ -570,7 +637,7 @@ function NumericValues({ values }: { values: Values }) {
           {review.evaluation?.state === 'complete' ? (
             <dl className="numeric-criteria">
               {review.evaluation.criterionResults.map((result) => {
-                const criterion = values.criteria.find((candidate) => candidate.id === result.criterionId)
+                const criterion = criteria.find((candidate) => candidate.id === result.criterionId)
                 return (
                   <div key={result.criterionId}>
                     <dt>{criterion?.label ?? 'Criterion'}{result.spreadFlag ? ' · reviewers far apart' : ''}</dt>
@@ -588,7 +655,7 @@ function NumericValues({ values }: { values: Values }) {
                   {scorecard.manualReviewRecordId ? ' · entered from paper' : ''}
                 </strong>
                 {scorecard.ratings.map((rating) => {
-                  const criterion = values.criteria.find((candidate) => candidate.id === rating.criterionId)
+                  const criterion = criteria.find((candidate) => candidate.id === rating.criterionId)
                   return (
                     <p key={rating.criterionId}>
                       {criterion?.label ?? 'Criterion'}: {rating.score}
@@ -601,6 +668,7 @@ function NumericValues({ values }: { values: Values }) {
           </div>
         </details>
       ))}
+      {reviews.length === 0 ? <p className="empty">No completed review has numeric values yet.</p> : null}
     </section>
   )
 }
@@ -628,10 +696,6 @@ function Summary({ label, value }: { label: string; value: number | string }) {
   return <div><dt>{label}</dt><dd>{value}</dd></div>
 }
 
-/**
- * Teams with no countable result sort first, then teams whose result is
- * disputed, then everything settled.
- */
 function reviewRank(review: Review) {
   if (review.evaluationState !== 'complete') return 0
   if (review.cases.some((entry) => entry.state === 'requested' || entry.state === 'open')) return 1

@@ -1,10 +1,11 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
+import { action, internalQuery, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { teamRoundTableLabel } from "./lib/floor";
@@ -12,7 +13,16 @@ import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { requirePermission, revokeSourceGrants } from "./lib/permissions";
 import { normalizeNativePushRegistration, pushTokenFingerprint } from "./lib/pushTokens";
+import { patchTeamRoundState } from "./lib/reviewQueueProjection";
 import { activeRoundPause } from "./lib/reviewRoundPauses";
+import {
+  reviewerClockInIsOpenAt,
+  reviewerCoversStaffingWindow,
+} from "./lib/reviewerAvailability";
+import {
+  maximumReviewerAssignmentsPerEvent,
+  maximumReviewRoundsPerEvent,
+} from "./lib/reviewLimits";
 import {
   cleanAssignedRatings,
   recomputeReviewEvaluation,
@@ -38,6 +48,8 @@ type PanelView = {
     status: string;
     startsAt: number;
     endsAt: number;
+    clockInOpensAt: number;
+    reviewerReportAt: number;
     minimumReviewerBuild: number;
     requiresCamera: boolean;
     requiresNotifications: boolean;
@@ -59,6 +71,11 @@ type ActiveAssignmentContext = {
   assignment: Doc<"reviewAssignments">;
   session: Doc<"reviewSessions">;
 };
+type CurrentReviewContext = ActiveAssignmentContext & {
+  correctionScorecard: Doc<"scorecards"> | null;
+};
+
+const priorReviewHistoryLimit = 20;
 
 const ratingInput = v.object({
   criterionId: v.id("reviewRubricCriteria"),
@@ -95,6 +112,154 @@ async function requireReviewerDevice(
     });
   }
   return device;
+}
+
+async function currentPanelContexts(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  personId: Id<"people">,
+) {
+  const memberships = await ctx.db
+    .query("reviewPanelMembers")
+    .withIndex("by_event_person_status", (index) =>
+      index.eq("eventId", eventId).eq("personId", personId).eq("status", "active"),
+    )
+    .take(maximumReviewRoundsPerEvent + 1);
+  if (memberships.length > maximumReviewRoundsPerEvent) {
+    throw new Error("A reviewer exceeds the event review-round limit.");
+  }
+  const contexts = (
+    await Promise.all(
+      memberships.map(async (membership) => {
+        const [round, panel] = await Promise.all([
+          ctx.db.get(membership.roundId),
+          ctx.db.get(membership.panelId),
+        ]);
+        if (!round || !panel || round.eventId !== eventId || panel.eventId !== eventId) {
+          throw new Error("A current panel membership has an invalid round or panel.");
+        }
+        if (
+          !["published", "open", "closing"].includes(round.status) ||
+          panel.status === "closed"
+        ) {
+          return null;
+        }
+        return { membership, round, panel };
+      }),
+    )
+  ).filter((context): context is PanelContext => context !== null);
+  return contexts.sort((left, right) => left.round.sequence - right.round.sequence);
+}
+
+async function currentReserveContexts(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  personId: Id<"people">,
+) {
+  const [available, paged] = await Promise.all([
+    ctx.db
+      .query("reviewRoundReserves")
+      .withIndex("by_event_person_status", (index) =>
+        index.eq("eventId", eventId).eq("personId", personId).eq("status", "available"),
+      )
+      .take(maximumReviewRoundsPerEvent + 1),
+    ctx.db
+      .query("reviewRoundReserves")
+      .withIndex("by_event_person_status", (index) =>
+        index.eq("eventId", eventId).eq("personId", personId).eq("status", "paged"),
+      )
+      .take(maximumReviewRoundsPerEvent + 1),
+  ]);
+  const reserves = [...available, ...paged];
+  if (reserves.length > maximumReviewRoundsPerEvent) {
+    throw new Error("A reviewer exceeds the event review-round limit.");
+  }
+  const contexts = await Promise.all(
+    reserves.map(async (reserve) => {
+      if (reserve.status !== "available" && reserve.status !== "paged") {
+        throw new Error("A current reserve index returned a terminal assignment.");
+      }
+      const round = await ctx.db.get(reserve.roundId);
+      if (!round || round.eventId !== eventId) {
+        throw new Error("A current reserve assignment has an invalid round.");
+      }
+      if (!["published", "open", "closing"].includes(round.status)) return null;
+      return {
+        reserveId: reserve._id,
+        reserveStatus: reserve.status,
+        round,
+      };
+    }),
+  );
+  return contexts
+    .filter((context): context is NonNullable<typeof context> => context !== null)
+    .sort((left, right) => left.round.sequence - right.round.sequence);
+}
+
+async function currentReviewContext(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  personId: Id<"people">,
+): Promise<CurrentReviewContext | null> {
+  const assignments = await ctx.db
+    .query("reviewAssignments")
+    .withIndex("by_event_person_status", (index) =>
+      index
+        .eq("eventId", eventId)
+        .eq("reviewerPersonId", personId)
+        .eq("status", "assigned"),
+    )
+    .take(maximumReviewerAssignmentsPerEvent + 1);
+  if (assignments.length > maximumReviewerAssignmentsPerEvent) {
+    throw new Error("A reviewer exceeds the event review-assignment limit.");
+  }
+  const liveAssignments = (
+    await Promise.all(
+      assignments.map(async (assignment) => {
+        const session = await ctx.db.get(assignment.reviewSessionId);
+        if (!session || session.eventId !== eventId) {
+          throw new Error("A review assignment has an invalid session.");
+        }
+        return liveReview(session.status) ? { assignment, session } : null;
+      }),
+    )
+  ).filter((context): context is ActiveAssignmentContext => context !== null);
+  if (liveAssignments.length > 1) {
+    throw new Error("A reviewer has more than one live review assignment.");
+  }
+  if (liveAssignments[0]) {
+    return { ...liveAssignments[0], correctionScorecard: null };
+  }
+  const corrections = await ctx.db
+    .query("scorecards")
+    .withIndex("by_event_reviewer_status", (index) =>
+      index
+        .eq("eventId", eventId)
+        .eq("reviewerPersonId", personId)
+        .eq("status", "correction_open"),
+    )
+    .take(2);
+  if (corrections.length > 1) {
+    throw new Error("A reviewer has more than one open scorecard correction.");
+  }
+  const correctionScorecard = corrections[0];
+  if (!correctionScorecard) return null;
+  const [assignment, session] = await Promise.all([
+    ctx.db.get(correctionScorecard.assignmentId),
+    ctx.db.get(correctionScorecard.reviewSessionId),
+  ]);
+  if (
+    !assignment ||
+    !session ||
+    assignment.status !== "assigned" ||
+    assignment.reviewerPersonId !== personId ||
+    assignment.reviewSessionId !== session._id ||
+    session.eventId !== eventId ||
+    session.status !== "completed"
+  ) {
+    throw new Error("An open scorecard correction has an invalid review assignment.");
+  }
+  return { assignment, session, correctionScorecard };
 }
 
 export const registerDevice = mutation({
@@ -342,6 +507,13 @@ export const clockIn = mutation({
     ) {
       throw new ConvexError({ code: "ROUND_NOT_AVAILABLE", message: "This review round is unavailable." });
     }
+    const now = Date.now();
+    if (!reviewerClockInIsOpenAt(round, now)) {
+      throw new ConvexError({
+        code: "CLOCK_IN_CLOSED",
+        message: "Clock-in is available only from the published opening until the round ends.",
+      });
+    }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -398,6 +570,12 @@ export const clockIn = mutation({
         message: "Complete reviewer training before clock-in.",
       });
     }
+    if (!reviewerCoversStaffingWindow(profile.availabilityWindows, round)) {
+      throw new ConvexError({
+        code: "REVIEWER_UNAVAILABLE_FOR_ROUND",
+        message: "Your current availability no longer covers this review round.",
+      });
+    }
     if (
       device.appBuild < round.minimumReviewerBuild ||
       !device.encryptedDraftReady ||
@@ -421,7 +599,6 @@ export const clockIn = mutation({
         message: "A clocked-out or no-show record must be reopened by operations.",
       });
     }
-    const now = Date.now();
     const fields = {
       eventId: event._id,
       roundId: round._id,
@@ -481,7 +658,7 @@ export const setAvailability = mutation({
     installationId: v.string(),
     status: v.union(v.literal("present"), v.literal("temporarily_unavailable")),
     reason: v.optional(v.string()),
-    expectedReturnAt: v.optional(v.number()),
+    expectedReturnMinutes: v.optional(v.number()),
     expectedVersion: v.number(),
     clientOperationId: v.string(),
   },
@@ -495,7 +672,7 @@ export const setAvailability = mutation({
       args.installationId,
       args.status,
       args.reason ?? null,
-      args.expectedReturnAt ?? null,
+      args.expectedReturnMinutes ?? null,
       args.expectedVersion,
     ]);
     const prior = await findOperation(ctx, {
@@ -554,6 +731,8 @@ export const setAvailability = mutation({
         message: "This reviewer clock-in can no longer be changed from the phone.",
       });
     }
+    const now = Date.now();
+    let expectedReturnAt: number | undefined;
     if (args.status === "temporarily_unavailable") {
       for (const assignment of assignments) {
         const session = await ctx.db.get(assignment.reviewSessionId);
@@ -565,18 +744,24 @@ export const setAvailability = mutation({
         }
       }
       if (
-        args.expectedReturnAt === undefined ||
-        !Number.isFinite(args.expectedReturnAt) ||
-        args.expectedReturnAt <= Date.now() ||
-        args.expectedReturnAt > round.endsAt
+        args.expectedReturnMinutes === undefined ||
+        !Number.isSafeInteger(args.expectedReturnMinutes) ||
+        args.expectedReturnMinutes < 1 ||
+        args.expectedReturnMinutes > 60
       ) {
         throw new ConvexError({
           code: "INVALID_EXPECTED_RETURN",
-          message: "Choose an expected return time before this round ends.",
+          message: "Choose an expected return duration from 1 to 60 minutes.",
+        });
+      }
+      expectedReturnAt = now + args.expectedReturnMinutes * 60_000;
+      if (expectedReturnAt > round.endsAt) {
+        throw new ConvexError({
+          code: "INVALID_EXPECTED_RETURN",
+          message: "Choose a return duration that ends before this round does.",
         });
       }
     }
-    const now = Date.now();
     const reason = args.status === "temporarily_unavailable"
       ? normalizedText(args.reason ?? "", "Unavailability reason", 3, 300)
       : undefined;
@@ -584,7 +769,7 @@ export const setAvailability = mutation({
       status: args.status,
       ...(reason ? { unavailableReason: reason } : { unavailableReason: undefined }),
       ...(args.status === "temporarily_unavailable"
-        ? { expectedReturnAt: args.expectedReturnAt }
+        ? { expectedReturnAt }
         : { expectedReturnAt: undefined }),
       lastHeartbeatAt: now,
       version: current.version + 1,
@@ -684,6 +869,293 @@ const criterionView = v.object({
   }),
 });
 
+const reviewerProjectView = v.object({
+  initialIdea: v.string(),
+  intakeResponses: v.array(
+    v.object({
+      ordinal: v.number(),
+      question: v.string(),
+      answer: v.optional(v.string()),
+      skipped: v.boolean(),
+    }),
+  ),
+  trackName: v.string(),
+  sponsorTracks: v.array(
+    v.object({
+      id: v.id("trackVersions"),
+      name: v.string(),
+      eligibilityText: v.string(),
+    }),
+  ),
+  submittedAt: v.number(),
+  latestCheckpoint: v.union(
+    v.null(),
+    v.object({
+      checkpointKey: v.string(),
+      displayName: v.string(),
+      updateText: v.string(),
+      followUpQuestion: v.string(),
+      followUpAnswer: v.string(),
+      timing: v.union(v.literal("on_time"), v.literal("late")),
+      submittedAt: v.number(),
+    }),
+  ),
+});
+
+const reviewerEvidenceView = v.object({
+  id: v.id("reviewEvidenceCheckpointSets"),
+  completeness: v.union(v.literal("complete"), v.literal("partial"), v.literal("missing")),
+  capturedResourceCount: v.number(),
+  expectedResourceCount: v.number(),
+  github: v.array(
+    v.object({
+      bindingId: v.id("githubRepositoryBindings"),
+      repositoryName: v.string(),
+      repositoryUrl: v.string(),
+      kind: repositoryKind,
+      purpose: v.string(),
+      trackedBranch: v.string(),
+      rootPath: v.optional(v.string()),
+      requiredTopic: v.string(),
+      stateAtCapture: v.string(),
+      snapshot: v.union(
+        v.null(),
+        v.object({
+          id: v.id("githubRepositorySnapshots"),
+          headSha: v.string(),
+          topicState: v.string(),
+          commitCount: v.number(),
+          additions: v.number(),
+          deletions: v.number(),
+          changedFiles: v.number(),
+          languageBytes: v.array(v.object({ language: v.string(), bytes: v.number() })),
+          completeness: v.string(),
+          compareTruncated: v.boolean(),
+          providerCommitAt: v.optional(v.number()),
+          capturedAt: v.number(),
+        }),
+      ),
+    }),
+  ),
+  figma: v.array(
+    v.object({
+      bindingId: v.id("figmaFileBindings"),
+      fileName: v.string(),
+      fileUrl: v.string(),
+      role: v.string(),
+      editorType: v.string(),
+      stateAtCapture: v.string(),
+      snapshot: v.union(
+        v.null(),
+        v.object({
+          id: v.id("figmaFileSnapshots"),
+          providerVersionId: v.string(),
+          providerLastTouchedAt: v.number(),
+          pageCount: v.number(),
+          frameCount: v.number(),
+          componentCount: v.number(),
+          componentSetCount: v.number(),
+          styleCount: v.number(),
+          nodeCount: v.number(),
+          prototypeInteractionCount: v.number(),
+          commentCount: v.number(),
+          unresolvedCommentCount: v.number(),
+          versionCount: v.number(),
+          completeness: v.string(),
+          hasFullArtifact: v.boolean(),
+          preview: v.union(
+            v.null(),
+            v.object({
+              state: v.union(
+                v.literal("pending"),
+                v.literal("running"),
+                v.literal("ready"),
+                v.literal("partial"),
+                v.literal("rate_limited"),
+                v.literal("failed"),
+              ),
+              selectedNodeCount: v.number(),
+              availableCount: v.number(),
+              failedCount: v.number(),
+              truncated: v.boolean(),
+            }),
+          ),
+          capturedAt: v.number(),
+        }),
+      ),
+    }),
+  ),
+});
+
+const reviewerWorkspaceDataView = v.object({
+  id: v.id("reviewSessions"),
+  project: reviewerProjectView,
+  evidence: reviewerEvidenceView,
+  criteria: v.array(criterionView),
+});
+
+const reviewerTeamContextView = v.object({
+  team: v.object({
+    id: v.id("teams"),
+    name: v.string(),
+    publicCode: v.string(),
+    memberCount: v.number(),
+    projectVersion: v.number(),
+    projectSubmittedAt: v.number(),
+  }),
+  priorReviews: v.array(
+    v.object({
+      id: v.id("reviewSessions"),
+      roundName: v.string(),
+      roundSequence: v.number(),
+      panelName: v.string(),
+      outcome: v.union(v.literal("completed"), v.literal("cancelled")),
+      startedAt: v.optional(v.number()),
+      endedAt: v.number(),
+      sharedFindings: v.optional(v.string()),
+      sharedCommitments: v.optional(v.string()),
+    }),
+  ),
+});
+
+const reviewerWorkspaceView = v.object({
+  id: v.id("reviewSessions"),
+  project: reviewerProjectView,
+  evidence: reviewerEvidenceView,
+  criteria: v.array(criterionView),
+  teamContext: reviewerTeamContextView,
+});
+
+export const dutyStatus = query({
+  args: { eventSlug: v.string(), installationId: v.string() },
+  returns: v.object({
+    deviceRegistered: v.boolean(),
+    panelAssigned: v.boolean(),
+    clockInStatus: v.union(v.null(), v.string()),
+    heartbeat: v.union(
+      v.null(),
+      v.object({
+        roundId: v.id("reviewRounds"),
+        status: v.union(v.literal("present"), v.literal("temporarily_unavailable")),
+      }),
+    ),
+    review: v.union(
+      v.null(),
+      v.object({
+        reviewerPresenceConfirmed: v.boolean(),
+        scoredCount: v.number(),
+        criterionCount: v.number(),
+      }),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const installationId = args.installationId.trim().toLowerCase();
+    const [device, panelContexts, reserveContexts, reviewContext] = await Promise.all([
+      ctx.db
+        .query("reviewerDevices")
+        .withIndex("by_event_installation", (index) =>
+          index.eq("eventId", event._id).eq("installationId", installationId),
+        )
+        .unique(),
+      currentPanelContexts(ctx, event._id, person._id),
+      currentReserveContexts(ctx, event._id, person._id),
+      currentReviewContext(ctx, event._id, person._id),
+    ]);
+    if (device && (device.personId !== person._id || device.status !== "active")) {
+      throw new ConvexError({
+        code: "REVIEWER_DEVICE_UNAVAILABLE",
+        message: "This device registration is unavailable to the signed-in account.",
+      });
+    }
+    const panelContext = panelContexts[0] ?? null;
+    const reserveContext = reserveContexts[0] ?? null;
+    if (panelContext) {
+      await requirePermission(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "panel.read",
+        scopeType: "panel",
+        scopeId: panelContext.panel._id,
+      });
+    } else if (reserveContext) {
+      await requirePermission(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "round.read",
+        scopeType: "round",
+        scopeId: reserveContext.round._id,
+      });
+    }
+    const dutyRound = panelContext?.round ?? reserveContext?.round ?? null;
+    const clockIn = dutyRound
+      ? await ctx.db
+          .query("reviewerClockIns")
+          .withIndex("by_round_person", (index) =>
+            index.eq("roundId", dutyRound._id).eq("reviewerPersonId", person._id),
+          )
+          .unique()
+      : null;
+    let review = null;
+    if (reviewContext) {
+      await requirePermission(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "review.read",
+        scopeType: "review",
+        scopeId: reviewContext.session._id,
+      });
+      const [scorecard, presence] = await Promise.all([
+        reviewContext.correctionScorecard ??
+          ctx.db
+            .query("scorecards")
+            .withIndex("by_session_reviewer", (index) =>
+              index
+                .eq("reviewSessionId", reviewContext.session._id)
+                .eq("reviewerPersonId", person._id),
+            )
+            .unique(),
+        ctx.db
+          .query("reviewPresence")
+          .withIndex("by_session_reviewer", (index) =>
+            index
+              .eq("reviewSessionId", reviewContext.session._id)
+              .eq("reviewerPersonId", person._id),
+          )
+          .unique(),
+      ]);
+      if (
+        !scorecard ||
+        scorecard.eventId !== event._id ||
+        scorecard.assignmentId !== reviewContext.assignment._id
+      ) {
+        throw new Error("A current review has an invalid scorecard.");
+      }
+      review = {
+        reviewerPresenceConfirmed: presence !== null,
+        scoredCount: scorecard.ratings.length,
+        criterionCount: reviewContext.assignment.assignedCriterionIds.length,
+      };
+    }
+    const heartbeatStatus =
+      clockIn?.status === "present" || clockIn?.status === "temporarily_unavailable"
+        ? clockIn.status
+        : null;
+    return {
+      deviceRegistered: device !== null,
+      panelAssigned: panelContext !== null,
+      clockInStatus: clockIn?.status ?? null,
+      heartbeat:
+        device && dutyRound && heartbeatStatus
+          ? { roundId: dutyRound._id, status: heartbeatStatus }
+          : null,
+      review,
+    };
+  },
+});
+
 export const now = query({
   args: { eventSlug: v.string(), installationId: v.string() },
   returns: v.object({
@@ -718,6 +1190,8 @@ export const now = query({
           status: v.string(),
           startsAt: v.number(),
           endsAt: v.number(),
+          clockInOpensAt: v.number(),
+          reviewerReportAt: v.number(),
           minimumReviewerBuild: v.number(),
           requiresCamera: v.boolean(),
           requiresNotifications: v.boolean(),
@@ -744,6 +1218,8 @@ export const now = query({
           status: v.string(),
           startsAt: v.number(),
           endsAt: v.number(),
+          clockInOpensAt: v.number(),
+          reviewerReportAt: v.number(),
           minimumReviewerBuild: v.number(),
           requiresCamera: v.boolean(),
           requiresNotifications: v.boolean(),
@@ -786,132 +1262,6 @@ export const now = query({
           reviewerPresenceCount: v.number(),
           reviewerCount: v.number(),
         }),
-        project: v.object({
-          initialIdea: v.string(),
-          intakeResponses: v.array(
-            v.object({
-              ordinal: v.number(),
-              question: v.string(),
-              answer: v.optional(v.string()),
-              skipped: v.boolean(),
-            }),
-          ),
-          trackName: v.string(),
-          sponsorTracks: v.array(
-            v.object({
-              id: v.id("trackVersions"),
-              name: v.string(),
-              eligibilityText: v.string(),
-            }),
-          ),
-          submittedAt: v.number(),
-          latestCheckpoint: v.union(
-            v.null(),
-            v.object({
-              checkpointKey: v.string(),
-              displayName: v.string(),
-              updateText: v.string(),
-              followUpQuestion: v.string(),
-              followUpAnswer: v.string(),
-              timing: v.union(v.literal("on_time"), v.literal("late")),
-              submittedAt: v.number(),
-            }),
-          ),
-        }),
-        evidence: v.object({
-          id: v.id("reviewEvidenceCheckpointSets"),
-          completeness: v.union(v.literal("complete"), v.literal("partial"), v.literal("missing")),
-          capturedResourceCount: v.number(),
-          expectedResourceCount: v.number(),
-          github: v.array(
-            v.object({
-              bindingId: v.id("githubRepositoryBindings"),
-              repositoryName: v.string(),
-              repositoryUrl: v.string(),
-              kind: repositoryKind,
-              purpose: v.string(),
-              trackedBranch: v.string(),
-              rootPath: v.optional(v.string()),
-              requiredTopic: v.string(),
-              stateAtCapture: v.string(),
-              snapshot: v.union(
-                v.null(),
-                v.object({
-                  id: v.id("githubRepositorySnapshots"),
-                  headSha: v.string(),
-                  topicState: v.string(),
-                  commitCount: v.number(),
-                  additions: v.number(),
-                  deletions: v.number(),
-                  changedFiles: v.number(),
-                  languageBytes: v.array(
-                    v.object({ language: v.string(), bytes: v.number() }),
-                  ),
-                  completeness: v.string(),
-                  compareTruncated: v.boolean(),
-                  providerCommitAt: v.optional(v.number()),
-                  capturedAt: v.number(),
-                }),
-              ),
-            }),
-          ),
-          figma: v.array(
-            v.object({
-              bindingId: v.id("figmaFileBindings"),
-              fileName: v.string(),
-              fileUrl: v.string(),
-              role: v.string(),
-              editorType: v.string(),
-              stateAtCapture: v.string(),
-              snapshot: v.union(
-                v.null(),
-                v.object({
-                  id: v.id("figmaFileSnapshots"),
-                  providerVersionId: v.string(),
-                  providerLastTouchedAt: v.number(),
-                  pageCount: v.number(),
-                  frameCount: v.number(),
-                  componentCount: v.number(),
-                  componentSetCount: v.number(),
-                  styleCount: v.number(),
-                  nodeCount: v.number(),
-                  prototypeInteractionCount: v.number(),
-                  commentCount: v.number(),
-                  unresolvedCommentCount: v.number(),
-                  versionCount: v.number(),
-                  completeness: v.string(),
-                  hasFullArtifact: v.boolean(),
-                  preview: v.union(
-                    v.null(),
-                    v.object({
-                      state: v.union(
-                        v.literal("pending"),
-                        v.literal("running"),
-                        v.literal("ready"),
-                        v.literal("partial"),
-                        v.literal("rate_limited"),
-                        v.literal("failed"),
-                      ),
-                      selectedNodeCount: v.number(),
-                      availableCount: v.number(),
-                      failedCount: v.number(),
-                      truncated: v.boolean(),
-                    }),
-                  ),
-                  capturedAt: v.number(),
-                }),
-              ),
-            }),
-          ),
-        }),
-        criteria: v.array(criterionView),
-        scorecard: v.object({
-          id: v.id("scorecards"),
-          status: v.string(),
-          draftVersion: v.number(),
-          ratings: v.array(ratingInput),
-          privateNote: v.optional(v.string()),
-        }),
       }),
     ),
   }),
@@ -934,10 +1284,16 @@ export const now = query({
     }
     const panelMemberships = await ctx.db
       .query("reviewPanelMembers")
-      .withIndex("by_person_status", (index) =>
-        index.eq("personId", person._id).eq("status", "active"),
+      .withIndex("by_event_person_status", (index) =>
+        index
+          .eq("eventId", event._id)
+          .eq("personId", person._id)
+          .eq("status", "active"),
       )
-      .collect();
+      .take(maximumReviewRoundsPerEvent + 1);
+    if (panelMemberships.length > maximumReviewRoundsPerEvent) {
+      throw new Error("A reviewer exceeds the event review-round limit.");
+    }
     const panelContexts: PanelContext[] = [];
     for (const membership of panelMemberships) {
       const [round, panel] = await Promise.all([
@@ -987,6 +1343,8 @@ export const now = query({
           status: panelContext.round.status,
           startsAt: panelContext.round.startsAt,
           endsAt: panelContext.round.endsAt,
+          clockInOpensAt: panelContext.round.clockInOpensAt,
+          reviewerReportAt: panelContext.round.reviewerReportAt,
           minimumReviewerBuild: panelContext.round.minimumReviewerBuild,
           requiresCamera: panelContext.round.requiresCamera,
           requiresNotifications: panelContext.round.requiresNotifications,
@@ -998,21 +1356,38 @@ export const now = query({
       };
     }
 
-    const reserveRows = await ctx.db
-      .query("reviewRoundReserves")
-      .withIndex("by_person_status", (index) => index.eq("personId", person._id))
-      .collect();
+    const [availableReserves, pagedReserves] = await Promise.all([
+      ctx.db
+        .query("reviewRoundReserves")
+        .withIndex("by_event_person_status", (index) =>
+          index
+            .eq("eventId", event._id)
+            .eq("personId", person._id)
+            .eq("status", "available"),
+        )
+        .take(maximumReviewRoundsPerEvent + 1),
+      ctx.db
+        .query("reviewRoundReserves")
+        .withIndex("by_event_person_status", (index) =>
+          index
+            .eq("eventId", event._id)
+            .eq("personId", person._id)
+            .eq("status", "paged"),
+        )
+        .take(maximumReviewRoundsPerEvent + 1),
+    ]);
+    const reserveRows = [...availableReserves, ...pagedReserves];
+    if (reserveRows.length > maximumReviewRoundsPerEvent) {
+      throw new Error("A reviewer exceeds the event review-round limit.");
+    }
     const reserveContexts: Array<{
       reserveId: Id<"reviewRoundReserves">;
       reserveStatus: "available" | "paged";
       round: Doc<"reviewRounds">;
     }> = [];
     for (const reserve of reserveRows) {
-      if (
-        reserve.eventId !== event._id ||
-        (reserve.status !== "available" && reserve.status !== "paged")
-      ) {
-        continue;
+      if (reserve.status !== "available" && reserve.status !== "paged") {
+        throw new Error("A current reserve index returned a terminal assignment.");
       }
       const round = await ctx.db.get(reserve.roundId);
       if (round && ["published", "open", "closing"].includes(round.status)) {
@@ -1054,6 +1429,8 @@ export const now = query({
           status: reserveContext.round.status,
           startsAt: reserveContext.round.startsAt,
           endsAt: reserveContext.round.endsAt,
+          clockInOpensAt: reserveContext.round.clockInOpensAt,
+          reviewerReportAt: reserveContext.round.reviewerReportAt,
           minimumReviewerBuild: reserveContext.round.minimumReviewerBuild,
           requiresCamera: reserveContext.round.requiresCamera,
           requiresNotifications: reserveContext.round.requiresNotifications,
@@ -1067,10 +1444,16 @@ export const now = query({
 
     const assignments = await ctx.db
       .query("reviewAssignments")
-      .withIndex("by_person_status", (index) =>
-        index.eq("reviewerPersonId", person._id).eq("status", "assigned"),
+      .withIndex("by_event_person_status", (index) =>
+        index
+          .eq("eventId", event._id)
+          .eq("reviewerPersonId", person._id)
+          .eq("status", "assigned"),
       )
-      .collect();
+      .take(maximumReviewerAssignmentsPerEvent + 1);
+    if (assignments.length > maximumReviewerAssignmentsPerEvent) {
+      throw new Error("A reviewer exceeds the event review-assignment limit.");
+    }
     const activeAssignments: ActiveAssignmentContext[] = [];
     for (const assignment of assignments) {
       const session = await ctx.db.get(assignment.reviewSessionId);
@@ -1085,19 +1468,17 @@ export const now = query({
     if (!active) {
       const correctionScorecards = await ctx.db
         .query("scorecards")
-        .withIndex("by_reviewer_status", (index) =>
+        .withIndex("by_event_reviewer_status", (index) =>
           index
+            .eq("eventId", event._id)
             .eq("reviewerPersonId", person._id)
             .eq("status", "correction_open"),
         )
-        .collect();
-      const eventCorrections = correctionScorecards.filter(
-        (scorecard) => scorecard.eventId === event._id,
-      );
-      if (eventCorrections.length > 1) {
+        .take(2);
+      if (correctionScorecards.length > 1) {
         throw new Error("A reviewer has more than one open scorecard correction.");
       }
-      const correctionScorecard = eventCorrections[0];
+      const correctionScorecard = correctionScorecards[0];
       if (correctionScorecard) {
         const [assignment, session] = await Promise.all([
           ctx.db.get(correctionScorecard.assignmentId),
@@ -1146,44 +1527,141 @@ export const now = query({
       scopeType: "review",
       scopeId: active.session._id,
     });
-    const [team, round, panel, project, evidence, scorecard, assignmentRows, presences] =
-      await Promise.all([
-        ctx.db.get(active.session.teamId),
-        ctx.db.get(active.session.roundId),
-        ctx.db.get(active.session.panelId),
-        ctx.db.get(active.session.projectVersionId),
-        ctx.db.get(active.session.evidenceCheckpointSetId),
-        ctx.db
-          .query("scorecards")
-          .withIndex("by_session_reviewer", (index) =>
-            index
-              .eq("reviewSessionId", active.session._id)
-              .eq("reviewerPersonId", person._id),
-          )
-          .unique(),
-        ctx.db
-          .query("reviewAssignments")
-          .withIndex("by_session_person", (index) =>
-            index.eq("reviewSessionId", active.session._id),
-          )
-          .collect(),
-        ctx.db
-          .query("reviewPresence")
-          .withIndex("by_session_reviewer", (index) =>
-            index.eq("reviewSessionId", active.session._id),
-          )
-          .collect(),
-      ]);
-    if (!team || !round || !panel || !project || !evidence || !scorecard) {
+    const [team, round, panel, assignmentRows, presences] = await Promise.all([
+      ctx.db.get(active.session.teamId),
+      ctx.db.get(active.session.roundId),
+      ctx.db.get(active.session.panelId),
+      ctx.db
+        .query("reviewAssignments")
+        .withIndex("by_session_person", (index) =>
+          index.eq("reviewSessionId", active.session._id),
+        )
+        .collect(),
+      ctx.db
+        .query("reviewPresence")
+        .withIndex("by_session_reviewer", (index) =>
+          index.eq("reviewSessionId", active.session._id),
+        )
+        .collect(),
+    ]);
+    if (!team || !round || !panel) {
       throw new Error("The active review context is incomplete.");
     }
+    const assignedRows = assignmentRows.filter((assignment) => assignment.status === "assigned");
+    const assignedReviewerIds = new Set(
+      assignedRows.map((assignment) => assignment.reviewerPersonId),
+    );
+    const currentPresences = presences.filter((presence) =>
+      assignedReviewerIds.has(presence.reviewerPersonId),
+    );
+    const activeTableLabel = await teamRoundTableLabel(ctx, round._id, team._id);
+    return {
+      serverNow: Date.now(),
+      device: device
+        ? {
+            id: device._id,
+            name: device.name,
+            appBuild: device.appBuild,
+            cameraReady: device.cameraReady,
+            notificationsReady: device.pushTokenStatus === "active",
+            pushTokenStatus: device.pushTokenStatus,
+            ...(device.pushToken !== undefined
+              ? { pushTokenFingerprint: pushTokenFingerprint(device.pushToken) }
+              : {}),
+            encryptedDraftReady: device.encryptedDraftReady,
+            version: device.version,
+          }
+        : null,
+      panel: panelView,
+      reserve: reserveView,
+      review: {
+        id: active.session._id,
+        status: active.session.status,
+        version: active.session.version,
+        ...(active.session.startedAt !== undefined
+          ? { startedAt: active.session.startedAt }
+          : {}),
+        ...(active.session.plannedEndAt !== undefined
+          ? { plannedEndAt: active.session.plannedEndAt }
+          : {}),
+        extensionCount: active.session.extensionCount,
+        ...(active.session.sharedFindings !== undefined
+          ? { sharedFindings: active.session.sharedFindings }
+          : {}),
+        ...(active.session.sharedCommitments !== undefined
+          ? { sharedCommitments: active.session.sharedCommitments }
+          : {}),
+        sharedNotesVersion: active.session.sharedNotesVersion,
+        team: {
+          id: team._id,
+          name: team.name,
+          ...(activeTableLabel !== undefined ? { tableLabel: activeTableLabel } : {}),
+        },
+        round: { id: round._id, name: round.name },
+        panel: { id: panel._id, name: panel.name },
+        assignment: {
+          id: active.assignment._id,
+          isCoordinator: active.assignment.isCoordinator,
+          reviewerPresenceConfirmed: currentPresences.some(
+            (presence) => presence.reviewerPersonId === person._id,
+          ),
+          reviewerPresenceCount: new Set(
+            currentPresences.map((presence) => presence.reviewerPersonId),
+          ).size,
+          reviewerCount: assignedRows.length,
+        },
+      },
+    };
+  },
+});
+
+export const reviewWorkspaceData = internalQuery({
+  args: { eventSlug: v.string(), reviewSessionId: v.id("reviewSessions") },
+  returns: reviewerWorkspaceDataView,
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const session = await ctx.db.get(args.reviewSessionId);
+    if (!session || session.eventId !== event._id) {
+      throw new ConvexError({ code: "REVIEW_NOT_FOUND", message: "That review is unavailable." });
+    }
+    const assignment = await ctx.db
+      .query("reviewAssignments")
+      .withIndex("by_session_person", (index) =>
+        index.eq("reviewSessionId", session._id).eq("reviewerPersonId", person._id),
+      )
+      .unique();
+    if (!assignment || assignment.status !== "assigned") {
+      throw new ConvexError({
+        code: "REVIEW_ASSIGNMENT_REQUIRED",
+        message: "Only a reviewer assigned to this review can read its fixed workspace.",
+      });
+    }
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "review.read",
+      scopeType: "review",
+      scopeId: session._id,
+    });
+    const [team, project, evidence] = await Promise.all([
+      ctx.db.get(session.teamId),
+      ctx.db.get(session.projectVersionId),
+      ctx.db.get(session.evidenceCheckpointSetId),
+    ]);
+    if (!team || !project || !evidence || team.eventId !== event._id) {
+      throw new Error("The fixed review workspace is incomplete.");
+    }
     if (
+      project.eventId !== event._id ||
+      project.teamId !== team._id ||
       evidence.eventId !== event._id ||
-      evidence.roundId !== active.session.roundId ||
-      evidence.teamId !== active.session.teamId ||
-      evidence.projectVersionId !== active.session.projectVersionId
+      evidence.roundId !== session.roundId ||
+      evidence.teamId !== team._id ||
+      evidence.projectVersionId !== project._id
     ) {
-      throw new Error("The active review evidence checkpoint does not match the fixed session.");
+      throw new Error("The fixed review workspace does not match its session.");
     }
     const teamCheckpoint = evidence.teamCheckpointSubmissionId
       ? await ctx.db.get(evidence.teamCheckpointSubmissionId)
@@ -1192,7 +1670,7 @@ export const now = query({
       teamCheckpoint &&
       (teamCheckpoint.eventId !== event._id || teamCheckpoint.teamId !== team._id)
     ) {
-      throw new Error("The pinned team checkpoint does not match the active review.");
+      throw new Error("The pinned team checkpoint does not match the review workspace.");
     }
     const { coreTrack: track, sponsorTracks } = await requireProjectTrackSelection(
       ctx,
@@ -1313,166 +1791,129 @@ export const now = query({
       }),
     );
     const criteria: Doc<"reviewRubricCriteria">[] = [];
-    for (const criterionId of active.assignment.assignedCriterionIds) {
+    for (const criterionId of assignment.assignedCriterionIds) {
       const criterion = await ctx.db.get(criterionId);
-      if (!criterion || criterion.rubricVersionId !== active.session.rubricVersionId) {
+      if (!criterion || criterion.rubricVersionId !== session.rubricVersionId) {
         throw new Error("The fixed criterion assignment is invalid.");
       }
       criteria.push(criterion);
     }
     criteria.sort((left, right) => left.displayOrder - right.displayOrder);
-    const assignedRows = assignmentRows.filter((assignment) => assignment.status === "assigned");
-    const assignedReviewerIds = new Set(
-      assignedRows.map((assignment) => assignment.reviewerPersonId),
-    );
-    const currentPresences = presences.filter((presence) =>
-      assignedReviewerIds.has(presence.reviewerPersonId),
-    );
-    const activeTableLabel = await teamRoundTableLabel(ctx, round._id, team._id);
     return {
-      serverNow: Date.now(),
-      device: device
-        ? {
-            id: device._id,
-            name: device.name,
-            appBuild: device.appBuild,
-            cameraReady: device.cameraReady,
-            notificationsReady: device.pushTokenStatus === "active",
-            pushTokenStatus: device.pushTokenStatus,
-            ...(device.pushToken !== undefined
-              ? { pushTokenFingerprint: pushTokenFingerprint(device.pushToken) }
-              : {}),
-            encryptedDraftReady: device.encryptedDraftReady,
-            version: device.version,
-          }
-        : null,
-      panel: panelView,
-      reserve: reserveView,
-      review: {
-        id: active.session._id,
-        status: active.session.status,
-        version: active.session.version,
-        ...(active.session.startedAt !== undefined
-          ? { startedAt: active.session.startedAt }
-          : {}),
-        ...(active.session.plannedEndAt !== undefined
-          ? { plannedEndAt: active.session.plannedEndAt }
-          : {}),
-        extensionCount: active.session.extensionCount,
-        ...(active.session.sharedFindings !== undefined
-          ? { sharedFindings: active.session.sharedFindings }
-          : {}),
-        ...(active.session.sharedCommitments !== undefined
-          ? { sharedCommitments: active.session.sharedCommitments }
-          : {}),
-        sharedNotesVersion: active.session.sharedNotesVersion,
-        team: {
-          id: team._id,
-          name: team.name,
-          ...(activeTableLabel !== undefined ? { tableLabel: activeTableLabel } : {}),
-        },
-        round: { id: round._id, name: round.name },
-        panel: { id: panel._id, name: panel.name },
-        assignment: {
-          id: active.assignment._id,
-          isCoordinator: active.assignment.isCoordinator,
-          reviewerPresenceConfirmed: currentPresences.some(
-            (presence) => presence.reviewerPersonId === person._id,
-          ),
-          reviewerPresenceCount: new Set(
-            currentPresences.map((presence) => presence.reviewerPersonId),
-          ).size,
-          reviewerCount: assignedRows.length,
-        },
-        project: {
-          initialIdea: project.initialIdea,
-          intakeResponses: project.intakeResponses.map((response) => ({
-            ordinal: response.ordinal,
-            question: response.question,
-            ...(response.answer !== undefined ? { answer: response.answer } : {}),
-            skipped: response.skipped,
-          })),
-          trackName: track.displayName,
-          sponsorTracks: sponsorTracks.map((sponsorTrack) => ({
-            id: sponsorTrack._id,
-            name: sponsorTrack.displayName,
-            eligibilityText: sponsorTrack.eligibilityText,
-          })),
-          submittedAt: project.submittedAt,
-          latestCheckpoint: teamCheckpoint
-            ? {
-                checkpointKey: teamCheckpoint.checkpointKey,
-                displayName: teamCheckpoint.displayName,
-                updateText: teamCheckpoint.updateText,
-                followUpQuestion: teamCheckpoint.followUpQuestion,
-                followUpAnswer: teamCheckpoint.followUpAnswer,
-                timing: teamCheckpoint.timing,
-                submittedAt: teamCheckpoint.submittedAt,
-              }
-            : null,
-        },
-        evidence: {
-          id: evidence._id,
-          completeness: evidence.completeness,
-          capturedResourceCount: evidence.capturedResourceCount,
-          expectedResourceCount: evidence.expectedResourceCount,
-          github: githubEvidence,
-          figma: figmaEvidence,
-        },
-        criteria: criteria.map((criterion) => ({
-          id: criterion._id,
-          stableKey: criterion.stableKey,
-          label: criterion.label,
-          question: criterion.question,
-          guidance: criterion.guidance,
-          weight: criterion.weight,
-          displayOrder: criterion.displayOrder,
-          anchors: criterion.anchors,
+      id: session._id,
+      project: {
+        initialIdea: project.initialIdea,
+        intakeResponses: project.intakeResponses.map((response) => ({
+          ordinal: response.ordinal,
+          question: response.question,
+          ...(response.answer !== undefined ? { answer: response.answer } : {}),
+          skipped: response.skipped,
         })),
-        scorecard: {
-          id: scorecard._id,
-          status: scorecard.status,
-          draftVersion: scorecard.draftVersion,
-          ratings: scorecard.ratings,
-          ...(scorecard.privateNote !== undefined ? { privateNote: scorecard.privateNote } : {}),
-        },
+        trackName: track.displayName,
+        sponsorTracks: sponsorTracks.map((sponsorTrack) => ({
+          id: sponsorTrack._id,
+          name: sponsorTrack.displayName,
+          eligibilityText: sponsorTrack.eligibilityText,
+        })),
+        submittedAt: project.submittedAt,
+        latestCheckpoint: teamCheckpoint
+          ? {
+              checkpointKey: teamCheckpoint.checkpointKey,
+              displayName: teamCheckpoint.displayName,
+              updateText: teamCheckpoint.updateText,
+              followUpQuestion: teamCheckpoint.followUpQuestion,
+              followUpAnswer: teamCheckpoint.followUpAnswer,
+              timing: teamCheckpoint.timing,
+              submittedAt: teamCheckpoint.submittedAt,
+            }
+          : null,
       },
+      evidence: {
+        id: evidence._id,
+        completeness: evidence.completeness,
+        capturedResourceCount: evidence.capturedResourceCount,
+        expectedResourceCount: evidence.expectedResourceCount,
+        github: githubEvidence,
+        figma: figmaEvidence,
+      },
+      criteria: criteria.map((criterion) => ({
+        id: criterion._id,
+        stableKey: criterion.stableKey,
+        label: criterion.label,
+        question: criterion.question,
+        guidance: criterion.guidance,
+        weight: criterion.weight,
+        displayOrder: criterion.displayOrder,
+        anchors: criterion.anchors,
+      })),
     };
   },
 });
 
-// What a reviewer may know about this team's past reviews stops at the shared
-// artefacts. The handbook promises the next panel the previous review's
-// evidence, findings, and commitments — never hidden peer scores — because a
-// prior round's numbers are exactly the anchor that would bias a live panel.
-// The line is enforced here, not in the client: this handler never reads a
-// scorecard, evaluation, or round-close table, and the validator has nowhere
-// to carry a number even if it did.
-export const teamContext = query({
+export const scorecard = query({
   args: { eventSlug: v.string(), reviewSessionId: v.id("reviewSessions") },
   returns: v.object({
-    team: v.object({
-      id: v.id("teams"),
-      name: v.string(),
-      publicCode: v.string(),
-      memberCount: v.number(),
-      projectVersion: v.number(),
-      projectSubmittedAt: v.number(),
-    }),
-    priorReviews: v.array(
-      v.object({
-        id: v.id("reviewSessions"),
-        roundName: v.string(),
-        roundSequence: v.number(),
-        panelName: v.string(),
-        outcome: v.union(v.literal("completed"), v.literal("cancelled")),
-        startedAt: v.optional(v.number()),
-        endedAt: v.number(),
-        sharedFindings: v.optional(v.string()),
-        sharedCommitments: v.optional(v.string()),
-      }),
-    ),
+    id: v.id("scorecards"),
+    status: v.string(),
+    draftVersion: v.number(),
+    ratings: v.array(ratingInput),
+    privateNote: v.optional(v.string()),
   }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const session = await ctx.db.get(args.reviewSessionId);
+    if (!session || session.eventId !== event._id) {
+      throw new ConvexError({ code: "REVIEW_NOT_FOUND", message: "That review is unavailable." });
+    }
+    const [assignment, scorecard] = await Promise.all([
+      ctx.db
+        .query("reviewAssignments")
+        .withIndex("by_session_person", (index) =>
+          index.eq("reviewSessionId", session._id).eq("reviewerPersonId", person._id),
+        )
+        .unique(),
+      ctx.db
+        .query("scorecards")
+        .withIndex("by_session_reviewer", (index) =>
+          index.eq("reviewSessionId", session._id).eq("reviewerPersonId", person._id),
+        )
+        .unique(),
+    ]);
+    if (
+      !assignment ||
+      assignment.status !== "assigned" ||
+      !scorecard ||
+      scorecard.eventId !== event._id ||
+      scorecard.assignmentId !== assignment._id
+    ) {
+      throw new ConvexError({
+        code: "REVIEW_ASSIGNMENT_REQUIRED",
+        message: "Only a reviewer assigned to this review can read its scorecard.",
+      });
+    }
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "review.read",
+      scopeType: "review",
+      scopeId: session._id,
+    });
+    return {
+      id: scorecard._id,
+      status: scorecard.status,
+      draftVersion: scorecard.draftVersion,
+      ratings: scorecard.ratings,
+      ...(scorecard.privateNote !== undefined ? { privateNote: scorecard.privateNote } : {}),
+    };
+  },
+});
+
+// Expose only shared prior-review artifacts; prior scores could bias the next panel.
+export const teamContextData = internalQuery({
+  args: { eventSlug: v.string(), reviewSessionId: v.id("reviewSessions") },
+  returns: reviewerTeamContextView,
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -1500,28 +1941,21 @@ export const teamContext = query({
       scopeType: "review",
       scopeId: session._id,
     });
-    const [team, project, activeMembers, teamSessions] = await Promise.all([
+    const [team, project, teamSessions] = await Promise.all([
       ctx.db.get(session.teamId),
       ctx.db.get(session.projectVersionId),
       ctx.db
-        .query("teamMembers")
-        .withIndex("by_team_status", (index) =>
-          index.eq("teamId", session.teamId).eq("status", "active"),
-        )
-        .collect(),
-      ctx.db
         .query("reviewSessions")
         .withIndex("by_team_created", (index) => index.eq("teamId", session.teamId))
-        .collect(),
+        .order("desc")
+        .take(priorReviewHistoryLimit + 1),
     ]);
     if (!team || !project || team.eventId !== event._id || project.teamId !== team._id) {
       throw new Error("The review team context is incomplete.");
     }
     const priorReviews = [];
     for (const prior of teamSessions) {
-      // A live sibling session is not history yet, but a cancelled one is: the
-      // fact that a panel sat down and the review was abandoned is context the
-      // next panel deserves, even though it carries no notes.
+      // A cancelled session is history; another active session is not.
       if (prior._id === session._id || prior.eventId !== event._id) continue;
       if (prior.status !== "completed" && prior.status !== "cancelled") continue;
       const [round, panel] = await Promise.all([
@@ -1540,8 +1974,7 @@ export const teamContext = query({
         outcome: prior.status,
         ...(prior.startedAt !== undefined ? { startedAt: prior.startedAt } : {}),
         endedAt: (completed ? prior.completedAt : prior.cancelledAt) ?? prior.updatedAt,
-        // Shared notes travel only once the panel finished the review. Notes
-        // on a cancelled session were never the panel's final word.
+        // Only completed sessions expose the panel's final shared notes.
         ...(completed && prior.sharedFindings !== undefined
           ? { sharedFindings: prior.sharedFindings }
           : {}),
@@ -1549,13 +1982,14 @@ export const teamContext = query({
           ? { sharedCommitments: prior.sharedCommitments }
           : {}),
       });
+      if (priorReviews.length === priorReviewHistoryLimit) break;
     }
     return {
       team: {
         id: team._id,
         name: team.name,
         publicCode: team.publicCode,
-        memberCount: activeMembers.length,
+        memberCount: project.lockedMemberCount,
         projectVersion: project.version,
         projectSubmittedAt: project.submittedAt,
       },
@@ -1564,10 +1998,23 @@ export const teamContext = query({
   },
 });
 
+export const reviewWorkspace = action({
+  args: { eventSlug: v.string(), reviewSessionId: v.id("reviewSessions") },
+  returns: reviewerWorkspaceView,
+  handler: async (ctx, args): Promise<Infer<typeof reviewerWorkspaceView>> => {
+    const [workspace, teamContext] = await Promise.all([
+      ctx.runQuery(internal.reviewer.reviewWorkspaceData, args),
+      ctx.runQuery(internal.reviewer.teamContextData, args),
+    ]);
+    return { ...workspace, teamContext };
+  },
+});
+
 export const confirmPresence = mutation({
   args: {
     eventSlug: v.string(),
     installationId: v.string(),
+    reviewSessionId: v.id("reviewSessions"),
     payload: v.string(),
   },
   returns: v.object({
@@ -1603,7 +2050,13 @@ export const confirmPresence = mutation({
     if (!token || token.eventId !== event._id || token.state !== "active" || token.expiresAt <= Date.now()) {
       throw new ConvexError({ code: "TEAM_QR_EXPIRED", message: "This team QR expired. Ask the team to refresh it." });
     }
-    const session = await ctx.db.get(token.reviewSessionId);
+    if (token.reviewSessionId !== args.reviewSessionId) {
+      throw new ConvexError({
+        code: "REVIEW_QR_SESSION_MISMATCH",
+        message: "This code belongs to a different review. Scan the code shown by the current team.",
+      });
+    }
+    const session = await ctx.db.get(args.reviewSessionId);
     if (
       !session ||
       session.eventId !== event._id ||
@@ -1691,7 +2144,7 @@ export const confirmPresence = mutation({
       confirmedAt: now,
     });
     if (state.state === "called") {
-      await ctx.db.patch(state._id, {
+      await patchTeamRoundState(ctx, state, {
         state: "at_table",
         version: state.version + 1,
         updatedByPersonId: person._id,
@@ -1878,7 +2331,7 @@ export const reportConflict = mutation({
       version: session.version + 1,
       updatedAt: now,
     });
-    await ctx.db.patch(state._id, {
+    await patchTeamRoundState(ctx, state, {
       panelId: undefined,
       tableLabel: undefined,
       state: "unassigned",

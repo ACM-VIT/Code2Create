@@ -1,13 +1,13 @@
 import OpenAI from 'openai'
 import { z } from 'zod'
 
+import { readBoundedJsonResponse } from '../../convex/lib/boundedHttpBody.ts'
 import { GitHubOctokit, githubApp, safeGitHubId } from '../../convex/lib/githubClient.ts'
 import {
   readLiveProviderConfiguration,
   type LiveProviderConfiguration,
 } from './providerEnvironment.ts'
 
-const requiredGitHubTopic = 'code2create-7-0'
 const nativeEmbeddingDimensions = 1_536
 const maximumFigmaResponseBytes = 5 * 1_024 * 1_024
 
@@ -101,26 +101,16 @@ async function checkGitHub(
   if (repository.data.id !== repositoryId) {
     throw new Error('GitHub returned a different repository than the configured fixture.')
   }
-  if (!topics.data.names.includes(requiredGitHubTopic)) {
-    throw new Error(`The staging GitHub fixture is missing ${requiredGitHubTopic}.`)
+  if (!topics.data.names.includes(configuration.githubRequiredTopic)) {
+    throw new Error(
+      `The staging GitHub fixture is missing ${configuration.githubRequiredTopic}.`,
+    )
   }
   return {
     check: 'github',
     latencyMs: elapsed(startedAt),
     result: 'installation, repository, and required topic verified',
   }
-}
-
-async function readBoundedResponse(response: Response, maximumBytes: number) {
-  const declaredBytes = Number(response.headers.get('content-length'))
-  if (Number.isFinite(declaredBytes) && declaredBytes > maximumBytes) {
-    throw new Error('Figma returned an oversized release-check response.')
-  }
-  const text = await response.text()
-  if (Buffer.byteLength(text, 'utf8') > maximumBytes) {
-    throw new Error('Figma returned an oversized release-check response.')
-  }
-  return text
 }
 
 async function checkFigma(
@@ -144,9 +134,8 @@ async function checkFigma(
   }
   let json: unknown
   try {
-    json = JSON.parse(await readBoundedResponse(response, maximumFigmaResponseBytes))
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('oversized')) throw error
+    json = await readBoundedJsonResponse(response, maximumFigmaResponseBytes)
+  } catch {
     throw new Error('Figma returned invalid JSON for the release fixture.')
   }
   const file = figmaFileSchema.parse(json)
@@ -170,7 +159,7 @@ async function checkIntelligence(
   }
   let json: unknown
   try {
-    json = JSON.parse(await response.text())
+    json = await readBoundedJsonResponse(response, 4 * 1_024)
   } catch {
     throw new Error('Intelligence Worker returned invalid health JSON.')
   }

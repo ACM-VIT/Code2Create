@@ -74,9 +74,9 @@ The server checks:
 - Merge, split, or post-lock removal is an operations action with a reason.
 - Join codes can be rotated if exposed.
 
-Final project submission locks the exact active membership set and the core track. After that command, ordinary join, leave, remove, lead-transfer, and core-track-change actions are unavailable. A genuine identity or eligibility correction uses a separately scoped operations command, impact preview, reason, and audit record; it never pretends the application was submitted with a different team.
+Starting final project submission atomically locks team membership and track selection and creates a versioned submission attempt. The server then materializes the exact active roster into immutable member rows in bounded, resumable batches. Ordinary join, leave, remove, lead-transfer, profile-edit, and core-track-change actions are unavailable while that work runs. A validation failure unlocks the team and leaves a bounded participant-facing reason on the failed attempt; success creates the immutable project and application before the attempt becomes complete. A genuine later identity or eligibility correction uses a separately scoped operations command, impact preview, reason, and audit record; it never pretends the application was submitted with a different team.
 
-Team-size bounds and mixed-team eligibility come from the current published participant policy. Create, join, and final submission load that policy inside the same transaction as the write. Create and join require current policy acceptance but not a complete profile. Final submission also requires a complete class-aware profile for every active member. A policy publication can therefore change an unlocked team's blockers but cannot rewrite a locked submission.
+Team-size bounds and mixed-team eligibility come from the current published participant policy. Create and join load that policy inside the same transaction as the write. The submission-start transaction pins the current policy and validates the authoritative team-root roster counts; the resumable materializer then validates every frozen member against that exact version. Create and join require current policy acceptance but not a complete profile. Final submission also requires a complete class-aware profile for every active member. A policy publication can therefore change an unlocked team's blockers but cannot rewrite a locked submission.
 
 ## 4. Guided project intake
 
@@ -223,7 +223,7 @@ The server saves an answer first, then starts interpretation in the bounded inta
 
 ### Tracks
 
-The working event model reserves five core-track positions and supports zero or more sponsor tracks. Board has not approved the names or definitions, so the application must read the published catalog rather than ship placeholder tracks as policy.
+The initial event model uses five core tracks and supports zero or more sponsor tracks. Operations publishes the required core-track count with each immutable catalog; the application reads that value and the published tracks rather than shipping either as policy.
 
 The first saved project description pins the current immutable catalog ID directly on that team's draft. Editing the idea, choosing a core track, changing sponsor-track selections, settling a late AI recommendation, opening final confirmation, and submitting all resolve against that pin. Publishing another catalog changes the default only for teams that create a project draft afterward; an in-progress team never changes tracks or recommendation context because an operator published while it was typing.
 
@@ -271,7 +271,7 @@ Submitting creates a project version containing:
 - the verbatim initial idea and ordered current follow-up snapshots, including question, purpose, source, answer or skipped state;
 - the `fresh_for_event` attestation and exact participant-policy version ID;
 - core-track and optional sponsor-track version IDs;
-- the exact locked active team-member IDs and lead membership ID;
+- the exact locked roster-snapshot ID, member count, and lead membership ID;
 - final-confirmation metadata: exact participant-policy version ID, previewed draft/team/core-track versions, the exact ordered sponsor-track version IDs, confirming member, and server time;
 - ordered repository set with declared kinds/purposes and the Figma link;
 - demo URL, if present;
@@ -386,7 +386,7 @@ The GitHub card is an ordered repository list. A lead can add every repository u
 
 Moving a row submits the complete visible repository ID/version list. The server checks that it is still the exact current non-archived set, checks every row version, and writes the compact order in one transaction. An add, archive, refresh, or another reorder racing that command makes the stale reorder fail and refresh the shared list; it cannot partly restore an older order.
 
-Every active repository must contain `code2create-7-0`. The App has Metadata read and Contents read. GitHub requires Administration write to replace repository topics, so the production App does not auto-add a missing topic. Each affected row gives the exact topic to that repository’s administrator and rechecks it.
+Every active repository must contain the topic in the current published integration policy, initially `code2create-7-0`. The App has Metadata read and Contents read. GitHub requires Administration write to replace repository topics, so the production App does not auto-add a missing topic. Each affected row gives the exact current topic to that repository’s administrator and rechecks it.
 
 Each repository row updates from signed pushes and shows:
 
@@ -527,6 +527,8 @@ The queue displays a coarse five-minute-bucketed window. The estimate starts wit
 Accepted participants have a small **Music** page during a published Synesthesia window. It shows the licensed catalog source, window end, personal request/vote usage, current track, catalog search, and the live request queue.
 
 A participant can request only a track returned by the current event catalog, vote or remove their vote, and report one visible request with a short reason. A vote guides the playback operator and never guarantees playback. Rejected requests show their requester the public reason; hidden requests disappear. A Synesthesia-only suspension leaves the participant's event, team, attendance, project, admission, and review access unchanged.
+
+Stable queue metadata and compact request-owned vote counts arrive through separate bounded realtime projections. High vote traffic therefore updates the count stream without retransmitting every request's metadata or invalidating an operator's pending moderation action.
 
 The page has no provider login, free-form provider search, audio player, exact play-time promise, participant queue-order control, or project engagement score.
 

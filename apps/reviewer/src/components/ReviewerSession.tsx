@@ -1,21 +1,21 @@
 import { api } from '@code2create/backend/api'
-import { useAction, useConvexAuth, useQuery } from 'convex/react'
-import { createContext, useContext, useState, type ReactNode } from 'react'
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useAction, useConvexAuth, useMutation, useQuery } from 'convex/react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { Animated, AppState, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
-import { BrandBackdrop, BrandMark } from '@/components/Brand'
+import { AcmMark, BrandBackdrop, BrandMark, BrandWordmark } from '@/components/Brand'
 import { PagerAlert } from '@/components/PagerAlert'
-import { useReviewerInstallationId } from '@/lib/duty-status'
+import {
+  type DutyStatus,
+  useReviewerInstallationId,
+} from '@/lib/duty-status'
+import { judgingStatus } from '@/lib/judging-status'
 import { describeError } from '@/lib/errors'
 import type { ReviewerRuntime } from '@/lib/runtime'
 import { palette, radius, type } from '@/theme'
 
-/**
- * The duties this account can actually do. Everything downstream — which tabs
- * exist, which cards the grid shows, which routes resolve — is derived from
- * this one list, so a person is never shown a door they cannot open.
- */
+// Derive duties from grants, never role labels.
 export type Surface = 'reviews' | 'attendance' | 'floor' | 'support' | 'operations' | 'incidents'
 
 type ReviewerSession = {
@@ -26,16 +26,13 @@ type ReviewerSession = {
   surfaces: Surface[]
   canCreateSupport: boolean
   canManageAttention: boolean
+  judgingStatus: DutyStatus
+  reviewHeartbeatIssue: string | null
   signOut: () => void
 }
 
 const SessionContext = createContext<ReviewerSession | null>(null)
 
-/**
- * Reads the session and this account's grants once, and refuses to render the
- * app until both are known. Screens below can therefore assume they exist,
- * instead of each re-deriving them and rendering their own spinner.
- */
 export function useReviewerSession() {
   const session = useContext(SessionContext)
   if (!session) throw new Error('useReviewerSession used outside the reviewer session provider.')
@@ -52,44 +49,78 @@ export function ReviewerSessionProvider({
   const eventSlug = runtime.configuration.eventSlug
   const { data: session, isPending: sessionPending } = runtime.authClient.useSession()
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth()
-  const publicState = useQuery(api.system.getPublicState, { eventSlug })
-  const access = useQuery(api.access.mine, isAuthenticated ? { eventSlug } : 'skip')
+  const publicState = useQuery(api.system.getPublicShellState, { eventSlug })
+  const access = useQuery(
+    api.access.reviewerCapabilities,
+    isAuthenticated ? { eventSlug } : 'skip',
+  )
   const createNativeSession = useAction(api.localDevelopment.createNativeSession)
+  const heartbeat = useMutation(api.reviewer.heartbeat)
   const [authError, setAuthError] = useState<string | null>(null)
   const [authBusy, setAuthBusy] = useState(false)
+  const [reviewHeartbeatIssue, setReviewHeartbeatIssue] = useState<string | null>(null)
 
-  const grants = access?.grants ?? []
-  const has = (...keys: string[]) =>
-    grants.some((grant) => keys.includes(grant.permissionKey))
-  const hasReview = has('reviewer.device.register', 'reviewer.clock_in', 'panel.read', 'review.read')
-  const hasAttendance = has(
-    'attendance.station.manage',
-    'attendance.station.read',
-    'attendance.scan.execute',
-  )
-  const hasFloor = has('floor.location.map', 'floor.location.override')
-  // The board duties. Holding the health read is what makes someone an
-  // operator here, exactly as holding a station grant makes someone a door —
-  // never a role name. Incident read may arrive scoped to one incident, and
-  // that person still needs somewhere to see it.
-  const hasOperations = has('operations.health.read')
-  const hasIncidents = has('incident.read')
-  const scopedToSelfOrEvent = (key: string) =>
-    grants.some(
-      (grant) =>
-        grant.permissionKey === key &&
-        (grant.scopeType === 'self' || grant.scopeType === 'event'),
-    )
-  const hasSupport = scopedToSelfOrEvent('support.case.read')
+  const capabilities = access
+  const hasReview = capabilities?.reviews ?? false
+  const hasAttendance = capabilities?.attendance ?? false
+  const hasFloor = capabilities?.floor ?? false
+  const hasOperations = capabilities?.operations ?? false
+  const hasIncidents = capabilities?.incidents ?? false
+  const hasSupport = capabilities?.support ?? false
 
-  // A page is answered from wherever the person is standing, so it is read here
-  // rather than inside the judging duty. Someone mid-scan at the door still
-  // gets it, and it covers the tab bar with it.
+  // Mount paging above duty routes so it can interrupt any screen.
   const substitutePage = useQuery(
     api.reviewSubstitutions.currentPage,
     hasReview ? { eventSlug } : 'skip',
   )
   const reviewerInstallationId = useReviewerInstallationId(eventSlug)
+  const reviewerDuty = useQuery(
+    api.reviewer.dutyStatus,
+    hasReview && reviewerInstallationId
+      ? { eventSlug, installationId: reviewerInstallationId }
+      : 'skip',
+  )
+  const currentJudgingStatus = judgingStatus(
+    reviewerDuty,
+    substitutePage !== undefined && substitutePage !== null,
+    hasReview,
+  )
+  const heartbeatRoundId = reviewerDuty?.heartbeat?.roundId
+  const heartbeatStatus = reviewerDuty?.heartbeat?.status
+
+  useEffect(() => {
+    if (!reviewerInstallationId || !heartbeatRoundId || !heartbeatStatus) {
+      return
+    }
+    let active = true
+    const send = async () => {
+      if (AppState.currentState !== 'active') return
+      try {
+        await heartbeat({
+          eventSlug,
+          roundId: heartbeatRoundId,
+          installationId: reviewerInstallationId,
+        })
+        if (active) setReviewHeartbeatIssue(null)
+      } catch {
+        if (active) {
+          setReviewHeartbeatIssue(
+            'Live panel connection is interrupted. Actions still require a server response.',
+          )
+        }
+      }
+    }
+    void send()
+    const timer = setInterval(() => void send(), 45_000)
+    const appStateSubscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void send()
+    })
+    return () => {
+      active = false
+      clearInterval(timer)
+      appStateSubscription.remove()
+    }
+  }, [eventSlug, heartbeat, heartbeatRoundId, heartbeatStatus, reviewerInstallationId])
 
   if (sessionPending || authLoading || publicState === undefined) return <Booting />
   if (isAuthenticated && access === undefined) return <Booting />
@@ -98,12 +129,19 @@ export function ReviewerSessionProvider({
     const signIn = async () => {
       setAuthBusy(true)
       setAuthError(null)
-      const result = await runtime.authClient.signIn.social({
-        provider: 'google',
-        callbackURL: '/',
-      })
-      if (result.error) setAuthError(result.error.message || 'Google sign-in could not be completed.')
-      setAuthBusy(false)
+      try {
+        const result = await runtime.authClient.signIn.social({
+          provider: 'google',
+          callbackURL: '/',
+        })
+        if (result.error) {
+          setAuthError(result.error.message || 'Google sign-in could not be completed.')
+        }
+      } catch (caught) {
+        setAuthError(errorMessage(caught, 'Google sign-in could not be completed.'))
+      } finally {
+        setAuthBusy(false)
+      }
     }
     const signInLocally = async () => {
       setAuthBusy(true)
@@ -196,13 +234,14 @@ export function ReviewerSessionProvider({
         who: session.user.name || session.user.email,
         email: session.user.email,
         surfaces,
-        canCreateSupport: scopedToSelfOrEvent('support.case.create'),
-        canManageAttention: has('operations.attention.manage'),
+        canCreateSupport: capabilities?.supportCreate ?? false,
+        canManageAttention: capabilities?.attentionManage ?? false,
+        judgingStatus: currentJudgingStatus,
+        reviewHeartbeatIssue: heartbeatRoundId ? reviewHeartbeatIssue : null,
         signOut,
       }}
     >
       {children}
-      {/* Nothing outranks a panel waiting at a table for an answer. */}
       {substitutePage ? (
         <PagerAlert
           eventSlug={eventSlug}
@@ -215,21 +254,49 @@ export function ReviewerSessionProvider({
 }
 
 function Booting() {
+  const [entrance] = useState(() => new Animated.Value(0))
+  const [breath] = useState(() => new Animated.Value(0))
+
+  useEffect(() => {
+    Animated.spring(entrance, {
+      toValue: 1,
+      damping: 14,
+      mass: 0.8,
+      stiffness: 120,
+      useNativeDriver: true,
+    }).start()
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breath, { toValue: 1, duration: 1_900, useNativeDriver: true }),
+        Animated.timing(breath, { toValue: 0, duration: 1_900, useNativeDriver: true }),
+      ]),
+    )
+    loop.start()
+    return () => loop.stop()
+  }, [breath, entrance])
+
+  const scale = entrance.interpolate({ inputRange: [0, 1], outputRange: [1.45, 1] })
+  const rise = breath.interpolate({ inputRange: [0, 1], outputRange: [0, -7] })
+
   return (
-    <View style={[styles.gate, styles.centred]}>
-      <ActivityIndicator color={palette.muted} />
-    </View>
+    <BrandBackdrop>
+      <View style={[styles.gate, styles.centred]}>
+        <Animated.View
+          style={{ opacity: entrance, transform: [{ scale }, { translateY: rise }] }}
+        >
+          <BrandMark size={112} />
+        </Animated.View>
+        <Animated.View style={[styles.bootWordmark, { opacity: entrance }]}>
+          <BrandWordmark width={252} />
+        </Animated.View>
+        <View style={styles.bootFoot}>
+          <AcmMark size={40} />
+        </View>
+      </View>
+    </BrandBackdrop>
   )
 }
 
-/**
- * Every pre-duty screen — signing in, no access, nothing assigned — has the
- * same shape: one sentence of why, then the only thing you can do about it.
- *
- * It is also the one screen somebody sees before this app has given them
- * anything to do, so it carries the event's own marks rather than looking like
- * a login form that happens to be dark.
- */
 function Gate({
   children,
   error,
@@ -246,10 +313,9 @@ function Gate({
       <SafeAreaView edges={['top', 'bottom']} style={styles.gate}>
         <View style={styles.gateBody}>
           <BrandMark size={104} />
-          <Text style={styles.wordmark}>
-            Code2Creat
-            <Text style={styles.wordmarkAccent}>e</Text>
-          </Text>
+          <View style={styles.gateWordmark}>
+            <BrandWordmark width={228} />
+          </View>
           <Text style={styles.title}>{title}</Text>
           {who ? <Text style={styles.who}>{who}</Text> : null}
         </View>
@@ -295,17 +361,10 @@ function errorMessage(caught: unknown, fallback: string) {
 const styles = StyleSheet.create({
   gate: { flex: 1, paddingHorizontal: 24 },
   centred: { alignItems: 'center', justifyContent: 'center' },
-  /* Pushed below the canopy: the tree owns the top third of the screen. */
   gateBody: { flex: 1, justifyContent: 'flex-end', paddingBottom: 40 },
-  wordmark: {
-    marginTop: 22,
-    color: palette.text,
-    fontSize: 40,
-    fontWeight: '700',
-    letterSpacing: -1.2,
-  },
-  /* The wordmark ends on a blossom; here that is one blossom-coloured letter. */
-  wordmarkAccent: { color: '#E3A9BF' },
+  bootWordmark: { marginTop: 26 },
+  bootFoot: { position: 'absolute', bottom: 34, alignSelf: 'center' },
+  gateWordmark: { marginTop: 22 },
   title: { marginTop: 20, color: palette.text, fontSize: 26, fontWeight: '600', letterSpacing: -0.5 },
   who: { marginTop: 8, color: '#B9A3AC', fontSize: 16 },
   error: { color: palette.urgent, fontSize: 15, lineHeight: 21, marginBottom: 12 },

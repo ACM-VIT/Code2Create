@@ -1,20 +1,4 @@
-/**
- * The closed set of commands an attention item may propose.
- *
- * A proposal is data, never authority. Confirming one opens the ordinary
- * mutation named here, which rechecks the confirming human's grant, scope,
- * reason, operation ID, and the target version carried below. Nothing in this
- * file executes anything.
- *
- * The shapes are a union rather than a serialised argument blob because there
- * are six of them and they never change without the mutation changing: keeping
- * them typed end to end means a detector cannot prefill an argument the command
- * does not take, and the operations client can dispatch without guessing.
- *
- * `eventSlug` and `clientOperationId` are deliberately absent. The confirming
- * client already knows its event and mints its own operation ID, so putting
- * them here would only create two places for them to disagree.
- */
+/** Typed proposals; confirmation rechecks operator grants and target versions. */
 
 import type { AttentionScopeType } from "../values";
 
@@ -61,11 +45,7 @@ export type AttentionCommand =
 
 export type AttentionCommandName = AttentionCommand["name"];
 
-/**
- * The grant each command actually requires, taken from the permission catalog
- * rather than restated by each detector, so a row can never offer a command
- * under the wrong authority.
- */
+/** Takes command grants from the permission catalog rather than detector data. */
 const commandPermissionKeys: Record<AttentionCommandName, string> = {
   "reviewSubstitutions.startPageChain": "review.substitute.page",
   "reviewSubstitutions.markNoShow": "review.reviewer.no_show",
@@ -118,7 +98,6 @@ export function commandTargetIds(command: AttentionCommand): readonly string[] {
   }
 }
 
-/** What the confirmation panel calls the command, in an operator's words. */
 export function commandTitle(command: AttentionCommand) {
   switch (command.name) {
     case "reviewSubstitutions.startPageChain":

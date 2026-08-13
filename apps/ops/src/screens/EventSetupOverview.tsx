@@ -38,6 +38,10 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
     api.communicationsPolicyConfiguration.current,
     tabs.showCommunications ? { eventSlug } : 'skip',
   )
+  const integrations = useQuery(
+    api.integrationPolicyConfiguration.current,
+    tabs.showIntegrations ? { eventSlug } : 'skip',
+  )
   const phases = useQuery(
     api.phaseConfiguration.current,
     tabs.showPhases ? { eventSlug } : 'skip',
@@ -47,7 +51,7 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
     tabs.showCheckpoints ? { eventSlug } : 'skip',
   )
   const intelligence = useQuery(
-    api.operationsIntelligencePolicyConfiguration.current,
+    api.operationsAutonomyPolicyConfiguration.current,
     tabs.showIntelligence ? { eventSlug } : 'skip',
   )
   const attendance = useQuery(
@@ -226,11 +230,13 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
           ) : null}
           {tabs.showIntegrations ? (
             <SetupRow
-              detail="Team-scoped GitHub repositories, required topic, and Figma files"
+              detail={integrations
+                ? `${integrations.publishedPolicy.policy.requiredGitHubTopic} · ${integrations.publishedPolicy.policy.maxActiveGitHubRepositoriesPerTeam} GitHub · ${integrations.publishedPolicy.policy.maxActiveFigmaFilesPerTeam} Figma per team`
+                : 'Loading the code and design policy…'}
               label="Code and design"
-              state="ready"
-              status="Open"
-              to="/integrations"
+              state={publishedState(integrations, Boolean(integrations?.draftPolicy))}
+              status={publishedStatus(integrations, Boolean(integrations?.draftPolicy))}
+              to="/configuration/integrations"
             />
           ) : null}
         </SetupSection>
@@ -240,17 +246,17 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
         <SetupSection title="Operations">
           <SetupRow
             detail={intelligence
-              ? intelligence.automation?.state === 'active'
-                ? 'The operations brief watches the published event signals'
-                : 'Automatic operations briefs are off'
-              : 'Loading operations briefs…'}
-            label="Operations brief"
+              ? intelligence.scheduler.lifecycle.kind === 'active'
+                ? `${humanizeAutonomyMode(intelligence.publishedPolicy.policy.mode)} · checks every ${intelligence.publishedPolicy.policy.scheduleIntervalMinutes} min`
+                : 'Unattended monitoring is stopped'
+              : 'Loading autonomous operations…'}
+            label="Autonomous operations"
             state={publishedState(intelligence, Boolean(intelligence?.draftPolicy))}
             status={intelligence
               ? intelligence.draftPolicy
                 ? 'Draft not published'
-                : intelligence.automation?.state === 'active'
-                  ? 'Active'
+                : intelligence.scheduler.lifecycle.kind === 'active'
+                  ? 'Monitoring'
                   : 'Off'
               : 'Loading'}
             to="/configuration/intelligence"
@@ -259,6 +265,10 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
       ) : null}
     </section>
   )
+}
+
+function humanizeAutonomyMode(mode: 'observe' | 'recommend') {
+  return mode === 'observe' ? 'Observe only' : 'Observe and recommend'
 }
 
 function SetupSection({ children, title }: { children: React.ReactNode; title: string }) {

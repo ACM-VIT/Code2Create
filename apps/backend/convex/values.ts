@@ -416,6 +416,25 @@ export const attendanceScanTransition = v.union(
   v.literal("zone_exit"),
 );
 
+export const attendanceStationMode = v.union(
+  v.literal("venue_entry"),
+  v.literal("venue_exit"),
+  v.literal("session_confirm"),
+  v.literal("zone_entry"),
+  v.literal("zone_exit"),
+  v.literal("roving"),
+);
+
+export type AttendanceStationMode = Infer<typeof attendanceStationMode>;
+
+export const attendanceScannerCredentialKind = v.union(
+  v.literal("vit_id_barcode"),
+  v.literal("badge_qr"),
+  v.literal("portal_qr"),
+);
+
+export type AttendanceScannerCredentialKind = Infer<typeof attendanceScannerCredentialKind>;
+
 export const venueCheckInStatus = v.union(
   v.literal("checked_in"),
   v.literal("reversed"),
@@ -585,12 +604,7 @@ export const floorLocationMethod = v.union(
   v.literal("override"),
 );
 
-/**
- * The nine parts of a hall zone that an operator can say out loud. A team's
- * recorded position is a point in the zone rectangle; this is the part of that
- * rectangle the point falls in, and it is the only granularity anybody is
- * asked to believe.
- */
+/** Nine named areas derived from a team's normalized position in a zone. */
 export const floorArea = v.union(
   v.literal("north_west"),
   v.literal("north"),
@@ -620,11 +634,7 @@ export const attentionSeverity = v.union(
   v.literal("watch"),
 );
 
-/**
- * One key per deterministic detector. The key is half of an item's identity;
- * the other half is the subject it names, never anything that varies with the
- * reading (a count, an age, a timestamp).
- */
+/** Attention identity combines a stable detector key with its subject, never a reading. */
 export const attentionDetectorKey = v.union(
   v.literal("panel_seat_empty"),
   v.literal("seat_at_risk"),
@@ -647,12 +657,7 @@ export const attentionSubjectType = v.union(
   v.literal("review"),
 );
 
-/**
- * `resolved` is written by the sweep when the condition clears, which is the
- * memory a recomputed list cannot have. `dismissed` is a human saying this is
- * not a problem; the sweep keeps updating it but the board stops leading with
- * it.
- */
+/** The sweep resolves cleared conditions; dismissal hides an item while updates continue. */
 export const attentionItemState = v.union(
   v.literal("open"),
   v.literal("acknowledged"),
@@ -669,12 +674,7 @@ export const attentionScopeType = v.union(
   v.literal("person"),
 );
 
-/**
- * The closed set of commands an attention item may propose, with the exact
- * arguments the ordinary mutation takes and the target version that makes a
- * stale proposal fail like any stale operator command. `eventSlug` and
- * `clientOperationId` are absent because the confirming client owns both.
- */
+/** Closed proposal commands mirror ordinary mutations and include stale-write versions. */
 export const attentionCommand = v.union(
   v.object({
     name: v.literal("reviewSubstitutions.startPageChain"),

@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 
-import { internalMutation, mutation } from "./_generated/server";
+import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { advanceAccessVersion } from "./lib/accessVersion";
 import { writeAuditEvent } from "./lib/audit";
 import { requireAssignedDevice, requireStationPermission } from "./lib/attendance";
@@ -9,6 +9,10 @@ import {
   enableDisabledAttendanceStation,
   stationAssignmentSourceId,
 } from "./lib/attendanceStations";
+import {
+  appendAttendanceDeviceReadFactById,
+  appendAttendanceStationReadFactById,
+} from "./lib/operationsAutonomyReadFacts/attendanceOperations";
 import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
@@ -21,6 +25,7 @@ import { normalizedText } from "./lib/strings";
 import { barcodeSymbology } from "./values";
 
 const keySetResult = v.object({
+  keySetId: v.id("attendanceBarcodeKeySets"),
   eventId: v.id("events"),
   eventSlug: v.string(),
   encryptedKey: v.string(),
@@ -32,8 +37,16 @@ const keySetResult = v.object({
 });
 
 const portalKeySetResult = v.object({
+  keySetId: v.id("attendanceBarcodeKeySets"),
   eventId: v.id("events"),
   eventSlug: v.string(),
+  encryptedKey: v.string(),
+  iv: v.string(),
+  authTag: v.string(),
+  wrappingKeyVersion: v.string(),
+});
+
+const encryptedKeyFields = v.object({
   encryptedKey: v.string(),
   iv: v.string(),
   authTag: v.string(),
@@ -89,6 +102,7 @@ export const ensurePortalKeySet = internalMutation({
       .first();
     if (active) {
       return {
+        keySetId: active._id,
         eventId: event._id,
         eventSlug: event.slug,
         encryptedKey: active.encryptedKey,
@@ -97,7 +111,7 @@ export const ensurePortalKeySet = internalMutation({
         wrappingKeyVersion: active.wrappingKeyVersion,
       };
     }
-    await ctx.db.insert("attendanceBarcodeKeySets", {
+    const keySetId = await ctx.db.insert("attendanceBarcodeKeySets", {
       eventId: event._id,
       version: 1,
       encryptedKey: args.candidate.encryptedKey,
@@ -109,6 +123,7 @@ export const ensurePortalKeySet = internalMutation({
       createdAt: Date.now(),
     });
     return {
+      keySetId,
       eventId: event._id,
       eventSlug: event.slug,
       encryptedKey: args.candidate.encryptedKey,
@@ -163,6 +178,7 @@ export const ensureBarcodeKeySet = internalMutation({
       .first();
     if (active) {
       return {
+        keySetId: active._id,
         eventId: event._id,
         eventSlug: event.slug,
         encryptedKey: active.encryptedKey,
@@ -173,7 +189,7 @@ export const ensureBarcodeKeySet = internalMutation({
         barcodeNormalizationVersion: plan.vitBarcodeNormalizationVersion,
       };
     }
-    await ctx.db.insert("attendanceBarcodeKeySets", {
+    const keySetId = await ctx.db.insert("attendanceBarcodeKeySets", {
       eventId: event._id,
       version: 1,
       encryptedKey: args.candidate.encryptedKey,
@@ -185,6 +201,7 @@ export const ensureBarcodeKeySet = internalMutation({
       createdAt: Date.now(),
     });
     return {
+      keySetId,
       eventId: event._id,
       eventSlug: event.slug,
       encryptedKey: args.candidate.encryptedKey,
@@ -194,6 +211,68 @@ export const ensureBarcodeKeySet = internalMutation({
       barcodeSymbologies: plan.vitBarcodeSymbologies,
       barcodeNormalizationVersion: plan.vitBarcodeNormalizationVersion,
     };
+  },
+});
+
+export const keySetForRotation = internalQuery({
+  args: { eventSlug: v.string() },
+  returns: portalKeySetResult,
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const active = await ctx.db
+      .query("attendanceBarcodeKeySets")
+      .withIndex("by_event_status_version", (index) =>
+        index.eq("eventId", event._id).eq("status", "active"),
+      )
+      .order("desc")
+      .first();
+    if (!active) {
+      throw new ConvexError({
+        code: "ATTENDANCE_KEY_SET_MISSING",
+        message: "This event has no active attendance key set.",
+      });
+    }
+    return {
+      keySetId: active._id,
+      eventId: event._id,
+      eventSlug: event.slug,
+      encryptedKey: active.encryptedKey,
+      iv: active.iv,
+      authTag: active.authTag,
+      wrappingKeyVersion: active.wrappingKeyVersion,
+    };
+  },
+});
+
+export const commitKeySetRewrap = internalMutation({
+  args: {
+    keySetId: v.id("attendanceBarcodeKeySets"),
+    eventId: v.id("events"),
+    expected: encryptedKeyFields,
+    rewrapped: encryptedKeyFields,
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const active = await ctx.db.get(args.keySetId);
+    if (
+      !active ||
+      active.eventId !== args.eventId ||
+      active.status !== "active" ||
+      active.encryptedKey !== args.expected.encryptedKey ||
+      active.iv !== args.expected.iv ||
+      active.authTag !== args.expected.authTag ||
+      active.wrappingKeyVersion !== args.expected.wrappingKeyVersion
+    ) {
+      return false;
+    }
+    await ctx.db.patch(active._id, {
+      encryptedKey: args.rewrapped.encryptedKey,
+      iv: args.rewrapped.iv,
+      authTag: args.rewrapped.authTag,
+      wrappingKeyVersion: args.rewrapped.wrappingKeyVersion,
+      rewrappedAt: Date.now(),
+    });
+    return true;
   },
 });
 
@@ -237,9 +316,9 @@ export const registerDevice = internalMutation({
         "attendanceDeviceInstallations",
         prior.targetId,
       );
-      if (!deviceInstallationId) throw new Error("Prior device result is invalid.");
+      if (!deviceInstallationId) throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
       const device = await ctx.db.get(deviceInstallationId);
-      if (!device) throw new Error("Prior device result no longer resolves.");
+      if (!device) throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
       const assignedStations = await ctx.db
         .query("attendanceStations")
         .withIndex("by_device_status", (index) =>
@@ -288,6 +367,7 @@ export const registerDevice = internalMutation({
       lastSeenAt: now,
       pendingReplayCount: 0,
     });
+    await appendAttendanceDeviceReadFactById(ctx, deviceInstallationId, now);
     const configurationVersion = station.configurationVersion + 1;
     await ctx.db.patch(station._id, {
       deviceInstallationId,
@@ -295,6 +375,7 @@ export const registerDevice = internalMutation({
       configurationVersion,
       updatedAt: now,
     });
+    await appendAttendanceStationReadFactById(ctx, station._id, now);
     const sourceId = stationAssignmentSourceId({
       stationId: station._id,
       deviceInstallationId,
@@ -386,7 +467,7 @@ export const disableStation = mutation({
     if (prior) {
       const configurationVersion = Number(prior.resultJson);
       if (!Number.isSafeInteger(configurationVersion) || configurationVersion < 1) {
-        throw new Error("Prior station-disable result is invalid.");
+        throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
       }
       return { stationId: args.stationId, status: "disabled" as const, configurationVersion };
     }
@@ -476,7 +557,7 @@ export const enableStation = mutation({
     if (prior) {
       const configurationVersion = Number(prior.resultJson);
       if (!Number.isSafeInteger(configurationVersion) || configurationVersion < 1) {
-        throw new Error("Prior station-enable result is invalid.");
+        throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
       }
       return { stationId: args.stationId, status: "inactive" as const, configurationVersion };
     }
@@ -596,6 +677,7 @@ export const scannerHeartbeat = internalMutation({
           ? { oldestPendingCapturedAt: args.oldestPendingCapturedAt }
           : { oldestPendingCapturedAt: undefined }),
       });
+      await appendAttendanceDeviceReadFactById(ctx, device._id, serverNow);
     }
     return { serverNow };
   },

@@ -1,22 +1,9 @@
-/**
- * The signed, whitelisted read surface the operations copilot sees the event
- * through. The Worker names one of the reads declared in the domain package
- * and Convex runs its own projection; nothing here accepts a query, a filter,
- * or a table name from the caller.
- *
- * Redaction is enforced by the `returns` validators on the internal queries
- * below, exactly the way the operations-brief snapshot is redacted: aggregate
- * counts, operational labels (round, panel, zone, session names), statuses,
- * document ids, and timestamps. No participant name, email, or membership
- * detail, no reviewer identity, and never a scorecard, evaluation, or any
- * per-reviewer number. Convex validates returned values strictly, so a field
- * this file does not name cannot leave the deployment.
- */
+/** Signed whitelist of redacted operations reads; callers cannot compose queries. */
 
 import {
   operationsIntelligenceProtocolVersion,
-  operationsIntelligenceReadNames,
   operationsIntelligenceReadSignatureContext,
+  type OperationsIntelligenceReadName,
   verifyServiceBody,
 } from "@code2create/domain";
 import { v } from "convex/values";
@@ -24,10 +11,30 @@ import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { httpAction, internalQuery, type QueryCtx } from "./_generated/server";
+import { httpAction, internalQuery, type ActionCtx, type QueryCtx } from "./_generated/server";
+import {
+  HttpBodyTooLargeError,
+  readBoundedRequestText,
+} from "./lib/boundedHttpBody";
+import { redactProjectText } from "./lib/projectText";
+import { requireIntelligenceHmacSecret } from "./lib/intelligenceServiceConfiguration";
 import {
   intelligenceRecommendationStatus,
 } from "./lib/intelligenceRecommendationValidators";
+import { operationsAttentionIntelligenceStatement } from "./lib/operationsAutonomyReadFacts";
+import { maximumAttendanceSessionsPerPlan } from "./lib/attendancePlanLimits";
+import { attendanceCounterShardCount } from "./lib/attendanceCounters";
+import { maximumFloorZones } from "./lib/floor";
+import {
+  maximumReviewPanelsPerRound,
+  maximumReviewRoundsPerEvent,
+  maximumReviewTeamsPerEvent,
+} from "./lib/reviewLimits";
+import {
+  emptySupportCaseCounters,
+  supportCaseCounterShardCount,
+  type SupportCaseCounters,
+} from "./lib/supportCases";
 import {
   attentionDetectorKey,
   attentionSeverity,
@@ -41,43 +48,58 @@ import {
 
 const maximumBodyBytes = 4 * 1_024;
 const maximumSignatureAgeMs = 5 * 60 * 1_000;
-/**
- * The same projection bound the health snapshot uses: reads take one more row
- * than they report so a truncated count says "at least" instead of lying.
- */
+const conversationId = z.string().regex(/^cv_[a-f0-9]{64}$/u);
+/** Reads one extra row so truncated counts can be reported as lower bounds. */
 const queryLimit = 101;
 
-const readRequest = z
-  .object({
-    protocolVersion: z.literal(operationsIntelligenceProtocolVersion),
-    read: z.enum(operationsIntelligenceReadNames),
-    eventSlug: z.string().min(1).max(120),
-  })
-  .strict();
+const ordinaryReadNames = {
+  operations_health: "operations_health",
+  operations_attention: "operations_attention",
+  review_rounds: "review_rounds",
+  review_exceptions: "review_exceptions",
+  attendance_counts: "attendance_counts",
+  floor_mapping_progress: "floor_mapping_progress",
+  support_load: "support_load",
+} satisfies {
+  [Read in Exclude<OperationsIntelligenceReadName, "recommendation_history">]: Read;
+};
 
-function readSecret() {
-  const value = process.env.INTELLIGENCE_READ_SECRET?.trim();
-  if (!value) throw new Error("INTELLIGENCE_READ_SECRET is not configured.");
-  return value;
-}
+const readRequest = z.discriminatedUnion("read", [
+  z
+    .object({
+      protocolVersion: z.literal(operationsIntelligenceProtocolVersion),
+      read: z.enum(ordinaryReadNames),
+      eventSlug: z.string().min(1).max(120),
+    })
+    .strict(),
+  z
+    .object({
+      protocolVersion: z.literal(operationsIntelligenceProtocolVersion),
+      read: z.literal("recommendation_history"),
+      eventSlug: z.string().min(1).max(120),
+      conversationId,
+    })
+    .strict(),
+]);
 
 export const intelligenceReadEndpoint = httpAction(async (ctx, request) => {
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim() !== "application/json") {
     return Response.json({ error: "unsupported_media_type" }, { status: 415 });
   }
-  const declaredLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declaredLength) && declaredLength > maximumBodyBytes) {
-    return Response.json({ error: "payload_too_large" }, { status: 413 });
-  }
-  const body = await request.text();
-  if (new TextEncoder().encode(body).byteLength > maximumBodyBytes) {
-    return Response.json({ error: "payload_too_large" }, { status: 413 });
+  let body: string;
+  try {
+    body = await readBoundedRequestText(request, maximumBodyBytes);
+  } catch (error) {
+    if (error instanceof HttpBodyTooLargeError) {
+      return Response.json({ error: "payload_too_large" }, { status: 413 });
+    }
+    throw error;
   }
   let verified = false;
   try {
     verified = await verifyServiceBody({
       context: operationsIntelligenceReadSignatureContext,
-      secret: readSecret(),
+      secret: requireIntelligenceHmacSecret("INTELLIGENCE_READ_SECRET"),
       timestamp: request.headers.get("x-c2c-timestamp") ?? "",
       signature: request.headers.get("x-c2c-signature") ?? "",
       body,
@@ -101,31 +123,84 @@ export const intelligenceReadEndpoint = httpAction(async (ctx, request) => {
   });
   if (!resolved) return Response.json({ error: "event_not_found" }, { status: 404 });
   const eventId = resolved.eventId;
-  const read = parsed.data.read;
-  // A switch over the whitelist, not a lookup into anything dynamic: adding a
-  // read is a code change reviewed against the redaction rule above.
-  const data =
-    read === "operations_health"
-      ? await ctx.runQuery(internal.operationsHealth.internalOverview, { eventId })
-      : read === "operations_attention"
-        ? await ctx.runQuery(internal.intelligenceReads.operationsAttentionRead, { eventId })
-        : read === "review_rounds"
-          ? await ctx.runQuery(internal.intelligenceReads.reviewRoundsRead, { eventId })
-          : read === "review_exceptions"
-            ? await ctx.runQuery(internal.intelligenceReads.reviewExceptionsRead, { eventId })
-            : read === "attendance_counts"
-              ? await ctx.runQuery(internal.intelligenceReads.attendanceCountsRead, { eventId })
-              : read === "floor_mapping_progress"
-                ? await ctx.runQuery(internal.intelligenceReads.floorMappingProgressRead, {
-                    eventId,
-                  })
-                : read === "support_load"
-                  ? await ctx.runQuery(internal.intelligenceReads.supportLoadRead, { eventId })
-                  : await ctx.runQuery(internal.intelligenceReads.recommendationHistoryRead, {
-                      eventId,
-                    });
-  return Response.json({ read, data }, { status: 200 });
+  const now = Date.now();
+  const data = await runIntelligenceRead(ctx, parsed.data.read === "recommendation_history"
+    ? {
+        read: parsed.data.read,
+        eventId,
+        now,
+        conversationId: parsed.data.conversationId,
+      }
+    : { read: parsed.data.read, eventId, now });
+  if (data === null) {
+    return Response.json({ error: "operations_health_unavailable" }, { status: 503 });
+  }
+  return Response.json({ read: parsed.data.read, data }, { status: 200 });
 });
+
+type IntelligenceReadDispatch =
+  | {
+      read: Exclude<OperationsIntelligenceReadName, "recommendation_history">;
+      eventId: Id<"events">;
+      now: number;
+    }
+  | {
+      read: "recommendation_history";
+      eventId: Id<"events">;
+      now: number;
+      conversationId: string;
+    };
+
+export async function runIntelligenceRead(
+  ctx: ActionCtx,
+  args: IntelligenceReadDispatch,
+): Promise<unknown> {
+  switch (args.read) {
+    case "operations_health": {
+      const health = await ctx.runQuery(internal.operationsHealth.materializedForEvent, {
+        eventId: args.eventId,
+        now: args.now,
+      });
+      return health.state === "ready" ? health.snapshot : null;
+    }
+    case "operations_attention":
+      return ctx.runQuery(internal.intelligenceReads.operationsAttentionRead, {
+        eventId: args.eventId,
+        now: args.now,
+      });
+    case "review_rounds":
+      return ctx.runQuery(internal.intelligenceReads.reviewRoundsRead, {
+        eventId: args.eventId,
+        now: args.now,
+      });
+    case "review_exceptions":
+      return ctx.runQuery(internal.intelligenceReads.reviewExceptionsRead, {
+        eventId: args.eventId,
+        now: args.now,
+      });
+    case "attendance_counts":
+      return ctx.runQuery(internal.intelligenceReads.attendanceCountsRead, {
+        eventId: args.eventId,
+        now: args.now,
+      });
+    case "floor_mapping_progress":
+      return ctx.runQuery(internal.intelligenceReads.floorMappingProgressRead, {
+        eventId: args.eventId,
+        now: args.now,
+      });
+    case "support_load":
+      return ctx.runQuery(internal.intelligenceReads.supportLoadRead, {
+        eventId: args.eventId,
+        now: args.now,
+      });
+    case "recommendation_history":
+      return ctx.runQuery(internal.intelligenceReads.recommendationHistoryRead, {
+        eventId: args.eventId,
+        conversationId: args.conversationId,
+        now: args.now,
+      });
+  }
+}
 
 export const resolveEvent = internalQuery({
   args: { eventSlug: v.string() },
@@ -139,12 +214,7 @@ export const resolveEvent = internalQuery({
   },
 });
 
-/**
- * The reviewable-team rule the review overview applies, restated here because
- * the exported overview builder authenticates a person and this projection
- * has none. A drift between the two shows up as a wrong "unassigned" count,
- * never as a leak.
- */
+/** Mirrors the review overview rule without requiring an authenticated person. */
 function isReviewableTeam(team: Doc<"teams">) {
   return (
     ["confirmed", "checked_in", "active"].includes(team.status) &&
@@ -152,10 +222,6 @@ function isReviewableTeam(team: Doc<"teams">) {
     team.trackLocked &&
     team.lockedProjectVersionId !== undefined
   );
-}
-
-function isLiveReviewStatus(status: Doc<"reviewSessions">["status"]) {
-  return status === "awaiting_presence" || status === "active" || status === "overdue";
 }
 
 async function activeRoundPauseExists(ctx: QueryCtx, roundId: Id<"reviewRounds">) {
@@ -167,7 +233,7 @@ async function activeRoundPauseExists(ctx: QueryCtx, roundId: Id<"reviewRounds">
 }
 
 export const reviewRoundsRead = internalQuery({
-  args: { eventId: v.id("events") },
+  args: { eventId: v.id("events"), now: v.number() },
   returns: v.object({
     generatedAt: v.number(),
     rounds: v.array(
@@ -201,55 +267,89 @@ export const reviewRoundsRead = internalQuery({
     ),
   }),
   handler: async (ctx, args) => {
-    const generatedAt = Date.now();
-    const [rounds, eventTeams] = await Promise.all([
+    const [rounds, confirmedTeams, checkedInTeams, activeTeams] = await Promise.all([
       ctx.db
         .query("reviewRounds")
         .withIndex("by_event_status_start", (index) => index.eq("eventId", args.eventId))
-        .collect(),
+        .take(maximumReviewRoundsPerEvent + 1),
       ctx.db
         .query("teams")
-        .withIndex("by_event_status", (index) => index.eq("eventId", args.eventId))
-        .collect(),
+        .withIndex("by_event_status", (index) =>
+          index.eq("eventId", args.eventId).eq("status", "confirmed"),
+        )
+        .take(maximumReviewTeamsPerEvent + 1),
+      ctx.db
+        .query("teams")
+        .withIndex("by_event_status", (index) =>
+          index.eq("eventId", args.eventId).eq("status", "checked_in"),
+        )
+        .take(maximumReviewTeamsPerEvent + 1),
+      ctx.db
+        .query("teams")
+        .withIndex("by_event_status", (index) =>
+          index.eq("eventId", args.eventId).eq("status", "active"),
+        )
+        .take(maximumReviewTeamsPerEvent + 1),
     ]);
+    if (rounds.length > maximumReviewRoundsPerEvent) {
+      throw new Error("An event exceeds the published review-round limit.");
+    }
+    const eventTeams = [...confirmedTeams, ...checkedInTeams, ...activeTeams];
+    if (eventTeams.length > maximumReviewTeamsPerEvent) {
+      throw new Error("An event exceeds the review intelligence team limit.");
+    }
     const reviewableTeams = eventTeams.filter(isReviewableTeam);
     const views = [];
     for (const round of rounds.sort((left, right) => left.startsAt - right.startsAt)) {
-      const [panels, states, isPaused] = await Promise.all([
+      const [panels, states, awaitingSessions, activeSessions, overdueSessions, isPaused] = await Promise.all([
         ctx.db
           .query("reviewPanels")
           .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
-          .collect(),
+          .take(maximumReviewPanelsPerRound + 1),
         ctx.db
           .query("teamRoundStates")
           .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
-          .collect(),
+          .take(maximumReviewTeamsPerEvent + 1),
+        ctx.db
+          .query("reviewSessions")
+          .withIndex("by_round_status_updated", (index) =>
+            index.eq("roundId", round._id).eq("status", "awaiting_presence"),
+          )
+          .take(maximumReviewPanelsPerRound + 1),
+        ctx.db
+          .query("reviewSessions")
+          .withIndex("by_round_status_updated", (index) =>
+            index.eq("roundId", round._id).eq("status", "active"),
+          )
+          .take(maximumReviewPanelsPerRound + 1),
+        ctx.db
+          .query("reviewSessions")
+          .withIndex("by_round_status_updated", (index) =>
+            index.eq("roundId", round._id).eq("status", "overdue"),
+          )
+          .take(maximumReviewPanelsPerRound + 1),
         activeRoundPauseExists(ctx, round._id),
       ]);
-      const panelRows = await Promise.all(
-        panels.map(async (panel) => {
-          const [queued, sessions] = await Promise.all([
-            ctx.db
-              .query("teamRoundStates")
-              .withIndex("by_panel_state_priority_queued", (index) =>
-                index.eq("panelId", panel._id),
-              )
-              .collect(),
-            ctx.db
-              .query("reviewSessions")
-              .withIndex("by_panel_status", (index) => index.eq("panelId", panel._id))
-              .collect(),
-          ]);
-          return {
-            panelId: panel._id,
-            name: panel.name,
-            status: panel.status,
-            queuedCount: queued.filter((state) => state.state === "queued").length,
-            activeReviewCount: sessions.filter((session) => isLiveReviewStatus(session.status))
-              .length,
-          };
-        }),
-      );
+      if (panels.length > maximumReviewPanelsPerRound) {
+        throw new Error("A review round exceeds the published panel limit.");
+      }
+      if (states.length > maximumReviewTeamsPerEvent) {
+        throw new Error("A review round exceeds the review intelligence team limit.");
+      }
+      const liveSessions = [...awaitingSessions, ...activeSessions, ...overdueSessions];
+      if (liveSessions.length > maximumReviewPanelsPerRound) {
+        throw new Error("A review round has more live reviews than published panels.");
+      }
+      const panelRows = panels.map((panel) => ({
+        panelId: panel._id,
+        name: panel.name,
+        status: panel.status,
+        queuedCount: states.filter(
+          (state) => state.panelId === panel._id && state.state === "queued",
+        ).length,
+        activeReviewCount: liveSessions.filter((session) => session.panelId === panel._id)
+          .length,
+      }));
       const stateTeamIds = new Set(states.map((state) => state.teamId));
       const count = (state: Doc<"teamRoundStates">["state"]) =>
         states.filter((row) => row.state === state).length;
@@ -275,24 +375,21 @@ export const reviewRoundsRead = internalQuery({
         panels: panelRows,
       });
     }
-    return { generatedAt, rounds: views };
+    return { generatedAt: args.now, rounds: views };
   },
 });
 
 export const reviewExceptionsRead = internalQuery({
-  args: { eventId: v.id("events") },
+  args: { eventId: v.id("events"), now: v.number() },
   returns: v.object({
     generatedAt: v.number(),
-    /**
-     * Seats that `startPageChain` could fill right now: a removed member on a
-     * panel that still needs a reviewer. The member id names the vacancy, not
-     * the person; who held the seat stays out of this projection.
-     */
+    // Expose the vacant seat ID without the former reviewer's identity.
     vacancies: v.array(
       v.object({
         missingPanelMemberId: v.id("reviewPanelMembers"),
         panelId: v.id("reviewPanels"),
         panelName: v.string(),
+        panelVersion: v.number(),
         roundId: v.id("reviewRounds"),
         roundName: v.string(),
         vacantSince: v.optional(v.number()),
@@ -304,6 +401,7 @@ export const reviewExceptionsRead = internalQuery({
         teamRoundStateId: v.id("teamRoundStates"),
         roundId: v.id("reviewRounds"),
         state: teamRoundState,
+        version: v.number(),
         callAttemptCount: v.number(),
         queuedAt: v.optional(v.number()),
         heldAt: v.optional(v.number()),
@@ -314,7 +412,6 @@ export const reviewExceptionsRead = internalQuery({
     atLeast: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    const generatedAt = Date.now();
     const shortPanels = await ctx.db
       .query("reviewPanels")
       .withIndex("by_event_status_updated", (index) =>
@@ -323,24 +420,28 @@ export const reviewExceptionsRead = internalQuery({
       .take(queryLimit);
     const vacancies = [];
     for (const panel of shortPanels) {
-      const [round, removedMembers] = await Promise.all([
+      const [round, removedMember] = await Promise.all([
         ctx.db.get(panel.roundId),
         ctx.db
           .query("reviewPanelMembers")
-          .withIndex("by_panel_status", (index) =>
+          .withIndex("by_panel_status_ended", (index) =>
             index.eq("panelId", panel._id).eq("status", "removed"),
           )
-          .take(queryLimit),
+          .order("desc")
+          .first(),
       ]);
       if (!round || round.eventId !== args.eventId) continue;
-      for (const member of removedMembers) {
+      if (removedMember) {
         vacancies.push({
-          missingPanelMemberId: member._id,
+          missingPanelMemberId: removedMember._id,
           panelId: panel._id,
           panelName: panel.name,
+          panelVersion: panel.version,
           roundId: round._id,
           roundName: round.name,
-          ...(member.endedAt !== undefined ? { vacantSince: member.endedAt } : {}),
+          ...(removedMember.endedAt !== undefined
+            ? { vacantSince: removedMember.endedAt }
+            : {}),
         });
       }
     }
@@ -349,9 +450,13 @@ export const reviewExceptionsRead = internalQuery({
       .withIndex("by_event_status_start", (index) =>
         index.eq("eventId", args.eventId).eq("status", "open"),
       )
-      .take(queryLimit);
+      .take(maximumReviewRoundsPerEvent + 1);
+    if (rounds.length > maximumReviewRoundsPerEvent) {
+      throw new Error("An event exceeds the published review-round limit.");
+    }
     const exceptionStates = ["queued", "called", "at_table", "held", "missed"] as const;
     const teams = [];
+    roundLoop:
     for (const round of rounds) {
       for (const state of exceptionStates) {
         const rows = await ctx.db
@@ -359,12 +464,13 @@ export const reviewExceptionsRead = internalQuery({
           .withIndex("by_round_state_priority_queued", (index) =>
             index.eq("roundId", round._id).eq("state", state),
           )
-          .take(queryLimit);
+          .take(queryLimit - teams.length);
         for (const row of rows) {
           teams.push({
             teamRoundStateId: row._id,
             roundId: round._id,
             state: row.state,
+            version: row.version,
             callAttemptCount: row.callAttemptCount,
             ...(row.queuedAt !== undefined ? { queuedAt: row.queuedAt } : {}),
             ...(row.heldAt !== undefined ? { heldAt: row.heldAt } : {}),
@@ -372,11 +478,12 @@ export const reviewExceptionsRead = internalQuery({
             ...(row.tableLabel !== undefined ? { tableLabel: row.tableLabel } : {}),
           });
         }
+        if (teams.length >= queryLimit) break roundLoop;
       }
     }
-    const atLeast = teams.length > queryLimit - 1 || vacancies.length > queryLimit - 1;
+    const atLeast = teams.length === queryLimit || shortPanels.length === queryLimit;
     return {
-      generatedAt,
+      generatedAt: args.now,
       vacancies: vacancies.slice(0, queryLimit - 1),
       teams: teams.slice(0, queryLimit - 1),
       atLeast,
@@ -385,7 +492,7 @@ export const reviewExceptionsRead = internalQuery({
 });
 
 export const operationsAttentionRead = internalQuery({
-  args: { eventId: v.id("events") },
+  args: { eventId: v.id("events"), now: v.number() },
   returns: v.object({
     generatedAt: v.number(),
     items: v.array(
@@ -394,45 +501,58 @@ export const operationsAttentionRead = internalQuery({
         detectorKey: attentionDetectorKey,
         subjectType: attentionSubjectType,
         severity: attentionSeverity,
-        /** Detector prose about panels, teams, and stations; never a person. */
+        /** Fixed detector summary; human-entered and identity-bearing prose stays in Convex. */
         statement: v.string(),
         state: v.union(v.literal("open"), v.literal("acknowledged")),
+        version: v.number(),
         recurrenceCount: v.number(),
         firstObservedAt: v.number(),
         lastObservedAt: v.number(),
       }),
     ),
+    atLeast: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    const generatedAt = Date.now();
     const items = [];
-    for (const state of ["open", "acknowledged"] as const) {
-      const rows = await ctx.db
-        .query("operationsAttentionItems")
-        .withIndex("by_event_state_severity_first", (index) =>
-          index.eq("eventId", args.eventId).eq("state", state),
-        )
-        .take(queryLimit);
-      for (const item of rows) {
-        items.push({
-          itemId: item._id,
-          detectorKey: item.detectorKey,
-          subjectType: item.subjectType,
-          severity: item.severity,
-          statement: item.statement,
-          state,
-          recurrenceCount: item.recurrenceCount,
-          firstObservedAt: item.firstObservedAt,
-          lastObservedAt: item.lastObservedAt,
-        });
+    for (const severity of ["critical", "attention", "watch"] as const) {
+      for (const state of ["open", "acknowledged"] as const) {
+        if (items.length >= queryLimit) break;
+        const rows = await ctx.db
+          .query("operationsAttentionItems")
+          .withIndex("by_event_state_severity_round_first", (index) =>
+            index
+              .eq("eventId", args.eventId)
+              .eq("state", state)
+              .eq("severity", severity)
+              .gt("roundId", undefined),
+          )
+          .take(queryLimit - items.length);
+        for (const item of rows) {
+          items.push({
+            itemId: item._id,
+            detectorKey: item.detectorKey,
+            subjectType: item.subjectType,
+            severity: item.severity,
+            statement: operationsAttentionIntelligenceStatement(item.detectorKey),
+            state,
+            version: item.version,
+            recurrenceCount: item.recurrenceCount,
+            firstObservedAt: item.firstObservedAt,
+            lastObservedAt: item.lastObservedAt,
+          });
+        }
       }
     }
-    return { generatedAt, items };
+    return {
+      generatedAt: args.now,
+      items: items.slice(0, queryLimit - 1),
+      atLeast: items.length === queryLimit,
+    };
   },
 });
 
 export const attendanceCountsRead = internalQuery({
-  args: { eventId: v.id("events") },
+  args: { eventId: v.id("events"), now: v.number() },
   returns: v.object({
     generatedAt: v.number(),
     venueCheckedIn: v.number(),
@@ -473,23 +593,28 @@ export const attendanceCountsRead = internalQuery({
     ),
   }),
   handler: async (ctx, args) => {
-    const generatedAt = Date.now();
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("The intelligence read event no longer exists.");
     const venueShards = await ctx.db
       .query("venueCheckInCounterShards")
       .withIndex("by_event_shard", (index) => index.eq("eventId", args.eventId))
-      .collect();
+      .take(attendanceCounterShardCount + 1);
+    if (venueShards.length > attendanceCounterShardCount) {
+      throw new Error("Venue attendance counters exceed the configured shard count.");
+    }
     const venueCheckedIn = venueShards.reduce((total, shard) => total + shard.checkedIn, 0);
     const planId = event.publishedAttendancePlanVersionId;
     const plan = planId ? await ctx.db.get(planId) : null;
     if (!plan || plan.eventId !== event._id || plan.status !== "published") {
-      return { generatedAt, venueCheckedIn, sessions: [] };
+      return { generatedAt: args.now, venueCheckedIn, sessions: [] };
     }
     const sessions = await ctx.db
       .query("attendanceSessions")
       .withIndex("by_plan_key", (index) => index.eq("planVersionId", plan._id))
-      .collect();
+      .take(maximumAttendanceSessionsPerPlan + 1);
+    if (sessions.length > maximumAttendanceSessionsPerPlan) {
+      throw new Error("An attendance plan exceeds the published session limit.");
+    }
     const views = await Promise.all(
       sessions
         .sort((left, right) => left.startsAt - right.startsAt)
@@ -497,7 +622,10 @@ export const attendanceCountsRead = internalQuery({
           const shards = await ctx.db
             .query("attendanceSessionCounterShards")
             .withIndex("by_session_shard", (index) => index.eq("sessionId", session._id))
-            .collect();
+            .take(attendanceCounterShardCount + 1);
+          if (shards.length > attendanceCounterShardCount) {
+            throw new Error("Session attendance counters exceed the configured shard count.");
+          }
           const counts = shards.reduce(
             (total, shard) => ({
               expected: total.expected + shard.expected,
@@ -531,12 +659,12 @@ export const attendanceCountsRead = internalQuery({
           };
         }),
     );
-    return { generatedAt, venueCheckedIn, sessions: views };
+    return { generatedAt: args.now, venueCheckedIn, sessions: views };
   },
 });
 
 export const floorMappingProgressRead = internalQuery({
-  args: { eventId: v.id("events") },
+  args: { eventId: v.id("events"), now: v.number() },
   returns: v.object({
     generatedAt: v.number(),
     plan: v.union(
@@ -560,22 +688,28 @@ export const floorMappingProgressRead = internalQuery({
     ),
   }),
   handler: async (ctx, args) => {
-    const generatedAt = Date.now();
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("The intelligence read event no longer exists.");
     const planId = event.publishedFloorPlanVersionId;
     const plan = planId ? await ctx.db.get(planId) : null;
-    const teams = await ctx.db
-      .query("teams")
-      .withIndex("by_event_status", (index) => index.eq("eventId", args.eventId))
-      .collect();
-    const eligibleTeams = teams.filter(
-      (team) =>
-        team.status === "confirmed" || team.status === "checked_in" || team.status === "active",
-    );
+    const eligibleTeams = (
+      await Promise.all(
+        (["confirmed", "checked_in", "active"] as const).map((status) =>
+          ctx.db
+            .query("teams")
+            .withIndex("by_event_status", (index) =>
+              index.eq("eventId", args.eventId).eq("status", status),
+            )
+            .take(maximumReviewTeamsPerEvent + 1),
+        ),
+      )
+    ).flat();
+    if (eligibleTeams.length > maximumReviewTeamsPerEvent) {
+      throw new Error("An event exceeds the floor intelligence team limit.");
+    }
     if (!plan || plan.eventId !== event._id || plan.status !== "published") {
       return {
-        generatedAt,
+        generatedAt: args.now,
         plan: null,
         eligibleTeamCount: eligibleTeams.length,
         mappedTeamCount: 0,
@@ -587,35 +721,46 @@ export const floorMappingProgressRead = internalQuery({
       ctx.db
         .query("floorZones")
         .withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id))
-        .collect(),
+        .take(maximumFloorZones + 1),
       ctx.db
         .query("teamFloorLocations")
         .withIndex("by_plan_state", (index) =>
           index.eq("planVersionId", plan._id).eq("state", "active"),
         )
-        .collect(),
+        .take(maximumReviewTeamsPerEvent + 1),
     ]);
-    const mappedTeamIds = new Set(locations.map((location) => location.teamId));
+    if (zones.length > maximumFloorZones) {
+      throw new Error("A floor plan exceeds the published zone limit.");
+    }
+    if (locations.length > maximumReviewTeamsPerEvent) {
+      throw new Error("A floor plan exceeds the floor intelligence team limit.");
+    }
+    const eligibleTeamIds = new Set(eligibleTeams.map((team) => team._id));
+    const eligibleLocations = locations.filter((location) =>
+      eligibleTeamIds.has(location.teamId),
+    );
+    const mappedTeamIds = new Set(eligibleLocations.map((location) => location.teamId));
     return {
-      generatedAt,
+      generatedAt: args.now,
       plan: { name: plan.name, planNumber: plan.planNumber, mappingState: plan.mappingState },
       eligibleTeamCount: eligibleTeams.length,
-      mappedTeamCount: locations.length,
+      mappedTeamCount: mappedTeamIds.size,
       unmappedTeamCount: eligibleTeams.filter((team) => !mappedTeamIds.has(team._id)).length,
-      ...(locations.length > 0
-        ? { lastMappedAt: Math.max(...locations.map((location) => location.mappedAt)) }
+      ...(eligibleLocations.length > 0
+        ? { lastMappedAt: Math.max(...eligibleLocations.map((location) => location.mappedAt)) }
         : {}),
       zones: zones.map((zone) => ({
         zoneId: zone._id,
         name: zone.name,
-        mappedTeamCount: locations.filter((location) => location.zoneId === zone._id).length,
+        mappedTeamCount: eligibleLocations.filter((location) => location.zoneId === zone._id)
+          .length,
       })),
     };
   },
 });
 
 export const supportLoadRead = internalQuery({
-  args: { eventId: v.id("events") },
+  args: { eventId: v.id("events"), now: v.number() },
   returns: v.object({
     generatedAt: v.number(),
     byState: v.object({
@@ -628,54 +773,120 @@ export const supportLoadRead = internalQuery({
     openByCategory: v.array(
       v.object({ category: supportCaseCategory, count: v.number() }),
     ),
-    unassignedOpenCount: v.number(),
+    unassignedActiveCount: v.number(),
     oldestOpenAt: v.optional(v.number()),
     atLeast: v.boolean(),
+    cases: v.array(
+      v.object({
+        caseId: v.id("supportCases"),
+        category: supportCaseCategory,
+        state: v.union(
+          v.literal("open"),
+          v.literal("investigating"),
+          v.literal("waiting"),
+        ),
+        createdAt: v.number(),
+        teamId: v.optional(v.id("teams")),
+        roundId: v.optional(v.id("reviewRounds")),
+      }),
+    ),
   }),
   handler: async (ctx, args) => {
-    const generatedAt = Date.now();
-    const states = ["open", "investigating", "waiting", "resolved", "closed"] as const;
-    const rowsByState = await Promise.all(
-      states.map((state) =>
-        ctx.db
-          .query("supportCases")
-          .withIndex("by_event_state_updated", (index) =>
-            index.eq("eventId", args.eventId).eq("state", state),
-          )
-          .take(queryLimit),
-      ),
+    const [statShards, openRows, investigatingRows, waitingRows, oldestOpen] = await Promise.all([
+      ctx.db
+        .query("supportCaseStatShards")
+        .withIndex("by_event_shard", (index) => index.eq("eventId", args.eventId))
+        .take(supportCaseCounterShardCount + 1),
+      ctx.db
+        .query("supportCases")
+        .withIndex("by_event_state_updated", (index) =>
+          index.eq("eventId", args.eventId).eq("state", "open"),
+        )
+        .take(queryLimit),
+      ctx.db
+        .query("supportCases")
+        .withIndex("by_event_state_created", (index) =>
+          index.eq("eventId", args.eventId).eq("state", "investigating"),
+        )
+        .take(queryLimit),
+      ctx.db
+        .query("supportCases")
+        .withIndex("by_event_state_created", (index) =>
+          index.eq("eventId", args.eventId).eq("state", "waiting"),
+        )
+        .take(queryLimit),
+      ctx.db
+        .query("supportCases")
+        .withIndex("by_event_state_created", (index) =>
+          index.eq("eventId", args.eventId).eq("state", "open"),
+        )
+        .order("asc")
+        .first(),
+    ]);
+    if (statShards.length > supportCaseCounterShardCount) {
+      throw new Error("Support statistics exceed the configured shard count.");
+    }
+    const totals = statShards.reduce<SupportCaseCounters>(
+      (current, shard) => ({
+        open: current.open + shard.open,
+        investigating: current.investigating + shard.investigating,
+        waiting: current.waiting + shard.waiting,
+        resolved: current.resolved + shard.resolved,
+        closed: current.closed + shard.closed,
+        unowned: current.unowned + shard.unowned,
+        awaitingStaffReply: current.awaitingStaffReply + shard.awaitingStaffReply,
+        safety: current.safety + shard.safety,
+      }),
+      emptySupportCaseCounters(),
     );
-    const bounded = (rows: readonly unknown[]) => Math.min(rows.length, queryLimit - 1);
-    const liveRows = [...(rowsByState[0] ?? []), ...(rowsByState[1] ?? []), ...(rowsByState[2] ?? [])];
+    const boundedOpenRows = openRows.slice(0, queryLimit - 1);
     const categoryCounts = new Map<Doc<"supportCases">["category"], number>();
-    for (const row of liveRows) {
+    for (const row of boundedOpenRows) {
       categoryCounts.set(row.category, (categoryCounts.get(row.category) ?? 0) + 1);
     }
-    const openRows = rowsByState[0] ?? [];
+    const atLeast =
+      openRows.length === queryLimit ||
+      investigatingRows.length === queryLimit ||
+      waitingRows.length === queryLimit;
+    const supportCaseView = (
+      row: Doc<"supportCases">,
+      state: "open" | "investigating" | "waiting",
+    ) => ({
+        caseId: row._id,
+        category: row.category,
+        state,
+        createdAt: row.createdAt,
+        ...(row.teamId !== undefined ? { teamId: row.teamId } : {}),
+        ...(row.roundId !== undefined ? { roundId: row.roundId } : {}),
+      });
+    const activeCases = [
+      ...openRows.map((row) => supportCaseView(row, "open")),
+      ...investigatingRows.map((row) => supportCaseView(row, "investigating")),
+      ...waitingRows.map((row) => supportCaseView(row, "waiting")),
+    ].slice(0, queryLimit - 1);
     return {
-      generatedAt,
+      generatedAt: args.now,
       byState: {
-        open: bounded(rowsByState[0] ?? []),
-        investigating: bounded(rowsByState[1] ?? []),
-        waiting: bounded(rowsByState[2] ?? []),
-        resolved: bounded(rowsByState[3] ?? []),
-        closed: bounded(rowsByState[4] ?? []),
+        open: totals.open,
+        investigating: totals.investigating,
+        waiting: totals.waiting,
+        resolved: totals.resolved,
+        closed: totals.closed,
       },
       openByCategory: [...categoryCounts.entries()].map(([category, count]) => ({
         category,
         count,
       })),
-      unassignedOpenCount: liveRows.filter((row) => row.ownerPersonId === undefined).length,
-      ...(openRows.length > 0
-        ? { oldestOpenAt: Math.min(...openRows.map((row) => row.createdAt)) }
-        : {}),
-      atLeast: rowsByState.some((rows) => rows.length === queryLimit),
+      unassignedActiveCount: totals.unowned,
+      ...(oldestOpen ? { oldestOpenAt: oldestOpen.createdAt } : {}),
+      atLeast,
+      cases: activeCases,
     };
   },
 });
 
 export const recommendationHistoryRead = internalQuery({
-  args: { eventId: v.id("events") },
+  args: { eventId: v.id("events"), conversationId: v.string(), now: v.number() },
   returns: v.object({
     generatedAt: v.number(),
     recommendations: v.array(
@@ -689,11 +900,7 @@ export const recommendationHistoryRead = internalQuery({
         ),
         statement: v.string(),
         status: intelligenceRecommendationStatus,
-        /**
-         * The operator's rejection reason or revision suggestion, returned
-         * verbatim: it is the human half of the propose-and-revise loop. Who
-         * decided stays out; the agent learns from outcomes, not identities.
-         */
+        // Return operator guidance without operator identity.
         operatorNote: v.optional(v.string()),
         proposedAt: v.number(),
         decidedAt: v.optional(v.number()),
@@ -701,20 +908,26 @@ export const recommendationHistoryRead = internalQuery({
     ),
   }),
   handler: async (ctx, args) => {
-    const generatedAt = Date.now();
     const rows = await ctx.db
       .query("intelligenceRecommendations")
-      .withIndex("by_event_proposed", (index) => index.eq("eventId", args.eventId))
+      .withIndex("by_event_copilot_conversation_proposed", (index) =>
+        index
+          .eq("eventId", args.eventId)
+        .eq("provenance.kind", "copilot")
+        .eq("provenance.conversationId", args.conversationId),
+      )
       .order("desc")
       .take(50);
     return {
-      generatedAt,
+      generatedAt: args.now,
       recommendations: rows.map((row) => ({
         proposalKey: row.proposalKey,
         kind: row.arguments.kind,
-        statement: row.statement,
+        statement: redactProjectText(row.statement),
         status: row.status,
-        ...(row.operatorNote !== undefined ? { operatorNote: row.operatorNote } : {}),
+        ...(row.operatorNote !== undefined
+          ? { operatorNote: redactProjectText(row.operatorNote) }
+          : {}),
         proposedAt: row.proposedAt,
         ...(row.decidedAt !== undefined ? { decidedAt: row.decidedAt } : {}),
       })),

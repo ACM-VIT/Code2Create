@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import {
+  HttpBodyTooLargeError,
+  readBoundedRequestBytes,
+} from "./lib/boundedHttpBody";
 
 const providerId = z
   .union([z.string().min(1).max(128), z.number().int().positive()])
@@ -24,9 +28,9 @@ const fileUpdatePayload = z.object({
 
 const webhookPayload = z.discriminatedUnion("event_type", [pingPayload, fileUpdatePayload]);
 
-async function digest(value: ArrayBuffer | string) {
+async function digest(value: Uint8Array | string) {
   const input =
-    typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value);
+    typeof value === "string" ? new TextEncoder().encode(value) : Uint8Array.from(value);
   const hashed = new Uint8Array(await crypto.subtle.digest("SHA-256", input));
   return Array.from(hashed, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -37,12 +41,18 @@ function providerTime(value: string) {
 }
 
 export const figmaWebhook = httpAction(async (ctx, request) => {
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > 1_000_000) {
-    return new Response("Payload too large.", { status: 413 });
+  if (request.headers.get("content-type")?.split(";", 1)[0]?.trim() !== "application/json") {
+    return new Response("Unsupported media type.", { status: 415 });
   }
-  const body = await request.arrayBuffer();
-  if (body.byteLength > 1_000_000) return new Response("Payload too large.", { status: 413 });
+  let body: Uint8Array;
+  try {
+    body = await readBoundedRequestBytes(request, 1_000_000);
+  } catch (error) {
+    if (error instanceof HttpBodyTooLargeError) {
+      return new Response("Payload too large.", { status: 413 });
+    }
+    throw error;
+  }
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(new TextDecoder().decode(body));

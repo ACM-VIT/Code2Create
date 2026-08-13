@@ -32,7 +32,7 @@ type HandbookDocument = {
 }
 
 export default function App({ authClient }: { authClient: Code2CreateAuthClient }) {
-  const publicState = useQuery(api.system.getPublicState, { eventSlug })
+  const publicState = useQuery(api.system.getPublicShellState, { eventSlug })
 
   if (publicState === undefined) return <Centered>Loading…</Centered>
 
@@ -57,11 +57,11 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
 }
 
 function ProtectedHandbook({ authClient }: { authClient: Code2CreateAuthClient }) {
-  const access = useQuery(api.access.mine, { eventSlug })
+  const access = useQuery(api.access.handbookCapabilities, { eventSlug })
   const { data: session } = authClient.useSession()
 
   if (access === undefined) return <Centered>Loading your handbook access…</Centered>
-  if (!access || !hasHandbookReadGrant(access.grants)) {
+  if (!access?.read) {
     return (
       <main className="centered">
         <section className="access-message">
@@ -81,14 +81,6 @@ function ProtectedHandbook({ authClient }: { authClient: Code2CreateAuthClient }
       authClient={authClient}
       identity={session?.user.name || session?.user.email || 'Signed in'}
     />
-  )
-}
-
-function hasHandbookReadGrant(
-  grants: ReadonlyArray<{ permissionKey: string; scopeType: string }>,
-) {
-  return grants.some(
-    (grant) => grant.permissionKey === 'handbook.read' && grant.scopeType === 'event',
   )
 }
 
@@ -276,12 +268,19 @@ function SignIn({
   const signIn = async () => {
     setBusy(true)
     setError(null)
-    const result = await authClient.signIn.social({
-      provider: 'google',
-      callbackURL: window.location.href,
-    })
-    if (result.error) setError(result.error.message || 'Google sign-in could not be completed.')
-    setBusy(false)
+    try {
+      const result = await authClient.signIn.social({
+        provider: 'google',
+        callbackURL: window.location.href,
+      })
+      if (result.error) {
+        setError(result.error.message || 'Google sign-in could not be completed.')
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Google sign-in could not be completed.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   const signInLocally = async () => {

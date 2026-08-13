@@ -1,13 +1,14 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
-import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useMutation, usePaginatedQuery } from 'convex/react'
+import { useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 import { LoadingLabel, SkeletonList } from './Skeleton'
 
-type DeliveryRecipients = FunctionReturnType<typeof api.participantNotifications.forApplication>
+type DeliveryRecipients = FunctionReturnType<typeof api.participantNotifications.forApplication>['page']
 type DeliveryRecipient = DeliveryRecipients[number]
 type DeliveryState = NonNullable<DeliveryRecipient['delivery']>['state']
 type ApplicationId = FunctionArgs<typeof api.participantNotifications.forApplication>['applicationId']
@@ -30,12 +31,14 @@ const deliveryStateLabel: Record<DeliveryState, string> = {
 export function ParticipantDeliveryStatus(
   { applicationId, teamName }: { applicationId: ApplicationId; teamName: string },
 ) {
-  const recipients = useQuery(api.participantNotifications.forApplication, {
-    eventSlug,
-    applicationId,
-  })
+  const recipientsPage = usePaginatedQuery(
+    api.participantNotifications.forApplication,
+    { eventSlug, applicationId },
+    { initialNumItems: 25 },
+  )
+  const recipients = recipientsPage.results
 
-  if (recipients === undefined) {
+  if (recipientsPage.status === 'LoadingFirstPage') {
     return (
       <section className="detail-section">
         <h2>Decision email</h2>
@@ -53,21 +56,28 @@ export function ParticipantDeliveryStatus(
   const deliveredCount = recipients.filter(
     (recipient) => recipient.delivery?.state === 'delivered',
   ).length
-  // Anyone the decision did not reach comes first: they are the reason to read this at all.
   const attention = [...new Set([...stuck, ...unreachable])]
   const ordered = [...attention, ...recipients.filter((recipient) => !attention.includes(recipient))]
 
   return (
     <section className="detail-section">
       <h2>Decision email</h2>
-      {/* A count on its own never said what it cost. Each line below names who is
-          affected and what they do not know as a result. */}
       <p className="muted">{deliverySentence({ teamName, recipients, unreachable, stuck, deliveredCount })}</p>
       <div className="participant-delivery-list">
         {ordered.map((recipient) => (
           <DeliveryRow key={recipient.personId} recipient={recipient} />
         ))}
       </div>
+      {recipientsPage.status === 'CanLoadMore' || recipientsPage.status === 'LoadingMore' ? (
+        <button
+          className="secondary"
+          type="button"
+          disabled={recipientsPage.status === 'LoadingMore'}
+          onClick={() => recipientsPage.loadMore(25)}
+        >
+          {recipientsPage.status === 'LoadingMore' ? 'Loading recipients…' : 'Load more recipients'}
+        </button>
+      ) : null}
     </section>
   )
 }
@@ -108,49 +118,47 @@ function DeliveryRow({ recipient }: { recipient: DeliveryRecipient }) {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationId = useRef<string | null>(null)
+  const commandAttempt = useMutationAttempt<void>()
+  const commandPending = commandAttempt.hasPending('participant-delivery-command')
   const destination = recipient.destination
   const delivery = recipient.delivery
   const canRetry = recipient.canManage && destination?.status === 'active' && delivery?.state === 'failed'
   const canDisable = recipient.canManage && destination?.status === 'active'
 
-  useEffect(() => {
-    operationId.current = null
-  }, [command, reason, destination?.version, delivery?.version])
-
   const cancel = () => {
     setCommand(null)
     setReason('')
     setError(null)
-    operationId.current = null
   }
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!command || !reason.trim() || !destination) return
-    const clientOperationId = operationId.current ?? crypto.randomUUID()
-    operationId.current = clientOperationId
+    if (!commandPending && (!command || !reason.trim() || !destination)) return
     setBusy(true)
     setError(null)
     try {
-      if (command === 'retry') {
-        if (!delivery || delivery.state !== 'failed') return
-        await retryDelivery({
-          eventSlug,
-          deliveryId: delivery.id,
-          expectedDeliveryVersion: delivery.version,
-          reason,
-          clientOperationId,
-        })
-      } else {
-        await disableDestination({
+      await commandAttempt.run('participant-delivery-command', () => {
+        if (!command || !destination) throw new Error('The email command is no longer available.')
+        if (command === 'retry') {
+          if (!delivery || delivery.state !== 'failed') throw new Error('The failed delivery is no longer available.')
+          const args = {
+            eventSlug,
+            deliveryId: delivery.id,
+            expectedDeliveryVersion: delivery.version,
+            reason,
+            clientOperationId: crypto.randomUUID(),
+          }
+          return async () => { await retryDelivery(args) }
+        }
+        const args = {
           eventSlug,
           destinationId: destination.id,
           expectedDestinationVersion: destination.version,
           reason,
-          clientOperationId,
-        })
-      }
+          clientOperationId: crypto.randomUUID(),
+        }
+        return async () => { await disableDestination(args) }
+      })
       cancel()
     } catch (caught) {
       setError(readableError(caught))
@@ -179,12 +187,22 @@ function DeliveryRow({ recipient }: { recipient: DeliveryRecipient }) {
       {canRetry || canDisable ? (
         <div className="participant-delivery-actions">
           {canRetry ? (
-            <button className="text-button" type="button" onClick={() => setCommand('retry')}>
+            <button
+              className="text-button"
+              type="button"
+              disabled={busy || commandPending}
+              onClick={() => setCommand('retry')}
+            >
               Retry
             </button>
           ) : null}
           {canDisable ? (
-            <button className="text-button" type="button" onClick={() => setCommand('disable')}>
+            <button
+              className="text-button"
+              type="button"
+              disabled={busy || commandPending}
+              onClick={() => setCommand('disable')}
+            >
               Stop email
             </button>
           ) : null}
@@ -200,6 +218,7 @@ function DeliveryRow({ recipient }: { recipient: DeliveryRecipient }) {
           <label className="field">
             <span>Reason</span>
             <textarea
+              disabled={busy || commandPending}
               value={reason}
               maxLength={300}
               onChange={(event) => setReason(event.target.value)}
@@ -208,10 +227,10 @@ function DeliveryRow({ recipient }: { recipient: DeliveryRecipient }) {
           <small>Requires a Google sign-in from the last 15 minutes.</small>
           {error ? <p className="notice error" role="alert">{error}</p> : null}
           <div className="button-row">
-            <button className="primary" type="submit" disabled={busy || !reason.trim()}>
-              {busy ? 'Saving…' : command === 'retry' ? 'Retry email' : 'Stop email'}
+            <button className="primary" type="submit" disabled={busy || (!commandPending && !reason.trim())}>
+              {busy ? 'Saving…' : commandPending ? 'Confirm earlier command' : command === 'retry' ? 'Retry email' : 'Stop email'}
             </button>
-            <button className="secondary" type="button" disabled={busy} onClick={cancel}>
+            <button className="secondary" type="button" disabled={busy || commandPending} onClick={cancel}>
               Cancel
             </button>
           </div>

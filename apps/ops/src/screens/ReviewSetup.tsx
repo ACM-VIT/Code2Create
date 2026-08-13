@@ -6,8 +6,8 @@ import { Link } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 
-type Access = NonNullable<FunctionReturnType<typeof api.access.mine>>
 type Candidate = FunctionReturnType<typeof api.reviewConfiguration.candidates>[number]
 type TrainingStatus = 'pending' | 'complete' | 'blocked'
 type ProfileStatus = 'active' | 'inactive'
@@ -40,12 +40,21 @@ type PanelDraft = {
   name: string
   members: MemberDraft[]
 }
+type AvailabilityWindowDraft = {
+  id: string
+  startsAt: string
+  endsAt: string
+}
 type RoundDraft = {
   stableKey: string
   name: string
   sequence: string
+  clockInOpensAt: string
+  reviewerReportAt: string
   startsAt: string
   endsAt: string
+  noShowGraceSeconds: string
+  correctionRequestsCloseAt: string
   reviewDurationMinutes: string
   ordinaryExtensionMinutes: string
   maximumOrdinaryExtensions: string
@@ -126,12 +135,10 @@ const initialCriteria: CriterionDraft[] = [
 ]
 
 export function ReviewSetup({
-  access,
   canPublish,
   canReadConfiguration,
   canReadProfiles,
 }: {
-  access: Access
   canPublish: boolean
   canReadConfiguration: boolean
   canReadProfiles: boolean
@@ -179,6 +186,10 @@ export function ReviewSetup({
                 <div>
                   <strong>{round.name}</strong>
                   <span>{stateName(round.status)} · {round.panelCount} panels · {round.reviewerCount} reviewers · {round.reserveCount} reserves</span>
+                  <span>
+                    Clock-in {formatMoment(round.clockInOpensAt)} · report {formatMoment(round.reviewerReportAt)} · no-show after {round.noShowGraceSeconds}s
+                  </span>
+                  <span>Score-correction requests close {formatMoment(round.correctionRequestsCloseAt)}</span>
                 </div>
                 <Link className="row-action" to={`/reviews/${round.id}`}>
                   See its panels
@@ -191,7 +202,7 @@ export function ReviewSetup({
       ) : null}
 
       {canReadProfiles ? (
-        <ReviewerProfiles access={access} candidates={reviewerCandidates} />
+        <ReviewerProfiles candidates={reviewerCandidates} />
       ) : null}
 
       {canReadConfiguration && canReadProfiles ? (
@@ -209,13 +220,14 @@ export function ReviewSetup({
   )
 }
 
-function ReviewerProfiles({ access, candidates }: { access: Access; candidates: Candidate[] }) {
+function ReviewerProfiles({ candidates }: { candidates: Candidate[] }) {
   const ready = candidates.filter(
-    (candidate) => candidate.profile?.trainingStatus === 'complete',
+    (candidate) =>
+      candidate.profile?.status === 'active' &&
+      candidate.profile.trainingStatus === 'complete' &&
+      candidate.profile.availabilityWindows.length > 0,
   ).length
   const outstanding = candidates.length - ready
-  // Reviewers who still need setting up come first; the ones already done are
-  // not what you opened this page for.
   const ordered = [...candidates].sort((left, right) => {
     const leftReady = left.profile?.trainingStatus === 'complete'
     const rightReady = right.profile?.trainingStatus === 'complete'
@@ -235,8 +247,8 @@ function ReviewerProfiles({ access, candidates }: { access: Access; candidates: 
         {ordered.map((candidate) => (
           <ReviewerProfileRow
             candidate={candidate}
-            canManage={canManageProfile(access, candidate.personId)}
-            key={`${candidate.personId}:${candidate.profile?.version ?? 0}`}
+            canManage={candidate.canManage}
+            key={candidate.personId}
           />
         ))}
       </div>
@@ -249,21 +261,30 @@ function ReviewerProfiles({ access, candidates }: { access: Access; candidates: 
 
 function ReviewerProfileRow({ candidate, canManage }: { candidate: Candidate; canManage: boolean }) {
   const saveProfile = useMutation(api.reviewConfiguration.saveProfile)
+  const nextAvailabilityIdRef = useRef(candidate.profile?.availabilityWindows.length ?? 0)
   const [editing, setEditing] = useState(false)
   const [technicalDomains, setTechnicalDomains] = useState(candidate.profile?.technicalDomains.join(', ') ?? '')
   const [productDomains, setProductDomains] = useState(candidate.profile?.productDomains.join(', ') ?? '')
   const [languages, setLanguages] = useState(candidate.profile?.languages.join(', ') ?? '')
   const [criterionKeys, setCriterionKeys] = useState(candidate.profile?.criterionKeys.join(', ') ?? '')
+  const [availabilityWindows, setAvailabilityWindows] = useState<AvailabilityWindowDraft[]>(
+    () => candidate.profile?.availabilityWindows.map((window, index) => ({
+      id: `availability-${index}`,
+      startsAt: localDateTime(window.startsAt),
+      endsAt: localDateTime(window.endsAt),
+    })) ?? [],
+  )
   const [trainingStatus, setTrainingStatus] = useState<TrainingStatus>(candidate.profile?.trainingStatus ?? 'pending')
   const [status, setStatus] = useState<ProfileStatus>(candidate.profile?.status ?? 'active')
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewConfiguration.saveProfile>>()
+  const operationSlot = `reviewer-profile:${candidate.personId}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
   const selectedCriterionKeys = new Set(commaList(criterionKeys))
 
   const changed = () => {
-    operationRef.current = null
     setError(null)
   }
 
@@ -275,27 +296,48 @@ function ReviewerProfileRow({ candidate, canManage }: { candidate: Candidate; ca
     changed()
   }
 
+  const addAvailabilityWindow = () => {
+    const id = `availability-${nextAvailabilityIdRef.current}`
+    nextAvailabilityIdRef.current += 1
+    setAvailabilityWindows((current) => [...current, { id, startsAt: '', endsAt: '' }])
+    changed()
+  }
+
+  const updateAvailabilityWindow = (
+    id: string,
+    update: (current: AvailabilityWindowDraft) => AvailabilityWindowDraft,
+  ) => {
+    setAvailabilityWindows((current) => current.map((window) =>
+      window.id === id ? update(window) : window,
+    ))
+    changed()
+  }
+
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await saveProfile({
-        eventSlug,
-        personId: candidate.personId,
-        technicalDomains: commaList(technicalDomains),
-        productDomains: commaList(productDomains),
-        languages: commaList(languages),
-        criterionKeys: commaList(criterionKeys),
-        trainingStatus,
-        status,
-        expectedVersion: candidate.profile?.version ?? 0,
-        reason,
-        clientOperationId,
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          personId: candidate.personId,
+          technicalDomains: commaList(technicalDomains),
+          productDomains: commaList(productDomains),
+          languages: commaList(languages),
+          criterionKeys: commaList(criterionKeys),
+          availabilityWindows: availabilityWindows.map((window, index) => ({
+            startsAt: timestamp(window.startsAt, `Availability window ${index + 1} start`),
+            endsAt: timestamp(window.endsAt, `Availability window ${index + 1} end`),
+          })),
+          trainingStatus,
+          status,
+          expectedVersion: candidate.profile?.version ?? 0,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => saveProfile(args)
       })
-      operationRef.current = null
       setEditing(false)
     } catch (caught) {
       setError(readableError(caught))
@@ -312,9 +354,11 @@ function ReviewerProfileRow({ candidate, canManage }: { candidate: Candidate; ca
           <span>{candidate.email}</span>
         </div>
         <div className="reviewer-profile-state">
-          <span>{trainingStatusName(candidate.profile?.trainingStatus)}</span>
+          <span>
+            {trainingStatusName(candidate.profile?.trainingStatus)} · {candidate.profile?.availabilityWindows.length ?? 0} availability {(candidate.profile?.availabilityWindows.length ?? 0) === 1 ? 'window' : 'windows'}
+          </span>
           {canManage ? (
-            <button className="text-button" type="button" onClick={() => setEditing((current) => !current)}>
+            <button className="text-button" disabled={operationPending} type="button" onClick={() => setEditing((current) => !current)}>
               {editing ? 'Close' : candidate.profile ? 'Edit' : 'Set up'}
             </button>
           ) : null}
@@ -322,6 +366,7 @@ function ReviewerProfileRow({ candidate, canManage }: { candidate: Candidate; ca
       </div>
       {editing ? (
         <form className="reviewer-profile-form" onSubmit={submit}>
+          <fieldset disabled={operationPending} style={{ display: 'contents' }}>
           <label className="field">
             <span>Technical domains <small>Comma separated</small></span>
             <input value={technicalDomains} onChange={(event) => {
@@ -368,6 +413,33 @@ function ReviewerProfileRow({ candidate, canManage }: { candidate: Candidate; ca
               </label>
             </details>
           </fieldset>
+          <fieldset className="reviewer-qualification-field">
+            <legend>Available for judging</legend>
+            <p className="muted">Each published reviewer or reserve must cover the complete staffing window.</p>
+            <div className="criterion-editors">
+              {availabilityWindows.map((window, index) => (
+                <div className="form-grid" key={window.id}>
+                  <label className="field">
+                    <span>Window {index + 1} starts <small>Event local time</small></span>
+                    <input type="datetime-local" value={window.startsAt} onChange={(event) => {
+                      updateAvailabilityWindow(window.id, (current) => ({ ...current, startsAt: event.target.value }))
+                    }} />
+                  </label>
+                  <label className="field">
+                    <span>Window {index + 1} ends <small>Event local time</small></span>
+                    <input type="datetime-local" value={window.endsAt} onChange={(event) => {
+                      updateAvailabilityWindow(window.id, (current) => ({ ...current, endsAt: event.target.value }))
+                    }} />
+                  </label>
+                  <button className="text-button" type="button" onClick={() => {
+                    setAvailabilityWindows((current) => current.filter((item) => item.id !== window.id))
+                    changed()
+                  }}>Remove window</button>
+                </div>
+              ))}
+            </div>
+            <button className="secondary" type="button" onClick={addAvailabilityWindow}>Add availability window</button>
+          </fieldset>
           <label className="field">
             <span>Training</span>
             <select value={trainingStatus} onChange={(event) => {
@@ -396,8 +468,9 @@ function ReviewerProfileRow({ candidate, canManage }: { candidate: Candidate; ca
               changed()
             }} />
           </label>
+          </fieldset>
           <button className="primary" type="submit" disabled={busy || reason.trim().length < 5}>
-            {busy ? 'Saving…' : 'Save reviewer profile'}
+            {busy ? 'Saving…' : operationPending ? 'Confirm earlier profile' : 'Save reviewer profile'}
           </button>
           {error ? <p className="notice error" role="alert">{error}</p> : null}
         </form>
@@ -419,15 +492,21 @@ function RoundPublisher({
   const nextCriterionIdRef = useRef(5)
   const nextPanelIdRef = useRef(2)
   const nextMemberIdRef = useRef(1)
-  const operationRef = useRef<string | null>(null)
+  const publishAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewConfiguration.publishRound>>()
+  const publishPending = publishAttempt.hasPending('review-round-publish')
   const [rubricName, setRubricName] = useState('Code2Create project review')
+  const [spreadThreshold, setSpreadThreshold] = useState('2')
   const [criteria, setCriteria] = useState<CriterionDraft[]>(initialCriteria)
   const [round, setRound] = useState<RoundDraft>({
     stableKey: `review_${nextSequence}`,
     name: `Project review ${nextSequence}`,
     sequence: `${nextSequence}`,
+    clockInOpensAt: '',
+    reviewerReportAt: '',
     startsAt: '',
     endsAt: '',
+    noShowGraceSeconds: '180',
+    correctionRequestsCloseAt: '',
     reviewDurationMinutes: '10',
     ordinaryExtensionMinutes: '2',
     maximumOrdinaryExtensions: '1',
@@ -456,11 +535,11 @@ function RoundPublisher({
     (candidate) =>
       candidate.profile?.status === 'active' &&
       candidate.profile.trainingStatus === 'complete' &&
-      candidate.profile.criterionKeys.length > 0,
+      candidate.profile.criterionKeys.length > 0 &&
+      candidate.profile.availabilityWindows.length > 0,
   )
 
   const changed = () => {
-    operationRef.current = null
     setConfirmed(false)
     setError(null)
     setSuccess(null)
@@ -574,78 +653,83 @@ function RoundPublisher({
     setError(null)
     setSuccess(null)
     try {
-      const requiredPanelSize = positiveInteger(round.requiredPanelSize, 'Panel size')
-      if (panels.some((panel) => panel.members.length !== requiredPanelSize)) {
-        throw new Error(`Every panel must contain exactly ${requiredPanelSize} reviewers.`)
-      }
-      const reviewerIds = panels.flatMap((panel) => panel.members.map((member) => member.personId))
-      if (reviewerIds.some((personId) => !personId) || new Set(reviewerIds).size !== reviewerIds.length) {
-        throw new Error('Choose a different trained reviewer for every panel seat.')
-      }
-      if (reservePersonIds.some((personId) => reviewerIds.includes(personId))) {
-        throw new Error('A panel reviewer cannot also be selected as a reserve.')
-      }
-      const mappedPanels = panels.map((panel) => ({
-        stableKey: panel.stableKey,
-        name: panel.name,
-        members: panel.members.map((member) => {
-          const candidate = readyCandidates.find((item) => item.personId === member.personId)
-          if (!candidate) throw new Error('A selected reviewer is no longer active and training-complete.')
-          const criterionKeys = member.criterionIds.map((criterionId) => {
-            const criterion = criteria.find((item) => item.id === criterionId)
-            if (!criterion) throw new Error('A reviewer criterion assignment no longer resolves.')
-            return criterion.stableKey
-          })
-          return {
-            personId: candidate.personId,
-            criterionKeys,
-            isCoordinator: member.isCoordinator,
-          }
-        }),
-      }))
-      const clientOperationId = operationRef.current ?? crypto.randomUUID()
-      operationRef.current = clientOperationId
-      await publishRound({
-        eventSlug,
-        rubric: {
-          name: rubricName,
-          criteria: criteria.map((criterion, index) => ({
-            stableKey: criterion.stableKey,
-            label: criterion.label,
-            question: criterion.question,
-            guidance: criterion.guidance,
-            weight: positiveInteger(criterion.weight, `${criterion.label} weight`),
-            displayOrder: index,
-            anchors: criterion.anchors,
-          })),
-        },
-        round: {
-          stableKey: round.stableKey,
-          name: round.name,
-          sequence: positiveInteger(round.sequence, 'Round sequence'),
-          startsAt: timestamp(round.startsAt, 'Round start'),
-          endsAt: timestamp(round.endsAt, 'Round end'),
-          reviewDurationSeconds: positiveInteger(round.reviewDurationMinutes, 'Review duration') * 60,
-          ordinaryExtensionSeconds: nonnegativeInteger(round.ordinaryExtensionMinutes, 'Extension duration') * 60,
-          maximumOrdinaryExtensions: nonnegativeInteger(round.maximumOrdinaryExtensions, 'Extension count'),
-          missedCallGraceSeconds: positiveInteger(round.missedCallGraceSeconds, 'Missed-call grace'),
-          requiredCallAttempts: positiveInteger(round.requiredCallAttempts, 'Required call attempts'),
-          substituteResponseSeconds: positiveInteger(round.substituteResponseSeconds, 'Substitute response window'),
-          missedReentryPolicy: round.missedReentryPolicy,
-          requiredPanelSize,
-          minimumScorersPerCriterion: positiveInteger(round.minimumScorersPerCriterion, 'Minimum scorers'),
-          minimumPresentParticipants: positiveInteger(round.minimumPresentParticipants, 'Minimum participants'),
-          requiresSharedCommitments: round.requiresSharedCommitments,
-          minimumReviewerBuild: positiveInteger(round.minimumReviewerBuild, 'Minimum reviewer build'),
-          requiresCamera: round.requiresCamera,
-          requiresNotifications: round.requiresNotifications,
-        },
-        panels: mappedPanels,
-        reservePersonIds,
-        reason,
-        clientOperationId,
+      await publishAttempt.run('review-round-publish', () => {
+        const requiredPanelSize = positiveInteger(round.requiredPanelSize, 'Panel size')
+        if (panels.some((panel) => panel.members.length !== requiredPanelSize)) {
+          throw new Error(`Every panel must contain exactly ${requiredPanelSize} reviewers.`)
+        }
+        const reviewerIds = panels.flatMap((panel) => panel.members.map((member) => member.personId))
+        if (reviewerIds.some((personId) => !personId) || new Set(reviewerIds).size !== reviewerIds.length) {
+          throw new Error('Choose a different trained reviewer for every panel seat.')
+        }
+        if (reservePersonIds.some((personId) => reviewerIds.includes(personId))) {
+          throw new Error('A panel reviewer cannot also be selected as a reserve.')
+        }
+        const mappedPanels = panels.map((panel) => ({
+          stableKey: panel.stableKey,
+          name: panel.name,
+          members: panel.members.map((member) => {
+            const candidate = readyCandidates.find((item) => item.personId === member.personId)
+            if (!candidate) throw new Error('A selected reviewer is no longer active and training-complete.')
+            const criterionKeys = member.criterionIds.map((criterionId) => {
+              const criterion = criteria.find((item) => item.id === criterionId)
+              if (!criterion) throw new Error('A reviewer criterion assignment no longer resolves.')
+              return criterion.stableKey
+            })
+            return {
+              personId: candidate.personId,
+              criterionKeys,
+              isCoordinator: member.isCoordinator,
+            }
+          }),
+        }))
+        const args = {
+          eventSlug,
+          rubric: {
+            name: rubricName,
+            spreadThreshold: boundedInteger(spreadThreshold, 'Score-spread threshold', 1, 4),
+            criteria: criteria.map((criterion, index) => ({
+              stableKey: criterion.stableKey,
+              label: criterion.label,
+              question: criterion.question,
+              guidance: criterion.guidance,
+              weight: positiveInteger(criterion.weight, `${criterion.label} weight`),
+              displayOrder: index,
+              anchors: criterion.anchors,
+            })),
+          },
+          round: {
+            stableKey: round.stableKey,
+            name: round.name,
+            sequence: positiveInteger(round.sequence, 'Round sequence'),
+            clockInOpensAt: timestamp(round.clockInOpensAt, 'Clock-in opening'),
+            reviewerReportAt: timestamp(round.reviewerReportAt, 'Reviewer report time'),
+            startsAt: timestamp(round.startsAt, 'Round start'),
+            endsAt: timestamp(round.endsAt, 'Round end'),
+            noShowGraceSeconds: boundedInteger(round.noShowGraceSeconds, 'Reviewer no-show grace', 30, 1_800),
+            correctionRequestsCloseAt: timestamp(round.correctionRequestsCloseAt, 'Score-correction request deadline'),
+            reviewDurationSeconds: positiveInteger(round.reviewDurationMinutes, 'Review duration') * 60,
+            ordinaryExtensionSeconds: nonnegativeInteger(round.ordinaryExtensionMinutes, 'Extension duration') * 60,
+            maximumOrdinaryExtensions: nonnegativeInteger(round.maximumOrdinaryExtensions, 'Extension count'),
+            missedCallGraceSeconds: positiveInteger(round.missedCallGraceSeconds, 'Missed-call grace'),
+            requiredCallAttempts: positiveInteger(round.requiredCallAttempts, 'Required call attempts'),
+            substituteResponseSeconds: positiveInteger(round.substituteResponseSeconds, 'Substitute response window'),
+            missedReentryPolicy: round.missedReentryPolicy,
+            requiredPanelSize,
+            minimumScorersPerCriterion: positiveInteger(round.minimumScorersPerCriterion, 'Minimum scorers'),
+            minimumPresentParticipants: positiveInteger(round.minimumPresentParticipants, 'Minimum participants'),
+            requiresSharedCommitments: round.requiresSharedCommitments,
+            minimumReviewerBuild: positiveInteger(round.minimumReviewerBuild, 'Minimum reviewer build'),
+            requiresCamera: round.requiresCamera,
+            requiresNotifications: round.requiresNotifications,
+          },
+          panels: mappedPanels,
+          reservePersonIds,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => publishRound(args)
       })
-      operationRef.current = null
       setConfirmed(false)
       setSuccess(`Published ${round.name}.`)
     } catch (caught) {
@@ -658,13 +742,28 @@ function RoundPublisher({
   return (
     <section className="setup-section">
       <h2><span className="step-number">1</span>Round timing and rules</h2>
-      <p className="muted">Publishing locks the rubric, timing, panels, coordinators, and reviewer coverage.</p>
+      <p className="muted">Publishing locks the staffing times, no-show grace, rubric, panels, coordinators, and reviewer coverage.</p>
       <form className="review-publisher" onSubmit={publish}>
+        <fieldset disabled={publishPending} style={{ display: 'contents' }}>
         <div className="form-grid">
           <label className="field">
             <span>Round name</span>
             <input value={round.name} onChange={(event) => {
               setRound((current) => ({ ...current, name: event.target.value }))
+              changed()
+            }} />
+          </label>
+          <label className="field">
+            <span>Clock-in opens <small>Event local time</small></span>
+            <input type="datetime-local" value={round.clockInOpensAt} onChange={(event) => {
+              setRound((current) => ({ ...current, clockInOpensAt: event.target.value }))
+              changed()
+            }} />
+          </label>
+          <label className="field">
+            <span>Reviewers report <small>Event local time</small></span>
+            <input type="datetime-local" value={round.reviewerReportAt} onChange={(event) => {
+              setRound((current) => ({ ...current, reviewerReportAt: event.target.value }))
               changed()
             }} />
           </label>
@@ -679,6 +778,20 @@ function RoundPublisher({
             <span>Ends <small>Event local time</small></span>
             <input type="datetime-local" value={round.endsAt} onChange={(event) => {
               setRound((current) => ({ ...current, endsAt: event.target.value }))
+              changed()
+            }} />
+          </label>
+          <label className="field">
+            <span>Correction requests close <small>Event local time</small></span>
+            <input type="datetime-local" value={round.correctionRequestsCloseAt} onChange={(event) => {
+              setRound((current) => ({ ...current, correctionRequestsCloseAt: event.target.value }))
+              changed()
+            }} />
+          </label>
+          <label className="field">
+            <span>Reviewer no-show grace · seconds</span>
+            <input inputMode="numeric" value={round.noShowGraceSeconds} onChange={(event) => {
+              setRound((current) => ({ ...current, noShowGraceSeconds: event.target.value }))
               changed()
             }} />
           </label>
@@ -812,6 +925,21 @@ function RoundPublisher({
               changed()
             }} />
           </label>
+          <label className="field rubric-name-field">
+            <span>Flag rating spreads of</span>
+            <input
+              inputMode="numeric"
+              min={1}
+              max={4}
+              type="number"
+              value={spreadThreshold}
+              onChange={(event) => {
+                setSpreadThreshold(event.target.value)
+                changed()
+              }}
+            />
+            <small className="muted">A criterion is flagged when its highest and lowest ratings differ by this many points.</small>
+          </label>
           <div className="criterion-editors">
             {criteria.map((criterion) => (
               <CriterionEditor
@@ -899,22 +1027,23 @@ function RoundPublisher({
           </div>
         </section>
 
+        </fieldset>
         <section className="publish-confirmation">
           <h2><span className="step-number">5</span>Publish</h2>
           <p className="muted">Publishing locks this round.</p>
           <label className="field">
             <span>Publication reason</span>
-            <textarea required value={reason} onChange={(event) => {
+            <textarea disabled={publishPending} required value={reason} onChange={(event) => {
               setReason(event.target.value)
               changed()
             }} />
           </label>
           <label className="check-filter publication-check">
-            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
-            I reviewed the timing, rubric weights, panel seats, coordinators, and reviewer coverage.
+            <input type="checkbox" checked={confirmed} disabled={publishPending} onChange={(event) => setConfirmed(event.target.checked)} />
+            I reviewed the clock-in and report times, no-show grace, rubric weights, panel seats, coordinators, and reviewer availability.
           </label>
           <button className="primary" type="submit" disabled={!canPublish || busy || !confirmed || reason.trim().length < 5}>
-            {busy ? 'Publishing…' : canPublish ? 'Publish round' : 'Publication permission required'}
+            {busy ? 'Publishing…' : publishPending ? 'Confirm earlier publication' : canPublish ? 'Publish round' : 'Publication permission required'}
           </button>
         </section>
       </form>
@@ -1093,14 +1222,6 @@ function PolicyCheck({ label, checked, onChange }: { label: string; checked: boo
   )
 }
 
-function canManageProfile(access: Access, personId: string) {
-  return access.grants.some(
-    (grant) =>
-      grant.permissionKey === 'reviewer.profile.manage' &&
-      (grant.scopeType === 'event' || (grant.scopeType === 'person' && grant.scopeId === personId)),
-  )
-}
-
 function commaList(value: string) {
   return value.split(',').map((item) => item.trim()).filter(Boolean)
 }
@@ -1128,6 +1249,14 @@ function positiveInteger(value: string, label: string) {
   return parsed
 }
 
+function boundedInteger(value: string, label: string, minimum: number, maximum: number) {
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`${label} must be a whole number from ${minimum} through ${maximum}.`)
+  }
+  return parsed
+}
+
 function nonnegativeInteger(value: string, label: string) {
   const parsed = Number(value)
   if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`${label} must be zero or a positive whole number.`)
@@ -1138,6 +1267,21 @@ function timestamp(value: string, label: string) {
   const parsed = new Date(value).getTime()
   if (!Number.isFinite(parsed)) throw new Error(`${label} is required.`)
   return parsed
+}
+
+function localDateTime(value: number) {
+  const date = new Date(value)
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function formatMoment(value: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(value)
 }
 
 function stateName(value: string) {

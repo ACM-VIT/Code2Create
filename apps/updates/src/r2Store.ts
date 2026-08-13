@@ -15,7 +15,7 @@ export class R2UpdateStore implements UpdateStore {
     if (!contentType || !sha256) return null
 
     return {
-      bytes: await object.arrayBuffer(),
+      body: object.body,
       contentType,
       sha256,
     }

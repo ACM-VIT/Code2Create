@@ -11,6 +11,12 @@ import { teamRoundTableLabel } from "./lib/floor";
 import { findCurrentPerson, requireCurrentPerson, requireEventSubject, requireMembership } from "./lib/identity";
 import { requirePermission } from "./lib/permissions";
 import { estimateQueueWindow } from "./lib/queueEstimate";
+import { participantQueuePosition } from "./lib/reviewQueueProjection";
+import {
+  maximumReviewRoundsPerEvent,
+  maximumReviewersPerPanel,
+  maximumReviewSessionsPerTeamRound,
+} from "./lib/reviewLimits";
 import { activeRoundPause } from "./lib/reviewRoundPauses";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -122,10 +128,14 @@ export const current = query({
     });
     const rounds = await ctx.db
       .query("reviewRounds")
-      .withIndex("by_event_status_start", (index) => index.eq("eventId", event._id))
-      .collect();
+      .withIndex("by_event_status_start", (index) =>
+        index.eq("eventId", event._id).eq("status", "open"),
+      )
+      .take(maximumReviewRoundsPerEvent + 1);
+    if (rounds.length > maximumReviewRoundsPerEvent) {
+      throw new Error("An event exceeds the published review-round limit.");
+    }
     const openRounds = rounds
-      .filter((round) => round.status === "open")
       .sort((left, right) => left.sequence - right.sequence);
     let selectedRound: Doc<"reviewRounds"> | null = null;
     let selectedState: Doc<"teamRoundStates"> | null = null;
@@ -150,7 +160,10 @@ export const current = query({
       .withIndex("by_round_team_status", (index) =>
         index.eq("roundId", selectedRound._id).eq("teamId", teamContext.team._id),
       )
-      .collect();
+      .take(maximumReviewSessionsPerTeamRound + 1);
+    if (sessions.length > maximumReviewSessionsPerTeamRound) {
+      throw new Error("A team exceeds the review-attempt limit for this round.");
+    }
     const session = sessions.find((candidate) => isLiveReview(candidate.status)) ?? null;
     const [assignments, presences] = session
       ? await Promise.all([
@@ -159,85 +172,79 @@ export const current = query({
             .withIndex("by_session_person", (index) =>
               index.eq("reviewSessionId", session._id),
             )
-            .collect(),
+            .take(maximumReviewersPerPanel + 1),
           ctx.db
             .query("reviewPresence")
             .withIndex("by_session_reviewer", (index) =>
               index.eq("reviewSessionId", session._id),
             )
-            .collect(),
+            .take(maximumReviewersPerPanel + 1),
         ])
       : [[], []];
+    if (
+      assignments.length > maximumReviewersPerPanel ||
+      presences.length > maximumReviewersPerPanel
+    ) {
+      throw new Error("A review exceeds the published reviewer limit.");
+    }
     let teamsAhead: number | undefined;
     let estimate: ReturnType<typeof estimateQueueWindow> | null = null;
-    if (selectedState?.state === "queued" && selectedState.panelId) {
+    if (selectedState?.state === "queued") {
       const panelId = selectedState.panelId;
-      const queue = await ctx.db
-        .query("teamRoundStates")
-        .withIndex("by_panel_state_priority_queued", (index) =>
-          index.eq("panelId", panelId).eq("state", "queued"),
-        )
-        .collect();
-      const ordered = queue.sort(
-        (left, right) =>
-          right.priority - left.priority ||
-          (left.queuedAt ?? left.updatedAt) - (right.queuedAt ?? right.updatedAt) ||
-          left._id.localeCompare(right._id),
-      );
-      const position = ordered.findIndex((state) => state._id === selectedState._id);
-      if (position >= 0) {
-        teamsAhead = position;
-        const now = Date.now();
-        const [awaitingPresence, activeReview, overdueReview, completedReviews] =
-          await Promise.all([
-            ctx.db
-              .query("reviewSessions")
-              .withIndex("by_panel_status", (index) =>
-                index.eq("panelId", panelId).eq("status", "awaiting_presence"),
-              )
-              .first(),
-            ctx.db
-              .query("reviewSessions")
-              .withIndex("by_panel_status", (index) =>
-                index.eq("panelId", panelId).eq("status", "active"),
-              )
-              .first(),
-            ctx.db
-              .query("reviewSessions")
-              .withIndex("by_panel_status", (index) =>
-                index.eq("panelId", panelId).eq("status", "overdue"),
-              )
-              .first(),
-            ctx.db
-              .query("reviewSessions")
-              .withIndex("by_panel_status", (index) =>
-                index.eq("panelId", panelId).eq("status", "completed"),
-              )
-              .order("desc")
-              .take(9),
-          ]);
-        const livePanelReview = activeReview ?? overdueReview ?? awaitingPresence;
-        estimate = roundPause
-          ? null
-          : estimateQueueWindow({
-              now,
-              configuredDurationSeconds: selectedRound.reviewDurationSeconds,
-              teamsAhead,
-              ...(livePanelReview?.plannedEndAt !== undefined
-                ? { activeReviewPlannedEndAt: livePanelReview.plannedEndAt }
-                : livePanelReview
-                  ? {
-                      activeReviewPlannedEndAt:
-                        now + selectedRound.reviewDurationSeconds * 1_000,
-                    }
-                  : {}),
-              completedDurationsSeconds: completedReviews.flatMap((review) =>
-                review.startedAt !== undefined && review.completedAt !== undefined
-                  ? [(review.completedAt - review.startedAt) / 1_000]
-                  : [],
-              ),
-            });
+      if (panelId === undefined) {
+        throw new Error("A queued team must have a panel and queue time.");
       }
+      teamsAhead = await participantQueuePosition(ctx, selectedState);
+      const now = Date.now();
+      const [awaitingPresence, activeReview, overdueReview, completedReviews] =
+        await Promise.all([
+          ctx.db
+            .query("reviewSessions")
+            .withIndex("by_panel_status", (index) =>
+              index.eq("panelId", panelId).eq("status", "awaiting_presence"),
+            )
+            .first(),
+          ctx.db
+            .query("reviewSessions")
+            .withIndex("by_panel_status", (index) =>
+              index.eq("panelId", panelId).eq("status", "active"),
+            )
+            .first(),
+          ctx.db
+            .query("reviewSessions")
+            .withIndex("by_panel_status", (index) =>
+              index.eq("panelId", panelId).eq("status", "overdue"),
+            )
+            .first(),
+          ctx.db
+            .query("reviewSessions")
+            .withIndex("by_panel_status", (index) =>
+              index.eq("panelId", panelId).eq("status", "completed"),
+            )
+            .order("desc")
+            .take(9),
+        ]);
+      const livePanelReview = activeReview ?? overdueReview ?? awaitingPresence;
+      estimate = roundPause
+        ? null
+        : estimateQueueWindow({
+            now,
+            configuredDurationSeconds: selectedRound.reviewDurationSeconds,
+            teamsAhead,
+            ...(livePanelReview?.plannedEndAt !== undefined
+              ? { activeReviewPlannedEndAt: livePanelReview.plannedEndAt }
+              : livePanelReview
+                ? {
+                    activeReviewPlannedEndAt:
+                      now + selectedRound.reviewDurationSeconds * 1_000,
+                  }
+                : {}),
+            completedDurationsSeconds: completedReviews.flatMap((review) =>
+              review.startedAt !== undefined && review.completedAt !== undefined
+                ? [(review.completedAt - review.startedAt) / 1_000]
+                : [],
+            ),
+          });
     }
     return {
       teamId: teamContext.team._id,
@@ -310,29 +317,45 @@ export const mintTeamQr = mutation({
       scopeType: "team",
       scopeId: teamContext.team._id,
     });
-    const [round, panel, existingTokens] = await Promise.all([
+    const [round, panel, activeToken, latestToken] = await Promise.all([
       ctx.db.get(session.roundId),
       ctx.db.get(session.panelId),
       ctx.db
         .query("reviewTeamQrTokens")
         .withIndex("by_session_state", (index) =>
+          index.eq("reviewSessionId", session._id).eq("state", "active"),
+        )
+        .unique(),
+      ctx.db
+        .query("reviewTeamQrTokens")
+        .withIndex("by_session_version", (index) =>
           index.eq("reviewSessionId", session._id),
         )
-        .collect(),
+        .order("desc")
+        .first(),
     ]);
     if (!round || !panel || round.eventId !== event._id || panel.eventId !== event._id) {
       throw new Error("Review QR context is incomplete.");
     }
+    if (
+      (activeToken !== null &&
+        (activeToken.eventId !== event._id || activeToken.teamId !== teamContext.team._id)) ||
+      (latestToken !== null &&
+        (latestToken.eventId !== event._id || latestToken.teamId !== teamContext.team._id))
+    ) {
+      throw new Error("A review team QR belongs to the wrong event or team.");
+    }
     const qrTableLabel = await teamRoundTableLabel(ctx, round._id, teamContext.team._id);
     const now = Date.now();
-    for (const token of existingTokens.filter((candidate) => candidate.state === "active")) {
-      await ctx.db.patch(token._id, { state: "superseded" });
+    if (activeToken !== null) {
+      await ctx.db.patch(activeToken._id, {
+        state: activeToken.expiresAt <= now ? "expired" : "superseded",
+      });
     }
     const payload = `c2c-review-v1.${randomToken()}`;
     const manualCode = randomManualCode();
     const expiresAt = now + 2 * 60 * 1_000;
-    const tokenVersion =
-      existingTokens.reduce((maximum, token) => Math.max(maximum, token.tokenVersion), 0) + 1;
+    const tokenVersion = (latestToken?.tokenVersion ?? 0) + 1;
     const tokenId = await ctx.db.insert("reviewTeamQrTokens", {
       eventId: event._id,
       reviewSessionId: session._id,

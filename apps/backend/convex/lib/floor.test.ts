@@ -3,9 +3,6 @@ import test from "node:test";
 
 import { floorLocationDescription, nearestLandmarkName } from "./floor.ts";
 
-// A wide, shallow hall: the same percentage step is nearly three times as far
-// across the room as it is along it, which is the whole reason distance is
-// measured in metres rather than in shares of a rectangle.
 const zone = { widthMeters: 30, depthMeters: 12 };
 const landmarks = [
   { name: "the stage", x: 50, y: 0 },
@@ -23,8 +20,6 @@ test("a team in open floor is not given a landmark it is nowhere near", () => {
 });
 
 test("the nearest landmark is measured across the real room, not the drawing", () => {
-  // Ten percent across this hall is 3m; ten percent along it is 1.2m. The
-  // nearer landmark on the drawing is the further one to walk.
   const across = { name: "the power wall", x: 40, y: 0 };
   const along = { name: "the help desk", x: 50, y: 20 };
   assert.equal(nearestLandmarkName(zone, [across, along], 50, 0), "the help desk");

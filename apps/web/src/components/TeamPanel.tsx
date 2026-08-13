@@ -2,24 +2,44 @@ import { api } from '@code2create/backend/api'
 import { useMutation } from 'convex/react'
 import { useState } from 'react'
 import { eventSlug } from '../lib/config'
-import { operationId, readableError } from '../lib/errors'
-import type { CurrentTeam } from '../types'
+import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
+import type { CurrentTeam, CurrentTeamMember } from '../types'
 import { ErrorNotice } from './Form'
 
 type PendingAction =
   | { kind: 'leave' }
-  | { kind: 'remove'; teamMemberId: CurrentTeam['members'][number]['teamMemberId']; displayName: string }
+  | { kind: 'remove'; teamMemberId: CurrentTeamMember['teamMemberId']; displayName: string }
 
-export function TeamPanel({ team }: { team: CurrentTeam }) {
+export function TeamPanel({
+  team,
+  members,
+  rosterStatus,
+  loadMore,
+}: {
+  team: CurrentTeam
+  members: CurrentTeamMember[]
+  rosterStatus: 'LoadingFirstPage' | 'CanLoadMore' | 'LoadingMore' | 'Exhausted'
+  loadMore: (numItems: number) => void
+}) {
   const requestTransfer = useMutation(api.teams.requestLeadershipTransfer)
   const respondToTransfer = useMutation(api.teams.respondToLeadershipTransfer)
   const leaveTeam = useMutation(api.teams.leave)
   const removeMember = useMutation(api.teams.removeMember)
   const [busyMemberId, setBusyMemberId] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
+  const [transferTargetId, setTransferTargetId] = useState<string | null>(null)
+  const [pendingTransferResponse, setPendingTransferResponse] = useState<boolean | null>(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const currentTransfer = team.pendingLeadershipTransfer
+  const operations = useOperationRunner()
+  const transferPending = operations.hasPending('lead-transfer')
+  const responsePending = operations.hasPending('lead-transfer-response')
+  const leavePending = operations.hasPending('team-leave')
+  const removePending = operations.hasPending('team-member-remove')
+  const actionPending = leavePending || removePending
+  const operationPending = transferPending || responsePending || actionPending
 
   const copyJoinLink = async () => {
     const link = `${window.location.origin}/join/${team.publicCode}`
@@ -33,17 +53,16 @@ export function TeamPanel({ team }: { team: CurrentTeam }) {
     }
   }
 
-  const transfer = async (membershipId: CurrentTeam['members'][number]['membershipId']) => {
+  const transfer = async (membershipId: CurrentTeamMember['membershipId']) => {
+    if (transferPending && transferTargetId !== membershipId) return
+    if (!transferPending) setTransferTargetId(membershipId)
     setBusyMemberId(membershipId)
     setError(null)
     try {
-      await requestTransfer({
-        eventSlug,
-        toMembershipId: membershipId,
-        expectedTeamVersion: team.version,
-        clientOperationId: operationId('lead-transfer'),
-      })
+      await operations.run('lead-transfer', (clientOperationId) => () => requestTransfer({ eventSlug, toMembershipId: membershipId, expectedTeamVersion: team.version, clientOperationId }))
+      setTransferTargetId(null)
     } catch (caught) {
+      if (!operations.hasPending('lead-transfer')) setTransferTargetId(null)
       setError(readableError(caught))
     } finally {
       setBusyMemberId(null)
@@ -51,17 +70,24 @@ export function TeamPanel({ team }: { team: CurrentTeam }) {
   }
 
   const respond = async (accept: boolean) => {
-    if (!currentTransfer) return
+    if (responsePending && pendingTransferResponse !== accept) return
+    if (!responsePending && !currentTransfer) return
+    if (!responsePending) setPendingTransferResponse(accept)
     setBusyMemberId(team.currentMembershipId)
     setError(null)
     try {
-      await respondToTransfer({
-        eventSlug,
-        transferId: currentTransfer.id,
-        accept,
-        clientOperationId: operationId('lead-transfer-response'),
+      await operations.run('lead-transfer-response', (clientOperationId) => {
+        if (!currentTransfer) throw new Error('The leadership transfer is no longer available.')
+        return () => respondToTransfer({
+          eventSlug,
+          transferId: currentTransfer.id,
+          accept,
+          clientOperationId,
+        })
       })
+      setPendingTransferResponse(null)
     } catch (caught) {
+      if (!operations.hasPending('lead-transfer-response')) setPendingTransferResponse(null)
       setError(readableError(caught))
     } finally {
       setBusyMemberId(null)
@@ -69,26 +95,22 @@ export function TeamPanel({ team }: { team: CurrentTeam }) {
   }
 
   const confirmPendingAction = async () => {
+    if (!actionPending && !pendingAction) return
     if (!pendingAction) return
     const busyId = pendingAction.kind === 'leave' ? team.currentMembershipId : pendingAction.teamMemberId
     setBusyMemberId(busyId)
     setError(null)
     try {
       if (pendingAction.kind === 'leave') {
-        await leaveTeam({
-          eventSlug,
-          teamId: team.id,
-          expectedTeamVersion: team.version,
-          clientOperationId: operationId('team-leave'),
-        })
+        await operations.run('team-leave', (clientOperationId) => () => leaveTeam({ eventSlug, teamId: team.id, expectedTeamVersion: team.version, clientOperationId }))
       } else {
-        await removeMember({
-          eventSlug,
-          teamId: team.id,
-          targetTeamMemberId: pendingAction.teamMemberId,
-          expectedTeamVersion: team.version,
-          clientOperationId: operationId('team-member-remove'),
-        })
+        await operations.run('team-member-remove', (clientOperationId) => () => removeMember({
+            eventSlug,
+            teamId: team.id,
+            targetTeamMemberId: pendingAction.teamMemberId,
+            expectedTeamVersion: team.version,
+            clientOperationId,
+          }))
       }
       setPendingAction(null)
     } catch (caught) {
@@ -98,7 +120,7 @@ export function TeamPanel({ team }: { team: CurrentTeam }) {
     }
   }
 
-  const canLeave = team.currentRole === 'member' || team.members.length === 1
+  const canLeave = team.currentRole === 'member' || team.activeMemberCount === 1
 
   return (
     <aside className="team-panel" aria-label="Team">
@@ -113,7 +135,7 @@ export function TeamPanel({ team }: { team: CurrentTeam }) {
       </div>
 
       <p className="fine-print">
-        {team.members.length} of {team.teamMaximumSize} members
+        {team.activeMemberCount} of {team.teamMaximumSize} members
         {team.teamMinimumSize > 1 ? ` · ${team.teamMinimumSize} needed to submit` : ''}
       </p>
 
@@ -130,7 +152,7 @@ export function TeamPanel({ team }: { team: CurrentTeam }) {
       ) : null}
 
       <ul className="member-list">
-        {team.members.map((member) => (
+        {members.map((member) => (
           <li key={member.teamMemberId}>
             <div>
               <span>{member.displayName}</span>
@@ -144,15 +166,22 @@ export function TeamPanel({ team }: { team: CurrentTeam }) {
                 <button
                   type="button"
                   className="text-button"
-                  disabled={busyMemberId === member.membershipId}
+                  disabled={
+                    busyMemberId !== null ||
+                    responsePending ||
+                    actionPending ||
+                    (transferPending && transferTargetId !== member.membershipId)
+                  }
                   onClick={() => transfer(member.membershipId)}
                 >
-                  Make lead
+                  {transferPending && transferTargetId === member.membershipId
+                    ? 'Confirm earlier transfer'
+                    : 'Make lead'}
                 </button>
                 <button
                   type="button"
                   className="text-button quiet-danger"
-                  disabled={busyMemberId === member.teamMemberId}
+                  disabled={busyMemberId !== null || operationPending}
                   onClick={() =>
                     setPendingAction({
                       kind: 'remove',
@@ -168,16 +197,36 @@ export function TeamPanel({ team }: { team: CurrentTeam }) {
           </li>
         ))}
       </ul>
+      {rosterStatus === 'CanLoadMore' || rosterStatus === 'LoadingMore' ? (
+        <button
+          type="button"
+          className="secondary compact"
+          disabled={rosterStatus === 'LoadingMore'}
+          onClick={() => loadMore(25)}
+        >
+          {rosterStatus === 'LoadingMore' ? 'Loading members…' : 'Load more members'}
+        </button>
+      ) : null}
 
-      {currentTransfer?.toMembershipId === team.currentMembershipId ? (
+      {currentTransfer?.toMembershipId === team.currentMembershipId || responsePending ? (
         <div className="transfer-card">
           <p>The current lead asked you to take over.</p>
           <div className="button-row">
-            <button type="button" className="primary compact" onClick={() => respond(true)}>
-              Accept
+            <button
+              type="button"
+              className="primary compact"
+              disabled={busyMemberId !== null || transferPending || actionPending || (responsePending && pendingTransferResponse !== true)}
+              onClick={() => respond(true)}
+            >
+              {responsePending && pendingTransferResponse === true ? 'Confirm earlier acceptance' : 'Accept'}
             </button>
-            <button type="button" className="secondary compact" onClick={() => respond(false)}>
-              Decline
+            <button
+              type="button"
+              className="secondary compact"
+              disabled={busyMemberId !== null || transferPending || actionPending || (responsePending && pendingTransferResponse !== false)}
+              onClick={() => respond(false)}
+            >
+              {responsePending && pendingTransferResponse === false ? 'Confirm earlier decline' : 'Decline'}
             </button>
           </div>
         </div>
@@ -191,6 +240,7 @@ export function TeamPanel({ team }: { team: CurrentTeam }) {
             <button
               type="button"
               className="text-button quiet-danger"
+              disabled={operationPending || busyMemberId !== null}
               onClick={() => setPendingAction({ kind: 'leave' })}
             >
               Leave team
@@ -206,7 +256,7 @@ export function TeamPanel({ team }: { team: CurrentTeam }) {
           <p>
             {pendingAction.kind === 'remove'
               ? `Remove ${pendingAction.displayName}? Their access ends and the join code will change.`
-              : team.members.length === 1
+              : team.activeMemberCount === 1
                 ? 'Leave and close this team?'
                 : 'Leave this team? You can create or join another before submissions close.'}
           </p>
@@ -214,15 +264,19 @@ export function TeamPanel({ team }: { team: CurrentTeam }) {
             <button
               type="button"
               className="primary compact"
-              disabled={busyMemberId !== null}
+              disabled={busyMemberId !== null || transferPending || responsePending}
               onClick={confirmPendingAction}
             >
-              {busyMemberId !== null ? 'Working…' : 'Confirm'}
+              {busyMemberId !== null
+                ? 'Working…'
+                : actionPending
+                  ? 'Confirm earlier action'
+                  : 'Confirm'}
             </button>
             <button
               type="button"
               className="secondary compact"
-              disabled={busyMemberId !== null}
+              disabled={busyMemberId !== null || operationPending}
               onClick={() => setPendingAction(null)}
             >
               Cancel

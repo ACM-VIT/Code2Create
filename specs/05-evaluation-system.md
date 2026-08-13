@@ -234,7 +234,7 @@ Track participation does not guarantee a finalist place or prize.
 
 ### Correction
 
-A judge requests correction to their own submitted scorecard. A caller with `scorecard.correction.open` for that scorecard/review checks that the correction window is open, records the reason, and opens a new scorecard version. The judge resubmits. The original remains read-only.
+A judge may request a correction to their own submitted scorecard only while the round is open and server time is at or before the round's immutable `correctionRequestsCloseAt`. A caller with `scorecard.correction.open` for that scorecard/review may open a requested case under the same inclusive boundary. A requested case may still be rejected after the deadline while the round remains open, so an expired request cannot wedge round close. Once opened on time, the judge may finish and resubmit after the request deadline while the round remains open. Every replacement preserves the original scorecard and recorded reasons.
 
 ### Administrative void
 
@@ -244,7 +244,7 @@ A judge requests correction to their own submitted scorecard. A caller with `sco
 
 A participant may report a process problem such as missing panel member, wrong table, or unavailable review. Complaints do not directly edit scores. The board chooses a remedy under the approved complaint policy.
 
-The correction deadline, complaint window, and remedies are open decisions.
+Operations publishes the correction-request deadline with the round. The complaint window and complaint remedies remain board decisions.
 
 ## 14. Participant feedback
 

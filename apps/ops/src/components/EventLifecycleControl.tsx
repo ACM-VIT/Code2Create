@@ -1,10 +1,11 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 
 type Lifecycle = FunctionReturnType<typeof api.eventLifecycle.current>
 type LifecycleStatus = Lifecycle['status']
@@ -35,7 +36,7 @@ const statusCopy: Readonly<Record<LifecycleStatus, { label: string; detail: stri
 export function EventLifecycleControl() {
   const lifecycle = useQuery(api.eventLifecycle.current, { eventSlug })
   const transitionEvent = useMutation(api.eventLifecycle.transition)
-  const operationRef = useRef<{ key: string; id: string } | null>(null)
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.eventLifecycle.transition>>()
   const [targetStatus, setTargetStatus] = useState<LifecycleStatus | null>(null)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
@@ -44,13 +45,13 @@ export function EventLifecycleControl() {
   const selectedTransition = lifecycle?.transitions.find(
     (transition) => transition.targetStatus === targetStatus,
   )
+  const operationPending = operationAttempt.hasPending('event-lifecycle-transition')
 
   useEffect(() => {
     if (targetStatus === null || selectedTransition !== undefined) return
     setTargetStatus(null)
     setReason('')
     setError(null)
-    operationRef.current = null
   }, [selectedTransition, targetStatus])
 
   if (lifecycle === undefined) return <p className="muted">Loading event state…</p>
@@ -60,39 +61,30 @@ export function EventLifecycleControl() {
     setTargetStatus(status)
     setReason('')
     setError(null)
-    operationRef.current = null
   }
 
   const cancel = () => {
     setTargetStatus(null)
     setReason('')
     setError(null)
-    operationRef.current = null
   }
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!selectedTransition || selectedTransition.blockers.length > 0) return
-    const operationKey = JSON.stringify([
-      lifecycle.eventVersion,
-      selectedTransition.targetStatus,
-      reason,
-    ])
-    const operation = operationRef.current?.key === operationKey
-      ? operationRef.current
-      : { key: operationKey, id: crypto.randomUUID() }
-    operationRef.current = operation
     setBusy(true)
     setError(null)
     try {
-      await transitionEvent({
-        eventSlug,
-        targetStatus: selectedTransition.targetStatus,
-        expectedEventVersion: lifecycle.eventVersion,
-        reason,
-        clientOperationId: operation.id,
+      await operationAttempt.run('event-lifecycle-transition', () => {
+        const args = {
+          eventSlug,
+          targetStatus: selectedTransition.targetStatus,
+          expectedEventVersion: lifecycle.eventVersion,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => transitionEvent(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -143,7 +135,8 @@ export function EventLifecycleControl() {
               <textarea
                 required
                 minLength={5}
-                maxLength={500}
+              maxLength={500}
+              disabled={operationPending}
                 value={reason}
                 onChange={(event) => setReason(event.currentTarget.value)}
               />
@@ -151,9 +144,9 @@ export function EventLifecycleControl() {
             {error ? <p className="notice error" role="alert">{error}</p> : null}
             <div className="button-row">
               <button className="primary" type="submit" disabled={busy || reason.trim().length < 5}>
-                {busy ? 'Saving…' : 'Confirm'}
+                {busy ? 'Saving…' : operationPending ? 'Confirm earlier transition' : 'Confirm'}
               </button>
-              <button className="text-button" type="button" disabled={busy} onClick={cancel}>Cancel</button>
+              <button className="text-button" type="button" disabled={busy || operationPending} onClick={cancel}>Cancel</button>
             </div>
           </form>
         )

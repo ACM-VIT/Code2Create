@@ -6,7 +6,6 @@ import { internal } from "./_generated/api";
 import type { DataModel, Doc } from "./_generated/dataModel";
 import {
   internalMutation,
-  internalQuery,
   mutation,
   query,
 } from "./_generated/server";
@@ -19,8 +18,8 @@ import {
   operationsHealthSnapshot,
   operationsIntelligenceCallback,
 } from "./lib/operationsIntelligenceValidators";
+import { operationsHealthSnapshotState } from "./lib/operationsHealthSnapshot";
 import { requirePermission } from "./lib/permissions";
-import { settleAutomationSignal } from "./operationsIntelligenceAutomation";
 import { normalizedText } from "./lib/strings";
 import { intelligenceWorkpool } from "./workpools";
 
@@ -28,9 +27,6 @@ const agentCompletionWindowMs = 10 * 60 * 1_000;
 const briefIdValidator = v.id("operationsIntelligenceBriefs");
 const briefView = v.object({
   id: v.id("operationsIntelligenceBriefs"),
-  origin: v.union(v.literal("manual"), v.literal("automation")),
-  accountableOwner: v.optional(v.string()),
-  relevanceExpiresAt: v.optional(v.number()),
   state: v.union(
     v.literal("pending"),
     v.literal("dispatching"),
@@ -38,7 +34,7 @@ const briefView = v.object({
     v.literal("succeeded"),
     v.literal("failed"),
   ),
-  sourceGeneratedAt: v.optional(v.number()),
+  sourceGeneratedAt: v.number(),
   headline: v.optional(v.string()),
   summary: v.optional(v.string()),
   priorities: v.array(operationsBriefPriority),
@@ -126,22 +122,20 @@ function validatePriorities(
       });
     }
     const owner = normalizedModelText(priority.owner, "Priority owner", 2, 80);
-    if (!citedSignals.some((signal) => signal.owner === owner)) {
-      throw new ConvexError({
-        code: "INTELLIGENCE_CALLBACK_INVALID",
-        message: "A priority owner must come from one of its cited health signals.",
-      });
-    }
     const nextAction = normalizedModelText(
       priority.nextAction,
       "Priority next action",
       4,
       240,
     );
-    if (!citedSignals.some((signal) => signal.nextAction === nextAction)) {
+    if (
+      !citedSignals.some(
+        (signal) => signal.owner === owner && signal.nextAction === nextAction,
+      )
+    ) {
       throw new ConvexError({
         code: "INTELLIGENCE_CALLBACK_INVALID",
-        message: "A priority next action must come from one of its cited health signals.",
+        message: "A priority owner and next action must come from the same cited health signal.",
       });
     }
     return {
@@ -174,28 +168,10 @@ export const latest = query({
       .order("desc")
       .first();
     if (!brief) return null;
-    const automationPolicy = brief.automationPolicyVersionId
-      ? await ctx.db.get(brief.automationPolicyVersionId)
-      : null;
-    if (
-      brief.origin === "automation" &&
-      (!automationPolicy || automationPolicy.eventId !== event._id)
-    ) {
-      throw new Error("The proactive intelligence brief has no valid policy provenance.");
-    }
     return {
       id: brief._id,
-      origin: brief.origin,
-      ...(automationPolicy
-        ? { accountableOwner: automationPolicy.accountableOwner }
-        : {}),
-      ...(brief.relevanceExpiresAt !== undefined
-        ? { relevanceExpiresAt: brief.relevanceExpiresAt }
-        : {}),
       state: brief.state,
-      ...(brief.sourceSnapshot
-        ? { sourceGeneratedAt: brief.sourceSnapshot.generatedAt }
-        : {}),
+      sourceGeneratedAt: brief.sourceSnapshot.generatedAt,
       ...(brief.headline ? { headline: brief.headline } : {}),
       ...(brief.summary ? { summary: brief.summary } : {}),
       priorities: brief.priorities ?? [],
@@ -217,7 +193,10 @@ export const generationFinished = intelligenceWorkpool.defineOnComplete<
   handler: async (ctx, { context: briefId, result }) => {
     if (result.kind === "success") return;
     const brief = await ctx.db.get(briefId);
-    if (!brief || !isActiveBrief(brief.state) || brief.state === "accepted") return;
+    // Once dispatch started, a failed action may mean the Worker accepted the
+    // request but its receipt was lost. Keep the frozen run callback-eligible
+    // until the existing completion deadline settles the ambiguity.
+    if (!brief || brief.state !== "pending") return;
     const now = Date.now();
     await ctx.db.patch(brief._id, {
       state: "failed",
@@ -226,7 +205,6 @@ export const generationFinished = intelligenceWorkpool.defineOnComplete<
       updatedAt: now,
       version: brief.version + 1,
     });
-    await settleAutomationSignal(ctx, brief, "failed", now);
   },
 });
 
@@ -277,11 +255,27 @@ export const request = mutation({
       });
     }
     const now = Date.now();
+    const health = await operationsHealthSnapshotState(ctx, event._id, now);
+    if (health.state === "missing") {
+      throw new ConvexError({
+        code: "OPERATIONS_HEALTH_NOT_READY",
+        message: "The first operations-health check has not completed yet.",
+      });
+    }
+    if (health.state === "stale") {
+      throw new ConvexError({
+        code: "OPERATIONS_HEALTH_STALE",
+        message: "Operations-health checks are delayed. Try again after they recover.",
+      });
+    }
+    const sourceSnapshot = health.snapshot;
+    const sourceChecksum = operationFingerprint([JSON.stringify(sourceSnapshot)]);
     const briefId = await ctx.db.insert("operationsIntelligenceBriefs", {
       eventId: event._id,
       requestedByPersonId: person._id,
-      origin: "manual",
       state: "pending",
+      sourceSnapshot,
+      sourceChecksum,
       requestedAt: now,
       updatedAt: now,
       version: 1,
@@ -329,11 +323,7 @@ export const request = mutation({
 });
 
 export const beginDispatch = internalMutation({
-  args: {
-    briefId: v.id("operationsIntelligenceBriefs"),
-    snapshot: operationsHealthSnapshot,
-    sourceChecksum: v.string(),
-  },
+  args: { briefId: v.id("operationsIntelligenceBriefs") },
   returns: v.union(
     v.null(),
     v.object({
@@ -345,56 +335,17 @@ export const beginDispatch = internalMutation({
   handler: async (ctx, args) => {
     const brief = await ctx.db.get(args.briefId);
     if (!brief || brief.state === "accepted" || !isActiveBrief(brief.state)) return null;
-    if (brief.sourceSnapshot && brief.sourceChecksum) {
-      if (brief.state === "pending") {
-        await ctx.db.patch(brief._id, {
-          state: "dispatching",
-          updatedAt: Date.now(),
-          version: brief.version + 1,
-        });
-      }
-      return {
-        briefId: brief._id,
-        sourceChecksum: brief.sourceChecksum,
-        snapshot: brief.sourceSnapshot,
-      };
+    if (brief.state === "pending") {
+      await ctx.db.patch(brief._id, {
+        state: "dispatching",
+        updatedAt: Date.now(),
+        version: brief.version + 1,
+      });
     }
-    if (brief.sourceSnapshot || brief.sourceChecksum) {
-      throw new Error("The intelligence source snapshot is incomplete.");
-    }
-    const now = Date.now();
-    await ctx.db.patch(brief._id, {
-      state: "dispatching",
-      sourceSnapshot: args.snapshot,
-      sourceChecksum: args.sourceChecksum,
-      updatedAt: now,
-      version: brief.version + 1,
-    });
     return {
       briefId: brief._id,
-      sourceChecksum: args.sourceChecksum,
-      snapshot: args.snapshot,
-    };
-  },
-});
-
-export const dispatchContext = internalQuery({
-  args: { briefId: v.id("operationsIntelligenceBriefs") },
-  returns: v.union(
-    v.null(),
-    v.object({
-      eventId: v.id("events"),
-      sourceSnapshot: v.optional(operationsHealthSnapshot),
-      sourceChecksum: v.optional(v.string()),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const brief = await ctx.db.get(args.briefId);
-    if (!brief || brief.state === "accepted" || !isActiveBrief(brief.state)) return null;
-    return {
-      eventId: brief.eventId,
-      ...(brief.sourceSnapshot ? { sourceSnapshot: brief.sourceSnapshot } : {}),
-      ...(brief.sourceChecksum ? { sourceChecksum: brief.sourceChecksum } : {}),
+      sourceChecksum: brief.sourceChecksum,
+      snapshot: brief.sourceSnapshot,
     };
   },
 });
@@ -434,13 +385,13 @@ export const completeFromWorker = internalMutation({
     const briefId = ctx.db.normalizeId("operationsIntelligenceBriefs", args.callback.briefId);
     const brief = briefId ? await ctx.db.get(briefId) : null;
     if (!brief) return "not_found";
-    if (!brief.sourceChecksum || brief.sourceChecksum !== args.callback.sourceChecksum) {
+    if (brief.sourceChecksum !== args.callback.sourceChecksum) {
       return "stale";
     }
     if (brief.state === "succeeded" || brief.state === "failed") {
       return "already_settled";
     }
-    if (!brief.sourceSnapshot) throw new Error("The intelligence brief has no frozen source.");
+    if (brief.state === "pending") return "stale";
     const now = Date.now();
     const agentVersion = normalizedModelText(
       args.callback.agentVersion,
@@ -459,7 +410,6 @@ export const completeFromWorker = internalMutation({
         updatedAt: now,
         version: brief.version + 1,
       });
-      await settleAutomationSignal(ctx, brief, "failed", now);
       return "accepted";
     }
     const priorities = validatePriorities(args.callback.priorities, brief.sourceSnapshot);
@@ -474,7 +424,6 @@ export const completeFromWorker = internalMutation({
       updatedAt: now,
       version: brief.version + 1,
     });
-    await settleAutomationSignal(ctx, brief, "succeeded", now);
     return "accepted";
   },
 });
@@ -498,7 +447,6 @@ export const expire = internalMutation({
       updatedAt: now,
       version: brief.version + 1,
     });
-    await settleAutomationSignal(ctx, brief, "failed", now);
     return null;
   },
 });

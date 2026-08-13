@@ -9,6 +9,7 @@ import { PermissionBundleMigration } from '../components/PermissionBundleMigrati
 import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 import {
   areaForPermission,
   availablePermissionAreas,
@@ -26,6 +27,7 @@ type CatalogEntry = Workspace['catalog'][number]
 type DraftEntry = FunctionArgs<typeof api.permissionBundles.saveDraft>['entries'][number]
 type ScopeType = DraftEntry['scopeType']
 type BundleDetail = FunctionReturnType<typeof api.permissionBundles.detail>
+type SaveDraftResult = FunctionReturnType<typeof api.permissionBundles.saveDraft>
 
 const maximumBundleEntries = 48
 const bundleRoles = ['supreme', 'board', 'sc', 'jc', 'external_judge'] as const
@@ -54,7 +56,6 @@ export function PermissionBundles() {
   const waitingToPublish = workspace.bundles.filter(
     (bundle) => bundle.published !== undefined && bundle.draft !== undefined,
   ).length
-  /** Unfinished sets first: a set nobody can be given is the reason to be here. */
   const ordered = [...workspace.bundles].sort(
     (left, right) => bundleRank(left) - bundleRank(right) || left.label.localeCompare(right.label),
   )
@@ -203,6 +204,8 @@ function BundleEditor({
 }) {
   const saveDraft = useMutation(api.permissionBundles.saveDraft)
   const publish = useMutation(api.permissionBundles.publish)
+  const operations = useOperationRunner()
+  const draftOperation = useOperationRunner<SaveDraftResult>()
   const source = detail?.draft ?? detail?.published
   const [key, setKey] = useState(detail?.bundle.key ?? '')
   const [label, setLabel] = useState(source?.label ?? detail?.bundle.label ?? '')
@@ -240,18 +243,18 @@ function BundleEditor({
     setSaving(true)
     setError(null)
     try {
-      const result = await saveDraft({
-        eventSlug,
-        bundleId: detail?.bundle.id ?? null,
-        key,
-        label,
-        defaultRole: roleValue(defaultRole),
-        entries,
-        expectedBundleVersion: detail?.bundle.version ?? 0,
-        expectedDraftRevision: detail?.draft?.revision ?? null,
-        reason,
-        clientOperationId: crypto.randomUUID(),
-      })
+      const result = await draftOperation.run('permission-bundle-draft', (clientOperationId) => () => saveDraft({
+          eventSlug,
+          bundleId: detail?.bundle.id ?? null,
+          key,
+          label,
+          defaultRole: roleValue(defaultRole),
+          entries,
+          expectedBundleVersion: detail?.bundle.version ?? 0,
+          expectedDraftRevision: detail?.draft?.revision ?? null,
+          reason,
+          clientOperationId,
+        }))
       setReason('')
       setMessage('Draft saved. Nobody receives these permissions until it is published.')
       onSaved(result.bundleId)
@@ -264,6 +267,7 @@ function BundleEditor({
 
   const publishDraft = async () => {
     if (!canEdit || !detail?.draft) return
+    const { draft } = detail
     setMessage(null)
     if (reason.trim().length < 5) {
       setError('Say why this set is being published, in at least five characters.')
@@ -272,14 +276,16 @@ function BundleEditor({
     setPublishing(true)
     setError(null)
     try {
-      await publish({
-        eventSlug,
-        bundleId: detail.bundle.id,
-        expectedBundleVersion: detail.bundle.version,
-        expectedDraftRevision: detail.draft.revision,
-        reason,
-        clientOperationId: crypto.randomUUID(),
-      })
+      await operations.run(
+        'permission-bundle-publish', (clientOperationId) => () => publish({
+          eventSlug,
+          bundleId: detail.bundle.id,
+          expectedBundleVersion: detail.bundle.version,
+          expectedDraftRevision: draft.revision,
+          reason,
+          clientOperationId,
+        }),
+      )
       setConfirmPublish(false)
       setReason('')
       setMessage('This access set is published, so it can now be given to people.')
@@ -544,7 +550,6 @@ function BundleEntryRow({
   )
 }
 
-/** A set nobody can be given ranks above one that is merely out of date. */
 function bundleRank(bundle: Bundle) {
   if (bundle.published === undefined) return 0
   if (bundle.draft !== undefined) return 1

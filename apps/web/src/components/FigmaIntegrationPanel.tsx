@@ -2,7 +2,8 @@ import { api } from '@code2create/backend/api'
 import { useAction, useMutation, useQuery } from 'convex/react'
 import { useState } from 'react'
 import { eventSlug } from '../lib/config'
-import { operationId, readableError } from '../lib/errors'
+import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 import type { CurrentFigmaIntegration } from '../types'
 import { ErrorNotice } from './Form'
 
@@ -28,9 +29,16 @@ export function FigmaIntegrationPanel() {
   const [archiveId, setArchiveId] = useState<
     CurrentFigmaIntegration['files'][number]['id'] | null
   >(null)
+  const [archiveTargetId, setArchiveTargetId] = useState<CurrentFigmaIntegration['files'][number]['id'] | null>(null)
+  const [refreshId, setRefreshId] = useState<CurrentFigmaIntegration['files'][number]['id'] | null>(null)
   const [archiveReason, setArchiveReason] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const operations = useOperationRunner()
+  const addPending = operations.hasPending('figma-file-add')
+  const refreshPending = operations.hasPending('figma-file-refresh')
+  const archivePending = operations.hasPending('figma-file-archive')
+  const operationPending = addPending || refreshPending || archivePending
 
   if (integration === undefined) {
     return <p className="muted" role="status">Loading Figma…</p>
@@ -61,15 +69,18 @@ export function FigmaIntegrationPanel() {
   }
 
   const saveFile = async () => {
-    if (!selectedConnection) return
+    if (!addPending && !selectedConnection) return
     setBusy('figma-add')
     setError(null)
     try {
-      await addFile({
-        eventSlug,
-        credentialConnectionId: selectedConnection.id,
-        fileUrl,
-        clientOperationId: operationId('figma-file-add'),
+      await operations.run('figma-file-add', (clientOperationId) => {
+        if (!selectedConnection) throw new Error('The Figma connection is no longer available.')
+        return () => addFile({
+          eventSlug,
+          credentialConnectionId: selectedConnection.id,
+          fileUrl,
+          clientOperationId,
+        })
       })
       setFileUrl('')
     } catch (caught) {
@@ -80,17 +91,21 @@ export function FigmaIntegrationPanel() {
   }
 
   const refresh = async (file: CurrentFigmaIntegration['files'][number]) => {
+    if (refreshPending && refreshId !== file.id) return
+    if (!refreshPending) setRefreshId(file.id)
     setBusy(file.id)
     setError(null)
     try {
-      await refreshFile({
-        eventSlug,
-        bindingId: file.id,
-        expectedVersion: file.version,
-        reason: 'Team requested current Figma data',
-        clientOperationId: operationId('figma-file-refresh'),
-      })
+      await operations.run('figma-file-refresh', (clientOperationId) => () => refreshFile({
+          eventSlug,
+          bindingId: file.id,
+          expectedVersion: file.version,
+          reason: 'Team requested current Figma data',
+          clientOperationId,
+        }))
+      setRefreshId(null)
     } catch (caught) {
+      if (!operations.hasPending('figma-file-refresh')) setRefreshId(null)
       setError(readableError(caught))
     } finally {
       setBusy(null)
@@ -98,18 +113,63 @@ export function FigmaIntegrationPanel() {
   }
 
   const archive = async (file: CurrentFigmaIntegration['files'][number]) => {
+    if (archivePending && archiveTargetId !== file.id) return
+    if (!archivePending) setArchiveTargetId(file.id)
     setBusy(file.id)
     setError(null)
     try {
-      await archiveFile({
-        eventSlug,
-        bindingId: file.id,
-        expectedVersion: file.version,
-        reason: archiveReason,
-        clientOperationId: operationId('figma-file-archive'),
+      await operations.run('figma-file-archive', (clientOperationId) => () => archiveFile({ eventSlug, bindingId: file.id, expectedVersion: file.version, reason: archiveReason, clientOperationId }))
+      setArchiveId(null)
+      setArchiveTargetId(null)
+      setArchiveReason('')
+    } catch (caught) {
+      if (!operations.hasPending('figma-file-archive')) setArchiveTargetId(null)
+      setError(readableError(caught))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const retryMissingArchive = async () => {
+    setBusy('figma-archive-recovery')
+    setError(null)
+    try {
+      await operations.run('figma-file-archive', () => () => {
+        throw new Error('There is no earlier Figma archive to confirm.')
       })
       setArchiveId(null)
+      setArchiveTargetId(null)
       setArchiveReason('')
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const retryMissingRefresh = async () => {
+    setBusy('figma-refresh-recovery')
+    setError(null)
+    try {
+      await operations.run('figma-file-refresh', () => () => {
+        throw new Error('There is no earlier Figma refresh to confirm.')
+      })
+      setRefreshId(null)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const retryMissingAdd = async () => {
+    setBusy('figma-add-recovery')
+    setError(null)
+    try {
+      await operations.run('figma-file-add', () => () => {
+        throw new Error('There is no earlier Figma file to confirm.')
+      })
+      setFileUrl('')
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -129,7 +189,7 @@ export function FigmaIntegrationPanel() {
           <button
             type="button"
             className="secondary"
-            disabled={busy === 'figma-connect'}
+            disabled={busy !== null || operationPending}
             onClick={connect}
           >
             {busy === 'figma-connect' ? 'Opening Figma…' : 'Connect Figma'}
@@ -210,6 +270,7 @@ export function FigmaIntegrationPanel() {
             <label className="field">
               <span className="field-label">Figma connection</span>
               <select
+                disabled={busy !== null || operationPending}
                 value={selectedConnection?.id ?? ''}
                 onChange={(event) => {
                   const connection = activeConnections.find(
@@ -228,6 +289,7 @@ export function FigmaIntegrationPanel() {
             <span className="field-label">Figma file link</span>
             <input
               value={fileUrl}
+              disabled={busy !== null || operationPending}
               maxLength={2048}
               placeholder="https://www.figma.com/design/…"
               onChange={(event) => setFileUrl(event.target.value)}
@@ -237,10 +299,15 @@ export function FigmaIntegrationPanel() {
             <button
               type="button"
               className="primary"
-              disabled={!canAdd || !fileUrl.trim() || busy === 'figma-add'}
+              disabled={
+                busy !== null ||
+                refreshPending ||
+                archivePending ||
+                (!addPending && (!canAdd || !fileUrl.trim()))
+              }
               onClick={saveFile}
             >
-              {busy === 'figma-add' ? 'Reading file…' : 'Add file'}
+              {busy === 'figma-add' ? 'Reading file…' : addPending ? 'Confirm earlier file' : 'Add file'}
             </button>
           </div>
         </div>
@@ -295,21 +362,45 @@ export function FigmaIntegrationPanel() {
               ) : null}
               {integration.canManage ? (
                 <div className="repository-actions">
-                  <button type="button" className="text-button" disabled={busy === file.id} onClick={() => refresh(file)}>
-                    {busy === file.id ? 'Working…' : 'Refresh'}
+                  <button
+                    type="button"
+                    className="text-button"
+                    disabled={
+                      busy !== null ||
+                      addPending ||
+                      archivePending ||
+                      (refreshPending && refreshId !== file.id)
+                    }
+                    onClick={() => refresh(file)}
+                  >
+                    {busy === file.id
+                      ? 'Working…'
+                      : refreshPending && refreshId === file.id
+                        ? 'Confirm earlier refresh'
+                        : 'Refresh'}
                   </button>
-                  <button type="button" className="text-button quiet-danger" disabled={busy === file.id} onClick={() => setArchiveId(file.id)}>Archive</button>
+                  <button
+                    type="button"
+                    className="text-button quiet-danger"
+                    disabled={busy !== null || operationPending}
+                    onClick={() => setArchiveId(file.id)}
+                  >Archive</button>
                 </div>
               ) : null}
-              {archiveId === file.id ? (
+              {archiveId === file.id || (archivePending && archiveTargetId === file.id) ? (
                 <div className="archive-confirmation">
                   <label className="field">
                     <span className="field-label">Why are you removing it?</span>
-                    <input value={archiveReason} maxLength={180} onChange={(event) => setArchiveReason(event.target.value)} />
+                    <input disabled={busy !== null || operationPending} value={archiveReason} maxLength={180} onChange={(event) => setArchiveReason(event.target.value)} />
                   </label>
                   <div className="button-row">
-                    <button type="button" className="secondary compact" onClick={() => { setArchiveId(null); setArchiveReason('') }}>Cancel</button>
-                    <button type="button" className="primary compact" disabled={!archiveReason.trim() || busy === file.id} onClick={() => archive(file)}>Archive</button>
+                    <button type="button" className="secondary compact" disabled={busy !== null || operationPending} onClick={() => { setArchiveId(null); setArchiveReason('') }}>Cancel</button>
+                    <button
+                      type="button"
+                      className="primary compact"
+                      disabled={busy !== null || addPending || refreshPending || (!archivePending && !archiveReason.trim())}
+                      onClick={() => archive(file)}
+                    >{archivePending && archiveTargetId === file.id ? 'Confirm earlier archive' : 'Archive'}</button>
                   </div>
                 </div>
               ) : null}
@@ -317,6 +408,45 @@ export function FigmaIntegrationPanel() {
           ))
         )}
       </div>
+      {archivePending && archiveTargetId && !integration.files.some((file) => file.id === archiveTargetId) ? (
+        <div className="archive-confirmation">
+          <p>The file is no longer active. Confirm the earlier archive response before continuing.</p>
+          <button
+            type="button"
+            className="primary compact"
+            disabled={busy !== null}
+            onClick={() => void retryMissingArchive()}
+          >
+            {busy === 'figma-archive-recovery' ? 'Confirming…' : 'Confirm earlier archive'}
+          </button>
+        </div>
+      ) : null}
+      {refreshPending && refreshId && !integration.files.some((file) => file.id === refreshId) ? (
+        <div className="archive-confirmation">
+          <p>The file changed while its refresh response was unavailable.</p>
+          <button
+            type="button"
+            className="primary compact"
+            disabled={busy !== null}
+            onClick={() => void retryMissingRefresh()}
+          >
+            {busy === 'figma-refresh-recovery' ? 'Confirming…' : 'Confirm earlier refresh'}
+          </button>
+        </div>
+      ) : null}
+      {addPending && (!selectedConnection || !canAdd) ? (
+        <div className="archive-confirmation">
+          <p>Confirm the earlier file addition before changing the Figma setup.</p>
+          <button
+            type="button"
+            className="primary compact"
+            disabled={busy !== null}
+            onClick={() => void retryMissingAdd()}
+          >
+            {busy === 'figma-add-recovery' ? 'Confirming…' : 'Confirm earlier file'}
+          </button>
+        </div>
+      ) : null}
       <ErrorNotice message={error} />
     </section>
   )

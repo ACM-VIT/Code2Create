@@ -13,6 +13,8 @@ import {
   floorCoordinate,
   floorDigest,
   floorLocationDescription,
+  maximumFloorLandmarksPerZone,
+  maximumFloorZones,
   nearestLandmarkName,
   placedTeamsInZone,
   publishedFloorPlan,
@@ -23,6 +25,7 @@ import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { normalizedText } from "./lib/strings";
+import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits";
 import { floorActiveMappingState, floorArea, floorMappingMode } from "./values";
 
 const landmarkView = v.object({
@@ -44,24 +47,6 @@ const placedTeamView = v.object({
 /** How many teams are sitting in each part of a zone, in reading order. */
 const areaLoadView = v.object({ area: floorArea, teamCount: v.number() });
 
-/**
- * How much of the hall is done, told to the people doing it. A mapper holds
- * floor.location.map, not floor.location.read, and that is right: read hands
- * over every team's name and exact position across the whole hall, which the
- * operations desk needs and a mapper does not — so it would be dishonest to
- * grant read just to answer "am I finished". But how many teams still have no
- * recorded spot, and how full each zone is, name nobody and place nobody;
- * they are the crew's own progress, visible to anyone standing in the room
- * counting dots, so they ride on the mapping grant instead of demanding a
- * wider one. Zone counts cover the whole plan, not just the caller's zones,
- * because "where is the hall still thin" is the question that sends a mapper
- * somewhere next.
- */
-const hallProgressView = v.object({
-  unplacedTeamCount: v.number(),
-  zones: v.array(v.object({ id: v.id("floorZones"), name: v.string(), teamCount: v.number() })),
-});
-
 const claimView = v.object({
   id: v.id("floorMappingClaims"),
   version: v.number(),
@@ -82,11 +67,68 @@ const claimView = v.object({
   ),
 });
 
-/**
- * Everything the mapper's screen draws: the shape of each zone the caller may
- * map into, the landmarks that tell them which way it faces, every team
- * already placed in it, and how many teams are in each part of it.
- */
+export const summary = query({
+  args: { eventSlug: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      mappingState: floorActiveMappingState,
+      placedTeamCount: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const plan = await publishedFloorPlan(ctx, event);
+    if (!plan || plan.mappingState === "setup") return null;
+    const mode: "map" | "override" = plan.mappingState === "open" ? "map" : "override";
+    const permissionKey = mode === "map" ? "floor.location.map" : "floor.location.override";
+    const zones = await ctx.db
+      .query("floorZones")
+      .withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id))
+      .take(maximumFloorZones + 1);
+    if (zones.length > maximumFloorZones) {
+      throw new Error(`A floor plan cannot contain more than ${maximumFloorZones} zones.`);
+    }
+    const grantsByZone = await Promise.all(
+      zones.map((zone) =>
+        matchingPermissionGrantIds(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey,
+          scopeType: "floor_zone",
+          scopeId: zone._id,
+        }),
+      ),
+    );
+    const visibleZones = zones.filter(
+      (_, index) => (grantsByZone[index]?.length ?? 0) > 0,
+    );
+    if (visibleZones.length === 0) return null;
+    let placedTeamCount = 0;
+    for (const zone of visibleZones) {
+      const locations = await ctx.db
+        .query("teamFloorLocations")
+        .withIndex("by_zone_state", (index) =>
+          index.eq("zoneId", zone._id).eq("state", "active"),
+        )
+        .take(maximumReviewTeamsPerEvent - placedTeamCount + 1);
+      placedTeamCount += locations.length;
+      if (placedTeamCount > maximumReviewTeamsPerEvent) {
+        throw new Error(
+          `A floor plan cannot contain more than ${maximumReviewTeamsPerEvent} active team locations.`,
+        );
+      }
+    }
+    return {
+      mappingState: plan.mappingState,
+      placedTeamCount,
+    };
+  },
+});
+
+/** Returns the zones, landmarks, placed teams, and area load visible to a mapper. */
 export const available = query({
   args: { eventSlug: v.string() },
   returns: v.union(
@@ -99,7 +141,6 @@ export const available = query({
         mappingState: floorActiveMappingState,
       }),
       mode: floorMappingMode,
-      hall: hallProgressView,
       zones: v.array(
         v.object({
           id: v.id("floorZones"),
@@ -124,7 +165,10 @@ export const available = query({
     const zones = await ctx.db
       .query("floorZones")
       .withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id))
-      .collect();
+      .take(maximumFloorZones + 1);
+    if (zones.length > maximumFloorZones) {
+      throw new Error(`A floor plan cannot contain more than ${maximumFloorZones} zones.`);
+    }
     const grantsByZone = await Promise.all(
       zones.map((zone) =>
         matchingPermissionGrantIds(ctx, {
@@ -138,54 +182,70 @@ export const available = query({
     );
     const visibleZones = zones.filter((_, index) => (grantsByZone[index]?.length ?? 0) > 0);
     if (visibleZones.length === 0) return null;
-    const [landmarks, locations, teams] = await Promise.all([
-      ctx.db
-        .query("floorLandmarks")
-        .withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id))
-        .collect(),
-      ctx.db
-        .query("teamFloorLocations")
-        .withIndex("by_plan_state", (index) => index.eq("planVersionId", plan._id).eq("state", "active"))
-        .collect(),
-      ctx.db
-        .query("teams")
-        .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
-        .collect(),
-    ]);
-    const teamById = new Map(teams.map((team) => [team._id, team]));
-    const mappedTeamIds = new Set(locations.map((location) => location.teamId));
+    const zoneViews = [];
+    let placedTeamCount = 0;
+    for (const zone of visibleZones) {
+      const [landmarks, locations] = await Promise.all([
+        ctx.db
+          .query("floorLandmarks")
+          .withIndex("by_zone_order", (index) => index.eq("zoneId", zone._id))
+          .take(maximumFloorLandmarksPerZone + 1),
+        ctx.db
+          .query("teamFloorLocations")
+          .withIndex("by_zone_state", (index) =>
+            index.eq("zoneId", zone._id).eq("state", "active"),
+          )
+          .take(maximumReviewTeamsPerEvent - placedTeamCount + 1),
+      ]);
+      if (
+        landmarks.length < 1 ||
+        landmarks.length > maximumFloorLandmarksPerZone
+      ) {
+        throw new Error("A visible floor zone does not match its landmark limits.");
+      }
+      placedTeamCount += locations.length;
+      if (placedTeamCount > maximumReviewTeamsPerEvent) {
+        throw new Error(
+          `A floor plan cannot contain more than ${maximumReviewTeamsPerEvent} active team locations.`,
+        );
+      }
+      const teams = await Promise.all(
+        locations.map((location) => ctx.db.get(location.teamId)),
+      );
+      const teamById = new Map<Id<"teams">, Doc<"teams">>();
+      for (const [index, location] of locations.entries()) {
+        const team = teams[index];
+        if (
+          !team ||
+          team.eventId !== event._id ||
+          location.eventId !== event._id ||
+          location.planVersionId !== plan._id ||
+          location.zoneId !== zone._id
+        ) {
+          throw new Error("A visible floor location is outside its event or zone.");
+        }
+        teamById.set(team._id, team);
+      }
+      const placed = placedTeamsInZone(locations, teamById, zone._id);
+      zoneViews.push({
+        id: zone._id,
+        name: zone.name,
+        widthMeters: zone.widthMeters,
+        depthMeters: zone.depthMeters,
+        landmarks: landmarks.map((landmark) => ({
+          id: landmark._id,
+          name: landmark.name,
+          x: landmark.x,
+          y: landmark.y,
+        })),
+        teams: placed,
+        areas: floorAreaLoad(placed),
+      });
+    }
     return {
       plan: { id: plan._id, name: plan.name, version: plan.version, mappingState: plan.mappingState },
       mode,
-      hall: {
-        unplacedTeamCount: teams.filter(
-          (team) => teamCanBeMapped(team.status) && !mappedTeamIds.has(team._id),
-        ).length,
-        zones: zones.map((zone) => ({
-          id: zone._id,
-          name: zone.name,
-          teamCount: locations.filter((location) => location.zoneId === zone._id).length,
-        })),
-      },
-      zones: visibleZones.map((zone) => {
-        const placed = placedTeamsInZone(locations, teamById, zone._id);
-        return {
-          id: zone._id,
-          name: zone.name,
-          widthMeters: zone.widthMeters,
-          depthMeters: zone.depthMeters,
-          landmarks: landmarks
-            .filter((landmark) => landmark.zoneId === zone._id)
-            .map((landmark) => ({
-              id: landmark._id,
-              name: landmark.name,
-              x: landmark.x,
-              y: landmark.y,
-            })),
-          teams: placed,
-          areas: floorAreaLoad(placed),
-        };
-      }),
+      zones: zoneViews,
     };
   },
 });
@@ -330,11 +390,7 @@ export const claimTeamQr = mutation({
   },
 });
 
-/**
- * Records where the mapper's finger landed on the zone rectangle. There is no
- * spot to take, so this never fails because somebody else is already there;
- * the only race it serializes is two people recording the same team.
- */
+/** Records a mapped position; only concurrent updates to the same team conflict. */
 export const assignClaim = mutation({
   args: {
     eventSlug: v.string(),
@@ -455,9 +511,7 @@ export const assignClaim = mutation({
         ? normalizedText(args.reason ?? "", "Override reason", 5, 300)
         : undefined;
     const area = floorAreaAt(x, y);
-    // Every accepted scan is a fresh sighting of the team, so it always
-    // becomes a new record. "Unchanged" only means nobody would describe the
-    // team differently afterwards, which is what the mapper is told.
+    // Each accepted scan is a new sighting even when its visible location is unchanged.
     const unchanged =
       currentLocation !== null &&
       currentLocation.zoneId === zone._id &&

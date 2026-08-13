@@ -14,13 +14,22 @@ import {
   operationFingerprint,
   recordOperation,
 } from "./lib/operations";
+import { appendSupportCaseReadFactById } from "./lib/operationsAutonomyReadFacts";
 import {
+  boundedActivePermissionGrants,
   matchingPermissionGrantIds,
   requirePermission,
 } from "./lib/permissions";
 import { normalizedLongText, normalizedText } from "./lib/strings";
 import {
+  applySupportCaseCounterChange,
   canTransitionSupportCase,
+  emptySupportCaseCounters,
+  isActiveSupportCaseState,
+  supportCaseCounterShardCount,
+  supportCaseCounterShardFor,
+  type SupportCaseCounterSource,
+  type SupportCaseCounters,
   type SupportCaseState,
 } from "./lib/supportCases";
 import { supportCaseCategory, supportCaseState } from "./values";
@@ -71,11 +80,7 @@ const caseView = v.object({
   canManage: v.boolean(),
 });
 
-/**
- * Event-wide counts. The desk needs to know how much work exists, not how much
- * of it fitted on the page it was handed, so these are counted over every case
- * the reader can see rather than over the returned rows.
- */
+/** Counts all readable cases, independently of pagination. */
 const staffTotals = v.object({
   open: v.number(),
   investigating: v.number(),
@@ -112,6 +117,12 @@ const actionView = v.object({
   createdAt: v.number(),
 });
 
+const detailView = v.object({
+  viewer: v.union(v.literal("reporter"), v.literal("staff")),
+  supportCase: caseView,
+  actions: v.array(actionView),
+});
+
 const createResult = v.object({
   id: v.id("supportCases"),
   publicCode: v.string(),
@@ -119,12 +130,15 @@ const createResult = v.object({
 });
 
 const activeCaseStates = ["open", "investigating", "waiting"] as const;
+const supportSummaryLimit = 20;
 
 /** How many rows one staff page carries. Totals are counted separately. */
 const staffPageSize = 80;
+const ownerCandidateLimit = 80;
+const maximumActiveSupportPermissionGrants = 2_000;
 
 function isLiveState(state: SupportCaseState) {
-  return activeCaseStates.some((candidate) => candidate === state);
+  return isActiveSupportCaseState(state);
 }
 
 function matchesStaffFilter(state: SupportCaseState, filter: StaffStateFilter) {
@@ -168,22 +182,12 @@ async function activePermissionGrants(
   eventAccessSubjectId: Id<"eventAccessSubjects">,
   permissionKey: SupportPermissionKey,
 ) {
-  const now = Date.now();
-  const grants = await ctx.db
-    .query("permissionGrants")
-    .withIndex("by_subject_permission_status", (index) =>
-      index
-        .eq("eventAccessSubjectId", eventAccessSubjectId)
-        .eq("permissionKey", permissionKey)
-        .eq("status", "active"),
-    )
-    .collect();
-  return grants.filter(
-    (grant) =>
-      grant.eventId === eventId &&
-      grant.validFrom <= now &&
-      (grant.validUntil === undefined || grant.validUntil > now),
-  );
+  return boundedActivePermissionGrants(ctx, {
+    eventId,
+    eventAccessSubjectId,
+    permissionKey,
+    maximumGrantCount: maximumActiveSupportPermissionGrants,
+  });
 }
 
 function hasEventGrant(grants: Doc<"permissionGrants">[]) {
@@ -202,55 +206,9 @@ function exactCaseGrantIds(grants: Doc<"permissionGrants">[]) {
   );
 }
 
-type CaseActivity = {
-  lastActionAt: number;
-  firstResponseAt?: number;
-  awaitingStaffReply: boolean;
-};
-
-/**
- * Who spoke last, and when.
- *
- * `updatedAt` moves on every write, including an internal note nobody outside
- * the desk can see, so it cannot say whether the reporter is still waiting. The
- * action log can: `opened` and `reporter_reply` put the ball with the desk and
- * `public_note` gives it back. State and owner changes are bookkeeping and
- * leave the turn where it was, which also keeps the answer stable when a reply
- * and the state change it triggers land on the same millisecond.
- */
-async function caseActivity(
-  ctx: ReadCtx,
-  supportCaseId: Id<"supportCases">,
-): Promise<CaseActivity> {
-  const actions = await ctx.db
-    .query("supportCaseActions")
-    .withIndex("by_case_time", (index) =>
-      index.eq("supportCaseId", supportCaseId),
-    )
-    .collect();
-  let lastActionAt = 0;
-  let firstResponseAt: number | undefined;
-  let awaitingStaffReply = false;
-  for (const action of actions) {
-    lastActionAt = action.createdAt;
-    if (action.kind === "public_note") {
-      firstResponseAt ??= action.createdAt;
-      awaitingStaffReply = false;
-    } else if (action.kind === "opened" || action.kind === "reporter_reply") {
-      awaitingStaffReply = true;
-    }
-  }
-  return {
-    lastActionAt,
-    ...(firstResponseAt !== undefined ? { firstResponseAt } : {}),
-    awaitingStaffReply,
-  };
-}
-
 async function toCaseView(
   ctx: ReadCtx,
   supportCase: SupportCaseDoc,
-  activity: CaseActivity,
   viewerPersonId: Id<"people">,
   canReply: boolean,
   canManage: boolean,
@@ -296,14 +254,134 @@ async function toCaseView(
     version: supportCase.version,
     createdAt: supportCase.createdAt,
     updatedAt: supportCase.updatedAt,
-    lastActionAt: activity.lastActionAt,
-    ...(activity.firstResponseAt !== undefined
-      ? { firstResponseAt: activity.firstResponseAt }
+    lastActionAt: supportCase.lastActionAt,
+    ...(supportCase.firstResponseAt !== undefined
+      ? { firstResponseAt: supportCase.firstResponseAt }
       : {}),
-    awaitingStaffReply: activity.awaitingStaffReply,
+    awaitingStaffReply: supportCase.awaitingStaffReply,
     canReply,
     canManage,
   };
+}
+
+function counterSource(
+  supportCase: Pick<
+    SupportCaseDoc,
+    "state" | "category" | "ownerPersonId" | "awaitingStaffReply"
+  >,
+): SupportCaseCounterSource {
+  return {
+    state: supportCase.state,
+    category: supportCase.category,
+    ...(supportCase.ownerPersonId !== undefined
+      ? { ownerPersonId: supportCase.ownerPersonId }
+      : {}),
+    awaitingStaffReply: supportCase.awaitingStaffReply,
+  };
+}
+
+function statsCounters(stats: Doc<"supportCaseStatShards">): SupportCaseCounters {
+  return {
+    open: stats.open,
+    investigating: stats.investigating,
+    waiting: stats.waiting,
+    resolved: stats.resolved,
+    closed: stats.closed,
+    unowned: stats.unowned,
+    awaitingStaffReply: stats.awaitingStaffReply,
+    safety: stats.safety,
+  };
+}
+
+function sameCounters(left: SupportCaseCounters, right: SupportCaseCounters) {
+  return (
+    left.open === right.open &&
+    left.investigating === right.investigating &&
+    left.waiting === right.waiting &&
+    left.resolved === right.resolved &&
+    left.closed === right.closed &&
+    left.unowned === right.unowned &&
+    left.awaitingStaffReply === right.awaitingStaffReply &&
+    left.safety === right.safety
+  );
+}
+
+async function updateSupportCaseStats(
+  ctx: MutationCtx,
+  args: {
+    eventId: Id<"events">;
+    supportCaseId: Id<"supportCases">;
+    before?: SupportCaseCounterSource;
+    after?: SupportCaseCounterSource;
+    now: number;
+  },
+) {
+  const shard = supportCaseCounterShardFor(args.supportCaseId);
+  const stats = await ctx.db
+    .query("supportCaseStatShards")
+    .withIndex("by_event_shard", (index) =>
+      index.eq("eventId", args.eventId).eq("shard", shard),
+    )
+    .unique();
+  if (stats === null) {
+    if (args.before !== undefined) {
+      throw new Error("Support case statistics are missing for an existing case.");
+    }
+    const counters = applySupportCaseCounterChange(
+      emptySupportCaseCounters(),
+      undefined,
+      args.after,
+    );
+    await ctx.db.insert("supportCaseStatShards", {
+      eventId: args.eventId,
+      shard,
+      ...counters,
+      version: 1,
+      updatedAt: args.now,
+    });
+    return;
+  }
+  const current = statsCounters(stats);
+  const counters = applySupportCaseCounterChange(
+    current,
+    args.before,
+    args.after,
+  );
+  if (sameCounters(current, counters)) return;
+  await ctx.db.patch(stats._id, {
+    ...counters,
+    version: stats.version + 1,
+    updatedAt: args.now,
+  });
+}
+
+function sumStatShards(stats: readonly Doc<"supportCaseStatShards">[]) {
+  if (stats.length > supportCaseCounterShardCount) {
+    throw new Error("Support statistics exceed the configured shard count.");
+  }
+  const totals = emptySupportCaseCounters();
+  for (const shard of stats) {
+    const counters = statsCounters(shard);
+    for (const state of activeCaseStates) totals[state] += counters[state];
+    totals.resolved += counters.resolved;
+    totals.closed += counters.closed;
+    totals.unowned += counters.unowned;
+    totals.awaitingStaffReply += counters.awaitingStaffReply;
+    totals.safety += counters.safety;
+  }
+  return totals;
+}
+
+function countersForCases(cases: readonly SupportCaseDoc[]) {
+  let counters = emptySupportCaseCounters();
+  for (const supportCase of cases) {
+    counters = applySupportCaseCounterChange(
+      counters,
+      undefined,
+      counterSource(supportCase),
+    );
+  }
+  return counters;
 }
 
 async function caseActions(
@@ -606,9 +684,15 @@ async function insertSupportCase(
       ? { attendanceSessionId: args.attendanceSessionId }
       : {}),
     state: "open",
+    lastActionAt: args.now,
+    awaitingStaffReply: true,
     version: 1,
     createdAt: args.now,
     updatedAt: args.now,
+  });
+  await appendSupportCaseReadFactById(ctx, {
+    caseId: supportCaseId,
+    now: args.now,
   });
   await ctx.db.insert("supportCaseActions", {
     eventId: args.eventId,
@@ -618,6 +702,16 @@ async function insertSupportCase(
     actorPersonId: args.reporterPersonId,
     body: args.description,
     createdAt: args.now,
+  });
+  await updateSupportCaseStats(ctx, {
+    eventId: args.eventId,
+    supportCaseId,
+    after: {
+      state: "open",
+      category: args.category,
+      awaitingStaffReply: true,
+    },
+    now: args.now,
   });
   return { id: supportCaseId, publicCode, version: 1 };
 }
@@ -655,13 +749,48 @@ export const mine = query({
         toCaseView(
           ctx,
           supportCase,
-          await caseActivity(ctx, supportCase._id),
           person._id,
           replyGrants.length > 0 && supportCase.state !== "closed",
           false,
         ),
       ),
     );
+  },
+});
+
+export const mineSummary = query({
+  args: { eventSlug: v.string() },
+  returns: v.object({ openCount: v.number(), countIsLowerBound: v.boolean() }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "support.case.read",
+      scopeType: "self",
+      scopeId: subject._id,
+    });
+    const activeCases = (
+      await Promise.all(
+        activeCaseStates.map((state) =>
+          ctx.db
+            .query("supportCases")
+            .withIndex("by_event_reporter_state_updated", (index) =>
+              index
+                .eq("eventId", event._id)
+                .eq("reporterPersonId", person._id)
+                .eq("state", state),
+            )
+            .take(supportSummaryLimit + 1),
+        ),
+      )
+    ).flat();
+    return {
+      openCount: Math.min(activeCases.length, supportSummaryLimit),
+      countIsLowerBound: activeCases.length > supportSummaryLimit,
+    };
   },
 });
 
@@ -672,6 +801,7 @@ export const staffList = query({
     canCreate: v.boolean(),
     totals: staffTotals,
     cases: v.array(caseView),
+    caseLimitReached: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -691,79 +821,85 @@ export const staffList = query({
     const exactReadIds = exactCaseGrantIds(readGrants);
     const canManageEvent = hasEventGrant(manageGrants);
     const exactManageIds = exactCaseGrantIds(manageGrants);
-    /**
-     * The whole readable set, because the stat strip and the filter both have
-     * to describe the event rather than the page. The rows are then cut from
-     * this in memory, which costs one scan instead of one scan plus a page
-     * query.
-     */
-    const visibleCases: SupportCaseDoc[] = canReadEvent
-      ? await ctx.db
+    let totals: SupportCaseCounters;
+    let candidates: SupportCaseDoc[];
+    if (canReadEvent) {
+      const stats = await ctx.db
+        .query("supportCaseStatShards")
+        .withIndex("by_event_shard", (index) => index.eq("eventId", event._id))
+        .take(supportCaseCounterShardCount + 1);
+      totals = sumStatShards(stats);
+      if (args.state === "all") {
+        candidates = await ctx.db
           .query("supportCases")
-          .withIndex("by_event_updated", (index) =>
-            index.eq("eventId", event._id),
-          )
-          .collect()
-      : (
+          .withIndex("by_event_updated", (index) => index.eq("eventId", event._id))
+          .order("desc")
+          .take(staffPageSize + 1);
+      } else if (args.state === "active") {
+        candidates = (
           await Promise.all(
-            [...exactReadIds].map((scopeId) => {
-              const supportCaseId = ctx.db.normalizeId("supportCases", scopeId);
-              return supportCaseId
-                ? ctx.db.get("supportCases", supportCaseId)
-                : Promise.resolve(null);
-            }),
+            activeCaseStates.map((state) =>
+              ctx.db
+                .query("supportCases")
+                .withIndex("by_event_state_updated", (index) =>
+                  index.eq("eventId", event._id).eq("state", state),
+                )
+                .order("desc")
+                .take(staffPageSize + 1),
+            ),
           )
-        ).flatMap((supportCase) =>
-          supportCase !== null && supportCase.eventId === event._id
-            ? [supportCase]
-            : [],
-        );
-
-    const liveCases = visibleCases.filter((supportCase) =>
-      isLiveState(supportCase.state),
-    );
-    const liveActivity = await Promise.all(
-      liveCases.map(
-        async (supportCase) =>
-          [supportCase._id, await caseActivity(ctx, supportCase._id)] as const,
-      ),
-    );
-    const liveActivityByCase = new Map(liveActivity);
-
-    const totals = {
-      open: 0,
-      investigating: 0,
-      waiting: 0,
-      resolved: 0,
-      closed: 0,
-      unowned: 0,
-      awaitingStaffReply: liveActivity.filter(
-        ([, activity]) => activity.awaitingStaffReply,
-      ).length,
-      safety: 0,
-    };
-    for (const supportCase of visibleCases) totals[supportCase.state] += 1;
-    for (const supportCase of liveCases) {
-      if (supportCase.ownerPersonId === undefined) totals.unowned += 1;
-      if (supportCase.category === "safety") totals.safety += 1;
+        ).flat();
+      } else {
+        const state = args.state;
+        candidates = await ctx.db
+          .query("supportCases")
+          .withIndex("by_event_state_updated", (index) =>
+            index.eq("eventId", event._id).eq("state", state),
+          )
+          .order("desc")
+          .take(staffPageSize + 1);
+      }
+    } else {
+      if (exactReadIds.size > staffPageSize) {
+        throw new ConvexError({
+          code: "SUPPORT_CASE_GRANT_LIMIT_EXCEEDED",
+          message: "This account has too many individually granted support cases. Use an event-wide support role.",
+        });
+      }
+      const readableCases = (
+        await Promise.all(
+          [...exactReadIds].map((scopeId) => {
+            const supportCaseId = ctx.db.normalizeId("supportCases", scopeId);
+            return supportCaseId
+              ? ctx.db.get("supportCases", supportCaseId)
+              : Promise.resolve(null);
+          }),
+        )
+      ).flatMap((supportCase) =>
+        supportCase !== null && supportCase.eventId === event._id
+          ? [supportCase]
+          : [],
+      );
+      totals = countersForCases(readableCases);
+      candidates = readableCases.filter((supportCase) =>
+        matchesStaffFilter(supportCase.state, args.state),
+      );
     }
 
-    const rows = visibleCases
-      .filter((supportCase) => matchesStaffFilter(supportCase.state, args.state))
-      .sort((left, right) => right.updatedAt - left.updatedAt)
-      .slice(0, staffPageSize);
+    const ordered = candidates.sort((left, right) => right.updatedAt - left.updatedAt);
+    const caseLimitReached = ordered.length > staffPageSize;
+    const rows = ordered.slice(0, staffPageSize);
 
     return {
       currentPersonId: person._id,
       canCreate: createGrants.length > 0,
       totals,
+      caseLimitReached,
       cases: await Promise.all(
         rows.map(async (supportCase) =>
           toCaseView(
             ctx,
             supportCase,
-            liveActivityByCase.get(supportCase._id) ??
-              (await caseActivity(ctx, supportCase._id)),
             person._id,
             false,
             canManageEvent || exactManageIds.has(supportCase._id),
@@ -774,11 +910,7 @@ export const staffList = query({
   },
 });
 
-/**
- * Everyone the desk can hand a case to. Ownership only means anything for
- * someone who can act on the case afterwards, so this is the set of active
- * event accounts holding event-wide `support.case.manage`.
- */
+/** Returns active event accounts with event-wide support.case.manage authority. */
 export const owners = query({
   args: { eventSlug: v.string() },
   returns: v.array(ownerCandidate),
@@ -798,38 +930,114 @@ export const owners = query({
         message: "This account cannot hand a support case to anyone.",
       });
     }
-    const subjects = await ctx.db
-      .query("eventAccessSubjects")
-      .withIndex("by_event_status_email", (index) =>
-        index.eq("eventId", event._id).eq("status", "active"),
+    const now = Date.now();
+    const grants = await ctx.db
+      .query("permissionGrants")
+      .withIndex("by_event_permission_status", (index) =>
+        index
+          .eq("eventId", event._id)
+          .eq("permissionKey", "support.case.manage")
+          .eq("status", "active"),
       )
-      .collect();
-    const candidates = await Promise.all(
-      subjects.map(async (candidate) => {
-        const grants = await activePermissionGrants(
-          ctx,
-          event._id,
-          candidate._id,
-          "support.case.manage",
-        );
-        return hasEventGrant(grants)
-          ? { personId: candidate.personId, displayName: candidate.displayName }
-          : null;
-      }),
+      .take(ownerCandidateLimit + 1);
+    if (grants.length > ownerCandidateLimit) {
+      throw new ConvexError({
+        code: "SUPPORT_OWNER_LIMIT_EXCEEDED",
+        message: "Too many support-manager grants are active. Retire duplicate grants before assigning an owner.",
+      });
+    }
+    const subjects = await Promise.all(
+      grants
+        .filter(
+          (grant) =>
+            grant.scopeType === "event" &&
+            grant.scopeId === undefined &&
+            grant.validFrom <= now &&
+            (grant.validUntil === undefined || grant.validUntil > now),
+        )
+        .map((grant) => ctx.db.get(grant.eventAccessSubjectId)),
     );
-    return candidates
-      .flatMap((candidate) => (candidate === null ? [] : [candidate]))
+    const candidates = new Map<Id<"people">, string>();
+    for (const candidate of subjects) {
+      if (candidate?.eventId === event._id && candidate.status === "active") {
+        candidates.set(candidate.personId, candidate.displayName);
+      }
+    }
+    return [...candidates]
+      .map(([personId, displayName]) => ({ personId, displayName }))
       .sort((left, right) => left.displayName.localeCompare(right.displayName));
   },
 });
 
+async function supportCaseDetail(
+  ctx: QueryCtx,
+  args: {
+    eventId: Id<"events">;
+    personId: Id<"people">;
+    eventAccessSubjectId: Id<"eventAccessSubjects">;
+    supportCase: SupportCaseDoc;
+  },
+) {
+  const supportCase = args.supportCase;
+  const isReporter = supportCase.reporterPersonId === args.personId;
+  const staffReadGrants = await matchingPermissionGrantIds(ctx, {
+    eventId: args.eventId,
+    eventAccessSubjectId: args.eventAccessSubjectId,
+    permissionKey: "support.case.read",
+    scopeType: "support_case",
+    scopeId: supportCase._id,
+  });
+  if (!isReporter && staffReadGrants.length === 0) {
+    throw new ConvexError({
+      code: "ACCESS_DENIED",
+      message: "This account cannot read that support case.",
+    });
+  }
+  if (isReporter) {
+    await requirePermission(ctx, {
+      eventId: args.eventId,
+      eventAccessSubjectId: args.eventAccessSubjectId,
+      permissionKey: "support.case.read",
+      scopeType: "self",
+      scopeId: args.eventAccessSubjectId,
+    });
+  }
+  const [replyGrants, manageGrants] = await Promise.all([
+    isReporter
+      ? matchingPermissionGrantIds(ctx, {
+          eventId: args.eventId,
+          eventAccessSubjectId: args.eventAccessSubjectId,
+          permissionKey: "support.case.reply",
+          scopeType: "self",
+          scopeId: args.eventAccessSubjectId,
+        })
+      : Promise.resolve([]),
+    matchingPermissionGrantIds(ctx, {
+      eventId: args.eventId,
+      eventAccessSubjectId: args.eventAccessSubjectId,
+      permissionKey: "support.case.manage",
+      scopeType: "support_case",
+      scopeId: supportCase._id,
+    }),
+  ]);
+  const staffViewer = staffReadGrants.length > 0;
+  const viewer: "reporter" | "staff" = staffViewer ? "staff" : "reporter";
+  return {
+    viewer,
+    supportCase: await toCaseView(
+      ctx,
+      supportCase,
+      args.personId,
+      isReporter && replyGrants.length > 0 && supportCase.state !== "closed",
+      manageGrants.length > 0,
+    ),
+    actions: await caseActions(ctx, supportCase, staffViewer),
+  };
+}
+
 export const detail = query({
   args: { eventSlug: v.string(), supportCaseId: v.id("supportCases") },
-  returns: v.object({
-    viewer: v.union(v.literal("reporter"), v.literal("staff")),
-    supportCase: caseView,
-    actions: v.array(actionView),
-  }),
+  returns: detailView,
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -841,61 +1049,41 @@ export const detail = query({
         message: "Support case not found.",
       });
     }
-    const isReporter = supportCase.reporterPersonId === person._id;
-    const staffReadGrants = await matchingPermissionGrantIds(ctx, {
+    return await supportCaseDetail(ctx, {
       eventId: event._id,
+      personId: person._id,
       eventAccessSubjectId: subject._id,
-      permissionKey: "support.case.read",
-      scopeType: "support_case",
-      scopeId: supportCase._id,
+      supportCase,
     });
-    if (!isReporter && staffReadGrants.length === 0) {
+  },
+});
+
+export const detailByPublicCode = query({
+  args: { eventSlug: v.string(), publicCode: v.string() },
+  returns: detailView,
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const publicCode = normalizedText(args.publicCode, "Support code", 3, 40);
+    const supportCase = await ctx.db
+      .query("supportCases")
+      .withIndex("by_event_code", (index) =>
+        index.eq("eventId", event._id).eq("publicCode", publicCode),
+      )
+      .unique();
+    if (!supportCase) {
       throw new ConvexError({
-        code: "ACCESS_DENIED",
-        message: "This account cannot read that support case.",
+        code: "SUPPORT_CASE_NOT_FOUND",
+        message: "Support case not found.",
       });
     }
-    if (isReporter) {
-      await requirePermission(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "support.case.read",
-        scopeType: "self",
-        scopeId: subject._id,
-      });
-    }
-    const [replyGrants, manageGrants] = await Promise.all([
-      isReporter
-        ? matchingPermissionGrantIds(ctx, {
-            eventId: event._id,
-            eventAccessSubjectId: subject._id,
-            permissionKey: "support.case.reply",
-            scopeType: "self",
-            scopeId: subject._id,
-          })
-        : Promise.resolve([]),
-      matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "support.case.manage",
-        scopeType: "support_case",
-        scopeId: supportCase._id,
-      }),
-    ]);
-    const staffViewer = staffReadGrants.length > 0;
-    const viewer: "reporter" | "staff" = staffViewer ? "staff" : "reporter";
-    return {
-      viewer,
-      supportCase: await toCaseView(
-        ctx,
-        supportCase,
-        await caseActivity(ctx, supportCase._id),
-        person._id,
-        isReporter && replyGrants.length > 0 && supportCase.state !== "closed",
-        manageGrants.length > 0,
-      ),
-      actions: await caseActions(ctx, supportCase, staffViewer),
-    };
+    return await supportCaseDetail(ctx, {
+      eventId: event._id,
+      personId: person._id,
+      eventAccessSubjectId: subject._id,
+      supportCase,
+    });
   },
 });
 
@@ -1002,7 +1190,7 @@ export const createSelf = mutation({
         category: args.category,
         state: "open",
       }),
-      reason: description,
+      reason: "Participant opened a support case.",
     });
     return result;
   },
@@ -1122,7 +1310,7 @@ export const createStaff = mutation({
         category: args.category,
         state: "open",
       }),
-      reason: description,
+      reason: "Staff opened a support case.",
     });
     return result;
   },
@@ -1205,11 +1393,27 @@ export const replySelf = mutation({
         ? "open"
         : supportCase.state;
     const now = Date.now();
+    const beforeCounters = counterSource(supportCase);
+    const afterCounters: SupportCaseCounterSource = {
+      state: nextState,
+      category: supportCase.category,
+      ...(supportCase.ownerPersonId !== undefined
+        ? { ownerPersonId: supportCase.ownerPersonId }
+        : {}),
+      awaitingStaffReply: true,
+    };
     await ctx.db.patch("supportCases", supportCase._id, {
       state: nextState,
       ...(supportCase.state === "resolved" ? { resolvedAt: undefined } : {}),
+      lastActionAt: now,
+      awaitingStaffReply: true,
       version: supportCase.version + 1,
       updatedAt: now,
+    });
+    await appendSupportCaseReadFactById(ctx, {
+      caseId: supportCase._id,
+      before: supportCase,
+      now,
     });
     await ctx.db.insert("supportCaseActions", {
       eventId: event._id,
@@ -1232,6 +1436,13 @@ export const replySelf = mutation({
         createdAt: now,
       });
     }
+    await updateSupportCaseStats(ctx, {
+      eventId: event._id,
+      supportCaseId: supportCase._id,
+      before: beforeCounters,
+      after: afterCounters,
+      now,
+    });
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1260,7 +1471,7 @@ export const replySelf = mutation({
         state: nextState,
         version: supportCase.version + 1,
       }),
-      reason: message,
+      reason: "Reporter added a support reply.",
     });
     return { id: supportCase._id, version: supportCase.version + 1 };
   },
@@ -1387,6 +1598,20 @@ export const updateStaff = mutation({
     }
     const nextState = requestedState ?? supportCase.state;
     const now = Date.now();
+    const firstResponseAt =
+      publicNote !== undefined && supportCase.firstResponseAt === undefined
+        ? now
+        : supportCase.firstResponseAt;
+    const awaitingStaffReply = publicNote === undefined
+      ? supportCase.awaitingStaffReply
+      : false;
+    const beforeCounters = counterSource(supportCase);
+    const afterCounters: SupportCaseCounterSource = {
+      state: nextState,
+      category: supportCase.category,
+      ...(nextOwnerPersonId !== undefined ? { ownerPersonId: nextOwnerPersonId } : {}),
+      awaitingStaffReply,
+    };
     const lifecycle = stateChanged
       ? nextState === "resolved"
         ? { resolvedAt: now, closedAt: undefined }
@@ -1398,8 +1623,18 @@ export const updateStaff = mutation({
       ...(stateChanged ? { state: nextState } : {}),
       ...(ownerChanged ? { ownerPersonId: nextOwnerPersonId } : {}),
       ...lifecycle,
+      lastActionAt: now,
+      ...(firstResponseAt !== supportCase.firstResponseAt
+        ? { firstResponseAt }
+        : {}),
+      awaitingStaffReply,
       version: supportCase.version + 1,
       updatedAt: now,
+    });
+    await appendSupportCaseReadFactById(ctx, {
+      caseId: supportCase._id,
+      before: supportCase,
+      now,
     });
     if (stateChanged) {
       await ctx.db.insert("supportCaseActions", {
@@ -1451,6 +1686,13 @@ export const updateStaff = mutation({
         createdAt: now,
       });
     }
+    await updateSupportCaseStats(ctx, {
+      eventId: event._id,
+      supportCaseId: supportCase._id,
+      before: beforeCounters,
+      after: afterCounters,
+      now,
+    });
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,

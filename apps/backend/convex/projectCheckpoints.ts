@@ -16,12 +16,14 @@ import {
 } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { loadPublishedPhaseSchedule } from "./lib/phaseSchedule";
-import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
+import { requirePermission } from "./lib/permissions";
 import {
   loadPublishedProjectCheckpointPlan,
   projectCheckpointKeys,
 } from "./lib/projectCheckpointPlan";
 import { normalizedLongText } from "./lib/strings";
+import { activeGrantScopes } from "./lib/synesthesia";
+import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits";
 import { projectCheckpointKey, teamStatus, type ProjectCheckpointKey } from "./values";
 
 const checkpointAvailability = v.union(
@@ -78,7 +80,12 @@ const checkpointView = v.object({
   submission: v.union(v.null(), submissionView),
 });
 
-const admittedTeamStatuses = ["confirmed", "checked_in", "active"] as const satisfies readonly Doc<"teams">["status"][];
+const admittedTeamStatuses = [
+  "confirmed",
+  "checked_in",
+  "active",
+  "completed",
+] as const satisfies readonly Doc<"teams">["status"][];
 
 function isAdmittedTeam(team: Doc<"teams">) {
   return admittedTeamStatuses.some((status) => status === team.status);
@@ -372,12 +379,13 @@ export const eventState = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    await requirePermission(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "project.checkpoint.read",
-      scopeType: "event",
-    });
+    const scope = await readableProjectTeamScope(ctx, event._id, subject._id);
+    if (!scope.eventWide && scope.teamIds.length === 0) {
+      throw new ConvexError({
+        code: "ACCESS_DENIED",
+        message: "This account cannot read project checkpoints.",
+      });
+    }
     const [publishedPlan, publishedSchedule] = await Promise.all([
       loadPublishedProjectCheckpointPlan(ctx, event),
       loadPublishedPhaseSchedule(ctx, event),
@@ -818,6 +826,46 @@ const operationsTeamView = v.object({
   timing: v.optional(v.union(v.literal("on_time"), v.literal("late"))),
 });
 
+const operationsSummary = v.object({
+  totalTeamCount: v.number(),
+  submittedCount: v.number(),
+  outstandingCount: v.number(),
+});
+
+export function projectCheckpointSummaryCounts(
+  readableTeamIds: readonly string[],
+  submittedTeamIds: ReadonlySet<string>,
+) {
+  const submittedCount = readableTeamIds.filter((teamId) =>
+    submittedTeamIds.has(teamId),
+  ).length;
+  return {
+    totalTeamCount: readableTeamIds.length,
+    submittedCount,
+    outstandingCount: readableTeamIds.length - submittedCount,
+  };
+}
+
+async function readableProjectTeamScope(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+) {
+  const scopes = await activeGrantScopes(ctx, {
+    eventId,
+    eventAccessSubjectId,
+    permissionKey: "project.checkpoint.read",
+    maximumScopeCount: maximumReviewTeamsPerEvent,
+  });
+  return {
+    eventWide: scopes.eventWide,
+    teamIds: [...scopes.scopeIds].flatMap((scopeId) => {
+      const teamId = ctx.db.normalizeId("teams", scopeId);
+      return teamId ? [teamId] : [];
+    }),
+  };
+}
+
 export const teams = query({
   args: {
     eventSlug: v.string(),
@@ -829,21 +877,27 @@ export const teams = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const page = await ctx.db
+    const scope = await readableProjectTeamScope(ctx, event._id, subject._id);
+    const eventTeams = ctx.db
       .query("teams")
-      .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
-      .paginate(args.paginationOpts);
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id));
+    const readableTeams = scope.eventWide
+      ? eventTeams
+      : scope.teamIds.length === 0
+        ? eventTeams.filter((filter) =>
+            filter.neq(filter.field("eventId"), event._id),
+          )
+        : eventTeams.filter((filter) =>
+            filter.or(
+              ...scope.teamIds.map((teamId) =>
+                filter.eq(filter.field("_id"), teamId),
+              ),
+            ),
+          );
+    const page = await readableTeams.paginate(args.paginationOpts);
     const visible = [];
     const now = Date.now();
     for (const team of page.page) {
-      const grantIds = await matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "project.checkpoint.read",
-        scopeType: "team",
-        scopeId: team._id,
-      });
-      if (grantIds.length === 0) continue;
       const [draft, submission] = await Promise.all([
         existingDraft(ctx, team._id, args.checkpointKey),
         existingSubmission(ctx, team._id, args.checkpointKey),
@@ -877,5 +931,37 @@ export const teams = query({
       });
     }
     return { ...page, page: visible };
+  },
+});
+
+export const operationsCheckpointSummary = query({
+  args: {
+    eventSlug: v.string(),
+    checkpointKey: projectCheckpointKey,
+  },
+  returns: operationsSummary,
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const scope = await readableProjectTeamScope(ctx, event._id, subject._id);
+    const eventTeams = await ctx.db
+      .query("teams")
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
+      .collect();
+    const readableTeams = (scope.eventWide
+      ? eventTeams
+      : eventTeams.filter((team) => scope.teamIds.some((teamId) => teamId === team._id)))
+      .filter(isAdmittedTeam);
+    const submissions = await ctx.db
+      .query("teamCheckpointSubmissions")
+      .withIndex("by_event_key_submitted", (index) =>
+        index.eq("eventId", event._id).eq("checkpointKey", args.checkpointKey),
+      )
+      .collect();
+    return projectCheckpointSummaryCounts(
+      readableTeams.map((team) => team._id),
+      new Set(submissions.map((submission) => submission.teamId)),
+    );
   },
 });

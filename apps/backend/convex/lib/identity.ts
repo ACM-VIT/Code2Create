@@ -96,6 +96,73 @@ export async function requireFreshAuthSession(
   return { sessionId: current.session.id, createdAt };
 }
 
+export async function refreshExistingPersonIdentity(
+  ctx: MutationCtx,
+  args: {
+    person: Doc<"people">;
+    verifiedEmail: string;
+    displayName: string;
+    now: number;
+  },
+) {
+  const emailChanged = args.person.verifiedEmail !== args.verifiedEmail;
+  const displayNameChanged = args.person.displayName !== args.displayName;
+  if (!emailChanged && !displayNameChanged) return args.person;
+  if (emailChanged) {
+    const emailOwner = await ctx.db
+      .query("people")
+      .withIndex("by_verified_email", (query) =>
+        query.eq("verifiedEmail", args.verifiedEmail),
+      )
+      .unique();
+    if (emailOwner && emailOwner._id !== args.person._id) {
+      throw new ConvexError({
+        code: "IDENTITY_LINK_REQUIRED",
+        message: "This verified email is already linked to another account.",
+      });
+    }
+  }
+  const eventSubjects = await ctx.db
+    .query("eventAccessSubjects")
+    .withIndex("by_person", (query) => query.eq("personId", args.person._id))
+    .collect();
+  if (emailChanged) {
+    for (const subject of eventSubjects) {
+      const eventEmailOwner = await ctx.db
+        .query("eventAccessSubjects")
+        .withIndex("by_event_email", (query) =>
+          query.eq("eventId", subject.eventId).eq("emailNormalized", args.verifiedEmail),
+        )
+        .unique();
+      if (eventEmailOwner && eventEmailOwner._id !== subject._id) {
+        throw new ConvexError({
+          code: "EVENT_EMAIL_CONFLICT",
+          message: "This verified email belongs to another account in an event.",
+        });
+      }
+    }
+  }
+  await ctx.db.patch(args.person._id, {
+    verifiedEmail: args.verifiedEmail,
+    displayName: args.displayName,
+    updatedAt: args.now,
+  });
+  for (const subject of eventSubjects) {
+    await ctx.db.patch(subject._id, {
+      emailNormalized: args.verifiedEmail,
+      displayName: args.displayName,
+      accessVersion: emailChanged ? subject.accessVersion + 1 : subject.accessVersion,
+      updatedAt: args.now,
+    });
+  }
+  return {
+    ...args.person,
+    verifiedEmail: args.verifiedEmail,
+    displayName: args.displayName,
+    updatedAt: args.now,
+  };
+}
+
 export async function ensurePerson(
   ctx: MutationCtx,
 ): Promise<{
@@ -124,19 +191,13 @@ export async function ensurePerson(
         message: "This account is linked to another Google identity.",
       });
     }
-    if (existing.verifiedEmail !== verifiedEmail || existing.displayName !== user.name) {
-      await ctx.db.patch(existing._id, {
-        verifiedEmail,
-        displayName: user.name,
-        updatedAt: now,
-      });
-      return {
-        user,
-        person: { ...existing, verifiedEmail, displayName: user.name, updatedAt: now },
-        googleIdentity,
-      };
-    }
-    return { user, person: existing, googleIdentity };
+    const person = await refreshExistingPersonIdentity(ctx, {
+      person: existing,
+      verifiedEmail,
+      displayName: user.name,
+      now,
+    });
+    return { user, person, googleIdentity };
   }
 
   const subjectOwner = await ctx.db

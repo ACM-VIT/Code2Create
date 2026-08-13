@@ -1,10 +1,11 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 
 type AttendanceOverview = FunctionReturnType<typeof api.attendanceOperations.overview>
 type AttendanceSession = AttendanceOverview['sessions'][number]
@@ -31,7 +32,8 @@ export function AttendanceReconciliation({
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const correctionAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceReconciliation.reconcile>>()
+  const correctionPending = correctionAttempt.hasPending('attendance-reconciliation')
   const preview = useQuery(
     api.attendanceOperations.reconciliationPreview,
     open
@@ -43,7 +45,7 @@ export function AttendanceReconciliation({
       : 'skip',
   )
 
-  if (session.status !== 'open' || options.length === 0) return null
+  if ((session.status !== 'open' || options.length === 0) && !correctionPending) return null
   const previewChanged = preview !== undefined && preview.participantVersion !== participant.version
 
   const chooseAction = (value: string) => {
@@ -55,56 +57,68 @@ export function AttendanceReconciliation({
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
-    const request = {
-      eventSlug,
-      sessionId: session.id,
-      membershipId: participant.membershipId,
-      expectedSessionVersion: session.version,
-      expectedParticipantVersion: participant.version,
-      reason,
-      clientOperationId,
-    }
     setBusy(true)
     setError(null)
     try {
-      if (action === 'void_last_transition') {
-        if (!participant.lastEventId) {
-          setError('The latest scanner event changed. Refresh and try again.')
-          return
+      await correctionAttempt.run('attendance-reconciliation', () => {
+        if (action === 'void_last_transition') {
+          const sourceEventId = participant.lastEventId
+          if (!sourceEventId) throw new Error('The latest scanner event changed. Refresh and try again.')
+          const args = {
+            eventSlug,
+            sessionId: session.id,
+            membershipId: participant.membershipId,
+            expectedSessionVersion: session.version,
+            expectedParticipantVersion: participant.version,
+            reason,
+            clientOperationId: crypto.randomUUID(),
+            action: {
+              kind: 'void_last_transition' as const,
+              sourceEventId,
+            },
+          }
+          return () => reconcile(args)
         }
-        await reconcile({
-          ...request,
-          action: {
-            kind: 'void_last_transition',
-            sourceEventId: participant.lastEventId,
-          },
-        })
-      } else {
         const timestamp = Date.parse(effectiveAt)
-        if (!Number.isSafeInteger(timestamp)) {
-          setError('Choose a valid effective time.')
-          return
-        }
+        if (!Number.isSafeInteger(timestamp)) throw new Error('Choose a valid effective time.')
         if (action === 'mark_present') {
-          await reconcile({
-            ...request,
-            action: { kind: 'mark_present', effectiveAt: timestamp },
-          })
-        } else if (action === 'mark_temporarily_out') {
-          await reconcile({
-            ...request,
-            action: { kind: 'mark_temporarily_out', effectiveAt: timestamp },
-          })
-        } else {
-          await reconcile({
-            ...request,
-            action: { kind: 'mark_needs_review', effectiveAt: timestamp },
-          })
+          const args = {
+            eventSlug,
+            sessionId: session.id,
+            membershipId: participant.membershipId,
+            expectedSessionVersion: session.version,
+            expectedParticipantVersion: participant.version,
+            reason,
+            clientOperationId: crypto.randomUUID(),
+            action: { kind: 'mark_present' as const, effectiveAt: timestamp },
+          }
+          return () => reconcile(args)
         }
-      }
-      operationRef.current = null
+        if (action === 'mark_temporarily_out') {
+          const args = {
+            eventSlug,
+            sessionId: session.id,
+            membershipId: participant.membershipId,
+            expectedSessionVersion: session.version,
+            expectedParticipantVersion: participant.version,
+            reason,
+            clientOperationId: crypto.randomUUID(),
+            action: { kind: 'mark_temporarily_out' as const, effectiveAt: timestamp },
+          }
+          return () => reconcile(args)
+        }
+        const args = {
+          eventSlug,
+          sessionId: session.id,
+          membershipId: participant.membershipId,
+          expectedSessionVersion: session.version,
+          expectedParticipantVersion: participant.version,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+          action: { kind: 'mark_needs_review' as const, effectiveAt: timestamp },
+        }
+        return () => reconcile(args)
+      })
       setReason('')
       setOpen(false)
     } catch (caught) {
@@ -127,7 +141,7 @@ export function AttendanceReconciliation({
       <div className="attendance-correction-fields">
         <label className="field">
           <span>Correction</span>
-          <select value={action} onChange={(event) => chooseAction(event.target.value)}>
+          <select disabled={busy || correctionPending} value={action} onChange={(event) => chooseAction(event.target.value)}>
             {options.map((option) => (
               <option key={option.kind} value={option.kind}>{option.label}</option>
             ))}
@@ -139,6 +153,7 @@ export function AttendanceReconciliation({
             <input
               type="datetime-local"
               step="60"
+              disabled={busy || correctionPending}
               value={effectiveAt}
               onChange={(event) => setEffectiveAt(event.target.value)}
             />
@@ -147,6 +162,7 @@ export function AttendanceReconciliation({
         <label className="field attendance-correction-reason">
           <span>Reason</span>
           <textarea
+            disabled={busy || correctionPending}
             required
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -182,20 +198,26 @@ export function AttendanceReconciliation({
         </div>
       )}
       {previewChanged ? (
-        <p className="notice error" role="alert">Attendance changed while this form was open. Close it and review the new state.</p>
+        <p className="notice error" role="alert">
+          {correctionPending
+            ? 'Attendance changed after the earlier correction was sent. Confirm that exact correction before continuing.'
+            : 'Attendance changed while this form was open. Close it and review the new state.'}
+        </p>
       ) : null}
       <div className="button-row">
         <button
           className="primary"
           type="submit"
-          disabled={busy || preview === undefined || previewChanged || reason.trim().length < 5}
+          disabled={busy || (!correctionPending && (
+            preview === undefined || previewChanged || reason.trim().length < 5
+          ))}
         >
-          {busy ? 'Saving…' : 'Save correction'}
+          {busy ? 'Saving…' : correctionPending ? 'Confirm correction' : 'Save correction'}
         </button>
         <button
           className="secondary"
           type="button"
-          disabled={busy}
+          disabled={busy || correctionPending}
           onClick={() => {
             setOpen(false)
             setError(null)

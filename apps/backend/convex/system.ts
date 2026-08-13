@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { ensurePerson, requireVerifiedGoogleIdentity } from "./lib/identity";
@@ -19,13 +20,16 @@ import {
   intakePolicyInput,
   normalizeIntakePolicy,
 } from "./lib/intakePolicy";
+import {
+  integrationPolicyChecksum,
+  normalizeIntegrationPolicy,
+} from "./lib/integrationPolicy";
 import { localBrowserFixtureOrigins } from "./lib/localBrowserFixtures";
 import {
-  defaultOperationsIntelligencePolicy,
-  localDateKey,
-  normalizeOperationsIntelligencePolicy,
-  operationsIntelligencePolicyChecksum,
-} from "./lib/operationsIntelligencePolicy";
+  defaultOperationsAutonomyPolicy,
+  normalizeOperationsAutonomyPolicy,
+  operationsAutonomyPolicyChecksum,
+} from "./lib/operationsAutonomyPolicy";
 import {
   loadPublishedParticipantPolicy,
   normalizeParticipantPolicy,
@@ -34,9 +38,13 @@ import {
 } from "./lib/participantPolicy";
 import { addEventSubjectSelfGrants, insertPermissionGrant } from "./lib/permissions";
 import type { PermissionKey } from "./lib/permissionCatalog";
-import { fingerprintText, normalizeEmail, normalizedText } from "./lib/strings";
+import { normalizeEmail, normalizedText } from "./lib/strings";
 import { loadPublishedPhaseSchedule } from "./lib/phaseSchedule";
-import { normalizeTrackCatalog } from "./lib/trackCatalog";
+import {
+  normalizeRequiredCoreTrackCount,
+  normalizeTrackCatalog,
+  trackCatalogChecksum,
+} from "./lib/trackCatalog";
 import { eventPhaseKey, eventStatus } from "./values";
 
 const publicTrack = v.object({
@@ -60,11 +68,46 @@ const publicEventPhase = v.object({
   displayOrder: v.number(),
 });
 
+const publicShellState = v.object({
+  auth: v.object({
+    googleConfigured: v.boolean(),
+    localDevelopmentFixturesEnabled: v.boolean(),
+  }),
+  event: v.union(
+    v.null(),
+    v.object({
+      id: v.id("events"),
+      slug: v.string(),
+      name: v.string(),
+      timezone: v.string(),
+      status: eventStatus,
+    }),
+  ),
+});
+
+function publicAuthState() {
+  return {
+    googleConfigured: Boolean(
+      process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim(),
+    ),
+    localDevelopmentFixturesEnabled: localBrowserFixtureOrigins() !== null,
+  };
+}
+
 function initialSupremeEmails() {
   return (process.env.INITIAL_SUPREME_EMAILS ?? "")
     .split(",")
     .map(normalizeEmail)
     .filter(Boolean);
+}
+
+function initialEventSlug() {
+  const configured = process.env.INITIAL_EVENT_SLUG?.trim();
+  if (!configured) return null;
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(configured)) {
+    throw new Error("INITIAL_EVENT_SLUG must be a lowercase URL slug.");
+  }
+  return configured;
 }
 
 export const bootstrapEligibility = query({
@@ -76,13 +119,14 @@ export const bootstrapEligibility = query({
   }),
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedGoogleIdentity(ctx);
-    const event = await ctx.db
-      .query("events")
-      .withIndex("by_slug", (index) => index.eq("slug", args.eventSlug.trim().toLowerCase()))
-      .unique();
+    const event = await ctx.db.query("events").first();
     const email = normalizeEmail(user.email);
+    const requestedSlug = args.eventSlug.trim();
     return {
-      allowed: initialSupremeEmails().includes(email),
+      allowed:
+        event === null &&
+        requestedSlug === initialEventSlug() &&
+        initialSupremeEmails().includes(email),
       email,
       eventExists: event !== null,
     };
@@ -117,13 +161,10 @@ export const getPublicState = query({
       .query("events")
       .withIndex("by_slug", (index) => index.eq("slug", args.eventSlug))
       .unique();
-    const googleConfigured = Boolean(
-      process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim(),
-    );
-    const localDevelopmentFixturesEnabled = localBrowserFixtureOrigins() !== null;
+    const auth = publicAuthState();
     if (!event) {
       return {
-        auth: { googleConfigured, localDevelopmentFixturesEnabled },
+        auth,
         event: null,
       };
     }
@@ -151,7 +192,7 @@ export const getPublicState = query({
     ]);
 
     return {
-      auth: { googleConfigured, localDevelopmentFixturesEnabled },
+      auth,
       event: {
         id: event._id,
         slug: event.slug,
@@ -189,6 +230,29 @@ export const getPublicState = query({
   },
 });
 
+export const getPublicShellState = query({
+  args: { eventSlug: v.string() },
+  returns: publicShellState,
+  handler: async (ctx, args) => {
+    const event = await ctx.db
+      .query("events")
+      .withIndex("by_slug", (index) => index.eq("slug", args.eventSlug))
+      .unique();
+    return {
+      auth: publicAuthState(),
+      event: event
+        ? {
+            id: event._id,
+            slug: event.slug,
+            name: event.name,
+            timezone: event.timezone,
+            status: event.status,
+          }
+        : null,
+    };
+  },
+});
+
 const bootstrapTrack = v.object({
   stableKey: v.string(),
   slug: v.string(),
@@ -199,10 +263,6 @@ const bootstrapTrack = v.object({
   type: v.union(v.literal("core"), v.literal("sponsor")),
   eligibilityText: v.optional(v.string()),
 });
-
-function configurationChecksum(value: object) {
-  return fingerprintText(JSON.stringify(value));
-}
 
 export const bootstrapEvent = mutation({
   args: {
@@ -235,6 +295,7 @@ export const bootstrapEvent = mutation({
       githubFreezeAt: v.optional(v.number()),
       figmaFreezeAt: v.optional(v.number()),
     }),
+    requiredCoreTrackCount: v.number(),
     tracks: v.array(bootstrapTrack),
   },
   returns: v.object({ eventId: v.id("events"), catalogVersionId: v.id("trackCatalogVersions") }),
@@ -247,16 +308,20 @@ export const bootstrapEvent = mutation({
       });
     }
 
-    const eventSlug = args.eventSlug.trim().toLowerCase();
+    const eventSlug = args.eventSlug.trim();
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(eventSlug)) {
       throw new ConvexError({ code: "INVALID_EVENT_SLUG", message: "Use a lowercase URL slug." });
     }
-    const existingEvent = await ctx.db
-      .query("events")
-      .withIndex("by_slug", (index) => index.eq("slug", eventSlug))
-      .unique();
+    const configuredSlug = initialEventSlug();
+    if (configuredSlug === null || eventSlug !== configuredSlug) {
+      throw new ConvexError({
+        code: "BOOTSTRAP_EVENT_NOT_CONFIGURED",
+        message: "This deployment is not configured to create that event.",
+      });
+    }
+    const existingEvent = await ctx.db.query("events").first();
     if (existingEvent) {
-      throw new ConvexError({ code: "EVENT_EXISTS", message: "That event already exists." });
+      throw new ConvexError({ code: "EVENT_EXISTS", message: "This deployment already has an event." });
     }
     const participantPolicy = normalizeParticipantPolicy(args.participantPolicy);
     if (
@@ -285,24 +350,24 @@ export const bootstrapEvent = mutation({
         message: "Admission model limits are invalid.",
       });
     }
-    const requiredGitHubTopic = args.integrationPolicy.requiredGitHubTopic.trim();
-    if (
-      !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(requiredGitHubTopic) ||
-      requiredGitHubTopic.length > 50 ||
-      !Number.isInteger(args.integrationPolicy.maxActiveGitHubRepositoriesPerTeam) ||
-      args.integrationPolicy.maxActiveGitHubRepositoriesPerTeam < 1 ||
-      args.integrationPolicy.maxActiveGitHubRepositoriesPerTeam > 20 ||
-      !Number.isInteger(args.integrationPolicy.maxActiveFigmaFilesPerTeam) ||
-      args.integrationPolicy.maxActiveFigmaFilesPerTeam < 1 ||
-      args.integrationPolicy.maxActiveFigmaFilesPerTeam > 10
-    ) {
-      throw new ConvexError({
-        code: "INVALID_INTEGRATION_POLICY",
-        message: "The GitHub topic or active-repository limit is invalid.",
-      });
-    }
+    const integrationPolicy = normalizeIntegrationPolicy({
+      policyVersion: args.integrationPolicy.version,
+      requiredGitHubTopic: args.integrationPolicy.requiredGitHubTopic,
+      maxActiveGitHubRepositoriesPerTeam:
+        args.integrationPolicy.maxActiveGitHubRepositoriesPerTeam,
+      maxActiveFigmaFilesPerTeam: args.integrationPolicy.maxActiveFigmaFilesPerTeam,
+      ...(args.integrationPolicy.githubFreezeAt !== undefined
+        ? { githubFreezeAt: args.integrationPolicy.githubFreezeAt }
+        : {}),
+      ...(args.integrationPolicy.figmaFreezeAt !== undefined
+        ? { figmaFreezeAt: args.integrationPolicy.figmaFreezeAt }
+        : {}),
+    });
 
-    const tracks = normalizeTrackCatalog(args.tracks);
+    const requiredCoreTrackCount = normalizeRequiredCoreTrackCount(
+      args.requiredCoreTrackCount,
+    );
+    const tracks = normalizeTrackCatalog(requiredCoreTrackCount, args.tracks);
     const intakePolicy = normalizeIntakePolicy(args.intakePolicy);
     const communicationsPolicy = normalizeCommunicationsPolicy(args.communicationsPolicy);
 
@@ -330,8 +395,8 @@ export const bootstrapEvent = mutation({
       eventId,
       version: 1,
       status: "published",
-      requiredCoreTrackCount: 5,
-      checksum: configurationChecksum(tracks),
+      requiredCoreTrackCount,
+      checksum: trackCatalogChecksum(requiredCoreTrackCount, tracks),
       createdByPersonId: person._id,
       createdAt: now,
       publishedAt: now,
@@ -378,65 +443,19 @@ export const bootstrapEvent = mutation({
         publishedAt: now,
       },
     );
-    const intelligencePolicy = normalizeOperationsIntelligencePolicy(
-      defaultOperationsIntelligencePolicy,
-    );
-    const intelligencePolicyVersionId = await ctx.db.insert(
-      "operationsIntelligencePolicyVersions",
-      {
-        eventId,
-        version: 1,
-        status: "published",
-        ...intelligencePolicy,
-        checksum: operationsIntelligencePolicyChecksum(intelligencePolicy),
-        createdByPersonId: person._id,
-        createdAt: now,
-        publishedAt: now,
-      },
-    );
-    await ctx.db.insert("operationsIntelligenceAutomationStates", {
-      eventId,
-      policyVersionId: intelligencePolicyVersionId,
-      state: "disabled",
-      nextEvaluationAt: now,
-      cycle: 1,
-      localBudgetDate: localDateKey(now, args.timezone.trim()),
-      briefsStartedToday: 0,
-      version: 1,
-      updatedAt: now,
-    });
     await ctx.db.patch(eventId, {
       publishedTrackCatalogId: catalogVersionId,
       publishedParticipantPolicyId: participantPolicyVersionId,
       publishedIntakePolicyId: intakePolicyVersionId,
       publishedCommunicationsPolicyId: communicationsPolicyVersionId,
-      publishedOperationsIntelligencePolicyId: intelligencePolicyVersionId,
     });
 
-    const integrationPolicyPayload = {
-      policyVersion: normalizedText(
-        args.integrationPolicy.version,
-        "Integration policy version",
-        1,
-        80,
-      ),
-      requiredGitHubTopic,
-      maxActiveGitHubRepositoriesPerTeam:
-        args.integrationPolicy.maxActiveGitHubRepositoriesPerTeam,
-      maxActiveFigmaFilesPerTeam: args.integrationPolicy.maxActiveFigmaFilesPerTeam,
-      ...(args.integrationPolicy.githubFreezeAt !== undefined
-        ? { githubFreezeAt: args.integrationPolicy.githubFreezeAt }
-        : {}),
-      ...(args.integrationPolicy.figmaFreezeAt !== undefined
-        ? { figmaFreezeAt: args.integrationPolicy.figmaFreezeAt }
-        : {}),
-    };
     const integrationPolicyId = await ctx.db.insert("integrationPolicyVersions", {
       eventId,
-      ...integrationPolicyPayload,
+      ...integrationPolicy,
       version: 1,
       status: "published",
-      checksum: configurationChecksum(integrationPolicyPayload),
+      checksum: integrationPolicyChecksum(integrationPolicy),
       createdByPersonId: person._id,
       createdAt: now,
       publishedAt: now,
@@ -540,6 +559,34 @@ export const bootstrapEvent = mutation({
       eventId,
       personId: person._id,
       eventAccessSubjectId: subjectId,
+    });
+    const autonomyPolicy = normalizeOperationsAutonomyPolicy(
+      defaultOperationsAutonomyPolicy(subjectId),
+    );
+    const autonomyPolicyVersionId = await ctx.db.insert("operationsAutonomyPolicyVersions", {
+      eventId,
+      version: 1,
+      status: "published",
+      ...autonomyPolicy,
+      checksum: operationsAutonomyPolicyChecksum(autonomyPolicy),
+      createdByPersonId: person._id,
+      createdAt: now,
+      publishedAt: now,
+    });
+    await ctx.db.insert("operationsAutonomyStates", {
+      eventId,
+      policyVersionId: autonomyPolicyVersionId,
+      lifecycle: {
+        kind: "disabled",
+        disabledAt: now,
+        disabledByPersonId: person._id,
+        reason: "Autonomous operations start disabled.",
+      },
+      nextEvaluationAt: now,
+      pendingWorkCount: 0,
+      cycle: 1,
+      version: 1,
+      updatedAt: now,
     });
     await ctx.db.insert("eventRoles", {
       eventId,
@@ -856,6 +903,25 @@ export const bootstrapEvent = mutation({
         reason: "Initial accepted-team communications authority",
       });
     }
+    const integrationConfigurationPermissions = [
+      "configuration.integration.read",
+      "configuration.integration.draft.create",
+      "configuration.integration.validate",
+      "configuration.integration.publish",
+    ] satisfies PermissionKey[];
+    for (const permissionKey of integrationConfigurationPermissions) {
+      await insertPermissionGrant(ctx, {
+        eventId,
+        personId: person._id,
+        eventAccessSubjectId: subjectId,
+        permissionKey,
+        scopeType: "event",
+        sourceType: "production_seed",
+        sourceId: bootstrapSource,
+        grantedByPersonId: person._id,
+        reason: "Initial integration-policy configuration authority",
+      });
+    }
     await insertPermissionGrant(ctx, {
       eventId,
       personId: person._id,
@@ -1128,6 +1194,7 @@ export const bootstrapEvent = mutation({
       });
     }
 
+    await ctx.scheduler.runAfter(0, internal.operationsHealth.refresh, {});
     return { eventId, catalogVersionId };
   },
 });

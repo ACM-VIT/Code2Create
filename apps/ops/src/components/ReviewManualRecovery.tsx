@@ -1,10 +1,11 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useAction, useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 import { compressPaperImage } from '../lib/paperImage'
 
 type Workspace = FunctionReturnType<typeof api.manualReviewRecords.workspace>
@@ -67,7 +68,7 @@ export function ReviewManualRecovery({ roundId }: { roundId: RoundId }) {
       <div className="manual-sheet-list">
         {workspace.reviews.flatMap((review) =>
           review.records.map((record) => (
-            <ManualReviewCard key={`${record.id}-${record.version}`} record={record} review={review} />
+            <ManualReviewCard key={record.id} record={record} review={review} />
           )),
         )}
         {workspace.reviews.every((review) => review.records.length === 0) ? (
@@ -86,29 +87,25 @@ function ReviewIncidentArea({ data }: { data: IncidentData }) {
   const [severity, setSeverity] = useState<IncidentSeverity>('service_disruption')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
-
-  const invalidate = () => {
-    operationRef.current = null
-    setError(null)
-  }
+  const createAttempt = useMutationAttempt<FunctionReturnType<typeof api.incidents.create>>()
+  const createPending = createAttempt.hasPending('review-incident-create')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await createIncident({
-        eventSlug,
-        title,
-        summary,
-        severity,
-        affectedService: 'review_backend',
-        clientOperationId,
+      await createAttempt.run('review-incident-create', () => {
+        const args = {
+          eventSlug,
+          title,
+          summary,
+          severity,
+          affectedService: 'review_backend' as const,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => createIncident(args)
       })
-      operationRef.current = null
       setTitle('')
       setSummary('')
       setSeverity('service_disruption')
@@ -128,7 +125,7 @@ function ReviewIncidentArea({ data }: { data: IncidentData }) {
           <span>Two different authorised people must approve paper mode.</span>
         </div>
         {data.canCreate ? (
-          <button className="secondary" type="button" onClick={() => setOpen((value) => !value)}>
+          <button className="secondary" disabled={createPending} type="button" onClick={() => setOpen((value) => !value)}>
             {open ? 'Close form' : 'Open incident'}
           </button>
         ) : null}
@@ -138,26 +135,26 @@ function ReviewIncidentArea({ data }: { data: IncidentData }) {
         <form className="manual-compact-form" onSubmit={submit}>
           <label className="field manual-wide">
             <span>Title</span>
-            <input required minLength={3} value={title} onChange={(event) => { invalidate(); setTitle(event.target.value) }} />
+            <input disabled={createPending} required minLength={3} value={title} onChange={(event) => setTitle(event.target.value)} />
           </label>
           <label className="field manual-wide">
             <span>What failed</span>
-            <textarea required minLength={10} value={summary} onChange={(event) => { invalidate(); setSummary(event.target.value) }} />
+            <textarea disabled={createPending} required minLength={10} value={summary} onChange={(event) => setSummary(event.target.value)} />
           </label>
           <label className="field">
             <span>Severity</span>
-            <select value={severity} onChange={(event) => { invalidate(); setSeverity(parseSeverity(event.target.value)) }}>
+            <select disabled={createPending} value={severity} onChange={(event) => setSeverity(parseSeverity(event.target.value))}>
               <option value="service_disruption">Service disruption</option>
               <option value="major">Major</option>
               <option value="critical">Critical</option>
             </select>
           </label>
-          <button className="primary" disabled={busy} type="submit">{busy ? 'Opening…' : 'Open incident'}</button>
+          <button className="primary" disabled={busy} type="submit">{busy ? 'Opening…' : createPending ? 'Confirm incident' : 'Open incident'}</button>
           {error ? <p className="notice error manual-wide" role="alert">{error}</p> : null}
         </form>
       ) : null}
 
-      {data.incidents.map((incident) => <ReviewIncident key={`${incident.id}-${incident.version}`} incident={incident} />)}
+      {data.incidents.map((incident) => <ReviewIncident key={incident.id} incident={incident} />)}
       {data.incidents.length === 0 ? <p className="empty">No visible review-backend incident.</p> : null}
     </div>
   )
@@ -189,23 +186,24 @@ function ApproveIncident({ incident }: { incident: Incident }) {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const approveAttempt = useMutationAttempt<FunctionReturnType<typeof api.incidents.approveManualMode>>()
+  const approvePending = approveAttempt.hasPending('review-incident-approve')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await approve({
-        eventSlug,
-        incidentId: incident.id,
-        expectedIncidentVersion: incident.version,
-        reason,
-        clientOperationId,
+      await approveAttempt.run('review-incident-approve', () => {
+        const args = {
+          eventSlug,
+          incidentId: incident.id,
+          expectedIncidentVersion: incident.version,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => approve(args)
       })
-      operationRef.current = null
       setReason('')
     } catch (caught) {
       setError(readableError(caught))
@@ -218,9 +216,9 @@ function ApproveIncident({ incident }: { incident: Incident }) {
     <form className="manual-inline-form" onSubmit={submit}>
       <label className="field">
         <span>Approval reason</span>
-        <input required minLength={5} value={reason} onChange={(event) => { operationRef.current = null; setReason(event.target.value) }} />
+        <input disabled={approvePending} required minLength={5} value={reason} onChange={(event) => setReason(event.target.value)} />
       </label>
-      <button className="secondary" disabled={busy} type="submit">{busy ? 'Approving…' : 'Approve paper mode'}</button>
+      <button className="secondary" disabled={busy} type="submit">{busy ? 'Approving…' : approvePending ? 'Confirm earlier approval' : 'Approve paper mode'}</button>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </form>
   )
@@ -232,23 +230,24 @@ function ResolveIncident({ incident }: { incident: Incident }) {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const resolveAttempt = useMutationAttempt<FunctionReturnType<typeof api.incidents.resolve>>()
+  const resolvePending = resolveAttempt.hasPending('review-incident-resolve')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await resolve({
-        eventSlug,
-        incidentId: incident.id,
-        expectedIncidentVersion: incident.version,
-        reason,
-        clientOperationId,
+      await resolveAttempt.run('review-incident-resolve', () => {
+        const args = {
+          eventSlug,
+          incidentId: incident.id,
+          expectedIncidentVersion: incident.version,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => resolve(args)
       })
-      operationRef.current = null
       setOpen(false)
       setReason('')
     } catch (caught) {
@@ -263,9 +262,9 @@ function ResolveIncident({ incident }: { incident: Incident }) {
     <form className="manual-inline-form" onSubmit={submit}>
       <label className="field">
         <span>Resolution</span>
-        <input required minLength={5} value={reason} onChange={(event) => { operationRef.current = null; setReason(event.target.value) }} />
+        <input disabled={resolvePending} required minLength={5} value={reason} onChange={(event) => setReason(event.target.value)} />
       </label>
-      <button className="secondary" disabled={busy} type="submit">{busy ? 'Resolving…' : 'Confirm resolution'}</button>
+      <button className="secondary" disabled={busy} type="submit">{busy ? 'Resolving…' : resolvePending ? 'Confirm earlier resolution' : 'Confirm resolution'}</button>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </form>
   )
@@ -289,11 +288,11 @@ function DraftReviewForm({ incidents, reviews }: { incidents: Incident[]; review
   const [entries, setEntries] = useState<DraftScorecard[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const createAttempt = useMutationAttempt<FunctionReturnType<typeof api.manualReviewRecords.createDraft>>()
+  const createPending = createAttempt.hasPending('manual-review-create')
   const review = eligibleReviews.find((candidate) => candidate.id === reviewId)
 
   const invalidate = () => {
-    operationRef.current = null
     setError(null)
   }
 
@@ -347,28 +346,28 @@ function DraftReviewForm({ incidents, reviews }: { incidents: Incident[]; review
         ...(entry.privateNote.trim() ? { privateNote: entry.privateNote } : {}),
       })
     }
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await createDraft({
-        eventSlug,
-        incidentId: incident.id,
-        reviewSessionId: review.id,
-        expectedIncidentVersion: incident.version,
-        expectedRoundVersion: review.roundVersion,
-        expectedReviewVersion: review.version,
-        serial,
-        startedAt: start,
-        endedAt: end,
-        unavailableReason,
-        reviewerEntries,
-        ...(sharedFindings.trim() ? { sharedFindings } : {}),
-        ...(sharedCommitments.trim() ? { sharedCommitments } : {}),
-        clientOperationId,
+      await createAttempt.run('manual-review-create', () => {
+        const args = {
+          eventSlug,
+          incidentId: incident.id,
+          reviewSessionId: review.id,
+          expectedIncidentVersion: incident.version,
+          expectedRoundVersion: review.roundVersion,
+          expectedReviewVersion: review.version,
+          serial,
+          startedAt: start,
+          endedAt: end,
+          unavailableReason,
+          reviewerEntries,
+          ...(sharedFindings.trim() ? { sharedFindings } : {}),
+          ...(sharedCommitments.trim() ? { sharedCommitments } : {}),
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => createDraft(args)
       })
-      operationRef.current = null
       setOpen(false)
       setReviewId('')
       setIncidentId('')
@@ -403,7 +402,7 @@ function DraftReviewForm({ incidents, reviews }: { incidents: Incident[]; review
       <div className="form-grid">
         <label className="field">
           <span>Active review</span>
-          <select required value={reviewId} onChange={(event) => chooseReview(event.target.value)}>
+          <select disabled={createPending} required value={reviewId} onChange={(event) => chooseReview(event.target.value)}>
             <option value="">Choose review</option>
             {eligibleReviews.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>{candidate.teamName} · {candidate.panelName}</option>
@@ -412,26 +411,26 @@ function DraftReviewForm({ incidents, reviews }: { incidents: Incident[]; review
         </label>
         <label className="field">
           <span>Approved incident</span>
-          <select required value={incidentId} onChange={(event) => { invalidate(); setIncidentId(event.target.value) }}>
+          <select disabled={createPending} required value={incidentId} onChange={(event) => { invalidate(); setIncidentId(event.target.value) }}>
             <option value="">Choose incident</option>
             {approvedIncidents.map((incident) => <option key={incident.id} value={incident.id}>{incident.title}</option>)}
           </select>
         </label>
         <label className="field">
           <span>Printed serial</span>
-          <input required minLength={3} value={serial} onChange={(event) => { invalidate(); setSerial(event.target.value) }} />
+          <input disabled={createPending} required minLength={3} value={serial} onChange={(event) => { invalidate(); setSerial(event.target.value) }} />
         </label>
         <label className="field">
           <span>Why service was unavailable</span>
-          <input required minLength={5} value={unavailableReason} onChange={(event) => { invalidate(); setUnavailableReason(event.target.value) }} />
+          <input disabled={createPending} required minLength={5} value={unavailableReason} onChange={(event) => { invalidate(); setUnavailableReason(event.target.value) }} />
         </label>
         <label className="field">
           <span>Started</span>
-          <input required type="datetime-local" value={startedAt} onChange={(event) => { invalidate(); setStartedAt(event.target.value) }} />
+          <input disabled={createPending} required type="datetime-local" value={startedAt} onChange={(event) => { invalidate(); setStartedAt(event.target.value) }} />
         </label>
         <label className="field">
           <span>Ended</span>
-          <input required type="datetime-local" value={endedAt} onChange={(event) => { invalidate(); setEndedAt(event.target.value) }} />
+          <input disabled={createPending} required type="datetime-local" value={endedAt} onChange={(event) => { invalidate(); setEndedAt(event.target.value) }} />
         </label>
       </div>
 
@@ -441,7 +440,7 @@ function DraftReviewForm({ incidents, reviews }: { incidents: Incident[]; review
             {review.tableLabel ? `${review.rubric.name} · ${review.tableLabel}` : review.rubric.name}
           </p>
           {entries.map((entry) => (
-            <fieldset className="manual-review-scorecard" key={entry.scorecardId}>
+            <fieldset className="manual-review-scorecard" disabled={createPending} key={entry.scorecardId}>
               <legend>{entry.reviewerName}</legend>
               <label className="manual-check">
                 <input
@@ -501,15 +500,15 @@ function DraftReviewForm({ incidents, reviews }: { incidents: Incident[]; review
 
       <label className="field">
         <span>Shared findings</span>
-        <textarea required={review?.requiresSharedCommitments} value={sharedFindings} onChange={(event) => { invalidate(); setSharedFindings(event.target.value) }} />
+        <textarea disabled={createPending} required={review?.requiresSharedCommitments} value={sharedFindings} onChange={(event) => { invalidate(); setSharedFindings(event.target.value) }} />
       </label>
       <label className="field">
         <span>Next-checkpoint commitments</span>
-        <textarea required={review?.requiresSharedCommitments} value={sharedCommitments} onChange={(event) => { invalidate(); setSharedCommitments(event.target.value) }} />
+        <textarea disabled={createPending} required={review?.requiresSharedCommitments} value={sharedCommitments} onChange={(event) => { invalidate(); setSharedCommitments(event.target.value) }} />
       </label>
       <div className="button-row">
-        <button className="primary" disabled={busy || !review} type="submit">{busy ? 'Saving…' : 'Save copied review'}</button>
-        <button className="secondary" disabled={busy} type="button" onClick={() => setOpen(false)}>Cancel</button>
+        <button className="primary" disabled={busy || !review} type="submit">{busy ? 'Saving…' : createPending ? 'Confirm earlier review' : 'Save copied review'}</button>
+        <button className="secondary" disabled={busy || createPending} type="button" onClick={() => setOpen(false)}>Cancel</button>
       </div>
       <p className="muted">This freezes the current digital drafts until the paper record is verified or rejected.</p>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
@@ -566,26 +565,27 @@ function ReviewSourceUpload({ record }: { record: ManualRecord }) {
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const uploadAttempt = useMutationAttempt<FunctionReturnType<typeof api.manualReviewRecordActions.uploadSource>>()
+  const uploadPending = uploadAttempt.hasPending('manual-review-source-upload')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!file) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
       const compressed = await compressPaperImage(file, 'review-sheet')
-      await upload({
-        eventSlug,
-        recordId: record.id,
-        expectedRecordVersion: record.version,
-        bytes: compressed.bytes,
-        fileName: compressed.fileName,
-        clientOperationId,
+      await uploadAttempt.run('manual-review-source-upload', () => {
+        const args = {
+          eventSlug,
+          recordId: record.id,
+          expectedRecordVersion: record.version,
+          bytes: compressed.bytes,
+          fileName: compressed.fileName,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => upload(args)
       })
-      operationRef.current = null
       setFile(null)
     } catch (caught) {
       setError(readableError(caught))
@@ -598,9 +598,9 @@ function ReviewSourceUpload({ record }: { record: ManualRecord }) {
     <form className="manual-source-upload" onSubmit={submit}>
       <label className="field">
         <span>Photo of the complete signed sheet</span>
-        <input accept="image/*" required type="file" onChange={(event) => { operationRef.current = null; setFile(event.target.files?.[0] ?? null) }} />
+        <input accept="image/*" disabled={uploadPending} required type="file" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
       </label>
-      <button className="primary" disabled={busy || !file} type="submit">{busy ? 'Preparing…' : 'Submit for verification'}</button>
+      <button className="primary" disabled={busy || !file} type="submit">{busy ? 'Preparing…' : uploadPending ? 'Confirm earlier upload' : 'Submit for verification'}</button>
       <p className="muted">The browser converts the photo to one private JPEG under 900 KB.</p>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </form>
@@ -650,36 +650,32 @@ function ReviewVerification({ record, review }: { record: ManualRecord; review: 
   const [originalFiled, setOriginalFiled] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
-
-  const invalidate = () => {
-    operationRef.current = null
-    setError(null)
-  }
+  const verifyAttempt = useMutationAttempt<FunctionReturnType<typeof api.manualReviewRecords.verify>>()
+  const verifyPending = verifyAttempt.hasPending('manual-review-verify')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await verify({
-        eventSlug,
-        recordId: record.id,
-        expectedRecordVersion: record.version,
-        decision: kind === 'import'
-          ? {
-              kind: 'import',
-              originalFiled,
-              expectedRoundVersion: review.roundVersion,
-              expectedReviewVersion: review.version,
-            }
-          : { kind: 'reject' },
-        reason,
-        clientOperationId,
+      await verifyAttempt.run('manual-review-verify', () => {
+        const args = {
+          eventSlug,
+          recordId: record.id,
+          expectedRecordVersion: record.version,
+          decision: kind === 'import'
+            ? {
+                kind: 'import' as const,
+                originalFiled,
+                expectedRoundVersion: review.roundVersion,
+                expectedReviewVersion: review.version,
+              }
+            : { kind: 'reject' as const },
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => verify(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -691,21 +687,21 @@ function ReviewVerification({ record, review }: { record: ManualRecord; review: 
     <form className="manual-verification" onSubmit={submit}>
       <label className="field">
         <span>Decision</span>
-        <select value={kind} onChange={(event) => { invalidate(); setKind(event.target.value === 'reject' ? 'reject' : 'import') }}>
+        <select disabled={verifyPending} value={kind} onChange={(event) => { setError(null); setKind(event.target.value === 'reject' ? 'reject' : 'import') }}>
           <option value="import">Verify and import</option>
           <option value="reject">Reject record</option>
         </select>
       </label>
       <label className="field">
         <span>What you checked</span>
-        <input required minLength={5} value={reason} onChange={(event) => { invalidate(); setReason(event.target.value) }} />
+        <input disabled={verifyPending} required minLength={5} value={reason} onChange={(event) => { setError(null); setReason(event.target.value) }} />
       </label>
       <button className={kind === 'reject' ? 'secondary' : 'primary'} disabled={busy || (kind === 'import' && !originalFiled)} type="submit">
-        {busy ? 'Applying…' : kind === 'reject' ? 'Reject record' : 'Import signed review'}
+        {busy ? 'Applying…' : verifyPending ? 'Confirm earlier decision' : kind === 'reject' ? 'Reject record' : 'Import signed review'}
       </button>
       {kind === 'import' ? (
         <label className="manual-check">
-          <input checked={originalFiled} type="checkbox" onChange={(event) => { invalidate(); setOriginalFiled(event.target.checked) }} />
+          <input checked={originalFiled} disabled={verifyPending} type="checkbox" onChange={(event) => { setError(null); setOriginalFiled(event.target.checked) }} />
           The numbered original is in the event audit packet.
         </label>
       ) : null}
@@ -721,23 +717,24 @@ function ReviewDraftCancellation({ record }: { record: ManualRecord }) {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const cancelAttempt = useMutationAttempt<FunctionReturnType<typeof api.manualReviewRecords.cancelDraft>>()
+  const cancelPending = cancelAttempt.hasPending('manual-review-cancel')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await cancel({
-        eventSlug,
-        recordId: record.id,
-        expectedRecordVersion: record.version,
-        reason,
-        clientOperationId,
+      await cancelAttempt.run('manual-review-cancel', () => {
+        const args = {
+          eventSlug,
+          recordId: record.id,
+          expectedRecordVersion: record.version,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => cancel(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -750,9 +747,9 @@ function ReviewDraftCancellation({ record }: { record: ManualRecord }) {
     <form className="manual-inline-form" onSubmit={submit}>
       <label className="field">
         <span>Cancellation reason</span>
-        <input required minLength={5} value={reason} onChange={(event) => { operationRef.current = null; setReason(event.target.value) }} />
+        <input disabled={cancelPending} required minLength={5} value={reason} onChange={(event) => setReason(event.target.value)} />
       </label>
-      <button className="secondary" disabled={busy} type="submit">{busy ? 'Cancelling…' : 'Confirm cancel'}</button>
+      <button className="secondary" disabled={busy} type="submit">{busy ? 'Cancelling…' : cancelPending ? 'Confirm earlier cancellation' : 'Confirm cancel'}</button>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </form>
   )

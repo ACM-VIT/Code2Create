@@ -1,5 +1,10 @@
 import { z } from 'zod'
 
+export const maximumUpdateAssetBytes = 25 * 1_024 * 1_024
+export const maximumUpdateReleaseBytes = 10 * 1_024 * 1_024
+export const maximumUpdateActivationBytes = 1 * 1_024
+export const maximumUpdateFutureSkewMs = 5 * 60 * 1_000
+
 export const updateChannelSchema = z.enum(['staging', 'production'])
 export type UpdateChannel = z.infer<typeof updateChannelSchema>
 

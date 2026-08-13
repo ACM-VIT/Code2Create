@@ -9,10 +9,13 @@ import {
   normalizeIntakePolicy,
 } from "./lib/intakePolicy.ts";
 import {
+  loadTrackCatalogTracks,
+  maximumSponsorTrackCount,
   publishTrackCatalog,
   requirePinnedTrackCatalog,
   requireSponsorTrackSelection,
   saveTrackCatalogDraft,
+  trackCatalogChecksum,
   type TrackCatalogTrack,
 } from "./lib/trackCatalog.ts";
 import schema from "./schema.ts";
@@ -21,6 +24,54 @@ const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 type BackendTest = TestConvex<typeof schema>;
 
 describe("track catalog configuration", () => {
+  test("publishes the configured core-track count and bounds reads from that version", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend);
+    const threeCoreTracks = tracks("three").slice(0, 3);
+    expect(trackCatalogChecksum(3, threeCoreTracks)).not.toBe(
+      trackCatalogChecksum(5, threeCoreTracks),
+    );
+
+    const draft = await backend.run((ctx) =>
+      saveTrackCatalogDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        requiredCoreTrackCount: 3,
+        tracks: threeCoreTracks,
+        now: fixture.now + 1,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishTrackCatalog(ctx, {
+        event: fixture.event,
+        draftCatalogId: draft.catalogVersionId,
+        expectedDraftChecksum: draft.checksum,
+        now: fixture.now + 2,
+      }),
+    );
+
+    const published = await backend.run(async (ctx) => ({
+      catalog: await ctx.db.get(draft.catalogVersionId),
+      tracks: await loadTrackCatalogTracks(ctx, draft.catalogVersionId),
+    }));
+    expect(published.catalog?.requiredCoreTrackCount).toBe(3);
+    expect(published.tracks.map((track) => track.displayName)).toEqual(
+      threeCoreTracks.map((track) => track.displayName),
+    );
+
+    await expect(
+      backend.run((ctx) =>
+        saveTrackCatalogDraft(ctx, {
+          event: fixture.event,
+          actorPersonId: fixture.personId,
+          requiredCoreTrackCount: 4,
+          tracks: threeCoreTracks,
+          now: fixture.now + 3,
+        }),
+      ),
+    ).rejects.toThrow("must contain 4 core tracks");
+  });
+
   test("publishes a new default without moving an active participant draft", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend);
@@ -35,6 +86,7 @@ describe("track catalog configuration", () => {
       saveTrackCatalogDraft(ctx, {
         event: fixture.event,
         actorPersonId: fixture.personId,
+        requiredCoreTrackCount: 5,
         tracks: nextTracks,
         now: fixture.now + 1,
       }),
@@ -82,6 +134,7 @@ describe("track catalog configuration", () => {
       saveTrackCatalogDraft(ctx, {
         event: fixture.event,
         actorPersonId: fixture.personId,
+        requiredCoreTrackCount: 5,
         tracks: tracks("first"),
         now: fixture.now + 1,
       }),
@@ -90,6 +143,7 @@ describe("track catalog configuration", () => {
       saveTrackCatalogDraft(ctx, {
         event: fixture.event,
         actorPersonId: fixture.personId,
+        requiredCoreTrackCount: 5,
         tracks: tracks("second"),
         expectedDraftCatalogId: first.catalogVersionId,
         now: fixture.now + 2,
@@ -129,6 +183,7 @@ describe("track catalog configuration", () => {
       saveTrackCatalogDraft(ctx, {
         event: fixture.event,
         actorPersonId: fixture.personId,
+        requiredCoreTrackCount: 5,
         tracks: nextTracks,
         now: fixture.now + 1,
       }),
@@ -268,6 +323,50 @@ describe("track catalog configuration", () => {
     }
   });
 
+  test("fails loudly before oversized catalog or selection reads can grow", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend);
+    await expect(
+      backend.run(async (ctx) => {
+        const draft = await ctx.db.get(fixture.projectDraftId);
+        if (!draft) throw new Error("The participant draft is missing.");
+        const pinned = await requirePinnedTrackCatalog(ctx, draft);
+        const firstTrack = pinned.tracks[0];
+        if (!firstTrack) throw new Error("The pinned catalog is empty.");
+        return requireSponsorTrackSelection(
+          pinned.tracks,
+          Array.from(
+            { length: maximumSponsorTrackCount + 1 },
+            () => firstTrack._id,
+          ),
+        );
+      }),
+    ).rejects.toThrow(`no more than ${maximumSponsorTrackCount} sponsor tracks`);
+
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("trackVersions", {
+        eventId: fixture.event._id,
+        catalogVersionId: fixture.catalogId,
+        stableKey: "overflow_core",
+        slug: "overflow-core",
+        displayName: "Overflow core",
+        description: "This direct row simulates a broken catalog owner invariant.",
+        examples: ["A catalog overflow"],
+        displayOrder: 5,
+        type: "core",
+        status: "published",
+        createdAt: fixture.now,
+      });
+    });
+    await expect(
+      backend.run(async (ctx) => {
+        const draft = await ctx.db.get(fixture.projectDraftId);
+        if (!draft) throw new Error("The participant draft is missing.");
+        return requirePinnedTrackCatalog(ctx, draft);
+      }),
+    ).rejects.toThrow("does not match its published track limits");
+  });
+
   test("allows exactly one concurrent replacement from the same expected draft", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend);
@@ -276,6 +375,7 @@ describe("track catalog configuration", () => {
         saveTrackCatalogDraft(ctx, {
           event: fixture.event,
           actorPersonId: fixture.personId,
+          requiredCoreTrackCount: 5,
           tracks: tracks("alpha"),
           now: fixture.now + 1,
         }),
@@ -284,6 +384,7 @@ describe("track catalog configuration", () => {
         saveTrackCatalogDraft(ctx, {
           event: fixture.event,
           actorPersonId: fixture.personId,
+          requiredCoreTrackCount: 5,
           tracks: tracks("beta"),
           now: fixture.now + 1,
         }),
@@ -417,6 +518,9 @@ async function seedFixture(backend: BackendTest) {
       publicCode: "PINNED1",
       leadMembershipId: membershipId,
       status: "forming",
+      activeMemberCount: 1,
+      activeVitMemberCount: 0,
+      activeExternalMemberCount: 1,
       membershipLocked: false,
       trackLocked: false,
       version: 1,

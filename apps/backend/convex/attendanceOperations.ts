@@ -476,9 +476,16 @@ export const overview = query({
         manageGrants.length === 0 &&
         reconciliationGrants.length === 0 &&
         remedyReadGrants.length === 0 &&
+        remedyOpenGrants.length === 0 &&
+        remedyDecisionGrants.length === 0 &&
         rollCallReadGrants.length === 0 &&
+        rollCallStartGrants.length === 0 &&
+        rollCallCloseGrants.length === 0 &&
         exportGrants.length === 0 &&
-        manualSheetReadGrants.length === 0
+        manualSheetReadGrants.length === 0 &&
+        manualSheetEnterGrants.length === 0 &&
+        manualSheetVerifyGrants.length === 0 &&
+        manualSourceReadGrants.length === 0
       ) continue;
       const [zone, counterShards, expectationJob, finalizationJob] = await Promise.all([
         ctx.db.get(session.zoneId),

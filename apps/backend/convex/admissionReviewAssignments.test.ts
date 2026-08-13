@@ -14,6 +14,7 @@ import {
   participantPolicyChecksum,
 } from "./lib/participantPolicy.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
+import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -423,6 +424,9 @@ async function seedAssignmentFixture(backend: BackendTest) {
       publicCode: "ASSIGNED1",
       leadMembershipId: membershipId,
       status: "submitted",
+      activeMemberCount: 1,
+      activeVitMemberCount: 0,
+      activeExternalMemberCount: 1,
       membershipLocked: true,
       trackLocked: true,
       version: 1,
@@ -506,6 +510,16 @@ async function seedAssignmentFixture(backend: BackendTest) {
       createdAt: now,
       publishedAt: now,
     });
+    const lockedRosterSnapshotId = await createTestSubmissionSnapshot(ctx, {
+      eventId,
+      teamId,
+      teamMemberIds: [teamMemberId],
+      intakePolicyVersionId: intakePolicyId,
+      participantPolicyVersionId: participantPolicyId,
+      admissionPolicyVersionId: policyId,
+      coreTrackVersionId: trackId,
+      submittedAt: now,
+    });
     const projectId = await ctx.db.insert("projectVersions", {
       eventId,
       teamId,
@@ -515,7 +529,8 @@ async function seedAssignmentFixture(backend: BackendTest) {
       intakeResponses: [],
       coreTrackVersionId: trackId,
       sponsorTrackVersionIds: [],
-      lockedTeamMemberIds: [teamMemberId],
+      lockedRosterSnapshotId,
+      lockedMemberCount: 1,
       lockedLeadMembershipId: membershipId,
       freshForEventAttestation: {
         participantPolicyVersionId: participantPolicyId,

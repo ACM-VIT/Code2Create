@@ -5,10 +5,16 @@ import {
   operationsIntelligenceProtocolVersion,
   verifyServiceBody,
 } from "@code2create/domain";
+import { ConvexError } from "convex/values";
 import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import {
+  HttpBodyTooLargeError,
+  readBoundedRequestText,
+} from "./lib/boundedHttpBody";
+import { requireIntelligenceHmacSecret } from "./lib/intelligenceServiceConfiguration";
 
 const maximumBodyBytes = 24 * 1_024;
 const maximumSignatureAgeMs = 5 * 60 * 1_000;
@@ -52,23 +58,18 @@ const callback = z.discriminatedUnion("status", [
     .strict(),
 ]);
 
-function callbackSecret() {
-  const value = process.env.INTELLIGENCE_CALLBACK_SECRET?.trim();
-  if (!value) throw new Error("INTELLIGENCE_CALLBACK_SECRET is not configured.");
-  return value;
-}
-
 export const operationsIntelligenceWebhook = httpAction(async (ctx, request) => {
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim() !== "application/json") {
     return Response.json({ error: "unsupported_media_type" }, { status: 415 });
   }
-  const declaredLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declaredLength) && declaredLength > maximumBodyBytes) {
-    return Response.json({ error: "payload_too_large" }, { status: 413 });
-  }
-  const body = await request.text();
-  if (new TextEncoder().encode(body).byteLength > maximumBodyBytes) {
-    return Response.json({ error: "payload_too_large" }, { status: 413 });
+  let body: string;
+  try {
+    body = await readBoundedRequestText(request, maximumBodyBytes);
+  } catch (error) {
+    if (error instanceof HttpBodyTooLargeError) {
+      return Response.json({ error: "payload_too_large" }, { status: 413 });
+    }
+    throw error;
   }
   const timestamp = request.headers.get("x-c2c-timestamp") ?? "";
   const signature = request.headers.get("x-c2c-signature") ?? "";
@@ -76,7 +77,7 @@ export const operationsIntelligenceWebhook = httpAction(async (ctx, request) => 
   try {
     verified = await verifyServiceBody({
       context: operationsIntelligenceCallbackSignatureContext,
-      secret: callbackSecret(),
+      secret: requireIntelligenceHmacSecret("INTELLIGENCE_CALLBACK_SECRET"),
       timestamp,
       signature,
       body,
@@ -103,7 +104,10 @@ export const operationsIntelligenceWebhook = httpAction(async (ctx, request) => 
       return Response.json({ state: result }, { status: 202 });
     }
     return Response.json({ error: result }, { status: 409 });
-  } catch {
-    return Response.json({ error: "callback_rejected" }, { status: 422 });
+  } catch (error) {
+    if (error instanceof ConvexError) {
+      return Response.json({ error: "callback_rejected" }, { status: 422 });
+    }
+    return Response.json({ error: "service_unavailable" }, { status: 503 });
   }
 });

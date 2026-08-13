@@ -10,6 +10,7 @@
     "deploy": "pnpm build:release && pnpm deploy:built",
     "deploy:built": "node ../backend/scripts/release/webEnvironment.ts operations deploy && wrangler deploy --env \"$CLOUDFLARE_ENV\" --strict --message \"$VITE_RELEASE_ID\"",
     "lint": "oxlint",
+    "test": "node --experimental-strip-types --test src/components/intelligence/intelligenceUiContract.test.ts src/components/intelligence/liveAgentProjection.test.ts src/lib/errors.test.ts src/lib/intelligenceConversation.test.ts src/lib/intelligenceStream.test.ts src/lib/operations.test.ts src/lib/operationsAutonomyPresentation.test.ts src/lib/operationsBrief.test.ts src/lib/workspaceAccess.test.ts",
     "typecheck": "tsc -b",
     "preview": "vite preview"
   },
@@ -20,6 +21,8 @@
     "@code2create/web-auth": "workspace:*",
     "@convex-dev/better-auth": "^0.12.5",
     "@date-fns/tz": "^1.5.0",
+    "@flue/react": "2.0.3",
+    "@flue/sdk": "2.0.3",
     "better-auth": "~1.6.25",
     "convex": "^1.43.0",
     "papaparse": "^5.5.4",

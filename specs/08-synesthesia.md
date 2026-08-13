@@ -83,7 +83,8 @@ The participant view uses these plain states: waiting for review, approved, in t
 
 - One vote row exists per participant/request.
 - Adding or removing the same vote again is idempotent.
-- The active vote limit is enforced inside the same transaction that changes the request count.
+- The active vote limit is enforced inside the same transaction that changes the participant's vote row and the request-owned aggregate count.
+- Vote counts are derived from request-namespaced vote aggregation. Voting never increments the moderation version on `songRequests`, so participant traffic cannot stale an unrelated staff decision.
 - Voting is allowed only for pending, approved, or queued requests while the window permits it.
 - One report exists per participant/request.
 - A report stores a short reason and increments the request's open-report count in the same transaction.
@@ -135,13 +136,13 @@ The live release uses:
 
 - `synesthesiaCatalogTracks` for event-owned catalog metadata;
 - `synesthesiaWindows` for draft/published/closed policy;
-- `songRequests` for immutable track snapshots and current queue state;
-- `songVotes` for one participant/request vote;
+- `songRequests` for immutable track snapshots and staff-owned queue state;
+- `songVotes` for one participant/request vote and the request-namespaced vote-count aggregate;
 - `synesthesiaReports` for one participant/request report;
 - `synesthesiaPlaybackEvents` for append-only start/played/skipped acknowledgements;
 - `synesthesiaAccessStates` for participant-specific music access.
 
-One window holds at most 200 requests. Every list and participant search is bounded. Each list and search uses a declared index or search index. Convex transactions serialize duplicate requests and votes. They also serialize the one-playing invariant, expected-version writes, report counters, and access-state changes.
+One window holds at most 200 requests. Every list and participant search is bounded. Each list and search uses a declared index or search index. Stable request metadata and compact vote counts are separate realtime payloads, so a vote does not resend the full queue. Convex transactions serialize duplicate requests and one participant's vote state without making every voter contend on the request row. They also serialize the one-playing invariant, expected-version writes, report counters, and access-state changes.
 
 ## 11. Acceptance checks
 

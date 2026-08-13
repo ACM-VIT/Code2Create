@@ -3,13 +3,28 @@
 	"name": "code2create-intelligence",
 	"compatibility_date": "2026-08-07",
 	"compatibility_flags": ["nodejs_compat"],
+	"ai": { "binding": "AI", "remote": true },
+	"durable_objects": {
+		"bindings": [{
+			"name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",
+			"class_name": "OperationsAutonomyAdmissionFence"
+		}]
+	},
 	"observability": { "enabled": true, "traces": { "enabled": true } },
 	"migrations": [
 		{ "tag": "v1", "new_sqlite_classes": ["FlueOperationsBriefAgent"] },
-		{ "tag": "v2", "new_sqlite_classes": ["FlueOperationsCopilotAgent"] }
+		{ "tag": "v2", "new_sqlite_classes": ["FlueOperationsCopilotAgent"] },
+		{ "tag": "v3", "new_sqlite_classes": ["FlueOperationsAutopilotAgent"] },
+		{ "tag": "v4", "new_sqlite_classes": ["OperationsAutonomyAdmissionFence"] }
 	],
 	"env": {
-		"staging": { "name": "code2create-intelligence-staging" },
-		"production": { "name": "code2create-intelligence" }
+		"staging": {
+			"name": "code2create-intelligence-staging",
+			"ai": { "binding": "AI" }
+		},
+		"production": {
+			"name": "code2create-intelligence",
+			"ai": { "binding": "AI" }
+		}
 	}
 }

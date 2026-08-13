@@ -1,6 +1,5 @@
 import { api } from '@code2create/backend/api'
 import { applicationStateLabels } from '@code2create/domain'
-import type { FunctionReturnType } from 'convex/server'
 import { usePaginatedQuery, useQuery } from 'convex/react'
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
@@ -8,7 +7,6 @@ import { useState } from 'react'
 import { eventSlug } from '../lib/config'
 import { LoadingLabel, SkeletonList } from '../components/Skeleton'
 
-type Access = NonNullable<FunctionReturnType<typeof api.access.mine>>
 type QueueState =
   | 'submitted'
   | 'under_review'
@@ -23,13 +21,13 @@ type QueueState =
 type AssignmentState = 'active' | 'completed'
 type QueueView = 'all' | 'mine'
 
-export function AdmissionsQueue({ access }: { access: Access }) {
-  const canReadApplications = access.grants.some(
-    (grant) => grant.permissionKey === 'application.read',
-  )
-  const canReadAssignments = access.grants.some(
-    (grant) => grant.permissionKey === 'application.review.read',
-  )
+export function AdmissionsQueue({
+  canReadApplications,
+  canReadAssignments,
+}: {
+  canReadApplications: boolean
+  canReadAssignments: boolean
+}) {
   const [view, setView] = useState<QueueView>(canReadApplications ? 'all' : 'mine')
 
   return (
@@ -68,7 +66,6 @@ export function AdmissionsQueue({ access }: { access: Access }) {
   )
 }
 
-/** Stages in the order an application moves through them. */
 const stageOrder: QueueState[] = [
   'submitted',
   'under_review',
@@ -85,8 +82,6 @@ const stageOrder: QueueState[] = [
 function ApplicationList() {
   const counts = useQuery(api.admissions.stageCounts, { eventSlug })
   const countByState = new Map((counts ?? []).map((row) => [row.state, row.count]))
-  // Open on the first stage that has anything in it, so the queue never lands
-  // on an empty screen while applications are waiting somewhere else.
   const busiest = stageOrder.find((candidate) => (countByState.get(candidate) ?? 0) > 0)
   const [chosen, setState] = useState<QueueState | null>(null)
   const state = chosen ?? busiest ?? 'submitted'

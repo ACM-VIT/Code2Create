@@ -6,6 +6,7 @@ import { useState, type FormEvent } from 'react'
 import { BundleBindingField } from './BundleBindingField'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 import { permissionName, scopeName } from '../lib/permissionLabels'
 
 type BundleId = FunctionArgs<typeof api.permissionBundleMigrations.sources>['bundleId']
@@ -30,11 +31,12 @@ export function PermissionBundleMigration({ bundleId }: { bundleId: BundleId }) 
   const [sourceVersionId, setSourceVersionId] = useState<SourceVersionId | null>(null)
   const [selections, setSelections] = useState<PreviewSelection[]>([])
   const [previewRequest, setPreviewRequest] = useState<PreviewRequest | null>(null)
-  const [operationId, setOperationId] = useState<string | null>(null)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const migrationAttempt = useMutationAttempt<FunctionReturnType<typeof api.permissionBundleMigrations.confirm>>()
+  const migrationPending = migrationAttempt.hasPending('permission-bundle-migration')
   const candidates = usePaginatedQuery(
     api.permissionBundleMigrations.candidates,
     sourceVersionId
@@ -50,8 +52,8 @@ export function PermissionBundleMigration({ bundleId }: { bundleId: BundleId }) 
   )
 
   const resetPreview = () => {
+    if (migrationPending) return
     setPreviewRequest(null)
-    setOperationId(null)
     setMessage(null)
     setError(null)
   }
@@ -115,47 +117,44 @@ export function PermissionBundleMigration({ bundleId }: { bundleId: BundleId }) 
   const requestPreview = (event: FormEvent) => {
     event.preventDefault()
     if (!sourceVersionId || selections.length === 0 || !bindingsComplete(selections)) return
+    if (migrationPending) return
     setError(null)
     setMessage(null)
-    setOperationId(crypto.randomUUID())
     setPreviewRequest({ sourceBundleVersionId: sourceVersionId, selections })
   }
 
   const confirmMigration = async () => {
-    if (!preview || !previewRequest || !operationId) return
-    const confirmedSelections = previewRequest.selections.map((selection) => {
-      const target = preview.targets.find(
-        (candidate) => candidate.sourceGrantBatchId === selection.sourceGrantBatchId,
-      )
-      return target
-        ? { ...selection, expectedAccessVersion: target.expectedAccessVersion }
-        : null
-    })
-    if (confirmedSelections.some((selection) => selection === null)) {
-      setError('The migration preview no longer matches the selected people. Review it again.')
-      return
-    }
-    const completeSelections = confirmedSelections.filter(
-      (selection) => selection !== null,
-    )
+    if (!migrationPending && (!preview || !previewRequest)) return
     setBusy(true)
     setError(null)
     setMessage(null)
     try {
-      const result = await migrate({
-        eventSlug,
-        sourceBundleVersionId: previewRequest.sourceBundleVersionId,
-        selections: completeSelections,
-        previewChecksum: preview.previewChecksum,
-        reason,
-        clientOperationId: operationId,
+      const result = await migrationAttempt.run('permission-bundle-migration', () => {
+        if (!preview || !previewRequest) {
+          throw new Error('The migration preview is no longer available.')
+        }
+        const selections = previewRequest.selections.map((selection) => {
+          const target = preview.targets.find(
+            (candidate) => candidate.sourceGrantBatchId === selection.sourceGrantBatchId,
+          )
+          if (!target) throw new Error('The migration preview no longer matches the selected people.')
+          return { ...selection, expectedAccessVersion: target.expectedAccessVersion }
+        })
+        const command = {
+          eventSlug,
+          sourceBundleVersionId: previewRequest.sourceBundleVersionId,
+          selections,
+          previewChecksum: preview.previewChecksum,
+          reason: reason.trim(),
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => migrate(command)
       })
       setMessage(
         `${result.targetCount} ${result.targetCount === 1 ? 'person now uses' : 'people now use'} the current access set.`,
       )
       setSelections([])
       setPreviewRequest(null)
-      setOperationId(null)
       setReason('')
     } catch (caught) {
       setError(readableError(caught))
@@ -174,6 +173,7 @@ export function PermissionBundleMigration({ bundleId }: { bundleId: BundleId }) 
       </div>
 
       <form className="bundle-migration-form" onSubmit={requestPreview}>
+        <fieldset disabled={busy || migrationPending} style={{ display: 'contents' }}>
         <label className="field">
           <span>Older access set</span>
           <select value={sourceVersionId ?? ''} onChange={(event) => chooseSourceVersion(event.target.value)}>
@@ -260,52 +260,62 @@ export function PermissionBundleMigration({ bundleId }: { bundleId: BundleId }) 
         >
           Review updates
         </button>
+        </fieldset>
       </form>
 
       {previewRequest && preview === undefined ? <p className="muted">Comparing access…</p> : null}
-      {preview ? (
+      {preview || migrationPending ? (
         <div className="bundle-migration-preview">
-          <div>
-            <strong>Older access → current access</strong>
-            <span>{preview.targetCount} {preview.targetCount === 1 ? 'person' : 'people'}</span>
-          </div>
-          <div className="bundle-diff">
-            <span>{preview.createdCount} added</span>
-            <span>{preview.reusedCount} already current</span>
-            <span>{preview.supersededCount} old permissions replaced</span>
-            <span>{preview.preservedCount} exceptions preserved</span>
-          </div>
-          <div className="bundle-migration-targets">
-            {preview.targets.map((target) => (
-              <details key={target.sourceGrantBatchId}>
-                <summary>
-                  <span>{target.displayName}</span>
-                  <small>{target.changes.length} changes</small>
-                </summary>
-                <ol>
-                  {target.changes.map((change, index) => (
-                    <li key={`${change.permissionKey}:${change.scopeType}:${change.scopeId ?? 'event'}:${index}`}>
-                      <span>{permissionName(change.permissionKey)}</span>
-                      <small>
-                        {changeName(change)} · {scopeName(change.scopeType)}
-                      </small>
-                    </li>
-                  ))}
-                </ol>
-              </details>
-            ))}
-          </div>
+          {preview ? (
+            <>
+              <div>
+                <strong>Older access → current access</strong>
+                <span>{preview.targetCount} {preview.targetCount === 1 ? 'person' : 'people'}</span>
+              </div>
+              <div className="bundle-diff">
+                <span>{preview.createdCount} added</span>
+                <span>{preview.reusedCount} already current</span>
+                <span>{preview.supersededCount} old permissions replaced</span>
+                <span>{preview.preservedCount} exceptions preserved</span>
+              </div>
+              <div className="bundle-migration-targets">
+                {preview.targets.map((target) => (
+                  <details key={target.sourceGrantBatchId}>
+                    <summary>
+                      <span>{target.displayName}</span>
+                      <small>{target.changes.length} changes</small>
+                    </summary>
+                    <ol>
+                      {target.changes.map((change, index) => (
+                        <li key={`${change.permissionKey}:${change.scopeType}:${change.scopeId ?? 'event'}:${index}`}>
+                          <span>{permissionName(change.permissionKey)}</span>
+                          <small>
+                            {changeName(change)} · {scopeName(change.scopeType)}
+                          </small>
+                        </li>
+                      ))}
+                    </ol>
+                  </details>
+                ))}
+              </div>
+            </>
+          ) : <p className="notice">Confirm the earlier access update before making another change.</p>}
           <label className="field">
             <span>Why these people need the update</span>
-            <textarea required value={reason} onChange={(event) => setReason(event.target.value)} />
+            <textarea
+              required
+              value={reason}
+              disabled={busy || migrationPending}
+              onChange={(event) => setReason(event.target.value)}
+            />
           </label>
           <button
             className="primary"
             type="button"
-            disabled={busy || reason.trim().length < 5}
+            disabled={busy || (!migrationPending && reason.trim().length < 5)}
             onClick={() => void confirmMigration()}
           >
-            {busy ? 'Updating…' : 'Update selected people'}
+            {busy ? 'Updating…' : migrationPending ? 'Confirm earlier update' : 'Update selected people'}
           </button>
           <small className="muted">
             The selected people update together. You may be asked to sign in again.

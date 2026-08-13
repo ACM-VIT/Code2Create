@@ -6,6 +6,7 @@ import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import { applicationMatchesNotification } from "./lib/participantNotificationDelivery";
 import { normalizeEmail } from "./lib/strings";
+import { appendParticipantDeliveryReadFactById } from "./lib/operationsAutonomyReadFacts/participantDeliveries";
 
 const maxAutomaticAttempts = 3;
 const sendClaimMs = 30_000;
@@ -53,6 +54,7 @@ async function finishWithoutSend(
     updatedAt: now,
     completedAt: now,
   });
+  await appendParticipantDeliveryReadFactById(ctx, delivery._id, now);
 }
 
 export const claimDelivery = internalMutation({
@@ -134,6 +136,7 @@ export const claimDelivery = internalMutation({
       version: delivery.version + 1,
       updatedAt: now,
     });
+    await appendParticipantDeliveryReadFactById(ctx, delivery._id, now);
     await ctx.scheduler.runAt(claimExpiresAt, internal.participantEmail.deliver, {
       deliveryId: delivery._id,
     });
@@ -234,6 +237,7 @@ async function applyProviderEvent(
       await disableDestinationForProviderFailure(ctx, delivery, reasonCode, now);
     }
   }
+  await appendParticipantDeliveryReadFactById(ctx, delivery._id, now);
   await ctx.db.patch(providerEvent._id, { appliedAt: now });
 }
 
@@ -270,6 +274,7 @@ export const recordSent = internalMutation({
       version: delivery.version + 1,
       updatedAt: now,
     });
+    await appendParticipantDeliveryReadFactById(ctx, delivery._id, now);
     if (args.initialOutcome === "permanent_bounce") {
       await disableDestinationForProviderFailure(
         ctx,
@@ -327,6 +332,7 @@ export const recordSendFailure = internalMutation({
         version: delivery.version + 1,
         updatedAt: now,
       });
+      await appendParticipantDeliveryReadFactById(ctx, delivery._id, now);
       await ctx.scheduler.runAt(nextAttemptAt, internal.participantEmail.deliver, {
         deliveryId: delivery._id,
       });

@@ -4,7 +4,8 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ErrorNotice, Field, TextInput } from '../components/Form'
 import { eventSlug } from '../lib/config'
-import { operationId, readableError } from '../lib/errors'
+import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 export function TeamScreen({ embedded = false }: { embedded?: boolean }) {
   const params = useParams<{ code?: string }>()
@@ -16,13 +17,17 @@ export function TeamScreen({ embedded = false }: { embedded?: boolean }) {
   const [code, setCode] = useState(params.code ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const operations = useOperationRunner()
+  const createPending = operations.hasPending('team-create')
+  const joinPending = operations.hasPending('team-join')
+  const operationPending = createPending || joinPending
 
   const create = async (event: FormEvent) => {
     event.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      await createTeam({ eventSlug, name, clientOperationId: operationId('team-create') })
+      await operations.run('team-create', (clientOperationId) => () => createTeam({ eventSlug, name, clientOperationId }))
       navigate('/', { replace: true })
     } catch (caught) {
       setError(readableError(caught))
@@ -36,7 +41,7 @@ export function TeamScreen({ embedded = false }: { embedded?: boolean }) {
     setBusy(true)
     setError(null)
     try {
-      await joinTeam({ eventSlug, code, clientOperationId: operationId('team-join') })
+      await operations.run('team-join', (clientOperationId) => () => joinTeam({ eventSlug, code, clientOperationId }))
       navigate('/', { replace: true })
     } catch (caught) {
       setError(readableError(caught))
@@ -65,10 +70,10 @@ export function TeamScreen({ embedded = false }: { embedded?: boolean }) {
 
         {mode === 'choose' ? (
           <div className="choice-stack" aria-label="Choose a team action">
-            <button type="button" className="choice" onClick={() => setMode('create')}>
+            <button type="button" className="choice" disabled={operationPending || busy} onClick={() => setMode('create')}>
               <span><strong>Create a team</strong><small>Start a new team as its lead</small></span>
             </button>
-            <button type="button" className="choice" onClick={() => setMode('join')}>
+            <button type="button" className="choice" disabled={operationPending || busy} onClick={() => setMode('join')}>
               <span><strong>Join a team</strong><small>Use a code from your lead</small></span>
             </button>
           </div>
@@ -77,13 +82,13 @@ export function TeamScreen({ embedded = false }: { embedded?: boolean }) {
         {mode === 'create' ? (
           <form onSubmit={create} className="team-setup-form">
             <Field label="Team name">
-              <TextInput autoFocus required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Parallel Labs" />
+              <TextInput autoFocus required maxLength={80} disabled={operationPending || busy} value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Parallel Labs" />
             </Field>
             <ErrorNotice message={error} />
             <div className="form-actions">
-              <button type="button" className="text-button" onClick={() => setMode('choose')}>Back</button>
-              <button type="submit" className="primary" disabled={busy || !name.trim()}>
-                {busy ? 'Creating…' : 'Continue'}
+              <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => setMode('choose')}>Back</button>
+              <button type="submit" className="primary" disabled={busy || joinPending || (!createPending && !name.trim())}>
+                {busy ? 'Creating…' : createPending ? 'Confirm earlier team' : 'Continue'}
               </button>
             </div>
           </form>
@@ -91,13 +96,13 @@ export function TeamScreen({ embedded = false }: { embedded?: boolean }) {
         {mode === 'join' ? (
           <form onSubmit={join} className="team-setup-form">
             <Field label="Team code">
-              <TextInput autoFocus required maxLength={7} value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} placeholder="C2C7ABC" />
+              <TextInput autoFocus required maxLength={7} disabled={operationPending || busy} value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} placeholder="C2C7ABC" />
             </Field>
             <ErrorNotice message={error} />
             <div className="form-actions">
-              <button type="button" className="text-button" onClick={() => setMode('choose')}>Back</button>
-              <button type="submit" className="primary" disabled={busy || code.trim().length < 7}>
-                {busy ? 'Joining…' : 'Continue'}
+              <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => setMode('choose')}>Back</button>
+              <button type="submit" className="primary" disabled={busy || createPending || (!joinPending && code.trim().length < 7)}>
+                {busy ? 'Joining…' : joinPending ? 'Confirm earlier join' : 'Continue'}
               </button>
             </div>
           </form>

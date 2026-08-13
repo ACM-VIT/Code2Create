@@ -34,6 +34,9 @@ jobs:
           runtime: node@24
           cache: true
 
+      - name: Audit production dependencies
+        run: pnpm audit:dependencies
+
       - name: Lint and type-check
         run: pnpm check:product
 
@@ -47,7 +50,7 @@ jobs:
         run: pnpm --filter @code2create/intelligence deploy:check
 
       - name: Validate and export the reviewer app
-        run: pnpm --filter @code2create/reviewer config:check && pnpm --filter @code2create/reviewer export:check
+        run: pnpm --filter @code2create/reviewer config:check && pnpm --filter @code2create/reviewer export:check && pnpm --filter @code2create/reviewer native:android:check
         env:
           C2C_NATIVE_BUILD: "true"
           C2C_IOS_BUNDLE_IDENTIFIER: com.code2create.ops.ci

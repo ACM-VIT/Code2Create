@@ -18,6 +18,8 @@
     "dev:updates": "pnpm --filter @code2create/updates dev",
     "dev:intelligence": "pnpm --filter @code2create/intelligence dev",
     "dev:email": "pnpm --filter @code2create/email dev",
+    "dev:trailer": "pnpm --filter @code2create/trailer dev",
+    "render:trailer": "pnpm --filter @code2create/trailer render",
     "test:e2e:release": "pnpm --filter @code2create/e2e test:release",
     "check:fixtures:staging": "pnpm --filter @code2create/backend browser-fixtures:check:staging",
     "check:providers:staging": "pnpm --filter @code2create/backend providers:check:staging",
@@ -33,7 +35,8 @@
     "test:recovery": "pnpm --filter @code2create/backend test:recovery",
     "lint": "pnpm --filter './apps/**' --filter './packages/**' --if-present lint",
     "typecheck": "pnpm --filter './apps/**' --filter './packages/**' --if-present typecheck",
+    "audit:dependencies": "node scripts/audit-production-dependencies.mjs",
     "check:product": "pnpm lint && pnpm typecheck",
-    "check:release": "pnpm check:product && pnpm test && pnpm build && pnpm --filter @code2create/intelligence deploy:check && pnpm --filter @code2create/reviewer export:check"
+    "check:release": "pnpm audit:dependencies && pnpm check:product && pnpm test && pnpm build && pnpm --filter @code2create/intelligence deploy:check && pnpm --filter @code2create/reviewer export:check"
   }
 }

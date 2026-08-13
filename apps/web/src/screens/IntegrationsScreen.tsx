@@ -1,15 +1,23 @@
 import { repositoryKinds, type RepositoryKind } from '@code2create/domain'
 import { api } from '@code2create/backend/api'
 import { useAction, useMutation, useQuery } from 'convex/react'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { FigmaIntegrationPanel } from '../components/FigmaIntegrationPanel'
 import { ErrorNotice } from '../components/Form'
 import { eventSlug } from '../lib/config'
-import { operationId, readableError } from '../lib/errors'
+import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 import type {
   AvailableGitHubRepository,
   CurrentGitHubIntegration,
 } from '../types'
+
+type AvailableRepositoryPage = {
+  connectionId: CurrentGitHubIntegration['connections'][number]['id']
+  repositories: AvailableGitHubRepository[]
+  totalCount: number
+  nextPage?: number
+}
 
 const repositoryKindLabels: Record<RepositoryKind, string> = {
   full_product: 'Full product',
@@ -48,9 +56,8 @@ export function IntegrationsScreen() {
   const refreshRepository = useMutation(api.githubIntegrations.refreshRepository)
   const reorderRepositories = useMutation(api.githubIntegrations.reorderRepositories)
   const archiveRepository = useMutation(api.githubIntegrations.archiveRepository)
-  const [availableRepositories, setAvailableRepositories] = useState<
-    AvailableGitHubRepository[] | null
-  >(null)
+  const [availableRepositories, setAvailableRepositories] =
+    useState<AvailableRepositoryPage | null>(null)
   const [activeConnectionId, setActiveConnectionId] = useState<
     CurrentGitHubIntegration['connections'][number]['id'] | null
   >(null)
@@ -61,6 +68,8 @@ export function IntegrationsScreen() {
   const [archiveReason, setArchiveReason] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const repositoryRequest = useRef(0)
+  const operations = useOperationRunner()
   const connectedRepositoryIds = useMemo(
     () => new Set(integration?.repositories.map((repository) => repository.repositoryId) ?? []),
     [integration?.repositories],
@@ -87,18 +96,41 @@ export function IntegrationsScreen() {
 
   const loadRepositories = async (
     connectionId: CurrentGitHubIntegration['connections'][number]['id'],
+    page = 1,
   ) => {
+    const requestNumber = repositoryRequest.current + 1
+    repositoryRequest.current = requestNumber
     setBusy(connectionId)
     setError(null)
     try {
-      const repositories = await listRepositories({ eventSlug, connectionId })
+      const result = await listRepositories({ eventSlug, connectionId, page })
+      if (repositoryRequest.current !== requestNumber) return
       setActiveConnectionId(connectionId)
-      setAvailableRepositories(repositories)
+      setAvailableRepositories((current) => {
+        if (page === 1 || current?.connectionId !== connectionId) {
+          return { connectionId, ...result }
+        }
+        const repositories = new Map(
+          [...current.repositories, ...result.repositories].map((repository) => [
+            repository.repositoryId,
+            repository,
+          ]),
+        )
+        return {
+          connectionId,
+          repositories: [...repositories.values()].sort((left, right) =>
+            left.fullName.localeCompare(right.fullName),
+          ),
+          totalCount: result.totalCount,
+          ...(result.nextPage !== undefined ? { nextPage: result.nextPage } : {}),
+        }
+      })
       setDraft(null)
     } catch (caught) {
+      if (repositoryRequest.current !== requestNumber) return
       setError(readableError(caught))
     } finally {
-      setBusy(null)
+      if (repositoryRequest.current === requestNumber) setBusy(null)
     }
   }
 
@@ -120,23 +152,20 @@ export function IntegrationsScreen() {
     setBusy('add-repository')
     setError(null)
     try {
-      await addRepository({
-        eventSlug,
-        connectionId: draft.connectionId,
-        repositoryId: draft.repository.repositoryId,
-        owner: draft.repository.owner,
-        name: draft.repository.name,
-        kind: draft.kind,
-        ...(draft.kind === 'other' ? { customKind: draft.customKind } : {}),
-        purpose: draft.purpose,
-        trackedBranch: draft.trackedBranch,
-        ...(draft.rootPath.trim() ? { rootPath: draft.rootPath } : {}),
-        clientOperationId: operationId('github-repository-add'),
-      })
+      await operations.run('github-repository-add', (clientOperationId) => () => addRepository({
+          eventSlug,
+          connectionId: draft.connectionId,
+          repositoryId: draft.repository.repositoryId,
+          owner: draft.repository.owner,
+          name: draft.repository.name,
+          kind: draft.kind,
+          ...(draft.kind === 'other' ? { customKind: draft.customKind } : {}),
+          purpose: draft.purpose,
+          trackedBranch: draft.trackedBranch,
+          ...(draft.rootPath.trim() ? { rootPath: draft.rootPath } : {}),
+          clientOperationId,
+        }))
       setDraft(null)
-      setAvailableRepositories((current) =>
-        current?.filter((item) => item.repositoryId !== draft.repository.repositoryId) ?? null,
-      )
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -148,13 +177,13 @@ export function IntegrationsScreen() {
     setBusy(repository.id)
     setError(null)
     try {
-      await refreshRepository({
-        eventSlug,
-        bindingId: repository.id,
-        expectedVersion: repository.version,
-        reason: 'Team requested current GitHub data',
-        clientOperationId: operationId('github-repository-refresh'),
-      })
+      await operations.run('github-repository-refresh', (clientOperationId) => () => refreshRepository({
+          eventSlug,
+          bindingId: repository.id,
+          expectedVersion: repository.version,
+          reason: 'Team requested current GitHub data',
+          clientOperationId,
+        }))
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -166,13 +195,13 @@ export function IntegrationsScreen() {
     setBusy(repository.id)
     setError(null)
     try {
-      await archiveRepository({
-        eventSlug,
-        bindingId: repository.id,
-        expectedVersion: repository.version,
-        reason: archiveReason,
-        clientOperationId: operationId('github-repository-archive'),
-      })
+      await operations.run('github-repository-archive', (clientOperationId) => () => archiveRepository({
+          eventSlug,
+          bindingId: repository.id,
+          expectedVersion: repository.version,
+          reason: archiveReason,
+          clientOperationId,
+        }))
       setArchiveId(null)
       setArchiveReason('')
     } catch (caught) {
@@ -193,14 +222,14 @@ export function IntegrationsScreen() {
     setBusy('repository-order')
     setError(null)
     try {
-      await reorderRepositories({
-        eventSlug,
-        orderedRepositories: ordered.map((item) => ({
-          bindingId: item.id,
-          expectedVersion: item.version,
-        })),
-        clientOperationId: operationId('github-repositories-reorder'),
-      })
+      await operations.run('github-repositories-reorder', (clientOperationId) => () => reorderRepositories({
+          eventSlug,
+          orderedRepositories: ordered.map((item) => ({
+            bindingId: item.id,
+            expectedVersion: item.version,
+          })),
+          clientOperationId,
+        }))
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -334,13 +363,13 @@ export function IntegrationsScreen() {
         <div className="repository-picker">
           <div className="subheading-row">
             <h2>Available repositories</h2>
-            <span>{availableRepositories.length}</span>
+            <span>{availableRepositories.repositories.length} / {availableRepositories.totalCount}</span>
           </div>
-          {availableRepositories.length === 0 ? (
+          {availableRepositories.repositories.length === 0 ? (
             <p className="muted">No repositories are available to this installation.</p>
           ) : (
             <div className="repository-options">
-              {availableRepositories.map((repository) => {
+              {availableRepositories.repositories.map((repository) => {
                 const connected = connectedRepositoryIds.has(repository.repositoryId)
                 return (
                   <button
@@ -357,6 +386,19 @@ export function IntegrationsScreen() {
               })}
             </div>
           )}
+          {availableRepositories.nextPage !== undefined ? (
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy === availableRepositories.connectionId}
+              onClick={() => loadRepositories(
+                availableRepositories.connectionId,
+                availableRepositories.nextPage,
+              )}
+            >
+              {busy === availableRepositories.connectionId ? 'Loading…' : 'Load more repositories'}
+            </button>
+          ) : null}
         </div>
       ) : null}
 

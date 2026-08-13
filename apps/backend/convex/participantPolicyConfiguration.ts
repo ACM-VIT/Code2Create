@@ -12,10 +12,12 @@ import {
 } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import {
+  loadPublishedParticipantCapacity,
   normalizeParticipantPolicy,
   participantPolicyChecksum,
   participantPolicyFromDocument,
   participantPolicyInput,
+  participantPolicyPublicationIssue,
   publishParticipantPolicy,
   saveParticipantPolicyDraft,
 } from "./lib/participantPolicy";
@@ -53,6 +55,7 @@ export const current = query({
   args: { eventSlug: v.string() },
   returns: v.object({
     eventVersion: v.number(),
+    participantCapacity: v.number(),
     publishedPolicy: policyView,
     draftPolicy: v.union(v.null(), policyView),
     canDraft: v.boolean(),
@@ -80,6 +83,7 @@ export const current = query({
         index.eq("eventId", event._id).eq("status", "draft"),
       )
       .unique();
+    const participantCapacity = await loadPublishedParticipantCapacity(ctx, event);
     const [draftGrants, validateGrants, publishGrants] = await Promise.all([
       matchingPermissionGrantIds(ctx, {
         eventId: event._id,
@@ -102,6 +106,7 @@ export const current = query({
     ]);
     return {
       eventVersion: event.version,
+      participantCapacity,
       publishedPolicy: readPolicy(published),
       draftPolicy: draft ? readPolicy(draft) : null,
       canDraft: draftGrants.length > 0,
@@ -183,6 +188,13 @@ export const validateDraft = query({
     const issues = participantPolicyChecksum(normalized) === draft.checksum
       ? []
       : ["The draft checksum does not match its participant policy."];
+    const publicationIssue = await participantPolicyPublicationIssue(
+      ctx,
+      event,
+      normalizeParticipantPolicy(participantPolicyFromDocument(published)),
+      normalized,
+    );
+    if (publicationIssue) issues.push(publicationIssue);
     return {
       valid: issues.length === 0,
       issues,

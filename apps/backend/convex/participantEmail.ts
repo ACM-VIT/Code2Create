@@ -6,6 +6,7 @@ import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
+import { readBoundedJsonResponse } from "./lib/boundedHttpBody";
 import { interpretCloudflareEmailSendResponse } from "./lib/cloudflareEmailSending";
 import { localProviderFixturesEnabled } from "./lib/localBrowserFixtures";
 
@@ -112,7 +113,7 @@ export const deliver = internalAction({
     }
     let decoded: unknown;
     try {
-      decoded = await response.json();
+      decoded = await readBoundedJsonResponse(response, 64 * 1_024);
     } catch {
       await ctx.runMutation(internal.participantNotificationState.recordSendFailure, {
         deliveryId: claim.deliveryId,

@@ -1,0 +1,31 @@
+{
+  "name": "@code2create/trailer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "remotion studio",
+    "render": "remotion render Trailer out/trailer.mp4",
+    "render:reel": "remotion render Reel out/reel.mp4",
+    "still": "remotion still Trailer",
+    "lint": "oxlint",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.508",
+    "@remotion/google-fonts": "4.0.508",
+    "@remotion/media": "4.0.508",
+    "@remotion/motion-blur": "4.0.508",
+    "@remotion/noise": "4.0.508",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "remotion": "4.0.508"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "oxlint": "^1.76.0",
+    "typescript": "~6.0.2"
+  }
+}

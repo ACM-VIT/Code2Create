@@ -9,6 +9,7 @@ import { normalizeCloudflareEmailEvent } from "./contracts.js";
 export interface EmailBridgeEnvironment {
   CONVEX_EMAIL_EVENT_CALLBACK_URL: string;
   EMAIL_EVENT_CALLBACK_SECRET: string;
+  EMAIL_ROUTING_ADDRESS: string;
   EMAIL_ROUTING_FORWARD_TO: string;
   EMAIL_SENDING_DOMAIN: string;
 }
@@ -16,6 +17,7 @@ export interface EmailBridgeEnvironment {
 type EventFetcher = (url: string, init: RequestInit) => Promise<Response>;
 
 type RoutedEmailMessage = {
+  readonly to: string;
   forward(recipient: string): Promise<unknown>;
   setReject(reason: string): void;
 };
@@ -72,10 +74,16 @@ export async function relayEmailEvent(
 
 export async function routeInboundEmail(
   message: RoutedEmailMessage,
+  configuredAddress: string,
   configuredRecipient: string,
 ) {
+  const address = emailAddressSchema.safeParse(configuredAddress.trim().toLocaleLowerCase("en"));
   const recipient = emailAddressSchema.safeParse(configuredRecipient.trim());
-  if (!recipient.success) {
+  if (
+    !address.success ||
+    !recipient.success ||
+    message.to.trim().toLocaleLowerCase("en") !== address.data
+  ) {
     message.setReject("Inbound support routing is unavailable.");
     return;
   }
@@ -114,6 +122,10 @@ export default {
     await consumeEmailEventMessages(batch.messages, environment);
   },
   async email(message, environment) {
-    await routeInboundEmail(message, environment.EMAIL_ROUTING_FORWARD_TO);
+    await routeInboundEmail(
+      message,
+      environment.EMAIL_ROUTING_ADDRESS,
+      environment.EMAIL_ROUTING_FORWARD_TO,
+    );
   },
 } satisfies ExportedHandler<EmailBridgeEnvironment>;

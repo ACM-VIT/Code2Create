@@ -12,8 +12,10 @@ import {
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import { appendReviewPanelVacancyReadFactById } from "./lib/operationsAutonomyReadFacts";
 import { requirePermission, revokeSourceGrants } from "./lib/permissions";
 import { grantPanelMemberAccess } from "./lib/reviewAccess";
+import { reviewerCoversStaffingWindow } from "./lib/reviewerAvailability";
 import { normalizedText } from "./lib/strings";
 import { reviewPanelStatus } from "./values";
 
@@ -101,6 +103,12 @@ async function resolveJoiningReviewer(
     throw new ConvexError({
       code: "REVIEWER_NOT_AVAILABLE",
       message: "That reviewer is not an active, trained reviewer in this event.",
+    });
+  }
+  if (!reviewerCoversStaffingWindow(profile.availabilityWindows, args.round)) {
+    throw new ConvexError({
+      code: "REVIEWER_UNAVAILABLE_FOR_ROUND",
+      message: "That reviewer's declared availability does not cover this round.",
     });
   }
   const qualifiedKeys = new Set(profile.criterionKeys);
@@ -332,6 +340,7 @@ export const swapPanelMember = mutation({
       version: nextVersion,
       updatedAt: now,
     });
+    await appendReviewPanelVacancyReadFactById(ctx, panel._id, now);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,

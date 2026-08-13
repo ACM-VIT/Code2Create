@@ -2,6 +2,8 @@ import { getRandomBytesAsync, randomUUID } from 'expo-crypto'
 import * as SecureStore from 'expo-secure-store'
 import { z } from 'zod'
 
+import { notifyInstallationChanged } from './installation-state'
+
 const scannerDeviceSchema = z.object({
   version: z.literal(1),
   installationId: z.uuid(),
@@ -56,10 +58,12 @@ export async function createScannerDevice(args: {
 
 export async function saveScannerDevice(eventSlug: string, record: ScannerDeviceRecord) {
   await SecureStore.setItemAsync(storageKey(eventSlug), JSON.stringify(record))
+  notifyInstallationChanged(eventSlug)
 }
 
 export async function clearScannerDevice(eventSlug: string) {
   await SecureStore.deleteItemAsync(storageKey(eventSlug))
+  notifyInstallationChanged(eventSlug)
 }
 
 export async function reserveDeviceSequence(args: {

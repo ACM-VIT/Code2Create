@@ -5,15 +5,30 @@ import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { attendancePlanChecksum } from "./lib/attendancePlan";
 import {
+  maximumAttendanceSessionsPerPlan,
+  maximumAttendanceStationsPerPlan,
+  maximumAttendanceZonesPerPlan,
+  maximumSimultaneousAttendanceSessionsPerParticipant,
+  requireAttendancePlanLimits,
+} from "./lib/attendancePlanLimits";
+import {
   requireReplaceableAttendancePlan,
   retireAttendancePlanStations,
 } from "./lib/attendanceStations";
+import { requireConfiguredAttendanceStation } from "./lib/attendance";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { normalizedText } from "./lib/strings";
-import { barcodeSymbology, participantClass } from "./values";
+import { appendAttendanceStationReadFactById } from "./lib/operationsAutonomyReadFacts/attendanceOperations";
+import {
+  attendanceScannerCredentialKind,
+  type AttendanceStationMode,
+  attendanceStationMode,
+  barcodeSymbology,
+  participantClass,
+} from "./values";
 
 const cohort = v.union(
   v.object({ kind: v.literal("all_admitted") }),
@@ -66,6 +81,18 @@ const stationInput = v.object({
   stableKey: v.string(),
   name: v.string(),
   zoneKey: v.string(),
+  mode: attendanceStationMode,
+  sessionKey: v.optional(v.string()),
+  allowedCredentialKinds: v.array(attendanceScannerCredentialKind),
+});
+
+const stationEditorSource = v.object({
+  stableKey: v.string(),
+  name: v.string(),
+  zoneKey: v.string(),
+  mode: v.optional(attendanceStationMode),
+  sessionKey: v.optional(v.string()),
+  allowedCredentialKinds: v.optional(v.array(attendanceScannerCredentialKind)),
 });
 
 function stableKey(value: string, label: string) {
@@ -94,12 +121,59 @@ function requireVersion(actual: number, expected: number) {
   }
 }
 
+export function validateAttendanceStationBinding(args: {
+  mode: AttendanceStationMode;
+  stationZoneKey: string;
+  sessionKey?: string;
+  sessions: readonly { stableKey: string; zoneKey: string }[];
+}) {
+  const sessionScoped =
+    args.mode === "session_confirm" ||
+    args.mode === "zone_entry" ||
+    args.mode === "zone_exit";
+  if (sessionScoped && args.sessionKey === undefined) {
+    throw new ConvexError({
+      code: "STATION_SESSION_REQUIRED",
+      message: "A session-scoped station must select a session.",
+    });
+  }
+  if (
+    (args.mode === "venue_entry" || args.mode === "venue_exit") &&
+    args.sessionKey !== undefined
+  ) {
+    throw new ConvexError({
+      code: "STATION_SESSION_NOT_ALLOWED",
+      message: "A venue station cannot select a session.",
+    });
+  }
+  if (args.sessionKey === undefined) return;
+  const session = args.sessions.find((candidate) => candidate.stableKey === args.sessionKey);
+  if (!session) {
+    throw new ConvexError({
+      code: "UNKNOWN_SESSION",
+      message: "A station references an unknown session.",
+    });
+  }
+  if (session.zoneKey !== args.stationZoneKey) {
+    throw new ConvexError({
+      code: "STATION_SESSION_ZONE_MISMATCH",
+      message: "A station session must use the station's zone.",
+    });
+  }
+}
+
 export const current = query({
   args: { eventSlug: v.string() },
   returns: v.object({
     eventVersion: v.number(),
     canConfigure: v.boolean(),
     canPublish: v.boolean(),
+    limits: v.object({
+      maximumZones: v.number(),
+      maximumSessions: v.number(),
+      maximumStations: v.number(),
+      maximumSimultaneousSessionsPerParticipant: v.number(),
+    }),
     publishedPlan: v.union(
       v.null(),
       v.object({
@@ -132,7 +206,7 @@ export const current = query({
         offlineQueueMaxAgeSeconds: v.number(),
         zones: v.array(zoneInput),
         sessions: v.array(sessionInput),
-        stations: v.array(stationInput),
+        stations: v.array(stationEditorSource),
       }),
     ),
   }),
@@ -184,22 +258,31 @@ export const current = query({
           ctx.db
             .query("attendanceZones")
             .withIndex("by_plan_key", (index) => index.eq("planVersionId", editorPlan._id))
-            .collect(),
+            .take(maximumAttendanceZonesPerPlan + 1),
           ctx.db
             .query("attendanceSessions")
             .withIndex("by_plan_key", (index) => index.eq("planVersionId", editorPlan._id))
-            .collect(),
+            .take(maximumAttendanceSessionsPerPlan + 1),
           ctx.db
             .query("attendanceStations")
             .withIndex("by_plan_key", (index) => index.eq("planVersionId", editorPlan._id))
-            .collect(),
+            .take(maximumAttendanceStationsPerPlan + 1),
         ])
       : [[], [], []];
+    requireAttendancePlanLimits({ zones, sessions, stations });
     const zoneKeyById = new Map(zones.map((zone) => [zone._id, zone.stableKey]));
+    const sessionKeyById = new Map(sessions.map((session) => [session._id, session.stableKey]));
     return {
       eventVersion: event.version,
       canConfigure: configurationGrants.length > 0,
       canPublish: publishGrants.length > 0,
+      limits: {
+        maximumZones: maximumAttendanceZonesPerPlan,
+        maximumSessions: maximumAttendanceSessionsPerPlan,
+        maximumStations: maximumAttendanceStationsPerPlan,
+        maximumSimultaneousSessionsPerParticipant:
+          maximumSimultaneousAttendanceSessionsPerParticipant,
+      },
       publishedPlan: publishedPlan
         ? {
             id: publishedPlan._id,
@@ -263,10 +346,21 @@ export const current = query({
               .map((station) => {
                 const zoneKey = zoneKeyById.get(station.zoneId);
                 if (!zoneKey) throw new Error("Attendance station zone no longer resolves.");
+                const sessionKey = station.sessionId === undefined
+                  ? undefined
+                  : sessionKeyById.get(station.sessionId);
+                if (station.sessionId !== undefined && sessionKey === undefined) {
+                  throw new Error("Attendance station session no longer resolves.");
+                }
                 return {
                   stableKey: station.stableKey,
                   name: station.name,
                   zoneKey,
+                  ...(station.mode !== undefined ? { mode: station.mode } : {}),
+                  ...(sessionKey !== undefined ? { sessionKey } : {}),
+                  ...(station.allowedCredentialKinds !== undefined
+                    ? { allowedCredentialKinds: station.allowedCredentialKinds }
+                    : {}),
                 };
               })
               .sort((left, right) => left.stableKey.localeCompare(right.stableKey)),
@@ -343,6 +437,11 @@ export const createDraft = mutation({
         message: "A plan needs at least one zone, session, and station.",
       });
     }
+    requireAttendancePlanLimits({
+      zones: args.zones,
+      sessions: args.sessions,
+      stations: args.stations,
+    });
 
     const zones = args.zones.map((zone) => ({
       stableKey: stableKey(zone.stableKey, "Zone key"),
@@ -359,6 +458,11 @@ export const createDraft = mutation({
       stableKey: stableKey(station.stableKey, "Station key"),
       name: normalizedText(station.name, "Station name", 2, 80),
       zoneKey: stableKey(station.zoneKey, "Station zone key"),
+      mode: station.mode,
+      ...(station.sessionKey !== undefined
+        ? { sessionKey: stableKey(station.sessionKey, "Station session key") }
+        : {}),
+      allowedCredentialKinds: station.allowedCredentialKinds,
     }));
     requireUnique(zones.map((zone) => zone.stableKey), "Zone keys");
     requireUnique(sessions.map((session) => session.stableKey), "Session keys");
@@ -453,6 +557,22 @@ export const createDraft = mutation({
       if (!zoneKeys.has(station.zoneKey)) {
         throw new ConvexError({ code: "UNKNOWN_ZONE", message: "A station references an unknown zone." });
       }
+      if (station.allowedCredentialKinds.length === 0) {
+        throw new ConvexError({
+          code: "STATION_CREDENTIAL_REQUIRED",
+          message: "A station must allow at least one credential method.",
+        });
+      }
+      requireUnique(
+        station.allowedCredentialKinds,
+        `Credential methods for station ${station.stableKey}`,
+      );
+      validateAttendanceStationBinding({
+        mode: station.mode,
+        stationZoneKey: station.zoneKey,
+        ...(station.sessionKey !== undefined ? { sessionKey: station.sessionKey } : {}),
+        sessions,
+      });
     }
 
     for (const session of sessions) {
@@ -554,17 +674,27 @@ export const createDraft = mutation({
     for (const station of stations) {
       const zoneId = zoneIds.get(station.zoneKey);
       if (!zoneId) throw new Error("Validated station zone is missing.");
-      await ctx.db.insert("attendanceStations", {
+      const sessionId = station.sessionKey === undefined
+        ? undefined
+        : sessionIds.get(station.sessionKey);
+      if (station.sessionKey !== undefined && sessionId === undefined) {
+        throw new Error("Validated station session is missing.");
+      }
+      const stationId = await ctx.db.insert("attendanceStations", {
         eventId: event._id,
         planVersionId,
         zoneId,
+        ...(sessionId !== undefined ? { sessionId } : {}),
         stableKey: station.stableKey,
         name: station.name,
+        mode: station.mode,
+        allowedCredentialKinds: station.allowedCredentialKinds,
         status: "inactive",
         configurationVersion: 1,
         createdAt: now,
         updatedAt: now,
       });
+      await appendAttendanceStationReadFactById(ctx, stationId, now);
     }
     const eventVersion = event.version + 1;
     await ctx.db.patch(event._id, { version: eventVersion, updatedAt: now });
@@ -648,19 +778,21 @@ export const publish = mutation({
       ctx.db
         .query("attendanceZones")
         .withIndex("by_plan_key", (index) => index.eq("planVersionId", plan._id))
-        .collect(),
+        .take(maximumAttendanceZonesPerPlan + 1),
       ctx.db
         .query("attendanceSessions")
         .withIndex("by_plan_key", (index) => index.eq("planVersionId", plan._id))
-        .collect(),
+        .take(maximumAttendanceSessionsPerPlan + 1),
       ctx.db
         .query("attendanceStations")
         .withIndex("by_plan_key", (index) => index.eq("planVersionId", plan._id))
-        .collect(),
+        .take(maximumAttendanceStationsPerPlan + 1),
     ]);
     if (zones.length === 0 || sessions.length === 0 || stations.length === 0) {
       throw new ConvexError({ code: "PLAN_INCOMPLETE", message: "The attendance plan is incomplete." });
     }
+    requireAttendancePlanLimits({ zones, sessions, stations });
+    for (const station of stations) requireConfiguredAttendanceStation(station);
     const reason = normalizedText(args.reason, "Reason", 5, 300);
     const priorPublished = event.publishedAttendancePlanVersionId
       ? await ctx.db.get(event.publishedAttendancePlanVersionId)
@@ -669,16 +801,25 @@ export const publish = mutation({
     let retiredStationCount = 0;
     let revokedDeviceCount = 0;
     if (priorPublished && priorPublished.status === "published") {
-      const [priorSessions, priorStations] = await Promise.all([
+      const [priorZones, priorSessions, priorStations] = await Promise.all([
+        ctx.db
+          .query("attendanceZones")
+          .withIndex("by_plan_key", (index) => index.eq("planVersionId", priorPublished._id))
+          .take(maximumAttendanceZonesPerPlan + 1),
         ctx.db
           .query("attendanceSessions")
           .withIndex("by_plan_key", (index) => index.eq("planVersionId", priorPublished._id))
-          .collect(),
+          .take(maximumAttendanceSessionsPerPlan + 1),
         ctx.db
           .query("attendanceStations")
           .withIndex("by_plan_key", (index) => index.eq("planVersionId", priorPublished._id))
-          .collect(),
+          .take(maximumAttendanceStationsPerPlan + 1),
       ]);
+      requireAttendancePlanLimits({
+        zones: priorZones,
+        sessions: priorSessions,
+        stations: priorStations,
+      });
       requireReplaceableAttendancePlan(priorSessions);
       const retired = await retireAttendancePlanStations(ctx, {
         eventId: event._id,

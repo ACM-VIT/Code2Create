@@ -1,10 +1,11 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 
 type AttendanceOverview = FunctionReturnType<typeof api.attendanceOperations.overview>
 type AttendanceSession = AttendanceOverview['sessions'][number]
@@ -25,8 +26,11 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
   const [closeReason, setCloseReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const startOperationId = useRef<string | null>(null)
-  const closeOperationId = useRef<string | null>(null)
+  const startAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceRollCalls.start>>()
+  const closeAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceRollCalls.close>>()
+  const startPending = startAttempt.hasPending('attendance-roll-call-start')
+  const closePending = closeAttempt.hasPending('attendance-roll-call-close')
+  const operationPending = startPending || closePending
   const active = rollCallData?.rollCalls.find((rollCall) => rollCall.state === 'active')
   const latest = active ?? rollCallData?.rollCalls[0]
   const roster = usePaginatedQuery(
@@ -35,18 +39,9 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
     { initialNumItems: 50 },
   )
 
-  useEffect(() => {
-    startOperationId.current = null
-  }, [kind, name, reason, session.version])
-
-  useEffect(() => {
-    closeOperationId.current = null
-  }, [active?.version, closeReason])
-
   if (!session.canReadRollCalls) return null
 
   const resetStart = () => {
-    startOperationId.current = null
     setStartOpen(false)
     setName('')
     setReason('')
@@ -54,7 +49,6 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
   }
 
   const resetClose = () => {
-    closeOperationId.current = null
     setCloseOpen(false)
     setCloseReason('')
     setError(null)
@@ -62,19 +56,20 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
 
   const submitStart = async (event: FormEvent) => {
     event.preventDefault()
-    const clientOperationId = startOperationId.current ?? crypto.randomUUID()
-    startOperationId.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await startRollCall({
-        eventSlug,
-        sessionId: session.id,
-        expectedSessionVersion: session.version,
-        kind,
-        name,
-        reason,
-        clientOperationId,
+      await startAttempt.run('attendance-roll-call-start', () => {
+        const args = {
+          eventSlug,
+          sessionId: session.id,
+          expectedSessionVersion: session.version,
+          kind,
+          name,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => startRollCall(args)
       })
       resetStart()
     } catch (caught) {
@@ -86,18 +81,20 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
 
   const submitClose = async (event: FormEvent) => {
     event.preventDefault()
-    if (!active) return
-    const clientOperationId = closeOperationId.current ?? crypto.randomUUID()
-    closeOperationId.current = clientOperationId
+    if (!closePending && !active) return
     setBusy(true)
     setError(null)
     try {
-      await closeRollCall({
-        eventSlug,
-        rollCallId: active.id,
-        expectedVersion: active.version,
-        reason: closeReason,
-        clientOperationId,
+      await closeAttempt.run('attendance-roll-call-close', () => {
+        if (!active) throw new Error('The active roll call is no longer available to close.')
+        const args = {
+          eventSlug,
+          rollCallId: active.id,
+          expectedVersion: active.version,
+          reason: closeReason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => closeRollCall(args)
       })
       resetClose()
     } catch (caught) {
@@ -122,7 +119,12 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
           <p className="muted">Freezes this session’s expected cohort and tracks venue scans for {rollCallData?.zoneName ?? session.zoneName}.</p>
         </div>
         {rollCallData !== undefined && !active && canStart && !startOpen ? (
-          <button className="secondary" type="button" onClick={() => setStartOpen(true)}>Start roll call</button>
+          <button
+            className="secondary"
+            type="button"
+            disabled={operationPending || busy}
+            onClick={() => setStartOpen(true)}
+          >Start roll call</button>
         ) : null}
       </div>
 
@@ -133,24 +135,30 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
           <div className="roll-call-fields">
             <label className="field">
               <span>Type</span>
-              <select value={kind} onChange={(event) => setKind(parseKind(event.target.value))}>
+              <select disabled={busy || operationPending} value={kind} onChange={(event) => setKind(parseKind(event.target.value))}>
                 <option value="incident">Incident</option>
                 <option value="drill">Drill</option>
               </select>
             </label>
             <label className="field">
               <span>Name</span>
-              <input required minLength={3} maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder="North hall evacuation" />
+              <input disabled={busy || operationPending} required minLength={3} maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder="North hall evacuation" />
             </label>
             <label className="field roll-call-wide">
               <span>Reason</span>
-              <textarea required minLength={5} maxLength={300} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why is a roll call being started?" />
+              <textarea disabled={busy || operationPending} required minLength={5} maxLength={300} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why is a roll call being started?" />
             </label>
           </div>
           <p className="muted">Starts from the frozen cohort and current server-accepted venue state. Requires a Google sign-in from the last 15 minutes.</p>
           <div className="button-row">
-            <button className="primary" type="submit" disabled={busy || name.trim().length < 3 || reason.trim().length < 5}>{busy ? 'Starting…' : 'Start roll call'}</button>
-            <button className="secondary" type="button" disabled={busy} onClick={resetStart}>Cancel</button>
+            <button
+              className="primary"
+              type="submit"
+              disabled={busy || closePending || (!startPending && (
+                name.trim().length < 3 || reason.trim().length < 5
+              ))}
+            >{busy ? 'Starting…' : startPending ? 'Confirm roll call' : 'Start roll call'}</button>
+            <button className="secondary" type="button" disabled={busy || operationPending} onClick={resetStart}>Cancel</button>
           </div>
         </form>
       ) : null}
@@ -192,7 +200,12 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
                 <button className="text-button" type="button" onClick={() => roster.loadMore(50)}>Load more people</button>
               ) : null}
               {session.canCloseRollCall && !closeOpen ? (
-                <button className="secondary roll-call-close" type="button" onClick={() => setCloseOpen(true)}>Close roll call</button>
+                <button
+                  className="secondary roll-call-close"
+                  type="button"
+                  disabled={operationPending || busy}
+                  onClick={() => setCloseOpen(true)}
+                >Close roll call</button>
               ) : null}
             </>
           ) : (
@@ -203,16 +216,20 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
         <p className="empty">No roll call has been started for this session.</p>
       ) : null}
 
-      {closeOpen && active ? (
+      {closeOpen && (active || closePending) ? (
         <form className="roll-call-form" onSubmit={submitClose}>
           <label className="field">
             <span>Close reason</span>
-            <textarea required minLength={5} maxLength={300} value={closeReason} onChange={(event) => setCloseReason(event.target.value)} />
+            <textarea disabled={busy || operationPending} required minLength={5} maxLength={300} value={closeReason} onChange={(event) => setCloseReason(event.target.value)} />
           </label>
           <p className="muted">Closing freezes the current counts. Later scans continue normal attendance but no longer change this roll call.</p>
           <div className="button-row">
-            <button className="primary" type="submit" disabled={busy || closeReason.trim().length < 5}>{busy ? 'Closing…' : 'Close and freeze counts'}</button>
-            <button className="secondary" type="button" disabled={busy} onClick={resetClose}>Cancel</button>
+            <button
+              className="primary"
+              type="submit"
+              disabled={busy || startPending || (!closePending && closeReason.trim().length < 5)}
+            >{busy ? 'Closing…' : closePending ? 'Confirm closure' : 'Close and freeze counts'}</button>
+            <button className="secondary" type="button" disabled={busy || operationPending} onClick={resetClose}>Cancel</button>
           </div>
         </form>
       ) : null}

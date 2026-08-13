@@ -12,6 +12,7 @@ import { Icon, type IconName } from '../components/Icon'
 import { LoadingLabel, SkeletonCard, SkeletonLine, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 
 type StaffList = FunctionReturnType<typeof api.support.staffList>
 type SupportCase = StaffList['cases'][number]
@@ -22,12 +23,10 @@ type StaffTotals = StaffList['totals']
 type PersonId = StaffList['currentPersonId']
 type OwnerCandidate = FunctionReturnType<typeof api.support.owners>[number]
 type StaffFilter = FunctionArgs<typeof api.support.staffList>['state']
-type CreateStaffArgs = FunctionArgs<typeof api.support.createStaff>
-type UpdateStaffArgs = FunctionArgs<typeof api.support.updateStaff>
+type CreateStaffResult = FunctionReturnType<typeof api.support.createStaff>
+type UpdateStaffResult = FunctionReturnType<typeof api.support.updateStaff>
 type StateDraft = { caseVersion: number; state: SupportState }
-type OwnerOperation = { key: string; args: UpdateStaffArgs }
 
-/** A request nobody has moved in this long is the one that gets forgotten. */
 const staleAfterMs = 60 * 60 * 1000
 const ageTickMs = 60 * 1000
 
@@ -58,11 +57,7 @@ export function SupportDesk() {
     : [...list.cases].sort((left, right) => urgency(left) - urgency(right) || sortWithinRank(left, right))
   const mostUrgentId = ordered.at(0)?.id ?? null
 
-  /**
-   * Open on the most urgent request, then stay there. Reading the order live
-   * would move the open case out from under whoever is working it the moment
-   * they save.
-   */
+  // Keep the selected case stable while live sorting changes.
   useEffect(() => {
     setSelectedId((current) => current ?? mostUrgentId)
   }, [mostUrgentId])
@@ -117,6 +112,12 @@ export function SupportDesk() {
         </dl>
       ) : null}
 
+      {list.caseLimitReached ? (
+        <p className="notice">
+          Showing the 80 most recently changed requests in this view. Narrow the status filter to reach older work.
+        </p>
+      ) : null}
+
       {list.canCreate ? <CreateCase onCreated={setSelectedId} /> : null}
 
       {ordered.length === 0 ? null : (
@@ -152,10 +153,6 @@ export function SupportDesk() {
   )
 }
 
-/**
- * Row text is written in elapsed time, so it has to move on its own rather than
- * wait for the next write to the case.
- */
 function useCurrentMinute() {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -172,11 +169,8 @@ function CreateCase({ onCreated }: { onCreated: (supportCaseId: SupportCaseId) =
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const busyRef = useRef(false)
-  const operationRef = useRef<CreateStaffArgs | null>(null)
-
-  const resetOperation = () => {
-    operationRef.current = null
-  }
+  const createAttempt = useMutationAttempt<CreateStaffResult>()
+  const createPending = createAttempt.hasPending('create-support-case')
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -185,16 +179,16 @@ function CreateCase({ onCreated }: { onCreated: (supportCaseId: SupportCaseId) =
     busyRef.current = true
     setBusy(true)
     setError(null)
-    const args = operationRef.current ?? {
-      eventSlug,
-      category,
-      description: normalizedDescription,
-      clientOperationId: crypto.randomUUID(),
-    }
-    operationRef.current = args
     try {
-      const result = await createCase(args)
-      operationRef.current = null
+      const result = await createAttempt.run('create-support-case', () => {
+        const args = {
+          eventSlug,
+          category,
+          description: normalizedDescription,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => createCase(args)
+      })
       setDescription('')
       onCreated(result.id)
     } catch (caught) {
@@ -214,9 +208,9 @@ function CreateCase({ onCreated }: { onCreated: (supportCaseId: SupportCaseId) =
         <label className="field">
           Category
           <select
+            disabled={busy || createPending}
             value={category}
             onChange={(event) => {
-              resetOperation()
               setCategory(parseCategory(event.target.value))
             }}
           >
@@ -231,19 +225,20 @@ function CreateCase({ onCreated }: { onCreated: (supportCaseId: SupportCaseId) =
             required
             minLength={10}
             maxLength={2000}
+            disabled={busy || createPending}
             value={description}
             onChange={(event) => {
-              resetOperation()
               setDescription(event.target.value)
             }}
           />
         </label>
         {ready || busy ? (
-          <button className="secondary" type="submit">{busy ? 'Saving…' : 'Log issue'}</button>
+          <button className="secondary" type="submit">{busy ? 'Saving…' : createPending ? 'Confirm issue' : 'Log issue'}</button>
         ) : (
           <p className="review-blocked">Write at least ten characters about what happened.</p>
         )}
         {error ? <p className="notice error">{error}</p> : null}
+        {createPending ? <p className="muted">Confirm the earlier issue before writing another.</p> : null}
       </form>
     </details>
   )
@@ -265,18 +260,8 @@ function CaseDetail({ currentPersonId, supportCaseId }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const busyRef = useRef(false)
-  const formOperationRef = useRef<UpdateStaffArgs | null>(null)
-  const ownerOperationRef = useRef<OwnerOperation | null>(null)
-
-  useEffect(() => {
-    if (!detail) return
-    if (formOperationRef.current?.expectedVersion !== detail.supportCase.version) {
-      formOperationRef.current = null
-    }
-    if (ownerOperationRef.current?.args.expectedVersion !== detail.supportCase.version) {
-      ownerOperationRef.current = null
-    }
-  }, [detail])
+  const formAttempt = useMutationAttempt<UpdateStaffResult>()
+  const ownerAttempt = useMutationAttempt<UpdateStaffResult>()
 
   if (detail === undefined) {
     return (
@@ -291,35 +276,36 @@ function CaseDetail({ currentPersonId, supportCaseId }: {
     ? stateDraft.state
     : detail.supportCase.state
 
-  const resetFormOperation = () => {
-    formOperationRef.current = null
-  }
+  const formPending = formAttempt.hasPending('update-support-case')
+  const ownerPending = ownerAttempt.hasPending('change-support-owner')
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (busyRef.current || reason.trim().length < 5) return
+    const operationKey = 'update-support-case'
+    const retrying = formAttempt.hasPending(operationKey)
+    if (busyRef.current || (!retrying && reason.trim().length < 5)) return
     const stateChanged = nextState !== detail.supportCase.state
     const normalizedPublicNote = publicNote.trim()
     const normalizedInternalNote = internalNote.trim()
-    if (!stateChanged && normalizedPublicNote.length < 2 && normalizedInternalNote.length < 2) return
+    if (!retrying && !stateChanged && normalizedPublicNote.length < 2 && normalizedInternalNote.length < 2) return
     busyRef.current = true
     setBusy(true)
     setError(null)
-    const args = formOperationRef.current ?? {
-      eventSlug,
-      supportCaseId,
-      expectedVersion: detail.supportCase.version,
-      ...(stateChanged ? { nextState } : {}),
-      clearOwner: false,
-      ...(normalizedPublicNote.length >= 2 ? { publicNote: normalizedPublicNote } : {}),
-      ...(normalizedInternalNote.length >= 2 ? { internalNote: normalizedInternalNote } : {}),
-      reason: reason.trim(),
-      clientOperationId: crypto.randomUUID(),
-    }
-    formOperationRef.current = args
     try {
-      await updateCase(args)
-      formOperationRef.current = null
+      await formAttempt.run(operationKey, () => {
+        const args = {
+          eventSlug,
+          supportCaseId,
+          expectedVersion: detail.supportCase.version,
+          ...(stateChanged ? { nextState } : {}),
+          clearOwner: false,
+          ...(normalizedPublicNote.length >= 2 ? { publicNote: normalizedPublicNote } : {}),
+          ...(normalizedInternalNote.length >= 2 ? { internalNote: normalizedInternalNote } : {}),
+          reason: reason.trim(),
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => updateCase(args)
+      })
       setPublicNote('')
       setInternalNote('')
       setReason('')
@@ -331,30 +317,25 @@ function CaseDetail({ currentPersonId, supportCaseId }: {
     }
   }
 
-  /**
-   * One path for every hand-off, so a retry after a dropped response reuses the
-   * same operation id and cannot assign the case twice.
-   */
   const changeOwner = async (nextOwnerPersonId: PersonId | null, ownerReason: string) => {
     if (busyRef.current) return
     busyRef.current = true
     setBusy(true)
     setError(null)
-    const key = nextOwnerPersonId ?? 'nobody'
-    const prior = ownerOperationRef.current
-    const args = prior?.key === key ? prior.args : {
-      eventSlug,
-      supportCaseId,
-      expectedVersion: detail.supportCase.version,
-      ...(nextOwnerPersonId === null ? {} : { nextOwnerPersonId }),
-      clearOwner: nextOwnerPersonId === null,
-      reason: ownerReason,
-      clientOperationId: crypto.randomUUID(),
-    }
-    ownerOperationRef.current = { key, args }
+    const key = 'change-support-owner'
     try {
-      await updateCase(args)
-      ownerOperationRef.current = null
+      await ownerAttempt.run(key, () => {
+        const args = {
+          eventSlug,
+          supportCaseId,
+          expectedVersion: detail.supportCase.version,
+          ...(nextOwnerPersonId === null ? {} : { nextOwnerPersonId }),
+          clearOwner: nextOwnerPersonId === null,
+          reason: ownerReason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => updateCase(args)
+      })
       setHandoffPersonId('')
     } catch (caught) {
       setError(readableError(caught))
@@ -444,6 +425,7 @@ function CaseDetail({ currentPersonId, supportCaseId }: {
               <label className="field">
                 Hand it to
                 <select
+                  disabled={busy || ownerPending}
                   value={handoffPersonId}
                   onChange={(event) => setHandoffPersonId(event.target.value)}
                 >
@@ -473,9 +455,9 @@ function CaseDetail({ currentPersonId, supportCaseId }: {
             <label className="field">
               Status
               <select
+                disabled={busy || formPending}
                 value={nextState}
                 onChange={(event) => {
-                  resetFormOperation()
                   setStateDraft({
                     caseVersion: detail.supportCase.version,
                     state: parseState(event.target.value, detail.supportCase.state),
@@ -490,40 +472,34 @@ function CaseDetail({ currentPersonId, supportCaseId }: {
             <label className="field">
               Reply the reporter will see
               <textarea
+                disabled={busy || formPending}
                 maxLength={2000}
                 value={publicNote}
-                onChange={(event) => {
-                  resetFormOperation()
-                  setPublicNote(event.target.value)
-                }}
+                onChange={(event) => setPublicNote(event.target.value)}
               />
             </label>
             <label className="field">
               Note only the desk will see
               <textarea
+                disabled={busy || formPending}
                 maxLength={2000}
                 value={internalNote}
-                onChange={(event) => {
-                  resetFormOperation()
-                  setInternalNote(event.target.value)
-                }}
+                onChange={(event) => setInternalNote(event.target.value)}
               />
             </label>
             <label className="field">
               Why this update
               <input
+                disabled={busy || formPending}
                 required
                 minLength={5}
                 maxLength={300}
                 value={reason}
-                onChange={(event) => {
-                  resetFormOperation()
-                  setReason(event.target.value)
-                }}
+                onChange={(event) => setReason(event.target.value)}
               />
             </label>
             {blocker === null || busy ? (
-              <button className="primary" type="submit">{busy ? 'Saving…' : 'Save update'}</button>
+              <button className="primary" type="submit">{busy ? 'Saving…' : formPending ? 'Confirm update' : 'Save update'}</button>
             ) : (
               <p className="review-blocked">{blocker}</p>
             )}
@@ -543,11 +519,6 @@ function everyCase(totals: StaffTotals): number {
   return totals.open + totals.investigating + totals.waiting + totals.resolved + totals.closed
 }
 
-/**
- * The screen opens on what is left to do, not on how many rows loaded. Two
- * short sentences at most: what is waiting, and the one thing about it worth
- * knowing. Every number here is counted over the whole event.
- */
 function leadSentence(filter: StaffFilter, totals: StaffTotals): string {
   if (filter === 'resolved') {
     if (totals.resolved === 0) return 'Nothing has been resolved yet.'
@@ -577,7 +548,6 @@ function leadSentence(filter: StaffFilter, totals: StaffTotals): string {
   return sentences.slice(0, 2).join(' ')
 }
 
-/** Work that can be picked up sorts first; finished work sinks to the bottom. */
 function urgency(supportCase: SupportCase): number {
   if (supportCase.state === 'closed') return 6
   if (supportCase.state === 'resolved') return 5
@@ -586,7 +556,6 @@ function urgency(supportCase: SupportCase): number {
   return supportCase.ownerName === undefined ? 1 : 2
 }
 
-/** Within a rank, the one that has waited longest is the one to act on. */
 function sortWithinRank(left: SupportCase, right: SupportCase): number {
   const finished = !isLive(left.state) && !isLive(right.state)
   return finished ? right.lastActionAt - left.lastActionAt : left.lastActionAt - right.lastActionAt
@@ -604,7 +573,6 @@ function rowGlyph(supportCase: SupportCase, now: number): { className: string; i
   return { className: 'row-glyph watch', icon: 'lifebuoy' }
 }
 
-/** What this request is doing to the person who filed it, in one line. */
 function rowStatement(supportCase: SupportCase, now: number): string {
   if (supportCase.state === 'resolved') {
     return `Resolved ${formatAge(supportCase.lastActionAt, now)}. Close it when the reporter agrees.`
@@ -628,16 +596,11 @@ function rowStatement(supportCase: SupportCase, now: number): string {
     : `${supportCase.ownerName} replied and still has it. Last moved ${formatAge(supportCase.lastActionAt, now)}.`
 }
 
-/**
- * Time to first reply, which is the number a help desk is actually run on.
- * Measured from the report to the first note the reporter could see.
- */
 function firstReplyStatement(createdAt: number, firstResponseAt: number | undefined): string {
   if (firstResponseAt === undefined) return 'Nobody has replied yet.'
   return `${formatDuration(firstResponseAt - createdAt)} after it was reported.`
 }
 
-/** The audit reason a hand-off is recorded under, so the trail names both sides. */
 function handoffReason(target: OwnerCandidate): string {
   return `Handed to ${target.displayName} at the help desk`
 }
@@ -676,7 +639,6 @@ function formatTime(value: number) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(value)
 }
 
-/** An elapsed span on its own, rather than one measured back from now. */
 function formatDuration(milliseconds: number) {
   const minutes = Math.max(0, Math.round(milliseconds / 60_000))
   if (minutes < 1) return 'Under a minute'

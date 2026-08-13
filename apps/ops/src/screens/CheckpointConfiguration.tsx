@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom'
 import { LoadingLabel, SkeletonCard, SkeletonLine, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 type Configuration = FunctionReturnType<typeof api.checkpointConfiguration.current>
 type Plan = NonNullable<Configuration['publishedPlan']>
@@ -58,6 +59,7 @@ export function CheckpointConfiguration({
   const configuration = useQuery(api.checkpointConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.checkpointConfiguration.createDraft)
   const publish = useMutation(api.checkpointConfiguration.publish)
+  const operations = useOperationRunner()
   const validation = useQuery(
     api.checkpointConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPlan
@@ -71,6 +73,8 @@ export function CheckpointConfiguration({
   const [publishArmed, setPublishArmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const draftPending = operations.hasPending('checkpoint-draft')
+  const publishPending = operations.hasPending('checkpoint-publish')
 
   useEffect(() => {
     if (!configuration) return
@@ -116,14 +120,14 @@ export function CheckpointConfiguration({
     setBusy(true)
     setError(null)
     try {
-      await createDraft({
+      await operations.run('checkpoint-draft', (clientOperationId) => () => createDraft({
         eventSlug,
         definitions,
         expectedEventVersion: configuration.eventVersion,
         ...(configuration.draftPlan ? { expectedDraftPlanId: configuration.draftPlan.id } : {}),
         reason: draftReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -137,14 +141,14 @@ export function CheckpointConfiguration({
     setBusy(true)
     setError(null)
     try {
-      await publish({
+      await operations.run('checkpoint-publish', (clientOperationId) => () => publish({
         eventSlug,
         draftPlanId: draft.id,
         expectedDraftChecksum: draft.checksum,
         expectedEventVersion: configuration.eventVersion,
         reason: publishReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
       setPublishArmed(false)
     } catch (caught) {
       setError(readableError(caught))
@@ -206,7 +210,7 @@ export function CheckpointConfiguration({
               <p>Teams already writing keep their current questions.</p>
               <label className="field">
                 <span>Why this changed</span>
-                <textarea required value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
+                <textarea disabled={publishPending} required value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
               </label>
               {configuration.hasPublishedPhaseSchedule ? null : (
                 <p className="notice">
@@ -215,10 +219,10 @@ export function CheckpointConfiguration({
                 </p>
               )}
               <div className="offer-actions">
-                <button className="secondary" disabled={busy} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
+                <button className="secondary" disabled={busy || publishPending} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
                 {configuration.hasPublishedPhaseSchedule ? (
                   <button className="primary" disabled={busy} type="button" onClick={() => void publishDraft()}>
-                    {busy ? 'Publishing…' : 'Publish team updates'}
+                    {busy ? 'Publishing…' : publishPending ? 'Confirm earlier publication' : 'Publish team updates'}
                   </button>
                 ) : null}
               </div>
@@ -229,6 +233,7 @@ export function CheckpointConfiguration({
 
       {configuration.canDraft ? (
         <form className="phase-editor" onSubmit={saveDraft}>
+          <fieldset disabled={draftPending} style={{ display: 'contents' }}>
           <div className="track-editor-heading">
             <div>
               <p className="eyebrow">{configuration.draftPlan ? 'Replace current draft' : 'Create a draft'}</p>
@@ -262,10 +267,11 @@ export function CheckpointConfiguration({
               </article>
             ))}
           </div>
+          </fieldset>
           <section className="track-save">
             <label className="field">
               <span>Why this changed</span>
-              <textarea required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} />
+              <textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} />
             </label>
             {definitions.length === 3 ? null : (
               <p className="notice">
@@ -273,7 +279,7 @@ export function CheckpointConfiguration({
               </p>
             )}
             <button className="primary" disabled={busy} type="submit">
-              {busy ? 'Saving…' : configuration.draftPlan ? 'Replace draft' : 'Save draft'}
+              {busy ? 'Saving…' : draftPending ? 'Confirm earlier draft' : configuration.draftPlan ? 'Replace draft' : 'Save draft'}
             </button>
           </section>
         </form>

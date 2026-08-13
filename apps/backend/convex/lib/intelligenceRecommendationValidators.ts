@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { supportCaseCategory } from "../values";
+import { operationsAutonomyReadTool } from "./operationsAutonomyValidators";
 
 export const intelligenceReadName = v.union(
   v.literal("operations_health"),
@@ -26,6 +27,22 @@ export const intelligenceRecommendationCitation = v.object({
   keys: v.array(v.string()),
 });
 
+export const operationsAutonomyRecommendationCitation = v.object({
+  read: operationsAutonomyReadTool,
+  generatedAt: v.number(),
+  keys: v.array(v.string()),
+  operationId: v.string(),
+  snapshot: v.string(),
+});
+
+export const operationsAutonomyRecommendationEvidenceSeal = v.object({
+  evidenceSetId: v.string(),
+  rootHash: v.string(),
+  leafCount: v.number(),
+  chunkCount: v.number(),
+  sealedSequence: v.number(),
+});
+
 /**
  * The kind lives inside the arguments union so an argument set can never
  * detach from the kind that gives it meaning. Every arm names the target of
@@ -35,11 +52,13 @@ export const intelligenceRecommendationArguments = v.union(
   v.object({
     kind: v.literal("hold_review_team"),
     teamRoundStateId: v.id("teamRoundStates"),
+    expectedTeamRoundStateVersion: v.number(),
     reason: v.string(),
   }),
   v.object({
     kind: v.literal("page_reserve_reviewer"),
     missingPanelMemberId: v.id("reviewPanelMembers"),
+    expectedPanelVersion: v.number(),
     reason: v.string(),
   }),
   v.object({
@@ -52,6 +71,7 @@ export const intelligenceRecommendationArguments = v.union(
   v.object({
     kind: v.literal("dismiss_attention_item"),
     itemId: v.id("operationsAttentionItems"),
+    expectedItemVersion: v.number(),
     reason: v.string(),
   }),
 );

@@ -3,19 +3,6 @@ import { StyleSheet, Text, View } from 'react-native'
 import { Action, CheckRow } from '@/components/ui'
 import { palette } from '@/theme'
 
-/**
- * Everything that has to be true before a reviewer can take a team.
- *
- * These were four buttons and three red sentences scattered down the duty
- * screen, each appearing only once its own condition failed — so a reviewer
- * met them one at a time, in whatever order they happened to break, and never
- * saw how much was left. They are one list now, in the order somebody would
- * work through them, with a count so the end is visible from the start.
- *
- * Each line says what is lost while it is unmet rather than naming the switch,
- * because a reviewer standing in a hall is deciding whether to care, not
- * reading a settings label back to themselves.
- */
 export function ReviewerSetup({
   busy,
   cameraReady,
@@ -34,7 +21,6 @@ export function ReviewerSetup({
   onRegister: () => void | Promise<void>
   onRequestCamera: () => void | Promise<void>
   pagingReady: boolean
-  /** Whether the checks meet what this round demands, not whether all are met. */
   ready: boolean
   registerLabel: string
 }) {
@@ -43,12 +29,14 @@ export function ReviewerSetup({
       title: 'Camera',
       consequence: 'You cannot scan a team to start their review',
       met: cameraReady,
+      actionLabel: 'Allow',
       onPress: onRequestCamera,
     },
     {
       title: 'Getting paged',
       consequence: 'A panel short a reviewer will not reach you',
       met: pagingReady,
+      actionLabel: 'Set up',
       onPress: onOpenPaging,
     },
     {
@@ -62,22 +50,43 @@ export function ReviewerSetup({
 
   return (
     <View style={styles.body}>
-      <Text style={styles.count}>
-        {done} of {checks.length} ready
-      </Text>
+      <View style={styles.head}>
+        <Text style={styles.title}>Set up this phone</Text>
+        <Text style={styles.subtitle}>
+          {done === checks.length
+            ? 'Everything is ready. Register to join your panel.'
+            : 'A judging phone joins a panel when all three are ready.'}
+        </Text>
+      </View>
 
-      <View style={styles.rows}>
+      <View style={styles.meter}>
         {checks.map((check) => (
-          <CheckRow
-            consequence={check.consequence}
+          <View
             key={check.title}
-            met={check.met}
-            title={check.title}
-            {...('onPress' in check ? { onPress: check.onPress } : {})}
+            style={[styles.meterSegment, check.met ? styles.meterDone : null]}
           />
         ))}
       </View>
 
+      <View style={styles.rows}>
+        {checks.map((check, index) => (
+          <View key={check.title}>
+            {index > 0 ? <View style={styles.divider} /> : null}
+            <CheckRow
+              consequence={check.consequence}
+              met={check.met}
+              title={check.title}
+              {...('onPress' in check
+                ? { actionLabel: check.actionLabel, onPress: check.onPress }
+                : {})}
+            />
+          </View>
+        ))}
+      </View>
+
+      {/* The spacer walks the one real action down to the thumb instead of
+          leaving it wherever the checklist happened to end. */}
+      <View style={styles.push} />
       <Action
         accent={palette.judging}
         disabled={busy || !ready}
@@ -89,7 +98,19 @@ export function ReviewerSetup({
 }
 
 const styles = StyleSheet.create({
-  body: { gap: 14, paddingTop: 4 },
-  count: { color: palette.muted, fontSize: 15, fontWeight: '600', letterSpacing: 0.4 },
-  rows: { gap: 8 },
+  body: { flexGrow: 1, paddingTop: 10 },
+  push: { flexGrow: 1 },
+  head: { gap: 8, paddingHorizontal: 4 },
+  title: { color: palette.text, fontSize: 28, fontWeight: '600', letterSpacing: -0.6 },
+  subtitle: { color: palette.muted, fontSize: 16, lineHeight: 22 },
+  meter: { flexDirection: 'row', gap: 6, marginTop: 20, paddingHorizontal: 4 },
+  meterSegment: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: palette.ghost,
+  },
+  meterDone: { backgroundColor: palette.judging },
+  rows: { marginTop: 18 },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: palette.strong, marginLeft: 56 },
 })

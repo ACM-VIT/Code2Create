@@ -7,11 +7,13 @@ import { AccessInvitations } from '../components/AccessInvitations'
 import { eventSlug } from '../lib/config'
 
 export function AccessDirectory({
+  canBrowsePeople,
   canReadPeople,
   canInvite,
   canReadBundles,
   canReadRoster,
 }: {
+  canBrowsePeople: boolean
   canReadPeople: boolean
   canInvite: boolean
   canReadBundles: boolean
@@ -19,7 +21,7 @@ export function AccessDirectory({
 }) {
   const directory = usePaginatedQuery(
     api.access.directory,
-    canReadPeople ? { eventSlug } : 'skip',
+    canBrowsePeople ? { eventSlug } : 'skip',
     { initialNumItems: 40 },
   )
   const [email, setEmail] = useState('')
@@ -59,7 +61,7 @@ export function AccessDirectory({
         <>
           <form className="email-search" onSubmit={search}>
             <label className="field">
-              <span>Find any event account</span>
+              <span>{canBrowsePeople ? 'Find any event account' : 'Find an account you can inspect'}</span>
               <input
                 autoComplete="off"
                 inputMode="email"
@@ -84,13 +86,19 @@ export function AccessDirectory({
             </div>
           ) : null}
 
-          <div className="access-list">
-            {directory.results.map((person) => <PersonRow key={person.personId} person={person} />)}
-            {directory.status === 'LoadingFirstPage' ? <p className="muted">Loading people…</p> : null}
-          </div>
-          {directory.status === 'CanLoadMore' ? (
-            <button className="secondary" type="button" onClick={() => directory.loadMore(40)}>Load more</button>
-          ) : null}
+          {canBrowsePeople ? (
+            <>
+              <div className="access-list">
+                {directory.results.map((person) => <PersonRow key={person.personId} person={person} />)}
+                {directory.status === 'LoadingFirstPage' ? <p className="muted">Loading people…</p> : null}
+              </div>
+              {directory.status === 'CanLoadMore' ? (
+                <button className="secondary" type="button" onClick={() => directory.loadMore(40)}>Load more</button>
+              ) : null}
+            </>
+          ) : (
+            <p className="notice">Search by the email attached to your exact-person access.</p>
+          )}
         </>
       ) : canInvite ? (
         <p className="notice">You can invite someone but not view the event team.</p>

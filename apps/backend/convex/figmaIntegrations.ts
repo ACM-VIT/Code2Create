@@ -16,12 +16,17 @@ import {
 } from "./lib/figmaMetadataSchedule";
 import { refreshFigmaTeamMetrics } from "./lib/figmaTeamMetrics";
 import {
+  integrationProviderFrozenAt,
+  loadPublishedIntegrationPolicy,
+} from "./lib/integrationPolicy";
+import {
   findCurrentPerson,
   requireCurrentPerson,
   requireEventSubject,
   requireMembership,
 } from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
+import { appendFigmaIntegrationReadFactById } from "./lib/operationsAutonomyReadFacts/integrationJobs";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { normalizedText } from "./lib/strings";
 import { integrationWorkpool } from "./workpools";
@@ -111,21 +116,7 @@ async function currentTeamContext(ctx: ReadCtx, eventSlug: string) {
 }
 
 async function requirePublishedPolicy(ctx: ReadCtx, event: Doc<"events">) {
-  const policyId = event.publishedIntegrationPolicyId;
-  if (!policyId) {
-    throw new ConvexError({
-      code: "INTEGRATIONS_NOT_CONFIGURED",
-      message: "The event has not published its integration policy yet.",
-    });
-  }
-  const policy = await ctx.db.get(policyId);
-  if (!policy || policy.eventId !== event._id || policy.status !== "published") {
-    throw new ConvexError({
-      code: "INTEGRATIONS_NOT_CONFIGURED",
-      message: "The published integration policy is unavailable.",
-    });
-  }
-  return policy;
+  return (await loadPublishedIntegrationPolicy(ctx, event)).policy;
 }
 
 function requireAdmittedTeam(team: Doc<"teams">) {
@@ -146,6 +137,7 @@ function requireFigmaWindow(
   team: Doc<"teams">,
   policy: Doc<"integrationPolicyVersions">,
   requireLiveEvent: boolean,
+  serverNow: number,
 ) {
   requireAdmittedTeam(team);
   if (requireLiveEvent && event.status !== "live") {
@@ -154,7 +146,7 @@ function requireFigmaWindow(
       message: "Figma files can be added after the official build start.",
     });
   }
-  if (policy.figmaFreezeAt !== undefined && Date.now() >= policy.figmaFreezeAt) {
+  if (integrationProviderFrozenAt(policy, "figma", serverNow)) {
     throw new ConvexError({
       code: "FIGMA_FROZEN",
       message: "Figma file changes are frozen for this event.",
@@ -166,6 +158,7 @@ function figmaEnvironmentConfigured() {
   return Boolean(
     process.env.FIGMA_CLIENT_ID?.trim() &&
       process.env.FIGMA_CLIENT_SECRET?.trim() &&
+      process.env.PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION?.trim() &&
       process.env.PROVIDER_TOKEN_ENCRYPTION_KEY?.trim() &&
       process.env.PARTICIPANT_SITE_URL?.trim() &&
       process.env.CONVEX_SITE_URL?.trim() &&
@@ -333,7 +326,7 @@ export const current = query({
     });
     const [policy, connections, bindings, teamMetric, manageGrantIds] = await Promise.all([
       event.publishedIntegrationPolicyId
-        ? ctx.db.get(event.publishedIntegrationPolicyId)
+        ? loadPublishedIntegrationPolicy(ctx, event).then((result) => result.policy)
         : Promise.resolve(null),
       ctx.db
         .query("figmaCredentialConnections")
@@ -547,7 +540,7 @@ export const createSetupIntent = internalMutation({
   handler: async (ctx, args) => {
     const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
     const policy = await requirePublishedPolicy(ctx, event);
-    requireFigmaWindow(event, team, policy, false);
+    requireFigmaWindow(event, team, policy, false, Date.now());
     await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -659,7 +652,7 @@ export const finishSetupIntent = internalMutation({
   handler: async (ctx, args) => {
     const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
     const policy = await requirePublishedPolicy(ctx, event);
-    requireFigmaWindow(event, team, policy, false);
+    requireFigmaWindow(event, team, policy, false, Date.now());
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -790,6 +783,7 @@ export const connectionContext = internalQuery({
     eventSlug: v.string(),
     credentialConnectionId: v.id("figmaCredentialConnections"),
     requireLiveEvent: v.boolean(),
+    serverNow: v.number(),
   },
   returns: v.object({
     eventId: v.id("events"),
@@ -805,7 +799,7 @@ export const connectionContext = internalQuery({
   handler: async (ctx, args) => {
     const { event, subject, team } = await currentTeamContext(ctx, args.eventSlug);
     const policy = await requirePublishedPolicy(ctx, event);
-    requireFigmaWindow(event, team, policy, args.requireLiveEvent);
+    requireFigmaWindow(event, team, policy, args.requireLiveEvent, args.serverNow);
     await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -1385,7 +1379,7 @@ export const commitFile = internalMutation({
         message: "The integration policy changed. Review it and try again.",
       });
     }
-    requireFigmaWindow(event, team, policy, true);
+    requireFigmaWindow(event, team, policy, true, Date.now());
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -1470,6 +1464,7 @@ export const commitFile = internalMutation({
       connectedAt: now,
       updatedAt: now,
     });
+    await appendFigmaIntegrationReadFactById(ctx, bindingId, now);
     await ctx.db.insert("figmaFileMetrics", {
       eventId: event._id,
       teamId: team._id,
@@ -1543,6 +1538,7 @@ export const attachWebhook = internalMutation({
       version: binding.version + 1,
       updatedAt: now,
     });
+    await appendFigmaIntegrationReadFactById(ctx, binding._id, now);
     await refreshFigmaTeamMetrics(ctx, {
       eventId: binding.eventId,
       teamId: binding.teamId,
@@ -1648,13 +1644,15 @@ export const finishWebhookCleanup = internalMutation({
       binding.state === "archived" &&
       binding.webhookId === args.webhookId
     ) {
+      const now = Date.now();
       await ctx.db.patch(binding._id, {
         webhookId: undefined,
         webhookPasscodeDigest: undefined,
         webhookState: "unavailable",
         version: binding.version + 1,
-        updatedAt: Date.now(),
+        updatedAt: now,
       });
+      await appendFigmaIntegrationReadFactById(ctx, binding._id, now);
     }
     return null;
   },
@@ -1675,6 +1673,7 @@ export const setWebhookState = internalMutation({
       version: binding.version + 1,
       updatedAt: now,
     });
+    await appendFigmaIntegrationReadFactById(ctx, binding._id, now);
     await refreshFigmaTeamMetrics(ctx, {
       eventId: binding.eventId,
       teamId: binding.teamId,
@@ -1695,15 +1694,22 @@ export const refreshFile = mutation({
   returns: v.object({ bindingId: v.id("figmaFileBindings"), syncRevision: v.number() }),
   handler: async (ctx, args) => {
     const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
+    const reason = normalizedText(args.reason, "Refresh reason", 3, 180);
+    const clientOperationId = normalizedText(
+      args.clientOperationId,
+      "Client operation ID",
+      8,
+      120,
+    );
     const requestFingerprint = operationFingerprint([
       args.bindingId,
       args.expectedVersion,
-      args.reason,
+      reason,
     ]);
     const priorOperation = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
-      clientOperationId: args.clientOperationId,
+      clientOperationId,
       commandName: "figma.file.refresh",
       requestFingerprint,
     });
@@ -1735,7 +1741,6 @@ export const refreshFile = mutation({
         message: "Figma has limited this file for now. Try again after the time shown.",
       });
     }
-    const reason = normalizedText(args.reason, "Refresh reason", 3, 180);
     const now = Date.now();
     const syncRevision = binding.syncRevision + 1;
     await ctx.db.patch(binding._id, {
@@ -1746,6 +1751,7 @@ export const refreshFile = mutation({
       version: binding.version + 1,
       updatedAt: now,
     });
+    await appendFigmaIntegrationReadFactById(ctx, binding._id, now);
     await refreshFigmaTeamMetrics(ctx, { eventId: event._id, teamId: team._id, now });
     await integrationWorkpool.enqueueAction(
       ctx,
@@ -1756,7 +1762,7 @@ export const refreshFile = mutation({
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
-      clientOperationId: args.clientOperationId,
+      clientOperationId,
       commandName: "figma.file.refresh",
       requestFingerprint,
       targetType: "figma_file_binding",
@@ -1806,7 +1812,7 @@ export const archiveFile = mutation({
     });
     if (priorOperation) return { bindingId: args.bindingId };
     const policy = await requirePublishedPolicy(ctx, event);
-    requireFigmaWindow(event, team, policy, false);
+    requireFigmaWindow(event, team, policy, false, Date.now());
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -1837,6 +1843,7 @@ export const archiveFile = mutation({
       version: binding.version + 1,
       updatedAt: now,
     });
+    await appendFigmaIntegrationReadFactById(ctx, binding._id, now);
     await refreshFigmaTeamMetrics(ctx, { eventId: event._id, teamId: team._id, now });
     await recordOperation(ctx, {
       eventId: event._id,
@@ -1974,6 +1981,7 @@ export const beginMetadataCheck = internalMutation({
         version: binding.version + 1,
         updatedAt: now,
       });
+      await appendFigmaIntegrationReadFactById(ctx, binding._id, now);
       await refreshFigmaTeamMetrics(ctx, {
         eventId: binding.eventId,
         teamId: binding.teamId,
@@ -2086,6 +2094,7 @@ export const finishMetadataCheck = internalMutation({
         ? { version: binding.version + 1, updatedAt: now }
         : {}),
     });
+    await appendFigmaIntegrationReadFactById(ctx, binding._id, now);
     await refreshFigmaTeamMetrics(ctx, {
       eventId: binding.eventId,
       teamId: binding.teamId,
@@ -2161,6 +2170,7 @@ export const failMetadataCheck = internalMutation({
       version: binding.version + 1,
       updatedAt: now,
     });
+    await appendFigmaIntegrationReadFactById(ctx, binding._id, now);
     await refreshFigmaTeamMetrics(ctx, {
       eventId: binding.eventId,
       teamId: binding.teamId,
@@ -2209,6 +2219,7 @@ export const beginFileSync = internalMutation({
         version: binding.version + 1,
         updatedAt: now,
       });
+      await appendFigmaIntegrationReadFactById(ctx, binding._id, now);
       await refreshFigmaTeamMetrics(ctx, {
         eventId: binding.eventId,
         teamId: binding.teamId,
@@ -2222,6 +2233,7 @@ export const beginFileSync = internalMutation({
       syncLeaseExpiresAt: now + 3 * 60 * 1_000,
       syncErrorCode: undefined,
     });
+    await appendFigmaIntegrationReadFactById(ctx, binding._id, now);
     await refreshFigmaTeamMetrics(ctx, {
       eventId: binding.eventId,
       teamId: binding.teamId,
@@ -2333,6 +2345,7 @@ export const finishFileSync = internalMutation({
       version: binding.version + 1,
       updatedAt: now,
     });
+    await appendFigmaIntegrationReadFactById(ctx, binding._id, now);
     await ctx.db.patch(metric._id, {
       ...args.metrics,
       capturedAt: now,
@@ -2395,6 +2408,7 @@ export const failFileSync = internalMutation({
         version: binding.version + 1,
         updatedAt: now,
       });
+      await appendFigmaIntegrationReadFactById(ctx, binding._id, now);
       await refreshFigmaTeamMetrics(ctx, {
         eventId: binding.eventId,
         teamId: binding.teamId,
@@ -2754,16 +2768,6 @@ export const acceptWebhook = internalMutation({
       binding.webhookPasscodeDigest !== args.passcodeDigest ||
       (args.fileKey !== undefined && args.fileKey !== binding.fileKey)
     ) {
-      await ctx.db.insert("figmaWebhookDeliveries", {
-        deliveryKey: args.deliveryKey,
-        webhookId: args.webhookId,
-        ...(args.fileKey !== undefined ? { fileKey: args.fileKey } : {}),
-        eventType: args.eventType,
-        providerAt: args.providerAt,
-        state: "rejected",
-        reasonCode: "binding_or_passcode_mismatch",
-        receivedAt: now,
-      });
       return { duplicate: false, accepted: false };
     }
     if (args.eventType === "FILE_UPDATE" && binding.state === "active") {
@@ -2810,6 +2814,7 @@ export const acceptWebhook = internalMutation({
     }
     const accepted = ["FILE_UPDATE", "FILE_DELETE", "PING"].includes(args.eventType);
     if (accepted) {
+      await appendFigmaIntegrationReadFactById(ctx, binding._id, now);
       await refreshFigmaTeamMetrics(ctx, {
         eventId: binding.eventId,
         teamId: binding.teamId,

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -48,6 +48,7 @@ test("writing a badge sheet never overwrites an existing artifact", async () => 
     });
     assert.equal(references.length, 2);
     assert.match(await readFile(outputPath, "utf8"), /External participant/u);
+    assert.equal((await stat(outputPath)).mode & 0o777, 0o600);
     await assert.rejects(
       writeBadgeSheet({ count: 1, eventLabel: "Code2Create 7.0", outputPath }),
       /EEXIST/u,

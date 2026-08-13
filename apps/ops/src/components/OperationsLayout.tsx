@@ -17,9 +17,7 @@ export function OperationsLayout({
   accountEmail: string
   authClient: Code2CreateAuthClient
   identity: string
-  /** Everything this stage of the event does not routinely need. */
   navigation: OperationsNavigationGroup[]
-  /** The destinations this stage actually uses, most important first. */
   nowItems: OperationsNavigationItem[]
   stageLabel: string
   children: ReactNode

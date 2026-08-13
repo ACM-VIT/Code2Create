@@ -20,6 +20,7 @@ import {
   defaultParticipantPolicy,
   participantPolicyChecksum,
 } from "./lib/participantPolicy";
+import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot";
 import schema from "./schema";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -421,6 +422,10 @@ describe("Figma provider contract", () => {
       body: invalidBody,
     });
     expect(invalid.status).toBe(400);
+    const deliveriesAfterInvalid = await backend.run((ctx) =>
+      ctx.db.query("figmaWebhookDeliveries").collect(),
+    );
+    expect(deliveriesAfterInvalid).toHaveLength(2);
   });
 });
 
@@ -637,6 +642,9 @@ async function seedIntegrationTeam(backend: BackendTest) {
       publicCode: "FIXTURE1",
       leadMembershipId: membershipId,
       status: "admitted",
+      activeMemberCount: 1,
+      activeVitMemberCount: 0,
+      activeExternalMemberCount: 1,
       membershipLocked: true,
       trackLocked: true,
       version: 1,
@@ -772,6 +780,16 @@ async function seedParticipantDelivery(
       writtenAt: fixture.now,
       clientOperationId: "provider-fixture-follow-up",
     });
+    const lockedRosterSnapshotId = await createTestSubmissionSnapshot(ctx, {
+      eventId: fixture.eventId,
+      teamId: fixture.teamId,
+      teamMemberIds: [teamMemberId],
+      intakePolicyVersionId: intakePolicyId,
+      participantPolicyVersionId: fixture.participantPolicyVersionId,
+      admissionPolicyVersionId: policyId,
+      coreTrackVersionId: trackId,
+      submittedAt: fixture.now,
+    });
     const projectVersionId = await ctx.db.insert("projectVersions", {
       eventId: fixture.eventId,
       teamId: fixture.teamId,
@@ -792,7 +810,8 @@ async function seedParticipantDelivery(
       ],
       coreTrackVersionId: trackId,
       sponsorTrackVersionIds: [],
-      lockedTeamMemberIds: [teamMemberId],
+      lockedRosterSnapshotId,
+      lockedMemberCount: 1,
       lockedLeadMembershipId: fixture.membershipId,
       freshForEventAttestation: {
         participantPolicyVersionId: fixture.participantPolicyVersionId,

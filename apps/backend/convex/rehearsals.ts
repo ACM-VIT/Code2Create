@@ -27,7 +27,10 @@ import {
   operationFingerprint,
   recordOperation,
 } from "./lib/operations";
-import { requirePermission } from "./lib/permissions";
+import {
+  boundedActivePermissionGrants,
+  requirePermission,
+} from "./lib/permissions";
 import { normalizedLongText, normalizedText } from "./lib/strings";
 import {
   rehearsalRunState,
@@ -43,6 +46,7 @@ type RehearsalPermissionKey =
   | "rehearsal.manage"
   | "rehearsal.execute"
   | "rehearsal.complete";
+const maximumActiveRehearsalPermissionGrants = 2_000;
 
 const scenarioCounts = v.object({
   total: v.number(),
@@ -129,22 +133,12 @@ async function activePermissionGrants(
   eventAccessSubjectId: Id<"eventAccessSubjects">,
   permissionKey: RehearsalPermissionKey,
 ) {
-  const now = Date.now();
-  const grants = await ctx.db
-    .query("permissionGrants")
-    .withIndex("by_subject_permission_status", (index) =>
-      index
-        .eq("eventAccessSubjectId", eventAccessSubjectId)
-        .eq("permissionKey", permissionKey)
-        .eq("status", "active"),
-    )
-    .collect();
-  return grants.filter(
-    (grant) =>
-      grant.eventId === eventId &&
-      grant.validFrom <= now &&
-      (grant.validUntil === undefined || grant.validUntil > now),
-  );
+  return boundedActivePermissionGrants(ctx, {
+    eventId,
+    eventAccessSubjectId,
+    permissionKey,
+    maximumGrantCount: maximumActiveRehearsalPermissionGrants,
+  });
 }
 
 function hasEventGrant(grants: readonly Doc<"permissionGrants">[]) {

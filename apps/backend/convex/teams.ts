@@ -1,3 +1,7 @@
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -15,11 +19,17 @@ import {
 } from "./lib/identity";
 import { insertPermissionGrant, requirePermission, revokeSourceGrants } from "./lib/permissions";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits";
 import {
   loadPublishedParticipantPolicy,
-  participantClassesMeetPolicy,
 } from "./lib/participantPolicy";
 import { normalizeCode, normalizedText } from "./lib/strings";
+import {
+  endActiveTeamMember,
+  insertActiveTeamMember,
+  teamContainsParticipantClass,
+  teamRosterCounts,
+} from "./lib/teamRoster";
 
 const acceptedTransferState: "accepted" = "accepted";
 const declinedTransferState: "declined" = "declined";
@@ -54,19 +64,10 @@ const teamView = v.object({
   teamMinimumSize: v.number(),
   teamMaximumSize: v.number(),
   mixedParticipantClassesAllowed: v.boolean(),
+  activeMemberCount: v.number(),
   version: v.number(),
   currentMembershipId: v.id("eventMemberships"),
   currentRole: v.union(v.literal("lead"), v.literal("member")),
-  members: v.array(
-    v.object({
-      teamMemberId: v.id("teamMembers"),
-      membershipId: v.id("eventMemberships"),
-      role: v.union(v.literal("lead"), v.literal("member")),
-      displayName: v.string(),
-      institution: v.optional(v.string()),
-      participantClass: v.string(),
-    }),
-  ),
   pendingLeadershipTransfer: v.union(
     v.null(),
     v.object({
@@ -103,7 +104,9 @@ export const current = query({
       .unique();
     if (!currentMember) return null;
     const team = await ctx.db.get(currentMember.teamId);
-    if (!team) return null;
+    if (!team || team.eventId !== event._id || currentMember.eventId !== event._id) {
+      throw new Error("The active team membership belongs to an invalid event team.");
+    }
     const subject = await requireEventSubject(ctx, event._id, person._id);
     await requirePermission(ctx, {
       eventId: event._id,
@@ -113,40 +116,20 @@ export const current = query({
       scopeId: team._id,
     });
     const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
-    const memberRows = await ctx.db
-      .query("teamMembers")
-      .withIndex("by_team_status", (index) =>
-        index.eq("teamId", team._id).eq("status", "active"),
-      )
-      .collect();
-    const members = await Promise.all(
-      memberRows.map(async (member) => {
-        const eventMembership = await ctx.db.get(member.membershipId);
-        if (!eventMembership) throw new Error("Team member references a missing membership.");
-        const memberPerson = await ctx.db.get(eventMembership.personId);
-        if (!memberPerson) throw new Error("Membership references a missing person.");
-        const profile = await ctx.db
-          .query("participantProfiles")
-          .withIndex("by_membership", (index) => index.eq("membershipId", member.membershipId))
-          .unique();
-        return {
-          teamMemberId: member._id,
-          membershipId: member.membershipId,
-          role: member.role,
-          displayName: profile?.preferredName ?? profile?.fullName ?? memberPerson.displayName,
-          ...(profile?.institution !== undefined
-            ? { institution: profile.institution }
-            : {}),
-          participantClass: eventMembership.participantClass,
-        };
-      }),
-    );
-    const pendingTransfer = await ctx.db
+    const rosterCounts = teamRosterCounts(team);
+    if (rosterCounts.activeMemberCount > participantPolicy.normalized.teamMaximumSize) {
+      throw new Error("A team exceeds the published participant-policy maximum size.");
+    }
+    const pendingTransfers = await ctx.db
       .query("teamLeadershipTransfers")
       .withIndex("by_team_state", (index) =>
         index.eq("teamId", team._id).eq("state", "pending"),
       )
-      .first();
+      .take(2);
+    if (pendingTransfers.length > 1) {
+      throw new Error("A team has more than one pending leadership transfer.");
+    }
+    const pendingTransfer = pendingTransfers[0];
     const pendingLeadershipTransfer =
       pendingTransfer &&
       pendingTransfer.expiresAt > Date.now() &&
@@ -164,10 +147,10 @@ export const current = query({
       teamMaximumSize: participantPolicy.normalized.teamMaximumSize,
       mixedParticipantClassesAllowed:
         participantPolicy.normalized.mixedParticipantClassesAllowed,
+      activeMemberCount: rosterCounts.activeMemberCount,
       version: team.version,
       currentMembershipId: membership._id,
       currentRole: currentMember.role,
-      members,
       pendingLeadershipTransfer: pendingLeadershipTransfer
         ? {
             id: pendingLeadershipTransfer._id,
@@ -177,6 +160,96 @@ export const current = query({
           }
         : null,
     };
+  },
+});
+
+const teamMemberView = v.object({
+  teamMemberId: v.id("teamMembers"),
+  membershipId: v.id("eventMemberships"),
+  role: v.union(v.literal("lead"), v.literal("member")),
+  displayName: v.string(),
+  institution: v.optional(v.string()),
+  participantClass: v.string(),
+});
+
+export const members = query({
+  args: { eventSlug: v.string(), paginationOpts: paginationOptsValidator },
+  returns: paginationResultValidator(teamMemberView),
+  handler: async (ctx, args) => {
+    if (!Number.isSafeInteger(args.paginationOpts.numItems) || args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > 50) {
+      throw new ConvexError({
+        code: "INVALID_PAGE_SIZE",
+        message: "Team roster pages contain between 1 and 50 members.",
+      });
+    }
+    const person = await findCurrentPerson(ctx);
+    if (!person) {
+      return { page: [], isDone: true, continueCursor: "" };
+    }
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const membership = await ctx.db
+      .query("eventMemberships")
+      .withIndex("by_event_person", (index) =>
+        index.eq("eventId", event._id).eq("personId", person._id),
+      )
+      .unique();
+    if (!membership) return { page: [], isDone: true, continueCursor: "" };
+    const currentMember = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_event_membership_status", (index) =>
+        index
+          .eq("eventId", event._id)
+          .eq("membershipId", membership._id)
+          .eq("status", "active"),
+      )
+      .unique();
+    if (!currentMember) return { page: [], isDone: true, continueCursor: "" };
+    const team = await ctx.db.get(currentMember.teamId);
+    if (!team || team.eventId !== event._id) {
+      throw new Error("The active team membership belongs to an invalid event team.");
+    }
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "team.read",
+      scopeType: "team",
+      scopeId: team._id,
+    });
+    const page = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_team_status", (index) =>
+        index.eq("teamId", team._id).eq("status", "active"),
+      )
+      .paginate(args.paginationOpts);
+    const memberViews = await Promise.all(page.page.map(async (member) => {
+      if (member.eventId !== event._id) {
+        throw new Error("An active team member belongs to another event.");
+      }
+      const eventMembership = await ctx.db.get(member.membershipId);
+      if (!eventMembership || eventMembership.eventId !== event._id) {
+        throw new Error("Team member references an invalid event membership.");
+      }
+      const [memberPerson, profile] = await Promise.all([
+        ctx.db.get(eventMembership.personId),
+        ctx.db
+          .query("participantProfiles")
+          .withIndex("by_membership", (index) =>
+            index.eq("membershipId", member.membershipId),
+          )
+          .unique(),
+      ]);
+      if (!memberPerson) throw new Error("Membership references a missing person.");
+      return {
+        teamMemberId: member._id,
+        membershipId: member.membershipId,
+        role: member.role,
+        displayName: profile?.preferredName ?? profile?.fullName ?? memberPerson.displayName,
+        ...(profile?.institution !== undefined ? { institution: profile.institution } : {}),
+        participantClass: eventMembership.participantClass,
+      };
+    }));
+    return { ...page, page: memberViews };
   },
 });
 
@@ -352,7 +425,10 @@ async function cancelPendingLeadershipTransfers(
     .withIndex("by_team_state", (index) =>
       index.eq("teamId", args.teamId).eq("state", "pending"),
     )
-    .collect();
+    .take(2);
+  if (pendingTransfers.length > 1) {
+    throw new Error("A team has more than one pending leadership transfer.");
+  }
   for (const transfer of pendingTransfers) {
     await ctx.db.patch(transfer._id, {
       state: "cancelled",
@@ -397,15 +473,31 @@ export const create = mutation({
       scopeId: membership._id,
     });
     await requireNoActiveTeam(ctx, event._id, membership._id);
+    const teamCapacity = await ctx.db
+      .query("teams")
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
+      .take(maximumReviewTeamsPerEvent);
+    if (teamCapacity.length === maximumReviewTeamsPerEvent) {
+      throw new ConvexError({
+        code: "EVENT_TEAM_LIMIT_REACHED",
+        message: `This event can register at most ${maximumReviewTeamsPerEvent} teams.`,
+      });
+    }
 
     const now = Date.now();
     const publicCode = await unusedTeamCode(ctx, event._id);
+    const activeVitMemberCount = membership.participantClass === "vit_student" ? 1 : 0;
+    const activeExternalMemberCount =
+      membership.participantClass === "external_participant" ? 1 : 0;
     const teamId = await ctx.db.insert("teams", {
       eventId: event._id,
       name: normalizedText(args.name, "Team name", 2, 60),
       publicCode,
       leadMembershipId: membership._id,
       status: "forming",
+      activeMemberCount: 1,
+      activeVitMemberCount,
+      activeExternalMemberCount,
       membershipLocked: false,
       trackLocked: false,
       version: 1,
@@ -421,6 +513,14 @@ export const create = mutation({
       joinedAt: now,
       source: "created",
     });
+    const team = await ctx.db.get(teamId);
+    if (!team) throw new Error("The new team did not persist.");
+    if (
+      team.activeMemberCount !==
+      team.activeVitMemberCount + team.activeExternalMemberCount
+    ) {
+      throw new Error("The new team's roster projection is invalid.");
+    }
     await addTeamMemberGrants(ctx, {
       event,
       membership,
@@ -504,25 +604,14 @@ export const join = mutation({
     if (team.membershipLocked) {
       throw new ConvexError({ code: "TEAM_LOCKED", message: "That team has already submitted." });
     }
-    const activeMembers = await ctx.db
-      .query("teamMembers")
-      .withIndex("by_team_status", (index) => index.eq("teamId", team._id).eq("status", "active"))
-      .collect();
-    if (activeMembers.length >= participantPolicy.normalized.teamMaximumSize) {
+    const rosterCounts = teamRosterCounts(team);
+    if (rosterCounts.activeMemberCount >= participantPolicy.normalized.teamMaximumSize) {
       throw new ConvexError({ code: "TEAM_FULL", message: "That team is full." });
     }
-    const participantClasses = await Promise.all(
-      activeMembers.map(async (activeMember) => {
-        const activeMembership = await ctx.db.get(activeMember.membershipId);
-        if (!activeMembership) throw new Error("Team member references a missing membership.");
-        return activeMembership.participantClass;
-      }),
-    );
     if (
-      !participantClassesMeetPolicy(
-        [...participantClasses, membership.participantClass],
-        participantPolicy.normalized,
-      )
+      !participantPolicy.normalized.mixedParticipantClassesAllowed &&
+      rosterCounts.activeMemberCount > 0 &&
+      !teamContainsParticipantClass(team, membership.participantClass)
     ) {
       throw new ConvexError({
         code: "MIXED_TEAM_NOT_ALLOWED",
@@ -531,12 +620,10 @@ export const join = mutation({
     }
 
     const now = Date.now();
-    const teamMemberId = await ctx.db.insert("teamMembers", {
-      eventId: event._id,
-      teamId: team._id,
-      membershipId: membership._id,
+    const { teamMemberId } = await insertActiveTeamMember(ctx, {
+      team,
+      membership,
       role: "member",
-      status: "active",
       joinedAt: now,
       source: "code",
     });
@@ -579,8 +666,8 @@ export const join = mutation({
       action: "team.member_joined",
       targetType: "team",
       targetId: team._id,
-      previousSummary: JSON.stringify({ memberCount: activeMembers.length }),
-      nextSummary: JSON.stringify({ memberCount: activeMembers.length + 1 }),
+      previousSummary: JSON.stringify({ memberCount: rosterCounts.activeMemberCount }),
+      nextSummary: JSON.stringify({ memberCount: rosterCounts.activeMemberCount + 1 }),
       reason: "Participant joined with team code",
     });
     return { teamId: team._id };
@@ -610,7 +697,6 @@ export const leave = mutation({
     if (replayTeamId) return { teamId: replayTeamId };
 
     requireRegistrationOpen(event);
-
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const membership = await requireMembership(ctx, event._id, person._id);
     const member = await ctx.db
@@ -645,13 +731,8 @@ export const leave = mutation({
       scopeType: "team",
       scopeId: team._id,
     });
-    const activeMembers = await ctx.db
-      .query("teamMembers")
-      .withIndex("by_team_status", (index) =>
-        index.eq("teamId", team._id).eq("status", "active"),
-      )
-      .collect();
-    if (member.role === "lead" && activeMembers.length > 1) {
+    const rosterCounts = teamRosterCounts(team);
+    if (member.role === "lead" && rosterCounts.activeMemberCount > 1) {
       throw new ConvexError({
         code: "TRANSFER_LEADERSHIP_FIRST",
         message: "Transfer leadership before leaving this team.",
@@ -659,8 +740,14 @@ export const leave = mutation({
     }
 
     const now = Date.now();
-    const withdrawTeam = activeMembers.length === 1;
-    await ctx.db.patch(member._id, { status: "left", leftAt: now });
+    const withdrawTeam = rosterCounts.activeMemberCount === 1;
+    await endActiveTeamMember(ctx, {
+      team,
+      teamMember: member,
+      membership,
+      status: "left",
+      leftAt: now,
+    });
     if (withdrawTeam) {
       await ctx.db.patch(team._id, {
         status: "withdrawn",
@@ -712,8 +799,8 @@ export const leave = mutation({
       action: withdrawTeam ? "team.withdrawn" : "team.member_left",
       targetType: "team_member",
       targetId: member._id,
-      previousSummary: JSON.stringify({ memberCount: activeMembers.length }),
-      nextSummary: JSON.stringify({ memberCount: activeMembers.length - 1 }),
+      previousSummary: JSON.stringify({ memberCount: rosterCounts.activeMemberCount }),
+      nextSummary: JSON.stringify({ memberCount: rosterCounts.activeMemberCount - 1 }),
       reason: withdrawTeam ? "Sole member left the team" : "Participant left the team",
     });
     return { teamId: team._id };
@@ -748,7 +835,6 @@ export const removeMember = mutation({
     if (replayTeamId) return { teamId: replayTeamId };
 
     requireRegistrationOpen(event);
-
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const team = await ctx.db.get(args.teamId);
     if (!team || team.eventId !== event._id) {
@@ -787,16 +873,17 @@ export const removeMember = mutation({
     if (!targetMembership || targetMembership.eventId !== event._id) {
       throw new Error("The team member references a missing event membership.");
     }
-    const activeMembers = await ctx.db
-      .query("teamMembers")
-      .withIndex("by_team_status", (index) =>
-        index.eq("teamId", team._id).eq("status", "active"),
-      )
-      .collect();
+    const rosterCounts = teamRosterCounts(team);
 
     const now = Date.now();
     const nextPublicCode = await unusedTeamCode(ctx, event._id);
-    await ctx.db.patch(targetMember._id, { status: "removed", leftAt: now });
+    await endActiveTeamMember(ctx, {
+      team,
+      teamMember: targetMember,
+      membership: targetMembership,
+      status: "removed",
+      leftAt: now,
+    });
     await ctx.db.patch(targetMembership._id, {
       onboardingStatus: "team_required",
       updatedAt: now,
@@ -838,9 +925,9 @@ export const removeMember = mutation({
       action: "team.member_removed",
       targetType: "team_member",
       targetId: targetMember._id,
-      previousSummary: JSON.stringify({ memberCount: activeMembers.length }),
+      previousSummary: JSON.stringify({ memberCount: rosterCounts.activeMemberCount }),
       nextSummary: JSON.stringify({
-        memberCount: activeMembers.length - 1,
+        memberCount: rosterCounts.activeMemberCount - 1,
         joinCodeRotated: true,
       }),
       reason: "Authorised team manager removed a member",

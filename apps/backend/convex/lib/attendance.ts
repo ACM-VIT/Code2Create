@@ -1,7 +1,11 @@
 import { ConvexError } from "convex/values";
 
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import type {
+  AttendanceScannerCredentialKind,
+  AttendanceStationMode,
+} from "../values";
 import { requireEventBySlug } from "./events";
 import { requireCurrentPerson, requireEventSubject } from "./identity";
 import { requirePermission } from "./permissions";
@@ -11,6 +15,39 @@ type StationMutationPermission =
   | "attendance.station.read"
   | "attendance.credential.enrol"
   | "attendance.scan.execute";
+
+export type ConfiguredAttendanceStation = Doc<"attendanceStations"> & {
+  mode: AttendanceStationMode;
+  allowedCredentialKinds: AttendanceScannerCredentialKind[];
+};
+
+export function hasConfiguredAttendanceStationPolicy(station: {
+  mode?: AttendanceStationMode;
+  allowedCredentialKinds?: readonly AttendanceScannerCredentialKind[];
+}) {
+  return (
+    station.mode !== undefined &&
+    station.allowedCredentialKinds !== undefined &&
+    station.allowedCredentialKinds.length > 0
+  );
+}
+
+export function isConfiguredAttendanceStation(
+  station: Doc<"attendanceStations">,
+): station is ConfiguredAttendanceStation {
+  return hasConfiguredAttendanceStationPolicy(station);
+}
+
+export function requireConfiguredAttendanceStation(
+  station: Doc<"attendanceStations">,
+): asserts station is ConfiguredAttendanceStation {
+  if (!isConfiguredAttendanceStation(station)) {
+    throw new ConvexError({
+      code: "STATION_CONFIGURATION_REQUIRED",
+      message: "Replace this attendance plan and explicitly configure each scanner action and credential method.",
+    });
+  }
+}
 
 export async function requireStationPermission(
   ctx: MutationCtx,
@@ -43,6 +80,7 @@ export async function requireStationPermission(
       message: "The station configuration changed. Refresh before scanning.",
     });
   }
+  requireConfiguredAttendanceStation(station);
   const grantIds = await requirePermission(ctx, {
     eventId: event._id,
     eventAccessSubjectId: subject._id,

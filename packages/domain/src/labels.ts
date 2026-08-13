@@ -1,17 +1,4 @@
-/**
- * User-facing wording for the domain's state vocabulary.
- *
- * Screens must render these instead of title-casing a stored value. A stored
- * value is a state-machine key chosen for the server; it reads as jargon on a
- * floor at 3am ("Marked needs review", "Agent timed out", "Begin vit enrolment").
- *
- * Each map is a `Record` over its full union, so adding a state to the domain
- * without deciding how to say it out loud fails the type check.
- *
- * Operators and participants get different wording where the same state means
- * different things to them: a queue row an operator reads as "At the table"
- * is the participant's instruction "Keep your team code open".
- */
+/** Exhaustive user-facing labels for stored state keys. */
 
 import type {
   ApplicationDecision,
@@ -139,13 +126,6 @@ export const applicationStateLabels: Record<ApplicationState, string> = {
   withdrawn: "Withdrawn",
 };
 
-/**
- * Admission vocabulary.
- *
- * The application dossier used to title-case these in place, which put
- * "Mixed or external", "Not yet clear" and a bare "active" on the same screen
- * without saying what any of them meant for the reader's next move.
- */
 export const applicationDecisionLabels: Record<ApplicationDecision, string> = {
   accept: "Accept",
   waitlist: "Waitlist",
@@ -153,13 +133,7 @@ export const applicationDecisionLabels: Record<ApplicationDecision, string> = {
   needs_information: "Ask the team for more",
 };
 
-/**
- * The same decisions once they have been published.
- *
- * The dossier used to lowercase the imperative label into a sentence, which
- * produced "Published as accept" and "Published as do not select". A decision
- * that already happened reads as an outcome, not as an instruction.
- */
+/** Past-tense labels for published decisions. */
 export const applicationDecisionOutcomeLabels: Record<ApplicationDecision, string> = {
   accept: "Accepted",
   waitlist: "Waitlisted",
@@ -174,7 +148,6 @@ export type AdmissionExperienceBand =
   | "postgraduate_or_professional"
   | "mixed_or_external";
 
-/** What a reviewer should expect of this team, given how far into a degree it is. */
 export const admissionExperienceBandLabels: Record<AdmissionExperienceBand, string> = {
   first_year: "Judge as a first-year team",
   early_year: "Judge as an early-year team",
@@ -327,14 +300,7 @@ export const venuePresenceStateLabels: Record<VenuePresenceState, string> = {
   unknown: "Unknown",
 };
 
-/**
- * Organisational labels.
- *
- * The dashboard rendered `sc` and `jc` as bare initials next to a person's
- * name, which tells a reader nothing. The specs use both throughout and never
- * expand either, so the two expansions below are assumed and need confirming
- * against what the committee actually calls itself.
- */
+/** Organisational role labels; confirm the SC and JC expansions with the committee. */
 export type EventRole = "supreme" | "board" | "sc" | "jc" | "external_judge";
 
 export const eventRoleLabels: Record<EventRole, string> = {
@@ -345,13 +311,6 @@ export const eventRoleLabels: Record<EventRole, string> = {
   external_judge: "External judge",
 };
 
-/**
- * Music desk vocabulary.
- *
- * The desk used to print the stored key with its underscores swapped for
- * spaces, so a window read "published" and a song read "queued" — words that
- * describe rows in a table rather than what the operator is looking at.
- */
 export type SynesthesiaWindowStatus = "draft" | "published" | "closed";
 
 export const synesthesiaWindowStatusLabels: Record<SynesthesiaWindowStatus, string> = {
@@ -410,13 +369,6 @@ export const songRequestStateLabels: Record<SongRequestState, string> = {
   hidden: "Hidden from participants",
 };
 
-/**
- * Test-run vocabulary.
- *
- * A rehearsal run and its checks were shown as `draft`/`active` and
- * `pending`/`blocked`, which says nothing about whether a person is meant to
- * do something about them.
- */
 export type RehearsalRunState = "draft" | "active" | "completed" | "cancelled";
 
 export const rehearsalRunStateLabels: Record<RehearsalRunState, string> = {
@@ -454,7 +406,6 @@ export type RehearsalWorkstream =
   | "synesthesia"
   | "support";
 
-/** The part of the event a rehearsal check belongs to, named as staff say it. */
 export const rehearsalWorkstreamLabels: Record<RehearsalWorkstream, string> = {
   auth_access: "Sign-in and access",
   intake_admissions: "Intake and admissions",
@@ -469,13 +420,7 @@ export const rehearsalWorkstreamLabels: Record<RehearsalWorkstream, string> = {
   support: "Support",
 };
 
-/**
- * Paper-backup vocabulary.
- *
- * `expired` is not stored: the backup list derives it from the four-hour
- * lifetime, and an operator needs to be told the pack is no longer usable
- * rather than shown the word.
- */
+/** Includes the `expired` state derived from the four-hour lifetime. */
 export type EmergencyPackStatus = "pending" | "ready" | "failed" | "expired";
 
 export const emergencyPackStatusLabels: Record<EmergencyPackStatus, string> = {
@@ -485,13 +430,6 @@ export const emergencyPackStatusLabels: Record<EmergencyPackStatus, string> = {
   expired: "Too old to use",
 };
 
-/**
- * Hall vocabulary.
- *
- * `setup`, `open` and `frozen` decide whether floor staff can record where a
- * team is sitting at all, so each label says what is possible rather than
- * naming a state.
- */
 export type FloorMappingState = "setup" | "open" | "frozen";
 
 export const floorMappingStateLabels: Record<FloorMappingState, string> = {
@@ -500,13 +438,7 @@ export const floorMappingStateLabels: Record<FloorMappingState, string> = {
   frozen: "Locations frozen",
 };
 
-/**
- * The nine parts of a hall zone. Tables in this venue are moved by the people
- * sitting at them and carry no numbers, so the finest thing anybody can
- * honestly record is which part of the room a team is in. These strings are
- * written to be read out to a reviewer walking over, which is why they say
- * "corner" and "side" rather than a grid reference.
- */
+/** The nine spoken areas of a zone without fixed table numbers. */
 export type FloorArea =
   | "north_west"
   | "north"
@@ -530,12 +462,7 @@ export const floorAreaLabels: Record<FloorArea, string> = {
   south_east: "South-east corner",
 };
 
-/**
- * The part of the zone rectangle a point falls in. The rectangle is drawn with
- * hall north at the top, so these nine names mean the same thing to everyone
- * looking at the same published plan. Shared, because the mapper's phone has to
- * name the area under a finger before anything is written.
- */
+/** Maps a north-up normalized zone point to one spoken area. */
 export function floorAreaAt(x: number, y: number): FloorArea {
   const west = x < 100 / 3;
   const east = x >= 200 / 3;
@@ -546,7 +473,6 @@ export function floorAreaAt(x: number, y: number): FloorArea {
   return west ? "west" : east ? "east" : "centre";
 }
 
-/** Every area, in reading order, so a crowding view lists all nine. */
 export const floorAreas: readonly FloorArea[] = [
   "north_west",
   "north",
@@ -559,13 +485,6 @@ export const floorAreas: readonly FloorArea[] = [
   "south_east",
 ];
 
-/**
- * Score governance vocabulary.
- *
- * The round board printed these by swapping underscores for spaces, so an
- * operator read "awaiting presence", "correction open" and "judge ineligible"
- * — the server's words, in the server's grammar, in the middle of a sentence.
- */
 export type ReviewEvaluationState = "complete" | "void";
 
 export const reviewEvaluationStateLabels: Record<ReviewEvaluationState, string> = {
@@ -623,13 +542,6 @@ export const scorecardCorrectionCategoryLabels: Record<ScorecardCorrectionCatego
   other: "Something else",
 };
 
-/**
- * Code and design vocabulary.
- *
- * The integrations screen title-cased provider keys in place, so a row read
- * "Rate limited", "Unknown" and "Partial" with nothing saying what those meant
- * for whether a reviewer would see the team's work.
- */
 export type IntegrationProviderHealth = "ready" | "syncing" | "needs_attention" | "not_connected";
 
 export const integrationProviderHealthLabels: Record<IntegrationProviderHealth, string> = {
@@ -718,12 +630,7 @@ export type SupportCaseCategory =
   | "accessibility"
   | "safety";
 
-/**
- * What a participant walked up about, in the words they would use.
- *
- * The help desk and the participant app both offer this list, so it lives here
- * rather than in either screen; they drifted apart while it did not.
- */
+/** Shared category labels used by participants and the help desk. */
 export const supportCaseCategoryLabels: Record<SupportCaseCategory, string> = {
   identity: "Identity or sign-in",
   team: "Team",
@@ -741,7 +648,6 @@ export const supportCaseCategoryLabels: Record<SupportCaseCategory, string> = {
   safety: "Safety",
 };
 
-/** The order the desk offers them in, most common first. */
 export const supportCaseCategoryOrder: readonly SupportCaseCategory[] = [
   "identity",
   "team",

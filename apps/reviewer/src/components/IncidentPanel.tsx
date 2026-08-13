@@ -1,8 +1,8 @@
 import { api } from '@code2create/backend/api'
-import type { FunctionArgs, FunctionReturnType } from 'convex/server'
+import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { randomUUID } from 'expo-crypto'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import {
@@ -18,19 +18,20 @@ import {
   QuietAction,
   Section,
   Sheet,
-  Shell,
 } from '@/components/ui'
 import { describeError } from '@/lib/errors'
+import { useMutationAttempt } from '@/lib/mutation-attempt'
 import type { ReviewerRuntime } from '@/lib/runtime'
 import { duty, palette } from '@/theme'
+import { CaseListSkeleton } from '@/components/skeletons'
 
 type ServiceKey = 'attendance_backend' | 'review_backend'
 type ForService = FunctionReturnType<typeof api.incidents.forService>
 type Incident = ForService['incidents'][number] & { service: ServiceKey }
 type IncidentSeverity = Incident['severity']
-type CreateArgs = FunctionArgs<typeof api.incidents.create>
-type ApproveArgs = FunctionArgs<typeof api.incidents.approveManualMode>
-type ResolveArgs = FunctionArgs<typeof api.incidents.resolve>
+type CreateResult = FunctionReturnType<typeof api.incidents.create>
+type ApproveResult = FunctionReturnType<typeof api.incidents.approveManualMode>
+type ResolveResult = FunctionReturnType<typeof api.incidents.resolve>
 
 const serviceLabels: Record<ServiceKey, string> = {
   attendance_backend: 'Door scanning',
@@ -43,16 +44,6 @@ const severityOptions = [
   ['critical', 'Critical'],
 ] as const
 
-/**
- * Declared emergencies, from wherever the declarer is standing.
- *
- * The dashboard already runs the paper recovery that hangs off an incident —
- * sheets, manual records, imports. What it cannot do is be in the pocket of
- * the second approver while a scan queue stands still: paper fallback needs
- * two distinct people to say yes, and the second one is usually walking the
- * hall. Declaring, approving and resolving live here; the recovery work the
- * incident unlocks stays where the keyboards are.
- */
 export function IncidentPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const eventSlug = runtime.configuration.eventSlug
   const door = useQuery(api.incidents.forService, { eventSlug, affectedService: 'attendance_backend' })
@@ -60,7 +51,7 @@ export function IncidentPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const [selectedId, setSelectedId] = useState<Incident['id'] | null>(null)
   const [declaring, setDeclaring] = useState(false)
 
-  if (door === undefined || judging === undefined) return <Shell />
+  if (door === undefined || judging === undefined) return <CaseListSkeleton />
 
   const incidents: Incident[] = [
     ...door.incidents.map((incident) => ({ ...incident, service: 'attendance_backend' as const })),
@@ -85,7 +76,6 @@ export function IncidentPanel({ runtime }: { runtime: ReviewerRuntime }) {
         <Section title="Live">
           {live.map((incident) => (
             <Card
-              accent={duty.incident.accent}
               key={incident.id}
               onPress={() => setSelectedId(incident.id)}
               selected={incident.severity === 'critical'}
@@ -118,9 +108,13 @@ export function IncidentPanel({ runtime }: { runtime: ReviewerRuntime }) {
         </Section>
       ) : null}
 
-      {/* Declaring is a once-a-crisis act, so it hides in a sheet rather than
-          standing armed on a screen people open to read. */}
-      {canCreate ? <QuietAction label="Declare an incident" onPress={() => setDeclaring(true)} /> : null}
+      {canCreate ? (
+        <Action
+          accent={duty.incident.accent}
+          label="Declare an incident"
+          onPress={() => setDeclaring(true)}
+        />
+      ) : null}
 
       <IncidentSheet
         eventSlug={eventSlug}
@@ -135,11 +129,6 @@ export function IncidentPanel({ runtime }: { runtime: ReviewerRuntime }) {
   )
 }
 
-/**
- * One incident, held open. The primary action is whatever this person can move
- * forward: the second paper approval while it is wanted, resolution once the
- * paper is dealt with. Both ask for the reason the audit trail keeps.
- */
 function IncidentSheet({
   eventSlug,
   incident,
@@ -158,28 +147,20 @@ function IncidentSheet({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const busyRef = useRef(false)
-  const approveRef = useRef<ApproveArgs | null>(null)
-  const resolveRef = useRef<ResolveArgs | null>(null)
+  const approveAttempt = useMutationAttempt<ApproveResult>()
+  const resolveAttempt = useMutationAttempt<ResolveResult>()
+  const approvalPending = approveAttempt.hasPending('approve-manual-mode')
+  const resolutionPending = resolveAttempt.hasPending('resolve-incident')
+  const commandPending = approvalPending || resolutionPending
 
-  // A retried command must carry the arguments of the first attempt, but a
-  // command aimed at a version that no longer exists is not a retry — it is a
-  // mistake the server would refuse forever.
-  useEffect(() => {
-    if (incident && approveRef.current && approveRef.current.expectedIncidentVersion !== incident.version) {
-      approveRef.current = null
-    }
-    if (incident && resolveRef.current && resolveRef.current.expectedIncidentVersion !== incident.version) {
-      resolveRef.current = null
-    }
-  }, [incident])
-
-  const close = () => {
+  const finishAndClose = () => {
     setStep('facts')
     setReason('')
     setError(null)
-    approveRef.current = null
-    resolveRef.current = null
     onClose()
+  }
+  const close = () => {
+    if (!commandPending) finishAndClose()
   }
 
   const submitApproval = async () => {
@@ -188,17 +169,18 @@ function IncidentSheet({
     busyRef.current = true
     setBusy(true)
     setError(null)
-    const args = approveRef.current ?? {
-      eventSlug,
-      incidentId: incident.id,
-      expectedIncidentVersion: incident.version,
-      reason: normalizedReason,
-      clientOperationId: randomUUID(),
-    }
-    approveRef.current = args
     try {
-      await approve(args)
-      close()
+      await approveAttempt.run('approve-manual-mode', () => {
+        const args = {
+          eventSlug,
+          incidentId: incident.id,
+          expectedIncidentVersion: incident.version,
+          reason: normalizedReason,
+          clientOperationId: randomUUID(),
+        }
+        return () => approve(args)
+      })
+      finishAndClose()
     } catch (caught) {
       setError(describeError(caught, 'The approval could not be recorded.'))
     } finally {
@@ -213,17 +195,18 @@ function IncidentSheet({
     busyRef.current = true
     setBusy(true)
     setError(null)
-    const args = resolveRef.current ?? {
-      eventSlug,
-      incidentId: incident.id,
-      expectedIncidentVersion: incident.version,
-      reason: normalizedReason,
-      clientOperationId: randomUUID(),
-    }
-    resolveRef.current = args
     try {
-      await resolve(args)
-      close()
+      await resolveAttempt.run('resolve-incident', () => {
+        const args = {
+          eventSlug,
+          incidentId: incident.id,
+          expectedIncidentVersion: incident.version,
+          reason: normalizedReason,
+          clientOperationId: randomUUID(),
+        }
+        return () => resolve(args)
+      })
+      finishAndClose()
     } catch (caught) {
       setError(describeError(caught, 'The incident could not be resolved.'))
     } finally {
@@ -253,42 +236,36 @@ function IncidentSheet({
           {step === 'approve' ? (
             <>
               <Field
-                editable={!busy}
+                editable={!busy && !approvalPending}
                 label="Why paper is needed"
                 maxLength={300}
                 multiline
-                onChangeText={(value) => {
-                  approveRef.current = null
-                  setReason(value)
-                }}
+                onChangeText={setReason}
                 placeholder="What is down, as you can see it."
                 value={reason}
               />
               <Action
                 accent={duty.incident.accent}
                 disabled={busy || reason.trim().length < 5}
-                label={busy ? 'Approving…' : 'Approve paper fallback'}
+                label={busy ? 'Approving…' : approvalPending ? 'Confirm approval' : 'Approve paper fallback'}
                 onPress={submitApproval}
               />
             </>
           ) : step === 'resolve' ? (
             <>
               <Field
-                editable={!busy}
+                editable={!busy && !resolutionPending}
                 label="How service recovered"
                 maxLength={300}
                 multiline
-                onChangeText={(value) => {
-                  resolveRef.current = null
-                  setReason(value)
-                }}
+                onChangeText={setReason}
                 placeholder="What came back, and how you know."
                 value={reason}
               />
               <Action
                 accent={duty.incident.accent}
                 disabled={busy || reason.trim().length < 5}
-                label={busy ? 'Resolving…' : 'Resolve it'}
+                label={busy ? 'Resolving…' : resolutionPending ? 'Confirm resolution' : 'Resolve it'}
                 onPress={submitResolution}
               />
             </>
@@ -298,6 +275,7 @@ function IncidentSheet({
                 <Action
                   accent={duty.incident.accent}
                   label="Approve paper fallback"
+                  disabled={commandPending}
                   onPress={() => {
                     setError(null)
                     setStep('approve')
@@ -308,6 +286,7 @@ function IncidentSheet({
                 incident.canApproveManualMode ? (
                   <QuietAction
                     label="Resolve it"
+                    disabled={commandPending}
                     onPress={() => {
                       setError(null)
                       setStep('resolve')
@@ -317,6 +296,7 @@ function IncidentSheet({
                   <Action
                     accent={duty.incident.accent}
                     label="Resolve it"
+                    disabled={commandPending}
                     onPress={() => {
                       setError(null)
                       setStep('resolve')
@@ -332,11 +312,6 @@ function IncidentSheet({
   )
 }
 
-/**
- * Declaring names the service and how badly it is hurt, in the words the whole
- * platform uses for both. Everything an incident later unlocks — pauses, paper
- * sheets, manual records — hangs off getting these two right.
- */
 function DeclareSheet({
   eventSlug,
   onClose,
@@ -354,14 +329,17 @@ function DeclareSheet({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const busyRef = useRef(false)
-  const operationRef = useRef<CreateArgs | null>(null)
+  const createAttempt = useMutationAttempt<CreateResult>()
+  const createPending = createAttempt.hasPending('create-incident')
 
   const ready = title.trim().length >= 3 && summary.trim().length >= 10
 
-  const close = () => {
-    operationRef.current = null
+  const finishAndClose = () => {
     setError(null)
     onClose()
+  }
+  const close = () => {
+    if (!createPending) finishAndClose()
   }
 
   const declare = async () => {
@@ -369,21 +347,21 @@ function DeclareSheet({
     busyRef.current = true
     setBusy(true)
     setError(null)
-    const args = operationRef.current ?? {
-      eventSlug,
-      title: title.trim(),
-      summary: summary.trim(),
-      severity,
-      affectedService: service,
-      clientOperationId: randomUUID(),
-    }
-    operationRef.current = args
     try {
-      await create(args)
-      operationRef.current = null
+      await createAttempt.run('create-incident', () => {
+        const args = {
+          eventSlug,
+          title: title.trim(),
+          summary: summary.trim(),
+          severity,
+          affectedService: service,
+          clientOperationId: randomUUID(),
+        }
+        return () => create(args)
+      })
       setTitle('')
       setSummary('')
-      close()
+      finishAndClose()
     } catch (caught) {
       setError(describeError(caught, 'The incident could not be declared.'))
     } finally {
@@ -397,8 +375,7 @@ function DeclareSheet({
       <ChipRow
         accent={duty.incident.accent}
         onSelect={(value: ServiceKey) => {
-          operationRef.current = null
-          setService(value)
+          if (!createPending) setService(value)
         }}
         options={[
           ['attendance_backend', serviceLabels.attendance_backend],
@@ -409,40 +386,38 @@ function DeclareSheet({
       <ChipRow
         accent={duty.incident.accent}
         onSelect={(value: IncidentSeverity) => {
-          operationRef.current = null
-          setSeverity(value)
+          if (!createPending) setSeverity(value)
         }}
         options={severityOptions}
         selected={severity}
       />
       <Field
-        editable={!busy}
+        editable={!busy && !createPending}
         label="What to call it"
         maxLength={100}
         onChangeText={(value) => {
-          operationRef.current = null
           setTitle(value)
         }}
         placeholder="Scanners down at the main door"
         value={title}
       />
       <Field
-        editable={!busy}
+        editable={!busy && !createPending}
         label="What is happening"
         maxLength={500}
         multiline
         onChangeText={(value) => {
-          operationRef.current = null
           setSummary(value)
         }}
         placeholder="Short and factual is enough."
         value={summary}
       />
       {error ? <Problem>{error}</Problem> : null}
+      {createPending ? <Meta>Confirm the earlier declaration before starting another.</Meta> : null}
       <Action
         accent={duty.incident.accent}
         disabled={busy || !ready}
-        label={busy ? 'Declaring…' : 'Declare it'}
+        label={busy ? 'Declaring…' : createPending ? 'Confirm declaration' : 'Declare it'}
         onPress={declare}
       />
     </Sheet>
@@ -455,7 +430,6 @@ function severityWord(severity: IncidentSeverity) {
   return 'Disruption'
 }
 
-/** Where the paper fallback stands, only while that is a live question. */
 function paperLine(incident: Incident) {
   if (incident.manualModeState === 'pending') {
     return `Paper fallback: ${incident.manualModeApprovalCount} of 2 approvals`

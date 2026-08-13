@@ -23,8 +23,7 @@ const savedEnvironment = {
   HANDBOOK_SITE_URL: process.env.HANDBOOK_SITE_URL,
 };
 
-// Registering the HTTP router pulls the auth routes in with it, and those
-// refuse to exist without their site origins.
+// Auth route setup requires the configured site origins.
 process.env.INTELLIGENCE_READ_SECRET = readSecret;
 process.env.AUTH_SITE_URL = "http://localhost:3211";
 process.env.PARTICIPANT_SITE_URL = "http://localhost:4173";
@@ -38,22 +37,31 @@ afterAll(() => {
   }
 });
 
-/** These names and addresses exist only to prove they never leave Convex. */
 const canaryPersonName = "Redaction Canary";
 const canaryEmail = "redaction-canary@example.test";
 const canaryTeamName = "Nightshift Canaries";
 const canarySupportText = "A participant lost her badge near hall B";
+const privateConversationId = `cv_${"a".repeat(64)}`;
+const otherConversationId = `cv_${"b".repeat(64)}`;
 
 async function signedRead(
   backend: BackendTest,
   eventSlug: string,
   read: string,
-  options: { context?: string; timestamp?: string; mutateBody?: (body: string) => string } = {},
+  options: {
+    context?: string;
+    timestamp?: string;
+    conversationId?: string;
+    mutateBody?: (body: string) => string;
+  } = {},
 ) {
   const body = JSON.stringify({
     protocolVersion: operationsIntelligenceProtocolVersion,
     read,
     eventSlug,
+    ...(options.conversationId !== undefined
+      ? { conversationId: options.conversationId }
+      : {}),
   });
   const timestamp = options.timestamp ?? Date.now().toString();
   const signature = await signServiceBody({
@@ -104,6 +112,14 @@ describe("intelligence read endpoint", () => {
     const unknownRead = await signedRead(backend, fixture.eventSlug, "raw_table_scan");
     expect(unknownRead.status).toBe(422);
 
+    const misplacedConversation = await signedRead(
+      backend,
+      fixture.eventSlug,
+      "review_rounds",
+      { conversationId: privateConversationId },
+    );
+    expect(misplacedConversation.status).toBe(422);
+
     const unknownEvent = await signedRead(backend, "no-such-event", "review_rounds");
     expect(unknownEvent.status).toBe(404);
   });
@@ -122,7 +138,11 @@ describe("intelligence read endpoint", () => {
       "support_load",
       "recommendation_history",
     ]) {
-      const response = await signedRead(backend, fixture.eventSlug, read);
+      const response = await signedRead(backend, fixture.eventSlug, read, {
+        ...(read === "recommendation_history"
+          ? { conversationId: privateConversationId }
+          : {}),
+      });
       expect(response.status, read).toBe(200);
       const text = await response.text();
       expect(text, read).not.toContain(canaryPersonName);
@@ -133,6 +153,30 @@ describe("intelligence read endpoint", () => {
       expect(text.toLowerCase(), read).not.toContain("scorecard");
       expect(text.toLowerCase(), read).not.toMatch(/"score/);
     }
+  });
+
+  test("recommendation history is scoped to one conversation and redacts operator prose", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedEvent(backend);
+
+    const missingConversation = await signedRead(
+      backend,
+      fixture.eventSlug,
+      "recommendation_history",
+    );
+    expect(missingConversation.status).toBe(422);
+
+    const response = await signedRead(
+      backend,
+      fixture.eventSlug,
+      "recommendation_history",
+      { conversationId: privateConversationId },
+    );
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text).toContain("private-proposal");
+    expect(text).not.toContain(canaryEmail);
+    expect(text).not.toContain("other-conversation-canary");
   });
 
   test("the review exceptions read carries the ids a recommendation must cite", async () => {
@@ -164,11 +208,6 @@ describe("intelligence read endpoint", () => {
   });
 });
 
-/**
- * A floor with one of everything the reads project, each seeded with canary
- * text where the schema stores free prose about people, so the redaction
- * assertions bite on every read at once.
- */
 async function seedEvent(backend: BackendTest) {
   const now = Date.now();
   const eventSlug = `reads-${crypto.randomUUID()}`;
@@ -226,6 +265,10 @@ async function seedEvent(backend: BackendTest) {
       status: "open",
       startsAt: now - 60 * 60 * 1_000,
       endsAt: now + 60 * 60 * 1_000,
+      clockInOpensAt: now - 61 * 60 * 1_000,
+      reviewerReportAt: now - 60 * 60 * 1_000 - 30_000,
+      noShowGraceSeconds: 30,
+      correctionRequestsCloseAt: now + 60 * 60 * 1_000,
       reviewDurationSeconds: 600,
       ordinaryExtensionSeconds: 120,
       maximumOrdinaryExtensions: 1,
@@ -258,7 +301,7 @@ async function seedEvent(backend: BackendTest) {
       createdAt: now,
       updatedAt: now,
     });
-    const removedPanelMemberId = await ctx.db.insert("reviewPanelMembers", {
+    await ctx.db.insert("reviewPanelMembers", {
       eventId,
       roundId,
       panelId,
@@ -269,6 +312,18 @@ async function seedEvent(backend: BackendTest) {
       status: "removed",
       assignedAt: now,
       endedAt: now,
+    });
+    const removedPanelMemberId = await ctx.db.insert("reviewPanelMembers", {
+      eventId,
+      roundId,
+      panelId,
+      personId,
+      eventAccessSubjectId: subjectId,
+      assignedCriterionIds: [],
+      isCoordinator: false,
+      status: "removed",
+      assignedAt: now + 1,
+      endedAt: now + 2,
     });
     const membershipId = await ctx.db.insert("eventMemberships", {
       eventId,
@@ -287,6 +342,9 @@ async function seedEvent(backend: BackendTest) {
       publicCode: "CANARY",
       leadMembershipId: membershipId,
       status: "confirmed",
+      activeMemberCount: 0,
+      activeVitMemberCount: 0,
+      activeExternalMemberCount: 0,
       membershipLocked: true,
       trackLocked: true,
       version: 1,
@@ -317,18 +375,21 @@ async function seedEvent(backend: BackendTest) {
       reporterEventAccessSubjectId: subjectId,
       contactEmail: canaryEmail,
       state: "open",
+      lastActionAt: now,
+      awaitingStaffReply: true,
       version: 1,
       createdAt: now,
       updatedAt: now,
     });
     await ctx.db.insert("operationsAttentionItems", {
       eventId,
+      roundId,
       detectorKey: "panel_seat_empty",
       dedupeKey: `panel_seat_empty:${panelId}`,
       subjectType: "panel",
       subjectId: panelId,
       severity: "critical",
-      statement: "Panel D is short one reviewer",
+      statement: `${canaryPersonName} is unavailable. ${canarySupportText}`,
       route: "/reviews",
       actionLabel: "Page a substitute",
       visibility: { permissionKey: "round.read", scopeType: "round", scopeId: roundId },
@@ -339,6 +400,74 @@ async function seedEvent(backend: BackendTest) {
       lastObservedAt: now,
       version: 1,
     });
+    await ctx.db.insert("operationsHealthSnapshots", {
+      eventId,
+      eventVersion: 1,
+      state: "ready",
+      staleAt: now + 90_000,
+      snapshot: {
+        generatedAt: now,
+        event: {
+          slug: eventSlug,
+          name: "Reads fixture",
+          timezone: "Asia/Kolkata",
+          status: "live",
+        },
+        summary: {
+          status: "healthy",
+          signalCount: 0,
+          criticalSignalCount: 0,
+          attentionSignalCount: 0,
+          watchSignalCount: 0,
+        },
+        signals: [],
+      },
+    });
+    const recommendation = (
+      conversationId: string,
+      proposalKey: string,
+      statement: string,
+      operatorNote: string,
+    ) =>
+      ctx.db.insert("intelligenceRecommendations", {
+        eventId,
+        proposalKey,
+        effectKey: proposalKey,
+        provenance: {
+          kind: "copilot",
+          conversationId,
+          citations: [{ read: "support_load" as const, generatedAt: now, keys: ["open"] }],
+        },
+        arguments: {
+          kind: "open_support_case" as const,
+          category: "queue" as const,
+          description: "Open a bounded operations support case.",
+        },
+        statement,
+        reasoning: "The bounded support projection shows queue pressure.",
+        status: "superseded" as const,
+        agentVersion: "operations-copilot-v1",
+        model: "cloudflare/test-model",
+        proposedAt: now,
+        decidedByPersonId: personId,
+        decidedAt: now,
+        operatorNote,
+        version: 2,
+        createdAt: now,
+        updatedAt: now,
+      });
+    await recommendation(
+      privateConversationId,
+      "private-proposal",
+      `Contact ${canaryEmail} before opening the case.`,
+      `The operator phone is +91 98765 43210; email ${canaryEmail}.`,
+    );
+    await recommendation(
+      otherConversationId,
+      "other-conversation-canary",
+      "This other conversation must never cross the boundary.",
+      "Keep this other conversation private.",
+    );
     return {
       eventSlug,
       eventId,

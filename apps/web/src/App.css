@@ -1574,7 +1574,6 @@ code {
   }
 }
 
-/* Minimal participant application */
 .minimal-application-flow {
   min-height: calc(100vh - 64px);
 }

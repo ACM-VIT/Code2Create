@@ -97,7 +97,7 @@ export function renderBadgeSheet(eventLabel: string, bearers: string[]) {
 export async function writeBadgeSheet(options: BadgeSheetOptions) {
   const bearers = createBadgeBearers(options.count);
   const html = renderBadgeSheet(options.eventLabel, bearers);
-  const file = await open(options.outputPath, "wx");
+  const file = await open(options.outputPath, "wx", 0o600);
   try {
     await file.writeFile(html, "utf8");
   } finally {

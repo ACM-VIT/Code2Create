@@ -601,6 +601,27 @@ export const saveProfile = mutation({
       .query("participantProfiles")
       .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
       .unique();
+    const teamMembership = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_event_membership_status", (index) =>
+        index
+          .eq("eventId", event._id)
+          .eq("membershipId", membership._id)
+          .eq("status", "active"),
+      )
+      .unique();
+    if (teamMembership) {
+      const team = await ctx.db.get(teamMembership.teamId);
+      if (!team || team.eventId !== event._id) {
+        throw new Error("The participant's active team membership is invalid.");
+      }
+      if (team.membershipLocked) {
+        throw new ConvexError({
+          code: "SUBMISSION_LOCKED",
+          message: "Profiles cannot change while the team's submission is locked.",
+        });
+      }
+    }
     const currentProfileVersion = existing?.profileVersion ?? 0;
     if (currentProfileVersion !== args.expectedProfileVersion) {
       throw new ConvexError({
@@ -650,15 +671,6 @@ export const saveProfile = mutation({
       });
     }
 
-    const teamMembership = await ctx.db
-      .query("teamMembers")
-      .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
-      )
-      .unique();
     await ctx.db.patch(membership._id, {
       onboardingStatus: teamMembership ? "project_required" : "team_required",
       updatedAt: now,

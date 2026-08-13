@@ -1,8 +1,14 @@
 import { v } from "convex/values";
 
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { internalQuery, query } from "./_generated/server";
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+  query,
+} from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
@@ -15,7 +21,13 @@ import {
 } from "./lib/operationsHealth";
 import {
   operationsHealthSnapshot,
+  operationsHealthSnapshotState as operationsHealthSnapshotStateValidator,
 } from "./lib/operationsIntelligenceValidators";
+import {
+  operationsHealthMaximumAgeMs,
+  operationsHealthSnapshotState,
+} from "./lib/operationsHealthSnapshot";
+import { enqueueOperationsAutonomySignal } from "./lib/operationsAutonomyInbox";
 import { requirePermission } from "./lib/permissions";
 import { activeSynesthesiaWindow } from "./lib/synesthesia";
 
@@ -1008,23 +1020,171 @@ async function buildOverview(
   };
 }
 
-export const internalOverview = internalQuery({
+export const refreshTarget = internalQuery({
+  args: {},
+  returns: v.union(
+    v.null(),
+    v.object({ eventId: v.id("events") }),
+  ),
+  handler: async (ctx) => {
+    const events = await ctx.db.query("events").take(2);
+    if (events.length > 1) {
+      throw new Error("An event deployment must contain exactly one event.");
+    }
+    const event = events[0];
+    return event ? { eventId: event._id } : null;
+  },
+});
+
+export const computeSnapshot = internalQuery({
   args: { eventId: v.id("events") },
-  returns: operationsHealthSnapshot,
+  returns: v.object({
+    eventVersion: v.number(),
+    snapshot: operationsHealthSnapshot,
+  }),
   handler: async (ctx, args) => {
     const event = await ctx.db.get(args.eventId);
-    if (!event) throw new Error("The intelligence brief event no longer exists.");
-    return buildOverview(ctx, event);
+    if (!event) throw new Error("The operations-health event no longer exists.");
+    return {
+      eventVersion: event.version,
+      snapshot: await buildOverview(ctx, event),
+    };
+  },
+});
+
+const snapshotWriteResult = v.union(
+  v.literal("created"),
+  v.literal("updated"),
+  v.literal("unchanged"),
+  v.literal("stale"),
+);
+type SnapshotWriteResult = "created" | "updated" | "unchanged" | "stale";
+
+export const upsertSnapshot = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    eventVersion: v.number(),
+    snapshot: operationsHealthSnapshot,
+  },
+  returns: snapshotWriteResult,
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get(args.eventId);
+    if (!event) throw new Error("The operations-health event no longer exists.");
+    if (event.version !== args.eventVersion) return "stale";
+    if (
+      args.snapshot.event.slug !== event.slug ||
+      args.snapshot.event.name !== event.name ||
+      args.snapshot.event.timezone !== event.timezone ||
+      args.snapshot.event.status !== event.status
+    ) {
+      throw new Error("The operations-health snapshot does not match its event.");
+    }
+    const existing = await ctx.db
+      .query("operationsHealthSnapshots")
+      .withIndex("by_event", (index) => index.eq("eventId", args.eventId))
+      .unique();
+    const staleAt = args.snapshot.generatedAt + operationsHealthMaximumAgeMs;
+    if (!existing) {
+      await ctx.db.insert("operationsHealthSnapshots", {
+        ...args,
+        state: "ready",
+        staleAt,
+      });
+      await ctx.scheduler.runAt(staleAt, internal.operationsHealth.markSnapshotStale, {
+        eventId: args.eventId,
+        expectedGeneratedAt: args.snapshot.generatedAt,
+      });
+      await enqueueOperationsAutonomySignal(ctx, {
+        eventId: args.eventId,
+        snapshot: args.snapshot,
+        now: args.snapshot.generatedAt,
+      });
+      return "created";
+    }
+    if (existing.snapshot.generatedAt > args.snapshot.generatedAt) return "stale";
+    if (existing.snapshot.generatedAt === args.snapshot.generatedAt) {
+      return existing.eventVersion === args.eventVersion &&
+        JSON.stringify(existing.snapshot) === JSON.stringify(args.snapshot)
+        ? "unchanged"
+        : "stale";
+    }
+    await ctx.db.patch(existing._id, {
+      eventVersion: args.eventVersion,
+      snapshot: args.snapshot,
+      state: "ready",
+      staleAt,
+    });
+    await ctx.scheduler.runAt(staleAt, internal.operationsHealth.markSnapshotStale, {
+      eventId: args.eventId,
+      expectedGeneratedAt: args.snapshot.generatedAt,
+    });
+    await enqueueOperationsAutonomySignal(ctx, {
+      eventId: args.eventId,
+      snapshot: args.snapshot,
+      now: args.snapshot.generatedAt,
+    });
+    return "updated";
+  },
+});
+
+export const markSnapshotStale = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    expectedGeneratedAt: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const materialized = await ctx.db
+      .query("operationsHealthSnapshots")
+      .withIndex("by_event", (index) => index.eq("eventId", args.eventId))
+      .unique();
+    if (
+      !materialized ||
+      materialized.state === "stale" ||
+      materialized.snapshot.generatedAt !== args.expectedGeneratedAt
+    ) {
+      return false;
+    }
+    await ctx.db.patch(materialized._id, { state: "stale" });
+    return true;
+  },
+});
+
+export const refresh = internalAction({
+  args: {},
+  returns: v.union(v.literal("no_event"), snapshotWriteResult),
+  handler: async (ctx): Promise<"no_event" | SnapshotWriteResult> => {
+    const target: { eventId: Id<"events"> } | null = await ctx.runQuery(
+      internal.operationsHealth.refreshTarget,
+      {},
+    );
+    if (!target) return "no_event";
+    const computed: {
+      eventVersion: number;
+      snapshot: OperationsHealthOverview;
+    } = await ctx.runQuery(internal.operationsHealth.computeSnapshot, {
+      eventId: target.eventId,
+    });
+    return await ctx.runMutation(internal.operationsHealth.upsertSnapshot, {
+      eventId: target.eventId,
+      eventVersion: computed.eventVersion,
+      snapshot: computed.snapshot,
+    });
+  },
+});
+
+export const materializedForEvent = internalQuery({
+  args: { eventId: v.id("events"), now: v.number() },
+  returns: operationsHealthSnapshotStateValidator,
+  handler: async (ctx, args) => {
+    return operationsHealthSnapshotState(ctx, args.eventId, args.now);
   },
 });
 
 export const overview = query({
-  args: { eventSlug: v.string(), refreshBucket: v.number() },
-  returns: operationsHealthSnapshot,
-  handler: async (ctx, args): Promise<OperationsHealthOverview> => {
-    if (!Number.isSafeInteger(args.refreshBucket)) {
-      throw new Error("The health refresh bucket must be an integer.");
-    }
+  args: { eventSlug: v.string() },
+  returns: operationsHealthSnapshotStateValidator,
+  handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -1034,6 +1194,6 @@ export const overview = query({
       permissionKey: "operations.health.read",
       scopeType: "event",
     });
-    return buildOverview(ctx, event);
+    return operationsHealthSnapshotState(ctx, event._id, Date.now());
   },
 });

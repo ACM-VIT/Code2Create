@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { teamRoundTableLabel } from "./lib/floor";
@@ -17,7 +17,12 @@ import {
   operationFingerprint,
   recordOperation,
 } from "./lib/operations";
-import { requirePermission } from "./lib/permissions";
+import {
+  boundedActivePermissionGrants,
+  requirePermission,
+} from "./lib/permissions";
+import { maximumActiveReviewGrantsPerPermission } from "./lib/reviewLimits";
+import { patchTeamRoundState } from "./lib/reviewQueueProjection";
 import {
   cleanAssignedRatings,
   computeReviewEvaluation,
@@ -167,22 +172,12 @@ async function activeManualGrants(
   eventAccessSubjectId: Id<"eventAccessSubjects">,
   permissionKey: ManualReviewPermission,
 ) {
-  const now = Date.now();
-  const grants = await ctx.db
-    .query("permissionGrants")
-    .withIndex("by_subject_permission_status", (index) =>
-      index
-        .eq("eventAccessSubjectId", eventAccessSubjectId)
-        .eq("permissionKey", permissionKey)
-        .eq("status", "active"),
-    )
-    .collect();
-  return grants.filter(
-    (grant) =>
-      grant.eventId === eventId &&
-      grant.validFrom <= now &&
-      (grant.validUntil === undefined || grant.validUntil > now),
-  );
+  return boundedActivePermissionGrants(ctx, {
+    eventId,
+    eventAccessSubjectId,
+    permissionKey,
+    maximumGrantCount: maximumActiveReviewGrantsPerPermission,
+  });
 }
 
 function grantsAllowReview(
@@ -615,9 +610,7 @@ export const createDraft = mutation({
         ...(privateNote !== undefined ? { privateNote } : {}),
       });
     }
-    // The paper record captures where the review physically happened, which is
-    // the team's table. A team with no mapped table leaves the cell blank
-    // rather than naming a place that does not exist.
+    // Leave the location blank when the team had no mapped table.
     const recordTableLabel = await teamRoundTableLabel(ctx, round._id, session.teamId);
     const sharedFindings = optionalNormalizedText(
       args.sharedFindings,
@@ -712,7 +705,7 @@ export const createDraft = mutation({
   },
 });
 
-export const sourceUploadContext = query({
+export const sourceUploadContext = internalQuery({
   args: {
     eventSlug: v.string(),
     recordId: v.id("manualReviewRecords"),
@@ -1043,7 +1036,7 @@ export const cancelDraft = mutation({
   },
 });
 
-export const sourceContext = query({
+export const sourceContext = internalQuery({
   args: { eventSlug: v.string(), recordId: v.id("manualReviewRecords") },
   returns: v.object({
     storageId: v.id("_storage"),
@@ -1441,7 +1434,7 @@ export const verify = mutation({
       version: session.version + 1,
       updatedAt: now,
     });
-    await ctx.db.patch(state._id, {
+    await patchTeamRoundState(ctx, state, {
       state: "completed",
       completedAt: record.endedAt,
       version: state.version + 1,

@@ -24,6 +24,8 @@ export type PreparedSessionTransition = {
   openInterval: Doc<"attendancePresenceIntervals"> | null;
 };
 
+export const maximumAttendanceIntervalsPerParticipantSession = 64;
+
 function decisionFor(
   state: SessionState,
   transition: SessionTransition,
@@ -95,6 +97,33 @@ export async function prepareSessionTransition(
   let openInterval: Doc<"attendancePresenceIntervals"> | null = null;
 
   if (decision.outcome !== "accepted") return { decision, openInterval };
+  if (args.transition !== "zone_exit") {
+    const intervals = await ctx.db
+      .query("attendancePresenceIntervals")
+      .withIndex("by_session_membership", (index) =>
+        index
+          .eq("sessionId", args.participant.sessionId)
+          .eq("membershipId", args.participant.membershipId),
+      )
+      .take(maximumAttendanceIntervalsPerParticipantSession + 1);
+    if (intervals.length > maximumAttendanceIntervalsPerParticipantSession) {
+      throw new ConvexError({
+        code: "ATTENDANCE_INTERVAL_LIMIT_EXCEEDED",
+        message: "This session has more presence intervals than the attendance policy permits.",
+      });
+    }
+    if (intervals.length === maximumAttendanceIntervalsPerParticipantSession) {
+      return {
+        decision: {
+          outcome: "needs_review",
+          reasonCode: "session_interval_limit_reached",
+          previousState: args.participant.state,
+          nextState: "needs_review",
+        },
+        openInterval,
+      };
+    }
+  }
   if (args.transition === "zone_exit") {
     openInterval = args.participant.currentIntervalId
       ? await ctx.db.get(args.participant.currentIntervalId)

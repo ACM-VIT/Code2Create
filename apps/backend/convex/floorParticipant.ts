@@ -126,21 +126,37 @@ export const mintTeamQr = mutation({
       scopeType: "team",
       scopeId: teamContext.team._id,
     });
-    const existingTokens = await ctx.db
-      .query("floorTeamQrTokens")
-      .withIndex("by_team_state", (index) => index.eq("teamId", teamContext.team._id))
-      .collect();
+    const [activeTokens, latestTokens] = await Promise.all([
+      ctx.db
+        .query("floorTeamQrTokens")
+        .withIndex("by_team_state", (index) =>
+          index.eq("teamId", teamContext.team._id).eq("state", "active"),
+        )
+        .take(2),
+      ctx.db
+        .query("floorTeamQrTokens")
+        .withIndex("by_team_version", (index) => index.eq("teamId", teamContext.team._id))
+        .order("desc")
+        .take(1),
+    ]);
+    if (activeTokens.length > 1) {
+      throw new Error("A team has more than one active hall-location QR.");
+    }
+    const latestToken = latestTokens[0];
+    if (latestToken !== undefined && latestToken.eventId !== event._id) {
+      throw new Error("A hall-location QR belongs to the wrong event.");
+    }
     const now = Date.now();
-    for (const token of existingTokens.filter((candidate) => candidate.state === "active")) {
-      await ctx.db.patch(token._id, {
-        state: token.expiresAt <= now ? "expired" : "superseded",
+    const activeToken = activeTokens[0];
+    if (activeToken !== undefined) {
+      await ctx.db.patch(activeToken._id, {
+        state: activeToken.expiresAt <= now ? "expired" : "superseded",
       });
     }
     const payload = `c2c-floor-v1.${randomFloorToken()}`;
     const manualCode = randomFloorManualCode();
     const expiresAt = now + 10 * 60_000;
-    const tokenVersion =
-      existingTokens.reduce((maximum, token) => Math.max(maximum, token.tokenVersion), 0) + 1;
+    const tokenVersion = (latestToken?.tokenVersion ?? 0) + 1;
     const tokenId = await ctx.db.insert("floorTeamQrTokens", {
       eventId: event._id,
       planVersionId: plan._id,

@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { admissionWorkpool } from "../workpools";
 import { admissionInputFingerprint } from "./admission";
+import { appendAdmissionJobReadFactById } from "./operationsAutonomyReadFacts/admissionJobs";
 
 export async function createAdmissionRecommendation(
   ctx: MutationCtx,
@@ -66,6 +67,7 @@ export async function createAdmissionRecommendation(
       : {}),
     createdAt: args.now,
   });
+  await appendAdmissionJobReadFactById(ctx, recommendationId, args.now);
   await ctx.db.patch(args.application._id, {
     aiRecommendationId: recommendationId,
     aiDisposition: args.modelConfig ? undefined : "unavailable",

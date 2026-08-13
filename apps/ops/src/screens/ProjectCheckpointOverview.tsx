@@ -8,7 +8,6 @@ import { eventSlug } from '../lib/config'
 type CheckpointKey = 'ideation' | 'intermediate_update' | 'final_update'
 type Availability = 'awaiting_confirmation' | 'upcoming' | 'open' | 'late' | 'closed' | 'submitted'
 
-/** What each state means for the team, rather than for the window. */
 const availabilityLabels: Record<Availability, string> = {
   awaiting_confirmation: 'Has not confirmed its place',
   upcoming: 'Not open yet',
@@ -26,6 +25,10 @@ export function ProjectCheckpointOverview() {
     eventState?.configured ? { eventSlug, checkpointKey } : 'skip',
     { initialNumItems: 40 },
   )
+  const summary = useQuery(
+    api.projectCheckpoints.operationsCheckpointSummary,
+    eventState?.configured ? { eventSlug, checkpointKey } : 'skip',
+  )
 
   if (eventState === undefined) {
     return (
@@ -40,17 +43,12 @@ export function ProjectCheckpointOverview() {
   const checkpoint = eventState.checkpoints.find(
     (candidate) => candidate.checkpointKey === checkpointKey,
   )
-  // Teams that still owe an update come first; a page that leads with the ones
-  // already done makes you scroll to find the work.
   const rows = [...teams.results].sort((left, right) => {
     const leftDone = left.submittedAt !== undefined
     const rightDone = right.submittedAt !== undefined
     if (leftDone !== rightDone) return leftDone ? 1 : -1
     return left.teamName.localeCompare(right.teamName)
   })
-  const submitted = rows.filter((team) => team.submittedAt !== undefined).length
-  const outstanding = rows.length - submitted
-
   return (
     <section className="integration-health-shell">
       <div className="page-heading">
@@ -83,11 +81,11 @@ export function ProjectCheckpointOverview() {
             <div className="catalog-summary">
               <Stat
                 label="Still to submit"
-                value={teams.status === 'LoadingFirstPage' ? '…' : String(outstanding)}
+                value={summary === undefined ? '…' : String(summary.outstandingCount)}
               />
               <Stat
                 label="Submitted"
-                value={teams.status === 'LoadingFirstPage' ? '…' : `${submitted} of ${rows.length}`}
+                value={summary === undefined ? '…' : `${summary.submittedCount} of ${summary.totalTeamCount}`}
               />
               <Stat label="Due" value={formatTime(checkpoint.dueAt)} />
               <Stat label="Closes" value={formatTime(checkpoint.closesAt)} />
@@ -121,7 +119,11 @@ export function ProjectCheckpointOverview() {
             ))}
 
             {rows.length === 0 && teams.status !== 'LoadingFirstPage' ? (
-              <p className="muted">No team is expected to give this update.</p>
+              <p className="muted">
+                {summary?.totalTeamCount === 0
+                  ? 'No teams are available for this update.'
+                  : 'No team rows have been loaded.'}
+              </p>
             ) : null}
           </div>
           {teams.status === 'CanLoadMore' ? (

@@ -1,3 +1,7 @@
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -217,23 +221,42 @@ const participantCaseView = v.object({
   resolvedAt: v.optional(v.number()),
 });
 
+const participantHistoryItem = v.object({
+  sessionId: v.id("attendanceSessions"),
+  sessionName: v.string(),
+  sessionVersion: v.number(),
+  participantVersion: v.number(),
+  startsAt: v.number(),
+  closedAt: v.number(),
+  result: finalAttendanceResult,
+  presentDurationMs: v.number(),
+  latestCase: v.union(v.null(), participantCaseView),
+  canRequest: v.boolean(),
+});
+
+export const maximumParticipantAttendanceHistoryPageSize = 10;
+
+export function requireParticipantAttendanceHistoryPageSize(numItems: number) {
+  if (
+    !Number.isSafeInteger(numItems) ||
+    numItems < 1 ||
+    numItems > maximumParticipantAttendanceHistoryPageSize
+  ) {
+    throw new ConvexError({
+      code: "INVALID_PAGE_SIZE",
+      message: `Load between 1 and ${maximumParticipantAttendanceHistoryPageSize} attendance results at a time.`,
+    });
+  }
+}
+
 export const mine = query({
-  args: { eventSlug: v.string() },
-  returns: v.array(
-    v.object({
-      sessionId: v.id("attendanceSessions"),
-      sessionName: v.string(),
-      sessionVersion: v.number(),
-      participantVersion: v.number(),
-      startsAt: v.number(),
-      closedAt: v.number(),
-      result: finalAttendanceResult,
-      presentDurationMs: v.number(),
-      latestCase: v.union(v.null(), participantCaseView),
-      canRequest: v.boolean(),
-    }),
-  ),
+  args: {
+    eventSlug: v.string(),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: paginationResultValidator(participantHistoryItem),
   handler: async (ctx, args) => {
+    requireParticipantAttendanceHistoryPageSize(args.paginationOpts.numItems);
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -245,22 +268,35 @@ export const mine = query({
       scopeType: "self",
       scopeId: membership._id,
     });
-    const participants = await ctx.db
+    const participantPage = await ctx.db
       .query("attendanceSessionParticipants")
-      .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
-      .collect();
+      .withIndex("by_membership_completed", (index) =>
+        index.eq("membershipId", membership._id).gt("completedAt", 0),
+      )
+      .order("desc")
+      .paginate(args.paginationOpts);
     const sessions = [];
-    for (const participant of participants) {
+    for (const participant of participantPage.page) {
       const session = await ctx.db.get(participant.sessionId);
       if (
         !session ||
         session.eventId !== event._id ||
-        session.status !== "closed" ||
-        session.closedAt === undefined ||
+        participant.eventId !== event._id ||
+        participant.completedAt === undefined ||
         participant.result === undefined ||
         participant.presentDurationMs === undefined
       ) {
-        continue;
+        throw new ConvexError({
+          code: "ATTENDANCE_HISTORY_INVALID",
+          message: "A finalized attendance result is incomplete. Ask an organizer to repair it.",
+        });
+      }
+      if (session.status === "cancelled") continue;
+      if (session.status !== "closed" || session.closedAt === undefined) {
+        throw new ConvexError({
+          code: "ATTENDANCE_HISTORY_INVALID",
+          message: "A finalized attendance session is incomplete. Ask an organizer to repair it.",
+        });
       }
       const latestCase = await ctx.db
         .query("attendanceResultRemedyCases")
@@ -300,7 +336,7 @@ export const mine = query({
           participant.expectation !== "not_expected" && latestCase?.state !== "open",
       });
     }
-    return sessions.sort((left, right) => right.closedAt - left.closedAt);
+    return { ...participantPage, page: sessions };
   },
 });
 

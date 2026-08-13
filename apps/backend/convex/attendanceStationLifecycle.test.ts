@@ -108,6 +108,8 @@ describe("attendance station lifecycle", () => {
         deviceInstallationId: secondDeviceInstallationId,
         stableKey: "fixture_station_second",
         name: "Fixture station second",
+        mode: "venue_entry",
+        allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"],
         status: "active",
         configurationVersion: 2,
         createdAt: now,
@@ -141,6 +143,8 @@ describe("attendance station lifecycle", () => {
         zoneId: fixture.zoneId,
         stableKey: "fixture_spare",
         name: "Fixture spare",
+        mode: "venue_entry",
+        allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"],
         status: "inactive",
         configurationVersion: 1,
         createdAt: now,
@@ -187,11 +191,10 @@ describe("attendance station lifecycle", () => {
     expect(operatorSubject?.accessVersion).toBe(2);
   });
 
-  test("a preparing or live session blocks attendance plan replacement", () => {
-    expect(() => requireReplaceableAttendancePlan([{ status: "ready" }])).not.toThrow();
-    for (const status of ["preparing", "open", "closing"] as const) {
+  test("a prepared or live session blocks attendance plan replacement", () => {
+    for (const status of ["preparing", "ready", "open", "closing"] as const) {
       expect(() => requireReplaceableAttendancePlan([{ status }])).toThrow(
-        "Finish the current attendance preparation or live session",
+        "Cancel or finish every prepared or live attendance session",
       );
     }
   });
@@ -284,6 +287,8 @@ async function seedStationFixture(backend: BackendTest, now: number) {
       deviceInstallationId,
       stableKey: "fixture_station",
       name: "Fixture station",
+      mode: "venue_entry",
+      allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"],
       status: "active",
       configurationVersion: 4,
       createdAt: now,

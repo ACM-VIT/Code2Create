@@ -15,7 +15,6 @@ type BackendTest = TestConvex<typeof schema>;
 type Fixture = Awaited<ReturnType<typeof seedFloor>>;
 
 const minute = 60 * 1_000;
-/** The clear delay is 90 seconds, so two sweeps a minute apart span it. */
 const clearDelayMs = 90 * 1_000;
 
 const originalAuthSiteUrl = process.env.AUTH_SITE_URL;
@@ -44,7 +43,7 @@ describe("operations attention ledger", () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
 
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
     const opened = await items(backend, fixture);
     expect(opened).toHaveLength(1);
     const first = opened[0];
@@ -60,28 +59,25 @@ describe("operations attention ledger", () => {
     expect(first.statement).toContain("Panel D is short one reviewer");
     expect(first.firstObservedAt).toBe(first.lastObservedAt);
 
-    // The condition persists: the same row is updated, never duplicated.
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
     const persisted = await items(backend, fixture);
     expect(persisted).toHaveLength(1);
     expect(persisted[0]?._id).toBe(first._id);
     expect(persisted[0]?.state).toBe("open");
-    expect(persisted[0]?.version).toBe(2);
+    expect(persisted[0]?.version).toBe(1);
     expect(persisted[0]?.firstObservedAt).toBe(first.firstObservedAt);
+    expect(persisted[0]?.lastObservedAt).toBe(first.lastObservedAt);
     expect(persisted[0]?.clearedSince).toBeUndefined();
 
-    // The seat is filled. One sweep records that it cleared but does not resolve.
     await fillTheSeat(backend, fixture);
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
     const clearing = await items(backend, fixture);
     expect(clearing[0]?.state).toBe("open");
     expect(clearing[0]?.clearedSince).toEqual(expect.any(Number));
 
-    // Past the clear delay it resolves, and that resolution is the memory the
-    // recomputed list never had.
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.now() + clearDelayMs + 1_000);
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
     const resolved = await items(backend, fixture);
     expect(resolved).toHaveLength(1);
     expect(resolved[0]?.state).toBe("resolved");
@@ -93,19 +89,18 @@ describe("operations attention ledger", () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
 
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
     await fillTheSeat(backend, fixture);
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.now() + minute);
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
     vi.setSystemTime(Date.now() + clearDelayMs + 1_000);
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
     expect((await items(backend, fixture))[0]?.state).toBe("resolved");
 
-    // The same seat empties again.
     await emptyTheSeat(backend, fixture);
     vi.setSystemTime(Date.now() + 2 * minute);
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
 
     const rows = await items(backend, fixture);
     expect(rows).toHaveLength(2);
@@ -119,7 +114,7 @@ describe("operations attention ledger", () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
     const operator = asOperator(backend, fixture);
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
 
     const before = await operator.query(api.operationsAttention.overview, {
       eventSlug: fixture.eventSlug,
@@ -134,7 +129,7 @@ describe("operations attention ledger", () => {
       expectedVersion: row.version,
     });
 
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
     const after = await operator.query(api.operationsAttention.overview, {
       eventSlug: fixture.eventSlug,
     });
@@ -152,17 +147,18 @@ describe("operations attention ledger", () => {
       .toHaveLength(1);
   });
 
-  test("a stale acknowledgement is refused rather than applied to a changed row", async () => {
+  test("a stale acknowledgement is refused after the detector output changes", async () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
     const operator = asOperator(backend, fixture);
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
     const row = (
       await operator.query(api.operationsAttention.overview, { eventSlug: fixture.eventSlug })
     ).rows[0];
     if (!row) throw new Error("The overview returned no row.");
 
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await openTheVacancy(backend, fixture);
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
     await expect(
       operator.mutation(api.operationsAttention.acknowledge, {
         eventSlug: fixture.eventSlug,
@@ -172,11 +168,72 @@ describe("operations attention ledger", () => {
     ).rejects.toThrow("Refresh before continuing");
   });
 
+  test("an unchanged re-detection does not make an operator action stale", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFloor(backend);
+    const operator = asOperator(backend, fixture);
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    const row = (
+      await operator.query(api.operationsAttention.overview, { eventSlug: fixture.eventSlug })
+    ).rows[0];
+    if (!row) throw new Error("The overview returned no row.");
+
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await expect(
+      operator.mutation(api.operationsAttention.acknowledge, {
+        eventSlug: fixture.eventSlug,
+        itemId: row.id,
+        expectedVersion: row.version,
+      }),
+    ).resolves.toEqual({ version: row.version + 1 });
+  });
+
+  test("only one reconciliation can commit from a discovered sweep version", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFloor(backend);
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    const target = (
+      await backend.query(internal.operationsAttentionSweep.reviewDomainTargets, {})
+    ).find((candidate) => candidate.roundId === fixture.roundId);
+    if (!target) throw new Error("The dispatcher did not discover the fixture round.");
+    const now = Date.now() + 1;
+    const observed = (await items(backend, fixture))
+      .filter(
+        (item) =>
+          item.roundId === target.roundId &&
+          (item.state === "open" ||
+            item.state === "acknowledged" ||
+            item.state === "dismissed"),
+      )
+      .map((item) => ({
+        detectorKey: item.detectorKey,
+        dedupeKey: item.dedupeKey,
+        subjectType: item.subjectType,
+        subjectId: item.subjectId,
+        severity: item.severity,
+        statement: item.statement,
+        route: item.route,
+        actionLabel: item.actionLabel,
+        visibility: item.visibility,
+        evidenceJson: item.evidenceJson,
+        ...(item.proposal === undefined ? {} : { proposal: item.proposal }),
+      }));
+    const request = { ...target, observed, now };
+
+    await expect(
+      backend.mutation(internal.operationsAttentionSweep.reconcileReviewRound, request),
+    ).resolves.toBe("applied");
+    await expect(
+      backend.mutation(internal.operationsAttentionSweep.reconcileReviewRound, request),
+    ).resolves.toBe("stale");
+    expect((await items(backend, fixture))[0]).toMatchObject({ state: "open", version: 1 });
+  });
+
   test("a dismissed row leaves the board but the sweep keeps its evidence current", async () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
     const operator = asOperator(backend, fixture);
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
     const row = (
       await operator.query(api.operationsAttention.overview, { eventSlug: fixture.eventSlug })
     ).rows[0];
@@ -194,7 +251,7 @@ describe("operations attention ledger", () => {
     });
     expect(board.rows).toHaveLength(0);
 
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
     const rows = await items(backend, fixture);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.state).toBe("dismissed");
@@ -204,7 +261,7 @@ describe("operations attention ledger", () => {
   test("a row only reaches a caller who can open the workspace it links to", async () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
 
     const onlooker = backend.withIdentity({
       subject: fixture.onlookerAuthUserId,
@@ -226,11 +283,127 @@ describe("operations attention ledger", () => {
     ).rejects.toThrow("permission");
   });
 
+  test("the overview returns the exact highest-priority window and discloses overflow", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFloor(backend);
+    const operator = asOperator(backend, fixture);
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    const source = (await items(backend, fixture))[0];
+    if (!source) throw new Error("The sweep opened no source item.");
+
+    await backend.run(async (ctx) => {
+      for (let index = 0; index < 20; index += 1) {
+        await ctx.db.insert("operationsAttentionItems", {
+          eventId: source.eventId,
+          roundId: fixture.roundId,
+          detectorKey: "panel_seat_empty",
+          dedupeKey: `priority-window:${index}`,
+          subjectType: "panel",
+          subjectId: `priority-panel:${index}`,
+          severity: "critical",
+          statement: `Priority condition ${index}`,
+          route: source.route,
+          actionLabel: source.actionLabel,
+          visibility: source.visibility,
+          evidenceJson: "{}",
+          state: "open",
+          recurrenceCount: 1,
+          firstObservedAt: source.firstObservedAt - (20 - index) * minute,
+          lastObservedAt: source.lastObservedAt,
+          version: 1,
+        });
+      }
+      for (let index = 0; index < 5; index += 1) {
+        await ctx.db.insert("operationsAttentionItems", {
+          eventId: source.eventId,
+          roundId: fixture.roundId,
+          detectorKey: "round_finish_forecast",
+          dedupeKey: `watch-window:${index}`,
+          subjectType: "round",
+          subjectId: `watch-round:${index}`,
+          severity: "watch",
+          statement: `Watch condition ${index}`,
+          route: source.route,
+          actionLabel: source.actionLabel,
+          visibility: source.visibility,
+          evidenceJson: "{}",
+          state: "open",
+          recurrenceCount: 1,
+          firstObservedAt: source.firstObservedAt - 24 * 60 * minute,
+          lastObservedAt: source.lastObservedAt,
+          version: 1,
+        });
+      }
+    });
+
+    const overview = await operator.query(api.operationsAttention.overview, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(overview.summary).toMatchObject({
+      limit: 20,
+      hasMore: true,
+      rowCount: 20,
+      criticalCount: 20,
+      watchCount: 0,
+    });
+    expect(overview.rows).toHaveLength(20);
+    expect(overview.rows.every((row) => row.severity === "critical")).toBe(true);
+    expect(overview.rows.map((row) => row.statement)).toEqual(
+      Array.from({ length: 20 }, (_unused, index) => `Priority condition ${index}`),
+    );
+  });
+
+  test("historical rows without a round owner cannot re-enter live workflows", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFloor(backend);
+    const operator = asOperator(backend, fixture);
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    const source = (await items(backend, fixture))[0];
+    if (!source) throw new Error("The sweep opened no source item.");
+    const historicalId = await backend.run((ctx) =>
+      ctx.db.insert("operationsAttentionItems", {
+        eventId: source.eventId,
+        detectorKey: source.detectorKey,
+        dedupeKey: `${source.dedupeKey}:historical`,
+        subjectType: source.subjectType,
+        subjectId: source.subjectId,
+        severity: source.severity,
+        statement: source.statement,
+        route: source.route,
+        actionLabel: source.actionLabel,
+        visibility: source.visibility,
+        evidenceJson: source.evidenceJson,
+        state: "open",
+        recurrenceCount: 1,
+        firstObservedAt: source.firstObservedAt,
+        lastObservedAt: source.lastObservedAt,
+        version: 1,
+      }),
+    );
+
+    const overview = await operator.query(api.operationsAttention.overview, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(overview.rows.map((row) => row.id)).not.toContain(historicalId);
+    const intelligence = await backend.query(internal.intelligenceReads.operationsAttentionRead, {
+      eventId: fixture.eventId,
+      now: Date.now(),
+    });
+    expect(intelligence.items.map((item) => item.itemId)).not.toContain(historicalId);
+    await expect(
+      operator.mutation(api.operationsAttention.acknowledge, {
+        eventSlug: fixture.eventSlug,
+        itemId: historicalId,
+        expectedVersion: 1,
+      }),
+    ).rejects.toThrow("unavailable");
+  });
+
   test("canAct follows the command grant behind the proposal, not the ability to look", async () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
     await openTheVacancy(backend, fixture);
-    await backend.mutation(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
 
     const withCommand = await asOperator(backend, fixture).query(
       api.operationsAttention.overview,
@@ -244,6 +417,17 @@ describe("operations attention ledger", () => {
       expectedPanelVersion: 2,
     });
 
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    const unchanged = await asOperator(backend, fixture).query(
+      api.operationsAttention.overview,
+      { eventSlug: fixture.eventSlug },
+    );
+    expect(unchanged.rows[0]).toMatchObject({
+      id: row?.id,
+      version: row?.version,
+      canAct: true,
+    });
+
     const reader = backend.withIdentity({
       subject: fixture.readerAuthUserId,
       sessionId: fixture.readerAuthSessionId,
@@ -253,6 +437,45 @@ describe("operations attention ledger", () => {
     });
     expect(looking.rows).toHaveLength(1);
     expect(looking.rows[0]?.canAct).toBe(false);
+  });
+
+  test("reconciles rounds independently and resolves a closed round's leftovers", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFloor(backend);
+    const second = await addShortRound(backend, fixture);
+
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    const opened = await items(backend, fixture);
+    expect(opened).toHaveLength(2);
+    expect(opened.map((item) => item.roundId).sort()).toEqual(
+      [fixture.roundId, second.roundId].sort(),
+    );
+
+    await backend.run((ctx) => ctx.db.patch(second.roundId, { status: "closed" }));
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    const clearing = await items(backend, fixture);
+    expect(clearing.find((item) => item.roundId === fixture.roundId)).toMatchObject({
+      state: "open",
+      version: 1,
+    });
+    expect(clearing.find((item) => item.roundId === second.roundId)).toMatchObject({
+      state: "open",
+      clearedSince: expect.any(Number),
+      version: 2,
+    });
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + clearDelayMs + 1_000);
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    const resolved = await items(backend, fixture);
+    expect(resolved.find((item) => item.roundId === fixture.roundId)).toMatchObject({
+      state: "open",
+      version: 1,
+    });
+    expect(resolved.find((item) => item.roundId === second.roundId)).toMatchObject({
+      state: "resolved",
+      version: 3,
+    });
   });
 });
 
@@ -278,7 +501,6 @@ async function items(backend: BackendTest, fixture: Fixture) {
   );
 }
 
-/** Clocks the third reviewer in, so the panel is no longer short. */
 async function fillTheSeat(backend: BackendTest, fixture: Fixture) {
   await backend.run(async (ctx) => {
     const clockIn = await ctx.db
@@ -305,10 +527,6 @@ async function emptyTheSeat(backend: BackendTest, fixture: Fixture) {
   });
 }
 
-/**
- * Removes the seat outright, which is the state `startPageChain` requires and
- * therefore the only state in which the item may carry that proposal.
- */
 async function openTheVacancy(backend: BackendTest, fixture: Fixture) {
   await backend.run(async (ctx) => {
     await ctx.db.patch(fixture.removedPanelMemberId, {
@@ -319,10 +537,107 @@ async function openTheVacancy(backend: BackendTest, fixture: Fixture) {
   });
 }
 
-/**
- * A live round with one panel that is short a reviewer and one team queued
- * behind it: the smallest floor on which every state transition is observable.
- */
+async function addShortRound(backend: BackendTest, fixture: Fixture) {
+  return backend.run(async (ctx) => {
+    const now = Date.now();
+    const sourceRound = await ctx.db.get(fixture.roundId);
+    if (!sourceRound) throw new Error("The fixture review round is missing.");
+    const coordinator = await insertAccount(ctx, fixture.eventId, "second-coordinator", now);
+    const seated = await insertAccount(ctx, fixture.eventId, "second-seated", now);
+    const absent = await insertAccount(ctx, fixture.eventId, "second-absent", now);
+    const roundId = await ctx.db.insert("reviewRounds", {
+      eventId: fixture.eventId,
+      rubricVersionId: sourceRound.rubricVersionId,
+      stableKey: `second-${crypto.randomUUID()}`,
+      name: "Review 2",
+      sequence: 2,
+      status: "open",
+      startsAt: now - 60 * minute,
+      endsAt: now + 60 * minute,
+      clockInOpensAt: now - 61 * minute,
+      reviewerReportAt: now - 60 * minute - 30_000,
+      noShowGraceSeconds: 30,
+      correctionRequestsCloseAt: now + 60 * minute,
+      reviewDurationSeconds: 600,
+      ordinaryExtensionSeconds: 120,
+      maximumOrdinaryExtensions: 1,
+      missedCallGraceSeconds: 120,
+      requiredCallAttempts: 2,
+      substituteResponseSeconds: 60,
+      missedReentryPolicy: "preserve_queue_time",
+      requiredPanelSize: 3,
+      minimumScorersPerCriterion: 1,
+      minimumPresentParticipants: 1,
+      requiresSharedCommitments: true,
+      minimumReviewerBuild: 1,
+      requiresCamera: false,
+      requiresNotifications: false,
+      version: 1,
+      configurationChecksum: `second-${crypto.randomUUID()}`,
+      createdByPersonId: coordinator.personId,
+      createdAt: now,
+      publishedAt: now,
+      openedAt: now,
+    });
+    const panelId = await ctx.db.insert("reviewPanels", {
+      eventId: fixture.eventId,
+      roundId,
+      stableKey: `second-panel-${crypto.randomUUID()}`,
+      name: "Panel E",
+      coordinatorPersonId: coordinator.personId,
+      status: "ready",
+      version: 1,
+      createdAt: now - 90 * minute,
+      updatedAt: now - 90 * minute,
+    });
+
+    for (const [key, account] of [
+      ["coordinator", coordinator],
+      ["seated", seated],
+      ["absent", absent],
+    ] as const) {
+      await ctx.db.insert("reviewPanelMembers", {
+        eventId: fixture.eventId,
+        roundId,
+        panelId,
+        personId: account.personId,
+        eventAccessSubjectId: account.subjectId,
+        assignedCriterionIds: [],
+        isCoordinator: key === "coordinator",
+        status: "active",
+        assignedAt: now,
+      });
+      const deviceId = await ctx.db.insert("reviewerDevices", {
+        eventId: fixture.eventId,
+        personId: account.personId,
+        installationId: `second-${key}-${crypto.randomUUID()}`,
+        name: `second ${key} phone`,
+        platform: "android",
+        appBuild: 1,
+        cameraReady: true,
+        encryptedDraftReady: true,
+        pushTokenStatus: "active",
+        pushTokenUpdatedAt: now,
+        status: "active",
+        version: 1,
+        registeredAt: now,
+        lastSeenAt: now,
+      });
+      await ctx.db.insert("reviewerClockIns", {
+        eventId: fixture.eventId,
+        roundId,
+        reviewerPersonId: account.personId,
+        reviewerDeviceId: deviceId,
+        status: key === "absent" ? "clocked_out" : "present",
+        clockedInAt: now - 30 * minute,
+        lastHeartbeatAt: now,
+        version: 1,
+      });
+    }
+    return { roundId, panelId };
+  });
+}
+
 async function seedFloor(backend: BackendTest) {
   const now = Date.now();
   const eventSlug = `attention-${crypto.randomUUID()}`;
@@ -373,6 +688,10 @@ async function seedFloor(backend: BackendTest) {
       status: "open",
       startsAt: now - 60 * minute,
       endsAt: now + 60 * minute,
+      clockInOpensAt: now - 61 * minute,
+      reviewerReportAt: now - 60 * minute - 30_000,
+      noShowGraceSeconds: 30,
+      correctionRequestsCloseAt: now + 60 * minute,
       reviewDurationSeconds: 600,
       ordinaryExtensionSeconds: 120,
       maximumOrdinaryExtensions: 1,
@@ -406,7 +725,6 @@ async function seedFloor(backend: BackendTest) {
       status: "ready",
       version: 1,
       createdAt: now - 90 * minute,
-      // Well past the one-minute persistence threshold, so the first sweep sees it.
       updatedAt: now - 90 * minute,
     });
     const panelMemberIds: Id<"reviewPanelMembers">[] = [];
@@ -449,7 +767,6 @@ async function seedFloor(backend: BackendTest) {
         roundId,
         reviewerPersonId: account.personId,
         reviewerDeviceId: deviceId,
-        // The third seat is the one nobody is sitting in.
         status: key === "absent" ? "clocked_out" : "present",
         clockedInAt: now - 30 * minute,
         lastHeartbeatAt: now,
@@ -475,6 +792,9 @@ async function seedFloor(backend: BackendTest) {
       publicCode: "NIGHT1",
       leadMembershipId: membershipId,
       status: "confirmed",
+      activeMemberCount: 0,
+      activeVitMemberCount: 0,
+      activeExternalMemberCount: 0,
       membershipLocked: true,
       trackLocked: true,
       version: 1,
@@ -530,7 +850,6 @@ async function seedFloor(backend: BackendTest) {
         reason: "Attention ledger test",
       });
     }
-    // Only the operator can actually run the fix the proposal names.
     await insertPermissionGrant(ctx, {
       eventId,
       personId: operator.personId,
@@ -543,7 +862,6 @@ async function seedFloor(backend: BackendTest) {
       grantedByPersonId: operator.personId,
       reason: "Attention ledger test",
     });
-    // The onlooker may see the dashboard but holds no grant on this round.
     await insertPermissionGrant(ctx, {
       eventId,
       personId: onlooker.personId,

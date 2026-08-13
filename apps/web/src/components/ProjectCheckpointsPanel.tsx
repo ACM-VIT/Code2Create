@@ -1,10 +1,11 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 
 type CheckpointState = FunctionReturnType<typeof api.projectCheckpoints.mine>
 type Checkpoint = CheckpointState['checkpoints'][number]
@@ -43,7 +44,6 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
   const saveUpdate = useMutation(api.projectCheckpoints.saveUpdate)
   const saveFollowUp = useMutation(api.projectCheckpoints.saveFollowUp)
   const submit = useMutation(api.projectCheckpoints.submit)
-  const operationRef = useRef<{ key: string; id: string } | null>(null)
   const [updateText, setUpdateText] = useState(checkpoint.draft?.updateText ?? '')
   const [followUpAnswer, setFollowUpAnswer] = useState(
     checkpoint.draft?.followUpAnswer ?? '',
@@ -52,6 +52,12 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
   const [reviewing, setReviewing] = useState(false)
   const [busy, setBusy] = useState<'update' | 'follow_up' | 'submit' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const updateAttempt = useMutationAttempt<FunctionReturnType<typeof api.projectCheckpoints.saveUpdate>>()
+  const followUpAttempt = useMutationAttempt<FunctionReturnType<typeof api.projectCheckpoints.saveFollowUp>>()
+  const submitAttempt = useMutationAttempt<FunctionReturnType<typeof api.projectCheckpoints.submit>>()
+  const updatePending = updateAttempt.hasPending('checkpoint-update')
+  const followUpPending = followUpAttempt.hasPending('checkpoint-follow-up')
+  const submitPending = submitAttempt.hasPending('checkpoint-submit')
 
   useEffect(() => {
     const version = checkpoint.draft?.version ?? 0
@@ -62,28 +68,22 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
     setReviewing(false)
   }, [checkpoint.draft, loadedVersion])
 
-  const operationId = (key: string) => {
-    if (operationRef.current?.key === key) return operationRef.current.id
-    const id = crypto.randomUUID()
-    operationRef.current = { key, id }
-    return id
-  }
-
   const saveFirstAnswer = async (event: FormEvent) => {
     event.preventDefault()
     const expectedVersion = checkpoint.draft?.version ?? 0
-    const key = `update:${checkpoint.checkpointKey}:${expectedVersion}:${updateText}`
     setBusy('update')
     setError(null)
     try {
-      await saveUpdate({
-        eventSlug,
-        checkpointKey: checkpoint.checkpointKey,
-        updateText,
-        expectedDraftVersion: expectedVersion,
-        clientOperationId: operationId(key),
+      await updateAttempt.run('checkpoint-update', () => {
+        const args = {
+          eventSlug,
+          checkpointKey: checkpoint.checkpointKey,
+          updateText,
+          expectedDraftVersion: expectedVersion,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => saveUpdate(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -95,18 +95,19 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
     event.preventDefault()
     const draft = checkpoint.draft
     if (!draft) return
-    const key = `follow-up:${checkpoint.checkpointKey}:${draft.version}:${followUpAnswer}`
     setBusy('follow_up')
     setError(null)
     try {
-      await saveFollowUp({
-        eventSlug,
-        checkpointKey: checkpoint.checkpointKey,
-        answer: followUpAnswer,
-        expectedDraftVersion: draft.version,
-        clientOperationId: operationId(key),
+      await followUpAttempt.run('checkpoint-follow-up', () => {
+        const args = {
+          eventSlug,
+          checkpointKey: checkpoint.checkpointKey,
+          answer: followUpAnswer,
+          expectedDraftVersion: draft.version,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => saveFollowUp(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -117,17 +118,18 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
   const submitUpdate = async () => {
     const draft = checkpoint.draft
     if (!draft) return
-    const key = `submit:${checkpoint.checkpointKey}:${draft.version}`
     setBusy('submit')
     setError(null)
     try {
-      await submit({
-        eventSlug,
-        checkpointKey: checkpoint.checkpointKey,
-        expectedDraftVersion: draft.version,
-        clientOperationId: operationId(key),
+      await submitAttempt.run('checkpoint-submit', () => {
+        const args = {
+          eventSlug,
+          checkpointKey: checkpoint.checkpointKey,
+          expectedDraftVersion: draft.version,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => submit(args)
       })
-      operationRef.current = null
       setReviewing(false)
     } catch (caught) {
       setError(readableError(caught))
@@ -169,12 +171,13 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
                 minLength={10}
                 maxLength={4000}
                 required
+                disabled={updatePending}
                 value={updateText}
                 onChange={(event) => setUpdateText(event.target.value)}
               />
             </label>
             <button className="secondary" disabled={busy !== null} type="submit">
-              {busy === 'update' ? 'Saving…' : checkpoint.draft?.updateText ? 'Save changes' : 'Continue'}
+              {busy === 'update' ? 'Saving…' : updatePending ? 'Confirm earlier save' : checkpoint.draft?.updateText ? 'Save changes' : 'Continue'}
             </button>
           </form>
 
@@ -186,12 +189,13 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
                   minLength={2}
                   maxLength={2000}
                   required
+                  disabled={followUpPending}
                   value={followUpAnswer}
                   onChange={(event) => setFollowUpAnswer(event.target.value)}
                 />
               </label>
               <button className="secondary" disabled={busy !== null} type="submit">
-                {busy === 'follow_up' ? 'Saving…' : checkpoint.draft.followUpAnswer ? 'Save changes' : 'Save answer'}
+                {busy === 'follow_up' ? 'Saving…' : followUpPending ? 'Confirm earlier save' : checkpoint.draft.followUpAnswer ? 'Save changes' : 'Save answer'}
               </button>
             </form>
           ) : null}
@@ -203,11 +207,11 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
                   This freezes the update above for the event record. It does not affect judging scores.
                 </p>
                 <div className="offer-actions">
-                  <button className="secondary" disabled={busy !== null} type="button" onClick={() => setReviewing(false)}>
+                  <button className="secondary" disabled={busy !== null || submitPending} type="button" onClick={() => setReviewing(false)}>
                     Keep editing
                   </button>
                   <button className="primary" disabled={busy !== null} type="button" onClick={() => void submitUpdate()}>
-                    {busy === 'submit' ? 'Submitting…' : 'Confirm submission'}
+                    {busy === 'submit' ? 'Submitting…' : submitPending ? 'Confirm earlier submission' : 'Confirm submission'}
                   </button>
                 </div>
               </div>

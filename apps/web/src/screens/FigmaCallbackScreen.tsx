@@ -25,7 +25,10 @@ export function FigmaCallbackScreen() {
     if (!completion) {
       completion = completeConnection({ eventSlug, state, code })
       pendingCompletions.set(state, completion)
-      void completion.finally(() => pendingCompletions.delete(state))
+      void completion.then(
+        () => pendingCompletions.delete(state),
+        () => pendingCompletions.delete(state),
+      )
     }
     let active = true
     void completion

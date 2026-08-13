@@ -12,12 +12,7 @@ import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds } from "./lib/permissions";
 import { floorActiveMappingState, floorArea } from "./values";
 
-/**
- * The hall as operations sees it: one rectangle per zone, the landmarks that
- * make it recognisable, a dot for every team currently sitting in it, and a
- * count for each part of the room so a busy corner is visible before anyone
- * walks into it.
- */
+/** Returns the visible hall zones, landmarks, team positions, and area load. */
 export const overview = query({
   args: { eventSlug: v.string() },
   returns: v.union(
@@ -95,11 +90,7 @@ export const overview = query({
     ]);
     const visibleZones = zones.filter((_, index) => (grantsByZone[index]?.length ?? 0) > 0);
     if (visibleZones.length === 0) {
-      // Thrown, not null: this is the operations desk's view, and a desk that
-      // has lost its read grant must see a refusal, not a hall that looks
-      // empty. Mapper phones never run this query — their remaining-work
-      // picture rides on floorMapping.available, which answers null to a
-      // caller without grants instead of blowing up a live subscription.
+      // Refuse access explicitly so a missing grant cannot look like an empty hall.
       throw new ConvexError({ code: "ACCESS_DENIED", message: "This account cannot read a floor-plan zone." });
     }
     const [landmarks, locations, teams] = await Promise.all([

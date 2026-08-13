@@ -154,6 +154,10 @@ Permission keys are atomic. Examples include:
 - `configuration.admission.draft.create`
 - `configuration.admission.validate`
 - `configuration.admission.publish`
+- `configuration.integration.read`
+- `configuration.integration.draft.create`
+- `configuration.integration.validate`
+- `configuration.integration.publish`
 - `attendance.scan.execute`
 - `attendance.presence.reconcile`
 - `attendance.remedy.read`
@@ -346,6 +350,7 @@ Normal page views are not written to the audit log.
 - Operations-health read, intelligence-brief read, and intelligence-brief generation fail independently; generating a brief grants no access to its result or any action it names.
 - Application review, profile/year context, AI recommendation read/run, human decision preparation/publication, and judging context each fail independently without their exact scoped permission.
 - Admission-configuration read, draft replacement, validation, and publication fail independently at event scope. None grants application read, AI-recommendation read, human decision, offer, capacity-reservation, or judging authority.
+- Integration-configuration read, draft creation, validation, and publication fail independently at event scope. None grants team integration detail, provider setup, resource changes, artifact access, or shared-resource override authority.
 - Reading another person’s access, assigning their role label, applying a bundle, and importing a roster each fail without their own exact permission.
 - Cross-event, wrong-team, wrong-round, wrong-panel, wrong-review, wrong-station, and expired grants fail even when the permission key matches.
 - A duplicated callback or retried provisioning request cannot create two memberships for one person and event.

@@ -4,14 +4,20 @@ import {
 	verifyServiceBody,
 	type OperationsHealthSnapshot,
 } from '@code2create/domain';
-import { AgentRunError, init } from '@flue/runtime';
+import { AgentRunError, init, setProvider } from '@flue/runtime';
+import { cloudflareBindingProvider } from '@flue/runtime/cloudflare/workers-ai';
 import { start, type Flue } from '@flue/runtime/node';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import * as v from 'valibot';
 
-import { OperationsBrief } from '../agents/operations-brief.ts';
+import { OperationsBrief, operationsBriefModel } from '../agents/operations-brief.ts';
+import {
+	intelligenceWorkersAiModelId,
+	maximumModelOutputTokens,
+	modelStreamIdleTimeoutMs,
+} from '../lib/workersAi.ts';
 import {
 	operationsIntelligenceCallbackSchema,
 	operationsIntelligenceRequestSchema,
@@ -19,12 +25,7 @@ import {
 } from '../protocol.ts';
 import type { BriefRun, DeliveredCallback } from './contract.ts';
 
-/**
- * Drives the real agent — real instructions, real model, real tools — the same
- * way the Worker does, and captures the signed callback it delivers. Nothing
- * here inspects prompts or model output; the scorer only sees the payload the
- * agent published.
- */
+/** Runs the production agent path and captures its signed callback for structural scoring. */
 
 type Delivery =
 	| { briefId: string; signatureValid: boolean; payload: OperationsIntelligenceCallbackBody }
@@ -34,6 +35,47 @@ export type EvaluationRuntime = {
 	stop(): Promise<void>;
 	deliveriesFor(briefId: string): readonly Delivery[];
 };
+
+function evaluationBinding(name: 'CLOUDFLARE_ACCOUNT_ID' | 'CLOUDFLARE_API_TOKEN') {
+	const value = process.env[name]?.trim();
+	if (!value) throw new Error(`The live evaluation requires ${name}.`);
+	return value;
+}
+
+function configureEvaluationProvider() {
+	const accountId = evaluationBinding('CLOUDFLARE_ACCOUNT_ID');
+	if (!/^[a-f0-9]{32}$/u.test(accountId)) {
+		throw new Error('CLOUDFLARE_ACCOUNT_ID must be a 32-character lowercase hex id.');
+	}
+	const apiToken = evaluationBinding('CLOUDFLARE_API_TOKEN');
+	setProvider(cloudflareBindingProvider({
+		binding: {
+			async run(modelId, inputs, options) {
+				if (modelId !== intelligenceWorkersAiModelId || `cloudflare/${modelId}` !== operationsBriefModel) {
+					throw new Error('The live evaluation model is not allowed.');
+				}
+				const signal = options?.['signal'];
+				return fetch(
+					`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${modelId}`,
+					{
+						method: 'POST',
+						headers: {
+							authorization: `Bearer ${apiToken}`,
+							'content-type': 'application/json',
+						},
+						body: JSON.stringify({
+							...inputs,
+							max_completion_tokens: maximumModelOutputTokens,
+						}),
+						...(signal instanceof AbortSignal ? { signal } : {}),
+					},
+				);
+			},
+		},
+		gateway: false,
+		streamIdleTimeoutMs: modelStreamIdleTimeoutMs,
+	}));
+}
 
 function briefIdOf(value: unknown): string {
 	if (typeof value !== 'object' || value === null) return 'unattributed';
@@ -64,12 +106,9 @@ function listen(server: Server) {
 	});
 }
 
-/**
- * Boots the Flue runtime in this process and a local stand-in for the Convex
- * callback endpoint. The agent reaches the endpoint through the same bindings
- * the Worker uses, so the signed callback path is exercised end to end.
- */
+/** Starts Flue with a local callback endpoint to exercise signed delivery end to end. */
 export async function startEvaluationRuntime(): Promise<EvaluationRuntime> {
+	configureEvaluationProvider();
 	const secret = randomBytes(32).toString('hex');
 	const deliveries: Delivery[] = [];
 	const server = createServer((request, response) => {

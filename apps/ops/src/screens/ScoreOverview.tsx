@@ -24,7 +24,7 @@ export function ScoreOverview() {
         <div>
           <p className="eyebrow">After judging</p>
           <h1>Results</h1>
-          <p className="muted">Track which scorecards are complete. Scores stay hidden until results are opened.</p>
+          <p className="muted">Open a round to inspect completeness. Numeric values stay hidden until requested.</p>
         </div>
       </header>
 
@@ -42,13 +42,12 @@ export function ScoreOverview() {
               <Link className="secondary compact-link" to={`/scores/${round.id}`}>Open results</Link>
             </div>
             <dl className="score-summary-grid">
-              <Summary label="Valid results" value={round.completedReviewCount} />
-              <Summary label="Unresolved teams" value={round.unresolvedTeamCount} />
-              <Summary label="Open corrections" value={round.unresolvedCorrectionCount} />
               <Summary
                 label="Round export"
                 value={round.exportState ? stateName(round.exportState) : 'Not started'}
               />
+              <Summary label="Numeric values" value={round.canReadValues ? 'Available' : 'Hidden'} />
+              <Summary label="Participant feedback" value={round.releasedAt ? 'Released' : 'Not released'} />
             </dl>
             <p className="panel-strip">
               <span>{round.canReadValues ? 'Scores visible' : 'Progress only'}</span>

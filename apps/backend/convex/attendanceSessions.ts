@@ -7,16 +7,195 @@ import { internalMutation, mutation } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { moveSessionCounter } from "./lib/attendanceCounters";
 import {
+  maximumAttendanceParticipantsPerSession,
+  maximumAttendanceSessionsPerPlan,
+  requireAttendancePlanLimits,
+} from "./lib/attendancePlanLimits";
+import {
   attendanceSessionCutoffAt,
   attendanceSessionJobIsTerminal,
   extendedAttendanceSessionTiming,
   openAttendanceSessionsInZone,
 } from "./lib/attendanceSessionLifecycle";
+import { maximumAttendanceIntervalsPerParticipantSession } from "./lib/attendanceSessionTransition";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
+import { appendAttendanceSessionJobReadFactById } from "./lib/operationsAutonomyReadFacts/attendanceOperations";
+
+async function participantProjectionCompleteness(
+  ctx: MutationCtx,
+  session: Doc<"attendanceSessions">,
+) {
+  const [participants, projections] = await Promise.all([
+    ctx.db
+      .query("attendanceSessionParticipants")
+      .withIndex("by_session_membership", (index) => index.eq("sessionId", session._id))
+      .take(maximumAttendanceParticipantsPerSession + 1),
+    ctx.db
+      .query("attendanceParticipantCurrentSessions")
+      .withIndex("by_session_membership", (index) => index.eq("sessionId", session._id))
+      .take(maximumAttendanceParticipantsPerSession + 1),
+  ]);
+  if (
+    participants.length > maximumAttendanceParticipantsPerSession ||
+    projections.length > maximumAttendanceParticipantsPerSession
+  ) {
+    return { complete: false, participantCount: participants.length };
+  }
+  const participantByMembership = new Map(
+    participants.map((participant) => [participant.membershipId, participant]),
+  );
+  const projectedMemberships = new Set<Id<"eventMemberships">>();
+  const complete = projections.length === participants.length && projections.every((projection) => {
+    const participant = participantByMembership.get(projection.membershipId);
+    if (!participant || projectedMemberships.has(projection.membershipId)) return false;
+    projectedMemberships.add(projection.membershipId);
+    return projection.eventId === session.eventId &&
+      projection.planVersionId === session.planVersionId &&
+      projection.sessionParticipantId === participant._id &&
+      projection.sessionStartsAt === session.startsAt;
+  });
+  return { complete, participantCount: participants.length };
+}
+
+async function requireParticipantProjectionCompleteness(
+  ctx: MutationCtx,
+  session: Doc<"attendanceSessions">,
+  expectedParticipantCount?: number,
+) {
+  const projection = await participantProjectionCompleteness(ctx, session);
+  if (
+    !projection.complete ||
+    (expectedParticipantCount !== undefined &&
+      projection.participantCount !== expectedParticipantCount)
+  ) {
+    throw new ConvexError({
+      code: "ATTENDANCE_PARTICIPANT_PROJECTION_INCOMPLETE",
+      message: "The participant attendance view is incomplete. Rebuild this session before continuing.",
+    });
+  }
+  return projection;
+}
+
+async function requireCompletedParticipantProjection(
+  ctx: MutationCtx,
+  session: Doc<"attendanceSessions">,
+) {
+  if (session.expectationCount === undefined) {
+    throw new ConvexError({
+      code: "ATTENDANCE_PARTICIPANT_PROJECTION_INCOMPLETE",
+      message: "The prepared participant count is missing. Rebuild this session before continuing.",
+    });
+  }
+  return await requireParticipantProjectionCompleteness(
+    ctx,
+    session,
+    session.expectationCount,
+  );
+}
+
+async function projectionsForParticipantPage(
+  ctx: MutationCtx,
+  session: Doc<"attendanceSessions">,
+  participants: Doc<"attendanceSessionParticipants">[],
+) {
+  return await Promise.all(
+    participants.map(async (participant) => {
+      const matches = await ctx.db
+        .query("attendanceParticipantCurrentSessions")
+        .withIndex("by_session_membership", (index) =>
+          index
+            .eq("sessionId", session._id)
+            .eq("membershipId", participant.membershipId),
+        )
+        .take(2);
+      if (matches.length !== 1) return null;
+      const projection = matches[0];
+      if (!projection) return null;
+      if (
+        projection.eventId !== session.eventId ||
+        projection.planVersionId !== session.planVersionId ||
+        projection.sessionParticipantId !== participant._id ||
+        projection.sessionStartsAt !== session.startsAt ||
+        participant.eventId !== session.eventId ||
+        participant.sessionId !== session._id
+      ) {
+        return null;
+      }
+      return projection;
+    }),
+  );
+}
+
+async function intervalsForParticipantPage(
+  ctx: MutationCtx,
+  session: Doc<"attendanceSessions">,
+  participants: Doc<"attendanceSessionParticipants">[],
+) {
+  return await Promise.all(
+    participants.map(async (participant) => {
+      const intervals = await ctx.db
+        .query("attendancePresenceIntervals")
+        .withIndex("by_session_membership", (index) =>
+          index
+            .eq("sessionId", session._id)
+            .eq("membershipId", participant.membershipId),
+        )
+        .take(maximumAttendanceIntervalsPerParticipantSession + 1);
+      if (
+        intervals.length > maximumAttendanceIntervalsPerParticipantSession ||
+        intervals.some((interval) =>
+          interval.eventId !== session.eventId ||
+          interval.sessionId !== session._id ||
+          interval.membershipId !== participant.membershipId ||
+          interval.kind !== "session"
+        )
+      ) {
+        return null;
+      }
+      return intervals;
+    }),
+  );
+}
+
+async function failTerminalJob(
+  ctx: MutationCtx,
+  job: Doc<"attendanceSessionJobs">,
+  failureCode: string,
+  now: number,
+) {
+  await ctx.db.patch(job._id, {
+    status: "failed",
+    failureCode,
+    updatedAt: now,
+    completedAt: now,
+  });
+  await appendAttendanceSessionJobReadFactById(ctx, job._id, now);
+}
+
+async function failExpectationBuild(
+  ctx: MutationCtx,
+  job: Doc<"attendanceSessionJobs">,
+  session: Doc<"attendanceSessions">,
+  failureCode: string,
+  now: number,
+) {
+  await ctx.db.patch(job._id, {
+    status: "failed",
+    failureCode,
+    updatedAt: now,
+    completedAt: now,
+  });
+  await appendAttendanceSessionJobReadFactById(ctx, job._id, now);
+  await ctx.db.patch(session._id, {
+    expectationBuildState: "failed",
+    version: session.version + 1,
+    updatedAt: now,
+  });
+}
 
 async function requireNoPendingManualSheets(
   ctx: MutationCtx,
@@ -148,6 +327,7 @@ export const prepare = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await appendAttendanceSessionJobReadFactById(ctx, jobId, now);
     await ctx.db.patch(session._id, {
       status: "preparing",
       expectationBuildState: "running",
@@ -204,6 +384,7 @@ export const buildExpectationBatch = internalMutation({
         failureCode: "session_state_changed",
         updatedAt: Date.now(),
       });
+      await appendAttendanceSessionJobReadFactById(ctx, job._id, Date.now());
       return null;
     }
     const page = await ctx.db
@@ -216,15 +397,52 @@ export const buildExpectationBatch = internalMutation({
     const now = Date.now();
     for (const membership of page.page) {
       if (!(await membershipMatchesCohort(ctx, membership, session))) continue;
-      const existing = await ctx.db
-        .query("attendanceSessionParticipants")
-        .withIndex("by_session_membership", (index) =>
-          index.eq("sessionId", session._id).eq("membershipId", membership._id),
-        )
-        .unique();
-      if (existing) continue;
+      const [existing, existingProjection] = await Promise.all([
+        ctx.db
+          .query("attendanceSessionParticipants")
+          .withIndex("by_session_membership", (index) =>
+            index.eq("sessionId", session._id).eq("membershipId", membership._id),
+          )
+          .unique(),
+        ctx.db
+          .query("attendanceParticipantCurrentSessions")
+          .withIndex("by_session_membership", (index) =>
+            index.eq("sessionId", session._id).eq("membershipId", membership._id),
+          )
+          .unique(),
+      ]);
+      if (existing || existingProjection) {
+        if (
+          !existing ||
+          !existingProjection ||
+          existingProjection.sessionParticipantId !== existing._id ||
+          existingProjection.eventId !== session.eventId ||
+          existingProjection.planVersionId !== session.planVersionId ||
+          existingProjection.sessionStartsAt !== session.startsAt
+        ) {
+          await failExpectationBuild(
+            ctx,
+            job,
+            session,
+            "participant_projection_incomplete",
+            now,
+          );
+          return null;
+        }
+        continue;
+      }
+      if (affectedCount >= maximumAttendanceParticipantsPerSession) {
+        await failExpectationBuild(
+          ctx,
+          job,
+          session,
+          "participant_limit_reached",
+          now,
+        );
+        return null;
+      }
       const expectation = session.requirement === "required" ? "required" : "optional";
-      await ctx.db.insert("attendanceSessionParticipants", {
+      const sessionParticipantId = await ctx.db.insert("attendanceSessionParticipants", {
         eventId: session.eventId,
         sessionId: session._id,
         membershipId: membership._id,
@@ -233,6 +451,15 @@ export const buildExpectationBatch = internalMutation({
         late: false,
         version: 1,
         updatedAt: now,
+      });
+      await ctx.db.insert("attendanceParticipantCurrentSessions", {
+        eventId: session.eventId,
+        planVersionId: session.planVersionId,
+        sessionId: session._id,
+        sessionParticipantId,
+        membershipId: membership._id,
+        sessionStartsAt: session.startsAt,
+        createdAt: now,
       });
       await moveSessionCounter(ctx, {
         eventId: session.eventId,
@@ -249,17 +476,29 @@ export const buildExpectationBatch = internalMutation({
     }
     const scannedCount = job.scannedCount + page.page.length;
     if (page.isDone) {
+      const projection = await participantProjectionCompleteness(ctx, session);
+      if (!projection.complete) {
+        await failExpectationBuild(
+          ctx,
+          job,
+          session,
+          "participant_projection_incomplete",
+          now,
+        );
+        return null;
+      }
       await ctx.db.patch(job._id, {
         status: "complete",
         scannedCount,
-        affectedCount,
+        affectedCount: projection.participantCount,
         updatedAt: now,
         completedAt: now,
       });
+      await appendAttendanceSessionJobReadFactById(ctx, job._id, now);
       await ctx.db.patch(session._id, {
         status: "ready",
         expectationBuildState: "complete",
-        expectationCount: affectedCount,
+        expectationCount: projection.participantCount,
         version: session.version + 1,
         updatedAt: now,
       });
@@ -272,6 +511,7 @@ export const buildExpectationBatch = internalMutation({
       affectedCount,
       updatedAt: now,
     });
+    await appendAttendanceSessionJobReadFactById(ctx, job._id, now);
     await ctx.scheduler.runAfter(0, internal.attendanceSessions.buildExpectationBatch, {
       jobId: job._id,
     });
@@ -323,6 +563,7 @@ export const open = mutation({
       scopeType: "attendance_session",
       scopeId: session._id,
     });
+    await requireCompletedParticipantProjection(ctx, session);
     const now = Date.now();
     if (now < session.checkInOpensAt || now > session.checkInClosesAt) {
       throw new ConvexError({
@@ -436,6 +677,22 @@ export const extend = mutation({
       now,
       ...(event.endsAt !== undefined ? { eventEndsAt: event.endsAt } : {}),
     });
+    const planSessions = await ctx.db
+      .query("attendanceSessions")
+      .withIndex("by_plan_key", (index) => index.eq("planVersionId", session.planVersionId))
+      .take(maximumAttendanceSessionsPerPlan + 1);
+    if (!planSessions.some((candidate) => candidate._id === session._id)) {
+      throw new Error("The attendance session is missing from its published plan.");
+    }
+    requireAttendancePlanLimits({
+      zones: [],
+      sessions: planSessions.map((candidate) =>
+        candidate._id === session._id
+          ? { ...candidate, endsAt: timing.endsAt }
+          : candidate,
+      ),
+      stations: [],
+    });
     await ctx.db.patch(session._id, {
       endsAt: timing.endsAt,
       checkInClosesAt: timing.checkInClosesAt,
@@ -539,6 +796,7 @@ export const close = mutation({
       scopeId: session._id,
     });
     await requireNoPendingManualSheets(ctx, session._id);
+    await requireCompletedParticipantProjection(ctx, session);
     const now = Date.now();
     const closingCutoffAt = attendanceSessionCutoffAt(session, now);
     const jobId = await ctx.db.insert("attendanceSessionJobs", {
@@ -553,6 +811,7 @@ export const close = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await appendAttendanceSessionJobReadFactById(ctx, jobId, now);
     await ctx.db.patch(session._id, {
       status: "closing",
       closingCutoffAt,
@@ -662,6 +921,11 @@ export const cancel = mutation({
       scopeId: session._id,
     });
     await requireNoPendingManualSheets(ctx, session._id);
+    if (session.expectationBuildState === "complete") {
+      await requireCompletedParticipantProjection(ctx, session);
+    } else {
+      await requireParticipantProjectionCompleteness(ctx, session);
+    }
     const now = Date.now();
     const closingCutoffAt = attendanceSessionCutoffAt(session, now);
     if (session.expectationJobId !== undefined) {
@@ -677,6 +941,7 @@ export const cancel = mutation({
           updatedAt: now,
           completedAt: now,
         });
+        await appendAttendanceSessionJobReadFactById(ctx, expectationJob._id, now);
       }
     }
     const jobId = await ctx.db.insert("attendanceSessionJobs", {
@@ -691,6 +956,7 @@ export const cancel = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await appendAttendanceSessionJobReadFactById(ctx, jobId, now);
     await ctx.db.patch(session._id, {
       status: "closing",
       closingCutoffAt,
@@ -790,6 +1056,7 @@ export const finalizeResultBatch = internalMutation({
         failureCode: "session_state_changed",
         updatedAt: Date.now(),
       });
+      await appendAttendanceSessionJobReadFactById(ctx, job._id, Date.now());
       return null;
     }
     const page = await ctx.db
@@ -797,14 +1064,24 @@ export const finalizeResultBatch = internalMutation({
       .withIndex("by_session_membership", (index) => index.eq("sessionId", session._id))
       .paginate({ cursor: job.cursor ?? null, numItems: 50 });
     const now = Date.now();
+    const [projections, intervalPages] = await Promise.all([
+      projectionsForParticipantPage(ctx, session, page.page),
+      intervalsForParticipantPage(ctx, session, page.page),
+    ]);
+    if (projections.some((projection) => projection === null)) {
+      await failTerminalJob(ctx, job, "participant_projection_incomplete", now);
+      return null;
+    }
+    if (intervalPages.some((intervals) => intervals === null)) {
+      await failTerminalJob(ctx, job, "participant_interval_limit_exceeded", now);
+      return null;
+    }
     let affectedCount = job.affectedCount;
-    for (const participant of page.page) {
-      const intervals = await ctx.db
-        .query("attendancePresenceIntervals")
-        .withIndex("by_session_membership", (index) =>
-          index.eq("sessionId", session._id).eq("membershipId", participant.membershipId),
-        )
-        .collect();
+    for (const [index, participant] of page.page.entries()) {
+      const intervals = intervalPages[index];
+      if (!intervals) {
+        throw new Error("Validated attendance presence intervals are missing.");
+      }
       const openIntervals = intervals.filter((interval) => interval.status === "open");
       const expectsOpenInterval = participant.state === "present";
       let intervalsValid = expectsOpenInterval
@@ -849,6 +1126,11 @@ export const finalizeResultBatch = internalMutation({
         isLate: participant.late,
         now,
       });
+      const projection = projections[index];
+      if (!projection) {
+        throw new Error("A validated attendance participant projection is missing.");
+      }
+      await ctx.db.delete(projection._id);
       affectedCount += 1;
     }
     const scannedCount = job.scannedCount + page.page.length;
@@ -860,6 +1142,7 @@ export const finalizeResultBatch = internalMutation({
         updatedAt: now,
         completedAt: now,
       });
+      await appendAttendanceSessionJobReadFactById(ctx, job._id, now);
       await ctx.db.patch(session._id, {
         status: "closed",
         closedAt: session.closingCutoffAt,
@@ -875,6 +1158,7 @@ export const finalizeResultBatch = internalMutation({
       affectedCount,
       updatedAt: now,
     });
+    await appendAttendanceSessionJobReadFactById(ctx, job._id, now);
     await ctx.scheduler.runAfter(0, internal.attendanceSessions.finalizeResultBatch, {
       jobId: job._id,
     });
@@ -905,6 +1189,7 @@ export const cancelResultBatch = internalMutation({
         failureCode: "session_state_changed",
         updatedAt: Date.now(),
       });
+      await appendAttendanceSessionJobReadFactById(ctx, job._id, Date.now());
       return null;
     }
     const page = await ctx.db
@@ -912,14 +1197,24 @@ export const cancelResultBatch = internalMutation({
       .withIndex("by_session_membership", (index) => index.eq("sessionId", session._id))
       .paginate({ cursor: job.cursor ?? null, numItems: 50 });
     const now = Date.now();
+    const [projections, intervalPages] = await Promise.all([
+      projectionsForParticipantPage(ctx, session, page.page),
+      intervalsForParticipantPage(ctx, session, page.page),
+    ]);
+    if (projections.some((projection) => projection === null)) {
+      await failTerminalJob(ctx, job, "participant_projection_incomplete", now);
+      return null;
+    }
+    if (intervalPages.some((intervals) => intervals === null)) {
+      await failTerminalJob(ctx, job, "participant_interval_limit_exceeded", now);
+      return null;
+    }
     let affectedCount = job.affectedCount;
-    for (const participant of page.page) {
-      const intervals = await ctx.db
-        .query("attendancePresenceIntervals")
-        .withIndex("by_session_membership", (index) =>
-          index.eq("sessionId", session._id).eq("membershipId", participant.membershipId),
-        )
-        .collect();
+    for (const [index, participant] of page.page.entries()) {
+      const intervals = intervalPages[index];
+      if (!intervals) {
+        throw new Error("Validated attendance presence intervals are missing.");
+      }
       let presentDurationMs = 0;
       for (const interval of intervals) {
         if (interval.status === "voided") continue;
@@ -956,6 +1251,11 @@ export const cancelResultBatch = internalMutation({
         isLate: participant.late,
         now,
       });
+      const projection = projections[index];
+      if (!projection) {
+        throw new Error("A validated attendance participant projection is missing.");
+      }
+      await ctx.db.delete(projection._id);
       affectedCount += 1;
     }
     const scannedCount = job.scannedCount + page.page.length;
@@ -967,6 +1267,7 @@ export const cancelResultBatch = internalMutation({
         updatedAt: now,
         completedAt: now,
       });
+      await appendAttendanceSessionJobReadFactById(ctx, job._id, now);
       await ctx.db.patch(session._id, {
         status: "cancelled",
         cancelledAt: session.closingCutoffAt,
@@ -982,6 +1283,7 @@ export const cancelResultBatch = internalMutation({
       affectedCount,
       updatedAt: now,
     });
+    await appendAttendanceSessionJobReadFactById(ctx, job._id, now);
     await ctx.scheduler.runAfter(0, internal.attendanceSessions.cancelResultBatch, {
       jobId: job._id,
     });

@@ -41,13 +41,6 @@ export function AttendancePanel() {
 
   useEffect(() => {
     if (!portalQr) return
-    const delay = Math.max(0, portalQr.expiresAt - Date.now() - 5_000)
-    const timer = window.setTimeout(() => void mint(), delay)
-    return () => window.clearTimeout(timer)
-  }, [mint, portalQr])
-
-  useEffect(() => {
-    if (!portalQr) return
     const timer = window.setInterval(() => setNow(Date.now()), 1_000)
     return () => window.clearInterval(timer)
   }, [portalQr])
@@ -57,7 +50,6 @@ export function AttendancePanel() {
   }
   if (!attendance.available) return null
 
-  const currentSession = attendance.sessions.find((session) => session.status === 'open')
   const secondsLeft = portalQr ? Math.max(0, Math.ceil((portalQr.expiresAt - now) / 1_000)) : 0
   const currentQr = portalQr && secondsLeft > 0 ? portalQr : null
   const usesVitId = attendance.physicalCredential.kind === 'vit_id_barcode'
@@ -79,12 +71,16 @@ export function AttendancePanel() {
             <dd>{venueStateName(attendance.venue?.state ?? 'not_arrived')}</dd>
           </div>
         ) : null}
-        {currentSession ? (
-          <div>
-            <dt>{currentSession.name}</dt>
-            <dd>{sessionStateName(currentSession.state)}</dd>
+        {attendance.sessions.map((session) => (
+          <div key={session.id}>
+            <dt>{session.timing === 'current' ? session.name : `Next · ${session.name}`}</dt>
+            <dd>
+              {session.timing === 'current'
+                ? `${sessionStateName(session.state)} · ${session.zoneName}`
+                : `${sessionTimeName(session.startsAt)} · ${session.zoneName}`}
+            </dd>
           </div>
-        ) : null}
+        ))}
         <div>
           <dt>{attendance.physicalCredential.kind === 'vit_id_barcode' ? 'VIT ID' : 'Event badge'}</dt>
           <dd>{physicalCredentialName(attendance.physicalCredential)}</dd>
@@ -192,4 +188,12 @@ function sessionStateName(state: string) {
   if (state === 'excused') return 'Excused'
   if (state === 'needs_review') return 'Needs review'
   return 'Not expected'
+}
+
+function sessionTimeName(timestamp: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(timestamp)
 }

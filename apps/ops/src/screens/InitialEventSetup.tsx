@@ -58,6 +58,12 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
   const [teamMinimumSize, setTeamMinimumSize] = useState('1')
   const [teamMaximumSize, setTeamMaximumSize] = useState('4')
   const [participantCapacity, setParticipantCapacity] = useState('1000')
+  const [integrationPolicyVersion, setIntegrationPolicyVersion] = useState('integrations-v1')
+  const [requiredGitHubTopic, setRequiredGitHubTopic] = useState('code2create-7-0')
+  const [maximumGitHubRepositories, setMaximumGitHubRepositories] = useState('10')
+  const [maximumFigmaFiles, setMaximumFigmaFiles] = useState('10')
+  const [githubFreezeAtLocal, setGithubFreezeAtLocal] = useState('')
+  const [figmaFreezeAtLocal, setFigmaFreezeAtLocal] = useState('')
   const [tracks, setTracks] = useState<TrackDraft[]>(() => initialTracks.map((track) => ({ ...track })))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -96,6 +102,12 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
     const endsAt = indiaDateTimeToTimestamp(endsAtLocal)
     if (startsAt === null || endsAt === null || endsAt <= startsAt) {
       setError('Choose a valid event start and end time.')
+      return
+    }
+    const githubFreezeAt = optionalIndiaDateTimeToTimestamp(githubFreezeAtLocal)
+    const figmaFreezeAt = optionalIndiaDateTimeToTimestamp(figmaFreezeAtLocal)
+    if (githubFreezeAt === null || figmaFreezeAt === null) {
+      setError('Choose valid GitHub and Figma freeze times, or leave them empty.')
       return
     }
     setBusy(true)
@@ -206,11 +218,14 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           notificationIntro: 'There is a new Code2Create event update in your portal.',
         },
         integrationPolicy: {
-          version: 'integrations-v1',
-          requiredGitHubTopic: 'code2create-7',
-          maxActiveGitHubRepositoriesPerTeam: 10,
-          maxActiveFigmaFilesPerTeam: 10,
+          version: integrationPolicyVersion,
+          requiredGitHubTopic,
+          maxActiveGitHubRepositoriesPerTeam: Number(maximumGitHubRepositories),
+          maxActiveFigmaFilesPerTeam: Number(maximumFigmaFiles),
+          ...(githubFreezeAt !== undefined ? { githubFreezeAt } : {}),
+          ...(figmaFreezeAt !== undefined ? { figmaFreezeAt } : {}),
         },
+        requiredCoreTrackCount: tracks.length,
         tracks: tracks.map(toCoreTrack),
       })
     } catch (caught) {
@@ -271,11 +286,11 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
               </label>
               <label className="field">
                 <span>Smallest team</span>
-                <input required type="number" min="1" max="12" value={teamMinimumSize} onChange={(event) => setTeamMinimumSize(event.currentTarget.value)} />
+                <input required type="number" min="1" max={participantCapacity} value={teamMinimumSize} onChange={(event) => setTeamMinimumSize(event.currentTarget.value)} />
               </label>
               <label className="field">
                 <span>Largest team</span>
-                <input required type="number" min="1" max="12" value={teamMaximumSize} onChange={(event) => setTeamMaximumSize(event.currentTarget.value)} />
+                <input required type="number" min="1" max={participantCapacity} value={teamMaximumSize} onChange={(event) => setTeamMaximumSize(event.currentTarget.value)} />
               </label>
               <label className="field span-two">
                 <span>Participant places</span>
@@ -285,7 +300,40 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           </fieldset>
 
           <fieldset>
-            <legend>Five starting tracks</legend>
+            <legend>Code and design evidence</legend>
+            <p className="muted">
+              These values are published with the event and can be changed later through Event setup.
+            </p>
+            <div className="form-grid four-columns">
+              <label className="field span-two">
+                <span>Policy release</span>
+                <input required minLength={1} maxLength={80} value={integrationPolicyVersion} onChange={(event) => setIntegrationPolicyVersion(event.currentTarget.value)} />
+              </label>
+              <label className="field span-two">
+                <span>Required GitHub topic</span>
+                <input required maxLength={50} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={requiredGitHubTopic} onChange={(event) => setRequiredGitHubTopic(event.currentTarget.value)} />
+              </label>
+              <label className="field">
+                <span>GitHub repositories per team</span>
+                <input required type="number" min="1" max="20" step="1" value={maximumGitHubRepositories} onChange={(event) => setMaximumGitHubRepositories(event.currentTarget.value)} />
+              </label>
+              <label className="field">
+                <span>Figma files per team</span>
+                <input required type="number" min="1" max="10" step="1" value={maximumFigmaFiles} onChange={(event) => setMaximumFigmaFiles(event.currentTarget.value)} />
+              </label>
+              <label className="field">
+                <span>GitHub freeze · India time</span>
+                <input type="datetime-local" value={githubFreezeAtLocal} onChange={(event) => setGithubFreezeAtLocal(event.currentTarget.value)} />
+              </label>
+              <label className="field">
+                <span>Figma freeze · India time</span>
+                <input type="datetime-local" value={figmaFreezeAtLocal} onChange={(event) => setFigmaFreezeAtLocal(event.currentTarget.value)} />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>{tracks.length} starting core track{tracks.length === 1 ? '' : 's'}</legend>
             <div className="bootstrap-tracks">
               {tracks.map((track, index) => (
                 <div className="bootstrap-track" key={index}>
@@ -297,9 +345,22 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
                     <span>Description</span>
                     <textarea required minLength={10} maxLength={500} value={track.description} onChange={(event) => updateTrack(index, 'description', event.currentTarget.value)} />
                   </label>
+                  {tracks.length > 1 ? (
+                    <button className="text-button" type="button" onClick={() => setTracks((current) => current.filter((_, trackIndex) => trackIndex !== index))}>
+                      Remove track
+                    </button>
+                  ) : null}
                 </div>
               ))}
             </div>
+            {tracks.length < 10 ? (
+              <button className="secondary" type="button" onClick={() => setTracks((current) => [
+                ...current,
+                { name: '', description: '' },
+              ])}>
+                Add core track
+              </button>
+            ) : null}
           </fieldset>
 
           {error ? <p className="notice error" role="alert">{error}</p> : null}
@@ -340,6 +401,10 @@ function toCoreTrack(track: TrackDraft, index: number): CoreTrack {
 function indiaDateTimeToTimestamp(value: string) {
   const timestamp = Date.parse(`${value}:00+05:30`)
   return Number.isSafeInteger(timestamp) && timestamp > 0 ? timestamp : null
+}
+
+function optionalIndiaDateTimeToTimestamp(value: string) {
+  return value ? indiaDateTimeToTimestamp(value) : undefined
 }
 
 function CenteredStatus({ children }: { children: ReactNode }) {

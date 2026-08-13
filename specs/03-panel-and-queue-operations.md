@@ -27,6 +27,8 @@ A caller with `reviewer.profile.manage` prepares each reviewer record before the
 
 Reviewer type or seniority never changes score weight.
 
+Availability is explicit event policy, not a free-form note. Each profile stores a bounded set of start/end windows. Operations merges touching or overlapping windows when it saves the profile. An active, training-complete reviewer needs at least one window before the planner treats them as ready.
+
 ## 3. Panel planning
 
 The planning screen builds panels from the roster and the selected rubric version.
@@ -44,6 +46,8 @@ A valid panel must satisfy:
 The planner shows gaps before a panel can be published. It also estimates how many reviews the panel can complete from the configured duration and round window.
 
 Publishing a plan creates a version. Later edits keep the previous version and record who changed which seat.
+
+Every round publishes three reviewer-staffing controls with the otherwise immutable round configuration: when clock-in opens, when reviewers must report, and the no-show grace in seconds. Clock-in opening is at or before report time; report time is at or before round start; the no-show boundary must not fall after round start. A panel member or reserve is publishable only when one declared profile window covers the whole interval from clock-in opening through round end. The same check applies when a reserve is paged or put into a seat after publication.
 
 ### Changing a seat after publication
 
@@ -133,11 +137,13 @@ The server checks:
 - camera permission or documented scanner fallback;
 - no unresolved conflict/training block.
 
+The server uses its own time. Clock-in is accepted at the exact published opening and remains open until, but not including, round end. It rechecks that the reviewer's current profile still covers the complete staffing window before any clock-in, device, operation, or audit write.
+
 Clock-in states are:
 
 `expected → present → temporarily_unavailable → clocked_out`
 
-Operations may mark a no-show after the configured grace period. The change records the operator and reason.
+Operations may mark a no-show at or after `reviewerReportAt + noShowGraceSeconds`. For a reviewer who explicitly stepped away, the same published grace starts at their expected return time. A present reviewer cannot be marked no-show. The no-show command reads the current clock-in and panel versions in the same transaction as removing the seat, so a clock-in racing a no-show cannot leave both states accepted. A rejected command writes nothing. The accepted change records the operator and reason.
 
 The app sends a low-frequency heartbeat while active. A stale heartbeat is an attention signal, not proof that the reviewer left. Operations confirms status before removing a panel seat.
 

@@ -54,7 +54,7 @@ Before a session opens, a replacement published plan can change its time, zones,
 
 The server accepts an extension only while the session is open and before its current accepted end. The extension adds 1–1,440 whole minutes to the accepted end and late-arrival close. It cannot cross the configured event end. The same transaction increments the session version. Competing extend, close, cancel, and scan operations use one authoritative version and server order. An operator cannot extend a session after its accepted end.
 
-A replacement plan cannot publish while a current-plan session is `preparing`, `open`, or `closing`. When replacement is allowed, one publication transaction performs these actions:
+A replacement plan cannot publish while a current-plan session is `preparing`, `ready`, `open`, or `closing`. Staff must cancel a prepared session first so its participant projections reach a terminal result instead of becoming orphaned. When replacement is allowed, one publication transaction performs these actions:
 
 - It disables each station from the old plan.
 - It revokes each assigned phone.
@@ -67,7 +67,7 @@ The server accepts a scan, enrollment, or heartbeat only for a station in the cu
 
 The schedule may contain gaps, meals, rest periods, optional workshops, and overnight access. The software does not assume every minute of the 48-hour event is one continuous mandatory hacking block.
 
-Sessions can overlap for different cohorts. An optional workshop can also overlap a broader hacking block. The system evaluates presence separately for each session. Configuration validation limits the sessions that can apply to one participant at the same time. It rejects contradictory required sessions. It also verifies that each required participant has a physically possible zone and checkpoint path.
+One plan contains at most 32 zones, 64 sessions, and 128 scanner stations. Sessions can overlap for different cohorts. An optional workshop can also overlap a broader hacking block. The system evaluates presence separately for each session. Draft creation, publication, and live extension reject a schedule in which one participant could match more than four simultaneous sessions or more than one simultaneous required session. It also verifies that each required participant has a physically possible zone and checkpoint path.
 
 ## 4. Participant credentials
 
@@ -119,7 +119,7 @@ External participants use:
 - an opaque printed QR on an ordinary event badge when the event issues one;
 - staffed lookup/manual confirmation when neither is available.
 
-Attendance operations preprint anonymous badge stock with `pnpm attendance:badges --count <n> --output <new-file.html>`. Each card contains one opaque 32-byte bearer as QR geometry. A short reference is printed below the QR. The generator limits a batch to 500 cards. It refuses to overwrite an existing file and does not write a plaintext bearer list. Staff keep the HTML and all unused cards in controlled custody. They destroy a partly scanned card when its five-minute verification expires. They do not bind that card again.
+Attendance operations preprint anonymous badge stock with `pnpm attendance:badges --count <n> --output <new-file.html>`. Each card contains one opaque 32-byte bearer as QR geometry. A short reference is printed below the QR. The generator limits a batch to 500 cards. It atomically creates a new owner-only `0600` file, refuses to overwrite an existing file, and does not write a plaintext bearer list. Staff keep the HTML and all unused cards in controlled custody. They destroy a partly scanned card when its five-minute verification expires. They do not bind that card again.
 
 Badge issue starts in the app's separate **Credential setup** mode. The participant presents a fresh portal QR. Staff compare the participant with the returned profile.
 
@@ -232,7 +232,7 @@ The team reaches the coarse `checked_in` milestone when each active member of th
 
 ### Session start
 
-The portal shows the next session, check-in window, location, and current status. Each expected participant confirms the session separately. VIT students normally present the enrolled VIT ID barcode. External participants and fallback paths use QR.
+The portal subscribes to a current-plan projection containing only all current sessions and the next upcoming session. It shows each session's check-in window, location, and current status. It does not subscribe to old session rows. Each expected participant confirms the session separately. VIT students normally present the enrolled VIT ID barcode. External participants and fallback paths use QR.
 
 Confirmation can happen at:
 
@@ -249,7 +249,7 @@ A participant can confirm late while the session accepts arrivals. The system re
 
 When a participant leaves a tracked hacking zone, an exit scan changes current availability to **Temporarily out** and closes the active presence interval. A return scan opens another interval and restores **Present**.
 
-A participant may leave and return multiple times. No reason is required for an ordinary temporary exit. If toilets are inside the tracked zone, using them requires no scan. The system does not store “bathroom” as a movement reason.
+A participant may leave and return multiple times. One participant/session accepts at most 64 presence intervals; another attempted entry becomes a visible needs-review state rather than creating unbounded close-time work. Scanner, paper import, and live reconciliation use the same interval-creation boundary, and finalization reads at most the same bound. No reason is required for an ordinary temporary exit. If toilets are inside the tracked zone, using them requires no scan. The system does not store “bathroom” as a movement reason.
 
 An attendance policy may set an operational away threshold. Crossing it creates a visible **Away longer than expected** flag for staff, not an automatic violation. Medical, accessibility, organizer-directed, or other exceptions can be recorded using a coarse reason with restricted visibility.
 
@@ -261,11 +261,11 @@ A canceled session produces no absence. Cancellation is available from `schedule
 
 Close and cancel do not update about 1,000 participant projections in one transaction. The first command changes the session to `closing`. It fixes the cutoff and interpretation version and starts the applicable internal batch.
 
-Indexed batches close intervals and calculate ordinary results or no-absence cancellation results. The dashboard distinguishes **Finalizing results** from **Canceling session**. It shows progress or failure. The session reaches `closed` or `canceled` only when the batch and counters agree. A draft or submitted manual attendance sheet blocks both commands until staff cancel, reject, or import it.
+Expectation building inserts each session-participant source row and its required current projection in one transaction. Open, close, and cancel fail if the projection count or identity does not exactly match the prepared source set. Indexed terminal batches validate and delete each projection in the same transaction that closes intervals and calculates ordinary results or no-absence cancellation results. The dashboard distinguishes **Finalizing results** from **Canceling session**. It shows progress or failure. The session reaches `closed` or `canceled` only when the batch and counters agree. A draft or submitted manual attendance sheet blocks both commands until staff cancel, reject, or import it.
 
 ### Post-session result review
 
-The portal shows the caller's closed-session result and presence duration. If a missing scan or boundary case appears after finalization, the participant can send a short description for review. This action does not change the result. Staff can open the same case type when operations finds the issue. One participant and session can have only one open case. A new case can open after the previous case is resolved.
+Closed-session history is not mounted with the live attendance subscription. The participant opens it explicitly, and the server returns newest-first pages of at most ten finalized source rows with the latest remedy case for only those rows. If a missing scan or boundary case appears after finalization, the participant can send a short description for review. This action does not change the result. Staff can open the same case type when operations finds the issue. One participant and session can have only one open case. A new case can open after the previous case is resolved.
 
 Opening a case freezes these values:
 

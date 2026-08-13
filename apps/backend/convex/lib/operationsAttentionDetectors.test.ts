@@ -22,6 +22,8 @@ function floor(overrides: Partial<ReviewFloorProjection> = {}): ReviewFloorProje
     roundId: "round1",
     roundName: "Review 1",
     roundEndsAt: now + 60 * minute,
+    reviewerReportAt: now - 10 * minute,
+    reviewerNoShowGraceSeconds: 180,
     requiredPanelSize: 3,
     reviewDurationSeconds: 600,
     isPaused: false,
@@ -82,9 +84,7 @@ function only(items: ReturnType<typeof reviewFloorItems>, key: string) {
   return items.filter((item) => item.detectorKey === key);
 }
 
-/* ---------------- panel seats ---------------- */
 
-/** One field of whichever command a proposal carries, or undefined. */
 function commandField(command: AttentionCommand | undefined, field: string) {
   if (command === undefined) return undefined;
   const entries: Record<string, unknown> = { ...command };
@@ -96,9 +96,18 @@ test("a full, quiet panel produces nothing", () => {
 });
 
 test("a short panel names the panel and the queue behind it", () => {
+  const queuedTeams = [
+    { teamRoundStateId: "s1", version: 1, teamName: "Nightshift", queuedAt: now },
+    { teamRoundStateId: "s2", version: 1, teamName: "Kite", queuedAt: now },
+  ];
   const items = reviewFloorItems(
     floor({
-      panels: [panel({ members: [member(), member({ panelMemberId: "m2", personId: "p2" })] })],
+      panels: [
+        panel({
+          members: [member(), member({ panelMemberId: "m2", personId: "p2" })],
+          queuedTeams,
+        }),
+      ],
       teams: [team(), team({ teamRoundStateId: "s2", teamId: "t2", teamName: "Kite" })],
     }),
   );
@@ -144,6 +153,9 @@ test("a vacancy carries a prefilled substitute page, with the panel version", ()
           status: "needs_reviewer",
           vacantPanelMemberId: "gone",
           members: [member(), member({ panelMemberId: "m2", personId: "p2" })],
+          queuedTeams: [
+            { teamRoundStateId: "s1", version: 1, teamName: "Nightshift", queuedAt: now },
+          ],
         }),
       ],
       teams: [team()],
@@ -178,7 +190,6 @@ test("no page is proposed while a page chain is already running", () => {
   assert.equal(only(items, "panel_seat_empty")[0]?.actionLabel, "Open the panel");
 });
 
-/* ---------------- seat at risk ---------------- */
 
 test("a stale heartbeat is reported as a signal, never as proof", () => {
   const items = reviewFloorItems(
@@ -204,8 +215,8 @@ test("a stale heartbeat is reported as a signal, never as proof", () => {
   assert.match(risk[0]?.statement ?? "", /has not checked in for 7m/);
   assert.match(risk[0]?.statement ?? "", /a signal and not proof they left the table/);
   assert.match(risk[0]?.statement ?? "", /Confirm before freeing the seat/);
-  // Reviewers carry no attendance record, so nothing here may claim one.
   assert.doesNotMatch(risk[0]?.statement ?? "", /venue|went home|has left/i);
+  assert.equal(risk[0]?.proposal, undefined);
 });
 
 test("a seat is only at risk when teams are actually waiting on it", () => {
@@ -307,6 +318,34 @@ test("a return time only just passed is inside the grace period", () => {
   assert.deepEqual(only(items, "seat_at_risk"), []);
 });
 
+test("the exact published late-return boundary permits the no-show proposal", () => {
+  const items = reviewFloorItems(
+    floor({
+      reviewerNoShowGraceSeconds: 90,
+      panels: [
+        panel({
+          members: [
+            member({
+              clockInStatus: "temporarily_unavailable",
+              expectedReturnAt: now - 90_000,
+              lastHeartbeatAt: now - 10 * minute,
+            }),
+            member({ panelMemberId: "m2", personId: "p2" }),
+            member({ panelMemberId: "m3", personId: "p3" }),
+          ],
+          queuedTeams: [
+            { teamRoundStateId: "s1", version: 2, teamName: "Nightshift", queuedAt: now - minute },
+          ],
+        }),
+      ],
+    }),
+  );
+  assert.equal(
+    only(items, "seat_at_risk")[0]?.proposal?.command.name,
+    "reviewSubstitutions.markNoShow",
+  );
+});
+
 test("an unreachable sole device is a risk; a spare device is not", () => {
   const unreachable = member({
     lastHeartbeatAt: now - minute,
@@ -358,7 +397,6 @@ test("no no-show is proposed while a review timer is running on that panel", () 
   assert.equal(only(items, "seat_at_risk")[0]?.proposal, undefined);
 });
 
-/* ---------------- the migrated queue conditions ---------------- */
 
 test("an overdue review says how far past it is and offers the extension", () => {
   const items = reviewFloorItems(
@@ -554,7 +592,6 @@ test("a paused round stops the clock-driven rows but keeps the structural ones",
   assert.deepEqual(keys, ["panel_seat_empty"]);
 });
 
-/* ---------------- forecast ---------------- */
 
 function pacedPanel(
   panelId: string,
@@ -680,7 +717,6 @@ test("a paused round is not forecast at all", () => {
   );
 });
 
-/* ---------------- scorecard chase ---------------- */
 
 test("an outstanding scorecard names the reviewers and only what their app reported", () => {
   const items = scorecardChaseItems({
@@ -768,7 +804,6 @@ test("a session where everyone submitted produces nothing", () => {
   );
 });
 
-/* ---------------- identity ---------------- */
 
 test("dedupe keys are identity, so a changing reading keeps the same key", () => {
   const at = (queuedAt: number) =>

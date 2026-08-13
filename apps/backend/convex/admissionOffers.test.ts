@@ -8,6 +8,7 @@ import {
   normalizeCommunicationsPolicy,
 } from "./lib/communicationsPolicy.ts";
 import { permissionCatalog } from "./lib/permissionCatalog.ts";
+import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import {
   defaultParticipantPolicy,
   participantPolicyChecksum,
@@ -99,6 +100,8 @@ describe("admission offer lifecycle", () => {
   test("sending an offer reserves only the locked roster and moves it to offer pending", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedOfferedApplication(backend, Date.now() + 60_000);
+    await enqueueRosterNotification(backend, fixture, "offer", 3);
+    await updateRosterStatus(backend, fixture, "offer_pending");
     const state = await readOfferState(backend, fixture);
 
     expect(state.application).toMatchObject({
@@ -108,7 +111,7 @@ describe("admission offer lifecycle", () => {
     });
     expect(state.offer).toMatchObject({
       state: "offered",
-      offeredTeamMemberIds: [fixture.teamMemberId],
+      lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
       participantCount: 1,
     });
     expect(state.membership?.onboardingStatus).toBe("offer_pending");
@@ -128,6 +131,7 @@ describe("admission offer lifecycle", () => {
   test("confirmation preserves the exact reservation and defeats a stale expiry", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedOfferedApplication(backend, Date.now() + 60_000);
+    await enqueueRosterNotification(backend, fixture, "offer", 3);
 
     await backend.run(async (ctx) => {
       const [application, offer, project, team] = await Promise.all([
@@ -152,13 +156,15 @@ describe("admission offer lifecycle", () => {
       offerId: fixture.offerId,
       expectedOfferVersion: 1,
     });
+    await enqueueRosterNotification(backend, fixture, "offer_confirmed", 4);
+    await updateRosterStatus(backend, fixture, "accepted");
 
     const state = await readOfferState(backend, fixture);
     expect(state.application).toMatchObject({ state: "confirmed", version: 4 });
     expect(state.offer).toMatchObject({
       state: "confirmed",
       version: 2,
-      confirmedTeamMemberIds: [fixture.teamMemberId],
+      lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
     });
     expect(state.team).toMatchObject({ status: "confirmed", version: 3 });
     expect(state.membership?.onboardingStatus).toBe("accepted");
@@ -180,6 +186,7 @@ describe("admission offer lifecycle", () => {
   test("expiry releases capacity once and keeps a repeated worker idempotent", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedOfferedApplication(backend, Date.now() - 1);
+    await enqueueRosterNotification(backend, fixture, "offer", 3);
 
     await backend.mutation(internal.admissions.expireOffer, {
       offerId: fixture.offerId,
@@ -189,6 +196,8 @@ describe("admission offer lifecycle", () => {
       offerId: fixture.offerId,
       expectedOfferVersion: 1,
     });
+    await enqueueRosterNotification(backend, fixture, "offer_expired", 4);
+    await updateRosterStatus(backend, fixture, "submitted");
 
     const state = await readOfferState(backend, fixture);
     expect(state.application).toMatchObject({ state: "offer_expired", version: 4 });
@@ -211,6 +220,7 @@ describe("admission offer lifecycle", () => {
   test("declining releases capacity but never changes the locked roster", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedOfferedApplication(backend, Date.now() + 60_000);
+    await enqueueRosterNotification(backend, fixture, "offer", 3);
 
     await backend.run(async (ctx) => {
       const [application, offer, project, team] = await Promise.all([
@@ -231,6 +241,8 @@ describe("admission offer lifecycle", () => {
         now: Date.now(),
       });
     });
+    await enqueueRosterNotification(backend, fixture, "offer_declined", 4);
+    await updateRosterStatus(backend, fixture, "submitted");
 
     const state = await readOfferState(backend, fixture);
     expect(state.application).toMatchObject({
@@ -318,6 +330,9 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       publicCode: "OFFER01",
       leadMembershipId: membershipId,
       status: "admitted",
+      activeMemberCount: 1,
+      activeVitMemberCount: 0,
+      activeExternalMemberCount: 1,
       membershipLocked: true,
       trackLocked: true,
       version: 2,
@@ -475,6 +490,16 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       writtenAt: now,
       clientOperationId: "offer-fixture-follow-up",
     });
+    const lockedRosterSnapshotId = await createTestSubmissionSnapshot(ctx, {
+      eventId,
+      teamId,
+      teamMemberIds: [teamMemberId],
+      intakePolicyVersionId: intakePolicyId,
+      participantPolicyVersionId: participantPolicyId,
+      admissionPolicyVersionId: policyId,
+      coreTrackVersionId: trackId,
+      submittedAt: now,
+    });
     const projectId = await ctx.db.insert("projectVersions", {
       eventId,
       teamId,
@@ -495,7 +520,8 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       ],
       coreTrackVersionId: trackId,
       sponsorTrackVersionIds: [],
-      lockedTeamMemberIds: [teamMemberId],
+      lockedRosterSnapshotId,
+      lockedMemberCount: 1,
       lockedLeadMembershipId: membershipId,
       freshForEventAttestation: {
         participantPolicyVersionId: participantPolicyId,
@@ -580,9 +606,11 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       membershipId,
       teamId,
       teamMemberId,
+      lockedRosterSnapshotId,
       projectId,
       applicationId,
       policyId,
+      communicationsPolicyId,
       offerId: created.offer._id,
       capacityId,
       reservationId: reservation._id,
@@ -610,4 +638,40 @@ async function readOfferState(
     deliveries: await ctx.db.query("participantNotificationDeliveries").collect(),
     audits: await ctx.db.query("auditEvents").collect(),
   }));
+}
+
+async function updateRosterStatus(
+  backend: BackendTest,
+  fixture: Awaited<ReturnType<typeof seedOfferedApplication>>,
+  onboardingStatus: "submitted" | "offer_pending" | "accepted",
+) {
+  const application = await backend.run((ctx) => ctx.db.get(fixture.applicationId));
+  if (!application) throw new Error("The offer fixture application is missing.");
+  await backend.mutation(internal.admissions.updateRosterOnboardingStatus, {
+    applicationId: application._id,
+    expectedApplicationVersion: application.version,
+    lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
+    onboardingStatus,
+    cursor: null,
+  });
+}
+
+async function enqueueRosterNotification(
+  backend: BackendTest,
+  fixture: Awaited<ReturnType<typeof seedOfferedApplication>>,
+  templateKey: "offer" | "offer_confirmed" | "offer_declined" | "offer_expired",
+  applicationVersion: number,
+) {
+  await backend.mutation(internal.participantNotifications.enqueueRosterBatch, {
+    eventId: fixture.eventId,
+    applicationId: fixture.applicationId,
+    teamId: fixture.teamId,
+    lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
+    lockedMemberCount: 1,
+    communicationsPolicyVersionId: fixture.communicationsPolicyId,
+    templateKey,
+    applicationVersion,
+    cursor: null,
+    processedMemberCount: 0,
+  });
 }

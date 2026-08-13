@@ -10,6 +10,8 @@ import {
   admissionReviewAssignmentState,
   applicationState,
   attendanceCredentialKind,
+  attendanceScannerCredentialKind,
+  attendanceStationMode,
   attentionDetectorKey,
   attentionItemState,
   attentionProposal,
@@ -74,7 +76,30 @@ import {
   intelligenceRecommendationArguments,
   intelligenceRecommendationCitation,
   intelligenceRecommendationStatus,
+  operationsAutonomyRecommendationCitation,
+  operationsAutonomyRecommendationEvidenceSeal,
 } from "./lib/intelligenceRecommendationValidators";
+import {
+  operationsAutonomyEscalationSeverity,
+  operationsAutonomyFailureCode,
+  operationsAutonomyMode,
+  operationsAutonomyRecommendationKind,
+  operationsAutonomyReadTool,
+  operationsAutonomyRunPhase,
+  operationsAutonomyRunState,
+  operationsAutonomySignalKey,
+  operationsAutonomySourceSnapshot,
+} from "./lib/operationsAutonomyValidators";
+import {
+  operationsAutonomyAdmissionJobFact,
+  operationsAutonomyAttendanceOperationFact,
+  operationsAutonomyIncidentReadinessFact,
+  operationsAutonomyIntakeJobFact,
+  operationsAutonomyIntegrationJobFact,
+  operationsAutonomyParticipantDeliveryFact,
+  operationsAutonomyRoundExportJobFact,
+  operationsAutonomySynesthesiaOperationFact,
+} from "./lib/operationsAutonomyDeepReadValidators";
 import {
   operationsBriefPriority,
   operationsHealthArea,
@@ -98,6 +123,63 @@ const rosterBundleSelection = v.object({
   bundleChecksum: v.string(),
 });
 
+const operationsAutonomyAttentionFact = v.object({
+  itemId: v.id("operationsAttentionItems"),
+  detectorKey: attentionDetectorKey,
+  subjectType: attentionSubjectType,
+  severity: attentionSeverity,
+  state: attentionItemState,
+  version: v.number(),
+  recurrenceCount: v.number(),
+  firstObservedAt: v.number(),
+  lastObservedAt: v.number(),
+});
+
+const operationsAutonomyReviewExceptionFact = v.union(
+  v.object({
+    kind: v.literal("vacancy"),
+    missingPanelMemberId: v.id("reviewPanelMembers"),
+    panelId: v.id("reviewPanels"),
+    panelName: v.string(),
+    panelVersion: v.number(),
+    roundId: v.id("reviewRounds"),
+    roundName: v.string(),
+    vacantSince: v.optional(v.number()),
+  }),
+  v.object({
+    kind: v.literal("team"),
+    teamRoundStateId: v.id("teamRoundStates"),
+    roundId: v.id("reviewRounds"),
+    state: teamRoundState,
+    version: v.number(),
+    callAttemptCount: v.number(),
+    queuedAt: v.optional(v.number()),
+    heldAt: v.optional(v.number()),
+    missedAt: v.optional(v.number()),
+    tableLabel: v.optional(v.string()),
+  }),
+);
+
+const operationsAutonomySupportFact = v.object({
+  caseId: v.id("supportCases"),
+  category: supportCaseCategory,
+  state: supportCaseState,
+  createdAt: v.number(),
+  teamId: v.optional(v.id("teams")),
+  roundId: v.optional(v.id("reviewRounds")),
+});
+
+const operationsAutonomyDeepReadSource = v.union(
+  v.literal("intake_jobs"),
+  v.literal("admission_jobs"),
+  v.literal("participant_deliveries"),
+  v.literal("integration_jobs"),
+  v.literal("round_export_jobs"),
+  v.literal("synesthesia_operations"),
+  v.literal("incident_readiness"),
+  v.literal("attendance_operations"),
+);
+
 export default defineSchema({
   events: defineTable({
     slug: v.string(),
@@ -116,9 +198,6 @@ export default defineSchema({
     publishedAttendancePlanVersionId: v.optional(v.id("attendancePlanVersions")),
     publishedFloorPlanVersionId: v.optional(v.id("floorPlanVersions")),
     publishedIntegrationPolicyId: v.optional(v.id("integrationPolicyVersions")),
-    publishedOperationsIntelligencePolicyId: v.optional(
-      v.id("operationsIntelligencePolicyVersions"),
-    ),
     publishedCommunicationsPolicyId: v.optional(v.id("communicationsPolicyVersions")),
     startsAt: v.optional(v.number()),
     endsAt: v.optional(v.number()),
@@ -500,6 +579,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_person", ["personId"])
     .index("by_event_person", ["eventId", "personId"])
     .index("by_event_email", ["eventId", "emailNormalized"])
     .index("by_event_link_status_email", [
@@ -508,7 +588,11 @@ export default defineSchema({
       "status",
       "emailNormalized",
     ])
-    .index("by_event_status_email", ["eventId", "status", "emailNormalized"]),
+    .index("by_event_status_email", ["eventId", "status", "emailNormalized"])
+    .searchIndex("search_by_event_status_name", {
+      searchField: "displayName",
+      filterFields: ["eventId", "status"],
+    }),
 
   eventAccessInvitations: defineTable({
     eventId: v.id("events"),
@@ -771,8 +855,12 @@ export default defineSchema({
     publicCode: v.string(),
     leadMembershipId: v.id("eventMemberships"),
     status: teamStatus,
+    activeMemberCount: v.number(),
+    activeVitMemberCount: v.number(),
+    activeExternalMemberCount: v.number(),
     membershipLocked: v.boolean(),
     trackLocked: v.boolean(),
+    submissionAttemptId: v.optional(v.id("teamSubmissionAttempts")),
     lockedProjectVersionId: v.optional(v.id("projectVersions")),
     lockedAt: v.optional(v.number()),
     lockParticipantPolicyVersionId: v.optional(v.id("participantPolicyVersions")),
@@ -801,6 +889,82 @@ export default defineSchema({
     .index("by_team_status", ["teamId", "status"])
     .index("by_event_membership_status", ["eventId", "membershipId", "status"])
     .index("by_team_membership_status", ["teamId", "membershipId", "status"]),
+
+  teamSubmissionAttempts: defineTable({
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+    draftId: v.id("projectDrafts"),
+    requestedByPersonId: v.id("people"),
+    requestedByMembershipId: v.id("eventMemberships"),
+    submissionSource: v.union(v.literal("participant"), v.literal("local_seed")),
+    authorizingGrantIds: v.array(v.id("permissionGrants")),
+    clientOperationId: v.string(),
+    requestFingerprint: v.string(),
+    state: v.union(
+      v.literal("validating"),
+      v.literal("finalizing"),
+      v.literal("complete"),
+      v.literal("failed"),
+    ),
+    sourceTeamVersion: v.number(),
+    lockedTeamVersion: v.number(),
+    sourceDraftVersion: v.number(),
+    participantPolicyVersionId: v.id("participantPolicyVersions"),
+    admissionPolicyVersionId: v.id("admissionPolicyVersions"),
+    expectedCoreTrackVersionId: v.id("trackVersions"),
+    expectedSponsorTrackVersionIds: v.array(v.id("trackVersions")),
+    cursor: v.optional(v.string()),
+    processedMemberCount: v.number(),
+    processedVitMemberCount: v.number(),
+    processedExternalMemberCount: v.number(),
+    hasFirstYear: v.boolean(),
+    hasSecondYear: v.boolean(),
+    hasLaterYear: v.boolean(),
+    hasPostgraduateYear: v.boolean(),
+    hasNotApplicableYear: v.boolean(),
+    projectVersionId: v.optional(v.id("projectVersions")),
+    applicationId: v.optional(v.id("applications")),
+    failureCode: v.optional(v.string()),
+    failureMessage: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_team_and_created_at", ["teamId", "createdAt"])
+    .index("by_event_and_state_and_created_at", ["eventId", "state", "createdAt"])
+    .index("by_event_and_requester_and_client_operation", [
+      "eventId",
+      "requestedByPersonId",
+      "clientOperationId",
+    ])
+    .index("by_state_and_updated_at", ["state", "updatedAt"]),
+
+  teamSubmissionMembers: defineTable({
+    eventId: v.id("events"),
+    submissionAttemptId: v.id("teamSubmissionAttempts"),
+    teamId: v.id("teams"),
+    ordinal: v.number(),
+    teamMemberId: v.id("teamMembers"),
+    membershipId: v.id("eventMemberships"),
+    personId: v.id("people"),
+    role: memberRole,
+    participantClass,
+    displayName: v.string(),
+    institution: v.string(),
+    yearOfStudy: studyYear,
+    profileVersion: v.number(),
+    destinationEmailNormalized: v.string(),
+    materializedAt: v.number(),
+  })
+    .index("by_submission_attempt_and_ordinal", ["submissionAttemptId", "ordinal"])
+    .index("by_submission_attempt_and_team_member", [
+      "submissionAttemptId",
+      "teamMemberId",
+    ])
+    .index("by_submission_attempt_and_membership", [
+      "submissionAttemptId",
+      "membershipId",
+    ]),
 
   teamLeadershipTransfers: defineTable({
     eventId: v.id("events"),
@@ -845,8 +1009,7 @@ export default defineSchema({
     .index("by_event_status", ["eventId", "status"])
     .index("by_event_number", ["eventId", "planNumber"]),
 
-  // A zone is a rectangle of the hall, published with the proportions of the
-  // real room so a phone can draw it without distorting where anybody is.
+  // Preserve real room proportions when drawing a zone on a phone.
   floorZones: defineTable({
     eventId: v.id("events"),
     planVersionId: v.id("floorPlanVersions"),
@@ -860,10 +1023,7 @@ export default defineSchema({
     .index("by_plan_order", ["planVersionId", "displayOrder"])
     .index("by_plan_key", ["planVersionId", "stableKey"]),
 
-  // The fixed things in the room: the stage, the doors, the windows, the food
-  // counter. They are what a mapper aligns the drawn rectangle against, and
-  // what an operator names when telling a reviewer where to walk. Tables are
-  // not landmarks; participants move those.
+  // Landmarks are fixed reference points; movable tables are not landmarks.
   floorLandmarks: defineTable({
     eventId: v.id("events"),
     planVersionId: v.id("floorPlanVersions"),
@@ -879,10 +1039,7 @@ export default defineSchema({
     .index("by_zone_order", ["zoneId", "displayOrder"])
     .index("by_plan_key", ["planVersionId", "stableKey"]),
 
-  // Where a team was observed sitting: a point in its zone's rectangle, as
-  // percentages of the zone's width and depth. There is no spot to claim, so
-  // two teams sitting next to each other is an ordinary reading, not a
-  // conflict.
+  // Store observed positions as percentages; nearby teams do not conflict.
   teamFloorLocations: defineTable({
     eventId: v.id("events"),
     planVersionId: v.id("floorPlanVersions"),
@@ -920,7 +1077,8 @@ export default defineSchema({
   })
     .index("by_digest", ["tokenDigest"])
     .index("by_manual_digest", ["manualCodeDigest"])
-    .index("by_team_state", ["teamId", "state"]),
+    .index("by_team_state", ["teamId", "state"])
+    .index("by_team_version", ["teamId", "tokenVersion"]),
 
   floorMappingClaims: defineTable({
     eventId: v.id("events"),
@@ -991,6 +1149,28 @@ export default defineSchema({
       "permissionKey",
       "status",
     ])
+    .index("by_subject_permission_status_scope", [
+      "eventAccessSubjectId",
+      "permissionKey",
+      "status",
+      "scopeType",
+      "scopeId",
+      "validUntil",
+    ])
+    .index("by_subject_permission_status_valid_until", [
+      "eventAccessSubjectId",
+      "permissionKey",
+      "status",
+      "validUntil",
+    ])
+    .index("by_subject_permission_status_scope_type_valid_until", [
+      "eventAccessSubjectId",
+      "permissionKey",
+      "status",
+      "scopeType",
+      "validUntil",
+    ])
+    .index("by_event_permission_status", ["eventId", "permissionKey", "status"])
     .index("by_person_status", ["eventId", "personId", "status"])
     .index("by_source", ["eventId", "sourceType", "sourceId", "status"])
     .index("by_status_valid_from", ["status", "validFrom"])
@@ -1017,6 +1197,9 @@ export default defineSchema({
     attendanceSessionId: v.optional(v.id("attendanceSessions")),
     ownerPersonId: v.optional(v.id("people")),
     state: supportCaseState,
+    lastActionAt: v.number(),
+    firstResponseAt: v.optional(v.number()),
+    awaitingStaffReply: v.boolean(),
     version: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -1026,7 +1209,14 @@ export default defineSchema({
     .index("by_event_code", ["eventId", "publicCode"])
     .index("by_event_updated", ["eventId", "updatedAt"])
     .index("by_event_state_updated", ["eventId", "state", "updatedAt"])
+    .index("by_event_state_created", ["eventId", "state", "createdAt"])
     .index("by_event_reporter_updated", ["eventId", "reporterPersonId", "updatedAt"])
+    .index("by_event_reporter_state_updated", [
+      "eventId",
+      "reporterPersonId",
+      "state",
+      "updatedAt",
+    ])
     .index("by_event_owner_state_updated", [
       "eventId",
       "ownerPersonId",
@@ -1056,6 +1246,21 @@ export default defineSchema({
   })
     .index("by_case_time", ["supportCaseId", "createdAt"])
     .index("by_event_time", ["eventId", "createdAt"]),
+
+  supportCaseStatShards: defineTable({
+    eventId: v.id("events"),
+    shard: v.number(),
+    open: v.number(),
+    investigating: v.number(),
+    waiting: v.number(),
+    resolved: v.number(),
+    closed: v.number(),
+    unowned: v.number(),
+    awaitingStaffReply: v.number(),
+    safety: v.number(),
+    version: v.number(),
+    updatedAt: v.number(),
+  }).index("by_event_shard", ["eventId", "shard"]),
 
   rehearsalRuns: defineTable({
     eventId: v.id("events"),
@@ -1258,7 +1463,6 @@ export default defineSchema({
     energyTag: v.string(),
     note: v.optional(v.string()),
     state: songRequestState,
-    voteCount: v.number(),
     openReportCount: v.number(),
     queueMode: songQueueMode,
     scheduledFor: v.optional(v.number()),
@@ -1500,7 +1704,8 @@ export default defineSchema({
     ),
     coreTrackVersionId: v.id("trackVersions"),
     sponsorTrackVersionIds: v.array(v.id("trackVersions")),
-    lockedTeamMemberIds: v.array(v.id("teamMembers")),
+    lockedRosterSnapshotId: v.id("teamSubmissionAttempts"),
+    lockedMemberCount: v.number(),
     lockedLeadMembershipId: v.id("eventMemberships"),
     freshForEventAttestation: v.object({
       participantPolicyVersionId: v.id("participantPolicyVersions"),
@@ -1925,7 +2130,7 @@ export default defineSchema({
     eventId: v.id("events"),
     applicationId: v.id("applications"),
     teamId: v.id("teams"),
-    offeredTeamMemberIds: v.array(v.id("teamMembers")),
+    lockedRosterSnapshotId: v.id("teamSubmissionAttempts"),
     participantCount: v.number(),
     reservedCoreTrackVersionId: v.id("trackVersions"),
     source: v.literal("accepted_decision"),
@@ -1934,7 +2139,6 @@ export default defineSchema({
     expiresAt: v.number(),
     createdByPersonId: v.id("people"),
     createdByGrantIds: v.array(v.id("permissionGrants")),
-    confirmedTeamMemberIds: v.optional(v.array(v.id("teamMembers"))),
     decidedByPersonId: v.optional(v.id("people")),
     decidedAt: v.optional(v.number()),
     decisionReason: v.optional(v.string()),
@@ -1998,6 +2202,7 @@ export default defineSchema({
     ),
     createdByPersonId: v.id("people"),
     createdAt: v.number(),
+    rewrappedAt: v.optional(v.number()),
     retiredAt: v.optional(v.number()),
   }).index("by_event_status_version", ["eventId", "status", "version"]),
 
@@ -2133,9 +2338,12 @@ export default defineSchema({
     eventId: v.id("events"),
     planVersionId: v.id("attendancePlanVersions"),
     zoneId: v.id("attendanceZones"),
+    sessionId: v.optional(v.id("attendanceSessions")),
     deviceInstallationId: v.optional(v.id("attendanceDeviceInstallations")),
     stableKey: v.string(),
     name: v.string(),
+    mode: v.optional(attendanceStationMode),
+    allowedCredentialKinds: v.optional(v.array(attendanceScannerCredentialKind)),
     status: v.union(v.literal("inactive"), v.literal("active"), v.literal("disabled")),
     configurationVersion: v.number(),
     validFrom: v.optional(v.number()),
@@ -2320,7 +2528,24 @@ export default defineSchema({
   })
     .index("by_session_membership", ["sessionId", "membershipId"])
     .index("by_session_state", ["sessionId", "state"])
-    .index("by_membership", ["membershipId"]),
+    .index("by_membership", ["membershipId"])
+    .index("by_membership_completed", ["membershipId", "completedAt"]),
+
+  attendanceParticipantCurrentSessions: defineTable({
+    eventId: v.id("events"),
+    planVersionId: v.id("attendancePlanVersions"),
+    sessionId: v.id("attendanceSessions"),
+    sessionParticipantId: v.id("attendanceSessionParticipants"),
+    membershipId: v.id("eventMemberships"),
+    sessionStartsAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_membership_plan_start", [
+      "membershipId",
+      "planVersionId",
+      "sessionStartsAt",
+    ])
+    .index("by_session_membership", ["sessionId", "membershipId"]),
 
   attendanceResultRemedyCases: defineTable({
     eventId: v.id("events"),
@@ -2730,8 +2955,12 @@ export default defineSchema({
     name: v.string(),
     sequence: v.number(),
     status: reviewRoundStatus,
+    reviewerReportAt: v.number(),
+    clockInOpensAt: v.number(),
+    noShowGraceSeconds: v.number(),
     startsAt: v.number(),
     endsAt: v.number(),
+    correctionRequestsCloseAt: v.number(),
     reviewDurationSeconds: v.number(),
     ordinaryExtensionSeconds: v.number(),
     maximumOrdinaryExtensions: v.number(),
@@ -2791,6 +3020,9 @@ export default defineSchema({
     productDomains: v.array(v.string()),
     languages: v.array(v.string()),
     criterionKeys: v.array(v.string()),
+    availabilityWindows: v.array(
+      v.object({ startsAt: v.number(), endsAt: v.number() }),
+    ),
     trainingStatus: v.union(
       v.literal("pending"),
       v.literal("complete"),
@@ -2833,7 +3065,13 @@ export default defineSchema({
   })
     .index("by_event_installation", ["eventId", "installationId"])
     .index("by_event_push_fingerprint", ["eventId", "pushTokenFingerprint"])
-    .index("by_event_person_status", ["eventId", "personId", "status"]),
+    .index("by_event_person_status", ["eventId", "personId", "status"])
+    .index("by_event_person_status_seen", [
+      "eventId",
+      "personId",
+      "status",
+      "lastSeenAt",
+    ]),
 
   reviewerClockIns: defineTable({
     eventId: v.id("events"),
@@ -2887,7 +3125,9 @@ export default defineSchema({
     endedAt: v.optional(v.number()),
   })
     .index("by_panel_status", ["panelId", "status"])
+    .index("by_panel_status_ended", ["panelId", "status", "endedAt"])
     .index("by_round_person_status", ["roundId", "personId", "status"])
+    .index("by_event_person_status", ["eventId", "personId", "status"])
     .index("by_person_status", ["personId", "status"]),
 
   reviewRoundReserves: defineTable({
@@ -2909,6 +3149,7 @@ export default defineSchema({
   })
     .index("by_round_status", ["roundId", "status"])
     .index("by_round_person", ["roundId", "personId"])
+    .index("by_event_person_status", ["eventId", "personId", "status"])
     .index("by_person_status", ["personId", "status"]),
 
   reviewerConflicts: defineTable({
@@ -3025,6 +3266,7 @@ export default defineSchema({
   })
     .index("by_round_team_status", ["roundId", "teamId", "status"])
     .index("by_panel_status", ["panelId", "status"])
+    .index("by_round_status_updated", ["roundId", "status", "updatedAt"])
     .index("by_team_created", ["teamId", "createdAt"])
     .index("by_event_created", ["eventId", "createdAt"])
     .index("by_event_status_updated", ["eventId", "status", "updatedAt"]),
@@ -3059,6 +3301,7 @@ export default defineSchema({
   })
     .index("by_session_person", ["reviewSessionId", "reviewerPersonId"])
     .index("by_round_session", ["roundId", "reviewSessionId"])
+    .index("by_event_person_status", ["eventId", "reviewerPersonId", "status"])
     .index("by_person_status", ["reviewerPersonId", "status"]),
 
   reviewPresence: defineTable({
@@ -3091,7 +3334,8 @@ export default defineSchema({
   })
     .index("by_digest", ["tokenDigest"])
     .index("by_manual_digest", ["manualCodeDigest"])
-    .index("by_session_state", ["reviewSessionId", "state"]),
+    .index("by_session_state", ["reviewSessionId", "state"])
+    .index("by_session_version", ["reviewSessionId", "tokenVersion"]),
 
   reviewerPageChains: defineTable({
     eventId: v.id("events"),
@@ -3119,6 +3363,7 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_panel_state", ["panelId", "state"])
+    .index("by_panel_created", ["panelId", "createdAt"])
     .index("by_session_state", ["reviewSessionId", "state"]),
 
   reviewerPages: defineTable({
@@ -3152,6 +3397,12 @@ export default defineSchema({
   })
     .index("by_chain_state_rank", ["pageChainId", "state", "rank"])
     .index("by_person_state_expiry", ["targetPersonId", "state", "expiresAt"])
+    .index("by_event_person_state_expiry", [
+      "eventId",
+      "targetPersonId",
+      "state",
+      "expiresAt",
+    ])
     .index("by_reserve_state", ["reserveId", "state"])
     .index("by_event_created", ["eventId", "createdAt"])
     .index("by_event_person_created", ["eventId", "targetPersonId", "createdAt"])
@@ -3163,6 +3414,7 @@ export default defineSchema({
     targetPersonId: v.id("people"),
     reviewerDeviceId: v.id("reviewerDevices"),
     purpose: v.literal("substitute_page"),
+    logicalAttempt: v.optional(v.number()),
     tokenFingerprint: v.optional(v.string()),
     state: v.union(
       v.literal("unavailable"),
@@ -3185,6 +3437,7 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_page", ["pageId"])
+    .index("by_page_attempt", ["pageId", "logicalAttempt"])
     .index("by_device_state", ["reviewerDeviceId", "state"]),
 
   scorecards: defineTable({
@@ -3214,7 +3467,9 @@ export default defineSchema({
     .index("by_session_reviewer", ["reviewSessionId", "reviewerPersonId"])
     .index("by_session_status", ["reviewSessionId", "status"])
     .index("by_round_session", ["roundId", "reviewSessionId"])
+    .index("by_round_status_updated", ["roundId", "status", "updatedAt"])
     .index("by_reviewer_status", ["reviewerPersonId", "status"])
+    .index("by_event_reviewer_status", ["eventId", "reviewerPersonId", "status"])
     .index("by_event_created", ["eventId", "createdAt"])
     .index("by_event_reviewer_created", ["eventId", "reviewerPersonId", "createdAt"]),
 
@@ -3374,6 +3629,7 @@ export default defineSchema({
     version: v.number(),
   })
     .index("by_scorecard_state", ["scorecardId", "state"])
+    .index("by_scorecard_kind_requested", ["scorecardId", "kind", "requestedAt"])
     .index("by_round_state", ["roundId", "state"])
     .index("by_session_kind", ["reviewSessionId", "kind"]),
 
@@ -3571,6 +3827,7 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_state_digest", ["stateDigest"])
+    .index("by_status", ["status"])
     .index("by_team_status", ["teamId", "status"]),
 
   githubInstallationConnections: defineTable({
@@ -3800,6 +4057,7 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_state_digest", ["stateDigest"])
+    .index("by_status", ["status"])
     .index("by_team_status", ["teamId", "status"]),
 
   figmaOAuthCredentials: defineTable({
@@ -3816,7 +4074,9 @@ export default defineSchema({
     version: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_figma_user", ["figmaUserId"]),
+  })
+    .index("by_figma_user", ["figmaUserId"])
+    .index("by_status", ["status"]),
 
   figmaCredentialConnections: defineTable({
     eventId: v.id("events"),
@@ -4175,88 +4435,22 @@ export default defineSchema({
     fileKey: v.optional(v.string()),
     eventType: v.string(),
     providerAt: v.number(),
-    state: v.union(v.literal("accepted"), v.literal("ignored"), v.literal("rejected")),
+    state: v.union(v.literal("accepted"), v.literal("ignored")),
     reasonCode: v.string(),
     receivedAt: v.number(),
   }).index("by_delivery", ["deliveryKey"]),
 
-  operationsIntelligencePolicyVersions: defineTable({
+  operationsHealthSnapshots: defineTable({
     eventId: v.id("events"),
-    version: v.number(),
-    status: v.union(
-      v.literal("draft"),
-      v.literal("published"),
-      v.literal("superseded"),
-      v.literal("retired"),
-    ),
-    enabled: v.boolean(),
-    triggerSeverities: v.array(operationsHealthSeverity),
-    triggerAreas: v.array(operationsHealthArea),
-    cooldownMinutes: v.number(),
-    maximumBriefsPerLocalDay: v.number(),
-    relevanceMinutes: v.number(),
-    accountableOwner: v.string(),
-    audience: v.literal("operations_dashboard"),
-    checksum: v.string(),
-    createdByPersonId: v.id("people"),
-    createdAt: v.number(),
-    publishedAt: v.optional(v.number()),
-  })
-    .index("by_event_status", ["eventId", "status"])
-    .index("by_event_version", ["eventId", "version"]),
-
-  operationsIntelligenceAutomationStates: defineTable({
-    eventId: v.id("events"),
-    policyVersionId: v.id("operationsIntelligencePolicyVersions"),
-    state: v.union(v.literal("active"), v.literal("disabled"), v.literal("superseded")),
-    nextEvaluationAt: v.number(),
-    lastEvaluatedAt: v.optional(v.number()),
-    lastTriggerAt: v.optional(v.number()),
-    lastTriggerFingerprint: v.optional(v.string()),
-    cycle: v.number(),
-    localBudgetDate: v.string(),
-    briefsStartedToday: v.number(),
-    version: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_state_next_evaluation", ["state", "nextEvaluationAt"])
-    .index("by_event", ["eventId"])
-    .index("by_policy", ["policyVersionId"]),
-
-  operationsIntelligenceSignals: defineTable({
-    eventId: v.id("events"),
-    policyVersionId: v.id("operationsIntelligencePolicyVersions"),
-    automationStateId: v.id("operationsIntelligenceAutomationStates"),
-    cycle: v.number(),
-    triggerFingerprint: v.string(),
-    sourceSnapshot: operationsHealthSnapshot,
-    sourceChecksum: v.string(),
-    state: v.union(
-      v.literal("pending"),
-      v.literal("claimed"),
-      v.literal("succeeded"),
-      v.literal("failed"),
-      v.literal("expired"),
-    ),
-    briefId: v.optional(v.id("operationsIntelligenceBriefs")),
-    observedAt: v.number(),
-    expiresAt: v.number(),
-    settledAt: v.optional(v.number()),
-  })
-    .index("by_event_observed", ["eventId", "observedAt"])
-    .index("by_policy_cycle_fingerprint", [
-      "policyVersionId",
-      "cycle",
-      "triggerFingerprint",
-    ]),
+    snapshot: operationsHealthSnapshot,
+    eventVersion: v.number(),
+    state: v.union(v.literal("ready"), v.literal("stale")),
+    staleAt: v.number(),
+  }).index("by_event", ["eventId"]),
 
   operationsIntelligenceBriefs: defineTable({
     eventId: v.id("events"),
-    requestedByPersonId: v.optional(v.id("people")),
-    origin: v.union(v.literal("manual"), v.literal("automation")),
-    automationPolicyVersionId: v.optional(v.id("operationsIntelligencePolicyVersions")),
-    automationSignalId: v.optional(v.id("operationsIntelligenceSignals")),
-    relevanceExpiresAt: v.optional(v.number()),
+    requestedByPersonId: v.id("people"),
     state: v.union(
       v.literal("pending"),
       v.literal("dispatching"),
@@ -4264,8 +4458,8 @@ export default defineSchema({
       v.literal("succeeded"),
       v.literal("failed"),
     ),
-    sourceSnapshot: v.optional(operationsHealthSnapshot),
-    sourceChecksum: v.optional(v.string()),
+    sourceSnapshot: operationsHealthSnapshot,
+    sourceChecksum: v.string(),
     workId: v.optional(v.string()),
     workerSubmissionId: v.optional(v.string()),
     workerAcceptedAt: v.optional(v.number()),
@@ -4290,36 +4484,664 @@ export default defineSchema({
     .index("by_event_requested", ["eventId", "requestedAt"])
     .index("by_event_state_updated", ["eventId", "state", "updatedAt"]),
 
-  /**
-   * A typed action the operations copilot proposes and a human decides. The
-   * agent can only ever create rows in `proposed`; the three settlements —
-   * approved, rejected, superseded-with-a-suggestion — belong to mutations
-   * behind the operator's own sign-in and grants, so the author of a
-   * recommendation is structurally unable to settle it. On approval the
-   * ordinary command for the kind runs with the approving operator as the
-   * actor; this row only records which command that was and where it landed.
-   */
+  operationsAutonomyPolicyVersions: defineTable({
+    eventId: v.id("events"),
+    version: v.number(),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("published"),
+      v.literal("superseded"),
+      v.literal("retired"),
+    ),
+    enabled: v.boolean(),
+    mode: operationsAutonomyMode,
+    scheduleIntervalMinutes: v.number(),
+    triggerSeverities: v.array(operationsHealthSeverity),
+    triggerAreas: v.array(operationsHealthArea),
+    escalationSeverity: operationsAutonomyEscalationSeverity,
+    allowedReadTools: v.array(operationsAutonomyReadTool),
+    allowedRecommendationKinds: v.array(operationsAutonomyRecommendationKind),
+    accountableOwnerEventAccessSubjectId: v.id("eventAccessSubjects"),
+    audience: v.literal("operations_dashboard"),
+    checksum: v.string(),
+    createdByPersonId: v.id("people"),
+    createdAt: v.number(),
+    publishedAt: v.optional(v.number()),
+  })
+    .index("by_event_status", ["eventId", "status"])
+    .index("by_event_version", ["eventId", "version"]),
+
+  operationsAutonomyStates: defineTable({
+    eventId: v.id("events"),
+    policyVersionId: v.id("operationsAutonomyPolicyVersions"),
+    lifecycle: v.union(
+      v.object({ kind: v.literal("active") }),
+      v.object({
+        kind: v.literal("disabled"),
+        disabledAt: v.number(),
+        disabledByPersonId: v.id("people"),
+        reason: v.string(),
+      }),
+      v.object({ kind: v.literal("superseded"), supersededAt: v.number() }),
+    ),
+    nextEvaluationAt: v.number(),
+    pendingWorkCount: v.number(),
+    lastEvaluatedAt: v.optional(v.number()),
+    lastRunAt: v.optional(v.number()),
+    lastSignalAt: v.optional(v.number()),
+    lastScheduleSlot: v.optional(v.number()),
+    lastTriggerFingerprint: v.optional(v.string()),
+    pendingCancellationAt: v.optional(v.number()),
+    cycle: v.number(),
+    version: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_lifecycle_next_evaluation", ["lifecycle.kind", "nextEvaluationAt"])
+    .index("by_event", ["eventId"])
+    .index("by_policy", ["policyVersionId"]),
+
+  /** Immutable semantic triggers; distinct health states and schedule slots are never collapsed. */
+  operationsAutonomyInbox: defineTable({
+    eventId: v.id("events"),
+    policyVersionId: v.id("operationsAutonomyPolicyVersions"),
+    operationKey: v.string(),
+    trigger: v.union(
+      v.object({
+        kind: v.literal("manual"),
+        requestedByPersonId: v.id("people"),
+        clientOperationId: v.string(),
+      }),
+      v.object({ kind: v.literal("schedule"), scheduledFor: v.number() }),
+      v.object({
+        kind: v.literal("signal"),
+        fingerprint: v.string(),
+        signalKeys: v.array(operationsAutonomySignalKey),
+      }),
+    ),
+    sourceSnapshot: operationsAutonomySourceSnapshot,
+    sourceFactHighWatermarks: v.array(
+      v.object({ read: operationsAutonomyReadTool, sequence: v.number() }),
+    ),
+    sourceChecksum: v.string(),
+    /** Technical retry scheduling keeps a busy event from starving other events. */
+    nextAttemptAt: v.number(),
+    lifecycle: v.union(
+      v.object({ kind: v.literal("pending") }),
+      v.object({ kind: v.literal("claimed"), runId: v.id("operationsAutonomyRuns") }),
+      v.object({ kind: v.literal("canceled"), canceledAt: v.number() }),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_event_operation_key", ["eventId", "operationKey"])
+    .index("by_event_policy_lifecycle", ["eventId", "policyVersionId", "lifecycle.kind"])
+    .index("by_lifecycle_next_attempt_at", ["lifecycle.kind", "nextAttemptAt"])
+    .index("by_policy_lifecycle", ["policyVersionId", "lifecycle.kind"]),
+
+  operationsAutonomyRuns: defineTable({
+    eventId: v.id("events"),
+    policyVersionId: v.id("operationsAutonomyPolicyVersions"),
+    policyVersion: v.number(),
+    policyChecksum: v.string(),
+    trigger: v.union(
+      v.object({
+        kind: v.literal("manual"),
+        requestedByPersonId: v.id("people"),
+        clientOperationId: v.string(),
+      }),
+      v.object({ kind: v.literal("schedule"), scheduledFor: v.number() }),
+      v.object({
+        kind: v.literal("signal"),
+        fingerprint: v.string(),
+        signalKeys: v.array(operationsAutonomySignalKey),
+      }),
+    ),
+    mode: operationsAutonomyMode,
+    escalationSeverity: operationsAutonomyEscalationSeverity,
+    allowedReadTools: v.array(operationsAutonomyReadTool),
+    allowedRecommendationKinds: v.array(operationsAutonomyRecommendationKind),
+    sourceSnapshot: operationsAutonomySourceSnapshot,
+    sourceFactHighWatermarks: v.array(
+      v.object({ read: operationsAutonomyReadTool, sequence: v.number() }),
+    ),
+    sourceChecksum: v.string(),
+    operationKey: v.string(),
+    admission: v.union(
+      v.object({ kind: v.literal("not_accepted") }),
+      v.object({
+        kind: v.literal("accepted"),
+        submissionId: v.string(),
+        currentSubmissionId: v.string(),
+        acceptedAt: v.number(),
+      }),
+    ),
+    executor: v.union(
+      v.object({ kind: v.literal("unknown") }),
+      v.object({ kind: v.literal("known"), agentVersion: v.string(), model: v.string() }),
+    ),
+    lifecycle: v.union(
+      v.object({ kind: v.literal("pending") }),
+      v.object({
+        kind: v.literal("active"),
+        leaseId: v.string(),
+        leaseExpiresAt: v.number(),
+      }),
+      v.object({
+        kind: v.union(
+          v.literal("succeeded"),
+          v.literal("no_op"),
+          v.literal("escalated"),
+        ),
+        completedAt: v.number(),
+      }),
+      v.object({
+        kind: v.literal("failed"),
+        failureCode: v.union(operationsAutonomyFailureCode, v.literal("dispatch_failed")),
+        completedAt: v.number(),
+      }),
+      v.object({
+        kind: v.literal("canceled"),
+        reason: v.union(
+          v.literal("kill_switch"),
+          v.literal("policy_superseded"),
+          v.literal("owner_revoked"),
+          v.literal("event_not_live"),
+        ),
+        completedAt: v.number(),
+      }),
+    ),
+    attemptCount: v.number(),
+    version: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_event_operation_key", ["eventId", "operationKey"])
+    .index("by_event_policy_lifecycle", ["eventId", "policyVersionId", "lifecycle.kind"])
+    .index("by_lifecycle_created_at", ["lifecycle.kind", "createdAt"])
+    .index("by_lifecycle_lease_expires_at", ["lifecycle.kind", "lifecycle.leaseExpiresAt"])
+    .index("by_event_created_at", ["eventId", "createdAt"])
+    .index("by_policy_created_at", ["policyVersionId", "createdAt"]),
+
+  operationsAutonomyRunCheckpoints: defineTable({
+    eventId: v.id("events"),
+    runId: v.id("operationsAutonomyRuns"),
+    sequence: v.number(),
+    phase: operationsAutonomyRunPhase,
+    toolCallsUsed: v.number(),
+    delegationsUsed: v.number(),
+    readBytesUsed: v.number(),
+    recommendationsProposed: v.number(),
+    observedSignalKeys: v.array(operationsAutonomySignalKey),
+    activeRead: v.union(
+      v.object({ kind: v.literal("none") }),
+      v.object({
+        kind: v.literal("reserved"),
+        operationId: v.string(),
+        sequence: v.number(),
+        fingerprint: v.string(),
+        maximumBytes: v.number(),
+      }),
+    ),
+    updatedAt: v.number(),
+    version: v.number(),
+  })
+    .index("by_run", ["runId"])
+    .index("by_event_updated_at", ["eventId", "updatedAt"]),
+
+  operationsAutonomyRunSupervision: defineTable({
+    eventId: v.id("events"),
+    runId: v.id("operationsAutonomyRuns"),
+    outboundAttempt: v.union(
+      v.object({ kind: v.literal("idle") }),
+      v.object({
+        kind: v.literal("in_flight"),
+        attemptId: v.string(),
+        operation: v.union(v.literal("dispatch"), v.literal("continuation")),
+        signedAt: v.number(),
+        startedAt: v.number(),
+        expiresAt: v.number(),
+      }),
+    ),
+    lifecycle: v.union(
+      v.object({ kind: v.literal("active"), nextActionAt: v.number() }),
+      v.object({
+        kind: v.literal("abort_pending"),
+        nextActionAt: v.number(),
+        reason: v.union(
+          v.literal("kill_switch"),
+          v.literal("policy_superseded"),
+          v.literal("owner_revoked"),
+          v.literal("event_not_live"),
+        ),
+        operationId: v.string(),
+        attemptCount: v.number(),
+      }),
+      v.object({ kind: v.literal("terminal") }),
+    ),
+    updatedAt: v.number(),
+  })
+    .index("by_run", ["runId"])
+    .index("by_lifecycle_next_action_at", ["lifecycle.kind", "lifecycle.nextActionAt"]),
+
+  /** Monotonic owners for immutable, redacted autonomy read facts. */
+  operationsAutonomyReadFactStates: defineTable(
+    v.union(
+      v.object({
+        eventId: v.id("events"),
+        source: v.union(
+          v.literal("operations_attention"),
+          v.literal("review_exceptions"),
+        ),
+        sequence: v.number(),
+        updatedAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        source: v.literal("support_load"),
+        sequence: v.number(),
+        byState: v.object({
+          open: v.number(),
+          investigating: v.number(),
+          waiting: v.number(),
+          resolved: v.number(),
+          closed: v.number(),
+        }),
+        openByCategory: v.array(
+          v.object({ category: supportCaseCategory, count: v.number() }),
+        ),
+        unassignedActiveCount: v.number(),
+        oldestOpenAt: v.optional(v.number()),
+        updatedAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        source: operationsAutonomyDeepReadSource,
+        sequence: v.number(),
+        updatedAt: v.number(),
+      }),
+    ),
+  ).index("by_event_source", ["eventId", "source"]),
+
+  /** Complete redacted temporal versions; closed intervals preserve every frozen high-watermark. */
+  operationsAutonomyReadFacts: defineTable(
+    v.union(
+      v.object({
+        eventId: v.id("events"),
+        source: v.literal("operations_attention"),
+        entityKey: v.string(),
+        sequence: v.number(),
+        effectiveThroughSequence: v.optional(v.number()),
+        value: operationsAutonomyAttentionFact,
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        source: v.literal("intake_jobs"),
+        entityKey: v.string(),
+        sequence: v.number(),
+        effectiveThroughSequence: v.optional(v.number()),
+        value: operationsAutonomyIntakeJobFact,
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        source: v.literal("admission_jobs"),
+        entityKey: v.string(),
+        sequence: v.number(),
+        effectiveThroughSequence: v.optional(v.number()),
+        value: operationsAutonomyAdmissionJobFact,
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        source: v.literal("participant_deliveries"),
+        entityKey: v.string(),
+        sequence: v.number(),
+        effectiveThroughSequence: v.optional(v.number()),
+        value: operationsAutonomyParticipantDeliveryFact,
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        source: v.literal("integration_jobs"),
+        entityKey: v.string(),
+        sequence: v.number(),
+        effectiveThroughSequence: v.optional(v.number()),
+        value: operationsAutonomyIntegrationJobFact,
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        source: v.literal("round_export_jobs"),
+        entityKey: v.string(),
+        sequence: v.number(),
+        effectiveThroughSequence: v.optional(v.number()),
+        value: operationsAutonomyRoundExportJobFact,
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        source: v.literal("synesthesia_operations"),
+        entityKey: v.string(),
+        sequence: v.number(),
+        effectiveThroughSequence: v.optional(v.number()),
+        value: operationsAutonomySynesthesiaOperationFact,
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        source: v.literal("incident_readiness"),
+        entityKey: v.string(),
+        sequence: v.number(),
+        effectiveThroughSequence: v.optional(v.number()),
+        value: operationsAutonomyIncidentReadinessFact,
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        source: v.literal("attendance_operations"),
+        entityKey: v.string(),
+        sequence: v.number(),
+        effectiveThroughSequence: v.optional(v.number()),
+        value: operationsAutonomyAttendanceOperationFact,
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        source: v.literal("review_exceptions"),
+        entityKey: v.string(),
+        sequence: v.number(),
+        effectiveThroughSequence: v.optional(v.number()),
+        value: v.union(
+          v.object({ kind: v.literal("absent") }),
+          operationsAutonomyReviewExceptionFact,
+        ),
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        source: v.literal("support_load"),
+        entityKey: v.string(),
+        sequence: v.number(),
+        effectiveThroughSequence: v.optional(v.number()),
+        value: operationsAutonomySupportFact,
+        createdAt: v.number(),
+      }),
+    ),
+  )
+    .index("by_event_source_sequence", ["eventId", "source", "sequence"])
+    .index("by_event_source_sequence_entity", [
+      "eventId",
+      "source",
+      "sequence",
+      "entityKey",
+    ])
+    .index("by_event_source_entity_sequence", [
+      "eventId",
+      "source",
+      "entityKey",
+      "sequence",
+    ]),
+
+  /** One immutable traversal freezes either a bounded projection or a fact-ledger high-watermark. */
+  operationsAutonomyReadTraversals: defineTable(
+    v.union(
+      v.object({
+        eventId: v.id("events"),
+        runId: v.id("operationsAutonomyRuns"),
+        snapshot: v.string(),
+        read: operationsAutonomyReadTool,
+        generatedAt: v.number(),
+        kind: v.literal("frozen"),
+        dataJson: v.string(),
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        runId: v.id("operationsAutonomyRuns"),
+        snapshot: v.string(),
+        read: v.union(
+          v.literal("operations_attention"),
+          v.literal("review_exceptions"),
+          v.literal("support_load"),
+          v.literal("intake_jobs"),
+          v.literal("admission_jobs"),
+          v.literal("participant_deliveries"),
+          v.literal("integration_jobs"),
+          v.literal("round_export_jobs"),
+          v.literal("synesthesia_operations"),
+          v.literal("incident_readiness"),
+          v.literal("attendance_operations"),
+        ),
+        generatedAt: v.number(),
+        kind: v.literal("facts"),
+        highWatermark: v.number(),
+        summaryJson: v.string(),
+        createdAt: v.number(),
+      }),
+    ),
+  ).index("by_run_snapshot", ["runId", "snapshot"]),
+
+  operationsAutonomyOperationReceipts: defineTable(
+    v.union(
+      v.object({
+        eventId: v.id("events"),
+        runId: v.id("operationsAutonomyRuns"),
+        operationId: v.string(),
+        sequence: v.number(),
+        fingerprint: v.string(),
+        kind: v.literal("read"),
+        state: v.literal("reserved"),
+        read: operationsAutonomyReadTool,
+        maximumBytes: v.number(),
+        traversalSnapshot: v.string(),
+        requestedCursor: v.optional(v.string()),
+        cursorStateJson: v.string(),
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        runId: v.id("operationsAutonomyRuns"),
+        operationId: v.string(),
+        sequence: v.number(),
+        fingerprint: v.string(),
+        kind: v.literal("read"),
+        state: v.literal("completed"),
+        read: operationsAutonomyReadTool,
+        generatedAt: v.number(),
+        traversalSnapshot: v.string(),
+        continueCursor: v.optional(v.string()),
+        nextCursorStateJson: v.optional(v.string()),
+        isDone: v.boolean(),
+        citationRows: v.array(v.array(v.string())),
+        responseJson: v.string(),
+        responseBytes: v.number(),
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        runId: v.id("operationsAutonomyRuns"),
+        operationId: v.string(),
+        sequence: v.number(),
+        fingerprint: v.string(),
+        kind: v.literal("read"),
+        state: v.literal("failed"),
+        read: operationsAutonomyReadTool,
+        failureCode: v.union(
+          v.literal("read_unavailable"),
+          v.literal("read_failed"),
+          v.literal("response_too_large"),
+        ),
+        responseJson: v.string(),
+        httpStatus: v.number(),
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        runId: v.id("operationsAutonomyRuns"),
+        operationId: v.string(),
+        sequence: v.number(),
+        fingerprint: v.string(),
+        kind: v.literal("proposal"),
+        recommendationId: v.id("intelligenceRecommendations"),
+        responseJson: v.string(),
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        runId: v.id("operationsAutonomyRuns"),
+        operationId: v.string(),
+        sequence: v.number(),
+        fingerprint: v.string(),
+        kind: v.literal("recommendation_support"),
+        evidenceSetId: v.string(),
+        pageIndex: v.number(),
+        pageHash: v.string(),
+        responseJson: v.string(),
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        runId: v.id("operationsAutonomyRuns"),
+        operationId: v.string(),
+        sequence: v.number(),
+        fingerprint: v.string(),
+        kind: v.literal("work"),
+        responseJson: v.string(),
+        createdAt: v.number(),
+      }),
+      v.object({
+        eventId: v.id("events"),
+        runId: v.id("operationsAutonomyRuns"),
+        operationId: v.string(),
+        sequence: v.number(),
+        fingerprint: v.string(),
+        kind: v.literal("callback"),
+        runState: operationsAutonomyRunState,
+        responseJson: v.string(),
+        createdAt: v.number(),
+      }),
+    ),
+  )
+    .index("by_run_operation", ["runId", "operationId"])
+    .index("by_run_sequence", ["runId", "sequence"])
+    .index("by_run_continue_cursor", ["runId", "continueCursor"]),
+
+  /** One append-only, hash-chained support stream for one autonomous effect proposal. */
+  operationsAutonomyRecommendationEvidenceSets: defineTable({
+    eventId: v.id("events"),
+    runId: v.id("operationsAutonomyRuns"),
+    proposalKey: v.string(),
+    evidenceSetId: v.string(),
+    lifecycle: v.union(
+      v.object({
+        kind: v.literal("open"),
+        nextPageIndex: v.number(),
+        lastPageHash: v.optional(v.string()),
+        lastLeafIdentity: v.optional(v.string()),
+        leafCount: v.number(),
+        chunkCount: v.number(),
+      }),
+      v.object({
+        kind: v.literal("sealed"),
+        seal: operationsAutonomyRecommendationEvidenceSeal,
+      }),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_run_set", ["runId", "evidenceSetId"])
+    .index("by_run_proposal", ["runId", "proposalKey"]),
+
+  operationsAutonomyRecommendationEvidenceChunks: defineTable({
+    eventId: v.id("events"),
+    runId: v.id("operationsAutonomyRuns"),
+    evidenceSetId: v.string(),
+    pageIndex: v.number(),
+    previousPageHash: v.optional(v.string()),
+    pageHash: v.string(),
+    firstOrdinal: v.number(),
+    leafCount: v.number(),
+    isDone: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_run_set_page", ["runId", "evidenceSetId", "pageIndex"]),
+
+  operationsAutonomyRecommendationEvidenceLeaves: defineTable({
+    eventId: v.id("events"),
+    runId: v.id("operationsAutonomyRuns"),
+    evidenceSetId: v.string(),
+    ordinal: v.number(),
+    identity: v.string(),
+    citation: operationsAutonomyRecommendationCitation,
+    createdAt: v.number(),
+  })
+    .index("by_run_set_ordinal", ["runId", "evidenceSetId", "ordinal"])
+    .index("by_run_set_identity", ["runId", "evidenceSetId", "identity"]),
+
+  operationsAutonomyContinuations: defineTable({
+    eventId: v.id("events"),
+    runId: v.id("operationsAutonomyRuns"),
+    workItemId: v.string(),
+    causedByOperationId: v.string(),
+    priorSubmissionId: v.optional(v.string()),
+    lifecycle: v.union(
+      v.object({ kind: v.literal("awaiting_prior") }),
+      v.object({
+        kind: v.literal("pending"),
+        nextAttemptAt: v.number(),
+      }),
+      v.object({
+        kind: v.literal("accepted"),
+        submissionId: v.string(),
+        acceptedAt: v.number(),
+      }),
+      v.object({
+        kind: v.literal("canceled"),
+        canceledAt: v.number(),
+      }),
+    ),
+    attemptCount: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_run_work_item", ["runId", "workItemId"])
+    .index("by_run_prior_submission", ["runId", "priorSubmissionId"])
+    .index("by_run_created_at", ["runId", "createdAt"])
+    .index("by_run_lifecycle_created_at", ["runId", "lifecycle.kind", "createdAt"])
+    .index("by_lifecycle_next_attempt", ["lifecycle.kind", "lifecycle.nextAttemptAt"]),
+
+  /** Only an authenticated operator can settle or execute an agent proposal. */
   intelligenceRecommendations: defineTable({
     eventId: v.id("events"),
-    /**
-     * The agent's create-only identity for the proposal. Tool delivery is
-     * at-least-once, so a retry must land on the row the first attempt made.
-     */
+    /** Stable key that deduplicates at-least-once tool delivery. */
     proposalKey: v.string(),
-    conversationId: v.string(),
+    /** Trusted identity of the normalized command target and frozen version. */
+    effectKey: v.string(),
+    provenance: v.union(
+      v.object({
+        kind: v.literal("copilot"),
+        conversationId: v.string(),
+        citations: v.array(intelligenceRecommendationCitation),
+      }),
+      v.object({
+        kind: v.literal("autonomy"),
+        runId: v.id("operationsAutonomyRuns"),
+        evidenceSet: operationsAutonomyRecommendationEvidenceSeal,
+      }),
+    ),
     arguments: intelligenceRecommendationArguments,
-    /** One plain sentence of what approval would do, shown to the operator. */
+    /** One sentence describing the effect of approval. */
     statement: v.string(),
     reasoning: v.string(),
-    /** Never empty: an uncited recommendation is rejected at the boundary. */
-    citations: v.array(intelligenceRecommendationCitation),
+    /** Recommendations without citations are rejected at the boundary. */
     status: intelligenceRecommendationStatus,
     agentVersion: v.string(),
     model: v.string(),
     proposedAt: v.number(),
     decidedByPersonId: v.optional(v.id("people")),
     decidedAt: v.optional(v.number()),
-    /** The operator's own words: a rejection reason or a revision suggestion. */
+    /** Operator rejection reason or revision suggestion. */
     operatorNote: v.optional(v.string()),
     executedTargetType: v.optional(v.string()),
     executedTargetId: v.optional(v.string()),
@@ -4328,28 +5150,44 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_event_proposal", ["eventId", "proposalKey"])
+    .index("by_event_effect_status", ["eventId", "effectKey", "status"])
     .index("by_event_status_proposed", ["eventId", "status", "proposedAt"])
-    .index("by_event_proposed", ["eventId", "proposedAt"]),
+    .index("by_event_decided_at", ["eventId", "decidedAt"])
+    .index("by_event_copilot_conversation_proposed", [
+      "eventId",
+      "provenance.kind",
+      "provenance.conversationId",
+      "proposedAt",
+    ])
+    .index("by_event_autonomy_run_proposed", [
+      "eventId",
+      "provenance.kind",
+      "provenance.runId",
+      "proposedAt",
+    ]),
 
-  /**
-   * The durable record of what needs a human, one row per named thing that is
-   * stuck.
-   *
-   * The Overview used to recompute this list on every page view, so it had no
-   * memory: nothing could be acknowledged, nothing recorded that a problem had
-   * cleared, and the same condition looked new every thirty seconds. A row here
-   * opens once, is updated while the condition persists, and is resolved by the
-   * sweep when the condition clears, which is what makes "third time tonight"
-   * and "acknowledged by Priya" expressible at all.
-   */
+  /** Every autonomous observation remains auditable even when its effect deduplicates. */
+  intelligenceRecommendationAutonomyObservations: defineTable({
+    eventId: v.id("events"),
+    recommendationId: v.id("intelligenceRecommendations"),
+    runId: v.id("operationsAutonomyRuns"),
+    evidenceSetId: v.string(),
+    evidenceSet: operationsAutonomyRecommendationEvidenceSeal,
+    statement: v.string(),
+    reasoning: v.string(),
+    agentVersion: v.string(),
+    model: v.string(),
+    observedAt: v.number(),
+  })
+    .index("by_recommendation_observed_at", ["recommendationId", "observedAt"])
+    .index("by_recommendation_run_set", ["recommendationId", "runId", "evidenceSetId"]),
+
+  /** Durable attention item; recurrence after resolution creates a new identity. */
   operationsAttentionItems: defineTable({
     eventId: v.id("events"),
+    roundId: v.optional(v.id("reviewRounds")),
     detectorKey: attentionDetectorKey,
-    /**
-     * Detector plus subject, never a value. An earlier automation keyed on the
-     * reading itself, so every tick looked like a new trigger and only a
-     * cooldown stopped the churn.
-     */
+    /** Stable detector-and-subject key; changing readings must not create new items. */
     dedupeKey: v.string(),
     subjectType: attentionSubjectType,
     subjectId: v.string(),
@@ -4357,26 +5195,22 @@ export default defineSchema({
     statement: v.string(),
     route: v.string(),
     actionLabel: v.string(),
-    /** The grant a caller must hold to see this row at all. */
+    /** Grant required to read this item. */
     visibility: v.object({
       permissionKey: v.string(),
       scopeType: attentionScopeType,
       scopeId: v.string(),
     }),
-    /** What the detector read, verbatim, so the row can be argued with later. */
+    /** Detector input retained for later review. */
     evidenceJson: v.string(),
-    /**
-     * A prefilled ordinary command. Data, never authority: confirming it opens
-     * the normal mutation, which rechecks the confirming human's grant, fresh
-     * session, target version, reason, and operation ID.
-     */
+    /** Prefilled command data; execution still rechecks authorization and current state. */
     proposal: v.optional(attentionProposal),
     state: attentionItemState,
-    /** 1 the first time, 2 the second time the same condition comes back. */
+    /** Number of times the condition has recurred. */
     recurrenceCount: v.number(),
     firstObservedAt: v.number(),
     lastObservedAt: v.number(),
-    /** Set when the condition stops being observed, cleared if it returns. */
+    /** Set while the condition is absent and cleared if it returns. */
     clearedSince: v.optional(v.number()),
     acknowledgedByPersonId: v.optional(v.id("people")),
     acknowledgedAt: v.optional(v.number()),
@@ -4391,7 +5225,34 @@ export default defineSchema({
       "severity",
       "firstObservedAt",
     ])
-    .index("by_event_dedupe", ["eventId", "dedupeKey"]),
+    .index("by_event_state_severity_round_first", [
+      "eventId",
+      "state",
+      "severity",
+      "roundId",
+      "firstObservedAt",
+    ])
+    .index("by_event_dedupe", ["eventId", "dedupeKey"])
+    .index("by_round_state_severity_first", [
+      "roundId",
+      "state",
+      "severity",
+      "firstObservedAt",
+      "subjectId",
+    ])
+    .index("by_state_round", ["state", "roundId"]),
+
+  /** Serializes out-of-order action snapshots without touching review-floor records. */
+  operationsAttentionSweepStates: defineTable({
+    eventId: v.id("events"),
+    roundId: v.id("reviewRounds"),
+    state: v.union(v.literal("active"), v.literal("settled")),
+    lastReconciledAt: v.number(),
+    version: v.number(),
+  })
+    .index("by_round", ["roundId"])
+    .index("by_event_state", ["eventId", "state"])
+    .index("by_state", ["state"]),
 
   operationResults: defineTable({
     eventId: v.id("events"),

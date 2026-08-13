@@ -7,6 +7,7 @@ import type { Doc } from "./_generated/dataModel";
 import { internalAction, internalMutation } from "./_generated/server";
 import { admissionGuidanceForBand, admissionInputFingerprint } from "./lib/admission";
 import { redactProjectText } from "./lib/projectText";
+import { appendAdmissionJobReadFactById } from "./lib/operationsAutonomyReadFacts/admissionJobs";
 import { admissionDecision, admissionExperienceBand, criterionAssessment } from "./values";
 
 const sourceRef = v.string();
@@ -150,6 +151,7 @@ export const beginRecommendation = internalMutation({
         completedAt: Date.now(),
         failureCategory: "source_context_changed",
       });
+      await appendAdmissionJobReadFactById(ctx, recommendation._id, Date.now());
       if (application?.aiRecommendationId === recommendation._id) {
         await ctx.db.patch(application._id, { aiDisposition: "stale" });
       }
@@ -174,12 +176,14 @@ export const beginRecommendation = internalMutation({
         completedAt: Date.now(),
         failureCategory: "source_fingerprint_changed",
       });
+      await appendAdmissionJobReadFactById(ctx, recommendation._id, Date.now());
       if (application.aiRecommendationId === recommendation._id) {
         await ctx.db.patch(application._id, { aiDisposition: "stale" });
       }
       return null;
     }
     await ctx.db.patch(recommendation._id, { state: "running" });
+    await appendAdmissionJobReadFactById(ctx, recommendation._id, Date.now());
     return {
       recommendationId: recommendation._id,
       applicationId: application._id,
@@ -258,6 +262,7 @@ export const finishRecommendation = internalMutation({
         completedAt: Date.now(),
         failureCategory: "application_changed_during_analysis",
       });
+      await appendAdmissionJobReadFactById(ctx, recommendation._id, Date.now());
       if (application?.aiRecommendationId === recommendation._id) {
         await ctx.db.patch(application._id, { aiDisposition: "stale" });
       }
@@ -326,6 +331,7 @@ export const finishRecommendation = internalMutation({
           : args.failureCategory,
       completedAt: Date.now(),
     });
+    await appendAdmissionJobReadFactById(ctx, recommendation._id, Date.now());
     await ctx.db.patch(application._id, {
       aiRecommendationId: recommendation._id,
       aiDisposition: succeeded ? undefined : "unavailable",

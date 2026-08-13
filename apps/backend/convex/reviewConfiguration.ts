@@ -7,9 +7,26 @@ import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import { appendReviewPanelVacancyReadFactById } from "./lib/operationsAutonomyReadFacts";
 import { loadPublishedParticipantPolicy } from "./lib/participantPolicy";
-import { insertPermissionGrant, requirePermission } from "./lib/permissions";
+import {
+  boundedActivePermissionScopeIds,
+  insertPermissionGrant,
+  matchingPermissionGrantIds,
+  requirePermission,
+} from "./lib/permissions";
 import { grantPanelMemberAccess } from "./lib/reviewAccess";
+import {
+  normalizedReviewerAvailabilityWindows,
+  reviewerCoversStaffingWindow,
+  validateReviewerRoundStaffingPolicy,
+} from "./lib/reviewerAvailability";
+import { requireScoreCorrectionPolicy } from "./lib/scoreCorrectionPolicy";
+import {
+  maximumReviewCriteriaPerRubric,
+  maximumReviewerAssignmentsPerEvent,
+  maximumReviewRoundsPerEvent,
+} from "./lib/reviewLimits";
 import { normalizedText } from "./lib/strings";
 
 const anchorInput = v.object({
@@ -42,6 +59,11 @@ const panelInput = v.object({
   ),
 });
 
+const reviewerAvailabilityWindowInput = v.object({
+  startsAt: v.number(),
+  endsAt: v.number(),
+});
+
 const reviewerCandidateRoles = [
   "supreme",
   "board",
@@ -70,6 +92,16 @@ function unique(values: readonly string[], label: string) {
   }
 }
 
+export function validateScoreSpreadThreshold(value: number) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 4) {
+    throw new ConvexError({
+      code: "INVALID_RUBRIC",
+      message: "Score-spread threshold must be a whole number from 1 through 4.",
+    });
+  }
+  return value;
+}
+
 function normalizedList(values: readonly string[], label: string, maximumItems: number) {
   if (values.length > maximumItems) {
     throw new ConvexError({
@@ -95,6 +127,7 @@ export const profile = query({
       productDomains: v.array(v.string()),
       languages: v.array(v.string()),
       criterionKeys: v.array(v.string()),
+      availabilityWindows: v.array(reviewerAvailabilityWindowInput),
       trainingStatus: v.union(
         v.literal("pending"),
         v.literal("complete"),
@@ -144,6 +177,7 @@ export const profile = query({
       productDomains: reviewerProfile.productDomains,
       languages: reviewerProfile.languages,
       criterionKeys: reviewerProfile.criterionKeys,
+      availabilityWindows: reviewerProfile.availabilityWindows,
       trainingStatus: reviewerProfile.trainingStatus,
       status: reviewerProfile.status,
       version: reviewerProfile.version,
@@ -160,6 +194,7 @@ export const saveProfile = mutation({
     productDomains: v.array(v.string()),
     languages: v.array(v.string()),
     criterionKeys: v.array(v.string()),
+    availabilityWindows: v.array(reviewerAvailabilityWindowInput),
     trainingStatus: v.union(
       v.literal("pending"),
       v.literal("complete"),
@@ -175,6 +210,19 @@ export const saveProfile = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person: actor } = await requireCurrentPerson(ctx);
     const actorSubject = await requireEventSubject(ctx, event._id, actor._id);
+    const availabilityWindows = normalizedReviewerAvailabilityWindows(
+      args.availabilityWindows,
+    );
+    if (
+      args.status === "active" &&
+      args.trainingStatus === "complete" &&
+      availabilityWindows.length === 0
+    ) {
+      throw new ConvexError({
+        code: "REVIEWER_AVAILABILITY_REQUIRED",
+        message: "An active, trained reviewer needs at least one availability window.",
+      });
+    }
     const requestFingerprint = operationFingerprint([
       args.personId,
       args.expectedVersion,
@@ -185,6 +233,7 @@ export const saveProfile = mutation({
       JSON.stringify(args.productDomains),
       JSON.stringify(args.languages),
       JSON.stringify(args.criterionKeys),
+      JSON.stringify(availabilityWindows),
       args.reason,
     ]);
     const prior = await findOperation(ctx, {
@@ -249,6 +298,7 @@ export const saveProfile = mutation({
       productDomains: normalizedList(args.productDomains, "Product domain", 20),
       languages: normalizedList(args.languages, "Language", 12),
       criterionKeys,
+      availabilityWindows,
       trainingStatus: args.trainingStatus,
       status: args.status,
       version: currentVersion + 1,
@@ -281,7 +331,11 @@ export const saveProfile = mutation({
       ...(current
         ? { previousSummary: JSON.stringify({ version: current.version, status: current.status }) }
         : {}),
-      nextSummary: JSON.stringify({ version: currentVersion + 1, status: args.status }),
+      nextSummary: JSON.stringify({
+        version: currentVersion + 1,
+        status: args.status,
+        availabilityWindowCount: availabilityWindows.length,
+      }),
       reason: normalizedText(args.reason, "Reason", 3, 300),
     });
     return { profileId, version: currentVersion + 1 };
@@ -295,6 +349,7 @@ export const candidates = query({
       personId: v.id("people"),
       displayName: v.string(),
       email: v.string(),
+      canManage: v.boolean(),
       profile: v.union(
         v.null(),
         v.object({
@@ -302,6 +357,7 @@ export const candidates = query({
           productDomains: v.array(v.string()),
           languages: v.array(v.string()),
           criterionKeys: v.array(v.string()),
+          availabilityWindows: v.array(reviewerAvailabilityWindowInput),
           trainingStatus: v.union(
             v.literal("pending"),
             v.literal("complete"),
@@ -382,18 +438,37 @@ export const candidates = query({
     const profilesByPersonId = new Map(
       profiles.map((profile) => [profile.personId, profile] as const),
     );
+    const eventManageGrantIds = await matchingPermissionGrantIds(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: actorSubject._id,
+      permissionKey: "reviewer.profile.manage",
+      scopeType: "event",
+    });
+    const manageablePersonIds = eventManageGrantIds.length > 0
+      ? null
+      : await boundedActivePermissionScopeIds(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: actorSubject._id,
+          permissionKey: "reviewer.profile.manage",
+          scopeType: "person",
+          maximumScopeCount: maximumReviewerAssignmentsPerEvent,
+        });
     const rows = [...subjectsByPersonId.values()].map((subject) => {
       const profile = profilesByPersonId.get(subject.personId);
       return {
         personId: subject.personId,
         displayName: subject.displayName,
         email: subject.emailNormalized,
+        canManage:
+          eventManageGrantIds.length > 0 ||
+          manageablePersonIds?.has(subject.personId) === true,
         profile: profile
           ? {
               technicalDomains: profile.technicalDomains,
               productDomains: profile.productDomains,
               languages: profile.languages,
               criterionKeys: profile.criterionKeys,
+              availabilityWindows: profile.availabilityWindows,
               trainingStatus: profile.trainingStatus,
               status: profile.status,
               version: profile.version,
@@ -420,6 +495,10 @@ export const current = query({
         status: v.string(),
         startsAt: v.number(),
         endsAt: v.number(),
+        clockInOpensAt: v.number(),
+        reviewerReportAt: v.number(),
+        noShowGraceSeconds: v.number(),
+        correctionRequestsCloseAt: v.number(),
         panelCount: v.number(),
         reviewerCount: v.number(),
         reserveCount: v.number(),
@@ -470,6 +549,10 @@ export const current = query({
           status: round.status,
           startsAt: round.startsAt,
           endsAt: round.endsAt,
+          clockInOpensAt: round.clockInOpensAt,
+          reviewerReportAt: round.reviewerReportAt,
+          noShowGraceSeconds: round.noShowGraceSeconds,
+          correctionRequestsCloseAt: round.correctionRequestsCloseAt,
           panelCount: panels.filter((panel) => panel.status !== "closed").length,
           reviewerCount: new Set(members.flat().map((member) => member.personId)).size,
           reserveCount: reserves.filter((reserve) => reserve.status !== "removed").length,
@@ -483,13 +566,21 @@ export const current = query({
 export const publishRound = mutation({
   args: {
     eventSlug: v.string(),
-    rubric: v.object({ name: v.string(), criteria: v.array(criterionInput) }),
+    rubric: v.object({
+      name: v.string(),
+      spreadThreshold: v.number(),
+      criteria: v.array(criterionInput),
+    }),
     round: v.object({
       stableKey: v.string(),
       name: v.string(),
       sequence: v.number(),
       startsAt: v.number(),
       endsAt: v.number(),
+      clockInOpensAt: v.number(),
+      reviewerReportAt: v.number(),
+      noShowGraceSeconds: v.number(),
+      correctionRequestsCloseAt: v.number(),
       reviewDurationSeconds: v.number(),
       ordinaryExtensionSeconds: v.number(),
       maximumOrdinaryExtensions: v.number(),
@@ -550,6 +641,8 @@ export const publishRound = mutation({
       throw new ConvexError({ code: "EVENT_COMPLETE", message: "A completed event cannot publish a round." });
     }
     const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
+    validateReviewerRoundStaffingPolicy(args.round);
+    requireScoreCorrectionPolicy(args.round);
     const roundKey = stableKey(args.round.stableKey, "Round key");
     const existingRound = await ctx.db
       .query("reviewRounds")
@@ -560,10 +653,19 @@ export const publishRound = mutation({
     if (existingRound) {
       throw new ConvexError({ code: "ROUND_EXISTS", message: "That round key is already published." });
     }
+    const roundCapacityProbe = await ctx.db
+      .query("reviewRounds")
+      .withIndex("by_event_status_start", (index) => index.eq("eventId", event._id))
+      .take(maximumReviewRoundsPerEvent);
+    if (roundCapacityProbe.length === maximumReviewRoundsPerEvent) {
+      throw new ConvexError({
+        code: "REVIEW_ROUND_LIMIT_REACHED",
+        message: `An event can publish at most ${maximumReviewRoundsPerEvent} review rounds.`,
+      });
+    }
     if (
       !Number.isInteger(args.round.sequence) ||
       args.round.sequence < 1 ||
-      args.round.startsAt >= args.round.endsAt ||
       !Number.isInteger(args.round.reviewDurationSeconds) ||
       args.round.reviewDurationSeconds < 120 ||
       args.round.reviewDurationSeconds > 3_600 ||
@@ -599,8 +701,14 @@ export const publishRound = mutation({
         message: "Round timing, panel, coverage, or participant requirements are invalid.",
       });
     }
-    if (args.rubric.criteria.length < 1 || args.rubric.criteria.length > 20) {
-      throw new ConvexError({ code: "INVALID_RUBRIC", message: "A rubric needs between 1 and 20 criteria." });
+    if (
+      args.rubric.criteria.length < 1 ||
+      args.rubric.criteria.length > maximumReviewCriteriaPerRubric
+    ) {
+      throw new ConvexError({
+        code: "INVALID_RUBRIC",
+        message: `A rubric needs between 1 and ${maximumReviewCriteriaPerRubric} criteria.`,
+      });
     }
     const criteria = args.rubric.criteria.map((criterion) => ({
       stableKey: stableKey(criterion.stableKey, "Criterion key"),
@@ -617,6 +725,7 @@ export const publishRound = mutation({
         four: normalizedText(criterion.anchors.four, "Score 4 anchor", 2, 240),
       },
     }));
+    const spreadThreshold = validateScoreSpreadThreshold(args.rubric.spreadThreshold);
     unique(criteria.map((criterion) => criterion.stableKey), "Criterion keys");
     unique(criteria.map((criterion) => String(criterion.displayOrder)), "Criterion display positions");
     if (
@@ -698,6 +807,12 @@ export const publishRound = mutation({
           message: "Every panel member needs active event access and completed reviewer training.",
         });
       }
+      if (!reviewerCoversStaffingWindow(reviewerProfile.availabilityWindows, args.round)) {
+        throw new ConvexError({
+          code: "REVIEWER_UNAVAILABLE_FOR_ROUND",
+          message: `${reviewer.displayName} is not available from clock-in opening through the round end.`,
+        });
+      }
       reviewerContexts.set(reviewerPersonId, {
         personId: reviewer._id,
         subjectId: reviewerSubject._id,
@@ -760,7 +875,6 @@ export const publishRound = mutation({
       .first();
     const rubricVersion = (previousRubric?.version ?? 0) + 1;
     const aggregationFormula = "criterion_mean_weighted_v1" as const;
-    const spreadThreshold = 2;
     const rubricChecksum = operationFingerprint([
       args.rubric.name,
       aggregationFormula,
@@ -806,6 +920,10 @@ export const publishRound = mutation({
       status: "published",
       startsAt: args.round.startsAt,
       endsAt: args.round.endsAt,
+      clockInOpensAt: args.round.clockInOpensAt,
+      reviewerReportAt: args.round.reviewerReportAt,
+      noShowGraceSeconds: args.round.noShowGraceSeconds,
+      correctionRequestsCloseAt: args.round.correctionRequestsCloseAt,
       reviewDurationSeconds: args.round.reviewDurationSeconds,
       ordinaryExtensionSeconds: args.round.ordinaryExtensionSeconds,
       maximumOrdinaryExtensions: args.round.maximumOrdinaryExtensions,
@@ -840,6 +958,7 @@ export const publishRound = mutation({
         createdAt: now,
         updatedAt: now,
       });
+      await appendReviewPanelVacancyReadFactById(ctx, panelId, now);
       for (const member of panel.members) {
         const reviewer = reviewerContexts.get(member.personId);
         if (!reviewer) throw new Error("Validated reviewer context is missing.");

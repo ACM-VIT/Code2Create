@@ -5,13 +5,14 @@ import {
   type BarcodeSymbology,
 } from '@code2create/domain'
 import { TZDateMini } from '@date-fns/tz'
-import type { FunctionArgs } from 'convex/server'
+import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 
 type DraftSession = {
   id: string
@@ -28,11 +29,22 @@ type DraftSession = {
   awayAlertMinutes: string
 }
 
+type StationMode = StationInput['mode']
+type CredentialKind = StationInput['allowedCredentialKinds'][number]
+
+type DraftStation = {
+  stableKey: string
+  name: string
+  zoneKey: string
+  mode: StationMode | ''
+  sessionKey: string
+  allowedCredentialKinds: CredentialKind[]
+}
+
 type DraftZone = {
   stableKey: string
   name: string
   safeCapacity: string
-  scannerCount: string
 }
 
 type CreateDraftArgs = FunctionArgs<typeof api.attendanceConfiguration.createDraft>
@@ -55,8 +67,23 @@ const requirements: readonly { value: SessionInput['requirement']; label: string
   { value: 'information_only', label: 'Information only' },
 ]
 
+const stationModes: readonly { value: StationMode; label: string }[] = [
+  { value: 'venue_entry', label: 'Venue entry' },
+  { value: 'venue_exit', label: 'Venue exit' },
+  { value: 'session_confirm', label: 'Session attendance' },
+  { value: 'zone_entry', label: 'Session area entry' },
+  { value: 'zone_exit', label: 'Session area exit' },
+  { value: 'roving', label: 'Roving scanner' },
+]
+
+const credentialKinds: readonly { value: CredentialKind; label: string }[] = [
+  { value: 'vit_id_barcode', label: 'VIT ID barcode' },
+  { value: 'badge_qr', label: 'Event badge QR' },
+  { value: 'portal_qr', label: 'Participant portal QR' },
+]
+
 export function AttendanceSetup() {
-  const publicState = useQuery(api.system.getPublicState, { eventSlug })
+  const publicState = useQuery(api.system.getPublicShellState, { eventSlug })
   const configuration = useQuery(api.attendanceConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.attendanceConfiguration.createDraft)
   const publish = useMutation(api.attendanceConfiguration.publish)
@@ -66,12 +93,19 @@ export function AttendanceSetup() {
   const [offlineQueueMaxScans, setOfflineQueueMaxScans] = useState('8')
   const [offlineQueueMaxAgeSeconds, setOfflineQueueMaxAgeSeconds] = useState('180')
   const [sessions, setSessions] = useState<DraftSession[]>(() => [newSession('main_hack_hall')])
+  const [stations, setStations] = useState<DraftStation[]>(() => [
+    newStation('main_hack_hall', 'Main hall entrance'),
+  ])
   const [loadedSource, setLoadedSource] = useState('')
   const [draftReason, setDraftReason] = useState('Prepared for event-day attendance rehearsal')
   const [publishReason, setPublishReason] = useState('Published after attendance rehearsal')
   const [publishArmed, setPublishArmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const draftAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceConfiguration.createDraft>>()
+  const publishAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceConfiguration.publish>>()
+  const draftPending = draftAttempt.hasPending('attendance-plan-draft')
+  const publishPending = publishAttempt.hasPending('attendance-plan-publish')
 
   useEffect(() => {
     const source = configuration?.editorSource
@@ -84,7 +118,6 @@ export function AttendanceSetup() {
       stableKey: zone.stableKey,
       name: zone.name,
       safeCapacity: zone.safeCapacity === undefined ? '' : `${zone.safeCapacity}`,
-      scannerCount: `${source.stations.filter((station) => station.zoneKey === zone.stableKey).length}`,
     })))
     setBarcodeSymbology(source.vitBarcodeSymbologies[0] ?? '')
     setOfflineQueueMaxScans(`${source.offlineQueueMaxScans}`)
@@ -103,6 +136,14 @@ export function AttendanceSetup() {
       checkInClosesAt: localDateTimeValue(session.checkInClosesAt, timezone),
       awayAlertMinutes: session.awayAlertAfterMinutes === undefined ? '' : `${session.awayAlertAfterMinutes}`,
     })))
+    setStations(source.stations.map((station) => ({
+      stableKey: station.stableKey,
+      name: station.name,
+      zoneKey: station.zoneKey,
+      mode: station.mode ?? '',
+      sessionKey: station.sessionKey ?? '',
+      allowedCredentialKinds: [...(station.allowedCredentialKinds ?? [])],
+    })))
     setLoadedSource(sourceKey)
     setPublishArmed(false)
   }, [configuration, loadedSource, publicState])
@@ -112,6 +153,9 @@ export function AttendanceSetup() {
   }
   const timezone = publicState.event?.timezone
   if (!timezone) return <p className="notice error">The event timezone is not configured.</p>
+  const stationConfigurationRequired = configuration.editorSource?.stations.some(
+    (station) => station.mode === undefined || station.allowedCredentialKinds === undefined,
+  ) ?? false
 
   const updateSession = (id: string, patch: Partial<DraftSession>) => {
     setSessions((current) => current.map((session) => session.id === id ? { ...session, ...patch } : session))
@@ -125,17 +169,22 @@ export function AttendanceSetup() {
     setSessions((current) => current.map((session) => (
       session.zoneKey === stableKey ? { ...session, zoneKey: replacement.stableKey } : session
     )))
+    setStations((current) => current.map((station) => (
+      station.zoneKey === stableKey
+        ? { ...station, zoneKey: replacement.stableKey, sessionKey: '' }
+        : station
+    )))
   }
 
   const saveDraft = async (event: FormEvent) => {
     event.preventDefault()
-    if (!barcodeSymbology) {
-      setError('Select the barcode format confirmed during a real VIT ID rehearsal.')
-      return
-    }
     setBusy(true)
     setError(null)
     try {
+      await draftAttempt.run('attendance-plan-draft', () => {
+      if (!barcodeSymbology) {
+        throw new Error('Select the barcode format confirmed during a real VIT ID rehearsal.')
+      }
       const zoneInputs: ZoneInput[] = zones.map((zone, index) => {
         const capacity = positiveInteger(zone.safeCapacity, `Zone ${index + 1} safe capacity`)
         return {
@@ -143,15 +192,6 @@ export function AttendanceSetup() {
           name: zone.name,
           ...(capacity !== undefined ? { safeCapacity: capacity } : {}),
         }
-      })
-      const stationInputs: StationInput[] = zones.flatMap((zone) => {
-        const scannerCount = requiredPositiveInteger(zone.scannerCount, `${zone.name || 'Area'} scanner phones`)
-        if (scannerCount > 12) throw new Error('Use no more than twelve scanner phones per area.')
-        return Array.from({ length: scannerCount }, (_, stationIndex) => ({
-          stableKey: `${zone.stableKey}_scanner_${stationIndex + 1}`,
-          name: `${zone.name} scanner ${stationIndex + 1}`,
-          zoneKey: zone.stableKey,
-        }))
       })
       const zoneKeys = new Set(zoneInputs.map((zone) => zone.stableKey))
       const sessionInputs: SessionInput[] = sessions.map((session, index) => {
@@ -181,13 +221,44 @@ export function AttendanceSetup() {
           ...(awayAlertAfterMinutes !== undefined ? { awayAlertAfterMinutes } : {}),
         }
       })
+      const sessionByKey = new Map(sessionInputs.map((session) => [session.stableKey, session]))
+      const stationInputs: StationInput[] = stations.map((station, index) => {
+        if (!zoneKeys.has(station.zoneKey)) {
+          throw new Error(`${station.name || `Station ${index + 1}`} needs an available event area.`)
+        }
+        if (station.allowedCredentialKinds.length === 0) {
+          throw new Error(`${station.name || `Station ${index + 1}`} needs at least one credential method.`)
+        }
+        const mode = station.mode
+        if (!mode) {
+          throw new Error(`${station.name || `Station ${index + 1}`} needs an explicit scanner action.`)
+        }
+        const needsSession = mode === 'session_confirm' ||
+          mode === 'zone_entry' ||
+          mode === 'zone_exit'
+        const session = station.sessionKey ? sessionByKey.get(station.sessionKey) : undefined
+        if (needsSession && !session) {
+          throw new Error(`${station.name || `Station ${index + 1}`} needs a session.`)
+        }
+        if (session && session.zoneKey !== station.zoneKey) {
+          throw new Error(`${station.name || `Station ${index + 1}`} must use a session in its event area.`)
+        }
+        return {
+          stableKey: station.stableKey,
+          name: station.name,
+          zoneKey: station.zoneKey,
+          mode,
+          ...(session ? { sessionKey: session.stableKey } : {}),
+          allowedCredentialKinds: station.allowedCredentialKinds,
+        }
+      })
       const pendingScanLimit = requiredPositiveInteger(offlineQueueMaxScans, 'Offline queue size')
       const pendingScanAgeSeconds = requiredPositiveInteger(offlineQueueMaxAgeSeconds, 'Offline queue age')
       if (pendingScanLimit > 25) throw new Error('Keep the offline queue at 25 scans or fewer per phone.')
       if (pendingScanAgeSeconds < 30 || pendingScanAgeSeconds > 600) {
         throw new Error('Keep offline scans for 30 to 600 seconds.')
       }
-      await createDraft({
+      const draftArgs = {
         eventSlug,
         name: planName,
         vitBarcodeSymbologies: [barcodeSymbology],
@@ -200,6 +271,8 @@ export function AttendanceSetup() {
         expectedEventVersion: configuration.eventVersion,
         reason: draftReason,
         clientOperationId: crypto.randomUUID(),
+      }
+      return () => createDraft(draftArgs)
       })
     } catch (caught) {
       setError(readableError(caught))
@@ -210,15 +283,19 @@ export function AttendanceSetup() {
 
   const publishDraft = async () => {
     if (!configuration.draftPlan) return
+    const draftPlan = configuration.draftPlan
     setBusy(true)
     setError(null)
     try {
-      await publish({
-        eventSlug,
-        planVersionId: configuration.draftPlan.id,
-        expectedEventVersion: configuration.eventVersion,
-        reason: publishReason,
-        clientOperationId: crypto.randomUUID(),
+      await publishAttempt.run('attendance-plan-publish', () => {
+        const publishArgs = {
+          eventSlug,
+          planVersionId: draftPlan.id,
+          expectedEventVersion: configuration.eventVersion,
+          reason: publishReason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => publish(publishArgs)
       })
       setPublishArmed(false)
     } catch (caught) {
@@ -241,6 +318,12 @@ export function AttendanceSetup() {
 
       {configuration.publishedPlan ? (
         <p className="notice">Current plan: {configuration.publishedPlan.name}</p>
+      ) : null}
+
+      {stationConfigurationRequired ? (
+        <p className="notice error" role="alert">
+          This plan predates explicit scanner actions. Choose an action and credential methods for every station, save a replacement draft, and publish it before assigning phones.
+        </p>
       ) : null}
 
       {configuration.draftPlan ? (
@@ -266,19 +349,20 @@ export function AttendanceSetup() {
           </p>
           <label className="field">
             <span>Why this changed</span>
-            <textarea value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
+            <textarea disabled={publishPending} value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
           </label>
           <div className="button-row">
             <button className="primary" type="button" disabled={busy || publishReason.trim().length < 5} onClick={() => void publishDraft()}>
-              {busy ? 'Publishing…' : 'Publish plan'}
+              {busy ? 'Publishing…' : publishPending ? 'Confirm earlier publication' : 'Publish plan'}
             </button>
-            <button className="secondary" type="button" disabled={busy} onClick={() => setPublishArmed(false)}>Cancel</button>
+            <button className="secondary" type="button" disabled={busy || publishPending} onClick={() => setPublishArmed(false)}>Cancel</button>
           </div>
         </section>
       ) : null}
 
       {configuration.canConfigure ? (
         <form className="setup-form" onSubmit={saveDraft}>
+          <fieldset disabled={draftPending} style={{ display: 'contents' }}>
           <section className="setup-section">
             <h2>Plan</h2>
             <div className="form-grid">
@@ -321,9 +405,9 @@ export function AttendanceSetup() {
             <div className="section-heading">
               <div>
                 <h2>Event areas</h2>
-                <p className="muted">Use the real hall or controlled area names that scanner staff will see. Each phone in an area scans people in and out.</p>
+                <p className="muted">Use the real hall or controlled area names that scanner staff will see. {zones.length} of {configuration.limits.maximumZones} areas.</p>
               </div>
-              <button className="secondary" type="button" onClick={() => setZones((current) => [...current, newZone(`Area ${current.length + 1}`)])}>Add area</button>
+              <button className="secondary" type="button" disabled={zones.length >= configuration.limits.maximumZones} onClick={() => setZones((current) => [...current, newZone(`Area ${current.length + 1}`)])}>Add area</button>
             </div>
             <div className="session-editor-list">
               {zones.map((zone, index) => (
@@ -341,9 +425,6 @@ export function AttendanceSetup() {
                     <Field label="Safe capacity" hint="Optional">
                       <input inputMode="numeric" value={zone.safeCapacity} onChange={(event) => setZones((current) => current.map((item) => item.stableKey === zone.stableKey ? { ...item, safeCapacity: event.target.value } : item))} />
                     </Field>
-                    <Field label="Scanner phones">
-                      <input required inputMode="numeric" value={zone.scannerCount} onChange={(event) => setZones((current) => current.map((item) => item.stableKey === zone.stableKey ? { ...item, scannerCount: event.target.value } : item))} />
-                    </Field>
                   </div>
                 </article>
               ))}
@@ -353,10 +434,98 @@ export function AttendanceSetup() {
           <section className="setup-section">
             <div className="section-heading">
               <div>
-                <h2>Hacking sessions</h2>
-                <p className="muted">Each session has its own check-in window. One session runs at a time in an area.</p>
+                <h2>Scanner stations</h2>
+                <p className="muted">Give each phone one explicit transition and only the credential methods tested at that station. {stations.length} of {configuration.limits.maximumStations} stations.</p>
               </div>
-              <button className="secondary" type="button" onClick={() => setSessions((current) => [...current, newSession(zones[0]?.stableKey ?? 'main_hack_hall')])}>Add session</button>
+              <button
+                className="secondary"
+                type="button"
+                disabled={stations.length >= configuration.limits.maximumStations}
+                onClick={() => setStations((current) => [
+                  ...current,
+                  newStation(zones[0]?.stableKey ?? 'main_hack_hall', `Scanner ${current.length + 1}`),
+                ])}
+              >
+                Add station
+              </button>
+            </div>
+            <div className="session-editor-list">
+              {stations.map((station, index) => {
+                const matchingSessions = sessions.filter((session) => session.zoneKey === station.zoneKey)
+                const needsSession = station.mode === 'session_confirm' || station.mode === 'zone_entry' || station.mode === 'zone_exit'
+                const offersSession = needsSession || station.mode === 'roving'
+                return (
+                  <article className="session-editor" key={station.stableKey}>
+                    <div className="session-editor-heading">
+                      <span>Station {index + 1}</span>
+                      {stations.length > 1 ? (
+                        <button className="text-button" type="button" onClick={() => setStations((current) => current.filter((candidate) => candidate.stableKey !== station.stableKey))}>Remove</button>
+                      ) : null}
+                    </div>
+                    <div className="form-grid session-fields">
+                      <Field label="Name">
+                        <input required maxLength={80} value={station.name} onChange={(event) => updateStation(station.stableKey, { name: event.target.value }, setStations)} />
+                      </Field>
+                      <Field label="Event area">
+                        <select value={station.zoneKey} onChange={(event) => updateStation(station.stableKey, { zoneKey: event.target.value, sessionKey: '' }, setStations)}>
+                          {zones.map((zone) => <option key={zone.stableKey} value={zone.stableKey}>{zone.name}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Scanner action">
+                        <select
+                          required
+                          value={station.mode}
+                          onChange={(event) => {
+                            const mode = stationMode(event.target.value)
+                            const sessionScoped = mode === 'session_confirm' || mode === 'zone_entry' || mode === 'zone_exit' || mode === 'roving'
+                            updateStation(station.stableKey, { mode, sessionKey: sessionScoped ? station.sessionKey : '' }, setStations)
+                          }}
+                        >
+                          <option value="">Choose scanner action</option>
+                          {stationModes.map((mode) => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
+                        </select>
+                      </Field>
+                      {offersSession ? (
+                        <Field label="Session" {...(needsSession ? {} : { hint: 'Optional for session or area transitions' })}>
+                          <select required={needsSession} value={station.sessionKey} onChange={(event) => updateStation(station.stableKey, { sessionKey: event.target.value }, setStations)}>
+                            <option value="">Choose session</option>
+                            {matchingSessions.map((session) => <option key={session.stableKey} value={session.stableKey}>{session.name || 'Unnamed session'}</option>)}
+                          </select>
+                        </Field>
+                      ) : null}
+                    </div>
+                    <fieldset className="configuration-advanced">
+                      <legend>Accepted credentials</legend>
+                      <div className="button-row">
+                        {credentialKinds.map((credential) => (
+                          <label key={credential.value}>
+                            <input
+                              type="checkbox"
+                              checked={station.allowedCredentialKinds.includes(credential.value)}
+                              onChange={(event) => updateStation(station.stableKey, {
+                                allowedCredentialKinds: event.target.checked
+                                  ? [...station.allowedCredentialKinds, credential.value]
+                                  : station.allowedCredentialKinds.filter((value) => value !== credential.value),
+                              }, setStations)}
+                            />
+                            {credential.label}
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                  </article>
+                )
+              })}
+            </div>
+          </section>
+
+          <section className="setup-section">
+            <div className="section-heading">
+              <div>
+                <h2>Hacking sessions</h2>
+                <p className="muted">Each session has its own check-in window. A participant can match at most {configuration.limits.maximumSimultaneousSessionsPerParticipant} simultaneous sessions. {sessions.length} of {configuration.limits.maximumSessions} sessions.</p>
+              </div>
+              <button className="secondary" type="button" disabled={sessions.length >= configuration.limits.maximumSessions} onClick={() => setSessions((current) => [...current, newSession(zones[0]?.stableKey ?? 'main_hack_hall')])}>Add session</button>
             </div>
             <div className="session-editor-list">
               {sessions.map((session, index) => (
@@ -414,12 +583,13 @@ export function AttendanceSetup() {
             </div>
           </section>
 
+          </fieldset>
           <section className="setup-section final-setup-section">
             <Field label="Why this changed">
-              <textarea required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} />
+              <textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} />
             </Field>
-            <button className="primary" type="submit" disabled={busy || sessions.length === 0}>
-              {busy ? 'Saving…' : configuration.draftPlan ? 'Replace draft' : 'Create draft'}
+            <button className="primary" type="submit" disabled={busy || sessions.length === 0 || stations.length === 0}>
+              {busy ? 'Saving…' : draftPending ? 'Confirm earlier draft' : configuration.draftPlan ? 'Replace draft' : 'Create draft'}
             </button>
           </section>
         </form>
@@ -443,8 +613,32 @@ function newZone(name: string, stableKey = `area_${crypto.randomUUID().replaceAl
     stableKey,
     name,
     safeCapacity: '',
-    scannerCount: '2',
   }
+}
+
+function newStation(zoneKey: string, name: string): DraftStation {
+  return {
+    stableKey: `station_${crypto.randomUUID().replaceAll('-', '_')}`,
+    name,
+    zoneKey,
+    mode: '',
+    sessionKey: '',
+    allowedCredentialKinds: [],
+  }
+}
+
+function updateStation(
+  stableKey: string,
+  patch: Partial<DraftStation>,
+  setStations: React.Dispatch<React.SetStateAction<DraftStation[]>>,
+) {
+  setStations((current) => current.map((station) => (
+    station.stableKey === stableKey ? { ...station, ...patch } : station
+  )))
+}
+
+function stationMode(value: string): StationMode | '' {
+  return stationModes.find((mode) => mode.value === value)?.value ?? ''
 }
 
 function newSession(zoneKey: string): DraftSession {

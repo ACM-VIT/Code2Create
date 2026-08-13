@@ -5,9 +5,17 @@ import {
 import { ConvexError, v } from "convex/values";
 
 import { query } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { QueryCtx } from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
+import {
+  githubTopicVerificationIsCurrent,
+  loadPublishedIntegrationPolicy,
+} from "./lib/integrationPolicy";
+import { activeGrantScopes } from "./lib/synesthesia";
+import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits";
 import {
   figmaPreviewState,
   githubRepositoryCoverage,
@@ -45,6 +53,95 @@ const integrationTeam = v.object({
     lastActivityAt: v.optional(v.number()),
   }),
 });
+
+const integrationSummary = v.object({
+  totalTeamCount: v.number(),
+  disconnectedCount: v.number(),
+  attentionCount: v.number(),
+});
+
+type ProviderMetric = { health: Doc<"githubTeamMetrics">["health"] };
+
+export function integrationSummaryCounts(
+  teamIds: readonly string[],
+  githubMetrics: ReadonlyMap<string, ProviderMetric>,
+  figmaMetrics: ReadonlyMap<string, ProviderMetric>,
+) {
+  let disconnectedCount = 0;
+  let attentionCount = 0;
+  for (const teamId of teamIds) {
+    const githubHealth = githubMetrics.get(teamId)?.health ?? "not_connected";
+    const figmaHealth = figmaMetrics.get(teamId)?.health ?? "not_connected";
+    if (githubHealth === "not_connected" && figmaHealth === "not_connected") {
+      disconnectedCount += 1;
+    } else if (githubHealth === "needs_attention" || figmaHealth === "needs_attention") {
+      attentionCount += 1;
+    }
+  }
+  return { totalTeamCount: teamIds.length, disconnectedCount, attentionCount };
+}
+
+async function readableTeamScope(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+) {
+  const scopes = await activeGrantScopes(ctx, {
+    eventId,
+    eventAccessSubjectId,
+    permissionKey: "integration.read",
+    maximumScopeCount: maximumReviewTeamsPerEvent,
+  });
+  return {
+    eventWide: scopes.eventWide,
+    teamIds: [...scopes.scopeIds].flatMap((scopeId) => {
+      const teamId = ctx.db.normalizeId("teams", scopeId);
+      return teamId ? [teamId] : [];
+    }),
+  };
+}
+
+function integrationTeamView(
+  team: Doc<"teams">,
+  githubMetric: Doc<"githubTeamMetrics"> | null,
+  figmaMetric: Doc<"figmaTeamMetrics"> | null,
+) {
+  return {
+    teamId: team._id,
+    teamName: team.name,
+    teamStatus: team.status,
+    github: {
+      health: githubMetric?.health ?? "not_connected" as const,
+      repositoryCount: githubMetric?.repositoryCount ?? 0,
+      installationCount: githubMetric?.installationCount ?? 0,
+      topicMissingCount: githubMetric?.topicMissingCount ?? 0,
+      incompleteCount: githubMetric?.incompleteRepositoryCount ?? 0,
+      ...(githubMetric?.lastActivityAt !== undefined
+        ? { lastActivityAt: githubMetric.lastActivityAt }
+        : {}),
+    },
+    figma: {
+      health: figmaMetric?.health ?? "not_connected" as const,
+      fileCount: figmaMetric?.fileCount ?? 0,
+      authorizationCount: figmaMetric?.authorizationCount ?? 0,
+      completeCount: figmaMetric?.completeFileCount ?? 0,
+      incompleteCount: figmaMetric?.incompleteFileCount ?? 0,
+      dirtyCount: figmaMetric?.dirtyCount ?? 0,
+      webhookUnavailableCount: figmaMetric?.webhookUnavailableCount ?? 0,
+      rateLimitedCount: figmaMetric?.rateLimitedCount ?? 0,
+      previewAttentionCount: figmaMetric?.previewAttentionCount ?? 0,
+      ...(figmaMetric?.oldestMetadataCheckAt !== undefined
+        ? { oldestMetadataCheckAt: figmaMetric.oldestMetadataCheckAt }
+        : {}),
+      ...(figmaMetric?.lastCaptureAt !== undefined
+        ? { lastCaptureAt: figmaMetric.lastCaptureAt }
+        : {}),
+      ...(figmaMetric?.lastActivityAt !== undefined
+        ? { lastActivityAt: figmaMetric.lastActivityAt }
+        : {}),
+    },
+  };
+}
 
 const teamDetail = v.object({
   canReadFigmaArtifacts: v.boolean(),
@@ -112,20 +209,26 @@ export const teams = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const page = await ctx.db
+    const scope = await readableTeamScope(ctx, event._id, subject._id);
+    const eventTeams = ctx.db
       .query("teams")
-      .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
-      .paginate(args.paginationOpts);
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id));
+    const readableTeams = scope.eventWide
+      ? eventTeams
+      : scope.teamIds.length === 0
+        ? eventTeams.filter((filter) =>
+            filter.neq(filter.field("eventId"), event._id),
+          )
+        : eventTeams.filter((filter) =>
+            filter.or(
+              ...scope.teamIds.map((teamId) =>
+                filter.eq(filter.field("_id"), teamId),
+              ),
+            ),
+          );
+    const page = await readableTeams.paginate(args.paginationOpts);
     const visible = [];
     for (const team of page.page) {
-      const grantIds = await matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "integration.read",
-        scopeType: "team",
-        scopeId: team._id,
-      });
-      if (grantIds.length === 0) continue;
       const [githubMetric, figmaMetric] = await Promise.all([
         ctx.db
           .query("githubTeamMetrics")
@@ -148,43 +251,42 @@ export const teams = query({
       ) {
         throw new Error("Figma team metrics do not match the operations row.");
       }
-      visible.push({
-        teamId: team._id,
-        teamName: team.name,
-        teamStatus: team.status,
-        github: {
-          health: githubMetric?.health ?? "not_connected",
-          repositoryCount: githubMetric?.repositoryCount ?? 0,
-          installationCount: githubMetric?.installationCount ?? 0,
-          topicMissingCount: githubMetric?.topicMissingCount ?? 0,
-          incompleteCount: githubMetric?.incompleteRepositoryCount ?? 0,
-          ...(githubMetric?.lastActivityAt !== undefined
-            ? { lastActivityAt: githubMetric.lastActivityAt }
-            : {}),
-        },
-        figma: {
-          health: figmaMetric?.health ?? "not_connected",
-          fileCount: figmaMetric?.fileCount ?? 0,
-          authorizationCount: figmaMetric?.authorizationCount ?? 0,
-          completeCount: figmaMetric?.completeFileCount ?? 0,
-          incompleteCount: figmaMetric?.incompleteFileCount ?? 0,
-          dirtyCount: figmaMetric?.dirtyCount ?? 0,
-          webhookUnavailableCount: figmaMetric?.webhookUnavailableCount ?? 0,
-          rateLimitedCount: figmaMetric?.rateLimitedCount ?? 0,
-          previewAttentionCount: figmaMetric?.previewAttentionCount ?? 0,
-          ...(figmaMetric?.oldestMetadataCheckAt !== undefined
-            ? { oldestMetadataCheckAt: figmaMetric.oldestMetadataCheckAt }
-            : {}),
-          ...(figmaMetric?.lastCaptureAt !== undefined
-            ? { lastCaptureAt: figmaMetric.lastCaptureAt }
-            : {}),
-          ...(figmaMetric?.lastActivityAt !== undefined
-            ? { lastActivityAt: figmaMetric.lastActivityAt }
-            : {}),
-        },
-      });
+      visible.push(integrationTeamView(team, githubMetric, figmaMetric));
     }
     return { ...page, page: visible };
+  },
+});
+
+export const summary = query({
+  args: { eventSlug: v.string() },
+  returns: integrationSummary,
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const scope = await readableTeamScope(ctx, event._id, subject._id);
+    const eventTeams = await ctx.db
+      .query("teams")
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
+      .collect();
+    const visibleTeams = scope.eventWide
+      ? eventTeams
+      : eventTeams.filter((team) => scope.teamIds.some((teamId) => teamId === team._id));
+    const [githubMetrics, figmaMetrics] = await Promise.all([
+      ctx.db
+        .query("githubTeamMetrics")
+        .withIndex("by_event_updated", (index) => index.eq("eventId", event._id))
+        .collect(),
+      ctx.db
+        .query("figmaTeamMetrics")
+        .withIndex("by_event_updated", (index) => index.eq("eventId", event._id))
+        .collect(),
+    ]);
+    return integrationSummaryCounts(
+      visibleTeams.map((team) => team._id),
+      new Map(githubMetrics.map((metric) => [metric.teamId, metric])),
+      new Map(figmaMetrics.map((metric) => [metric.teamId, metric])),
+    );
   },
 });
 
@@ -206,7 +308,8 @@ export const details = query({
       scopeType: "team",
       scopeId: team._id,
     });
-    const [githubBindings, figmaBindings, artifactGrantIds] = await Promise.all([
+    const [integrationPolicy, githubBindings, figmaBindings, artifactGrantIds] = await Promise.all([
+      loadPublishedIntegrationPolicy(ctx, event),
       ctx.db
         .query("githubRepositoryBindings")
         .withIndex("by_team_state", (index) => index.eq("teamId", team._id))
@@ -252,7 +355,12 @@ export const details = query({
           purpose: binding.purpose,
           trackedBranch: binding.trackedBranch,
           ...(binding.rootPath !== undefined ? { rootPath: binding.rootPath } : {}),
-          topicState: binding.topicState,
+          topicState: githubTopicVerificationIsCurrent(
+            binding,
+            integrationPolicy.normalized.requiredGitHubTopic,
+          )
+            ? binding.topicState
+            : "unknown" as const,
           state: binding.state,
           syncState: binding.syncState,
           ...(binding.syncErrorCode !== undefined

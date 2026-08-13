@@ -6,11 +6,11 @@ const androidPackage = readAndroidPackage()
 const appBuild = readAppBuild()
 const iosTeamId = readIosTeamId()
 const androidGoogleServicesFile = readEnvironmentValue('C2C_ANDROID_GOOGLE_SERVICES_FILE')
-const convexUrl = readApplicationUrl('EXPO_PUBLIC_CONVEX_URL')
-const convexSiteUrl = readApplicationUrl('EXPO_PUBLIC_CONVEX_SITE_URL')
+const deploymentEnvironment = readDeploymentEnvironment()
+const convexUrl = readApplicationUrl('EXPO_PUBLIC_CONVEX_URL', deploymentEnvironment)
+const convexSiteUrl = readApplicationUrl('EXPO_PUBLIC_CONVEX_SITE_URL', deploymentEnvironment)
 const eventSlug = readEventSlug()
 const releaseId = readReleaseId()
-const deploymentEnvironment = readDeploymentEnvironment()
 const apnsEnvironment = readApnsEnvironment()
 
 if (process.env.C2C_NATIVE_BUILD === 'true') {
@@ -115,16 +115,30 @@ function readIosTeamId() {
   return value
 }
 
-function readApplicationUrl(name: string) {
+function readApplicationUrl(
+  name: string,
+  environment: 'development' | 'staging' | 'production' | null,
+) {
   const value = readEnvironmentValue(name)
   if (!value) return null
   const url = new URL(value)
-  const localHttp =
-    url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
-  if ((!localHttp && url.protocol !== 'https:') || url.username || url.password || url.hash) {
-    throw new Error(`${name} must be HTTPS, or local HTTP during development.`)
+  const developmentHttp =
+    environment === 'development' &&
+    url.protocol === 'http:' &&
+    (url.hostname === 'localhost' ||
+      url.hostname === '127.0.0.1' ||
+      isPrivateLanHost(url.hostname))
+  if ((!developmentHttp && url.protocol !== 'https:') || url.username || url.password || url.hash) {
+    throw new Error(`${name} must be HTTPS outside development; development may use local HTTP.`)
   }
   return url.href
+}
+
+function isPrivateLanHost(hostname: string) {
+  // Development devices reach the local backend through private IPv4 addresses.
+  return /^(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})$/u.test(
+    hostname,
+  )
 }
 
 function readEventSlug() {

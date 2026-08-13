@@ -7,6 +7,7 @@ import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../componen
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 type Configuration = FunctionReturnType<typeof api.intakePolicyConfiguration.current>
 type Policy = Configuration['publishedPolicy']['policy']
@@ -48,6 +49,7 @@ export function IntakePolicyConfiguration({
   const configuration = useQuery(api.intakePolicyConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.intakePolicyConfiguration.createDraft)
   const publish = useMutation(api.intakePolicyConfiguration.publish)
+  const operations = useOperationRunner()
   const validation = useQuery(
     api.intakePolicyConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPolicy
@@ -61,6 +63,8 @@ export function IntakePolicyConfiguration({
   const [publishArmed, setPublishArmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const draftPending = operations.hasPending('intake-policy-draft')
+  const publishPending = operations.hasPending('intake-policy-publish')
 
   useEffect(() => {
     if (!configuration) return
@@ -123,7 +127,7 @@ export function IntakePolicyConfiguration({
     setBusy(true)
     setError(null)
     try {
-      await createDraft({
+      await operations.run('intake-policy-draft', (clientOperationId) => () => createDraft({
         eventSlug,
         policy: withGeneratedPatternKeys(policy),
         expectedEventVersion: configuration.eventVersion,
@@ -131,8 +135,8 @@ export function IntakePolicyConfiguration({
           ? { expectedDraftPolicyId: configuration.draftPolicy.id }
           : {}),
         reason: draftReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -146,14 +150,14 @@ export function IntakePolicyConfiguration({
     setBusy(true)
     setError(null)
     try {
-      await publish({
+      await operations.run('intake-policy-publish', (clientOperationId) => () => publish({
         eventSlug,
         draftPolicyId: draft.id,
         expectedDraftChecksum: draft.checksum,
         expectedEventVersion: configuration.eventVersion,
         reason: publishReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
       setPublishArmed(false)
     } catch (caught) {
       setError(readableError(caught))
@@ -226,19 +230,20 @@ export function IntakePolicyConfiguration({
           <p className="muted">New project drafts use these questions immediately.</p>
           <label className="field">
             <span>Why this changed</span>
-            <textarea required value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
+            <textarea disabled={publishPending} required value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
           </label>
           <div className="button-row">
             <button className="primary" disabled={busy || publishReason.trim().length < 5} type="button" onClick={() => void publishDraft()}>
-              {busy ? 'Publishing…' : 'Publish questions'}
+              {busy ? 'Publishing…' : publishPending ? 'Confirm earlier publication' : 'Publish questions'}
             </button>
-            <button className="secondary" disabled={busy} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
+            <button className="secondary" disabled={busy || publishPending} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
           </div>
         </section>
       ) : null}
 
       {configuration.canDraft ? (
         <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
+          <fieldset disabled={draftPending} style={{ display: 'contents' }}>
           <div className="track-editor-heading">
             <div>
               <p className="eyebrow">{configuration.draftPolicy ? 'Replace current draft' : 'Create a draft'}</p>
@@ -385,10 +390,11 @@ export function IntakePolicyConfiguration({
             ) : null}
           </PolicySection>
 
+          </fieldset>
           <section className="track-save">
-            <label className="field"><span>Why this changed</span><textarea required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} /></label>
+            <label className="field"><span>Why this changed</span><textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} /></label>
             <button className="primary" disabled={busy || draftReason.trim().length < 5} type="submit">
-              {busy ? 'Saving…' : configuration.draftPolicy ? 'Replace draft' : 'Save draft'}
+              {busy ? 'Saving…' : draftPending ? 'Confirm earlier draft' : configuration.draftPolicy ? 'Replace draft' : 'Save draft'}
             </button>
           </section>
         </form>

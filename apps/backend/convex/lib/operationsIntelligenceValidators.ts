@@ -102,6 +102,12 @@ export const operationsHealthSnapshot = v.object({
   signals: v.array(operationsHealthSignal),
 });
 
+export const operationsHealthSnapshotState = v.union(
+  v.object({ state: v.literal("missing") }),
+  v.object({ state: v.literal("stale"), lastGeneratedAt: v.number() }),
+  v.object({ state: v.literal("ready"), snapshot: operationsHealthSnapshot }),
+);
+
 export const operationsBriefPriority = v.object({
   severity: operationsHealthSeverity,
   title: v.string(),
@@ -112,7 +118,7 @@ export const operationsBriefPriority = v.object({
 });
 
 const operationsIntelligenceCallbackBase = {
-  protocolVersion: v.literal("2026-08-07"),
+  protocolVersion: v.literal("2026-08-13"),
   briefId: v.string(),
   sourceChecksum: v.string(),
   agentVersion: v.string(),

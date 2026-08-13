@@ -61,9 +61,6 @@ test("the live event leads with the floor, not with configuration", () => {
 });
 
 test("every blocker that setup can fix knows which screen fixes it", () => {
-  // These are the keys eventLifecycleBlockers can return for the forward
-  // transitions. A blocker with no route tells the operator they are stuck
-  // and leaves them to find the screen themselves.
   const fixableKeys = [
     "event_dates",
     "participant_policy",

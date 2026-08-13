@@ -1,9 +1,9 @@
 import { api } from '@code2create/backend/api'
 import {
+  mergeSynesthesiaVoteCounts,
   synesthesiaCatalogTrackStatusLabels,
   synesthesiaWindowKindLabels,
   synesthesiaWindowStatusLabels,
-  type SongRequestState,
 } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
@@ -13,6 +13,7 @@ import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton
 import { SynesthesiaRequestCard } from '../components/SynesthesiaRequestCard'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 type Overview = FunctionReturnType<typeof api.synesthesiaConfiguration.overview>
 type SynesthesiaWindow = Overview['windows'][number]
@@ -21,6 +22,7 @@ type WindowStatus = SynesthesiaWindow['status']
 type CatalogResult = FunctionReturnType<typeof api.synesthesiaConfiguration.catalog>
 type CatalogTrack = CatalogResult['tracks'][number]
 type QueueResult = FunctionReturnType<typeof api.synesthesiaOperations.queue>
+type QueueRequest = QueueResult['requests'][number] & { voteCount: number }
 
 const windowKinds: WindowKind[] = [
   'arrival',
@@ -32,30 +34,10 @@ const windowKinds: WindowKind[] = [
   'custom',
 ]
 
-/**
- * A window an operator can still act on comes before one that is finished:
- * an open window holds the live queue, a draft is waiting to be published,
- * and a closed window is a record.
- */
 const windowOrder: Record<WindowStatus, number> = {
   published: 0,
   draft: 1,
   closed: 2,
-}
-
-/**
- * Same idea inside one window. What is playing and what has not been decided
- * sit at the top; songs that have already had their moment sink.
- */
-const requestOrder: Record<SongRequestState, number> = {
-  playing: 0,
-  pending: 1,
-  queued: 2,
-  approved: 3,
-  played: 4,
-  skipped: 5,
-  rejected: 6,
-  hidden: 7,
 }
 
 type CatalogValues = {
@@ -196,7 +178,6 @@ function countLabel(count: number, noun: string) {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
-/** Withdrawn tracks are a record; the ones a participant can still pick lead. */
 function catalogOrder(track: CatalogTrack) {
   return track.status === 'active' ? 0 : 1
 }
@@ -205,11 +186,6 @@ function requestableCount(catalog: CatalogResult) {
   return catalog.tracks.filter((track) => track.status === 'active').length
 }
 
-/**
- * What this window means for the people in the room, rather than its key.
- * A draft looks identical to an open window in a list of names, and the
- * difference is whether anybody can request a song at all.
- */
 function windowConsequence(window: SynesthesiaWindow) {
   if (window.status === 'closed') {
     return 'Closed. No new request can arrive and nothing more will play from it.'
@@ -228,7 +204,6 @@ function windowConsequence(window: SynesthesiaWindow) {
   return 'Open. Participants can request songs and the queue below is live.'
 }
 
-/** The one sentence that says why the Start control is not on offer. */
 function playbackBlocker(queue: QueueResult) {
   if (queue.window.status !== 'published') {
     return 'This window is not open, so nothing can be started from it.'
@@ -253,7 +228,6 @@ export function Synesthesia() {
   )
   const [selectedWindowId, setSelectedWindowId] = useState<SynesthesiaWindow['id'] | null>(null)
 
-  // The open window is the one being worked, so it is what the queue opens on.
   const queueWindows = (overview?.windows.filter((window) => window.canReadQueue) ?? []).sort(
     (left, right) =>
       windowOrder[left.status] - windowOrder[right.status] || left.startsAt - right.startsAt,
@@ -262,6 +236,10 @@ export function Synesthesia() {
     ?? queueWindows[0]
   const queue = useQuery(
     api.synesthesiaOperations.queue,
+    selectedWindow ? { eventSlug, windowId: selectedWindow.id } : 'skip',
+  )
+  const voteCounts = useQuery(
+    api.synesthesiaOperations.voteCounts,
     selectedWindow ? { eventSlug, windowId: selectedWindow.id } : 'skip',
   )
 
@@ -283,6 +261,14 @@ export function Synesthesia() {
     0,
   ) ?? 0
   const blocker = queue ? playbackBlocker(queue) : null
+  const queueIsCurrent = queue !== undefined
+    && voteCounts !== undefined
+    && selectedWindow !== undefined
+    && queue.window.id === selectedWindow.id
+    && voteCounts.windowId === selectedWindow.id
+  const queueRequests: QueueRequest[] = queueIsCurrent
+    ? mergeSynesthesiaVoteCounts(queue.requests, voteCounts.counts)
+    : []
 
   return (
     <section className="synesthesia-operations-shell">
@@ -318,7 +304,7 @@ export function Synesthesia() {
               Nobody can request a song and no queue can build until a draft is published.
             </p>
           </>
-        ) : queue === undefined || !selectedWindow ? (
+        ) : !queueIsCurrent ? (
           <>
             <p>{openWindows.length === 1 ? 'One window is open to participants.' : `${openWindows.length} windows are open to participants.`}</p>
             <p className="muted">Requests are arriving. The queue for each window is below.</p>
@@ -395,10 +381,9 @@ export function Synesthesia() {
             </div>
             {blocker ? <p className="notice">{blocker}</p> : null}
             <div className="synesthesia-request-list">
-              {[...queue.requests]
-                .sort((left, right) => requestOrder[left.state] - requestOrder[right.state])
+              {queueRequests
                 .map((request) => {
-                  const anotherRequestIsPlaying = queue.requests.some(
+                  const anotherRequestIsPlaying = queueRequests.some(
                     (candidate) => candidate.state === 'playing' && candidate.id !== request.id,
                   )
                   const deferredUntilLater = request.queueMode === 'deferred'
@@ -417,7 +402,7 @@ export function Synesthesia() {
                     />
                   )
                 })}
-              {queue.requests.length === 0 ? (
+              {queueRequests.length === 0 ? (
                 <div className="health-empty">
                   <strong>No participant has requested a song in this window.</strong>
                   <span>
@@ -462,17 +447,24 @@ function WindowSection({ overview }: { overview: Overview }) {
   const publishWindow = useMutation(api.synesthesiaConfiguration.publishWindow)
   const closeWindow = useMutation(api.synesthesiaConfiguration.closeWindow)
   const setPlaybackPause = useMutation(api.synesthesiaConfiguration.setPlaybackPause)
+  const operations = useOperationRunner()
   const [editor, setEditor] = useState<WindowEditor | null>(null)
   const [action, setAction] = useState<WindowAction | null>(null)
   const [actionReason, setActionReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const editorPending = operations.hasPending('synesthesia-window-save')
+  const actionSlot = action ? `synesthesia-window-${action.kind}` : null
+  const actionPending = actionSlot !== null && operations.hasPending(actionSlot)
+  const operationPending = editorPending || actionPending
 
   const updateEditorValues = (values: WindowValues) => {
+    if (operationPending || busy) return
     setEditor((current) => current ? { ...current, values } : null)
   }
 
   const chooseAction = (nextAction: WindowAction) => {
+    if (operationPending || busy) return
     setEditor(null)
     setAction(nextAction)
     setActionReason('')
@@ -498,40 +490,44 @@ function WindowSection({ overview }: { overview: Overview }) {
       setError('Window times and limits must be valid whole numbers.')
       return
     }
-    const fields = {
-      name: editor.values.name,
-      kind: editor.values.kind,
-      ...(editor.values.kind === 'custom' && editor.values.customKindLabel.trim()
-        ? { customKindLabel: editor.values.customKindLabel }
-        : {}),
-      startsAt,
-      endsAt,
-      requestsOpen: editor.values.requestsOpen,
-      votingOpen: editor.values.votingOpen,
-      catalogSourceLabel: editor.values.catalogSourceLabel,
-      autoApproveRequests: editor.values.autoApproveRequests,
-      maxRequestsPerParticipant,
-      maxVotesPerParticipant,
-      maxRequestsTotal,
-      maxTrackDurationSeconds,
-      allowExplicit: editor.values.allowExplicit,
-      allowedEnergyTags: editor.values.allowedEnergyTags.split(',').map((tag) => tag.trim()).filter(Boolean),
-      reason: editor.values.reason,
-      clientOperationId: crypto.randomUUID(),
-    }
     setBusy(true)
     setError(null)
     try {
-      if (editor.mode === 'create') {
-        await createWindow({ eventSlug, ...fields })
-      } else {
-        await updateWindow({
-          eventSlug,
-          windowId: editor.windowId,
-          expectedVersion: editor.expectedVersion,
-          ...fields,
-        })
-      }
+      await operations.run(
+        'synesthesia-window-save', (clientOperationId) => async () => {
+          const fields = {
+            name: editor.values.name,
+            kind: editor.values.kind,
+            ...(editor.values.kind === 'custom' && editor.values.customKindLabel.trim()
+              ? { customKindLabel: editor.values.customKindLabel }
+              : {}),
+            startsAt,
+            endsAt,
+            requestsOpen: editor.values.requestsOpen,
+            votingOpen: editor.values.votingOpen,
+            catalogSourceLabel: editor.values.catalogSourceLabel,
+            autoApproveRequests: editor.values.autoApproveRequests,
+            maxRequestsPerParticipant,
+            maxVotesPerParticipant,
+            maxRequestsTotal,
+            maxTrackDurationSeconds,
+            allowExplicit: editor.values.allowExplicit,
+            allowedEnergyTags: editor.values.allowedEnergyTags.split(',').map((tag) => tag.trim()).filter(Boolean),
+            reason: editor.values.reason,
+            clientOperationId,
+          }
+          if (editor.mode === 'create') {
+            await createWindow({ eventSlug, ...fields })
+          } else {
+            await updateWindow({
+              eventSlug,
+              windowId: editor.windowId,
+              expectedVersion: editor.expectedVersion,
+              ...fields,
+            })
+          }
+        },
+      )
       setEditor(null)
     } catch (caught) {
       setError(readableError(caught))
@@ -545,16 +541,20 @@ function WindowSection({ overview }: { overview: Overview }) {
     setBusy(true)
     setError(null)
     try {
-      const common = {
-        eventSlug,
-        windowId: action.windowId,
-        expectedVersion: action.expectedVersion,
-        reason: actionReason,
-        clientOperationId: crypto.randomUUID(),
-      }
-      if (action.kind === 'publish') await publishWindow(common)
-      else if (action.kind === 'close') await closeWindow(common)
-      else await setPlaybackPause({ ...common, paused: action.kind === 'pause' })
+      await operations.run(
+        `synesthesia-window-${action.kind}`, (clientOperationId) => async () => {
+          const common = {
+            eventSlug,
+            windowId: action.windowId,
+            expectedVersion: action.expectedVersion,
+            reason: actionReason,
+            clientOperationId,
+          }
+          if (action.kind === 'publish') await publishWindow(common)
+          else if (action.kind === 'close') await closeWindow(common)
+          else await setPlaybackPause({ ...common, paused: action.kind === 'pause' })
+        },
+      )
       setAction(null)
       setActionReason('')
     } catch (caught) {
@@ -571,7 +571,7 @@ function WindowSection({ overview }: { overview: Overview }) {
           <h2 id="synesthesia-windows-title">Ambience windows</h2>
         </div>
         {overview.canCreateWindow && editor === null ? (
-          <button type="button" className="secondary" onClick={() => setEditor({ mode: 'create', values: initialWindowValues() })}>
+          <button type="button" className="secondary" disabled={operationPending || busy} onClick={() => setEditor({ mode: 'create', values: initialWindowValues() })}>
             New window
           </button>
         ) : null}
@@ -614,6 +614,7 @@ function WindowSection({ overview }: { overview: Overview }) {
                 <button
                   type="button"
                   className="text-button"
+                  disabled={operationPending || busy}
                   onClick={() => {
                     setEditor({
                       mode: 'edit',
@@ -629,15 +630,15 @@ function WindowSection({ overview }: { overview: Overview }) {
                 </button>
               ) : null}
               {window.status === 'draft' && window.canPublish ? (
-                <button type="button" className="text-button" onClick={() => chooseAction({ windowId: window.id, expectedVersion: window.version, kind: 'publish' })}>Publish</button>
+                <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseAction({ windowId: window.id, expectedVersion: window.version, kind: 'publish' })}>Publish</button>
               ) : null}
               {window.status === 'published' && window.canPausePlayback ? (
-                <button type="button" className="text-button" onClick={() => chooseAction({ windowId: window.id, expectedVersion: window.version, kind: window.playbackPaused ? 'resume' : 'pause' })}>
+                <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseAction({ windowId: window.id, expectedVersion: window.version, kind: window.playbackPaused ? 'resume' : 'pause' })}>
                   {window.playbackPaused ? 'Resume playback' : 'Pause playback'}
                 </button>
               ) : null}
               {window.status === 'published' && window.canManage ? (
-                <button type="button" className="text-button" onClick={() => chooseAction({ windowId: window.id, expectedVersion: window.version, kind: 'close' })}>Close</button>
+                <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseAction({ windowId: window.id, expectedVersion: window.version, kind: 'close' })}>Close</button>
               ) : null}
             </div>
           </article>
@@ -671,6 +672,7 @@ function WindowSection({ overview }: { overview: Overview }) {
               on the allowed list can be requested.
             </p>
           </div>
+          <fieldset disabled={operationPending || busy} style={{ display: 'contents' }}>
           <div className="synesthesia-editor-grid">
             <label className="field">
               <span>Name</span>
@@ -739,9 +741,10 @@ function WindowSection({ overview }: { overview: Overview }) {
             <span>Audit reason</span>
             <textarea value={editor.values.reason} minLength={5} maxLength={200} required onChange={(event) => updateEditorValues({ ...editor.values, reason: event.target.value })} />
           </label>
+          </fieldset>
           <div className="synesthesia-command-actions">
-            <button type="button" className="text-button" disabled={busy} onClick={() => { setEditor(null); setError(null) }}>Cancel</button>
-            <button type="submit" className="primary" disabled={busy || editor.values.reason.trim().length < 5}>{busy ? 'Saving…' : 'Save draft'}</button>
+            <button type="button" className="text-button" disabled={busy || operationPending} onClick={() => { setEditor(null); setError(null) }}>Cancel</button>
+            <button type="submit" className="primary" disabled={busy || actionPending || (!editorPending && editor.values.reason.trim().length < 5)}>{busy ? 'Saving…' : editorPending ? 'Confirm earlier draft' : 'Save draft'}</button>
           </div>
           {error ? <p className="notice error" role="alert">{error}</p> : null}
         </form>
@@ -758,11 +761,11 @@ function WindowSection({ overview }: { overview: Overview }) {
           <strong>{action.kind === 'publish' ? 'Publish this window' : action.kind === 'close' ? 'Close this window' : action.kind === 'pause' ? 'Pause playback' : 'Resume playback'}</strong>
           <label className="field">
             <span>Audit reason</span>
-            <textarea value={actionReason} minLength={5} maxLength={200} required onChange={(event) => setActionReason(event.target.value)} />
+            <textarea disabled={operationPending || busy} value={actionReason} minLength={5} maxLength={200} required onChange={(event) => setActionReason(event.target.value)} />
           </label>
           <div className="synesthesia-command-actions">
-            <button type="button" className="text-button" disabled={busy} onClick={() => { setAction(null); setActionReason(''); setError(null) }}>Cancel</button>
-            <button type="submit" className="secondary" disabled={busy || actionReason.trim().length < 5}>{busy ? 'Saving…' : 'Confirm'}</button>
+            <button type="button" className="text-button" disabled={busy || operationPending} onClick={() => { setAction(null); setActionReason(''); setError(null) }}>Cancel</button>
+            <button type="submit" className="secondary" disabled={busy || editorPending || (!actionPending && actionReason.trim().length < 5)}>{busy ? 'Saving…' : actionPending ? 'Confirm earlier action' : 'Confirm'}</button>
           </div>
           {error ? <p className="notice error" role="alert">{error}</p> : null}
         </form>
@@ -780,11 +783,14 @@ function CatalogSection({
 }) {
   const addTrack = useMutation(api.synesthesiaConfiguration.addCatalogTrack)
   const updateTrack = useMutation(api.synesthesiaConfiguration.updateCatalogTrack)
+  const operations = useOperationRunner()
   const [editor, setEditor] = useState<CatalogEditor | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const savePending = operations.hasPending('synesthesia-catalog-save')
 
   const updateValues = (values: CatalogValues) => {
+    if (savePending || busy) return
     setEditor((current) => current ? { ...current, values } : null)
   }
 
@@ -798,32 +804,36 @@ function CatalogSection({
     setBusy(true)
     setError(null)
     try {
-      const fields = {
-        title: editor.values.title,
-        artist: editor.values.artist,
-        ...(editor.values.album.trim() ? { album: editor.values.album } : {}),
-        durationSeconds,
-        isExplicit: editor.values.isExplicit,
-        energyTag: editor.values.energyTag,
-        reason: editor.values.reason,
-        clientOperationId: crypto.randomUUID(),
-      }
-      if (editor.mode === 'create') {
-        await addTrack({
-          eventSlug,
-          provider: editor.values.provider,
-          providerTrackId: editor.values.providerTrackId,
-          ...fields,
-        })
-      } else {
-        await updateTrack({
-          eventSlug,
-          trackId: editor.trackId,
-          status: editor.values.status,
-          expectedVersion: editor.expectedVersion,
-          ...fields,
-        })
-      }
+      await operations.run(
+        'synesthesia-catalog-save', (clientOperationId) => async () => {
+          const fields = {
+            title: editor.values.title,
+            artist: editor.values.artist,
+            ...(editor.values.album.trim() ? { album: editor.values.album } : {}),
+            durationSeconds,
+            isExplicit: editor.values.isExplicit,
+            energyTag: editor.values.energyTag,
+            reason: editor.values.reason,
+            clientOperationId,
+          }
+          if (editor.mode === 'create') {
+            await addTrack({
+              eventSlug,
+              provider: editor.values.provider,
+              providerTrackId: editor.values.providerTrackId,
+              ...fields,
+            })
+          } else {
+            await updateTrack({
+              eventSlug,
+              trackId: editor.trackId,
+              status: editor.values.status,
+              expectedVersion: editor.expectedVersion,
+              ...fields,
+            })
+          }
+        },
+      )
       setEditor(null)
     } catch (caught) {
       setError(readableError(caught))
@@ -839,7 +849,7 @@ function CatalogSection({
           <h2 id="synesthesia-catalog-title">Available tracks</h2>
         </div>
         {canManage && editor === null ? (
-          <button type="button" className="secondary" onClick={() => { setEditor({ mode: 'create', values: emptyCatalogValues() }); setError(null) }}>Add track</button>
+          <button type="button" className="secondary" disabled={savePending || busy} onClick={() => { setEditor({ mode: 'create', values: emptyCatalogValues() }); setError(null) }}>Add track</button>
         ) : null}
       </div>
 
@@ -877,6 +887,7 @@ function CatalogSection({
                   <button
                     type="button"
                     className="text-button"
+                    disabled={savePending || busy}
                     onClick={() => {
                       setEditor({
                         mode: 'edit',
@@ -934,6 +945,7 @@ function CatalogSection({
             <p className="eyebrow">{editor.mode === 'create' ? 'New catalog track' : 'Edit catalog track'}</p>
             <h2>{editor.mode === 'create' ? 'Add track' : editor.values.title}</h2>
           </div>
+          <fieldset disabled={savePending || busy} style={{ display: 'contents' }}>
           <div className="synesthesia-editor-grid">
             {editor.mode === 'create' ? (
               <>
@@ -984,9 +996,10 @@ function CatalogSection({
             <span>Audit reason</span>
             <textarea value={editor.values.reason} minLength={5} maxLength={200} required onChange={(event) => updateValues({ ...editor.values, reason: event.target.value })} />
           </label>
+          </fieldset>
           <div className="synesthesia-command-actions">
-            <button type="button" className="text-button" disabled={busy} onClick={() => { setEditor(null); setError(null) }}>Cancel</button>
-            <button type="submit" className="primary" disabled={busy || editor.values.reason.trim().length < 5}>{busy ? 'Saving…' : 'Save track'}</button>
+            <button type="button" className="text-button" disabled={busy || savePending} onClick={() => { setEditor(null); setError(null) }}>Cancel</button>
+            <button type="submit" className="primary" disabled={busy || (!savePending && editor.values.reason.trim().length < 5)}>{busy ? 'Saving…' : savePending ? 'Confirm earlier track' : 'Save track'}</button>
           </div>
           {error ? <p className="notice error" role="alert">{error}</p> : null}
         </form>

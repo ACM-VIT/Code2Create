@@ -7,6 +7,7 @@ import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../componen
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 type Configuration = FunctionReturnType<typeof api.intakeConfiguration.current>
 type CatalogTrack = Configuration['publishedCatalog']['tracks'][number]
@@ -31,6 +32,7 @@ export function TrackConfiguration({
   const configuration = useQuery(api.intakeConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.intakeConfiguration.createDraft)
   const publish = useMutation(api.intakeConfiguration.publish)
+  const operations = useOperationRunner()
   const validation = useQuery(
     api.intakeConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftCatalog
@@ -44,6 +46,10 @@ export function TrackConfiguration({
   const [publishArmed, setPublishArmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const draftPending = operations.hasPending('track-catalog-draft')
+  const publishPending = operations.hasPending('track-catalog-publish')
+  const coreTrackCount = tracks.filter((track) => track.type === 'core').length
+  const sponsorTrackCount = tracks.length - coreTrackCount
 
   useEffect(() => {
     if (!configuration) return
@@ -93,16 +99,17 @@ export function TrackConfiguration({
     setBusy(true)
     setError(null)
     try {
-      await createDraft({
+      await operations.run('track-catalog-draft', (clientOperationId) => () => createDraft({
         eventSlug,
+        requiredCoreTrackCount: coreTrackCount,
         tracks: toTrackInputs(tracks),
         expectedEventVersion: configuration.eventVersion,
         ...(configuration.draftCatalog
           ? { expectedDraftCatalogId: configuration.draftCatalog.id }
           : {}),
         reason: draftReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -116,14 +123,14 @@ export function TrackConfiguration({
     setBusy(true)
     setError(null)
     try {
-      await publish({
+      await operations.run('track-catalog-publish', (clientOperationId) => () => publish({
         eventSlug,
         draftCatalogId: draft.id,
         expectedDraftChecksum: draft.checksum,
         expectedEventVersion: configuration.eventVersion,
         reason: publishReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
       setPublishArmed(false)
     } catch (caught) {
       setError(readableError(caught))
@@ -145,7 +152,7 @@ export function TrackConfiguration({
 
       <dl className="catalog-summary">
         <div><dt>Status</dt><dd>Ready</dd></div>
-        <div><dt>Tracks</dt><dd>{configuration.publishedCatalog.tracks.length}</dd></div>
+        <div><dt>Core tracks</dt><dd>{configuration.publishedCatalog.requiredCoreTrackCount}</dd></div>
         <div><dt>Teams writing</dt><dd>{configuration.publishedCatalog.activeDraftCount}</dd></div>
       </dl>
 
@@ -194,34 +201,48 @@ export function TrackConfiguration({
           <p className="muted">Teams already writing keep their current track list.</p>
           <label className="field">
             <span>Why this changed</span>
-            <textarea required value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
+            <textarea disabled={publishPending} required value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
           </label>
           <div className="button-row">
             <button className="primary" disabled={busy || publishReason.trim().length < 5} type="button" onClick={() => void publishDraft()}>
-              {busy ? 'Publishing…' : 'Publish tracks'}
+              {busy ? 'Publishing…' : publishPending ? 'Confirm earlier publication' : 'Publish tracks'}
             </button>
-            <button className="secondary" disabled={busy} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
+            <button className="secondary" disabled={busy || publishPending} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
           </div>
         </section>
       ) : null}
 
       {configuration.canDraft ? (
         <form className="track-editor" onSubmit={saveDraft}>
+          <fieldset disabled={draftPending} style={{ display: 'contents' }}>
           <div className="track-editor-heading">
             <div>
               <p className="eyebrow">{configuration.draftCatalog ? 'Replace current draft' : 'Create a draft'}</p>
               <h2>Tracks</h2>
-              <p className="muted">Keep exactly five core tracks. Sponsor tracks are optional.</p>
+              <p className="muted">
+                This catalog requires {coreTrackCount} core {coreTrackCount === 1 ? 'track' : 'tracks'}. Sponsor tracks are optional.
+              </p>
             </div>
-            <button
-              className="secondary"
-              disabled={tracks.length >= 15}
-              title={tracks.length >= 15 ? 'Fifteen tracks is the maximum.' : undefined}
-              type="button"
-              onClick={() => setTracks((current) => [...current, newSponsorTrack()])}
-            >
-              Add sponsor track
-            </button>
+            <div className="button-row">
+              <button
+                className="secondary"
+                disabled={coreTrackCount >= configuration.limits.maximumCoreTrackCount}
+                title={coreTrackCount >= configuration.limits.maximumCoreTrackCount ? 'The core-track safety limit is reached.' : undefined}
+                type="button"
+                onClick={() => setTracks(appendCoreTrack)}
+              >
+                Add core track
+              </button>
+              <button
+                className="secondary"
+                disabled={sponsorTrackCount >= configuration.limits.maximumSponsorTrackCount}
+                title={sponsorTrackCount >= configuration.limits.maximumSponsorTrackCount ? 'The sponsor-track safety limit is reached.' : undefined}
+                type="button"
+                onClick={() => setTracks((current) => [...current, newSponsorTrack()])}
+              >
+                Add sponsor track
+              </button>
+            </div>
           </div>
 
           <div className="track-card-list">
@@ -238,7 +259,7 @@ export function TrackConfiguration({
                     <div className="track-order-actions">
                       <button aria-label={`Move ${track.displayName || 'track'} up`} className="text-button" disabled={peerIndex === 0} type="button" onClick={() => moveTrack(track.clientId, -1)}>Up</button>
                       <button aria-label={`Move ${track.displayName || 'track'} down`} className="text-button" disabled={peerIndex === peers.length - 1} type="button" onClick={() => moveTrack(track.clientId, 1)}>Down</button>
-                      {track.type === 'sponsor' ? (
+                      {track.type === 'sponsor' || coreTrackCount > 1 ? (
                         <button className="text-button" type="button" onClick={() => setTracks((current) => current.filter((candidate) => candidate.clientId !== track.clientId))}>Remove</button>
                       ) : null}
                     </div>
@@ -256,15 +277,11 @@ export function TrackConfiguration({
             })}
           </div>
 
+          </fieldset>
           <section className="track-save">
-            <label className="field"><span>Why this changed</span><textarea required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} /></label>
-            {tracks.length < 5 ? (
-              <p className="notice">
-                Add {5 - tracks.length} more core {5 - tracks.length === 1 ? 'track' : 'tracks'} before saving a draft.
-              </p>
-            ) : null}
+            <label className="field"><span>Why this changed</span><textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} /></label>
             <button className="primary" disabled={busy} type="submit">
-              {busy ? 'Saving…' : configuration.draftCatalog ? 'Replace draft' : 'Save draft'}
+              {busy ? 'Saving…' : draftPending ? 'Confirm earlier draft' : configuration.draftCatalog ? 'Replace draft' : 'Save draft'}
             </button>
           </section>
         </form>
@@ -337,4 +354,27 @@ function newSponsorTrack(): EditorTrack {
     type: 'sponsor',
     eligibilityText: '',
   }
+}
+
+function newCoreTrack(): EditorTrack {
+  return {
+    clientId: crypto.randomUUID(),
+    stableKey: '',
+    slug: '',
+    displayName: '',
+    description: '',
+    examples: '',
+    type: 'core',
+    eligibilityText: '',
+  }
+}
+
+function appendCoreTrack(tracks: EditorTrack[]) {
+  const firstSponsorIndex = tracks.findIndex((track) => track.type === 'sponsor')
+  if (firstSponsorIndex < 0) return [...tracks, newCoreTrack()]
+  return [
+    ...tracks.slice(0, firstSponsorIndex),
+    newCoreTrack(),
+    ...tracks.slice(firstSponsorIndex),
+  ]
 }

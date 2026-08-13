@@ -305,7 +305,7 @@ async function resolveBadgeCredential(
     };
   }
   if (!args.activeCredential.badgeReference) {
-    throw new Error("An active external badge must have a printed reference.");
+    throw new ConvexError({ code: "BADGE_RECORD_INCOMPLETE", message: "This badge record is missing its printed reference. Revoke it and issue a fresh badge." });
   }
   const [replaceGrantIds, revokeGrantIds] = await Promise.all([
     matchingPermissionGrantIds(ctx, {
@@ -487,7 +487,11 @@ export const resolveStaffedParticipant = internalMutation({
       }),
     ]);
     if (!participantPerson || !profile || !teamContext) {
-      throw new Error("The accepted participant profile and team must be complete.");
+      throw new ConvexError({
+        code: "PARTICIPANT_INCOMPLETE",
+        message:
+          "This participant's profile or team is incomplete. Send them to the help desk.",
+      });
     }
     const currentVitCredential = memberCredentials.find(
       (credential): credential is CurrentVitCredential =>
@@ -515,7 +519,7 @@ export const resolveStaffedParticipant = internalMutation({
       ? await ctx.db.get(latestCheckIn.stationId)
       : null;
     if (latestCheckIn && (!checkInStation || checkInStation.eventId !== event._id)) {
-      throw new Error("A venue check-in must resolve its event station.");
+      throw new ConvexError({ code: "CHECK_IN_STATION_MISSING", message: "The station that recorded this check-in no longer exists. Ask operations to review the check-in." });
     }
     await writeAuditEvent(ctx, {
       eventId: event._id,
@@ -625,7 +629,7 @@ export const beginVitBarcodeEnrollment = internalMutation({
     if (prior) {
       const credentialId = ctx.db.normalizeId("attendanceCredentials", prior.targetId);
       if (!credentialId || !(await ctx.db.get(credentialId))) {
-        throw new Error("Prior credential result no longer resolves.");
+        throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
       }
       return { credentialId, verificationRequired: true };
     }
@@ -980,7 +984,7 @@ export const beginVitBarcodeRebind = internalMutation({
         priorOperation.targetId,
       );
       if (!credentialId || !(await ctx.db.get(credentialId))) {
-        throw new Error("Prior VIT ID replacement result no longer resolves.");
+        throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
       }
       return { credentialId, verificationRequired: true };
     }
@@ -1547,7 +1551,7 @@ export const beginExternalBadgeIssue = internalMutation({
       );
       const credential = credentialId ? await ctx.db.get(credentialId) : null;
       if (!credentialId || !credential?.badgeReference) {
-        throw new Error("Prior event-badge issue result no longer resolves.");
+        throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
       }
       return {
         credentialId,
@@ -1885,7 +1889,7 @@ export const beginExternalBadgeReplacement = internalMutation({
       );
       const credential = credentialId ? await ctx.db.get(credentialId) : null;
       if (!credentialId || !credential?.badgeReference) {
-        throw new Error("Prior event-badge replacement result no longer resolves.");
+        throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
       }
       return {
         credentialId,

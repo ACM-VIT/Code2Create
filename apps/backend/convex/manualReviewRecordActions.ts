@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { action } from "./_generated/server";
 
@@ -33,7 +33,7 @@ export const uploadSource = action({
     version: v.number(),
   }),
   handler: async (ctx, args): Promise<UploadResult> => {
-    const context = await ctx.runQuery(api.manualReviewRecords.sourceUploadContext, {
+    const context = await ctx.runQuery(internal.manualReviewRecords.sourceUploadContext, {
       eventSlug: args.eventSlug,
       recordId: args.recordId,
       expectedRecordVersion: args.expectedRecordVersion,
@@ -90,7 +90,7 @@ export const readSource = action({
     sha256: v.string(),
   }),
   handler: async (ctx, args): Promise<SourceResult> => {
-    const context = await ctx.runQuery(api.manualReviewRecords.sourceContext, args);
+    const context = await ctx.runQuery(internal.manualReviewRecords.sourceContext, args);
     const blob = await ctx.storage.get(context.storageId);
     if (
       !blob ||

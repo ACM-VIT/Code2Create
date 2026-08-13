@@ -18,6 +18,7 @@ import {
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import { revokeOperationsAutonomyForEventClosure } from "./lib/operationsAutonomyRevocation";
 import { eventStatus } from "./values";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
@@ -136,6 +137,14 @@ export const transition = mutation({
       version: nextVersion,
       updatedAt: now,
     });
+    if (event.status === "live" && args.targetStatus !== "live") {
+      await revokeOperationsAutonomyForEventClosure(ctx, {
+        eventId: event._id,
+        actorPersonId: person._id,
+        reason,
+        now,
+      });
+    }
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,

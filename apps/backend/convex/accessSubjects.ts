@@ -131,20 +131,6 @@ async function changeStatus(
     }
   }
   const now = Date.now();
-  const activeGrants = await ctx.db
-    .query("permissionGrants")
-    .withIndex("by_person_status", (index) =>
-      index
-        .eq("eventId", event._id)
-        .eq("personId", args.targetPersonId)
-        .eq("status", "active"),
-    )
-    .collect();
-  const effectiveGrantCount = activeGrants.filter(
-    (grant) =>
-      grant.validFrom <= now &&
-      (grant.validUntil === undefined || grant.validUntil > now),
-  ).length;
   const accessVersion = targetSubject.accessVersion + 1;
   await ctx.db.patch(targetSubject._id, {
     status: args.targetStatus,
@@ -170,12 +156,10 @@ async function changeStatus(
     previousSummary: JSON.stringify({
       status: targetSubject.status,
       accessVersion: targetSubject.accessVersion,
-      effectiveGrantCount,
     }),
     nextSummary: JSON.stringify({
       status: args.targetStatus,
       accessVersion,
-      effectiveGrantCount,
     }),
     reason,
   });

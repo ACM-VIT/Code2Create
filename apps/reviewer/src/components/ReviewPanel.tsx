@@ -1,42 +1,42 @@
 import { api } from '@code2create/backend/api'
-import { Host, Picker, Text as WheelText } from '@expo/ui/swift-ui'
-import {
-  disabled as disabledModifier,
-  pickerStyle,
-  tag,
-} from '@expo/ui/swift-ui/modifiers'
 import type { FunctionReturnType } from 'convex/server'
-import { useMutation, useQuery } from 'convex/react'
+import { useAction, useMutation, useQuery } from 'convex/react'
+import { ConvexError } from 'convex/values'
 import { randomUUID } from 'expo-crypto'
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera'
 import { Stack, useRouter } from 'expo-router'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   Alert,
+  Animated,
+  AppState,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native'
+import Svg, { Path } from 'react-native-svg'
 
 import { PagingSetup } from '@/components/PagingSetup'
 import { ProjectEvidence } from '@/components/ProjectEvidence'
+import { useReviewerSession } from '@/components/ReviewerSession'
+import { JudgingSkeleton } from '@/components/skeletons'
 import { ReviewerSetup } from '@/components/ReviewerSetup'
 import {
   Action,
-  Body,
+  ChipRow,
   DutyRing,
+  ErrorSheet,
   Field,
   HeaderButton,
   Meta,
   Nothing,
   Problem,
-  Progress,
   QuietAction,
   ScoreRow,
-  Section,
   Sheet,
 } from '@/components/ui'
 import {
@@ -46,26 +46,43 @@ import {
   saveLocalScorecardDraft,
 } from '@/lib/local-scorecard'
 import {
+  clearLocalCoordinatorNotes,
+  loadLocalCoordinatorNotes,
+  saveLocalCoordinatorNotes,
+} from '@/lib/local-coordinator-notes'
+import { createLatestDraftWriter } from '@/lib/latest-draft-writer'
+import { reviewerPanelMode } from '@/lib/judging-status'
+import { useMutationAttempt } from '@/lib/mutation-attempt'
+import {
   currentReviewerPushRegistration,
   requestReviewerPushRegistration,
   subscribeToReviewerPushTokenChanges,
   type ReviewerPushRegistration,
 } from '@/lib/push-notifications'
 import {
+  clearReviewerRegistration,
   createReviewerDevice,
   loadReviewerDevice,
-  rotateReviewerRegistration,
+  prepareReviewerRegistration,
   type ReviewerDeviceRecord,
   type ReviewerPlatform,
 } from '@/lib/reviewer-device'
+import { reviewWorkspaceKey } from '@/lib/review-workspace-key'
 import { describeError } from '@/lib/errors'
 import type { ReviewerRuntime } from '@/lib/runtime'
 import { palette, radius } from '@/theme'
 
 type ReviewerNow = FunctionReturnType<typeof api.reviewer.now>
 type ActiveReview = NonNullable<ReviewerNow['review']>
-type Rating = ActiveReview['scorecard']['ratings'][number]
-type Criterion = ActiveReview['criteria'][number]
+type ReviewerAssignment = NonNullable<ReviewerNow['panel']> | NonNullable<ReviewerNow['reserve']>
+type ReviewWorkspaceSnapshot = FunctionReturnType<typeof api.reviewer.reviewWorkspace>
+type ScorecardSnapshot = FunctionReturnType<typeof api.reviewer.scorecard>
+type WorkspaceReview = ActiveReview & ReviewWorkspaceSnapshot & { scorecard: ScorecardSnapshot }
+type WorkspaceLoadState =
+  | { reviewSessionId: ActiveReview['id']; value: ReviewWorkspaceSnapshot }
+  | { reviewSessionId: ActiveReview['id']; error: string }
+type Rating = ScorecardSnapshot['ratings'][number]
+type Criterion = ReviewWorkspaceSnapshot['criteria'][number]
 type DeviceState =
   | { status: 'loading' }
   | { status: 'ready'; record: ReviewerDeviceRecord | null }
@@ -80,13 +97,11 @@ type CorrectionCategory = 'reviewer_error' | 'technical_error' | 'other'
 
 const scores = [0, 1, 2, 3, 4] as const
 
-/* The lengths a break actually comes in. A free-typed minute field accepted
-   whatever a tired thumb produced; a wheel of these cannot express a value
-   the availability mutation would refuse. */
 const returnChoices = [5, 10, 15, 20, 30, 45, 60] as const
 
 export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const eventSlug = runtime.configuration.eventSlug
+  const { reviewHeartbeatIssue } = useReviewerSession()
   const platform = reviewerPlatform()
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
   const [notificationState, setNotificationState] = useState<NotificationState>({ status: 'loading' })
@@ -96,16 +111,17 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   )
   const [busy, setBusy] = useState<BusyAction>(null)
   const [error, setErrorState] = useState<{ message: string; raisedWhile: string | undefined } | null>(null)
-  const [heartbeatIssue, setHeartbeatIssue] = useState<string | null>(null)
   const [pagingOpen, setPagingOpen] = useState(false)
   const createBusyRef = useRef(false)
-  const clockInOperationRef = useRef<string | null>(null)
-  const startOperationRef = useRef<string | null>(null)
+  const clockInAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewer.clockIn>>()
+  const startAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewOperations.startReview>>()
   const router = useRouter()
   const registerDevice = useMutation(api.reviewer.registerDevice)
   const clockIn = useMutation(api.reviewer.clockIn)
   const startReview = useMutation(api.reviewOperations.startReview)
-  const heartbeat = useMutation(api.reviewer.heartbeat)
+  const loadReviewWorkspace = useAction(api.reviewer.reviewWorkspace)
+  const [workspaceLoad, setWorkspaceLoad] = useState<WorkspaceLoadState | null>(null)
+  const workspaceRequestRef = useRef<ActiveReview['id'] | null>(null)
 
   useEffect(() => {
     if (!platform) return
@@ -161,47 +177,60 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     api.reviewer.now,
     deviceRecord ? { eventSlug, installationId: deviceRecord.installationId } : 'skip',
   )
-  const heartbeatRoundId = current?.panel?.round.id ?? current?.reserve?.round.id
+  const reviewSessionId = current?.review?.id
+  useEffect(() => {
+    if (
+      !reviewSessionId ||
+      workspaceLoad?.reviewSessionId === reviewSessionId ||
+      workspaceRequestRef.current === reviewSessionId
+    ) {
+      return
+    }
+    workspaceRequestRef.current = reviewSessionId
+    let active = true
+    void loadReviewWorkspace({ eventSlug, reviewSessionId }).then(
+      (value) => {
+        if (active) setWorkspaceLoad({ reviewSessionId, value })
+      },
+      (caught: unknown) => {
+        if (active) {
+          setWorkspaceLoad({
+            reviewSessionId,
+            error: errorMessage(caught, 'The fixed review evidence could not be loaded.'),
+          })
+        }
+      },
+    )
+    return () => {
+      active = false
+    }
+  }, [eventSlug, loadReviewWorkspace, reviewSessionId, workspaceLoad?.reviewSessionId])
+  const workspace =
+    workspaceLoad && workspaceLoad.reviewSessionId === reviewSessionId && 'value' in workspaceLoad
+      ? workspaceLoad.value
+      : null
+  const workspaceError =
+    workspaceLoad && workspaceLoad.reviewSessionId === reviewSessionId && 'error' in workspaceLoad
+      ? workspaceLoad.error
+      : null
+  const retryWorkspace = () => {
+    workspaceRequestRef.current = null
+    setWorkspaceLoad(null)
+  }
+  const scorecard = useQuery(
+    api.reviewer.scorecard,
+    reviewSessionId ? { eventSlug, reviewSessionId } : 'skip',
+  )
+  const workspaceReview: WorkspaceReview | null =
+    current?.review && workspace && scorecard
+      ? { ...current.review, ...workspace, scorecard }
+      : null
   const heartbeatStatus = current?.panel?.clockIn?.status ?? current?.reserve?.clockIn?.status
-  const heartbeatInstallationId = deviceRecord?.installationId
 
-  /* An error describes an action the server refused, under the duty state it
-     refused it in. Once that state moves on the sentence is no longer true,
-     and leaving it up tells a reviewer who is on duty that they are not — so
-     it is remembered against that state rather than cleared by an effect. */
   const setError = (message: string | null) => {
     setErrorState(message === null ? null : { message, raisedWhile: heartbeatStatus })
   }
   const visibleError = error && error.raisedWhile === heartbeatStatus ? error.message : null
-
-  useEffect(() => {
-    if (
-      !heartbeatInstallationId ||
-      !heartbeatRoundId ||
-      (heartbeatStatus !== 'present' && heartbeatStatus !== 'temporarily_unavailable')
-    ) {
-      return
-    }
-    let active = true
-    const send = async () => {
-      try {
-        await heartbeat({
-          eventSlug,
-          roundId: heartbeatRoundId,
-          installationId: heartbeatInstallationId,
-        })
-        if (active) setHeartbeatIssue(null)
-      } catch {
-        if (active) setHeartbeatIssue('Live panel connection is interrupted. Actions still require a server response.')
-      }
-    }
-    void send()
-    const timer = setInterval(() => void send(), 45_000)
-    return () => {
-      active = false
-      clearInterval(timer)
-    }
-  }, [eventSlug, heartbeat, heartbeatInstallationId, heartbeatRoundId, heartbeatStatus])
 
   if (!platform) {
     return (
@@ -212,13 +241,13 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     )
   }
   if (deviceState.status === 'loading') {
-    return <Panel><Text style={styles.body}>Loading reviewer setup…</Text></Panel>
+    return <Panel><JudgingSkeleton /></Panel>
   }
   if (deviceState.status === 'error') {
     return (
       <Panel>
         <Text style={styles.heading}>Reviewer setup needs attention</Text>
-        <Text style={styles.error}>{deviceState.message}</Text>
+        <Problem>{deviceState.message}</Problem>
       </Panel>
     )
   }
@@ -244,17 +273,17 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
       <Panel>
         <Text style={styles.heading}>Set up reviewer mode</Text>
         <Text style={styles.body}>This creates one installation record for the signed-in reviewer on this phone.</Text>
-        <Button
-          label={busy === 'create' ? 'Preparing…' : 'Set up this phone'}
+        <Action
           disabled={busy !== null}
+          label={busy === 'create' ? 'Preparing…' : 'Set up this phone'}
           onPress={createDevice}
         />
-        {error ? <Text style={styles.error}>{error.message}</Text> : null}
+        {error ? <Problem>{error.message}</Problem> : null}
       </Panel>
     )
   }
   if (current === undefined) {
-    return <Panel><Text style={styles.body}>Loading your current panel…</Text></Panel>
+    return <Panel><JudgingSkeleton /></Panel>
   }
   const cameraReady = Boolean(cameraPermission?.granted)
   const notificationsReady = notificationState.status === 'ready'
@@ -272,6 +301,11 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     current.device.pushTokenFingerprint ===
       (notificationState.status === 'ready' ? notificationState.fingerprint : undefined) &&
     current.device.encryptedDraftReady === encryptedDraftReady
+  const panelMode = reviewerPanelMode({
+    deviceIsCurrent,
+    hasAssignment: assignment !== null && assignment !== undefined,
+    hasReview: current.review !== null && current.review !== undefined,
+  })
 
   const requestNotifications = async () => {
     setError(null)
@@ -283,30 +317,61 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
 
   const saveDeviceRegistration = async () => {
     if (busy) return
+    let attemptedRecord = deviceRecord
     setBusy('register')
     setError(null)
     try {
-      await registerDevice({
-        eventSlug,
-        installationId: deviceRecord.installationId,
-        name: deviceRecord.deviceName,
-        platform: deviceRecord.platform,
+      const prepared = await prepareReviewerRegistration(eventSlug, deviceRecord, {
         appBuild: runtime.configuration.appBuild,
         cameraReady,
         ...(notificationState.status === 'ready'
           ? {
-              pushToken: notificationState.token,
-              pushProvider: notificationState.provider,
-              pushEnvironment: notificationState.environment,
+              push: {
+                token: notificationState.token,
+                provider: notificationState.provider,
+                environment: notificationState.environment,
+              },
             }
           : {}),
         encryptedDraftReady,
         expectedVersion: current.device?.version ?? 0,
-        clientOperationId: deviceRecord.registrationOperationId,
       })
-      const nextRecord = await rotateReviewerRegistration(eventSlug, deviceRecord)
+      attemptedRecord = prepared.record
+      setDeviceState({ status: 'ready', record: prepared.record })
+      const command = prepared.attempt
+      await registerDevice({
+        eventSlug,
+        installationId: prepared.record.installationId,
+        name: prepared.record.deviceName,
+        platform: prepared.record.platform,
+        appBuild: command.appBuild,
+        cameraReady: command.cameraReady,
+        ...(command.push
+          ? {
+              pushToken: command.push.token,
+              pushProvider: command.push.provider,
+              pushEnvironment: command.push.environment,
+            }
+          : {}),
+        encryptedDraftReady: command.encryptedDraftReady,
+        expectedVersion: command.expectedVersion,
+        clientOperationId: command.clientOperationId,
+      })
+      const nextRecord = await clearReviewerRegistration(
+        eventSlug,
+        prepared.record,
+        command.clientOperationId,
+      )
       setDeviceState({ status: 'ready', record: nextRecord })
     } catch (caught) {
+      if (caught instanceof ConvexError && attemptedRecord.registrationAttempt) {
+        const nextRecord = await clearReviewerRegistration(
+          eventSlug,
+          attemptedRecord,
+          attemptedRecord.registrationAttempt.clientOperationId,
+        )
+        setDeviceState({ status: 'ready', record: nextRecord })
+      }
       setError(errorMessage(caught, 'This phone could not be registered.'))
     } finally {
       setBusy(null)
@@ -315,19 +380,19 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
 
   const clockIntoRound = async () => {
     if (!assignment || busy) return
-    const clientOperationId = clockInOperationRef.current ?? randomUUID()
-    clockInOperationRef.current = clientOperationId
     setBusy('clock_in')
     setError(null)
     try {
-      await clockIn({
-        eventSlug,
-        roundId: assignment.round.id,
-        installationId: deviceRecord.installationId,
-        expectedVersion: assignment.clockIn?.version ?? 0,
-        clientOperationId,
+      await clockInAttempt.run('reviewer-clock-in', () => {
+        const args = {
+          eventSlug,
+          roundId: assignment.round.id,
+          installationId: deviceRecord.installationId,
+          expectedVersion: assignment.clockIn?.version ?? 0,
+          clientOperationId: randomUUID(),
+        }
+        return () => clockIn(args)
       })
-      clockInOperationRef.current = null
     } catch (caught) {
       setError(errorMessage(caught, 'Clock-in could not be completed.'))
     } finally {
@@ -337,19 +402,19 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
 
   const beginReview = async () => {
     if (!current.review || busy) return
-    const clientOperationId = startOperationRef.current ?? randomUUID()
-    startOperationRef.current = clientOperationId
     setBusy('start')
     setError(null)
     try {
-      await startReview({
-        eventSlug,
-        reviewSessionId: current.review.id,
-        expectedVersion: current.review.version,
-        reason: 'Panel coordinator started the scheduled review',
-        clientOperationId,
+      await startAttempt.run('review-start', () => {
+        const args = {
+          eventSlug,
+          reviewSessionId: current.review.id,
+          expectedVersion: current.review.version,
+          reason: 'Panel coordinator started the scheduled review',
+          clientOperationId: randomUUID(),
+        }
+        return () => startReview(args)
       })
-      startOperationRef.current = null
     } catch (caught) {
       setError(errorMessage(caught, 'The review could not start.'))
     } finally {
@@ -357,7 +422,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     }
   }
 
-  if (!current.panel && !current.reserve && !current.review) {
+  if (panelMode === 'empty') {
     return (
       <Panel>
         <Nothing>No current review duty</Nothing>
@@ -371,14 +436,34 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     ? review.assignment.reviewerPresenceCount === review.assignment.reviewerCount
     : false
 
+  const liveScoring = Boolean(
+    review &&
+      workspaceReview &&
+      (review.status === 'active' ||
+        review.status === 'overdue' ||
+        workspaceReview.scorecard.status === 'correction_open'),
+  )
+
+  // One skeleton, not a chain of them: while the workspace for a live review
+  // is still on its way, keep showing the same full-screen skeleton the
+  // earlier loading states used instead of a heading with a second skeleton.
+  if (
+    review &&
+    !workspaceReview &&
+    !workspaceError &&
+    (review.status === 'active' || review.status === 'overdue')
+  ) {
+    return <Panel><JudgingSkeleton /></Panel>
+  }
+
   return (
     <Panel>
-      <View style={styles.headingRow}>
-        <View style={styles.flex}>
-          <Text style={styles.heading}>{assignment?.round.name ?? review?.round.name}</Text>
-        </View>
-        {review?.team.tableLabel ? <Text style={styles.table}>{review.team.tableLabel}</Text> : null}
-      </View>
+      {/* During live scoring the criterion is the page; the round name yields. */}
+      {liveScoring ? null : (
+        <Text style={styles.heading}>
+          {assignment?.round.name ?? review?.round.name ?? 'Set up reviewer mode'}
+        </Text>
+      )}
 
       <Stack.Screen
         options={{
@@ -414,7 +499,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
         </View>
       ) : null}
 
-      {!deviceIsCurrent && assignment ? (
+      {panelMode === 'setup' ? (
         <ReviewerSetup
           busy={busy !== null || notificationState.status === 'loading'}
           cameraReady={cameraReady}
@@ -436,38 +521,35 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
         />
       ) : null}
 
-      {/* Reachable from the checklist, and on Android from the duty screen too:
-          two of its switches cannot be read back, so granting notifications
-          must not hide the screen explaining why a page still arrives
-          silently. */}
-      {deviceIsCurrent && (!notificationsReady || Platform.OS === 'android') ? (
-        <Button label="Getting paged" secondary onPress={() => setPagingOpen(true)} />
+      {deviceIsCurrent &&
+      (!notificationsReady || current.device?.pushTokenStatus === 'invalid') ? (
+        <QuietAction label="Getting paged" onPress={() => setPagingOpen(true)} />
       ) : null}
       <Sheet onClose={() => setPagingOpen(false)} title="Getting paged" visible={pagingOpen}>
         <PagingSetup
           onDone={() => setPagingOpen(false)}
           requestPermission={requestNotifications}
+          tokenMissing={
+            notificationState.status !== 'ready' && notificationState.status !== 'loading'
+          }
           tokenRejected={current.device?.pushTokenStatus === 'invalid'}
         />
       </Sheet>
 
-      {/* The checklist says what is missing; these say the phone itself is the
-          problem, which no amount of pressing will fix. */}
       {notificationState.status === 'unavailable' && round?.requiresNotifications ? (
-        <Text style={styles.error}>{notificationState.message}</Text>
+        <Problem>{notificationState.message}</Problem>
       ) : null}
       {draftStorageState.status === 'unavailable' ? (
-        <Text style={styles.error}>{draftStorageState.message}</Text>
+        <Problem>{draftStorageState.message}</Problem>
       ) : null}
 
       {deviceIsCurrent && assignment && !review ? (
-        <DutyRing
-          accent={palette.judging}
-          busy={busy === 'clock_in'}
-          {...(clockedIn ? { detail: dutyStateDetail(current) } : {})}
-          disabled={busy !== null || !checksMeetRound}
-          label={clockedIn ? 'On duty' : assignment.clockIn ? 'Return to duty' : 'Clock in'}
-          on={clockedIn}
+        <ClockInControl
+          assignment={assignment}
+          busy={busy}
+          checksMeetRound={checksMeetRound}
+          clockedIn={clockedIn}
+          current={current}
           onPress={clockIntoRound}
         />
       ) : null}
@@ -486,8 +568,18 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
 
       {review ? (
         <>
-          <View style={styles.rule} />
-          <ReviewHeading review={review} serverNow={current.serverNow} />
+          {liveScoring ? null : <View style={styles.rule} />}
+          {workspaceReview ? (
+            <ReviewHeading review={workspaceReview} serverNow={current.serverNow} />
+          ) : (
+            <JudgingSkeleton />
+          )}
+          {workspaceError ? (
+            <View style={styles.waiting}>
+              <Problem>{workspaceError}</Problem>
+              <QuietAction label="Retry fixed evidence" onPress={retryWorkspace} />
+            </View>
+          ) : null}
           {review.status === 'awaiting_presence' ? (
             <ConflictReport eventSlug={eventSlug} review={review} />
           ) : null}
@@ -495,6 +587,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
             <ReviewQrScanner
               eventSlug={eventSlug}
               installationId={deviceRecord.installationId}
+              reviewSessionId={review.id}
             />
           ) : null}
           {review.assignment.reviewerPresenceConfirmed && review.status === 'awaiting_presence' ? (
@@ -510,35 +603,37 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
                   : `${review.assignment.reviewerPresenceCount} of ${review.assignment.reviewerCount} reviewers are confirmed.`}
               </Text>
               {everyonePresent && review.assignment.isCoordinator && !round?.isPaused ? (
-                <Button
-                  label={busy === 'start' ? 'Starting…' : 'Start review'}
+                <Action
                   disabled={busy !== null}
+                  label={busy === 'start' ? 'Starting…' : 'Start review'}
                   onPress={beginReview}
                 />
               ) : null}
             </View>
           ) : null}
-          {review.status === 'active' || review.status === 'overdue' ? (
+          {workspaceReview && (review.status === 'active' || review.status === 'overdue') ? (
             <ReviewWorkspace
+              key={reviewWorkspaceKey(workspaceReview)}
               eventSlug={eventSlug}
               installationId={deviceRecord.installationId}
-              review={review}
+              review={workspaceReview}
             />
           ) : null}
-          {review.scorecard.status === 'correction_open' ? (
+          {workspaceReview?.scorecard.status === 'correction_open' ? (
             <ReviewWorkspace
+              key={reviewWorkspaceKey(workspaceReview)}
               eventSlug={eventSlug}
               installationId={deviceRecord.installationId}
-              review={review}
+              review={workspaceReview}
             />
           ) : null}
         </>
       ) : null}
 
-      <CorrectionRequests eventSlug={eventSlug} />
+      {review ? null : <CorrectionRequests eventSlug={eventSlug} />}
 
-      {visibleError ? <Text style={styles.error}>{visibleError}</Text> : null}
-      {heartbeatIssue ? <Text style={styles.error}>{heartbeatIssue}</Text> : null}
+      {reviewHeartbeatIssue ? <Problem>{reviewHeartbeatIssue}</Problem> : null}
+      <ErrorSheet message={visibleError} onClose={() => setError(null)} />
     </Panel>
   )
 }
@@ -551,32 +646,28 @@ function CorrectionRequests({ eventSlug }: { eventSlug: string }) {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const requestAttempt = useMutationAttempt<FunctionReturnType<typeof api.scoreGovernance.requestCorrection>>()
+  const requestPending = requestAttempt.hasPending('correction-request')
 
   if (options === undefined || options.length === 0) return null
-
-  const resetOperation = () => {
-    operationRef.current = null
-    setError(null)
-  }
 
   const submit = async () => {
     const option = options.find((candidate) => candidate.scorecardId === selectedScorecardId)
     if (!option || !option.canRequest || reason.trim().length < 5 || busy) return
-    const clientOperationId = operationRef.current ?? randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await requestCorrection({
-        eventSlug,
-        scorecardId: option.scorecardId,
-        expectedScorecardVersion: option.scorecardVersion,
-        category,
-        reason,
-        clientOperationId,
+      await requestAttempt.run('correction-request', () => {
+        const args = {
+          eventSlug,
+          scorecardId: option.scorecardId,
+          expectedScorecardVersion: option.scorecardVersion,
+          category,
+          reason,
+          clientOperationId: randomUUID(),
+        }
+        return () => requestCorrection(args)
       })
-      operationRef.current = null
       setSelectedScorecardId(null)
       setReason('')
     } catch (caught) {
@@ -608,67 +699,55 @@ function CorrectionRequests({ eventSlug }: { eventSlug: string }) {
               <Text style={styles.body}>The previous correction was submitted and retained in history.</Text>
             ) : null}
             {option.canRequest && !selected ? (
-              <Button
+              <QuietAction
                 label="Request correction"
-                secondary
                 onPress={() => {
-                  setSelectedScorecardId(option.scorecardId)
-                  setCategory('reviewer_error')
-                  setReason('')
-                  resetOperation()
+                  if (!requestPending) {
+                    setSelectedScorecardId(option.scorecardId)
+                    setCategory('reviewer_error')
+                    setReason('')
+                  }
                 }}
               />
             ) : null}
             {selected ? (
               <View style={styles.availabilityBlock}>
                 <Text style={styles.label}>What happened?</Text>
-                <View style={styles.buttonRow}>
-                  <Button
-                    label="My scoring error"
-                    secondary={category !== 'reviewer_error'}
-                    onPress={() => {
-                      setCategory('reviewer_error')
-                      resetOperation()
-                    }}
-                  />
-                  <Button
-                    label="Technical issue"
-                    secondary={category !== 'technical_error'}
-                    onPress={() => {
-                      setCategory('technical_error')
-                      resetOperation()
-                    }}
-                  />
-                </View>
+                <ChipRow
+                  onSelect={(value: CorrectionCategory) => {
+                    if (!requestPending) setCategory(value)
+                  }}
+                  options={[
+                    ['reviewer_error', 'My scoring error'],
+                    ['technical_error', 'Technical issue'],
+                    ['other', 'Other'],
+                  ]}
+                  selected={category}
+                />
                 <TextInput
-                  editable={!busy}
+                  editable={!busy && !requestPending}
                   multiline
                   onChangeText={(value) => {
                     setReason(value)
-                    resetOperation()
                   }}
                   placeholder="Briefly explain what needs correction"
                   placeholderTextColor={palette.faint}
                   style={styles.input}
                   value={reason}
                 />
-                <View style={styles.buttonRow}>
-                  <Button
-                    label={busy ? 'Sending…' : 'Send request'}
-                    disabled={busy || reason.trim().length < 5}
-                    onPress={submit}
-                  />
-                  <Button
-                    label="Cancel"
-                    disabled={busy}
-                    secondary
-                    onPress={() => {
-                      setSelectedScorecardId(null)
-                      setReason('')
-                      resetOperation()
-                    }}
-                  />
-                </View>
+                <Action
+                  disabled={busy || reason.trim().length < 5}
+                  label={busy ? 'Sending…' : requestPending ? 'Confirm request' : 'Send request'}
+                  onPress={submit}
+                />
+                <QuietAction
+                  disabled={busy || requestPending}
+                  label="Cancel"
+                  onPress={() => {
+                    setSelectedScorecardId(null)
+                    if (!requestPending) setReason('')
+                  }}
+                />
               </View>
             ) : null}
           </View>
@@ -694,41 +773,34 @@ function AvailabilityControl({
   const [returnMinutes, setReturnMinutes] = useState<number>(10)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const availabilityAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewer.setAvailability>>()
+  const availabilityPending = availabilityAttempt.hasPending('reviewer-availability')
 
   const clockIn = assignment.clockIn
   if (!clockIn) return null
 
-  const changed = () => {
-    operationRef.current = null
-    setError(null)
-  }
-
   const stepAway = async () => {
-    /* The wheel only offers valid durations, but the mutation's contract is a
-       positive whole number of minutes, so the guard outlives the control that
-       currently happens to satisfy it. */
     const minutes = returnMinutes
     if (!Number.isSafeInteger(minutes) || minutes < 1) {
       setError('Expected return must be a positive whole number of minutes.')
       return
     }
-    const clientOperationId = operationRef.current ?? randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await setAvailability({
-        eventSlug,
-        roundId: assignment.round.id,
-        installationId,
-        status: 'temporarily_unavailable',
-        reason,
-        expectedReturnAt: Date.now() + minutes * 60_000,
-        expectedVersion: clockIn.version,
-        clientOperationId,
+      await availabilityAttempt.run('reviewer-availability', () => {
+        const args = {
+          eventSlug,
+          roundId: assignment.round.id,
+          installationId,
+          status: 'temporarily_unavailable' as const,
+          reason,
+          expectedReturnMinutes: minutes,
+          expectedVersion: clockIn.version,
+          clientOperationId: randomUUID(),
+        }
+        return () => setAvailability(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(errorMessage(caught, 'Availability could not be changed.'))
     } finally {
@@ -738,14 +810,14 @@ function AvailabilityControl({
 
   return (
     <>
-      <Button label="Step away briefly" secondary onPress={() => setOpen(true)} />
+      <QuietAction label="Step away briefly" onPress={() => setOpen(true)} />
       <Sheet onClose={() => setOpen(false)} title="Step away" visible={open}>
       <Text style={styles.label}>Short operational reason</Text>
       <TextInput
-        editable={!busy}
+        editable={!busy && !availabilityPending}
         onChangeText={(value) => {
           setReason(value)
-          changed()
+          setError(null)
         }}
         placeholder="For example: returning after a break"
         placeholderTextColor={palette.faint}
@@ -753,25 +825,19 @@ function AvailabilityControl({
         value={reason}
       />
       <Text style={styles.label}>Expected return in minutes</Text>
-      <Host style={styles.wheel}>
-        <Picker
-          modifiers={[pickerStyle('wheel'), disabledModifier(busy)]}
-          onSelectionChange={(minutes: number) => {
-            setReturnMinutes(minutes)
-            changed()
-          }}
-          selection={returnMinutes}
-        >
-          {returnChoices.map((minutes) => (
-            <WheelText key={minutes} modifiers={[tag(minutes)]}>
-              {String(minutes)}
-            </WheelText>
-          ))}
-        </Picker>
-      </Host>
-      <Button
-        label={busy ? 'Updating…' : 'Confirm step away'}
+      <ChipRow
+        accent={palette.judging}
+        onSelect={(value) => {
+          if (busy || availabilityPending) return
+          setReturnMinutes(Number(value))
+          setError(null)
+        }}
+        options={returnChoices.map((minutes) => [String(minutes), String(minutes)] as const)}
+        selected={String(returnMinutes)}
+      />
+      <Action
         disabled={busy || reason.trim().length < 3}
+        label={busy ? 'Updating…' : availabilityPending ? 'Confirm earlier update' : 'Confirm step away'}
         onPress={stepAway}
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -786,22 +852,23 @@ function ConflictReport({ eventSlug, review }: { eventSlug: string; review: Acti
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const conflictAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewer.reportConflict>>()
+  const conflictPending = conflictAttempt.hasPending('review-conflict')
 
   const submit = async () => {
     if (busy || reason.trim().length < 3) return
-    const clientOperationId = operationRef.current ?? randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await reportConflict({
-        eventSlug,
-        reviewSessionId: review.id,
-        reason,
-        clientOperationId,
+      await conflictAttempt.run('review-conflict', () => {
+        const args = {
+          eventSlug,
+          reviewSessionId: review.id,
+          reason,
+          clientOperationId: randomUUID(),
+        }
+        return () => reportConflict(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(errorMessage(caught, 'The conflict could not be reported.'))
     } finally {
@@ -815,15 +882,12 @@ function ConflictReport({ eventSlug, review }: { eventSlug: string; review: Acti
         <Text style={styles.textButton}>I have a conflict with this team</Text>
       </Pressable>
       <Sheet onClose={() => setOpen(false)} title="Report a conflict" visible={open}>
-      {/* This cancels the pending review and reroutes the team, so it says so
-          rather than leaving somebody to find out by pressing it. */}
       <Text style={styles.body}>The team returns to the queue for another panel.</Text>
       <TextInput
-        editable={!busy}
+        editable={!busy && !conflictPending}
         multiline
         onChangeText={(value) => {
           setReason(value)
-          operationRef.current = null
           setError(null)
         }}
         placeholder="Brief relationship or policy conflict"
@@ -831,9 +895,10 @@ function ConflictReport({ eventSlug, review }: { eventSlug: string; review: Acti
         style={styles.input}
         value={reason}
       />
-      <Button
-        label={busy ? 'Reporting…' : 'Report and reroute team'}
+      <Action
+        destructive
         disabled={busy || reason.trim().length < 3}
+        label={busy ? 'Reporting…' : conflictPending ? 'Confirm conflict report' : 'Report and reroute team'}
         onPress={submit}
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -845,9 +910,11 @@ function ConflictReport({ eventSlug, review }: { eventSlug: string; review: Acti
 function ReviewQrScanner({
   eventSlug,
   installationId,
+  reviewSessionId,
 }: {
   eventSlug: string
   installationId: string
+  reviewSessionId: ActiveReview['id']
 }) {
   const [permission, requestPermission] = useCameraPermissions()
   const confirmPresence = useMutation(api.reviewer.confirmPresence)
@@ -865,7 +932,7 @@ function ReviewQrScanner({
     setScanning(false)
     setError(null)
     try {
-      await confirmPresence({ eventSlug, installationId, payload })
+      await confirmPresence({ eventSlug, installationId, reviewSessionId, payload })
       setManualCode('')
     } catch (caught) {
       setError(errorMessage(caught, 'The team code could not be confirmed.'))
@@ -894,14 +961,12 @@ function ReviewQrScanner({
           style={styles.codeInput}
           value={manualCode}
         />
-        <View style={styles.buttonRow}>
-          <Button
-            label="Confirm team code"
-            disabled={manualCode.replaceAll(/[^A-Z0-9]/g, '').length !== 12 || busy}
-            onPress={() => confirm(manualCode)}
-          />
-          <Button label="Cancel" secondary onPress={() => setManualOpen(false)} />
-        </View>
+        <Action
+          disabled={manualCode.replaceAll(/[^A-Z0-9]/g, '').length !== 12 || busy}
+          label="Confirm team code"
+          onPress={() => confirm(manualCode)}
+        />
+        <QuietAction label="Cancel" onPress={() => setManualOpen(false)} />
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
     )
@@ -911,8 +976,8 @@ function ReviewQrScanner({
     return (
       <View style={styles.waiting}>
         <Text style={styles.body}>Camera access is needed to scan the team’s short-lived code.</Text>
-        <Button label="Allow camera" onPress={async () => { await requestPermission() }} />
-        <Button label="Type code instead" secondary onPress={() => setManualOpen(true)} />
+        <Action label="Allow camera" onPress={async () => { await requestPermission() }} />
+        <QuietAction label="Type code instead" onPress={() => setManualOpen(true)} />
       </View>
     )
   }
@@ -920,8 +985,8 @@ function ReviewQrScanner({
     return (
       <View style={styles.waiting}>
         <Text style={styles.body}>Ask the team to open its current review code.</Text>
-        <Button label="Scan team code" onPress={() => setScanning(true)} />
-        <Button label="Type code instead" secondary onPress={() => setManualOpen(true)} />
+        <Action label="Scan team code" onPress={() => setScanning(true)} />
+        <QuietAction label="Type code instead" onPress={() => setManualOpen(true)} />
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
     )
@@ -933,17 +998,91 @@ function ReviewQrScanner({
         onBarcodeScanned={scan}
         style={styles.camera}
       />
-      <Button label="Cancel scan" secondary onPress={() => setScanning(false)} />
+      <QuietAction label="Cancel scan" onPress={() => setScanning(false)} />
     </View>
   )
 }
 
-function ReviewHeading({ review, serverNow }: { review: ActiveReview; serverNow: number }) {
+function ClockInControl({
+  assignment,
+  busy,
+  checksMeetRound,
+  clockedIn,
+  current,
+  onPress,
+}: {
+  assignment: ReviewerAssignment
+  busy: BusyAction
+  checksMeetRound: boolean
+  clockedIn: boolean
+  current: ReviewerNow
+  onPress: () => Promise<void>
+}) {
+  const [estimatedServerNow, setEstimatedServerNow] = useState(current.serverNow)
+  useEffect(() => {
+    const observedAt = Date.now()
+    const timer = setInterval(
+      () => setEstimatedServerNow(current.serverNow + Date.now() - observedAt),
+      1_000,
+    )
+    return () => clearInterval(timer)
+  }, [current.serverNow])
+  const clockInOpen =
+    estimatedServerNow >= assignment.round.clockInOpensAt &&
+    estimatedServerNow < assignment.round.endsAt
+  return (
+    <View style={styles.waiting}>
+      {!clockedIn ? (
+        <Text style={styles.meta}>
+          Report {formatDeviceTime(assignment.round.reviewerReportAt)} · clock-in opens {formatDeviceTime(assignment.round.clockInOpensAt)}
+        </Text>
+      ) : null}
+      <DutyRing
+        accent={palette.judging}
+        busy={busy === 'clock_in'}
+        {...(clockedIn ? { detail: dutyStateDetail(current) } : {})}
+        disabled={busy !== null || !checksMeetRound || (!clockedIn && !clockInOpen)}
+        label={clockedIn ? 'On duty' : assignment.clockIn ? 'Return to duty' : 'Clock in'}
+        on={clockedIn}
+        onPress={onPress}
+      />
+    </View>
+  )
+}
+
+function ReviewHeading({ review, serverNow }: { review: WorkspaceReview; serverNow: number }) {
+  const scoring =
+    review.status === 'active' ||
+    review.status === 'overdue' ||
+    review.scorecard.status === 'correction_open'
+  if (scoring) {
+    return (
+      <View style={styles.contextBar}>
+        <View style={styles.contextText}>
+          <Text numberOfLines={1} style={styles.contextTeam}>{review.team.name}</Text>
+          <Text numberOfLines={1} style={styles.contextDetail}>
+            {review.project.trackName}
+            {review.project.sponsorTracks.length > 0
+              ? ` · ${review.project.sponsorTracks.map((track) => track.name).join(', ')}`
+              : ''}
+          </Text>
+        </View>
+        {review.plannedEndAt ? (
+          <ReviewClock
+            key={serverNow}
+            overdue={review.status === 'overdue'}
+            plannedEndAt={review.plannedEndAt}
+            serverNow={serverNow}
+          />
+        ) : null}
+      </View>
+    )
+  }
   return (
     <View style={styles.reviewHeading}>
-      {/* Spot labels come verbatim from the operator's floor plan and often
-          already read "Table 12", so they are never prefixed. */}
-      <Text style={styles.eyebrow}>{review.team.tableLabel ?? 'No table yet'}</Text>
+      <Text ellipsizeMode="tail" numberOfLines={1} style={styles.eyebrow}>
+        {review.team.tableLabel ?? 'No table yet'}
+      </Text>
       <Text style={styles.reviewTitle}>{review.team.name}</Text>
       <Text style={styles.body}>{review.project.trackName}</Text>
       {review.project.sponsorTracks.length > 0 ? (
@@ -953,14 +1092,6 @@ function ReviewHeading({ review, serverNow }: { review: ActiveReview; serverNow:
             <Text key={track.id} style={styles.meta}>{track.name} · {track.eligibilityText}</Text>
           ))}
         </View>
-      ) : null}
-      {review.plannedEndAt ? (
-        <ReviewClock
-          key={serverNow}
-          overdue={review.status === 'overdue'}
-          plannedEndAt={review.plannedEndAt}
-          serverNow={serverNow}
-        />
       ) : null}
     </View>
   )
@@ -986,12 +1117,20 @@ function ReviewClock({
   }, [serverNow])
   const remainingSeconds = Math.ceil((plannedEndAt - estimatedServerNow) / 1_000)
   const absoluteSeconds = Math.abs(remainingSeconds)
-  const minutes = Math.floor(absoluteSeconds / 60)
+  const hours = Math.floor(absoluteSeconds / 3_600)
+  const minutes = Math.floor((absoluteSeconds % 3_600) / 60)
   const seconds = absoluteSeconds % 60
+  const display =
+    hours > 0
+      ? `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+      : `${minutes}:${seconds.toString().padStart(2, '0')}`
+  const late = overdue || remainingSeconds < 0
   return (
-    <Text style={overdue || remainingSeconds < 0 ? styles.overdue : styles.timer}>
-      {remainingSeconds < 0 ? '+' : ''}{minutes}:{seconds.toString().padStart(2, '0')}
-    </Text>
+    <View style={styles.clockChip}>
+      <Text style={[styles.clockText, late ? styles.clockLate : null]}>
+        {remainingSeconds < 0 ? '+' : ''}{display}
+      </Text>
+    </View>
   )
 }
 
@@ -1002,57 +1141,173 @@ function ReviewWorkspace({
 }: {
   eventSlug: string
   installationId: string
-  review: ActiveReview
+  review: WorkspaceReview
 }) {
+  const [evidenceOpen, setEvidenceOpen] = useState(false)
   return (
     <View style={styles.workspace}>
-      <ProjectEvidence eventSlug={eventSlug} review={review} />
-      {review.assignment.isCoordinator && review.scorecard.status !== 'correction_open' ? (
-        <CoordinatorNotes eventSlug={eventSlug} review={review} />
-      ) : null}
+      <Pressable
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={() => setEvidenceOpen(true)}
+        style={({ pressed }) => [styles.evidenceLink, pressed ? styles.disabled : null]}
+      >
+        <Text style={styles.evidenceLinkText}>Project details</Text>
+        <Text style={styles.evidenceLinkChevron}>›</Text>
+      </Pressable>
       <ScorecardEditor
         eventSlug={eventSlug}
         installationId={installationId}
         review={review}
       />
+      {review.assignment.isCoordinator && review.scorecard.status !== 'correction_open' ? (
+        <CoordinatorNotes eventSlug={eventSlug} review={review} />
+      ) : null}
+      <Sheet
+        onClose={() => setEvidenceOpen(false)}
+        title="Project details"
+        visible={evidenceOpen}
+      >
+        <ScrollView showsVerticalScrollIndicator={false} style={styles.evidenceSheet}>
+          <ProjectEvidence eventSlug={eventSlug} review={review} />
+        </ScrollView>
+      </Sheet>
     </View>
   )
 }
 
-function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: ActiveReview }) {
+function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: WorkspaceReview }) {
   const saveSharedNotes = useMutation(api.reviewOperations.saveSharedNotes)
+  const [initialNotes] = useState(() => ({
+    reviewSessionId: review.id,
+    serverNotesVersion: review.sharedNotesVersion,
+    findings: review.sharedFindings ?? '',
+    commitments: review.sharedCommitments ?? '',
+  }))
   const [findings, setFindings] = useState(review.sharedFindings ?? '')
   const [commitments, setCommitments] = useState(review.sharedCommitments ?? '')
   const [notesVersion, setNotesVersion] = useState(review.sharedNotesVersion)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const [localError, setLocalError] = useState<string | null>(null)
+  const [localState, setLocalState] = useState<'loading' | 'ready' | 'restored'>('loading')
+  const editRevisionRef = useRef(0)
+  const mountedRef = useRef(true)
+  const saveAttempt = useMutationAttempt<{ sharedNotesVersion: number; editRevision: number }>()
+  const [localDraftWriter] = useState(() => createLatestDraftWriter(saveLocalCoordinatorNotes))
+  const effectiveNotesVersion = Math.max(notesVersion, review.sharedNotesVersion)
+
+  useLayoutEffect(() => {
+    localDraftWriter.update(
+      dirty && localState !== 'loading'
+        ? {
+            eventSlug,
+            reviewSessionId: review.id,
+            serverNotesVersion: effectiveNotesVersion,
+            findings,
+            commitments,
+          }
+        : null,
+    )
+  }, [commitments, dirty, effectiveNotesVersion, eventSlug, findings, localDraftWriter, localState, review.id])
+
+  const persistLocalNotes = useCallback(() => {
+    return localDraftWriter.flush().then(
+      () => {
+        if (mountedRef.current) setLocalError(null)
+      },
+      (caught: unknown) => {
+        if (mountedRef.current) {
+          setLocalError(errorMessage(caught, 'The encrypted panel notes could not be updated.'))
+        }
+      },
+    )
+  }, [localDraftWriter])
+
+  useEffect(() => {
+    let active = true
+    void loadLocalCoordinatorNotes(eventSlug, initialNotes.reviewSessionId)
+      .then((stored) => {
+        if (!active) return
+        if (stored) {
+          setFindings(stored.findings)
+          setCommitments(stored.commitments)
+          setNotesVersion(Math.max(stored.serverNotesVersion, initialNotes.serverNotesVersion))
+          editRevisionRef.current += 1
+          setDirty(true)
+          setLocalState('restored')
+          return
+        }
+        setLocalState('ready')
+      })
+      .catch((caught: unknown) => {
+        if (!active) return
+        setLocalError(errorMessage(caught, 'Encrypted panel-note storage is unavailable.'))
+        setLocalState('ready')
+      })
+    return () => {
+      active = false
+    }
+  }, [eventSlug, initialNotes])
+
+  useEffect(() => {
+    if (!dirty || localState === 'loading') return
+    const timer = setTimeout(() => void persistLocalNotes(), 250)
+    return () => clearTimeout(timer)
+  }, [commitments, dirty, effectiveNotesVersion, findings, localState, persistLocalNotes])
+
+  useEffect(() => {
+    mountedRef.current = true
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') void persistLocalNotes()
+    })
+    return () => {
+      void persistLocalNotes()
+      mountedRef.current = false
+      subscription.remove()
+    }
+  }, [persistLocalNotes])
 
   const edit = () => {
+    editRevisionRef.current += 1
     setDirty(true)
     setError(null)
-    operationRef.current = null
   }
 
   const save = async () => {
     if (busy || !findings.trim() || !commitments.trim()) return
-    const clientOperationId = operationRef.current ?? randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      const result = await saveSharedNotes({
-        eventSlug,
-        reviewSessionId: review.id,
-        findings,
-        commitments,
-        expectedNotesVersion: notesVersion,
-        clientOperationId,
+      const result = await saveAttempt.run('shared-notes-save', () => {
+        const editRevision = editRevisionRef.current
+        const args = {
+          eventSlug,
+          reviewSessionId: review.id,
+          findings,
+          commitments,
+          expectedNotesVersion: effectiveNotesVersion,
+          clientOperationId: randomUUID(),
+        }
+        return async () => ({
+          ...await saveSharedNotes(args),
+          editRevision,
+        })
       })
       setNotesVersion(result.sharedNotesVersion)
-      setDirty(false)
-      operationRef.current = null
+      if (result.editRevision === editRevisionRef.current) {
+        localDraftWriter.update(null)
+        setDirty(false)
+        try {
+          await clearLocalCoordinatorNotes(eventSlug, review.id)
+          setLocalError(null)
+        } catch (caught) {
+          setLocalError(errorMessage(caught, 'The saved local panel notes could not be cleared.'))
+        }
+      } else {
+        setError('The earlier panel notes were confirmed. Your newer edits are still here; save again.')
+      }
     } catch (caught) {
       setError(errorMessage(caught, 'The shared notes could not be saved.'))
     } finally {
@@ -1063,6 +1318,7 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Ac
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>Panel notes</Text>
+      {localError ? <Problem>{localError}</Problem> : null}
       <Text style={styles.label}>What did the panel observe?</Text>
       <TextInput
         editable={!busy}
@@ -1089,10 +1345,9 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Ac
         style={styles.input}
         value={commitments}
       />
-      <Button
+      <QuietAction
+        disabled={busy || localState === 'loading' || !dirty || !findings.trim() || !commitments.trim()}
         label={busy ? 'Saving…' : dirty ? 'Save panel notes' : 'Panel notes saved'}
-        disabled={busy || !dirty || !findings.trim() || !commitments.trim()}
-        secondary
         onPress={save}
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -1107,7 +1362,7 @@ function ScorecardEditor({
 }: {
   eventSlug: string
   installationId: string
-  review: ActiveReview
+  review: WorkspaceReview
 }) {
   const saveScorecardDraft = useMutation(api.reviewer.saveDraft)
   const submitScorecard = useMutation(api.reviewer.submitScorecard)
@@ -1118,6 +1373,10 @@ function ScorecardEditor({
     submitted: review.scorecard.status === 'submitted',
   }))
   const [ratings, setRatings] = useState<Rating[]>(review.scorecard.ratings)
+  // One criterion per step; the step past the last criterion is the summary.
+  const [step, setStep] = useState(() =>
+    firstUnratedStep(review.criteria, review.scorecard.ratings),
+  )
   const [privateNote, setPrivateNote] = useState(review.scorecard.privateNote ?? '')
   const [draftVersion, setDraftVersion] = useState(review.scorecard.draftVersion)
   const [dirty, setDirty] = useState(false)
@@ -1126,8 +1385,47 @@ function ScorecardEditor({
   const [error, setError] = useState<string | null>(null)
   const [localState, setLocalState] = useState<'loading' | 'ready' | 'restored'>('loading')
   const [localError, setLocalError] = useState<string | null>(null)
-  const saveOperationRef = useRef<string | null>(null)
-  const submitOperationRef = useRef<string | null>(null)
+  const [submitUncertain, setSubmitUncertain] = useState(false)
+  const [submitFailed, setSubmitFailed] = useState(false)
+  const editRevisionRef = useRef(0)
+  const saveAttempt = useMutationAttempt<{ draftVersion: number; editRevision: number }>()
+  const submitAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewer.submitScorecard>>()
+  const [localDraftWriter] = useState(() => createLatestDraftWriter(saveLocalScorecardDraft))
+  const mountedRef = useRef(true)
+  const effectiveDraftVersion = Math.max(draftVersion, review.scorecard.draftVersion)
+
+  useLayoutEffect(() => {
+    localDraftWriter.update(
+      dirty && localState !== 'loading' && !submitted
+        ? {
+            eventSlug,
+            scorecardId: review.scorecard.id,
+            serverDraftVersion: effectiveDraftVersion,
+            ratings: ratings.map((rating) => ({
+              criterionId: rating.criterionId,
+              score: rating.score,
+              ...(rating.evidenceNote !== undefined
+                ? { evidenceNote: rating.evidenceNote }
+                : {}),
+            })),
+            privateNote,
+          }
+        : null,
+    )
+  }, [dirty, effectiveDraftVersion, eventSlug, localDraftWriter, localState, privateNote, ratings, review.scorecard.id, submitted])
+
+  const persistLocalDraft = useCallback(() => {
+    return localDraftWriter.flush().then(
+      () => {
+        if (mountedRef.current) setLocalError(null)
+      },
+      (caught: unknown) => {
+        if (mountedRef.current) {
+          setLocalError(errorMessage(caught, 'The encrypted local draft could not be updated.'))
+        }
+      },
+    )
+  }, [localDraftWriter])
 
   useEffect(() => {
     let active = true
@@ -1140,7 +1438,7 @@ function ScorecardEditor({
           if (active) setLocalState('ready')
           return
         }
-        if (stored && stored.serverDraftVersion === initialDraft.serverDraftVersion) {
+        if (stored) {
           const restoredRatings: Rating[] = stored.ratings.flatMap((storedRating) => {
             const criterion = initialDraft.criteria.find(
               (candidate) => candidate.id === storedRating.criterionId,
@@ -1155,12 +1453,14 @@ function ScorecardEditor({
             }]
           })
           setRatings(restoredRatings)
+          setStep(firstUnratedStep(initialDraft.criteria, restoredRatings))
           setPrivateNote(stored.privateNote)
+          setDraftVersion(Math.max(stored.serverDraftVersion, initialDraft.serverDraftVersion))
+          editRevisionRef.current += 1
           setDirty(true)
           setLocalState('restored')
           return
         }
-        if (stored) await clearLocalScorecardDraft(eventSlug, initialDraft.scorecardId)
         if (active) setLocalState('ready')
       } catch (caught) {
         if (!active) return
@@ -1177,28 +1477,38 @@ function ScorecardEditor({
   useEffect(() => {
     if (!dirty || localState === 'loading' || submitted) return
     const timer = setTimeout(() => {
-      void saveLocalScorecardDraft({
-        eventSlug,
-        scorecardId: review.scorecard.id,
-        serverDraftVersion: draftVersion,
-        ratings: ratings.map((rating) => ({
-          criterionId: rating.criterionId,
-          score: rating.score,
-          ...(rating.evidenceNote !== undefined ? { evidenceNote: rating.evidenceNote } : {}),
-        })),
-        privateNote,
-      }).then(
-        () => setLocalError(null),
-        (caught: unknown) => setLocalError(errorMessage(caught, 'The encrypted local draft could not be updated.')),
-      )
+      void persistLocalDraft()
     }, 250)
     return () => clearTimeout(timer)
-  }, [draftVersion, dirty, eventSlug, localState, privateNote, ratings, review.scorecard.id, submitted])
+  }, [dirty, effectiveDraftVersion, eventSlug, localState, persistLocalDraft, privateNote, ratings, review.scorecard.id, submitted])
+
+  useEffect(() => {
+    mountedRef.current = true
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') void persistLocalDraft()
+    })
+    return () => {
+      void persistLocalDraft()
+      mountedRef.current = false
+      subscription.remove()
+    }
+  }, [persistLocalDraft])
+
+  // The server draft keeps itself current: a beat after the last edit, the
+  // scores go up without a save button. A phone that dies mid-review hands
+  // the draft to whichever device the reviewer signs into next.
+  const saveRef = useRef<() => Promise<number | null>>(async () => null)
+  useEffect(() => {
+    if (!dirty || submitted || submitUncertain || localState === 'loading' || busy !== null) return
+    const timer = setTimeout(() => {
+      void saveRef.current()
+    }, 1_200)
+    return () => clearTimeout(timer)
+  }, [busy, dirty, localState, privateNote, ratings, submitUncertain, submitted])
 
   const edit = () => {
+    editRevisionRef.current += 1
     setDirty(true)
-    saveOperationRef.current = null
-    submitOperationRef.current = null
     setError(null)
   }
 
@@ -1224,30 +1534,40 @@ function ScorecardEditor({
 
   const save = async () => {
     if (busy) return null
-    const clientOperationId = saveOperationRef.current ?? randomUUID()
-    saveOperationRef.current = clientOperationId
     setBusy('save')
     setError(null)
     try {
-      const result = await saveScorecardDraft({
-        eventSlug,
-        installationId,
-        scorecardId: review.scorecard.id,
-        ratings,
-        ...(privateNote.trim() ? { privateNote } : {}),
-        expectedDraftVersion: draftVersion,
-        clientOperationId,
+      const result = await saveAttempt.run('scorecard-draft-save', () => {
+        const editRevision = editRevisionRef.current
+        const args = {
+          eventSlug,
+          installationId,
+          scorecardId: review.scorecard.id,
+          ratings: ratings.map((rating) => ({ ...rating })),
+          ...(privateNote.trim() ? { privateNote } : {}),
+          expectedDraftVersion: effectiveDraftVersion,
+          clientOperationId: randomUUID(),
+        }
+        return async () => ({
+          ...await saveScorecardDraft(args),
+          editRevision,
+        })
       })
       setDraftVersion(result.draftVersion)
-      setDirty(false)
-      saveOperationRef.current = null
-      try {
-        await clearLocalScorecardDraft(eventSlug, review.scorecard.id)
-        setLocalError(null)
-      } catch (caught) {
-        setLocalError(errorMessage(caught, 'The saved local draft could not be cleared.'))
+      if (result.editRevision === editRevisionRef.current) {
+        localDraftWriter.update(null)
+        setDirty(false)
+        try {
+          await clearLocalScorecardDraft(eventSlug, review.scorecard.id)
+          setLocalError(null)
+        } catch (caught) {
+          setLocalError(errorMessage(caught, 'The saved local draft could not be cleared.'))
+        }
+        return result.draftVersion
       }
-      return result.draftVersion
+      // Edits landed while this save was in flight; dirty stays true and the
+      // autosave loop simply carries them on the next pass.
+      return null
     } catch (caught) {
       setError(errorMessage(caught, 'The draft could not be saved.'))
       return null
@@ -1256,22 +1576,29 @@ function ScorecardEditor({
     }
   }
 
+  useEffect(() => {
+    saveRef.current = save
+  })
+
   const submit = async (expectedDraftVersion: number) => {
     if (busy) return
-    const clientOperationId = submitOperationRef.current ?? randomUUID()
-    submitOperationRef.current = clientOperationId
     setBusy('submit')
     setError(null)
+    setSubmitFailed(false)
     try {
-      await submitScorecard({
-        eventSlug,
-        installationId,
-        scorecardId: review.scorecard.id,
-        expectedDraftVersion,
-        clientOperationId,
+      await submitAttempt.run('scorecard-submit', () => {
+        const args = {
+          eventSlug,
+          installationId,
+          scorecardId: review.scorecard.id,
+          expectedDraftVersion,
+          clientOperationId: randomUUID(),
+        }
+        return () => submitScorecard(args)
       })
+      localDraftWriter.update(null)
       setSubmitted(true)
-      submitOperationRef.current = null
+      setSubmitUncertain(false)
       try {
         await clearLocalScorecardDraft(eventSlug, review.scorecard.id)
         setLocalError(null)
@@ -1279,6 +1606,8 @@ function ScorecardEditor({
         setLocalError(errorMessage(caught, 'The submitted local draft could not be cleared.'))
       }
     } catch (caught) {
+      setSubmitUncertain(!(caught instanceof ConvexError))
+      setSubmitFailed(true)
       setError(errorMessage(caught, 'The scorecard could not be submitted.'))
     } finally {
       setBusy(null)
@@ -1286,12 +1615,16 @@ function ScorecardEditor({
   }
 
   const prepareSubmission = async () => {
+    if (submitUncertain) {
+      await submit(effectiveDraftVersion)
+      return
+    }
     const problem = submissionProblem(review.criteria, ratings)
     if (problem) {
       setError(problem)
       return
     }
-    const version = dirty ? await save() : draftVersion
+    const version = dirty ? await save() : effectiveDraftVersion
     if (version === null) return
     Alert.alert(
       'Submit scorecard?',
@@ -1305,135 +1638,234 @@ function ScorecardEditor({
 
   if (submitted) {
     return (
-      <Section title="Submitted">
-        <Body>Your scores are locked. No other reviewer can see them.</Body>
-      </Section>
+      <View style={styles.outcome}>
+        <DrawnMark kind="check" />
+        <Text style={styles.outcomeTitle}>Scorecard submitted</Text>
+        <Text style={styles.outcomeBody}>
+          Your scores are locked, and stay yours alone until release.
+        </Text>
+        <Text style={styles.outcomeNext}>
+          {review.assignment.reviewerCount > 1
+            ? 'When the rest of the panel has submitted, the next review takes over this screen on its own.'
+            : 'The next review takes over this screen on its own.'}
+        </Text>
+      </View>
     )
   }
 
-  const scored = review.criteria.filter((criterion) =>
-    ratings.some((rating) => rating.criterionId === criterion.id),
-  ).length
   const correcting = review.scorecard.status === 'correction_open'
+  // A background save must never lock the inputs; only submitting does.
+  const locked = busy === 'submit' || localState === 'loading' || submitUncertain
+  const summaryStep = review.criteria.length
+  const criterion = step < summaryStep ? review.criteria[step] : undefined
+  const rating = criterion
+    ? ratings.find((candidate) => candidate.criterionId === criterion.id)
+    : undefined
+  const stepNoteMissing =
+    rating !== undefined &&
+    (rating.score === 0 || rating.score === 4) &&
+    (!rating.evidenceNote || rating.evidenceNote.trim().length < 3)
 
   return (
-    <Section title={correcting ? 'Correction' : 'Your scorecard'}>
-      {/* How far through, before anything else. A judge wants to know how many
-          are left far more often than they want to be told the rules. */}
-      <Progress done={scored} total={review.criteria.length} />
-      <Meta>{`${scored} of ${review.criteria.length} scored`}</Meta>
+    <View style={styles.scorecard}>
+      <View style={styles.stepMeter}>
+        {review.criteria.map((candidate, index) => {
+          const rated = ratings.some((entry) => entry.criterionId === candidate.id)
+          return (
+            <Pressable
+              hitSlop={8}
+              key={candidate.id}
+              onPress={() => setStep(index)}
+              style={[
+                styles.stepSegment,
+                index === step ? styles.stepSegmentCurrent : null,
+                rated ? styles.stepSegmentDone : null,
+              ]}
+            />
+          )
+        })}
+      </View>
       {localError ? <Problem>{localError}</Problem> : null}
 
-      {review.criteria.map((criterion) => {
-        const rating = ratings.find((candidate) => candidate.criterionId === criterion.id)
-        // A note is only demanded at the ends of the scale, where a score is a
-        // claim someone may later have to defend.
-        const noteRequired = rating ? rating.score === 0 || rating.score === 4 : false
-        return (
-          <View key={criterion.id} style={styles.criterion}>
-            <Text style={styles.criterionLabel}>{criterion.label}</Text>
-            <Text style={styles.criterionQuestion}>{criterion.question}</Text>
-            <ScoreRow
-              disabled={busy !== null || localState === 'loading'}
-              onSelect={(score) => setScore(criterion.id, score)}
-              scores={scores}
-              selected={rating?.score}
+      {criterion ? (
+        <View style={styles.criterion}>
+          <Meta>
+            {`${correcting ? 'Correction · ' : ''}${step + 1} of ${review.criteria.length}`}
+          </Meta>
+          <Text style={styles.criterionLabel}>{criterion.label}</Text>
+          <Text style={styles.criterionQuestion}>{criterion.question}</Text>
+          <ScoreRow
+            accent={palette.text}
+            disabled={locked}
+            ink={palette.background}
+            onSelect={(score) => setScore(criterion.id, score)}
+            scores={scores}
+            selected={rating?.score}
+          />
+          <Text style={styles.anchor}>
+            {rating ? anchorText(criterion, rating.score) : criterion.guidance}
+          </Text>
+          {rating ? (
+            <Field
+              editable={!locked}
+              label={
+                rating.score === 0 || rating.score === 4
+                  ? 'Why this score (required)'
+                  : 'Note (optional)'
+              }
+              multiline
+              onChangeText={(value) => setEvidenceNote(criterion.id, value)}
+              placeholder="What you saw."
+              value={rating.evidenceNote ?? ''}
             />
-            {/* The anchor for the chosen score, not the whole rubric. Guidance
-                for four scores you did not pick is noise at a table. */}
-            <Text style={styles.anchor}>
-              {rating ? anchorText(criterion, rating.score) : criterion.guidance}
-            </Text>
-            {rating ? (
-              <Field
-                editable={busy === null && localState !== 'loading'}
-                label={noteRequired ? 'Why this score (required)' : 'Note (optional)'}
-                multiline
-                onChangeText={(value) => setEvidenceNote(criterion.id, value)}
-                placeholder="What you saw."
-                value={rating.evidenceNote ?? ''}
-              />
+          ) : null}
+          {error ? <Problem>{error}</Problem> : null}
+          <View style={styles.stepDock}>
+            <Action
+              disabled={rating === undefined || stepNoteMissing || localState === 'loading'}
+              label={step + 1 === summaryStep ? 'Review scores' : 'Next'}
+              onPress={() => setStep(step + 1)}
+            />
+            {step > 0 ? (
+              <QuietAction label="Back" onPress={() => setStep(step - 1)} />
             ) : null}
           </View>
-        )
-      })}
+        </View>
+      ) : (
+        <View style={styles.criterion}>
+          <Meta>Every score, before it locks</Meta>
+          <View>
+            {review.criteria.map((candidate, index) => {
+              const entry = ratings.find((found) => found.criterionId === candidate.id)
+              return (
+                <Pressable
+                  key={candidate.id}
+                  onPress={() => setStep(index)}
+                  style={({ pressed }) => [
+                    styles.summaryRow,
+                    index > 0 ? styles.summaryRowRule : null,
+                    pressed ? styles.summaryPressed : null,
+                  ]}
+                >
+                  <Text style={styles.summaryLabel}>{candidate.label}</Text>
+                  <Text style={entry ? styles.summaryScore : styles.summaryMissing}>
+                    {entry ? entry.score : '—'}
+                  </Text>
+                </Pressable>
+              )
+            })}
+          </View>
 
-      <Field
-        editable={busy === null && localState !== 'loading'}
-        label="Private note"
-        multiline
-        onChangeText={(value) => {
-          setPrivateNote(value)
-          edit()
-        }}
-        placeholder="Only ever visible on your own scorecard."
-        value={privateNote}
-      />
-
-      {error ? <Problem>{error}</Problem> : null}
-      {/* One primary action. Saving is a status, not a decision. */}
-      <Action
-        disabled={busy !== null || localState === 'loading'}
-        label={busy === 'submit' ? 'Submitting…' : 'Submit scorecard'}
-        onPress={prepareSubmission}
-      />
-      <View style={styles.saveRow}>
-        <Meta>
-          {busy === 'save'
-            ? 'Saving…'
-            : dirty
-              ? 'Unsaved edits are encrypted on this phone.'
-              : localState === 'restored'
-                ? 'Recovered from this phone.'
-                : 'Draft saved.'}
-        </Meta>
-        {dirty ? (
-          <QuietAction
-            disabled={busy !== null || localState === 'loading'}
-            label="Save now"
-            onPress={async () => { await save() }}
+          <Field
+            editable={!locked}
+            label="Private note"
+            multiline
+            onChangeText={(value) => {
+              setPrivateNote(value)
+              edit()
+            }}
+            placeholder="Only ever visible on your own scorecard."
+            value={privateNote}
           />
-        ) : null}
-      </View>
-    </Section>
+
+          {submitFailed && error ? (
+            <View style={styles.failBlock}>
+              <DrawnMark kind="cross" size={44} />
+              <View style={styles.failText}>
+                <Text style={styles.failTitle}>Not submitted</Text>
+                <Text style={styles.error}>{error}</Text>
+              </View>
+            </View>
+          ) : error ? (
+            <Problem>{error}</Problem>
+          ) : null}
+          <Action
+            disabled={busy === 'submit' || localState === 'loading'}
+            label={busy === 'submit' ? 'Submitting…' : submitUncertain ? 'Confirm submission' : 'Submit scorecard'}
+            onPress={prepareSubmission}
+          />
+        </View>
+      )}
+    </View>
   )
+}
+
+const AnimatedPath = Animated.createAnimatedComponent(Path)
+const drawnMarkPaths = {
+  check: { d: 'M6 12.5l4.2 4.2L18 8', length: 18 },
+  cross: { d: 'M8 8l8 8M16 8l-8 8', length: 24 },
+} as const
+
+/** A verdict disc that springs in, then draws its stroke. */
+function DrawnMark({ kind, size = 84 }: { kind: 'check' | 'cross'; size?: number }) {
+  const [pop] = useState(() => new Animated.Value(0))
+  const [draw] = useState(() => new Animated.Value(0))
+
+  useEffect(() => {
+    Animated.spring(pop, {
+      toValue: 1,
+      damping: 13,
+      mass: 0.7,
+      stiffness: 180,
+      useNativeDriver: true,
+    }).start()
+    // SVG stroke props animate on the JS driver only.
+    Animated.timing(draw, { toValue: 1, delay: 160, duration: 420, useNativeDriver: false }).start()
+  }, [draw, pop])
+
+  const mark = drawnMarkPaths[kind]
+  return (
+    <Animated.View
+      style={[
+        styles.drawnDisc,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: kind === 'check' ? palette.judging : palette.urgent,
+          opacity: pop,
+          transform: [{ scale: pop.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }) }],
+        },
+      ]}
+    >
+      <Svg fill="none" height={size * 0.58} viewBox="0 0 24 24" width={size * 0.58}>
+        <AnimatedPath
+          d={mark.d}
+          stroke={kind === 'check' ? palette.onJudging : palette.onUrgent}
+          strokeDasharray={mark.length}
+          strokeDashoffset={draw.interpolate({ inputRange: [0, 1], outputRange: [mark.length, 0] })}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2.6}
+        />
+      </Svg>
+    </Animated.View>
+  )
+}
+
+/** The step to open on: the first unscored criterion, or the summary. */
+function firstUnratedStep(criteria: Criterion[], ratings: Rating[]) {
+  const gap = criteria.findIndex(
+    (criterion) => !ratings.some((rating) => rating.criterionId === criterion.id),
+  )
+  return gap === -1 ? criteria.length : gap
 }
 
 function Panel({ children }: { children: React.ReactNode }) {
   return <View style={styles.panel}>{children}</View>
 }
 
-function Button({
-  label,
-  onPress,
-  disabled = false,
-  secondary = false,
-}: {
-  label: string
-  onPress: () => void | Promise<void>
-  disabled?: boolean
-  secondary?: boolean
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={disabled}
-      onPress={onPress}
-      style={[
-        styles.button,
-        secondary ? styles.secondaryButton : null,
-        disabled ? styles.disabled : null,
-      ]}
-    >
-      <Text style={[styles.buttonText, secondary ? styles.secondaryButtonText : null]}>{label}</Text>
-    </Pressable>
-  )
-}
-
 function reviewerPlatform(): ReviewerPlatform | null {
   if (Platform.OS === 'android') return 'android'
   if (Platform.OS === 'ios') return 'ios'
   return null
+}
+
+function formatDeviceTime(value: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(value)
 }
 
 function notificationLabel(
@@ -1472,7 +1904,6 @@ function submissionProblem(criteria: Criterion[], ratings: Rating[]) {
   return null
 }
 
-/** The few words inside the ring: what being on duty means right now. */
 function dutyStateDetail(current: ReviewerNow) {
   if (current.reserve) {
     return current.reserve.status === 'paged' ? 'You have been paged' : 'On call'
@@ -1485,24 +1916,25 @@ function errorMessage(caught: unknown, fallback: string) {
 }
 
 const styles = StyleSheet.create({
-  /* No border. Every other duty screen is content on the background; a boxed
-     card was the last thing making judging feel like a different product. */
-  panel: { marginTop: 8, gap: 16 },
-  flex: { flex: 1 },
-  headingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
-  eyebrow: { color: palette.judging, fontSize: 13, fontWeight: '600', letterSpacing: 0.6, marginBottom: 6 },
-  heading: { color: palette.text, fontSize: 30, fontWeight: '600', letterSpacing: -0.8, lineHeight: 35 },
-  reviewHeading: { gap: 4 },
-  reviewTitle: { color: palette.text, fontSize: 30, fontWeight: '600', letterSpacing: -0.8, lineHeight: 36 },
-  table: {
-    color: palette.text,
-    borderWidth: 1,
-    borderColor: palette.strong,
-    borderRadius: radius.tile,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+  panel: { flexGrow: 1, marginTop: 8, gap: 16 },
+  eyebrow: {
+    maxWidth: '100%',
+    color: palette.judging,
     fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.6,
+    marginBottom: 6,
   },
+  heading: { color: palette.text, fontSize: 30, fontWeight: '600', letterSpacing: -0.8, lineHeight: 35 },
+  reviewHeading: { gap: 10 },
+  reviewHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  reviewHeadingText: { flex: 1, gap: 4 },
+  reviewTitle: { color: palette.text, fontSize: 30, fontWeight: '600', letterSpacing: -0.8, lineHeight: 36 },
   body: { color: palette.muted, fontSize: 15, lineHeight: 22 },
   value: { color: palette.text, fontSize: 16, lineHeight: 22 },
   idea: { color: palette.text, fontSize: 18, lineHeight: 26 },
@@ -1522,18 +1954,6 @@ const styles = StyleSheet.create({
     borderBottomColor: palette.tile,
   },
   detailValue: { color: palette.muted, fontSize: 14, textAlign: 'right' },
-  button: {
-    minHeight: 48,
-    borderRadius: radius.control,
-    backgroundColor: palette.text,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    flexGrow: 1,
-  },
-  buttonText: { color: palette.background, fontSize: 15, fontWeight: '600' },
-  secondaryButton: { backgroundColor: 'transparent', borderWidth: 1, borderColor: palette.strong },
-  secondaryButtonText: { color: palette.text },
   disabled: { opacity: 0.5 },
   waiting: { gap: 10, paddingVertical: 8 },
   pauseNotice: {
@@ -1557,8 +1977,34 @@ const styles = StyleSheet.create({
   },
   textButton: { color: palette.muted, fontSize: 14, textDecorationLine: 'underline' },
   camera: { width: '100%', height: 330, borderRadius: radius.tile, overflow: 'hidden' },
-  timer: { color: palette.text, fontSize: 26, marginTop: 8, fontVariant: ['tabular-nums'] },
-  overdue: { color: palette.urgent, fontSize: 26, marginTop: 8, fontVariant: ['tabular-nums'] },
+  contextBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  contextText: { flex: 1, gap: 3 },
+  contextTeam: { color: palette.text, fontSize: 18, fontWeight: '600', letterSpacing: -0.3 },
+  contextDetail: { color: palette.muted, fontSize: 13 },
+  clockChip: {
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: radius.pill,
+    backgroundColor: palette.tile,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clockText: { color: palette.text, fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  clockLate: { color: palette.urgent },
+  evidenceLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+  },
+  evidenceLinkText: { color: palette.muted, fontSize: 15 },
+  evidenceLinkChevron: { color: palette.faint, fontSize: 18, lineHeight: 20 },
+  evidenceSheet: { maxHeight: 640 },
   workspace: { gap: 24 },
   section: { gap: 12, paddingTop: 8 },
   sectionTitle: { color: palette.text, fontSize: 20, fontWeight: '600', letterSpacing: -0.4, lineHeight: 25 },
@@ -1570,10 +2016,47 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   evidenceRow: { borderTopWidth: 1, borderTopColor: palette.tile, paddingTop: 10, gap: 3 },
-  criterion: { paddingTop: 18, gap: 10 },
+  criterion: { paddingTop: 6, gap: 10 },
+  stepMeter: { flexDirection: 'row', gap: 6 },
+  stepSegment: { flex: 1, height: 4, borderRadius: 2, backgroundColor: palette.ghost },
+  stepSegmentDone: { backgroundColor: palette.judging },
+  stepSegmentCurrent: { backgroundColor: palette.strong },
+  scorecard: { gap: 12, paddingTop: 4 },
+  outcome: { alignItems: 'center', gap: 10, paddingVertical: 36, paddingHorizontal: 12 },
+  outcomeTitle: {
+    marginTop: 10,
+    color: palette.text,
+    fontSize: 22,
+    fontWeight: '600',
+    letterSpacing: -0.4,
+  },
+  outcomeBody: { color: palette.muted, fontSize: 15, lineHeight: 21, textAlign: 'center' },
+  outcomeNext: {
+    marginTop: 14,
+    color: palette.faint,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+  },
+  drawnDisc: { alignItems: 'center', justifyContent: 'center' },
+  failBlock: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 6 },
+  failText: { flex: 1, gap: 3 },
+  failTitle: { color: palette.text, fontSize: 16, fontWeight: '600' },
+  stepDock: { gap: 10, marginTop: 10 },
+  summaryRow: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  summaryRowRule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.strong },
+  summaryPressed: { opacity: 0.6 },
+  summaryLabel: { flex: 1, color: palette.text, fontSize: 16 },
+  summaryScore: { color: palette.judging, fontSize: 20, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  summaryMissing: { color: palette.faint, fontSize: 20 },
   criterionLabel: { color: palette.text, fontSize: 19, fontWeight: '600', letterSpacing: -0.3 },
   criterionQuestion: { color: palette.muted, fontSize: 16, lineHeight: 22 },
-  saveRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   scoreRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
   scoreButton: {
     width: 44,
@@ -1601,8 +2084,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   privateInput: { minHeight: 96 },
-  /* UIPickerView's shortest system height. The Host has to state a height
-     because SwiftUI's intrinsic one never crosses the bridge. */
   wheel: { height: 162 },
   codeInput: {
     minHeight: 48,
@@ -1615,5 +2096,4 @@ const styles = StyleSheet.create({
     fontSize: 17,
     letterSpacing: 1.5,
   },
-  buttonRow: { flexDirection: 'row', gap: 10 },
 })

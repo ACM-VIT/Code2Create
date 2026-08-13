@@ -1,59 +1,74 @@
 import { api } from '@code2create/backend/api'
-import type { FunctionReturnType } from 'convex/server'
-import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
+import { type FormEvent, useDeferredValue, useEffect, useMemo, useState } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { AutonomyPolicyFields } from '../components/intelligence'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
-
-type Configuration = FunctionReturnType<typeof api.operationsIntelligencePolicyConfiguration.current>
-type Policy = Configuration['publishedPolicy']['policy']
-type Severity = Policy['triggerSeverities'][number]
-type Area = Policy['triggerAreas'][number]
-
-const severityOptions = ['critical', 'attention', 'watch'] satisfies readonly Severity[]
-const areaOptions = [
-  'system',
-  'intake',
-  'admissions',
-  'attendance',
-  'reviews',
-  'communications',
-  'integrations',
-  'scores',
-  'synesthesia',
-] satisfies readonly Area[]
+import { useOperationRunner } from '../lib/operations'
+import {
+  allAutonomyRecommendationKinds,
+  cloneAutonomyPolicy,
+  type AutonomyPolicy,
+} from '../lib/autonomyPolicy'
 
 export function IntelligencePolicyConfiguration({
   tabs,
 }: {
   tabs: ConfigurationTabsVisibility
 }) {
-  const configuration = useQuery(api.operationsIntelligencePolicyConfiguration.current, { eventSlug })
-  const createDraft = useMutation(api.operationsIntelligencePolicyConfiguration.createDraft)
-  const publish = useMutation(api.operationsIntelligencePolicyConfiguration.publish)
+  const configuration = useQuery(api.operationsAutonomyPolicyConfiguration.current, { eventSlug })
+  const [ownerSearch, setOwnerSearch] = useState('')
+  const deferredOwnerSearch = useDeferredValue(ownerSearch.trim())
+  const ownerOptionsPage = usePaginatedQuery(
+    api.operationsAutonomyPolicyConfiguration.ownerOptionsPage,
+    {
+      eventSlug,
+      ...(deferredOwnerSearch.length === 0 ? {} : { search: deferredOwnerSearch }),
+    },
+    { initialNumItems: 20 },
+  )
+  const createDraft = useMutation(api.operationsAutonomyPolicyConfiguration.createDraft)
+  const publish = useMutation(api.operationsAutonomyPolicyConfiguration.publish)
+  const disable = useMutation(api.operationsAutonomyPolicyConfiguration.disable)
+  const operations = useOperationRunner()
   const validation = useQuery(
-    api.operationsIntelligencePolicyConfiguration.validateDraft,
+    api.operationsAutonomyPolicyConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPolicy
       ? { eventSlug, draftPolicyId: configuration.draftPolicy.id }
       : 'skip',
   )
-  const [policy, setPolicy] = useState<Policy | null>(null)
+  const [policy, setPolicy] = useState<AutonomyPolicy | null>(null)
   const [loadedPolicy, setLoadedPolicy] = useState('')
   const [draftReason, setDraftReason] = useState('')
   const [publishReason, setPublishReason] = useState('')
+  const [disableReason, setDisableReason] = useState('')
   const [publishArmed, setPublishArmed] = useState(false)
+  const [disableArmed, setDisableArmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const draftPending = operations.hasPending('autonomy-policy-draft')
+  const publishPending = operations.hasPending('autonomy-policy-publish')
+  const disablePending = operations.hasPending('autonomy-disable')
+  const ownerOptions = useMemo(() => {
+    if (!configuration) return ownerOptionsPage.results
+    const byId = new Map(
+      [configuration.selectedOwner, ...ownerOptionsPage.results].map((owner) => [
+        owner.eventAccessSubjectId,
+        owner,
+      ]),
+    )
+    return [...byId.values()]
+  }, [configuration, ownerOptionsPage.results])
 
   useEffect(() => {
     if (!configuration) return
     const source = configuration.draftPolicy ?? configuration.publishedPolicy
     const sourceKey = `${source.id}:${source.checksum}`
     if (sourceKey === loadedPolicy) return
-    setPolicy(clonePolicy(source.policy))
+    setPolicy(cloneAutonomyPolicy(source.policy))
     setLoadedPolicy(sourceKey)
     setPublishArmed(false)
   }, [configuration, loadedPolicy])
@@ -62,15 +77,47 @@ export function IntelligencePolicyConfiguration({
     return (
       <section className="intake-policy-shell">
         <ConfigurationTabs visibility={tabs} />
-        <LoadingLabel>Loading the operations brief settings</LoadingLabel>
+        <LoadingLabel>Loading autonomous operations settings</LoadingLabel>
         <SkeletonStats columns={3} />
-        <SkeletonCard lines={4} />
+        <SkeletonCard lines={5} />
       </section>
     )
   }
 
-  const updatePolicy = <Key extends keyof Policy>(key: Key, value: Policy[Key]) => {
+  const updatePolicy = <Key extends keyof AutonomyPolicy>(
+    key: Key,
+    value: AutonomyPolicy[Key],
+  ) => {
     setPolicy((current) => current ? { ...current, [key]: value } : current)
+  }
+
+  const updateMode = (mode: AutonomyPolicy['mode']) => {
+    setPolicy((current) => {
+      if (current === null) return current
+      if (mode === 'observe') {
+        return {
+          ...current,
+          mode,
+          allowedRecommendationKinds: [],
+        }
+      }
+      const selectedOwner = ownerOptions.find(
+        (owner) => owner.eventAccessSubjectId === current.accountableOwnerEventAccessSubjectId,
+      )
+      const recommendationOwner = selectedOwner?.canGenerate
+        ? selectedOwner
+        : ownerOptions.find((owner) => owner.canGenerate)
+      return {
+        ...current,
+        mode,
+        ...(recommendationOwner === undefined
+          ? {}
+          : { accountableOwnerEventAccessSubjectId: recommendationOwner.eventAccessSubjectId }),
+        allowedRecommendationKinds: current.allowedRecommendationKinds.length > 0
+          ? current.allowedRecommendationKinds
+          : [...allAutonomyRecommendationKinds],
+      }
+    })
   }
 
   const saveDraft = async (event: FormEvent) => {
@@ -78,7 +125,7 @@ export function IntelligencePolicyConfiguration({
     setBusy(true)
     setError(null)
     try {
-      await createDraft({
+      await operations.run('autonomy-policy-draft', (clientOperationId) => () => createDraft({
         eventSlug,
         policy,
         expectedEventVersion: configuration.eventVersion,
@@ -86,8 +133,8 @@ export function IntelligencePolicyConfiguration({
           ? { expectedDraftPolicyId: configuration.draftPolicy.id }
           : {}),
         reason: draftReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -101,14 +148,14 @@ export function IntelligencePolicyConfiguration({
     setBusy(true)
     setError(null)
     try {
-      await publish({
+      await operations.run('autonomy-policy-publish', (clientOperationId) => () => publish({
         eventSlug,
         draftPolicyId: draft.id,
         expectedDraftChecksum: draft.checksum,
         expectedEventVersion: configuration.eventVersion,
         reason: publishReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
       setPublishArmed(false)
     } catch (caught) {
       setError(readableError(caught))
@@ -117,27 +164,103 @@ export function IntelligencePolicyConfiguration({
     }
   }
 
+  const disableAutonomy = async () => {
+    if (configuration.scheduler.lifecycle.kind !== 'active') return
+    setBusy(true)
+    setError(null)
+    try {
+      await operations.run('autonomy-disable', (clientOperationId) => () => disable({
+        eventSlug,
+        reason: disableReason,
+        clientOperationId,
+      }))
+      setDisableArmed(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const schedulerActive = configuration.scheduler.lifecycle.kind === 'active'
+
   return (
     <section className="track-config-shell intake-policy-shell">
       <ConfigurationTabs visibility={tabs} />
       <header className="page-heading track-config-heading">
         <div>
           <p className="eyebrow">Event setup</p>
-          <h1>Operations briefs</h1>
+          <h1>Autonomous operations</h1>
           <p className="muted">
-            Create a short brief when something important changes. A brief never changes the event.
+            Continuously inspect the live event. The agent may reason, read, investigate, and record
+            typed recommendations without a quota; it cannot execute a consequential event command.
           </p>
         </div>
       </header>
 
       <dl className="catalog-summary">
-        <div><dt>Setup</dt><dd>Ready</dd></div>
-        <div><dt>Automatic briefs</dt><dd>{configuration.publishedPolicy.policy.enabled ? 'On' : 'Off'}</dd></div>
+        <div><dt>State</dt><dd>{schedulerActive ? 'Monitoring' : 'Stopped'}</dd></div>
         <div>
-          <dt>Today</dt>
-          <dd>{configuration.automation?.briefsStartedToday ?? 0} of {configuration.publishedPolicy.policy.maximumBriefsPerLocalDay}</dd>
+          <dt>Mode</dt>
+          <dd>
+            {configuration.publishedPolicy.policy.mode === 'recommend'
+              ? 'Observe and recommend'
+              : 'Observe only'}
+          </dd>
         </div>
+        <div><dt>Scheduled review</dt><dd>Every {configuration.publishedPolicy.policy.scheduleIntervalMinutes} min</dd></div>
       </dl>
+
+      {schedulerActive && configuration.canPublish ? (
+        <section className="catalog-review">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Kill switch</p>
+              <h2>Stop unattended monitoring</h2>
+            </div>
+            {!disableArmed ? (
+              <button className="secondary" type="button" onClick={() => setDisableArmed(true)}>
+                Stop autonomy
+              </button>
+            ) : null}
+          </div>
+          <p className="muted">
+            Stopping cancels the current run and prevents new runs. Re-enabling requires publishing
+            a new policy.
+          </p>
+          {disableArmed ? (
+            <div className="publish-confirmation catalog-publish">
+              <label className="field">
+                <span>Why autonomy is being stopped</span>
+                <textarea
+                  disabled={disablePending}
+                  required
+                  value={disableReason}
+                  onChange={(event) => setDisableReason(event.currentTarget.value)}
+                />
+              </label>
+              <div className="button-row">
+                <button
+                  className="primary"
+                  disabled={busy || disableReason.trim().length < 5}
+                  type="button"
+                  onClick={() => void disableAutonomy()}
+                >
+                  {busy ? 'Stopping…' : disablePending ? 'Confirm earlier stop' : 'Stop autonomy'}
+                </button>
+                <button
+                  className="secondary"
+                  disabled={busy || disablePending}
+                  type="button"
+                  onClick={() => setDisableArmed(false)}
+                >
+                  Keep running
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {configuration.draftPolicy ? (
         <section className="catalog-review">
@@ -155,19 +278,12 @@ export function IntelligencePolicyConfiguration({
           {configuration.canValidate ? (
             validation === undefined ? (
               <p className="muted">Validating draft…</p>
+            ) : validation.issues.length > 0 ? (
+              <ul className="catalog-issue-list">
+                {validation.issues.map((issue) => <li key={issue}>{issue}</li>)}
+              </ul>
             ) : (
-              <>
-                <ul className="catalog-change-list">
-                  {validation.changes.map((change) => <li key={change}>{change}</li>)}
-                </ul>
-                {validation.issues.length > 0 ? (
-                  <ul className="catalog-issue-list">
-                    {validation.issues.map((issue) => <li key={issue}>{issue}</li>)}
-                  </ul>
-                ) : (
-                  <p className="notice">Ready to publish.</p>
-                )}
-              </>
+              <p className="notice">Ready to publish.</p>
             )
           ) : (
             <p className="notice">You do not have permission to check or publish this draft.</p>
@@ -177,83 +293,72 @@ export function IntelligencePolicyConfiguration({
 
       {configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
-          <h2>Publish these operations brief rules?</h2>
-          <p className="muted">These rules replace the current ones immediately.</p>
+          <h2>Publish this autonomy policy?</h2>
+          <p className="muted">
+            The current scheduler is superseded immediately. Any current run is canceled before the
+            new policy begins.
+          </p>
           <label className="field">
             <span>Why this changed</span>
-            <textarea required value={publishReason} onChange={(event) => setPublishReason(event.target.value)} />
+            <textarea
+              disabled={publishPending}
+              required
+              value={publishReason}
+              onChange={(event) => setPublishReason(event.target.value)}
+            />
           </label>
           <div className="button-row">
-            <button className="primary" disabled={busy || publishReason.trim().length < 5} type="button" onClick={() => void publishDraft()}>
-              {busy ? 'Publishing…' : 'Publish policy'}
+            <button
+              className="primary"
+              disabled={busy || publishReason.trim().length < 5}
+              type="button"
+              onClick={() => void publishDraft()}
+            >
+              {busy ? 'Publishing…' : publishPending ? 'Confirm earlier publication' : 'Publish policy'}
             </button>
-            <button className="secondary" disabled={busy} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
+            <button
+              className="secondary"
+              disabled={busy || publishPending}
+              type="button"
+              onClick={() => setPublishArmed(false)}
+            >
+              Cancel
+            </button>
           </div>
         </section>
       ) : null}
 
       {configuration.canDraft ? (
         <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
-          <PolicySection
-            title="When to create a brief"
-            description="A brief repeats only after the problem changes."
-          >
-            <label className="intelligence-enable">
-              <input
-                checked={policy.enabled}
-                type="checkbox"
-                onChange={(event) => updatePolicy('enabled', event.currentTarget.checked)}
-              />
-              <span>Create operations briefs automatically</span>
-            </label>
-            <ChoiceSet
-              label="Problem level"
-              options={severityOptions}
-              values={policy.triggerSeverities}
-              onChange={(values) => updatePolicy('triggerSeverities', values)}
+          <fieldset disabled={draftPending} style={{ display: 'contents' }}>
+            <AutonomyPolicyFields
+              policy={policy}
+              ownerCanLoadMore={ownerOptionsPage.status === 'CanLoadMore'}
+              ownerLoading={
+                ownerOptionsPage.status === 'LoadingFirstPage'
+                || ownerOptionsPage.status === 'LoadingMore'
+              }
+              ownerOptions={ownerOptions}
+              ownerSearch={ownerSearch}
+              onChange={updatePolicy}
+              onLoadMoreOwners={() => ownerOptionsPage.loadMore(20)}
+              onModeChange={updateMode}
+              onOwnerSearchChange={setOwnerSearch}
             />
-            <ChoiceSet
-              label="Event areas"
-              options={areaOptions}
-              values={policy.triggerAreas}
-              onChange={(values) => updatePolicy('triggerAreas', values)}
-            />
-          </PolicySection>
-
-          <PolicySection
-            title="Repeat limits"
-            description="How often the same brief can come back."
-          >
-            <div className="intake-policy-number-grid">
-              <NumberField label="Wait between briefs · minutes" min={15} max={360} value={policy.cooldownMinutes} onChange={(value) => updatePolicy('cooldownMinutes', value)} />
-              <NumberField label="Maximum briefs per day" min={1} max={24} value={policy.maximumBriefsPerLocalDay} onChange={(value) => updatePolicy('maximumBriefsPerLocalDay', value)} />
-              <NumberField label="Keep each brief current · minutes" min={15} max={240} value={policy.relevanceMinutes} onChange={(value) => updatePolicy('relevanceMinutes', value)} />
-            </div>
-          </PolicySection>
-
-          <PolicySection
-            title="Owner"
-            description="Briefs appear only to operations staff."
-          >
-            <div className="intake-policy-grid">
-              <label className="field">
-                <span>Responsible team or person</span>
-                <input required minLength={2} maxLength={80} value={policy.accountableOwner} onChange={(event) => updatePolicy('accountableOwner', event.currentTarget.value)} />
-              </label>
-              <label className="field">
-                <span>Audience</span>
-                <input disabled value="Operations dashboard" />
-              </label>
-            </div>
-          </PolicySection>
+          </fieldset>
 
           <section className="track-save">
             <label className="field">
               <span>Why this changed</span>
-              <textarea required value={draftReason} onChange={(event) => setDraftReason(event.currentTarget.value)} />
+              <textarea
+                disabled={draftPending}
+                required
+                value={draftReason}
+                onChange={(event) => setDraftReason(event.currentTarget.value)}
+              />
             </label>
             <button className="primary" disabled={busy || draftReason.trim().length < 5} type="submit">
-              {busy ? 'Saving…' : configuration.draftPolicy ? 'Replace draft' : 'Save draft'}
+              {busy ? 'Saving…' : draftPending ? 'Confirm earlier draft' : configuration.draftPolicy ? 'Replace draft' : 'Save draft'}
             </button>
           </section>
         </form>
@@ -262,109 +367,4 @@ export function IntelligencePolicyConfiguration({
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </section>
   )
-}
-
-function PolicySection({
-  title,
-  description,
-  children,
-}: {
-  title: string
-  description: string
-  children: React.ReactNode
-}) {
-  return (
-    <section className="intake-policy-section">
-      <header><h2>{title}</h2><p className="muted">{description}</p></header>
-      {children}
-    </section>
-  )
-}
-
-function ChoiceSet<Value extends string>({
-  label,
-  options,
-  values,
-  onChange,
-}: {
-  label: string
-  options: readonly Value[]
-  values: Value[]
-  onChange: (values: Value[]) => void
-}) {
-  return (
-    <fieldset className="intelligence-choice-set">
-      <legend>{label}</legend>
-      <div className="intake-purpose-list">
-        {options.map((option) => (
-          <label key={option}>
-            <input
-              checked={values.includes(option)}
-              disabled={values.length === 1 && values.includes(option)}
-              type="checkbox"
-              onChange={(event) => onChange(toggleValue(values, option, event.currentTarget.checked))}
-            />
-            <span>{humanize(option)}</span>
-          </label>
-        ))}
-      </div>
-    </fieldset>
-  )
-}
-
-function NumberField({
-  label,
-  min,
-  max,
-  value,
-  onChange,
-}: {
-  label: string
-  min: number
-  max: number
-  value: number
-  onChange: (value: number) => void
-}) {
-  const update = (event: ChangeEvent<HTMLInputElement>) => {
-    const next = event.currentTarget.valueAsNumber
-    if (Number.isSafeInteger(next)) onChange(next)
-  }
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <input max={max} min={min} required type="number" value={value} onChange={update} />
-    </label>
-  )
-}
-
-function toggleValue<Value>(values: Value[], value: Value, selected: boolean) {
-  if (selected) return values.includes(value) ? values : [...values, value]
-  return values.filter((candidate) => candidate !== value)
-}
-
-function clonePolicy(policy: Policy): Policy {
-  return {
-    ...policy,
-    triggerSeverities: [...policy.triggerSeverities],
-    triggerAreas: [...policy.triggerAreas],
-  }
-}
-
-function humanize(value: string) {
-  const labels: Readonly<Record<string, string>> = {
-    admissions: 'Applications',
-    attention: 'Needs attention',
-    attendance: 'Check-in and presence',
-    communications: 'Participant messages',
-    critical: 'Urgent',
-    intake: 'Project intake',
-    integrations: 'Code and design',
-    reviews: 'Judging',
-    scores: 'Results',
-    synesthesia: 'Music desk',
-    system: 'Platform',
-    watch: 'Watch',
-  }
-  const label = labels[value] ?? value.replaceAll('_', ' ')
-  return label.charAt(0).toUpperCase() + label.slice(1)
 }

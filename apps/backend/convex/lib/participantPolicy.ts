@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { maximumReviewTeamsPerEvent } from "./reviewLimits";
 import { fingerprintText, normalizedLongText, normalizedText } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -78,9 +79,9 @@ function invalidPolicy(message: string): never {
   throw new ConvexError({ code: "INVALID_PARTICIPANT_POLICY", message });
 }
 
-function wholeNumber(value: number, label: string, minimum: number, maximum: number) {
-  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
-    invalidPolicy(`${label} must be a whole number from ${minimum} through ${maximum}.`);
+function positiveWholeNumber(value: number, label: string) {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    invalidPolicy(`${label} must be a positive whole number.`);
   }
   return value;
 }
@@ -100,8 +101,8 @@ function normalizedHttpsUrl(value: string, label: string) {
 }
 
 export function normalizeParticipantPolicy(input: ParticipantPolicy): ParticipantPolicy {
-  const teamMinimumSize = wholeNumber(input.teamMinimumSize, "Minimum team size", 1, 12);
-  const teamMaximumSize = wholeNumber(input.teamMaximumSize, "Maximum team size", 1, 12);
+  const teamMinimumSize = positiveWholeNumber(input.teamMinimumSize, "Minimum team size");
+  const teamMaximumSize = positiveWholeNumber(input.teamMaximumSize, "Maximum team size");
   if (teamMaximumSize < teamMinimumSize) {
     invalidPolicy("Maximum team size cannot be smaller than minimum team size.");
   }
@@ -188,6 +189,81 @@ export async function loadPublishedParticipantPolicy(ctx: ReadCtx, event: Doc<"e
     throw new Error("The published participant-policy checksum is invalid.");
   }
   return { policy, normalized };
+}
+
+export async function loadPublishedParticipantCapacity(ctx: ReadCtx, event: Doc<"events">) {
+  const policyId = event.publishedAdmissionPolicyId;
+  const policy = policyId ? await ctx.db.get(policyId) : null;
+  if (!policy || policy.eventId !== event._id || policy.status !== "published") {
+    throw new Error("The event's published admission policy is invalid.");
+  }
+  if (
+    !Number.isSafeInteger(policy.overallParticipantCapacity) ||
+    policy.overallParticipantCapacity < 1
+  ) {
+    throw new Error("The published admission participant capacity is invalid.");
+  }
+  return policy.overallParticipantCapacity;
+}
+
+export async function participantPolicyPublicationIssue(
+  ctx: ReadCtx,
+  event: Doc<"events">,
+  previous: ParticipantPolicy,
+  candidate: ParticipantPolicy,
+) {
+  const participantCapacity = await loadPublishedParticipantCapacity(ctx, event);
+  if (candidate.teamMaximumSize > participantCapacity) {
+    return `Maximum team size cannot exceed the published participant capacity of ${participantCapacity}.`;
+  }
+  const restrictsParticipantClasses =
+    previous.mixedParticipantClassesAllowed && !candidate.mixedParticipantClassesAllowed;
+  if (
+    candidate.teamMinimumSize <= previous.teamMinimumSize &&
+    candidate.teamMaximumSize >= previous.teamMaximumSize &&
+    !restrictsParticipantClasses
+  ) {
+    return null;
+  }
+
+  const teams = await ctx.db
+    .query("teams")
+    .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
+    .take(maximumReviewTeamsPerEvent + 1);
+  if (teams.length > maximumReviewTeamsPerEvent) {
+    throw new Error(
+      `The event exceeds the supported limit of ${maximumReviewTeamsPerEvent} teams.`,
+    );
+  }
+  for (const team of teams) {
+    if (team.status === "withdrawn") continue;
+    if (
+      !Number.isSafeInteger(team.activeMemberCount) ||
+      !Number.isSafeInteger(team.activeVitMemberCount) ||
+      !Number.isSafeInteger(team.activeExternalMemberCount) ||
+      team.activeMemberCount < 0 ||
+      team.activeVitMemberCount < 0 ||
+      team.activeExternalMemberCount < 0 ||
+      team.activeMemberCount !==
+        team.activeVitMemberCount + team.activeExternalMemberCount
+    ) {
+      throw new Error(`Team “${team.name}” has an invalid roster projection.`);
+    }
+    if (team.activeMemberCount > candidate.teamMaximumSize) {
+      return `Team “${team.name}” has more than ${candidate.teamMaximumSize} active members. Reduce its roster before publishing this team-size limit.`;
+    }
+    if (team.activeMemberCount < candidate.teamMinimumSize) {
+      return `Team “${team.name}” has fewer than ${candidate.teamMinimumSize} active members. Complete its roster before publishing this team-size limit.`;
+    }
+    if (
+      restrictsParticipantClasses &&
+      team.activeVitMemberCount > 0 &&
+      team.activeExternalMemberCount > 0
+    ) {
+      return `Team “${team.name}” contains both VIT and external participants. Change its roster before publishing the single-class team rule.`;
+    }
+  }
+  return null;
 }
 
 function requiredValue(mode: ProfileFieldMode, value: string | undefined) {
@@ -318,6 +394,22 @@ export async function publishParticipantPolicy(
   const previous = previousId ? await ctx.db.get(previousId) : null;
   if (!previous || previous.eventId !== args.event._id || previous.status !== "published") {
     throw new Error("The event's published participant policy is invalid.");
+  }
+  const previousNormalized = normalizeParticipantPolicy(participantPolicyFromDocument(previous));
+  if (participantPolicyChecksum(previousNormalized) !== previous.checksum) {
+    throw new Error("The published participant-policy checksum is invalid.");
+  }
+  const publicationIssue = await participantPolicyPublicationIssue(
+    ctx,
+    args.event,
+    previousNormalized,
+    normalized,
+  );
+  if (publicationIssue) {
+    throw new ConvexError({
+      code: "PARTICIPANT_POLICY_INCOMPATIBLE",
+      message: publicationIssue,
+    });
   }
   await ctx.db.patch(previous._id, { status: "superseded" });
   await ctx.db.patch(draft._id, { status: "published", publishedAt: args.now });

@@ -19,6 +19,7 @@ const environment: EmailBridgeEnvironment = {
   CONVEX_EMAIL_EVENT_CALLBACK_URL:
     "https://backend.example.test/communications/cloudflare-email/events",
   EMAIL_EVENT_CALLBACK_SECRET: callbackSecret,
+  EMAIL_ROUTING_ADDRESS: "support@mail.code2create.example",
   EMAIL_ROUTING_FORWARD_TO: "operations@example.test",
   EMAIL_SENDING_DOMAIN: domain,
 };
@@ -157,11 +158,27 @@ describe("Cloudflare Email Service bridge", () => {
   test("forwards an inbound routed message only to the configured verified destination", async () => {
     const forward = vi.fn(async () => undefined);
     const setReject = vi.fn();
-    await routeInboundEmail({ forward, setReject }, "operations@example.test");
+    await routeInboundEmail(
+      { to: "Support@mail.code2create.example", forward, setReject },
+      "support@mail.code2create.example",
+      "operations@example.test",
+    );
     expect(forward).toHaveBeenCalledWith("operations@example.test");
     expect(setReject).not.toHaveBeenCalled();
 
-    await routeInboundEmail({ forward, setReject }, "not-an-email");
+    await routeInboundEmail(
+      { to: "other@mail.code2create.example", forward, setReject },
+      "support@mail.code2create.example",
+      "operations@example.test",
+    );
+    expect(forward).toHaveBeenCalledOnce();
+    expect(setReject).toHaveBeenCalledWith("Inbound support routing is unavailable.");
+
+    await routeInboundEmail(
+      { to: "support@mail.code2create.example", forward, setReject },
+      "support@mail.code2create.example",
+      "not-an-email",
+    );
     expect(setReject).toHaveBeenCalledWith("Inbound support routing is unavailable.");
   });
 });

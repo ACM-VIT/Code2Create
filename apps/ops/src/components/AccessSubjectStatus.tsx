@@ -5,6 +5,7 @@ import { useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 type AccessDetail = NonNullable<FunctionReturnType<typeof api.access.detail>>
 type ManagedStatus = Extract<AccessDetail['person']['status'], 'active' | 'suspended'>
@@ -22,10 +23,14 @@ export function AccessSubjectStatus({
 }) {
   const suspend = useMutation(api.accessSubjects.suspend)
   const reactivate = useMutation(api.accessSubjects.reactivate)
+  const operations = useOperationRunner()
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const isSuspending = status === 'active'
+  const suspendPending = operations.hasPending('access-suspend')
+  const restorePending = operations.hasPending('access-restore')
+  const operationPending = suspendPending || restorePending
+  const isSuspending = suspendPending || (!restorePending && status === 'active')
   const actionLabel = isSuspending ? 'Suspend account' : 'Reactivate account'
   const busyLabel = isSuspending ? 'Suspending…' : 'Reactivating…'
 
@@ -33,19 +38,19 @@ export function AccessSubjectStatus({
     event.preventDefault()
     setBusy(true)
     setError(null)
-    const request = {
-      eventSlug,
-      targetPersonId: personId,
-      expectedAccessVersion: accessVersion,
-      reason,
-      clientOperationId: crypto.randomUUID(),
-    }
     try {
-      if (isSuspending) {
-        await suspend(request)
-      } else {
-        await reactivate(request)
-      }
+      await operations.run(
+        isSuspending ? 'access-suspend' : 'access-restore', (clientOperationId) => () => {
+          const request = {
+            eventSlug,
+            targetPersonId: personId,
+            expectedAccessVersion: accessVersion,
+            reason,
+            clientOperationId,
+          }
+          return isSuspending ? suspend(request) : reactivate(request)
+        },
+      )
       setReason('')
     } catch (caught) {
       setError(readableError(caught))
@@ -67,15 +72,15 @@ export function AccessSubjectStatus({
       <form className="role-form" onSubmit={submit}>
         <label className="field">
           <span>{isSuspending ? 'Why access is being suspended' : 'Why access is being restored'}</span>
-          <textarea required value={reason} onChange={(event) => setReason(event.target.value)} />
+          <textarea required disabled={busy || operationPending} value={reason} onChange={(event) => setReason(event.target.value)} />
         </label>
         <div className="role-submit">
           <button
             className="secondary"
             type="submit"
-            disabled={busy || reason.trim().length < 5}
+            disabled={busy || (!operationPending && reason.trim().length < 5)}
           >
-            {busy ? busyLabel : actionLabel}
+            {busy ? busyLabel : operationPending ? `Confirm earlier ${isSuspending ? 'suspension' : 'reactivation'}` : actionLabel}
           </button>
           <small>You may be asked to sign in again before this change.</small>
         </div>

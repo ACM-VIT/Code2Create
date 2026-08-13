@@ -7,6 +7,7 @@ import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../componen
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 type Configuration = FunctionReturnType<typeof api.noveltyConfiguration.current>
 type Policy = FunctionReturnType<typeof api.noveltyConfiguration.defaults>
@@ -19,6 +20,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
   const createDraft = useMutation(api.noveltyConfiguration.createDraft)
   const replaceEntries = useAction(api.noveltyConfiguration.replaceEntries)
   const publish = useMutation(api.noveltyConfiguration.publish)
+  const operations = useOperationRunner()
   const [policy, setPolicy] = useState<Policy | null>(null)
   const [entriesText, setEntriesText] = useState('')
   const [loadedSource, setLoadedSource] = useState('')
@@ -28,6 +30,9 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
   const [publishArmed, setPublishArmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const draftPending = operations.hasPending('novelty-corpus-draft')
+  const importPending = operations.hasPending('novelty-corpus-import')
+  const publishPending = operations.hasPending('novelty-corpus-publish')
 
   useEffect(() => {
     if (!configuration || !defaults) return
@@ -70,7 +75,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
   const saveDraft = (event: FormEvent) => {
     event.preventDefault()
     void run(async () => {
-      await createDraft({
+      await operations.run('novelty-corpus-draft', (clientOperationId) => () => createDraft({
         eventSlug,
         policy,
         expectedEventVersion: configuration.eventVersion,
@@ -78,8 +83,8 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
           ? { expectedDraftCorpusId: configuration.draftCorpus.id }
           : {}),
         reason: draftReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
     })
   }
 
@@ -88,14 +93,14 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
     if (!draft) return
     void run(async () => {
       const entries = parseCorpusEntries(entriesText)
-      await replaceEntries({
+      await operations.run('novelty-corpus-import', (clientOperationId) => () => replaceEntries({
         eventSlug,
         corpusVersionId: draft.id,
         expectedRevision: draft.revision,
         entries,
         reason: importReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
     })
   }
 
@@ -104,15 +109,15 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
     const checksum = draft?.checksum
     if (!draft || !checksum || draft.importState !== 'ready') return
     void run(async () => {
-      await publish({
+      await operations.run('novelty-corpus-publish', (clientOperationId) => () => publish({
         eventSlug,
         draftCorpusId: draft.id,
         expectedDraftRevision: draft.revision,
         expectedDraftChecksum: checksum,
         expectedEventVersion: configuration.eventVersion,
         reason: publishReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
       setPublishArmed(false)
     })
   }
@@ -195,6 +200,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
 
       {configuration.canDraft ? (
         <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
+          <fieldset disabled={draftPending} style={{ display: 'contents' }}>
           <div className="track-editor-heading">
             <div>
               <p className="eyebrow">{draft ? 'Replace draft changes' : 'Create a draft'}</p>
@@ -216,13 +222,14 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
               <NumberField label="Familiar at" min={-1} max={1} step={0.01} value={policy.commonSimilarityBoundary} onChange={(value) => updatePolicy('commonSimilarityBoundary', value)} />
             </div>
           </details>
+          </fieldset>
           <section className="track-save">
             <label className="field">
               <span>Why this changed</span>
-              <textarea required value={draftReason} onChange={(event) => setDraftReason(event.currentTarget.value)} />
+              <textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.currentTarget.value)} />
             </label>
             <button className="primary" disabled={busy || draftReason.trim().length < 5} type="submit">
-              {busy ? 'Saving…' : draft ? 'Replace draft' : 'Create draft'}
+              {busy ? 'Saving…' : draftPending ? 'Confirm earlier draft' : draft ? 'Replace draft' : 'Create draft'}
             </button>
           </section>
         </form>
@@ -242,6 +249,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
             <p className="notice error">The last project import failed. Check the file and try again.</p>
           ) : null}
           {entriesPreview.ok ? (
+            <fieldset disabled={importPending} style={{ display: 'contents' }}>
             <div className="novelty-project-preview">
               <div className="section-heading novelty-project-heading">
                 <p>{entriesPreview.entries.length} project{entriesPreview.entries.length === 1 ? '' : 's'} loaded</p>
@@ -293,15 +301,16 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
                 ))}
               </div>
             </div>
+            </fieldset>
           ) : <p className="notice error">{entriesPreview.message}</p>}
           <div className="novelty-corpus-file-row">
             <label className="secondary file-button">
               Import project list
-              <input accept="application/json,.json" type="file" onChange={readFile} />
+              <input accept="application/json,.json" disabled={importPending} type="file" onChange={readFile} />
             </label>
             <label className="field novelty-import-reason">
               <span>Why this list changed</span>
-              <input required value={importReason} onChange={(event) => setImportReason(event.currentTarget.value)} />
+              <input disabled={importPending} required value={importReason} onChange={(event) => setImportReason(event.currentTarget.value)} />
             </label>
             {configuration.canWriteEntries ? (
               <button
@@ -310,7 +319,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
                 type="button"
                 onClick={importEntries}
               >
-                {busy || draft.importState === 'running' ? 'Preparing…' : 'Prepare live comparison'}
+                {busy || draft.importState === 'running' ? 'Preparing…' : importPending ? 'Confirm earlier import' : 'Prepare live comparison'}
               </button>
             ) : null}
           </div>
@@ -330,13 +339,13 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
             <p className="muted">Teams already writing keep their current comparison set.</p>
             <label className="field">
               <span>Why this changed</span>
-              <textarea required value={publishReason} onChange={(event) => setPublishReason(event.currentTarget.value)} />
+              <textarea disabled={publishPending} required value={publishReason} onChange={(event) => setPublishReason(event.currentTarget.value)} />
             </label>
             <div className="button-row">
               <button className="primary" disabled={busy || publishReason.trim().length < 5} type="button" onClick={publishDraft}>
-                {busy ? 'Publishing…' : 'Publish comparison set'}
+                {busy ? 'Publishing…' : publishPending ? 'Confirm earlier publication' : 'Publish comparison set'}
               </button>
-              <button className="secondary" disabled={busy} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
+              <button className="secondary" disabled={busy || publishPending} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
             </div>
           </section>
         ) : (

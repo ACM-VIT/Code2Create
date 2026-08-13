@@ -71,7 +71,7 @@ Deliver:
 - live team create/join/invite/accepted-lead-transfer area available throughout onboarding;
 - the exact **Hello.** then **What is your project about?** opening with one prompt and text box at a time;
 - a small debounced live novelty counter over a versioned curated past-project corpus, with an approved nearest theme/reflection prompt and no application/admission/judging output;
-- immediate complete track selection after the opening save, an optional single AI recommendation, required `fresh_for_event` attestation, five core-track positions, optional sponsor entries, and track/phase generation guidance;
+- immediate complete track selection after the opening save, an optional single AI recommendation, required `fresh_for_event` attestation, the published core-track count, optional sponsor entries, and track/phase generation guidance;
 - source-linked OpenAI interpretation with strict Structured Outputs and participant confirmation;
 - a deterministic fallback for every intake branch;
 - an explicit final team/track/project preview and atomic submit-and-lock command;
@@ -355,6 +355,16 @@ Current review-availability milestone:
 - The exception never changes attendance or judging state.
 - The exception cannot carry into a replacement review.
 
+Current reviewer staffing-policy milestone:
+
+- Reviewer profiles own explicit, canonical availability windows.
+- Round publication owns immutable clock-in opening, reviewer report time, no-show grace, round bounds, and score-correction request deadline.
+- Publication rejects any panel or reserve reviewer whose availability does not cover the complete staffing window, without creating partial round records.
+- Clock-in uses server time and accepts the exact opening boundary, but rejects earlier attempts and current profile availability gaps.
+- Confirmed no-show accepts the exact report-plus-grace boundary, rejects earlier attempts, and can never replace a present clock-in.
+- Clock-in/no-show races serialize through the same versioned presence and panel records.
+- Correction request and open decisions accept the exact published deadline. A late open attempt changes nothing, a pending request may still be rejected, and an already-open correction may finish while the round remains open.
+
 ## 6. Slice 4: floor operations
 
 Deliver:
@@ -398,7 +408,7 @@ Deliver:
 
 - team-owned integration setup/replacement and provider-resource uniqueness;
 - several GitHub repositories per team across App installations, required kind/purpose, add/reorder/archive flows, and an immutable checkpoint set;
-- per-repository `code2create-7-0` verification, signed push handling, reconciliation, materialized statistics, and snapshot-SHA repository browser;
+- per-repository verification against the published integration topic (canonical first release `code2create-7-0`), signed push handling, reconciliation, materialized statistics, and snapshot-SHA repository browser;
 - Figma OAuth with PKCE, several team-owned file bindings up to a published cap, full document checkpoints, frame previews, version/comment context, a file webhook when allowed, and metadata heartbeat fallback;
 - bounded provider Workpools, rate-limit state, deduplication, and integration diagnostics;
 - disclosure, late baseline, incomplete, stale, revoked, and reauthorization states;
@@ -529,40 +539,42 @@ Exit when request, voting, moderation, playback acknowledgment, and failure isol
 
 Current milestone: the first operator-driven release is implemented in Convex, the participant portal, and the operations dashboard. The repository-wide lint, typecheck, generated-API check, and production builds pass. Production exit still requires the Board-approved licensed catalog/account, named operators and moderators, scoped production grants, representative multi-client staging tests, and the venue rehearsal below.
 
-## 11. Slice 9: bounded intelligence
+## 11. Slice 9: effect-bounded intelligence
 
 Deliver:
 
-- a separate Flue/Vite Cloudflare Worker with one Durable Object agent instance per accepted job identity;
-- different environment-specific HMAC secrets for bounded Convex dispatch and callback, strict schemas, request-age limits, and content-free tracing;
-- purpose-built frozen Convex projections rather than a database credential, general chat route, or raw table access;
-- independently scoped permissions for reading an intelligence result and requesting it;
+- a separate Flue/Vite Cloudflare Worker with one durable instance per accepted manual brief, private copilot conversation, or autonomous operations run;
+- four environment-specific HMAC secret domains for ingress, callback/recommendation delivery, read/work authorization, and browser streams, with route-specific signature contexts separating brief, copilot, autonomy, continuation, abort, evidence, proposal, callback, and ticket traffic plus strict per-request body, replay, and content-free tracing bounds;
+- purpose-built cursor-paginated redacted Convex projections rather than a database credential, general database chat route, or raw table access;
+- independently scoped permissions for reading intelligence, generating a brief or copilot turn, and reading, drafting, validating, or publishing an autonomous policy;
 - one operator-requested operations brief with no more than three source-cited priorities and no executable tool;
-- one immutable operations-intelligence policy with separately scoped read, draft, validation, and publication permissions;
-- one-minute due-state evaluation from the bounded health projection, with a committed signal/outbox, semantic deduplication, cooldown, event-local daily limit, recovery cycle, relevance expiry, and accountable owner;
-- one shared proposal contract for later participant, admissions, reviewer, support, integration, floor, attendance, review, incident, and release explanations;
-- a human action seam that returns any proposal to the existing UI and ordinary permissioned Convex command.
+- one private operations copilot whose live replay omits hidden prompts, reasoning, tool arguments/results, and provider errors;
+- one immutable autonomous policy with exact `observe | recommend` mode, trigger filters, cadence, accountable owner, closed redacted-read and typed-proposal allowlists, and no quota on internal reasoning, tool use, read traversal, investigator work, runtime, or proposal count;
+- a durable scheduler/inbox that retains every distinct explicit request, due schedule slot, or qualifying changed signal and deduplicates only the same semantic operation key;
+- trusted planner, policy-allowed investigator, and critic stages that treat event text as untrusted data, cite exact read keys, test a counter-hypothesis, and reject unsupported or stale proposals;
+- Convex-authoritative work authorization and stable operation receipts whose lost-response replay returns the original sequence/result without duplicating an effect;
+- a cursor-paginated sanitized replayable activity stream whose terminal state comes from the Convex run/checkpoint, not model prose or Flue settlement; and
+- four exact typed proposals that return to a human review card and the ordinary permissioned, current-version Convex command.
 
 Exit the requested slice when an authorized operator can request a brief from the aggregate health view. A duplicate dispatch must create one model submission. Every displayed priority must pass source, severity, owner, and action validation. A stale or competing callback must change nothing. Loss of the Worker or model must leave ordinary operations unaffected.
 
-Exit the proactive slice when an authorized publisher can replace and enable a policy. Two evaluations of one due state must create one signal and one brief. Unchanged health must stay quiet. Recovery must re-arm one later recurrence. Cooldown and the event-local daily limit must prevent extra provider work. The displayed automatic brief must include origin, owner, and relevance. The Worker must have no participant, application, attendance, queue, review, score, access, incident, or Synesthesia command.
+Exit the autonomy slice when an authorized publisher can replace and enable a policy, an authorized operator can start a manual run, and schedule/signal evaluation creates exactly one durable inbox item from the same trigger. Unchanged health must not duplicate work; distinct triggers that arrive while another item runs must remain queued and reachable. Every model, read, investigator, proposal, continuation, and callback boundary must recheck current authority across loss, replay, Worker restart, policy replacement, authority loss, and kill-switch abort. Bounded transport pages and execution slices must resume until every authorized page and queued investigation is complete rather than terminating at an arbitrary quota. Observe mode must never propose. Recommend mode may create only allowed typed proposals with exact read-page provenance and observed target versions. The Worker must have no participant, application, attendance, queue, review, score, access, incident, or Synesthesia command.
 
 Current operations-intelligence milestone:
 
 - The separate Worker and signed protocol are implemented.
-- The create-only durable identity, frozen health snapshot, and bounded callback are implemented.
+- Idempotent durable dispatch, frozen trigger snapshots, strict callbacks, and read-only capability streams are implemented.
 - The first-settlement and timeout state machine is implemented.
 - Independent read and generate permissions are implemented.
-- The minimal operations UI, immutable automation policy, due scheduler, and signal/outbox are implemented.
-- Cooldown, recovery cycle, local-day limit, and relevance handling are implemented.
+- The operations UI uses the existing dashboard primitives for autonomous policy, runs, live lifecycle, exact recommendation evidence, and human review.
+- The immutable autonomous policy, schedule/signal/manual triggers, accountable owner, effect boundary, and kill switch are implemented in the release source.
 - Focused domain, Worker, and Convex tests are implemented.
-- The root local-development command configures matching localhost-only HMAC values and callback URLs. A permissioned local browser request has completed through the real remote Workers AI binding and signed callback.
+- The root local-development command configures matching localhost-only HMAC values and exact callback, read, work-authorization, recommendation, and recommendation-evidence service URLs.
 - An isolated staging Convex deployment and staging Worker use separate ingress and callback secrets.
 - The public health check succeeds.
 - Unsigned work receives `401`.
-- A permissioned staging browser request remains release work.
-- Staging Workers AI completion through the signed callback remains release work.
-- Production policy approval, alert routing, retention approval, and load rehearsal remain release work.
+- A permissioned staging manual run, scheduled run, signal run, long-poll replay, proposal review, lost-receipt recovery, durable continuation, authority revocation, and kill-switch abort remain release work.
+- Production policy approval, alert routing, retention approval, provider-cost approval, and load rehearsal remain release work.
 - Other intelligence surfaces remain follow-on slices.
 
 ## 12. Environments
@@ -581,7 +593,7 @@ Each environment has separate:
 - one optional Cloudflare handbook integration domain for Google identity and `handbook.read` tests;
 - native app identifiers, app scheme, build number, and update endpoint;
 - one update Worker route, private R2 bucket, and admin token;
-- one intelligence Worker, Workers AI binding, signed Convex callback URL, and two service HMAC secrets;
+- one intelligence Worker, Workers AI binding, exact signed Convex service URLs, and four separate service HMAC secrets for ingress, callback/recommendation delivery, read/work authorization, and browser stream tickets;
 - GitHub App or webhook configuration;
 - Figma OAuth redirect;
 - Cloudflare Email Sending entitlement and least-privilege API token, verified sending domain/identity, reply-to policy, event subscription/Queue/DLQ, HMAC bridge, and Email Routing alias with a verified forwarding destination;
@@ -608,6 +620,8 @@ Each staging and production reviewer binary contains its environment's HTTPS `/m
 - routing rank and tie-break;
 - queue transitions;
 - timer/extension policy;
+- reviewer availability normalization, staffing coverage, clock-in/report ordering, and no-show grace boundaries;
+- score-correction request/open deadline boundaries and post-deadline completion of an already-open correction;
 - rubric aggregation;
 - score completeness;
 - atomic permission-key, exact-scope, validity, delegation-ceiling, and assignment/state checks;
@@ -624,6 +638,7 @@ Each staging and production reviewer binary contains its environment's HTTPS `/m
 - strict Expo Updates request/release contracts, missing-asset rejection, signature headers, platform selection, no-update/rollback responses, immutable asset caching, admin authentication, and one-winner conditional release activation.
 - native push-token provider/platform pairing, APNs environment pairing, token replacement/invalidation, bounded provider retries, and the rule that provider acceptance is not reviewer acknowledgment.
 - service-body HMAC signing/verification, signature-context separation, strict operations-intelligence schemas, and bounded health-signal/priority enums.
+- deterministic autonomy boundary evaluation with separate HMAC domains, cold local context restoration, snapshot-stable multi-page reads, exact later-page provenance, committed-response loss/replay without sequence rewind, and citation-splice rejection.
 
 ### Convex
 
@@ -646,13 +661,15 @@ Each staging and production reviewer binary contains its environment's HTTPS `/m
 - track-catalog/intake/model-config publication validation;
 - stale admission-analysis rejection and final-submission-versus-team/track race;
 - exact-account review assignment, exact-scope grant materialization, manual-grant independence, stale assignment/cancellation rejection, assignment-versus-review serialization, same-review replacement, and two-reviewer concurrent completion;
+- unavailable reviewer publication rejection, clock-in before/exact boundary, no-show before/exact boundary, present-versus-no-show refusal, clock-in/no-show race serialization, and failure atomicity;
+- correction request and open-decision before/exact/after boundaries, late rejection of a pending request, and post-deadline submission of an already-open correction;
 - independent profile/year and AI-recommendation read boundaries, peer-recommendation hiding before the caller submits, and AI-unavailable decision handling when the actor cannot read the AI record;
 - one participant decision delivery per locked member, known-nonacceptance retry bounds, terminal ambiguous/expired sends, exact-person read/manage boundaries, current-email checks, and append-only manual retry only from the latest definitively failed attempt;
 - Cloudflare Queue event normalization, signed callback verification, duplicate event-ID conflict detection, event-before-send-response handling, deterministic provider-time/event-ID ordering, hard-versus-soft bounce destination handling, DLQ visibility, and no retry path for an unknown send outcome.
 - support-case state transitions, stable operation retries, stale-version rejection, reporter/internal timeline filtering, and exact-case versus event-wide permission resolution.
 - rehearsal exact-run versus event-wide permission boundaries, owner-without-authority behavior, all-owner start gate, one-active-run invariant, stale run/scenario rejection, stable operation retries, append-only action history, terminal-rerun rule, and all-pass final sign-off race.
 - operations-intelligence read/generate permission separation, idempotent request, frozen source checksum, out-of-snapshot citation rejection, first terminal settlement, timeout race, and late callback handling;
-- operations-intelligence policy normalization, read/draft/validate/publish permission separation, concurrent draft publication state, due-evaluation race, canonical trigger fingerprint, unchanged suppression, cooldown, recovery re-arm, event-local daily limit, linked callback settlement, and expiry.
+- autonomy-policy normalization, read/draft/validate/publish permission separation, concurrent draft publication state, due-evaluation race, canonical trigger fingerprint, unchanged suppression, distinct-work retention during an active run, durable checkpoint continuation, and terminal settlement.
 
 ### Web
 
@@ -739,7 +756,7 @@ OpenAI intake fixtures cover a valid single track recommendation and one or two 
 
 Admission fixtures cover every published experience band, mixed or external derivation, and sparse or common ideas. They cover source-linked criterion assessments and a team that chooses against the intake recommendation. They also cover prohibited numeric, judging, or prestige language, stale versions, refusal, invalid output, timeout, and human use, clear, override, or unavailable paths.
 
-Intelligence fixtures cover signed dispatch and callback, duplicate create-only agent identity, and zero, one, or three priorities. They also cover invalid citations, severity, owner, or action, model non-publication, timeout, and callback races.
+Intelligence fixtures cover signed manual-brief, copilot, and autonomous dispatch; idempotent durable identity; zero, one, or three brief priorities; exact work/read/evidence/proposal/callback receipts; and sanitized history/update replay. Autonomy fixtures cover singleton and multi-page reads, repeated planner/investigator/critic cycles, prompt injection, citation tuple splicing, stale target versions, invalid or duplicated critic indexes, durable continuation after per-request timeout/provider failure, operation replay after later work, Worker restart, complete traversal without a hidden total cap, policy/owner/event revocation, kill-switch abort, and late callbacks. One black-box race pauses initial admission and continuation beyond Convex's outbound-attempt uncertainty window, records the Worker cancellation fence before any Flue instance exists, then releases both delayed requests and proves neither can create a submission. A lossless-synthesis fixture places more independent early findings than one model response can return, makes each actionable only from a later page, restarts between reduction batches, and proves every finding remains reachable and is considered exactly once. A support-provenance fixture builds a multi-level candidate with more leaves than one proposal request can carry, restarts between signed evidence pages, loses and replays one earlier response after a later page, and proves that gaps, reordering, page splicing, target-key laundering, and an unsealed proposal are rejected while Ops can page every exact leaf. A repeated-effect fixture proves two runs keep one human action and two independently auditable sealed observations.
 
 Signed and verified fixture payloads cover repositories from several GitHub installations. They cover add, classify, reorder, archive, push, install, uninstall, and repository removal. They also cover topic present or missing per repository, fork overlap, force push, partial access loss, duplicate or out-of-order delivery, and comparison truncation.
 
@@ -773,7 +790,7 @@ The provisional test envelope is:
 - one round export while normal reads continue;
 - one attendance export and active emergency roll-call subscription while scans continue;
 - one maximum accepted-cohort emergency-pack generation while ordinary attendance and review writes continue.
-- bounded requested and proactive operations briefs across separate events, including due-state backlogs, duplicate evaluation/dispatch, cooldown and local-day limit boundaries, recovery, expiry, and callback bursts, while ordinary Convex health reads and review mutations continue.
+- bounded transport load for manual briefs and autonomous operations across separate events, including due-state backlogs, duplicate evaluation/dispatch, complete multi-page read traversal, long-running checkpoint continuation, unbounded reasoning/tool/investigator/proposal counts at the product layer, lost operation receipts, Worker recovery, aborts, and callback bursts, while ordinary Convex health reads and review mutations continue.
 
 The core load script stubs external APIs and uses production Workpool/concurrency logic. A separately budgeted staging test samples the live OpenAI embedding, intake, and admission paths with synthetic project text only. The test records server function latency, client update delay, failures, reconnect behavior, novelty newest-result latency, deterministic-fallback latency, and duplicate/missing state.
 

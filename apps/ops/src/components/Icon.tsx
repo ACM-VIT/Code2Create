@@ -1,8 +1,3 @@
-/**
- * Line icons, drawn on a 24-unit grid at 1.5 stroke so they sit optically
- * level with 13px labels. Inline rather than a dependency: the shell needs
- * fourteen glyphs, and a package would ship hundreds.
- */
 export type IconName =
   | 'home'
   | 'lifebuoy'

@@ -1,10 +1,11 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useAction, useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 import { compressPaperImage } from '../lib/paperImage'
 
 type AttendanceOverview = FunctionReturnType<typeof api.attendanceOperations.overview>
@@ -60,7 +61,7 @@ export default function AttendanceManualRecovery({ session }: { session: Attenda
 
       <div className="manual-sheet-list">
         {manual.sheets.map((sheet) => (
-          <ManualSheetCard key={`${sheet.id}-${sheet.version}`} session={session} sheet={sheet} />
+          <ManualSheetCard key={sheet.id} session={session} sheet={sheet} />
         ))}
         {manual.sheets.length === 0 ? (
           <p className="empty">No paper sheets recorded for this session.</p>
@@ -78,29 +79,25 @@ function IncidentArea({ data }: { data: IncidentData }) {
   const [severity, setSeverity] = useState<IncidentSeverity>('service_disruption')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
-
-  const invalidate = () => {
-    operationRef.current = null
-    setError(null)
-  }
+  const createAttempt = useMutationAttempt<FunctionReturnType<typeof api.incidents.create>>()
+  const createPending = createAttempt.hasPending('attendance-incident-create')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await createIncident({
-        eventSlug,
-        title,
-        summary,
-        severity,
-        affectedService: 'attendance_backend',
-        clientOperationId,
+      await createAttempt.run('attendance-incident-create', () => {
+        const args = {
+          eventSlug,
+          title,
+          summary,
+          severity,
+          affectedService: 'attendance_backend' as const,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => createIncident(args)
       })
-      operationRef.current = null
       setTitle('')
       setSummary('')
       setSeverity('service_disruption')
@@ -130,10 +127,8 @@ function IncidentArea({ data }: { data: IncidentData }) {
             <input
               required
               value={title}
-              onChange={(event) => {
-                invalidate()
-                setTitle(event.target.value)
-              }}
+              disabled={createPending}
+              onChange={(event) => setTitle(event.target.value)}
               placeholder="Attendance backend unavailable"
             />
           </label>
@@ -141,10 +136,8 @@ function IncidentArea({ data }: { data: IncidentData }) {
             <span>Severity</span>
             <select
               value={severity}
-              onChange={(event) => {
-                invalidate()
-                setSeverity(parseSeverity(event.target.value))
-              }}
+              disabled={createPending}
+              onChange={(event) => setSeverity(parseSeverity(event.target.value))}
             >
               <option value="service_disruption">Service disruption</option>
               <option value="major">Major</option>
@@ -156,21 +149,18 @@ function IncidentArea({ data }: { data: IncidentData }) {
             <textarea
               required
               value={summary}
-              onChange={(event) => {
-                invalidate()
-                setSummary(event.target.value)
-              }}
+              disabled={createPending}
+              onChange={(event) => setSummary(event.target.value)}
               placeholder="What was checked, and why normal scanning cannot continue?"
             />
           </label>
           <div className="button-row manual-wide">
-            <button className="primary" type="submit" disabled={busy}>{busy ? 'Opening…' : 'Open incident'}</button>
+            <button className="primary" type="submit" disabled={busy}>{busy ? 'Opening…' : createPending ? 'Confirm incident' : 'Open incident'}</button>
             <button
               className="secondary"
               type="button"
-              disabled={busy}
+              disabled={busy || createPending}
               onClick={() => {
-                operationRef.current = null
                 setOpen(false)
                 setError(null)
               }}
@@ -181,7 +171,7 @@ function IncidentArea({ data }: { data: IncidentData }) {
         </form>
       ) : null}
       <div className="manual-incident-list">
-        {data.incidents.map((incident) => <IncidentRow key={`${incident.id}-${incident.version}`} incident={incident} />)}
+        {data.incidents.map((incident) => <IncidentRow key={incident.id} incident={incident} />)}
       </div>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </div>
@@ -195,24 +185,27 @@ function IncidentRow({ incident }: { incident: Incident }) {
   const [resolutionReason, setResolutionReason] = useState('')
   const [busy, setBusy] = useState<'approve' | 'resolve' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const approveOperation = useRef<string | null>(null)
-  const resolveOperation = useRef<string | null>(null)
+  const approveAttempt = useMutationAttempt<FunctionReturnType<typeof api.incidents.approveManualMode>>()
+  const resolveAttempt = useMutationAttempt<FunctionReturnType<typeof api.incidents.resolve>>()
+  const approvalPending = approveAttempt.hasPending('approve-manual-mode')
+  const resolutionPending = resolveAttempt.hasPending('resolve-incident')
+  const operationPending = approvalPending || resolutionPending
 
   const submitApproval = async (event: FormEvent) => {
     event.preventDefault()
-    const clientOperationId = approveOperation.current ?? crypto.randomUUID()
-    approveOperation.current = clientOperationId
     setBusy('approve')
     setError(null)
     try {
-      await approve({
-        eventSlug,
-        incidentId: incident.id,
-        expectedIncidentVersion: incident.version,
-        reason: approvalReason,
-        clientOperationId,
+      await approveAttempt.run('approve-manual-mode', () => {
+        const args = {
+          eventSlug,
+          incidentId: incident.id,
+          expectedIncidentVersion: incident.version,
+          reason: approvalReason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => approve(args)
       })
-      approveOperation.current = null
       setApprovalReason('')
     } catch (caught) {
       setError(readableError(caught))
@@ -223,19 +216,19 @@ function IncidentRow({ incident }: { incident: Incident }) {
 
   const submitResolution = async (event: FormEvent) => {
     event.preventDefault()
-    const clientOperationId = resolveOperation.current ?? crypto.randomUUID()
-    resolveOperation.current = clientOperationId
     setBusy('resolve')
     setError(null)
     try {
-      await resolve({
-        eventSlug,
-        incidentId: incident.id,
-        expectedIncidentVersion: incident.version,
-        reason: resolutionReason,
-        clientOperationId,
+      await resolveAttempt.run('resolve-incident', () => {
+        const args = {
+          eventSlug,
+          incidentId: incident.id,
+          expectedIncidentVersion: incident.version,
+          reason: resolutionReason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => resolve(args)
       })
-      resolveOperation.current = null
       setResolutionReason('')
     } catch (caught) {
       setError(readableError(caught))
@@ -263,14 +256,12 @@ function IncidentRow({ incident }: { incident: Incident }) {
           <input
             required
             value={approvalReason}
-            onChange={(event) => {
-              approveOperation.current = null
-              setApprovalReason(event.target.value)
-            }}
+            disabled={operationPending}
+            onChange={(event) => setApprovalReason(event.target.value)}
             placeholder="Why paper mode is necessary"
           />
-          <button className="secondary" type="submit" disabled={busy !== null}>
-            {busy === 'approve' ? 'Approving…' : 'Approve manual mode'}
+          <button className="secondary" type="submit" disabled={busy !== null || resolutionPending}>
+            {busy === 'approve' ? 'Approving…' : approvalPending ? 'Confirm earlier approval' : 'Approve manual mode'}
           </button>
         </form>
       ) : null}
@@ -279,14 +270,12 @@ function IncidentRow({ incident }: { incident: Incident }) {
           <input
             required
             value={resolutionReason}
-            onChange={(event) => {
-              resolveOperation.current = null
-              setResolutionReason(event.target.value)
-            }}
+            disabled={operationPending}
+            onChange={(event) => setResolutionReason(event.target.value)}
             placeholder="How service recovered"
           />
-          <button className="text-button" type="submit" disabled={busy !== null}>
-            {busy === 'resolve' ? 'Resolving…' : 'Resolve incident'}
+          <button className="text-button" type="submit" disabled={busy !== null || approvalPending}>
+            {busy === 'resolve' ? 'Resolving…' : resolutionPending ? 'Confirm earlier resolution' : 'Resolve incident'}
           </button>
         </form>
       ) : null}
@@ -317,10 +306,10 @@ function DraftSheetForm({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const createAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceManualSheets.createDraft>>()
+  const createPending = createAttempt.hasPending('manual-sheet-create')
 
   const invalidate = () => {
-    operationRef.current = null
     setError(null)
     setNotice(null)
   }
@@ -343,7 +332,7 @@ function DraftSheetForm({
       setError('Choose an approved incident and the station printed on the sheet.')
       return
     }
-    const entries = []
+    const entries: FunctionArgs<typeof api.attendanceManualSheets.createDraft>['entries'] = []
     for (const row of rows) {
       const lineNumber = Number(row.lineNumber)
       const capturedAt = Date.parse(row.capturedAt)
@@ -359,24 +348,24 @@ function DraftSheetForm({
         ...(row.correctionReason.trim() === '' ? {} : { correctionReason: row.correctionReason }),
       })
     }
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await createDraft({
-        eventSlug,
-        incidentId: incident.id,
-        sessionId: session.id,
-        stationId: station.id,
-        expectedIncidentVersion: incident.version,
-        expectedSessionVersion: session.version,
-        serial,
-        transition,
-        entries,
-        clientOperationId,
+      await createAttempt.run('manual-sheet-create', () => {
+        const args = {
+          eventSlug,
+          incidentId: incident.id,
+          sessionId: session.id,
+          stationId: station.id,
+          expectedIncidentVersion: incident.version,
+          expectedSessionVersion: session.version,
+          serial,
+          transition,
+          entries,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => createDraft(args)
       })
-      operationRef.current = null
       setSerial('')
       setRows([newDraftRow(1)])
       setNotice('Draft saved. Attach the source photo below; another person must verify it.')
@@ -410,18 +399,18 @@ function DraftSheetForm({
       <div className="manual-sheet-meta">
         <label className="field">
           <span>Incident</span>
-          <select required value={incidentId} onChange={(event) => { invalidate(); setIncidentId(event.target.value) }}>
+          <select disabled={createPending} required value={incidentId} onChange={(event) => { invalidate(); setIncidentId(event.target.value) }}>
             <option value="">Choose</option>
             {approvedIncidents.map((incident) => <option key={incident.id} value={incident.id}>{incident.title}</option>)}
           </select>
         </label>
         <label className="field">
           <span>Sheet serial</span>
-          <input required value={serial} onChange={(event) => { invalidate(); setSerial(event.target.value) }} placeholder="A-001" />
+          <input disabled={createPending} required value={serial} onChange={(event) => { invalidate(); setSerial(event.target.value) }} placeholder="A-001" />
         </label>
         <label className="field">
           <span>Station</span>
-          <select required value={stationId} onChange={(event) => chooseStation(event.target.value)}>
+          <select disabled={createPending} required value={stationId} onChange={(event) => chooseStation(event.target.value)}>
             <option value="">Choose</option>
             {stations.map((station) => <option key={station.id} value={station.id}>{station.name}</option>)}
           </select>
@@ -429,6 +418,7 @@ function DraftSheetForm({
         <label className="field">
           <span>Direction</span>
           <select
+            disabled={createPending}
             value={transition}
             onChange={(event) => { invalidate(); setTransition(parseTransition(event.target.value)) }}
           >
@@ -443,26 +433,26 @@ function DraftSheetForm({
           <div className="manual-entry-row" key={row.key}>
             <label className="field manual-line">
               <span>Line</span>
-              <input inputMode="numeric" required value={row.lineNumber} onChange={(event) => updateRow(row.key, 'lineNumber', event.target.value)} />
+              <input disabled={createPending} inputMode="numeric" required value={row.lineNumber} onChange={(event) => updateRow(row.key, 'lineNumber', event.target.value)} />
             </label>
             <label className="field">
               <span>Participant / VIT reg / badge</span>
-              <input required value={row.participantReference} onChange={(event) => updateRow(row.key, 'participantReference', event.target.value)} />
+              <input disabled={createPending} required value={row.participantReference} onChange={(event) => updateRow(row.key, 'participantReference', event.target.value)} />
             </label>
             <label className="field">
               <span>Local time</span>
-              <input type="datetime-local" step="60" required value={row.capturedAt} onChange={(event) => updateRow(row.key, 'capturedAt', event.target.value)} />
+              <input disabled={createPending} type="datetime-local" step="60" required value={row.capturedAt} onChange={(event) => updateRow(row.key, 'capturedAt', event.target.value)} />
             </label>
             <label className="field manual-initials">
               <span>Initials</span>
-              <input required value={row.operatorInitials} onChange={(event) => updateRow(row.key, 'operatorInitials', event.target.value)} />
+              <input disabled={createPending} required value={row.operatorInitials} onChange={(event) => updateRow(row.key, 'operatorInitials', event.target.value)} />
             </label>
             <label className="field">
               <span>Correction reason, if any</span>
-              <input value={row.correctionReason} onChange={(event) => updateRow(row.key, 'correctionReason', event.target.value)} />
+              <input disabled={createPending} value={row.correctionReason} onChange={(event) => updateRow(row.key, 'correctionReason', event.target.value)} />
             </label>
             {rows.length > 1 ? (
-              <button className="text-button manual-remove-row" type="button" onClick={() => { invalidate(); setRows((current) => current.filter((candidate) => candidate.key !== row.key)) }}>
+              <button className="text-button manual-remove-row" disabled={createPending} type="button" onClick={() => { invalidate(); setRows((current) => current.filter((candidate) => candidate.key !== row.key)) }}>
                 Remove
               </button>
             ) : null}
@@ -473,7 +463,7 @@ function DraftSheetForm({
         <button
           className="secondary"
           type="button"
-          disabled={rows.length >= 25}
+          disabled={createPending || rows.length >= 25}
           onClick={() => {
             invalidate()
             setRows((current) => [...current, newDraftRow(current.length + 1)])
@@ -481,8 +471,8 @@ function DraftSheetForm({
         >
           Add line
         </button>
-        <button className="primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save draft'}</button>
-        <button className="secondary" type="button" disabled={busy} onClick={() => { operationRef.current = null; setOpen(false); setError(null) }}>
+        <button className="primary" type="submit" disabled={busy}>{busy ? 'Saving…' : createPending ? 'Confirm earlier draft' : 'Save draft'}</button>
+        <button className="secondary" type="button" disabled={busy || createPending} onClick={() => { setOpen(false); setError(null) }}>
           Cancel
         </button>
       </div>
@@ -534,26 +524,27 @@ function SourceUpload({ sheet }: { sheet: ManualSheet }) {
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const uploadAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceManualSheetActions.uploadSource>>()
+  const uploadPending = uploadAttempt.hasPending('manual-sheet-source-upload')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!file) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
       const compressed = await compressPaperImage(file, 'attendance-sheet')
-      await upload({
-        eventSlug,
-        sheetId: sheet.id,
-        expectedSheetVersion: sheet.version,
-        bytes: compressed.bytes,
-        fileName: compressed.fileName,
-        clientOperationId,
+      await uploadAttempt.run('manual-sheet-source-upload', () => {
+        const args = {
+          eventSlug,
+          sheetId: sheet.id,
+          expectedSheetVersion: sheet.version,
+          bytes: compressed.bytes,
+          fileName: compressed.fileName,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => upload(args)
       })
-      operationRef.current = null
       setFile(null)
     } catch (caught) {
       setError(readableError(caught))
@@ -569,16 +560,16 @@ function SourceUpload({ sheet }: { sheet: ManualSheet }) {
         <input
           type="file"
           accept="image/*"
+          disabled={uploadPending}
           required
           onChange={(event) => {
-            operationRef.current = null
             setError(null)
             setFile(event.target.files?.item(0) ?? null)
           }}
         />
       </label>
       <button className="primary" type="submit" disabled={busy || !file}>
-        {busy ? 'Compressing and submitting…' : 'Submit for verification'}
+        {busy ? 'Compressing and submitting…' : uploadPending ? 'Confirm earlier upload' : 'Submit for verification'}
       </button>
       <p className="muted">The browser makes one legible JPEG under 900 KB. The original paper remains the audit record.</p>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
@@ -634,42 +625,34 @@ function SheetVerification({ session, sheet }: { session: AttendanceSession; she
   const [originalFiled, setOriginalFiled] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
-
-  const invalidate = () => {
-    operationRef.current = null
-    setError(null)
-  }
+  const verifyAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceManualSheets.verify>>()
+  const verifyPending = verifyAttempt.hasPending('manual-sheet-verify')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      if (kind === 'reject') {
-        await verify({
+      await verifyAttempt.run('manual-sheet-verify', () => {
+        const args = kind === 'reject' ? {
           eventSlug,
           sheetId: sheet.id,
           expectedSheetVersion: sheet.version,
           expectedSessionVersion: session.version,
           decision: { kind: 'reject' },
           reason,
-          clientOperationId,
-        })
-      } else {
-        await verify({
+          clientOperationId: crypto.randomUUID(),
+        } as const : {
           eventSlug,
           sheetId: sheet.id,
           expectedSheetVersion: sheet.version,
           expectedSessionVersion: session.version,
           decision: { kind: 'import', originalFiled },
           reason,
-          clientOperationId,
-        })
-      }
-      operationRef.current = null
+          clientOperationId: crypto.randomUUID(),
+        } as const
+        return () => verify(args)
+      })
       setReason('')
       setOriginalFiled(false)
     } catch (caught) {
@@ -683,27 +666,28 @@ function SheetVerification({ session, sheet }: { session: AttendanceSession; she
     <form className="manual-verification" onSubmit={submit}>
       <label className="field">
         <span>Decision</span>
-        <select value={kind} onChange={(event) => { invalidate(); setKind(parseVerificationKind(event.target.value)) }}>
+        <select disabled={verifyPending} value={kind} onChange={(event) => { setError(null); setKind(parseVerificationKind(event.target.value)) }}>
           <option value="import">Verify and import</option>
           <option value="reject">Reject this entry</option>
         </select>
       </label>
       <label className="field">
         <span>Reason</span>
-        <input required value={reason} onChange={(event) => { invalidate(); setReason(event.target.value) }} placeholder="What you checked against the paper" />
+        <input disabled={verifyPending} required value={reason} onChange={(event) => { setError(null); setReason(event.target.value) }} placeholder="What you checked against the paper" />
       </label>
       {kind === 'import' ? (
         <label className="manual-check">
           <input
             type="checkbox"
             checked={originalFiled}
-            onChange={(event) => { invalidate(); setOriginalFiled(event.target.checked) }}
+            disabled={verifyPending}
+            onChange={(event) => { setError(null); setOriginalFiled(event.target.checked) }}
           />
           <span>The numbered original is in the event audit packet.</span>
         </label>
       ) : null}
       <button className={kind === 'reject' ? 'secondary' : 'primary'} type="submit" disabled={busy || (kind === 'import' && !originalFiled)}>
-        {busy ? 'Applying…' : kind === 'reject' ? 'Reject sheet' : 'Import paper rows'}
+        {busy ? 'Applying…' : verifyPending ? 'Confirm earlier decision' : kind === 'reject' ? 'Reject sheet' : 'Import paper rows'}
       </button>
       <p className="muted">Rows older than newer online evidence are linked for review and do not overwrite current state.</p>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
@@ -717,23 +701,24 @@ function DraftCancellation({ sheet }: { sheet: ManualSheet }) {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const cancelAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceManualSheets.cancelDraft>>()
+  const cancelPending = cancelAttempt.hasPending('manual-sheet-cancel')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await cancel({
-        eventSlug,
-        sheetId: sheet.id,
-        expectedSheetVersion: sheet.version,
-        reason,
-        clientOperationId,
+      await cancelAttempt.run('manual-sheet-cancel', () => {
+        const args = {
+          eventSlug,
+          sheetId: sheet.id,
+          expectedSheetVersion: sheet.version,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => cancel(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -744,8 +729,8 @@ function DraftCancellation({ sheet }: { sheet: ManualSheet }) {
   if (!open) return <button className="text-button" type="button" onClick={() => setOpen(true)}>Cancel draft</button>
   return (
     <form className="manual-inline-form" onSubmit={submit}>
-      <input required value={reason} onChange={(event) => { operationRef.current = null; setReason(event.target.value) }} placeholder="Why this draft should be replaced" />
-      <button className="secondary" type="submit" disabled={busy}>{busy ? 'Cancelling…' : 'Confirm cancel'}</button>
+      <input disabled={cancelPending} required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why this draft should be replaced" />
+      <button className="secondary" type="submit" disabled={busy}>{busy ? 'Cancelling…' : cancelPending ? 'Confirm earlier cancellation' : 'Confirm cancel'}</button>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </form>
   )

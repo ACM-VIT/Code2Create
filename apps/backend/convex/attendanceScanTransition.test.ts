@@ -5,7 +5,11 @@ import { afterAll, describe, expect, test } from "vitest";
 import { components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { insertPermissionGrant } from "./lib/permissions.ts";
-import { moveSessionCounter } from "./lib/attendanceCounters.ts";
+import {
+  attendanceCounterShardFor,
+  moveSessionCounter,
+  moveZoneCounter,
+} from "./lib/attendanceCounters.ts";
 import { initializeAttendanceTeamAvailability } from "./lib/attendanceTeamAvailability.ts";
 import { stationAssignmentSourceId } from "./lib/attendanceStations.ts";
 import schema from "./schema.ts";
@@ -26,12 +30,64 @@ afterAll(() => {
   else process.env.AUTH_SITE_URL = originalAuthSiteUrl;
 });
 
-/**
- * A station is a phone at a place. Which way a person is walking is something
- * the operator marks on the scan, so every one of these runs through the same
- * station row without touching its configuration.
- */
 describe("attendance scan direction", () => {
+  test("a fixed venue station derives its transition and rejects a client override", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    const operator = asOperator(backend, fixture);
+    await backend.run((ctx) => ctx.db.patch(fixture.stationId, { mode: "venue_entry" }));
+
+    const entry = await operator.mutation(internal.attendanceScan.recordScan, {
+      ...scanArguments(fixture),
+      clientOperationId: "fixed-entry",
+      deviceSequence: 1,
+    });
+    expect(entry).toMatchObject({ outcome: "accepted", transition: "venue_entry" });
+
+    await expect(
+      operator.mutation(internal.attendanceScan.recordScan, {
+        ...scanArguments(fixture),
+        rovingTransition: "venue_exit",
+        clientOperationId: "fixed-override",
+        deviceSequence: 2,
+      }),
+    ).rejects.toThrow("transition is fixed");
+  });
+
+  test("a roving station requires an explicit transition", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    const operator = asOperator(backend, fixture);
+
+    await expect(
+      operator.mutation(internal.attendanceScan.recordScan, {
+        ...scanArguments(fixture),
+        clientOperationId: "roving-without-transition",
+        deviceSequence: 1,
+      }),
+    ).rejects.toThrow("Choose the roving station's transition");
+  });
+
+  test("a station rejects a credential method outside its allowlist", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    const operator = asOperator(backend, fixture);
+    await backend.run((ctx) =>
+      ctx.db.patch(fixture.stationId, {
+        mode: "venue_entry",
+        allowedCredentialKinds: ["badge_qr"],
+      }),
+    );
+
+    await expect(
+      operator.mutation(internal.attendanceScan.recordScan, {
+        ...scanArguments(fixture),
+        clientOperationId: "disallowed-credential",
+        deviceSequence: 1,
+      }),
+    ).rejects.toThrow("credential method is not enabled");
+  });
+
   test("one station records a participant arriving and then leaving", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend);
@@ -39,7 +95,7 @@ describe("attendance scan direction", () => {
 
     const entry = await operator.mutation(internal.attendanceScan.recordScan, {
       ...scanArguments(fixture),
-      transition: "venue_entry",
+      rovingTransition: "venue_entry",
       clientOperationId: "scan-entry",
       deviceSequence: 1,
     });
@@ -53,7 +109,7 @@ describe("attendance scan direction", () => {
 
     const exit = await operator.mutation(internal.attendanceScan.recordScan, {
       ...scanArguments(fixture),
-      transition: "venue_exit",
+      rovingTransition: "venue_exit",
       clientOperationId: "scan-exit",
       deviceSequence: 2,
     });
@@ -69,15 +125,21 @@ describe("attendance scan direction", () => {
     expect(station?.configurationVersion).toBe(1);
   });
 
-  test("a session scan resolves whichever session is open in the station's area", async () => {
+  test("a session scan resolves the session bound to the station", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend);
     const operator = asOperator(backend, fixture);
     const sessionId = await openSession(backend, fixture);
+    const otherSessionId = await insertOpenSession(backend, fixture, {
+      stableKey: "overlapping_session",
+      bindStation: false,
+    });
+    await backend.run((ctx) =>
+      ctx.db.patch(fixture.stationId, { mode: "session_confirm" }),
+    );
 
     const receipt = await operator.mutation(internal.attendanceScan.recordScan, {
       ...scanArguments(fixture),
-      transition: "session_confirm",
       clientOperationId: "scan-session",
       deviceSequence: 1,
     });
@@ -89,28 +151,95 @@ describe("attendance scan direction", () => {
       previousState: "confirmation_due",
       nextState: "present",
     });
-    const presenceEvent = await backend.run((ctx) => ctx.db.get(receipt.presenceEventId));
+    const presenceEvent = await backend.run((ctx) =>
+      ctx.db
+        .query("attendancePresenceEvents")
+        .withIndex("by_operator_operation", (index) =>
+          index
+            .eq("operatorPersonId", fixture.operatorPersonId)
+            .eq("clientOperationId", "scan-session"),
+        )
+        .unique(),
+    );
     expect(presenceEvent?.sessionId).toBe(sessionId);
+    expect(presenceEvent?.sessionId).not.toBe(otherSessionId);
+  });
+
+  test("a roving session transition requires a station-bound session before writing", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    const operator = asOperator(backend, fixture);
+
+    await expect(
+      operator.mutation(internal.attendanceScan.recordScan, {
+        ...scanArguments(fixture),
+        rovingTransition: "session_confirm",
+        clientOperationId: "unbound-roving-session",
+        deviceSequence: 1,
+      }),
+    ).rejects.toThrow("requires a session-bound station");
+
+    const events = await backend.run((ctx) =>
+      ctx.db
+        .query("attendancePresenceEvents")
+        .withIndex("by_station_time", (index) => index.eq("stationId", fixture.stationId))
+        .collect(),
+    );
+    expect(events).toHaveLength(0);
+  });
+
+  test("a bound roving session transition uses the exact configured session", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    const operator = asOperator(backend, fixture);
+    const configuredSessionId = await openSession(backend, fixture);
+    const overlappingSessionId = await insertOpenSession(backend, fixture, {
+      stableKey: "other_roving_session",
+      bindStation: false,
+    });
+
+    const receipt = await operator.mutation(internal.attendanceScan.recordScan, {
+      ...scanArguments(fixture),
+      rovingTransition: "session_confirm",
+      clientOperationId: "bound-roving-session",
+      deviceSequence: 1,
+    });
+    expect(receipt).toMatchObject({
+      outcome: "accepted",
+      transition: "session_confirm",
+    });
+    const presenceEvent = await backend.run((ctx) =>
+      ctx.db
+        .query("attendancePresenceEvents")
+        .withIndex("by_operator_operation", (index) =>
+          index
+            .eq("operatorPersonId", fixture.operatorPersonId)
+            .eq("clientOperationId", "bound-roving-session"),
+        )
+        .unique(),
+    );
+    expect(presenceEvent?.sessionId).toBe(configuredSessionId);
+    expect(presenceEvent?.sessionId).not.toBe(overlappingSessionId);
   });
 
   test("a session scan with no session open in the area is refused", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend);
     const operator = asOperator(backend, fixture);
+    const sessionId = await openSession(backend, fixture);
+    await backend.run((ctx) => ctx.db.patch(sessionId, { status: "scheduled" }));
 
     const live = await operator.mutation(internal.attendanceScan.recordScan, {
       ...scanArguments(fixture),
-      transition: "session_confirm",
+      rovingTransition: "session_confirm",
       clientOperationId: "scan-no-session",
       deviceSequence: 1,
     });
     expect(live).toMatchObject({ outcome: "rejected", reasonCode: "session_not_open" });
 
-    // A scan taken offline cannot be told the session was missing, so it comes
-    // back for staff rather than being thrown away.
     const replayed = await operator.mutation(internal.attendanceScan.recordScan, {
       ...scanArguments(fixture),
-      transition: "session_confirm",
+      rovingTransition: "session_confirm",
       clientOperationId: "scan-no-session-replay",
       deviceSequence: 2,
       isOfflineReplay: true,
@@ -127,7 +256,7 @@ describe("attendance scan direction", () => {
     const operator = asOperator(backend, fixture);
     await operator.mutation(internal.attendanceScan.recordScan, {
       ...scanArguments(fixture),
-      transition: "venue_entry",
+      rovingTransition: "venue_entry",
       clientOperationId: "scan-same-id",
       deviceSequence: 1,
     });
@@ -135,11 +264,127 @@ describe("attendance scan direction", () => {
     await expect(
       operator.mutation(internal.attendanceScan.recordScan, {
         ...scanArguments(fixture),
-        transition: "venue_exit",
+        rovingTransition: "venue_exit",
         clientOperationId: "scan-same-id",
         deviceSequence: 1,
       }),
     ).rejects.toThrow("Operation ID was reused.");
+  });
+
+  test("an exit scanned in zone B decrements the participant's prior zone A", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    const operator = asOperator(backend, fixture);
+    const zoneBId = await insertZone(backend, fixture, "zone_b");
+
+    await operator.mutation(internal.attendanceScan.recordScan, {
+      ...scanArguments(fixture),
+      rovingTransition: "venue_entry",
+      clientOperationId: "zone-a-entry",
+      deviceSequence: 1,
+    });
+    await backend.run((ctx) => ctx.db.patch(fixture.stationId, { zoneId: zoneBId }));
+    const exit = await operator.mutation(internal.attendanceScan.recordScan, {
+      ...scanArguments(fixture),
+      rovingTransition: "venue_exit",
+      clientOperationId: "zone-b-exit",
+      deviceSequence: 2,
+    });
+    expect(exit).toMatchObject({ outcome: "accepted", transition: "venue_exit" });
+
+    const counters = await backend.run(async (ctx) => ({
+      zoneA: await ctx.db
+        .query("attendanceZoneCounterShards")
+        .withIndex("by_zone_shard", (index) => index.eq("zoneId", fixture.zoneId))
+        .collect(),
+      zoneB: await ctx.db
+        .query("attendanceZoneCounterShards")
+        .withIndex("by_zone_shard", (index) => index.eq("zoneId", zoneBId))
+        .collect(),
+    }));
+    expect(counters.zoneA.reduce((sum, row) => sum + row.inside, 0)).toBe(0);
+    expect(counters.zoneB.reduce((sum, row) => sum + row.inside, 0)).toBe(0);
+  });
+
+  test("moving an unknown state from zone A to an inside state in zone B updates both owners", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    const zoneBId = await insertZone(backend, fixture, "unknown_destination");
+    const shard = attendanceCounterShardFor(fixture.membershipId);
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("attendanceZoneCounterShards", {
+        eventId: fixture.eventId,
+        zoneId: fixture.zoneId,
+        shard,
+        inside: 0,
+        unknown: 1,
+        version: 1,
+        updatedAt: fixture.now,
+      });
+      await moveZoneCounter(ctx, {
+        eventId: fixture.eventId,
+        membershipId: fixture.membershipId,
+        previousState: "unknown",
+        previousZoneId: fixture.zoneId,
+        nextState: "inside",
+        nextZoneId: zoneBId,
+        now: fixture.now,
+      });
+    });
+    const counters = await backend.run(async (ctx) => ({
+      zoneA: await ctx.db
+        .query("attendanceZoneCounterShards")
+        .withIndex("by_zone_shard", (index) =>
+          index.eq("zoneId", fixture.zoneId).eq("shard", shard),
+        )
+        .unique(),
+      zoneB: await ctx.db
+        .query("attendanceZoneCounterShards")
+        .withIndex("by_zone_shard", (index) =>
+          index.eq("zoneId", zoneBId).eq("shard", shard),
+        )
+        .unique(),
+    }));
+    expect(counters.zoneA).toMatchObject({ inside: 0, unknown: 0 });
+    expect(counters.zoneB).toMatchObject({ inside: 1, unknown: 0 });
+  });
+
+  test("a fresh offline portal QR is rejected but an uncertain retry returns its prior receipt", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    const operator = asOperator(backend, fixture);
+    const portalLookupHash = await insertPortalToken(backend, fixture);
+    await backend.run((ctx) => ctx.db.patch(fixture.stationId, { mode: "venue_entry" }));
+    const onlineArgs = {
+      ...scanArguments(fixture),
+      credentialKind: "portal_qr" as const,
+      lookupHash: portalLookupHash,
+      clientOperationId: "portal-online",
+      deviceSequence: 1,
+    };
+
+    const online = await operator.mutation(internal.attendanceScan.recordScan, onlineArgs);
+    const uncertainRetry = await operator.mutation(internal.attendanceScan.recordScan, {
+      ...onlineArgs,
+      isOfflineReplay: true,
+    });
+    expect(uncertainRetry).toEqual(online);
+
+    await expect(
+      operator.mutation(internal.attendanceScan.recordScan, {
+        ...onlineArgs,
+        clientOperationId: "portal-fresh-offline",
+        deviceSequence: 2,
+        isOfflineReplay: true,
+      }),
+    ).rejects.toThrow("portal QR must begin at an online scanner");
+    const saved = await backend.run((ctx) =>
+      ctx.db
+        .query("attendancePresenceEvents")
+        .withIndex("by_station_time", (index) => index.eq("stationId", fixture.stationId))
+        .collect(),
+    );
+    expect(saved).toHaveLength(1);
   });
 });
 
@@ -171,11 +416,22 @@ function scanArguments(fixture: Fixture) {
 }
 
 async function openSession(backend: BackendTest, fixture: Fixture) {
+  return insertOpenSession(backend, fixture, {
+    stableKey: "fixture_session",
+    bindStation: true,
+  });
+}
+
+async function insertOpenSession(
+  backend: BackendTest,
+  fixture: Fixture,
+  args: { stableKey: string; bindStation: boolean },
+) {
   return backend.run(async (ctx) => {
     const sessionId = await ctx.db.insert("attendanceSessions", {
       eventId: fixture.eventId,
       planVersionId: fixture.planVersionId,
-      stableKey: "fixture_session",
+      stableKey: args.stableKey,
       name: "Fixture session",
       kind: "hacking",
       requirement: "required",
@@ -203,8 +459,6 @@ async function openSession(backend: BackendTest, fixture: Fixture) {
       version: 1,
       updatedAt: fixture.now,
     });
-    // Expectation building is what normally puts a person on the counter, and
-    // the projection refuses to move a counter it was never added to.
     await moveSessionCounter(ctx, {
       eventId: fixture.eventId,
       sessionId,
@@ -216,13 +470,49 @@ async function openSession(backend: BackendTest, fixture: Fixture) {
       isLate: false,
       now: fixture.now,
     });
+    if (args.bindStation) await ctx.db.patch(fixture.stationId, { sessionId });
     return sessionId;
   });
 }
 
+async function insertZone(backend: BackendTest, fixture: Fixture, stableKey: string) {
+  return backend.run((ctx) =>
+    ctx.db.insert("attendanceZones", {
+      eventId: fixture.eventId,
+      planVersionId: fixture.planVersionId,
+      stableKey,
+      name: stableKey,
+      createdAt: fixture.now,
+    }),
+  );
+}
+
+async function insertPortalToken(backend: BackendTest, fixture: Fixture) {
+  const tokenHash = `portal-${crypto.randomUUID()}`;
+  await backend.run(async (ctx) => {
+    const portalCredentialId = await ctx.db.insert("attendancePortalCredentials", {
+      eventId: fixture.eventId,
+      membershipId: fixture.membershipId,
+      version: 1,
+      state: "active",
+      updatedAt: fixture.now,
+    });
+    await ctx.db.insert("attendancePortalQrTokens", {
+      eventId: fixture.eventId,
+      membershipId: fixture.membershipId,
+      portalCredentialId,
+      credentialVersion: 1,
+      tokenHash,
+      state: "active",
+      issuedAt: fixture.now,
+      expiresAt: fixture.now + 60_000,
+    });
+  });
+  return tokenHash;
+}
+
 async function seedScannerFixture(backend: BackendTest) {
-  // recordScan judges capture times against the real clock, so the fixture has
-  // to sit on it rather than on a fixed date.
+  // recordScan compares capture times with the current clock.
   const now = Date.now();
   const eventSlug = `attendance-scan-${crypto.randomUUID()}`;
   const deviceSecretHash = "fixture-device-secret-hash";
@@ -285,6 +575,8 @@ async function seedScannerFixture(backend: BackendTest) {
       deviceInstallationId,
       stableKey: "fixture_station",
       name: "Fixture station",
+      mode: "roving",
+      allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"],
       status: "active",
       configurationVersion: 1,
       createdAt: now,
@@ -323,14 +615,15 @@ async function seedScannerFixture(backend: BackendTest) {
       createdAt: now,
       updatedAt: now,
     });
-    // Venue projection moves the participant's team availability, which only
-    // exists once they are on a confirmed team.
     const teamId = await ctx.db.insert("teams", {
       eventId,
       name: "Fixture team",
       publicCode: `FIXTURE-${crypto.randomUUID()}`,
       leadMembershipId: membershipId,
       status: "confirmed",
+      activeMemberCount: 1,
+      activeVitMemberCount: 1,
+      activeExternalMemberCount: 0,
       membershipLocked: true,
       trackLocked: true,
       version: 1,
@@ -365,7 +658,15 @@ async function seedScannerFixture(backend: BackendTest) {
       enrolledAt: now,
       verifiedAt: now,
     });
-    return { eventId, planVersionId, zoneId, stationId, deviceInstallationId, membershipId };
+    return {
+      eventId,
+      planVersionId,
+      zoneId,
+      stationId,
+      deviceInstallationId,
+      membershipId,
+      operatorPersonId: operator.personId,
+    };
   });
   return {
     ...seeded,

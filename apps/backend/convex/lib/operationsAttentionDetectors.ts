@@ -1,16 +1,4 @@
-/**
- * The deterministic detectors behind the attention ledger.
- *
- * Every function here is pure: it takes a typed projection of what the database
- * held and the current time, and returns items. No model is consulted, no
- * network is touched, and the same projection always produces the same rows —
- * which is what lets a sweep diff one reading against the last and lets a test
- * pin the exact sentence an operator will read.
- *
- * Persistence thresholds are measured from timestamps the database already
- * holds (a heartbeat, a hold, a call attempt), so a condition has to have
- * lasted before it becomes an item and this layer keeps no counters of its own.
- */
+/** Pure deterministic detectors over typed projections and server timestamps. */
 
 import {
   countPhrase,
@@ -27,19 +15,8 @@ import type { AttentionSeverity } from "../values.ts";
 
 type Clock = { now: number };
 
-/* ------------------------------------------------------------------ *
- * Thresholds
- * ------------------------------------------------------------------ */
-
-/**
- * The reviewer app heartbeats far more often than this; `reviewSubstitutions`
- * treats two minutes of silence as not-live. Four is the point at which the
- * desk would walk over, and `specs/03-panel-and-queue-operations.md:137` is
- * explicit that even then it is a signal, not proof.
- */
+/** Four minutes of silence is an operational signal, not proof of absence. */
 const staleHeartbeatMs = 4 * 60 * 1_000;
-/** Grace after the time a reviewer gave for coming back. */
-const lateReturnGraceMs = 3 * 60 * 1_000;
 /** A token can be replaced by the app within a minute of being rejected. */
 const invalidTokenGraceMs = 2 * 60 * 1_000;
 /** A seat is briefly empty during an ordinary swap. */
@@ -63,10 +40,6 @@ const scorecardChasePersistenceMs = 5 * 60 * 1_000;
 const scorecardChaseAttentionMs = 15 * 60 * 1_000;
 const scorecardChaseCriticalMs = 45 * 60 * 1_000;
 
-/* ------------------------------------------------------------------ *
- * Projections
- * ------------------------------------------------------------------ */
-
 export type ClockInStatus =
   | "not_clocked_in"
   | "present"
@@ -83,7 +56,6 @@ export type PanelMemberProjection = {
   expectedReturnAt?: number;
   lastHeartbeatAt?: number;
   deviceCount: number;
-  /** The status of the most recently seen active device, when there is one. */
   pushTokenStatus?: "not_registered" | "active" | "invalid";
   pushTokenInvalidatedAt?: number;
 };
@@ -100,7 +72,6 @@ export type PanelProjection = {
   name: string;
   status: "draft" | "ready" | "needs_reviewer" | "paused" | "closed";
   version: number;
-  /** Set to a milliseconds since epoch when the panel last changed status. */
   statusSince: number;
   /** The seat `startPageChain` would fill, present only while one is vacant. */
   vacantPanelMemberId?: string;
@@ -110,7 +81,6 @@ export type PanelProjection = {
   members: readonly PanelMemberProjection[];
   queuedTeams: readonly QueuedTeamProjection[];
   activeReviewPlannedEndAt?: number;
-  /** Newest first, already limited by the caller. */
   completedDurationsSeconds: readonly number[];
 };
 
@@ -158,6 +128,8 @@ export type ReviewFloorProjection = Clock & {
   roundId: string;
   roundName: string;
   roundEndsAt: number;
+  reviewerReportAt: number;
+  reviewerNoShowGraceSeconds: number;
   requiredPanelSize: number;
   reviewDurationSeconds: number;
   /** A round paused under an incident is expected to run behind. */
@@ -184,16 +156,14 @@ export type ScorecardChaseProjection = Clock & {
   sessions: readonly OutstandingScorecardProjection[];
 };
 
-/* ------------------------------------------------------------------ *
- * Review floor
- * ------------------------------------------------------------------ */
-
-/**
- * Empty seats, reviewers who may not be at their table, and teams the queue is
- * not moving. These are the seven conditions the Overview already stated, plus
- * the reviewer at risk of leaving a seat empty before it is empty.
- */
 export function reviewFloorItems(input: ReviewFloorProjection): DetectedAttentionItem[] {
+  return [...reviewPanelItems(input), ...reviewTeamItems(input)];
+}
+
+type PanelDetectorProjection = Omit<ReviewFloorProjection, "teams">;
+
+/** Detects panel-owned conditions without requiring team attendance reads. */
+export function reviewPanelItems(input: PanelDetectorProjection): DetectedAttentionItem[] {
   const route = `/reviews/${input.roundId}`;
   const visibility = {
     permissionKey: "round.read",
@@ -201,15 +171,10 @@ export function reviewFloorItems(input: ReviewFloorProjection): DetectedAttentio
     scopeId: input.roundId,
   };
   const items: DetectedAttentionItem[] = [];
-  const teamsByPanelId = new Map<string, number>();
-  for (const team of input.teams) {
-    if (team.state !== "queued" || team.panelId === undefined) continue;
-    teamsByPanelId.set(team.panelId, (teamsByPanelId.get(team.panelId) ?? 0) + 1);
-  }
 
   for (const panel of input.panels) {
     if (panel.status === "draft" || panel.status === "closed") continue;
-    const queuedCount = teamsByPanelId.get(panel.panelId) ?? 0;
+    const queuedCount = panel.queuedTeams.length;
     const seated = panel.members.filter(
       (member) => member.clockInStatus === "present",
     ).length;
@@ -264,10 +229,20 @@ export function reviewFloorItems(input: ReviewFloorProjection): DetectedAttentio
 
     if (queuedCount > 0) {
       for (const member of panel.members) {
-        const risk = seatRisk(member, input.now);
+        const risk = seatRisk(member, input.now, input.reviewerNoShowGraceSeconds);
         if (!risk) continue;
+        const noShowEligibleAt =
+          member.clockInStatus === "temporarily_unavailable"
+            ? member.expectedReturnAt === undefined
+              ? undefined
+              : member.expectedReturnAt + input.reviewerNoShowGraceSeconds * 1_000
+            : input.reviewerReportAt + input.reviewerNoShowGraceSeconds * 1_000;
         const proposal: AttentionProposal | undefined =
-          panel.status === "ready" && !panel.hasRunningReview
+          member.clockInStatus !== "present" &&
+          noShowEligibleAt !== undefined &&
+          input.now >= noShowEligibleAt &&
+          panel.status === "ready" &&
+          !panel.hasRunningReview
             ? proposeCommand(
                 {
                   name: "reviewSubstitutions.markNoShow",
@@ -311,6 +286,21 @@ export function reviewFloorItems(input: ReviewFloorProjection): DetectedAttentio
       }
     }
   }
+
+  return items;
+}
+
+type TeamDetectorProjection = Omit<ReviewFloorProjection, "panels">;
+
+/** Detects team-owned conditions without requiring panel membership reads. */
+export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentionItem[] {
+  const route = `/reviews/${input.roundId}`;
+  const visibility = {
+    permissionKey: "round.read",
+    scopeType: "round" as const,
+    scopeId: input.roundId,
+  };
+  const items: DetectedAttentionItem[] = [];
 
   for (const team of input.teams) {
     const at = team.tableLabel
@@ -512,12 +502,12 @@ export function reviewFloorItems(input: ReviewFloorProjection): DetectedAttentio
 
 type SeatRisk = { statement: string; reasonFragment: string; cause: string };
 
-/**
- * A seat is at risk when the person holding it is clocked in but the floor has
- * a concrete reason to doubt they are at the table. Each branch says exactly
- * what was observed and nothing beyond it.
- */
-function seatRisk(member: PanelMemberProjection, now: number): SeatRisk | null {
+/** Reports observed risk signals without treating clock-in status as proof of presence. */
+function seatRisk(
+  member: PanelMemberProjection,
+  now: number,
+  reviewerNoShowGraceSeconds: number,
+): SeatRisk | null {
   const clockedIn =
     member.clockInStatus === "present" ||
     member.clockInStatus === "temporarily_unavailable";
@@ -526,7 +516,7 @@ function seatRisk(member: PanelMemberProjection, now: number): SeatRisk | null {
   if (
     member.clockInStatus === "temporarily_unavailable" &&
     member.expectedReturnAt !== undefined &&
-    now - member.expectedReturnAt >= lateReturnGraceMs
+    now - member.expectedReturnAt >= reviewerNoShowGraceSeconds * 1_000
   ) {
     const late = durationPhrase(now - member.expectedReturnAt);
     return {
@@ -564,18 +554,7 @@ function seatRisk(member: PanelMemberProjection, now: number): SeatRisk | null {
   return null;
 }
 
-/* ------------------------------------------------------------------ *
- * Round-completion forecast
- * ------------------------------------------------------------------ */
-
-/**
- * When this round actually finishes at the pace the floor is running.
- *
- * The pace is the same bounded median the participant's queue window uses, so
- * the desk and the hall never see two different answers. A forecast built on
- * fewer than three completed reviews is the configured duration restated, so it
- * is not reported at all.
- */
+/** Forecasts from the shared bounded pace and suppresses thin samples. */
 export function roundForecastItems(input: ReviewFloorProjection): DetectedAttentionItem[] {
   if (input.isPaused) return [];
   const route = `/reviews/${input.roundId}`;
@@ -710,16 +689,9 @@ function overrunSeverity(overrunMs: number): AttentionSeverity {
   return "watch";
 }
 
-/* ------------------------------------------------------------------ *
- * Scorecard chase
- * ------------------------------------------------------------------ */
-
 /**
- * Reviews that finished without every assigned reviewer submitting.
- *
- * Reviewers have no attendance record, so this never claims one left the venue.
- * It says how long ago the review ended and what the reviewer's own app last
- * reported, and stops there.
+ * Reviewer attendance is unknown, so scorecard alerts report only elapsed time
+ * and the last app status.
  */
 export function scorecardChaseItems(
   input: ScorecardChaseProjection,

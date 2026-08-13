@@ -1,26 +1,7 @@
 /**
- * The capacity-driven admission cohort: given an auditorium capacity in
- * PEOPLE, rank the undecided idea submissions with the signals the platform
- * already records and show which teams the line admits, which it excludes,
- * and — the whole point — which teams sit near the line as the capacity
- * number moves.
- *
- * Three rules shape everything in this file:
- *
- * 1. Nothing here decides. The cohort is a suggestion; every applied decision
- *    goes through `admissions.decide`, as the signed-in operator, with a
- *    published reason code, so the audit trail names a person. The apply
- *    mutation below is a thin, refusal-aware delegate around that mutation,
- *    never a bypass of it.
- * 2. Capacity is people, submissions are teams. A team's cost against the
- *    capacity is its locked roster size — the same
- *    `project.lockedTeamMemberIds.length` the offer pipeline reserves — and
- *    the arithmetic is returned row by row so a human can check it.
- * 3. No new scoring model. The ordering composes signals that already exist —
- *    human review recommendations, the bounded AI recommendation, the novelty
- *    score — and returns every component it used. Year bands are reported,
- *    never balanced toward: the band mix is an observation for the operator,
- *    not a quota this file enforces.
+ * Suggests a capacity-bounded cohort without deciding applications.
+ * Capacity is measured in people, ranking uses only recorded signals, and
+ * applied decisions still run through `admissions.decide` as the operator.
  */
 
 import {
@@ -43,11 +24,19 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
+import {
+  HttpBodyTooLargeError,
+  readBoundedRequestText,
+} from "./lib/boundedHttpBody";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { noveltyInputFingerprint } from "./lib/novelty";
 import { findOperation, operationFingerprint } from "./lib/operations";
-import { requirePermission } from "./lib/permissions";
+import {
+  boundedActivePermissionGrants,
+  requirePermission,
+} from "./lib/permissions";
 import { redactProjectText } from "./lib/projectText";
+import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits";
 import {
   admissionAiDisposition,
   admissionDecision,
@@ -58,24 +47,7 @@ import {
   noveltyBand,
 } from "./values";
 
-/**
- * Ranking and selection are pure and exported so the capacity arithmetic is
- * testable without a database. The ordering deliberately invents no number:
- * it compares existing signals lexicographically, strongest authority first.
- *
- * - Human reviews first: accept recommendations minus decline
- *   recommendations, because a policy-coded human read of the submission
- *   outranks everything a machine produced.
- * - The bounded AI recommendation second, as a preference order over its four
- *   published outcomes (accept > waitlist > needs_information/none >
- *   decline). It breaks ties between equally-reviewed submissions; it never
- *   overrides a human signal.
- * - The existing novelty score third. It is optional for teams, so a missing
- *   score ties with the most-familiar band rather than being penalised
- *   further; by this depth the earlier signals are already equal.
- * - Submission time last: the earlier submission wins a full tie, and the
- *   document id makes the order total so two runs never disagree.
- */
+/** Pure ranking: human support, AI tie-break, novelty, submission time, then ID. */
 export type AdmissionCohortSignals = {
   applicationId: string;
   teamSize: number;
@@ -92,6 +64,7 @@ const aiSupportRank = {
   needs_information: 0,
   decline: -1,
 } as const;
+const maximumActiveApplicationPermissionGrants = 2_000;
 
 export function compareAdmissionCohortCandidates(
   left: AdmissionCohortSignals,
@@ -115,18 +88,8 @@ export function compareAdmissionCohortCandidates(
 }
 
 /**
- * The selection is a strict prefix of the ranking: people are accumulated in
- * rank order and the line falls where the next whole team no longer fits.
- * No bin-packing — skipping a large team to admit a smaller, lower-ranked one
- * would silently reorder merit by roster size, and a human can still admit
- * the smaller team by hand.
- *
- * `entryCapacityPeople` is the property that makes capacity movement cheap:
- * it is the minimum capacity at which this team enters the suggestion, it is
- * monotone down the ranking, and it is independent of the capacity this call
- * evaluated. A UI holding one response can slide the capacity and recompute
- * every team's side of the line as `entryCapacityPeople <= capacity`, without
- * refetching anything.
+ * Selects a strict ranking prefix; no bin-packing around a higher-ranked team.
+ * `entryCapacityPeople` lets clients recompute the line without refetching.
  */
 export function selectAdmissionCohort<T extends AdmissionCohortSignals>(
   candidates: readonly T[],
@@ -158,12 +121,7 @@ export function normalizedCapacityPeople(value: number) {
   return value;
 }
 
-/**
- * Which bucket a state falls into. Committed teams already hold their seats —
- * a published accept, a live offer, or a confirmation — so their people are
- * subtracted from the capacity before any suggestion is made. Decided-out
- * teams left by a human decision and are reported, never re-ranked.
- */
+/** Committed states consume capacity; decided-out states are never re-ranked. */
 const committedStates = new Set<Doc<"applications">["state"]>([
   "accepted",
   "offer_sent",
@@ -209,21 +167,17 @@ type CohortRow = {
   } | null;
 };
 
-/**
- * Load every application in the event with the admission signals that already
- * exist for it. Everything here is a read of recorded state: the review
- * counts come from `admissionHumanReviews` filtered to the current content
- * version exactly the way `admissions.decide` counts them, the AI
- * recommendation is "current" under the same test `decide` applies before it
- * accepts a disposition, and the novelty signal is the one the team's own
- * intake preview stored — trusted only while its fingerprint still matches
- * the submitted idea text.
- */
+/** Loads only current-version recorded review, AI, and novelty signals. */
 async function loadAdmissionCohortRows(ctx: QueryCtx, event: Doc<"events">) {
   const applications = await ctx.db
     .query("applications")
     .withIndex("by_event_state_submitted", (index) => index.eq("eventId", event._id))
-    .collect();
+    .take(maximumReviewTeamsPerEvent + 1);
+  if (applications.length > maximumReviewTeamsPerEvent) {
+    throw new Error(
+      `Admission cohort reads support at most ${maximumReviewTeamsPerEvent} event teams.`,
+    );
+  }
   const policies = new Map<Id<"admissionPolicyVersions">, Doc<"admissionPolicyVersions">>();
   const rows: CohortRow[] = [];
   for (const application of applications) {
@@ -264,8 +218,7 @@ async function loadAdmissionCohortRows(ctx: QueryCtx, event: Doc<"events">) {
       else if (review.recommendation === "decline") reviewSignal.decline += 1;
       else reviewSignal.needsInformation += 1;
     }
-    // The same currency test `admissions.decide` applies before it lets a
-    // disposition reference the AI recommendation.
+    // Match the AI currency check used by admissions.decide.
     const aiCurrent = Boolean(
       recommendation &&
         recommendation.state === "succeeded" &&
@@ -292,9 +245,7 @@ async function loadAdmissionCohortRows(ctx: QueryCtx, event: Doc<"events">) {
             : [],
         }
       : null;
-    // The stored novelty preview counts only while it still describes the
-    // submitted idea: the fingerprint is the same check intake applies before
-    // it shows the signal back to the team.
+    // Use novelty only while its fingerprint matches the submitted idea.
     const noveltyValid = Boolean(
       draft &&
         draft.noveltyScore !== undefined &&
@@ -329,7 +280,7 @@ async function loadAdmissionCohortRows(ctx: QueryCtx, event: Doc<"events">) {
       application,
       team,
       project,
-      teamSize: project.lockedTeamMemberIds.length,
+      teamSize: project.lockedMemberCount,
       minimumHumanReviews: policy.minimumHumanReviews,
       reviewSignal,
       completedCurrentReviews: currentReviews.length,
@@ -405,13 +356,7 @@ function candidateView(row: CohortRow, selection: ReturnType<typeof selectAdmiss
   };
 }
 
-/**
- * The complete, viewer-independent cohort view. The operator query prunes it
- * per grant before returning; the intelligence read returns it whole because
- * its validator is the redaction. The arithmetic is always computed over the
- * whole event — a viewer who can read only some applications still sees true
- * capacity numbers, with the rows they cannot read counted, not shown.
- */
+/** Computes whole-event arithmetic before grant-based row filtering. */
 async function buildAdmissionCohortView(
   ctx: QueryCtx,
   event: Doc<"events">,
@@ -544,9 +489,7 @@ const candidateViewFields = {
   suggestedIn: v.boolean(),
 } as const;
 
-// The operator view carries the year band only under the profile-context
-// grant; the intelligence read always carries it, because a band is policy
-// vocabulary, not an identity.
+// Operator year-band visibility requires the profile-context grant.
 const operatorCandidateView = v.object({
   ...candidateViewFields,
   experienceBand: v.optional(admissionExperienceBand),
@@ -581,15 +524,7 @@ const cohortPolicyView = v.object({
   criteria: v.array(v.object({ criterionKey: v.string(), label: v.string() })),
 });
 
-/**
- * The per-application read gates, fetched once per permission key instead of
- * once per application. This restates the live-grant filter of
- * `matchingPermissionGrantIds` — same event, same validity window, same
- * exact-application-scope-or-event-wide rule — because calling that helper
- * hundreds of times per key would multiply identical index reads without
- * changing a single answer. The subject was already verified active by
- * `requireEventSubject` on this same request.
- */
+/** Builds one live-grant matcher per permission instead of querying per row. */
 async function applicationGrantMatcher(
   ctx: QueryCtx,
   args: {
@@ -601,22 +536,10 @@ async function applicationGrantMatcher(
       | "application.ai_recommendation.read";
   },
 ) {
-  const now = Date.now();
-  const grants = await ctx.db
-    .query("permissionGrants")
-    .withIndex("by_subject_permission_status", (index) =>
-      index
-        .eq("eventAccessSubjectId", args.eventAccessSubjectId)
-        .eq("permissionKey", args.permissionKey)
-        .eq("status", "active"),
-    )
-    .collect();
-  const live = grants.filter(
-    (grant) =>
-      grant.eventId === args.eventId &&
-      grant.validFrom <= now &&
-      (grant.validUntil === undefined || grant.validUntil > now),
-  );
+  const live = await boundedActivePermissionGrants(ctx, {
+    ...args,
+    maximumGrantCount: maximumActiveApplicationPermissionGrants,
+  });
   const eventWide = live.some(
     (grant) => grant.scopeType === "event" && grant.scopeId === undefined,
   );
@@ -628,16 +551,7 @@ async function applicationGrantMatcher(
   return (applicationId: Id<"applications">) => eventWide || scoped.has(applicationId);
 }
 
-/**
- * The operator's cohort view. Authorised exactly like the neighbouring
- * admissions queries: the event access subject is required up front, the
- * aggregate numbers are visible to any event account the way `stageCounts`
- * counts are, and every row is shown only under the same `application.read`
- * grant `admissions.list` requires — with `application.profile_context.read`
- * gating the year band and `application.ai_recommendation.read` gating the AI
- * fields, again exactly as `list` and `detail` gate them. Rows the caller
- * cannot read stay in the arithmetic and are reported as a count.
- */
+/** Filters rows and sensitive fields through the standard application grants. */
 export const cohort = query({
   args: {
     eventSlug: v.string(),
@@ -710,9 +624,7 @@ const applyRefusal = v.object({
   minimumHumanReviews: v.number(),
 });
 
-// Written out because the handler both returns through `api.admissions.decide`
-// and appears inside `api` itself; without the annotation the reference is
-// circular and TypeScript gives the whole mutation type `any`.
+// Break the circular api.admissions.decide inference explicitly.
 type ApplyDecisionResult =
   | {
       applied: true;
@@ -722,18 +634,7 @@ type ApplyDecisionResult =
     }
   | { applied: false; refusal: Infer<typeof applyRefusal> };
 
-/**
- * Apply one operator decision for one application in the cohort view. The
- * decision itself is `admissions.decide`, run through `ctx.runMutation` as
- * this signed-in operator — the same delegation shape
- * `intelligenceRecommendations.executeApprovedKind` uses — so the review
- * minimum, the published reason code, the AI disposition rules, and the
- * decision audit all re-check and re-record there under the operator's own
- * grants. What this wrapper adds is an honest refusal: the policy conditions
- * `decide` would reject are checked first and returned as data with the
- * review arithmetic attached, so the cohort surface can say "one more review
- * needed" instead of surfacing a thrown error.
- */
+/** Delegates decisions to admissions.decide and returns policy refusals as data. */
 export const applyDecision = mutation({
   args: {
     eventSlug: v.string(),
@@ -784,11 +685,7 @@ export const applyDecision = mutation({
     const completedReviewCount = reviews.filter(
       (review) => review.applicationContentVersion === application.contentVersion,
     ).length;
-    // A retried apply must replay, not refuse: after a successful decision the
-    // application is terminal, so the refusal checks below would misread the
-    // retry as a conflict. `decide` records its operation under this exact
-    // fingerprint recipe; finding it here short-circuits to the same replay
-    // `decide` itself would return.
+    // Resolve the prior operation before terminal-state checks so retries replay.
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -856,14 +753,13 @@ export const applyDecision = mutation({
   },
 });
 
+const maximumIntelligenceCohortWindow = 48;
+const intelligenceCohortRowsPerSide = maximumIntelligenceCohortWindow / 2;
+
 /**
- * The intelligence-facing reads. The same signed keyhole discipline as
- * `intelligenceReads.ts`: the Worker names one whitelisted read with bounded
- * parameters, Convex runs its own projection, and the `returns` validators
- * are the redaction. These reads carry team names (operator-visible on
- * `admissions.list`), ids, aggregate counts, year bands, and scores against
- * published policy — and never a participant's name, email, or membership
- * detail; team rosters appear only as a size.
+ * Redacted admission projection for the fixed intelligence read boundary.
+ * Only the decision boundary is useful to the model; whole-cohort rows remain
+ * on the human workspace and never consume the Worker's bounded response.
  */
 export const cohortRead = internalQuery({
   args: { eventId: v.id("events"), capacityPeople: v.optional(v.number()) },
@@ -872,14 +768,49 @@ export const cohortRead = internalQuery({
     capacityPeople: v.number(),
     policy: cohortPolicyView,
     summary: cohortSummaryView,
-    committed: v.array(rosterEntryView),
-    decidedOut: v.array(rosterEntryView),
+    counts: v.object({
+      committedTeams: v.number(),
+      decidedOutTeams: v.number(),
+      candidateTeams: v.number(),
+    }),
+    window: v.object({
+      startRank: v.number(),
+      endRank: v.number(),
+      hasEarlier: v.boolean(),
+      hasLater: v.boolean(),
+    }),
     candidates: v.array(internalCandidateView),
   }),
   handler: async (ctx, args) => {
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("The admission read event no longer exists.");
-    return buildAdmissionCohortView(ctx, event, args.capacityPeople);
+    const view = await buildAdmissionCohortView(ctx, event, args.capacityPeople);
+    const firstOutIndex = view.candidates.findIndex((candidate) => !candidate.suggestedIn);
+    const boundaryIndex = firstOutIndex === -1 ? view.candidates.length : firstOutIndex;
+    const startIndex = Math.max(0, boundaryIndex - intelligenceCohortRowsPerSide);
+    const endIndex = Math.min(
+      view.candidates.length,
+      boundaryIndex + intelligenceCohortRowsPerSide,
+    );
+    const candidates = view.candidates.slice(startIndex, endIndex);
+    return {
+      generatedAt: view.generatedAt,
+      capacityPeople: view.capacityPeople,
+      policy: view.policy,
+      summary: view.summary,
+      counts: {
+        committedTeams: view.committed.length,
+        decidedOutTeams: view.decidedOut.length,
+        candidateTeams: view.candidates.length,
+      },
+      window: {
+        startRank: candidates[0]?.rank ?? 0,
+        endRank: candidates.at(-1)?.rank ?? 0,
+        hasEarlier: startIndex > 0,
+        hasLater: endIndex < view.candidates.length,
+      },
+      candidates,
+    };
   },
 });
 
@@ -897,14 +828,7 @@ const searchMatchView = v.object({
 
 const maximumSearchMatches = 25;
 
-/**
- * Word search over this event's submissions. Matching is plain, conjunctive
- * substring matching over the team name, the submitted idea, and the stored
- * nearest-theme label — no embedding call, no new score; the novelty and
- * similarity numbers returned are the ones the intake preview already
- * computed and stored. The excerpt passes through `redactProjectText`, the
- * same scrub the admission model input uses.
- */
+/** Conjunctive text search that returns only stored signals and redacted excerpts. */
 export const submissionSearchRead = internalQuery({
   args: { eventId: v.id("events"), searchQuery: v.string(), limit: v.number() },
   returns: v.object({
@@ -985,26 +909,19 @@ function readSecret() {
   return value;
 }
 
-/**
- * The signed HTTP boundary for the admission reads, mirroring
- * `intelligenceReadEndpoint` byte for byte in its checks: media type, body
- * size, a fresh HMAC over the exact body under this route's own signature
- * context, then a strict parse. The read secret is shared with the operations
- * reads — both prove "the intelligence Worker may ask for a redacted
- * projection" — but the distinct context means neither route's traffic
- * replays on the other.
- */
+/** Signed, size-bounded admission-read endpoint with a route-specific context. */
 export const admissionIntelligenceReadEndpoint = httpAction(async (ctx, request) => {
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim() !== "application/json") {
     return Response.json({ error: "unsupported_media_type" }, { status: 415 });
   }
-  const declaredLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declaredLength) && declaredLength > maximumBodyBytes) {
-    return Response.json({ error: "payload_too_large" }, { status: 413 });
-  }
-  const body = await request.text();
-  if (new TextEncoder().encode(body).byteLength > maximumBodyBytes) {
-    return Response.json({ error: "payload_too_large" }, { status: 413 });
+  let body: string;
+  try {
+    body = await readBoundedRequestText(request, maximumBodyBytes);
+  } catch (error) {
+    if (error instanceof HttpBodyTooLargeError) {
+      return Response.json({ error: "payload_too_large" }, { status: 413 });
+    }
+    throw error;
   }
   let verified = false;
   try {

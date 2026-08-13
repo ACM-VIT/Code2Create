@@ -7,6 +7,7 @@ import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../componen
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 type CurrentConfiguration = FunctionReturnType<typeof api.admissionPolicyConfiguration.current>
 type AdmissionConfiguration = CurrentConfiguration['publishedRelease']['configuration']
@@ -47,6 +48,7 @@ export function AdmissionPolicyConfiguration({
   )
   const createDraft = useMutation(api.admissionPolicyConfiguration.createDraft)
   const publish = useMutation(api.admissionPolicyConfiguration.publish)
+  const operations = useOperationRunner()
   const [configuration, setConfiguration] = useState<AdmissionConfiguration | null>(null)
   const [loadedRelease, setLoadedRelease] = useState('')
   const [draftReason, setDraftReason] = useState('')
@@ -54,6 +56,8 @@ export function AdmissionPolicyConfiguration({
   const [publishArmed, setPublishArmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const draftPending = operations.hasPending('admission-policy-draft')
+  const publishPending = operations.hasPending('admission-policy-publish')
 
   useEffect(() => {
     if (!current) return
@@ -98,7 +102,7 @@ export function AdmissionPolicyConfiguration({
     setBusy(true)
     setError(null)
     try {
-      await createDraft({
+      await operations.run('admission-policy-draft', (clientOperationId) => () => createDraft({
         eventSlug,
         configuration,
         expectedEventVersion: current.eventVersion,
@@ -106,8 +110,8 @@ export function AdmissionPolicyConfiguration({
           ? { expectedDraftPolicyId: current.draftRelease.policyId }
           : {}),
         reason: draftReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -121,7 +125,7 @@ export function AdmissionPolicyConfiguration({
     setBusy(true)
     setError(null)
     try {
-      await publish({
+      await operations.run('admission-policy-publish', (clientOperationId) => () => publish({
         eventSlug,
         draftPolicyId: draft.policyId,
         expectedPolicyChecksum: draft.policyChecksum,
@@ -129,8 +133,8 @@ export function AdmissionPolicyConfiguration({
         expectedModelChecksum: draft.modelChecksum,
         expectedEventVersion: current.eventVersion,
         reason: publishReason,
-        clientOperationId: crypto.randomUUID(),
-      })
+        clientOperationId,
+      }))
       setPublishArmed(false)
     } catch (caught) {
       setError(readableError(caught))
@@ -191,19 +195,20 @@ export function AdmissionPolicyConfiguration({
           <p className="muted">The first application will lock these rules.</p>
           <label className="field">
             <span>Why this policy is ready</span>
-            <textarea required value={publishReason} onChange={(event) => setPublishReason(event.currentTarget.value)} />
+            <textarea disabled={publishPending} required value={publishReason} onChange={(event) => setPublishReason(event.currentTarget.value)} />
           </label>
           <div className="button-row">
             <button className="primary" disabled={busy || publishReason.trim().length < 5} type="button" onClick={() => void publishDraft()}>
-              {busy ? 'Publishing…' : 'Publish policy'}
+              {busy ? 'Publishing…' : publishPending ? 'Confirm earlier publication' : 'Publish policy'}
             </button>
-            <button className="secondary" disabled={busy} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
+            <button className="secondary" disabled={busy || publishPending} type="button" onClick={() => setPublishArmed(false)}>Cancel</button>
           </div>
         </section>
       ) : null}
 
       {current.canDraft && !current.publicationLocked ? (
         <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
+          <fieldset disabled={draftPending} style={{ display: 'contents' }}>
           <PolicySection title="Basics" description="These limits apply to the whole admissions round.">
             <div className="intake-policy-grid">
               <label className="field">
@@ -216,7 +221,7 @@ export function AdmissionPolicyConfiguration({
               </label>
               <label className="field">
                 <span>Total participant places</span>
-                <input required type="number" min={1} max={5000} value={configuration.overallParticipantCapacity} onChange={(event) => update('overallParticipantCapacity', event.currentTarget.valueAsNumber)} />
+                <input required type="number" min={1} value={configuration.overallParticipantCapacity} onChange={(event) => update('overallParticipantCapacity', event.currentTarget.valueAsNumber)} />
               </label>
             </div>
           </PolicySection>
@@ -318,13 +323,14 @@ export function AdmissionPolicyConfiguration({
             ) : null}
           </PolicySection>
 
+          </fieldset>
           <section className="track-save">
             <label className="field">
               <span>Why this changed</span>
-              <textarea required value={draftReason} onChange={(event) => setDraftReason(event.currentTarget.value)} />
+              <textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.currentTarget.value)} />
             </label>
             <button className="primary" disabled={busy || draftReason.trim().length < 5} type="submit">
-              {busy ? 'Saving…' : current.draftRelease ? 'Replace draft' : 'Save draft'}
+              {busy ? 'Saving…' : draftPending ? 'Confirm earlier draft' : current.draftRelease ? 'Replace draft' : 'Save draft'}
             </button>
           </section>
         </form>

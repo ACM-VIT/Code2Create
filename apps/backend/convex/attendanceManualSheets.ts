@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import {
   applySessionTransitionProjection,
@@ -582,7 +582,7 @@ export const createDraft = mutation({
   },
 });
 
-export const sourceUploadContext = query({
+export const sourceUploadContext = internalQuery({
   args: {
     eventSlug: v.string(),
     sheetId: v.id("attendanceManualSheets"),
@@ -889,7 +889,7 @@ export const cancelDraft = mutation({
   },
 });
 
-export const sourceContext = query({
+export const sourceContext = internalQuery({
   args: { eventSlug: v.string(), sheetId: v.id("attendanceManualSheets") },
   returns: v.object({
     storageId: v.id("_storage"),

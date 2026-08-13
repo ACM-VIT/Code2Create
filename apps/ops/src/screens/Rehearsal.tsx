@@ -7,13 +7,14 @@ import {
   type RehearsalScenarioState,
   type RehearsalWorkstream,
 } from '@code2create/domain'
-import type { FunctionArgs, FunctionReturnType } from 'convex/server'
+import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 
 import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 
 type RehearsalList = FunctionReturnType<typeof api.rehearsals.list>
 type RehearsalRun = RehearsalList['runs'][number]
@@ -21,17 +22,9 @@ type RehearsalRunId = RehearsalRun['id']
 type RehearsalDetail = FunctionReturnType<typeof api.rehearsals.detail>
 type RehearsalScenario = RehearsalDetail['scenarios'][number]
 type RehearsalScenarioId = RehearsalScenario['id']
-type CreateArgs = FunctionArgs<typeof api.rehearsals.create>
-type AssignArgs = FunctionArgs<typeof api.rehearsals.assignWorkstreamOwner>
-type StartArgs = FunctionArgs<typeof api.rehearsals.start>
-type CompleteArgs = FunctionArgs<typeof api.rehearsals.complete>
-type CancelArgs = FunctionArgs<typeof api.rehearsals.cancel>
-type UpdateScenarioArgs = FunctionArgs<typeof api.rehearsals.updateScenario>
+type AssignResult = FunctionReturnType<typeof api.rehearsals.assignWorkstreamOwner>
+type CreateResult = FunctionReturnType<typeof api.rehearsals.create>
 
-/**
- * Checks are listed and filtered worst-first: the ones that went wrong are the
- * reason to hold a test run at all, and the ones that worked are a record.
- */
 const scenarioStateOrder: RehearsalScenarioState[] = [
   'failed',
   'blocked',
@@ -40,7 +33,6 @@ const scenarioStateOrder: RehearsalScenarioState[] = [
   'passed',
 ]
 
-/** A run still being set up or worked comes before one already put to bed. */
 const runOrder: Record<RehearsalRunState, number> = {
   active: 0,
   draft: 1,
@@ -125,7 +117,6 @@ export function Rehearsal() {
   )
 }
 
-/** The most recent unfinished run, stated as work outstanding rather than a score. */
 function RunLead({ run }: { run: RehearsalRun | undefined }) {
   if (!run) return null
   const wrong = run.counts.failed + run.counts.blocked
@@ -181,11 +172,8 @@ function CreateRun({ defaultOpen, onCreated }: { defaultOpen: boolean; onCreated
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const busyRef = useRef(false)
-  const operationRef = useRef<CreateArgs | null>(null)
-
-  const resetOperation = () => {
-    operationRef.current = null
-  }
+  const createAttempt = useMutationAttempt<CreateResult>()
+  const createPending = createAttempt.hasPending('create-rehearsal')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -198,17 +186,17 @@ function CreateRun({ defaultOpen, onCreated }: { defaultOpen: boolean; onCreated
     busyRef.current = true
     setBusy(true)
     setError(null)
-    const args = operationRef.current ?? {
-      eventSlug,
-      name: name.trim(),
-      ...(schedule !== undefined ? { scheduledFor: schedule } : {}),
-      reason: reason.trim(),
-      clientOperationId: crypto.randomUUID(),
-    }
-    operationRef.current = args
     try {
-      await create(args)
-      operationRef.current = null
+      await createAttempt.run('create-rehearsal', () => {
+        const args = {
+          eventSlug,
+          name: name.trim(),
+          ...(schedule !== undefined ? { scheduledFor: schedule } : {}),
+          reason: reason.trim(),
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => create(args)
+      })
       onCreated()
     } catch (caught) {
       setError(readableError(caught))
@@ -232,22 +220,18 @@ function CreateRun({ defaultOpen, onCreated }: { defaultOpen: boolean; onCreated
             required
             minLength={3}
             maxLength={100}
+            disabled={createPending}
             value={name}
-            onChange={(event) => {
-              resetOperation()
-              setName(event.target.value)
-            }}
+            onChange={(event) => setName(event.target.value)}
           />
         </label>
         <label className="field">
           Scheduled time <small>optional</small>
           <input
             type="datetime-local"
+            disabled={createPending}
             value={scheduledFor}
-            onChange={(event) => {
-              resetOperation()
-              setScheduledFor(event.target.value)
-            }}
+            onChange={(event) => setScheduledFor(event.target.value)}
           />
         </label>
         <label className="field rehearsal-wide-field">
@@ -256,15 +240,13 @@ function CreateRun({ defaultOpen, onCreated }: { defaultOpen: boolean; onCreated
             required
             minLength={5}
             maxLength={300}
+            disabled={createPending}
             value={reason}
-            onChange={(event) => {
-              resetOperation()
-              setReason(event.target.value)
-            }}
+            onChange={(event) => setReason(event.target.value)}
           />
         </label>
         <button className="secondary" disabled={busy} type="submit">
-          {busy ? 'Creating…' : 'Create test run'}
+          {busy ? 'Creating…' : createPending ? 'Confirm test run' : 'Create test run'}
         </button>
         {error ? <p className="notice error">{error}</p> : null}
       </form>
@@ -277,6 +259,7 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
   const [stateFilter, setStateFilter] = useState<StateFilter>('all')
   const [workstreamFilter, setWorkstreamFilter] = useState<WorkstreamFilter>('all')
   const [selectedScenarioId, setSelectedScenarioId] = useState<RehearsalScenarioId | null>(null)
+  const [lockedScenarioId, setLockedScenarioId] = useState<RehearsalScenarioId | null>(null)
 
   if (detail === undefined) {
     return (
@@ -299,9 +282,9 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
         scenarioStateOrder.indexOf(left.state) - scenarioStateOrder.indexOf(right.state)
         || left.sequence - right.sequence,
     )
-  const visibleScenarioId = scenarios.some((scenario) => scenario.id === selectedScenarioId)
+  const visibleScenarioId = lockedScenarioId ?? (scenarios.some((scenario) => scenario.id === selectedScenarioId)
     ? selectedScenarioId
-    : scenarios.at(0)?.id ?? null
+    : scenarios.at(0)?.id ?? null)
   const selectedScenario = detail.scenarios.find((scenario) => scenario.id === visibleScenarioId) ?? null
 
   return (
@@ -335,6 +318,7 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
             <label className="filter">
               Result
               <select
+                disabled={lockedScenarioId !== null}
                 value={stateFilter}
                 onChange={(event) => setStateFilter(parseStateFilter(event.target.value))}
               >
@@ -347,6 +331,7 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
             <label className="filter">
               Area
               <select
+                disabled={lockedScenarioId !== null}
                 value={workstreamFilter}
                 onChange={(event) => setWorkstreamFilter(parseWorkstreamFilter(event.target.value, runWorkstreams))}
               >
@@ -365,6 +350,7 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
               <button
                 aria-pressed={visibleScenarioId === scenario.id}
                 className={visibleScenarioId === scenario.id ? 'rehearsal-scenario-row selected' : 'rehearsal-scenario-row'}
+                disabled={lockedScenarioId !== null && lockedScenarioId !== scenario.id}
                 key={scenario.id}
                 type="button"
                 onClick={() => setSelectedScenarioId(scenario.id)}
@@ -392,6 +378,7 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
               rehearsalRunId={detail.run.id}
               runState={detail.run.state}
               scenario={selectedScenario}
+              onOperationLock={setLockedScenarioId}
             />
           ) : null}
         </div>
@@ -400,7 +387,6 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
   )
 }
 
-/** Worst first, so the strip reads in the order the work should be picked up. */
 function RunCounts({ run }: { run: RehearsalRun }) {
   return (
     <dl className="rehearsal-counts">
@@ -465,7 +451,6 @@ function WorkstreamOwners({
   )
 }
 
-/** An area with nobody on it is the work; an area already covered is not. */
 function ownerRank(owner: RehearsalDetail['workstreamOwners'][number] | undefined) {
   if (!owner) return 0
   return owner.accessActive ? 2 : 1
@@ -493,15 +478,8 @@ function OwnerAssignment({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const busyRef = useRef(false)
-  const operationRef = useRef<AssignArgs | null>(null)
-
-  useEffect(() => {
-    if (operationRef.current?.expectedRunVersion !== detail.run.version) operationRef.current = null
-  }, [detail.run.version])
-
-  const resetOperation = () => {
-    operationRef.current = null
-  }
+  const assignmentAttempt = useMutationAttempt<AssignResult>()
+  const assignmentPending = assignmentAttempt.hasPending('assign-workstream-owner')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -510,19 +488,19 @@ function OwnerAssignment({
     busyRef.current = true
     setBusy(true)
     setError(null)
-    const args = operationRef.current ?? {
-      eventSlug,
-      rehearsalRunId: detail.run.id,
-      workstream,
-      ownerPersonId: owner.id,
-      expectedRunVersion: detail.run.version,
-      reason: reason.trim(),
-      clientOperationId: crypto.randomUUID(),
-    }
-    operationRef.current = args
     try {
-      await assign(args)
-      operationRef.current = null
+      await assignmentAttempt.run('assign-workstream-owner', () => {
+        const args = {
+          eventSlug,
+          rehearsalRunId: detail.run.id,
+          workstream,
+          ownerPersonId: owner.id,
+          expectedRunVersion: detail.run.version,
+          reason: reason.trim(),
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => assign(args)
+      })
       setOwnerPersonId('')
     } catch (caught) {
       setError(readableError(caught))
@@ -540,11 +518,9 @@ function OwnerAssignment({
       <label className="field">
         Area
         <select
+          disabled={busy || assignmentPending}
           value={workstream}
-          onChange={(event) => {
-            resetOperation()
-            setWorkstream(parseWorkstream(event.target.value, workstream, areas))
-          }}
+          onChange={(event) => setWorkstream(parseWorkstream(event.target.value, workstream, areas))}
         >
           {areas.map((value) => (
             <option key={value} value={value}>{rehearsalWorkstreamLabels[value]}</option>
@@ -554,12 +530,10 @@ function OwnerAssignment({
       <label className="field">
         Owner
         <select
+          disabled={busy || assignmentPending}
           required
           value={ownerPersonId}
-          onChange={(event) => {
-            resetOperation()
-            setOwnerPersonId(event.target.value)
-          }}
+          onChange={(event) => setOwnerPersonId(event.target.value)}
         >
           <option value="">Choose an active event account</option>
           {options.results.map((person) => (
@@ -570,18 +544,16 @@ function OwnerAssignment({
       <label className="field rehearsal-owner-reason">
         Why this owner is changing
         <input
+          disabled={busy || assignmentPending}
           required
           minLength={5}
           maxLength={300}
           value={reason}
-          onChange={(event) => {
-            resetOperation()
-            setReason(event.target.value)
-          }}
+          onChange={(event) => setReason(event.target.value)}
         />
       </label>
       <button className="secondary" disabled={busy || !ownerPersonId || reason.trim().length < 5} type="submit">
-        {busy ? 'Assigning…' : 'Assign owner'}
+        {busy ? 'Assigning…' : assignmentPending ? 'Confirm assignment' : 'Assign owner'}
       </button>
       {options.status === 'CanLoadMore' ? (
         <button className="text-button" type="button" onClick={() => options.loadMore(100)}>Load more accounts</button>
@@ -591,10 +563,7 @@ function OwnerAssignment({
   )
 }
 
-type RunOperation =
-  | { kind: 'start'; args: StartArgs }
-  | { kind: 'complete'; args: CompleteArgs }
-  | { kind: 'cancel'; args: CancelArgs }
+type RunOperationKind = 'start' | 'complete' | 'cancel'
 
 function RunControls({ detail }: { detail: RehearsalDetail }) {
   const start = useMutation(api.rehearsals.start)
@@ -604,14 +573,9 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const busyRef = useRef(false)
-  const operationRef = useRef<RunOperation | null>(null)
-
-  useEffect(() => {
-    const operation = operationRef.current
-    if (!operation) return
-    const expectedVersion = operation.args.expectedVersion
-    if (expectedVersion !== detail.run.version) operationRef.current = null
-  }, [detail.run.version])
+  const operationAttempt = useMutationAttempt<unknown>()
+  const [pendingKind, setPendingKind] = useState<RunOperationKind | null>(null)
+  const operationPending = operationAttempt.hasPending('rehearsal-run-control')
 
   if (detail.run.state === 'completed') {
     return (
@@ -639,7 +603,8 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
     detail.run.counts.total > 0 &&
     detail.run.counts.passed === detail.run.counts.total
 
-  const run = async (kind: RunOperation['kind']) => {
+  const run = async (kind: RunOperationKind) => {
+    if (pendingKind !== null && pendingKind !== kind) return
     const normalizedNote = note.trim()
     const minimum = kind === 'complete' ? 10 : 5
     if (busyRef.current || normalizedNote.length < minimum) return
@@ -649,42 +614,46 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
     busyRef.current = true
     setBusy(true)
     setError(null)
-    const prior = operationRef.current
+    if (!operationPending) setPendingKind(kind)
     try {
       if (kind === 'start') {
-        const args: StartArgs = prior?.kind === kind ? prior.args : {
-          eventSlug,
-          rehearsalRunId: detail.run.id,
-          expectedVersion: detail.run.version,
-          reason: normalizedNote,
-          clientOperationId: crypto.randomUUID(),
-        }
-        operationRef.current = { kind, args }
-        await start(args)
+        await operationAttempt.run('rehearsal-run-control', () => {
+          const args = {
+            eventSlug,
+            rehearsalRunId: detail.run.id,
+            expectedVersion: detail.run.version,
+            reason: normalizedNote,
+            clientOperationId: crypto.randomUUID(),
+          }
+          return () => start(args)
+        })
       } else if (kind === 'complete') {
-        const args: CompleteArgs = prior?.kind === kind ? prior.args : {
-          eventSlug,
-          rehearsalRunId: detail.run.id,
-          expectedVersion: detail.run.version,
-          summary: normalizedNote,
-          clientOperationId: crypto.randomUUID(),
-        }
-        operationRef.current = { kind, args }
-        await complete(args)
+        await operationAttempt.run('rehearsal-run-control', () => {
+          const args = {
+            eventSlug,
+            rehearsalRunId: detail.run.id,
+            expectedVersion: detail.run.version,
+            summary: normalizedNote,
+            clientOperationId: crypto.randomUUID(),
+          }
+          return () => complete(args)
+        })
       } else {
-        const args: CancelArgs = prior?.kind === kind ? prior.args : {
-          eventSlug,
-          rehearsalRunId: detail.run.id,
-          expectedVersion: detail.run.version,
-          reason: normalizedNote,
-          clientOperationId: crypto.randomUUID(),
-        }
-        operationRef.current = { kind, args }
-        await cancel(args)
+        await operationAttempt.run('rehearsal-run-control', () => {
+          const args = {
+            eventSlug,
+            rehearsalRunId: detail.run.id,
+            expectedVersion: detail.run.version,
+            reason: normalizedNote,
+            clientOperationId: crypto.randomUUID(),
+          }
+          return () => cancel(args)
+        })
       }
-      operationRef.current = null
+      setPendingKind(null)
       setNote('')
     } catch (caught) {
+      if (!operationAttempt.hasPending('rehearsal-run-control')) setPendingKind(null)
       setError(readableError(caught))
     } finally {
       busyRef.current = false
@@ -723,27 +692,25 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
         {detail.run.state === 'active' ? 'What this run showed' : 'Why this run is starting or ending'}
         <textarea
           maxLength={1000}
+          disabled={operationPending}
           value={note}
-          onChange={(event) => {
-            operationRef.current = null
-            setNote(event.target.value)
-          }}
+          onChange={(event) => setNote(event.target.value)}
         />
       </label>
       <div className="rehearsal-control-actions">
         {startReady ? (
-          <button className="primary" disabled={busy || note.trim().length < 5} type="button" onClick={() => void run('start')}>
-            {busy ? 'Working…' : 'Start test run'}
+          <button className="primary" disabled={busy || note.trim().length < 5 || (pendingKind !== null && pendingKind !== 'start')} type="button" onClick={() => void run('start')}>
+            {busy ? 'Working…' : pendingKind === 'start' ? 'Confirm earlier start' : 'Start test run'}
           </button>
         ) : null}
         {completionReady ? (
-          <button className="primary" disabled={busy || note.trim().length < 10} type="button" onClick={() => void run('complete')}>
-            {busy ? 'Working…' : 'Sign off test run'}
+          <button className="primary" disabled={busy || note.trim().length < 10 || (pendingKind !== null && pendingKind !== 'complete')} type="button" onClick={() => void run('complete')}>
+            {busy ? 'Working…' : pendingKind === 'complete' ? 'Confirm earlier sign-off' : 'Sign off test run'}
           </button>
         ) : null}
         {detail.run.canManage ? (
-          <button className="secondary" disabled={busy || note.trim().length < 5} type="button" onClick={() => void run('cancel')}>
-            Cancel run
+          <button className="secondary" disabled={busy || note.trim().length < 5 || (pendingKind !== null && pendingKind !== 'cancel')} type="button" onClick={() => void run('cancel')}>
+            {pendingKind === 'cancel' ? 'Confirm earlier cancellation' : 'Cancel run'}
           </button>
         ) : null}
       </div>
@@ -757,11 +724,13 @@ function ScenarioDetail({
   rehearsalRunId,
   runState,
   scenario,
+  onOperationLock,
 }: {
   canExecute: boolean
   rehearsalRunId: RehearsalRunId
   runState: RehearsalRun['state']
   scenario: RehearsalScenario
+  onOperationLock: (scenarioId: RehearsalScenarioId | null) => void
 }) {
   const history = useQuery(api.rehearsals.scenarioHistory, {
     eventSlug,
@@ -773,35 +742,43 @@ function ScenarioDetail({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const busyRef = useRef(false)
-  const operationRef = useRef<{ nextState: RehearsalScenarioState; args: UpdateScenarioArgs } | null>(null)
-
-  useEffect(() => {
-    if (operationRef.current?.args.expectedVersion !== scenario.version) operationRef.current = null
-  }, [scenario.version])
+  const updateAttempt = useMutationAttempt<FunctionReturnType<typeof api.rehearsals.updateScenario>>()
+  const [pendingState, setPendingState] = useState<RehearsalScenarioState | null>(null)
+  const updatePending = updateAttempt.hasPending('rehearsal-scenario-update')
 
   const record = async (nextState: RehearsalScenarioState) => {
+    if (pendingState !== null && pendingState !== nextState) return
     const normalizedNote = note.trim()
     const noteRequired = nextState !== 'running' || scenario.state !== 'pending'
     if (busyRef.current || (noteRequired && normalizedNote.length < 5)) return
     busyRef.current = true
     setBusy(true)
     setError(null)
-    const prior = operationRef.current
-    const args = prior?.nextState === nextState ? prior.args : {
-      eventSlug,
-      rehearsalRunId,
-      rehearsalScenarioId: scenario.id,
-      nextState,
-      ...(normalizedNote ? { note: normalizedNote } : {}),
-      expectedVersion: scenario.version,
-      clientOperationId: crypto.randomUUID(),
+    if (!updatePending) {
+      setPendingState(nextState)
+      onOperationLock(scenario.id)
     }
-    operationRef.current = { nextState, args }
     try {
-      await update(args)
-      operationRef.current = null
+      await updateAttempt.run('rehearsal-scenario-update', () => {
+        const args = {
+          eventSlug,
+          rehearsalRunId,
+          rehearsalScenarioId: scenario.id,
+          nextState,
+          ...(normalizedNote ? { note: normalizedNote } : {}),
+          expectedVersion: scenario.version,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => update(args)
+      })
+      setPendingState(null)
+      onOperationLock(null)
       setNote('')
     } catch (caught) {
+      if (!updateAttempt.hasPending('rehearsal-scenario-update')) {
+        setPendingState(null)
+        onOperationLock(null)
+      }
       setError(readableError(caught))
     } finally {
       busyRef.current = false
@@ -834,26 +811,28 @@ function ScenarioDetail({
             Result note {scenario.state === 'pending' ? <small>optional only when starting</small> : null}
             <textarea
               maxLength={1000}
+              disabled={updatePending}
               value={note}
-              onChange={(event) => {
-                operationRef.current = null
-                setNote(event.target.value)
-              }}
+              onChange={(event) => setNote(event.target.value)}
             />
           </label>
           <div className="rehearsal-result-actions">
-            {scenario.state === 'pending' ? (
-              <button className="secondary" disabled={busy} type="button" onClick={() => void record('running')}>Start</button>
+            {pendingState !== null ? (
+              <button className="primary" disabled={busy} type="button" onClick={() => void record(pendingState)}>
+                Confirm earlier {scenarioActionName(pendingState)}
+              </button>
+            ) : scenario.state === 'pending' ? (
+              <button className="secondary" disabled={busy || (pendingState !== null && pendingState !== 'running')} type="button" onClick={() => void record('running')}>{pendingState === 'running' ? 'Confirm earlier start' : 'Start'}</button>
             ) : null}
-            {!terminal ? (
+            {pendingState === null && !terminal ? (
               <>
-                <button className="primary" disabled={busy || note.trim().length < 5} type="button" onClick={() => void record('passed')}>Pass</button>
-                <button className="secondary" disabled={busy || note.trim().length < 5} type="button" onClick={() => void record('failed')}>Fail</button>
-                <button className="secondary" disabled={busy || note.trim().length < 5} type="button" onClick={() => void record('blocked')}>Block</button>
+                <button className="primary" disabled={busy || note.trim().length < 5 || (pendingState !== null && pendingState !== 'passed')} type="button" onClick={() => void record('passed')}>{pendingState === 'passed' ? 'Confirm earlier pass' : 'Pass'}</button>
+                <button className="secondary" disabled={busy || note.trim().length < 5 || (pendingState !== null && pendingState !== 'failed')} type="button" onClick={() => void record('failed')}>{pendingState === 'failed' ? 'Confirm earlier failure' : 'Fail'}</button>
+                <button className="secondary" disabled={busy || note.trim().length < 5 || (pendingState !== null && pendingState !== 'blocked')} type="button" onClick={() => void record('blocked')}>{pendingState === 'blocked' ? 'Confirm earlier block' : 'Block'}</button>
               </>
-            ) : (
-              <button className="secondary" disabled={busy || note.trim().length < 5} type="button" onClick={() => void record('running')}>Run again</button>
-            )}
+            ) : pendingState === null ? (
+              <button className="secondary" disabled={busy || note.trim().length < 5 || (pendingState !== null && pendingState !== 'running')} type="button" onClick={() => void record('running')}>{pendingState === 'running' ? 'Confirm earlier rerun' : 'Run again'}</button>
+            ) : null}
           </div>
           {error ? <p className="notice error">{error}</p> : null}
         </div>
@@ -893,11 +872,6 @@ function ScenarioDetail({
   )
 }
 
-/**
- * The areas this run actually covers, in check order. The run's own required
- * count is derived from its checks, so listing a fixed eleven would show areas
- * that need no owner and make "3 of 11 assigned" disagree with the server.
- */
 function runAreas(detail: RehearsalDetail): RehearsalWorkstream[] {
   const seen: RehearsalWorkstream[] = []
   for (const scenario of [...detail.scenarios].sort((left, right) => left.sequence - right.sequence)) {
@@ -924,6 +898,14 @@ function historyLabel(kind: FunctionReturnType<typeof api.rehearsals.scenarioHis
   if (kind === 'failed') return 'Did not work'
   if (kind === 'blocked') return 'Could not be tried'
   return 'Tried again'
+}
+
+function scenarioActionName(state: RehearsalScenarioState) {
+  if (state === 'running') return 'start'
+  if (state === 'passed') return 'pass'
+  if (state === 'failed') return 'failure'
+  if (state === 'blocked') return 'block'
+  return 'update'
 }
 
 function formatTime(value: number) {

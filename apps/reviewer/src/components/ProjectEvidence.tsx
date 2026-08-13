@@ -1,16 +1,41 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
-import { useAction, useQuery } from 'convex/react'
+import { useAction } from 'convex/react'
 import { useRef, useState } from 'react'
 import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import Svg, { Path } from 'react-native-svg'
 
 import { describeError } from '@/lib/errors'
 import { palette, radius } from '@/theme'
 
-type ReviewerNow = FunctionReturnType<typeof api.reviewer.now>
-type ActiveReview = NonNullable<ReviewerNow['review']>
-type GithubEvidence = ActiveReview['evidence']['github'][number]
-type FigmaEvidence = ActiveReview['evidence']['figma'][number]
+function GithubMark({ dim = false, size = 20 }: { dim?: boolean; size?: number }) {
+  return (
+    <Svg height={size} viewBox="0 0 16 16" width={size}>
+      <Path
+        d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+        fill={dim ? palette.faint : palette.text}
+      />
+    </Svg>
+  )
+}
+
+function FigmaMark({ dim = false, size = 20 }: { dim?: boolean; size?: number }) {
+  const height = size
+  const width = (size * 38) / 57
+  return (
+    <Svg height={height} viewBox="0 0 38 57" width={width}>
+      <Path d="M9.5 0A9.5 9.5 0 0 0 0 9.5 9.5 9.5 0 0 0 9.5 19H19V0H9.5Z" fill={dim ? palette.faint : '#F24E1E'} />
+      <Path d="M28.5 0H19v19h9.5a9.5 9.5 0 0 0 0-19Z" fill={dim ? palette.faint : '#FF7262'} />
+      <Path d="M9.5 19A9.5 9.5 0 0 0 0 28.5 9.5 9.5 0 0 0 9.5 38H19V19H9.5Z" fill={dim ? palette.faint : '#A259FF'} />
+      <Path d="M38 28.5a9.5 9.5 0 1 1-19 0 9.5 9.5 0 0 1 19 0Z" fill={dim ? palette.faint : '#1ABCFE'} />
+      <Path d="M9.5 38A9.5 9.5 0 0 0 0 47.5 9.5 9.5 0 0 0 9.5 57c5.25 0 9.5-4.25 9.5-9.5V38H9.5Z" fill={dim ? palette.faint : '#0ACF83'} />
+    </Svg>
+  )
+}
+
+type ReviewWorkspace = FunctionReturnType<typeof api.reviewer.reviewWorkspace>
+type GithubEvidence = ReviewWorkspace['evidence']['github'][number]
+type FigmaEvidence = ReviewWorkspace['evidence']['figma'][number]
 type GithubBrowseResult = FunctionReturnType<typeof api.reviewEvidenceActions.browseGithub>
 type FigmaPreviewsResult = NonNullable<FunctionReturnType<typeof api.reviewEvidenceActions.figmaPreviews>>
 type FigmaPreviewFact = FigmaPreviewsResult['facts'][number]
@@ -24,7 +49,7 @@ type OpenedFigmaPreview = FunctionReturnType<typeof api.reviewEvidenceActions.op
 type OpenedFigmaComparison = FunctionReturnType<typeof api.reviewEvidenceActions.openFigmaComparison> & {
   nodeId: string
 }
-type TeamContext = FunctionReturnType<typeof api.reviewer.teamContext>
+type TeamContext = ReviewWorkspace['teamContext']
 type PriorReview = TeamContext['priorReviews'][number]
 
 export function ProjectEvidence({
@@ -32,31 +57,39 @@ export function ProjectEvidence({
   review,
 }: {
   eventSlug: string
-  review: ActiveReview
+  review: ReviewWorkspace
 }) {
-  const context = useQuery(api.reviewer.teamContext, { eventSlug, reviewSessionId: review.id })
+  const context = review.teamContext
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Project</Text>
-      <Text style={styles.fact}>
-        {review.project.trackName}
-        {review.project.sponsorTracks.length > 0
-          ? ` · ${review.project.sponsorTracks.map((sponsorTrack) => sponsorTrack.name).join(', ')}`
-          : ''}
-      </Text>
-      {context ? (
-        <Text style={styles.meta}>
-          {context.team.name} · {context.team.publicCode} · {context.team.memberCount} members ·
-          {' '}v{context.team.projectVersion} submitted {formatMoment(context.team.projectSubmittedAt)}
+      <View style={styles.head}>
+        <Text style={styles.teamName}>{context.team.name}</Text>
+        <Text style={styles.trackLine}>
+          {review.project.trackName}
+          {review.project.sponsorTracks.length > 0
+            ? ` · ${review.project.sponsorTracks.map((sponsorTrack) => sponsorTrack.name).join(', ')}`
+            : ''}
+          {` · ${context.team.publicCode}`}
         </Text>
-      ) : null}
-      <Text style={styles.idea}>{review.project.initialIdea}</Text>
+      </View>
+
+      <View style={styles.ideaCard}>
+        <Text style={styles.idea}>{review.project.initialIdea}</Text>
+      </View>
+      <Text style={styles.meta}>
+        {context.team.memberCount} members · v{context.team.projectVersion} submitted
+        {' '}{formatMoment(context.team.projectSubmittedAt)}
+      </Text>
+
       {review.project.intakeResponses.map((response) => (
         <View key={response.ordinal}>
           <Text style={styles.question}>{response.question}</Text>
           <Text style={styles.body}>{response.skipped ? 'Skipped by team' : response.answer}</Text>
         </View>
       ))}
+      <View style={styles.evidenceHeader}>
+        <Text style={styles.sectionLabel}>Team update</Text>
+      </View>
       {review.project.latestCheckpoint ? (
         <View style={styles.evidenceCard}>
           <Text style={styles.value}>{review.project.latestCheckpoint.displayName}</Text>
@@ -68,38 +101,33 @@ export function ProjectEvidence({
           <Text style={styles.body}>{review.project.latestCheckpoint.followUpAnswer}</Text>
         </View>
       ) : (
-        <Text style={styles.guidance}>No team checkpoint had been submitted when this review was fixed.</Text>
+        <Text style={styles.guidance}>No team update yet.</Text>
       )}
-      {/*
-        History arrives without numbers on purpose. The backend hands over only
-        what a prior panel chose to share, so nothing rendered here can anchor
-        this panel's own scores.
-      */}
-      {context ? (
-        <>
-          <View style={styles.evidenceHeader}>
-            <Text style={styles.sectionTitle}>Previous reviews</Text>
-            {context.priorReviews.length > 0 ? (
-              <Text style={styles.meta}>{context.priorReviews.length}</Text>
-            ) : null}
-          </View>
-          {context.priorReviews.map((prior) => (
-            <PriorReviewCard key={prior.id} prior={prior} />
-          ))}
-          {context.priorReviews.length === 0 ? (
-            <Text style={styles.guidance}>No panel had reviewed this team before this session.</Text>
-          ) : null}
-        </>
+      <View style={styles.evidenceHeader}>
+        <Text style={styles.sectionLabel}>Previous reviews</Text>
+        {context.priorReviews.length > 0 ? (
+          <Text style={styles.meta}>{context.priorReviews.length}</Text>
+        ) : null}
+      </View>
+      {context.priorReviews.map((prior) => (
+        <PriorReviewCard key={prior.id} prior={prior} />
+      ))}
+      {context.priorReviews.length === 0 ? (
+        <Text style={styles.guidance}>This is the team&apos;s first review.</Text>
       ) : null}
       <View style={styles.evidenceHeader}>
-        <Text style={styles.sectionTitle}>Fixed evidence</Text>
-        <Text style={styles.meta}>
-          {review.evidence.capturedResourceCount}/{review.evidence.expectedResourceCount} captured
-        </Text>
+        <Text style={styles.sectionLabel}>Code and design</Text>
+        {review.evidence.expectedResourceCount > 0 ? (
+          <Text style={styles.meta}>
+            {review.evidence.capturedResourceCount} of {review.evidence.expectedResourceCount} captured
+          </Text>
+        ) : null}
       </View>
-      <Text style={styles.guidance}>
-        This is checkpoint {shortId(review.evidence.id)}. Later provider changes do not alter it.
-      </Text>
+      {review.evidence.expectedResourceCount > 0 ? (
+        <Text style={styles.guidance}>
+          Captured when this review was fixed. Later changes do not appear here.
+        </Text>
+      ) : null}
       {review.evidence.github.map((repository) => (
         <GithubEvidenceCard
           eventSlug={eventSlug}
@@ -117,7 +145,10 @@ export function ProjectEvidence({
         />
       ))}
       {review.evidence.expectedResourceCount === 0 ? (
-        <Text style={styles.body}>No repository or Figma file was connected for this checkpoint.</Text>
+        <View style={styles.noEvidence}>
+          <GithubMark dim size={30} />
+          <FigmaMark dim size={30} />
+        </View>
       ) : null}
     </View>
   )
@@ -165,7 +196,7 @@ function GithubEvidenceCard({
   repository,
 }: {
   eventSlug: string
-  reviewSessionId: ActiveReview['id']
+  reviewSessionId: ReviewWorkspace['id']
   repository: GithubEvidence
 }) {
   const browseGithub = useAction(api.reviewEvidenceActions.browseGithub)
@@ -194,7 +225,12 @@ function GithubEvidenceCard({
   const snapshot = repository.snapshot
   return (
     <View style={styles.evidenceCard}>
-      <Text style={styles.value}>{repository.repositoryName}</Text>
+      <View style={styles.providerRow}>
+        <GithubMark />
+        <Text numberOfLines={1} style={[styles.value, styles.providerName]}>
+          {repository.repositoryName}
+        </Text>
+      </View>
       <Text style={styles.meta}>
         {repositoryKindName(repository.kind)} · {repository.purpose}
       </Text>
@@ -307,7 +343,7 @@ function FigmaEvidenceCard({
   file,
 }: {
   eventSlug: string
-  reviewSessionId: ActiveReview['id']
+  reviewSessionId: ReviewWorkspace['id']
   file: FigmaEvidence
 }) {
   const loadPreviews = useAction(api.reviewEvidenceActions.figmaPreviews)
@@ -512,7 +548,12 @@ function FigmaEvidenceCard({
   const selectedFact = visibleFacts.find((fact) => fact.id === selectedFactId)
   return (
     <View style={styles.evidenceCard}>
-      <Text style={styles.value}>{file.fileName}</Text>
+      <View style={styles.providerRow}>
+        <FigmaMark />
+        <Text numberOfLines={1} style={[styles.value, styles.providerName]}>
+          {file.fileName}
+        </Text>
+      </View>
       <Text style={styles.meta}>Figma {file.editorType} · {file.role} · {evidenceState(file.stateAtCapture)}</Text>
       {snapshot ? (
         <>
@@ -1140,7 +1181,24 @@ function errorMessage(caught: unknown, fallback: string) {
 const styles = StyleSheet.create({
   section: { gap: 12, paddingTop: 8 },
   sectionTitle: { color: palette.text, fontSize: 19, lineHeight: 25 },
-  idea: { color: palette.text, fontSize: 18, lineHeight: 26 },
+  head: { gap: 4 },
+  teamName: { color: palette.text, fontSize: 24, fontWeight: '600', letterSpacing: -0.5 },
+  trackLine: { color: palette.muted, fontSize: 14, lineHeight: 20 },
+  ideaCard: {
+    backgroundColor: palette.tile,
+    borderRadius: radius.tile,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginTop: 4,
+  },
+  sectionLabel: {
+    color: palette.muted,
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  idea: { color: palette.text, fontSize: 17, lineHeight: 25 },
   question: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 8 },
   body: { color: palette.muted, fontSize: 15, lineHeight: 22 },
   guidance: { color: palette.faint, fontSize: 13, lineHeight: 19 },
@@ -1156,6 +1214,15 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   evidenceCard: { borderTopWidth: 1, borderTopColor: palette.tile, paddingTop: 12, gap: 5 },
+  providerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  providerName: { flex: 1 },
+  noEvidence: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 22,
+    paddingVertical: 18,
+  },
   priorHeading: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
   priorReviewed: { color: palette.judging, fontSize: 13, lineHeight: 18 },
   priorCancelled: { color: palette.faint, fontSize: 13, lineHeight: 18 },
@@ -1168,10 +1235,19 @@ const styles = StyleSheet.create({
   codeViewport: { maxHeight: 360, backgroundColor: palette.background, borderRadius: radius.tile, padding: 10 },
   code: { color: palette.text, fontFamily: 'monospace', fontSize: 12, lineHeight: 18 },
   buttonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 5 },
-  button: { minHeight: 40, borderRadius: radius.tile, backgroundColor: palette.text, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12, alignSelf: 'flex-start', marginTop: 5 },
-  buttonText: { color: palette.background, fontSize: 13, fontWeight: '600' },
-  secondaryButton: { backgroundColor: 'transparent', borderWidth: 1, borderColor: palette.strong },
-  secondaryButtonText: { color: palette.text },
+  button: {
+    height: 40,
+    borderRadius: radius.control,
+    backgroundColor: palette.judging,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    alignSelf: 'flex-start',
+    marginTop: 5,
+  },
+  buttonText: { color: palette.onJudging, fontSize: 14, fontWeight: '600' },
+  secondaryButton: { backgroundColor: palette.tile },
+  secondaryButtonText: { color: palette.text, fontWeight: '400' },
   disabled: { opacity: 0.5 },
   pageList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   pageChip: { borderWidth: 1, borderColor: palette.tile, borderRadius: radius.tile, paddingHorizontal: 9, paddingVertical: 6 },

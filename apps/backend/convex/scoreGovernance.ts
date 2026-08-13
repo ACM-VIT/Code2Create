@@ -1,3 +1,7 @@
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -11,7 +15,20 @@ import {
   requireEventSubject,
 } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
-import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
+import {
+  boundedActivePermissionGrants,
+  matchingPermissionGrantIds,
+  requirePermission,
+} from "./lib/permissions";
+import {
+  maximumActiveReviewGrantsPerPermission,
+  maximumReviewCriteriaPerRubric,
+  maximumReviewerAssignmentsPerEvent,
+  maximumReviewRoundsPerEvent,
+  maximumReviewersPerPanel,
+} from "./lib/reviewLimits";
+import { patchTeamRoundState } from "./lib/reviewQueueProjection";
+import { scoreCorrectionRequestIsOpen } from "./lib/scoreCorrectionPolicy";
 import { normalizedText } from "./lib/strings";
 import {
   reviewEvaluationState,
@@ -28,6 +45,11 @@ type ReadCtx = QueryCtx | MutationCtx;
 type ScorecardAdministrationPermission =
   | "scorecard.correction.open"
   | "scorecard.void";
+
+const maximumScoreGovernancePageSize = 30;
+const maximumCorrectionCasesPerScorecard = 20;
+const maximumCorrectionCasesPerReview =
+  maximumReviewersPerPanel * maximumCorrectionCasesPerScorecard;
 
 const correctionCategory = v.union(
   v.literal("reviewer_error"),
@@ -46,10 +68,8 @@ const roundSummary = v.object({
   status: reviewRoundStatus,
   startsAt: v.number(),
   endsAt: v.number(),
+  correctionRequestsCloseAt: v.number(),
   version: v.number(),
-  completedReviewCount: v.number(),
-  unresolvedTeamCount: v.number(),
-  unresolvedCorrectionCount: v.number(),
   exportState: v.optional(v.string()),
   exportRevision: v.optional(v.number()),
   releasedAt: v.optional(v.number()),
@@ -126,22 +146,10 @@ async function activeGrants(
     permissionKey: ScorecardAdministrationPermission;
   },
 ) {
-  const now = Date.now();
-  const grants = await ctx.db
-    .query("permissionGrants")
-    .withIndex("by_subject_permission_status", (index) =>
-      index
-        .eq("eventAccessSubjectId", args.eventAccessSubjectId)
-        .eq("permissionKey", args.permissionKey)
-        .eq("status", "active"),
-    )
-    .collect();
-  return grants.filter(
-    (grant) =>
-      grant.eventId === args.eventId &&
-      grant.validFrom <= now &&
-      (grant.validUntil === undefined || grant.validUntil > now),
-  );
+  return boundedActivePermissionGrants(ctx, {
+    ...args,
+    maximumGrantCount: maximumActiveReviewGrantsPerPermission,
+  });
 }
 
 function grantAllowsScorecard(
@@ -201,10 +209,8 @@ export const rounds = query({
       status: Doc<"reviewRounds">["status"];
       startsAt: number;
       endsAt: number;
+      correctionRequestsCloseAt: number;
       version: number;
-      completedReviewCount: number;
-      unresolvedTeamCount: number;
-      unresolvedCorrectionCount: number;
       exportState?: string;
       exportRevision?: number;
       releasedAt?: number;
@@ -221,22 +227,8 @@ export const rounds = query({
         scopeId: round._id,
       });
       if (readGrantIds.length === 0) continue;
-      const [evaluations, states, cases, exportRecord, release, valueGrants, closeGrants, releaseGrants] =
+      const [exportRecord, release, valueGrants, closeGrants, releaseGrants] =
         await Promise.all([
-          ctx.db
-            .query("reviewEvaluations")
-            .withIndex("by_round_state", (index) => index.eq("roundId", round._id))
-            .collect(),
-          ctx.db
-            .query("teamRoundStates")
-            .withIndex("by_round_state_priority_queued", (index) =>
-              index.eq("roundId", round._id),
-            )
-            .collect(),
-          ctx.db
-            .query("scorecardCorrectionCases")
-            .withIndex("by_round_state", (index) => index.eq("roundId", round._id))
-            .collect(),
           round.activeRoundExportId
             ? ctx.db.get(round.activeRoundExportId)
             : Promise.resolve(null),
@@ -273,15 +265,8 @@ export const rounds = query({
         status: round.status,
         startsAt: round.startsAt,
         endsAt: round.endsAt,
+        correctionRequestsCloseAt: round.correctionRequestsCloseAt,
         version: round.version,
-        completedReviewCount: evaluations.filter((evaluation) => evaluation.state === "complete")
-          .length,
-        unresolvedTeamCount: states.filter(
-          (state) => !["completed", "withdrawn"].includes(state.state),
-        ).length,
-        unresolvedCorrectionCount: cases.filter((correctionCase) =>
-          unresolvedCorrection(correctionCase.state),
-        ).length,
         ...(exportRecord
           ? { exportState: exportRecord.state, exportRevision: exportRecord.revision }
           : {}),
@@ -305,6 +290,185 @@ const completenessCase = v.object({
   version: v.number(),
 });
 
+const completenessReview = v.object({
+  id: v.id("reviewSessions"),
+  teamId: v.id("teams"),
+  teamName: v.string(),
+  panelName: v.string(),
+  status: reviewSessionStatus,
+  evaluationState: v.optional(reviewEvaluationState),
+  evaluationVersion: v.optional(v.number()),
+  manualReviewRecordId: v.optional(v.id("manualReviewRecords")),
+  coverage: v.array(
+    v.object({
+      criterionId: v.id("reviewRubricCriteria"),
+      submittedCount: v.number(),
+      requiredCount: v.number(),
+      spreadFlag: v.boolean(),
+    }),
+  ),
+  scorecards: v.array(
+    v.object({
+      id: v.id("scorecards"),
+      reviewerName: v.string(),
+      status: scorecardStatus,
+      version: v.number(),
+      submittedAt: v.optional(v.number()),
+      currentCase: v.optional(completenessCase),
+      canDecideCorrection: v.boolean(),
+      canOpenCorrection: v.boolean(),
+      canVoid: v.boolean(),
+    }),
+  ),
+  cases: v.array(completenessCase),
+});
+
+export function requireScoreGovernancePageSize(numItems: number) {
+  if (
+    !Number.isSafeInteger(numItems) ||
+    numItems < 1 ||
+    numItems > maximumScoreGovernancePageSize
+  ) {
+    throw new ConvexError({
+      code: "INVALID_PAGE_SIZE",
+      message: `Load between 1 and ${maximumScoreGovernancePageSize} review sessions at a time.`,
+    });
+  }
+}
+
+function correctionCaseView(correctionCase: Doc<"scorecardCorrectionCases">) {
+  return {
+    id: correctionCase._id,
+    kind: correctionCase.kind,
+    category: correctionCase.category,
+    state: correctionCase.state,
+    reason: correctionCase.reason,
+    requestedAt: correctionCase.requestedAt,
+    version: correctionCase.version,
+  };
+}
+
+async function scorecardCorrectionCasesBeforeInsert(
+  ctx: MutationCtx,
+  scorecardId: Id<"scorecards">,
+) {
+  const cases = await ctx.db
+    .query("scorecardCorrectionCases")
+    .withIndex("by_scorecard_state", (index) => index.eq("scorecardId", scorecardId))
+    .take(maximumCorrectionCasesPerScorecard + 1);
+  if (cases.length >= maximumCorrectionCasesPerScorecard) {
+    throw new ConvexError({
+      code: "SCORECARD_CORRECTION_LIMIT_REACHED",
+      message: `A scorecard can have at most ${maximumCorrectionCasesPerScorecard} correction records.`,
+    });
+  }
+  return cases;
+}
+
+async function completenessReviewView(
+  ctx: QueryCtx,
+  session: Doc<"reviewSessions">,
+  criteria: Array<Doc<"reviewRubricCriteria">>,
+  openGrants: Array<Doc<"permissionGrants">>,
+  voidGrants: Array<Doc<"permissionGrants">>,
+  minimumScorersPerCriterion: number,
+  correctionRequestsOpen: boolean,
+) {
+  const [team, panel, scorecards, evaluation, cases] = await Promise.all([
+    ctx.db.get(session.teamId),
+    ctx.db.get(session.panelId),
+    ctx.db
+      .query("scorecards")
+      .withIndex("by_session_status", (index) =>
+        index.eq("reviewSessionId", session._id),
+      )
+      .take(maximumReviewersPerPanel + 1),
+    ctx.db
+      .query("reviewEvaluations")
+      .withIndex("by_session", (index) => index.eq("reviewSessionId", session._id))
+      .unique(),
+    ctx.db
+      .query("scorecardCorrectionCases")
+      .withIndex("by_session_kind", (index) =>
+        index.eq("reviewSessionId", session._id),
+      )
+      .take(maximumCorrectionCasesPerReview + 1),
+  ]);
+  if (!team || !panel) throw new Error("A review references a missing team or panel.");
+  if (scorecards.length > maximumReviewersPerPanel) {
+    throw new Error("A review exceeds the published scorecard limit.");
+  }
+  if (cases.length > maximumCorrectionCasesPerReview) {
+    throw new Error("A review exceeds the correction-record limit.");
+  }
+  const caseCountByScorecard = new Map<Id<"scorecards">, number>();
+  for (const correctionCase of cases) {
+    const count = (caseCountByScorecard.get(correctionCase.scorecardId) ?? 0) + 1;
+    if (count > maximumCorrectionCasesPerScorecard) {
+      throw new Error("A scorecard exceeds the correction-record limit.");
+    }
+    caseCountByScorecard.set(correctionCase.scorecardId, count);
+  }
+  const scorecardRows = await Promise.all(
+    scorecards.map(async (scorecard) => {
+      const reviewer = await ctx.db.get(scorecard.reviewerPersonId);
+      if (!reviewer) throw new Error("A scorecard references a missing reviewer.");
+      const currentCase = cases.find(
+        (correctionCase) =>
+          correctionCase.scorecardId === scorecard._id &&
+          unresolvedCorrection(correctionCase.state),
+      );
+      const canDecideCorrection = grantAllowsScorecard(
+        openGrants,
+        scorecard._id,
+        session._id,
+      );
+      return {
+        id: scorecard._id,
+        reviewerName: reviewer.displayName,
+        status: scorecard.status,
+        version: scorecard.version,
+        ...(scorecard.submittedAt !== undefined ? { submittedAt: scorecard.submittedAt } : {}),
+        ...(currentCase ? { currentCase: correctionCaseView(currentCase) } : {}),
+        canDecideCorrection,
+        canOpenCorrection: canDecideCorrection && correctionRequestsOpen,
+        canVoid: grantAllowsScorecard(voidGrants, scorecard._id, session._id),
+      };
+    }),
+  );
+  const submittedVersionIds = scorecards.flatMap((scorecard) =>
+    scorecard.status === "submitted" && scorecard.submittedVersionId
+      ? [scorecard.submittedVersionId]
+      : [],
+  );
+  const submittedVersions = (await Promise.all(
+    submittedVersionIds.map((versionId) => ctx.db.get(versionId)),
+  )).filter((version): version is Doc<"scorecardVersions"> => version !== null);
+  return {
+    id: session._id,
+    teamId: team._id,
+    teamName: team.name,
+    panelName: panel.name,
+    status: session.status,
+    ...(evaluation ? { evaluationState: evaluation.state, evaluationVersion: evaluation.version } : {}),
+    ...(session.completedByManualReviewRecordId !== undefined
+      ? { manualReviewRecordId: session.completedByManualReviewRecordId }
+      : {}),
+    coverage: criteria.map((criterion) => ({
+      criterionId: criterion._id,
+      submittedCount: submittedVersions.filter((scorecardVersion) =>
+        scorecardVersion.ratings.some((rating) => rating.criterionId === criterion._id),
+      ).length,
+      requiredCount: minimumScorersPerCriterion,
+      spreadFlag:
+        evaluation?.criterionResults.find((result) => result.criterionId === criterion._id)
+          ?.spreadFlag ?? false,
+    })),
+    scorecards: scorecardRows,
+    cases: cases.map(correctionCaseView),
+  };
+}
+
 export const completeness = query({
   args: { eventSlug: v.string(), roundId: v.id("reviewRounds") },
   returns: v.object({
@@ -314,44 +478,14 @@ export const completeness = query({
       status: reviewRoundStatus,
       version: v.number(),
       minimumScorersPerCriterion: v.number(),
+      correctionRequestsCloseAt: v.number(),
     }),
+    serverNow: v.number(),
     criteria: v.array(
       v.object({ id: v.id("reviewRubricCriteria"), label: v.string(), displayOrder: v.number() }),
     ),
-    reviews: v.array(
-      v.object({
-        id: v.id("reviewSessions"),
-        teamId: v.id("teams"),
-        teamName: v.string(),
-        panelName: v.string(),
-        status: reviewSessionStatus,
-        evaluationState: v.optional(reviewEvaluationState),
-        evaluationVersion: v.optional(v.number()),
-        manualReviewRecordId: v.optional(v.id("manualReviewRecords")),
-        coverage: v.array(
-          v.object({
-            criterionId: v.id("reviewRubricCriteria"),
-            submittedCount: v.number(),
-            requiredCount: v.number(),
-            spreadFlag: v.boolean(),
-          }),
-        ),
-        scorecards: v.array(
-          v.object({
-            id: v.id("scorecards"),
-            reviewerName: v.string(),
-            status: scorecardStatus,
-            version: v.number(),
-            submittedAt: v.optional(v.number()),
-            currentCase: v.optional(completenessCase),
-            canOpenCorrection: v.boolean(),
-            canVoid: v.boolean(),
-          }),
-        ),
-        cases: v.array(completenessCase),
-      }),
-    ),
     unresolvedTeamCount: v.number(),
+    unresolvedCorrectionCount: v.number(),
     pendingManualReviewCount: v.number(),
     canReadValues: v.boolean(),
     canStartClose: v.boolean(),
@@ -372,7 +506,19 @@ export const completeness = query({
       scopeType: "round",
       scopeId: round._id,
     });
-    const [criteria, sessions, states, manualRecords, openGrants, voidGrants, valueGrants, closeGrants, releaseGrants, exportRecord, release] =
+    const [
+      criteria,
+      states,
+      draftManualRecords,
+      submittedManualRecords,
+      requestedCorrections,
+      openCorrections,
+      valueGrants,
+      closeGrants,
+      releaseGrants,
+      exportRecord,
+      release,
+    ] =
       await Promise.all([
         ctx.db
           .query("reviewRubricCriteria")
@@ -381,27 +527,33 @@ export const completeness = query({
           )
           .collect(),
         ctx.db
-          .query("reviewSessions")
-          .withIndex("by_round_team_status", (index) => index.eq("roundId", round._id))
-          .collect(),
-        ctx.db
           .query("teamRoundStates")
           .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
           .collect(),
         ctx.db
           .query("manualReviewRecords")
-          .withIndex("by_round_status_created", (index) => index.eq("roundId", round._id))
+          .withIndex("by_round_status_created", (index) =>
+            index.eq("roundId", round._id).eq("status", "draft"),
+          )
           .collect(),
-        activeGrants(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "scorecard.correction.open",
-        }),
-        activeGrants(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "scorecard.void",
-        }),
+        ctx.db
+          .query("manualReviewRecords")
+          .withIndex("by_round_status_created", (index) =>
+            index.eq("roundId", round._id).eq("status", "submitted"),
+          )
+          .collect(),
+        ctx.db
+          .query("scorecardCorrectionCases")
+          .withIndex("by_round_state", (index) =>
+            index.eq("roundId", round._id).eq("state", "requested"),
+          )
+          .collect(),
+        ctx.db
+          .query("scorecardCorrectionCases")
+          .withIndex("by_round_state", (index) =>
+            index.eq("roundId", round._id).eq("state", "open"),
+          )
+          .collect(),
         matchingPermissionGrantIds(ctx, {
           eventId: event._id,
           eventAccessSubjectId: subject._id,
@@ -431,103 +583,6 @@ export const completeness = query({
           .withIndex("by_round", (index) => index.eq("roundId", round._id))
           .unique(),
       ]);
-    const reviewRows = [];
-    for (const session of sessions.sort((left, right) => left.createdAt - right.createdAt)) {
-      const [team, panel, scorecards, evaluation, cases] = await Promise.all([
-        ctx.db.get(session.teamId),
-        ctx.db.get(session.panelId),
-        ctx.db
-          .query("scorecards")
-          .withIndex("by_session_status", (index) =>
-            index.eq("reviewSessionId", session._id),
-          )
-          .collect(),
-        ctx.db
-          .query("reviewEvaluations")
-          .withIndex("by_session", (index) => index.eq("reviewSessionId", session._id))
-          .unique(),
-        ctx.db
-          .query("scorecardCorrectionCases")
-          .withIndex("by_session_kind", (index) =>
-            index.eq("reviewSessionId", session._id),
-          )
-          .collect(),
-      ]);
-      if (!team || !panel) throw new Error("A review references a missing team or panel.");
-      const scorecardRows = [];
-      for (const scorecard of scorecards) {
-        const reviewer = await ctx.db.get(scorecard.reviewerPersonId);
-        if (!reviewer) throw new Error("A scorecard references a missing reviewer.");
-        const currentCase = cases.find(
-          (correctionCase) =>
-            correctionCase.scorecardId === scorecard._id &&
-            unresolvedCorrection(correctionCase.state),
-        );
-        scorecardRows.push({
-          id: scorecard._id,
-          reviewerName: reviewer.displayName,
-          status: scorecard.status,
-          version: scorecard.version,
-          ...(scorecard.submittedAt !== undefined ? { submittedAt: scorecard.submittedAt } : {}),
-          ...(currentCase
-            ? {
-                currentCase: {
-                  id: currentCase._id,
-                  kind: currentCase.kind,
-                  category: currentCase.category,
-                  state: currentCase.state,
-                  reason: currentCase.reason,
-                  requestedAt: currentCase.requestedAt,
-                  version: currentCase.version,
-                },
-              }
-            : {}),
-          canOpenCorrection: grantAllowsScorecard(
-            openGrants,
-            scorecard._id,
-            session._id,
-          ),
-          canVoid: grantAllowsScorecard(voidGrants, scorecard._id, session._id),
-        });
-      }
-      const submittedVersions: Array<Doc<"scorecardVersions">> = [];
-      for (const scorecard of scorecards) {
-        if (!scorecard.submittedVersionId || scorecard.status !== "submitted") continue;
-        const version = await ctx.db.get(scorecard.submittedVersionId);
-        if (version) submittedVersions.push(version);
-      }
-      reviewRows.push({
-        id: session._id,
-        teamId: team._id,
-        teamName: team.name,
-        panelName: panel.name,
-        status: session.status,
-        ...(evaluation ? { evaluationState: evaluation.state, evaluationVersion: evaluation.version } : {}),
-        ...(session.completedByManualReviewRecordId !== undefined
-          ? { manualReviewRecordId: session.completedByManualReviewRecordId }
-          : {}),
-        coverage: criteria.map((criterion) => ({
-          criterionId: criterion._id,
-          submittedCount: submittedVersions.filter((scorecardVersion) =>
-            scorecardVersion.ratings.some((rating) => rating.criterionId === criterion._id),
-          ).length,
-          requiredCount: round.minimumScorersPerCriterion,
-          spreadFlag:
-            evaluation?.criterionResults.find((result) => result.criterionId === criterion._id)
-              ?.spreadFlag ?? false,
-        })),
-        scorecards: scorecardRows,
-        cases: cases.map((correctionCase) => ({
-          id: correctionCase._id,
-          kind: correctionCase.kind,
-          category: correctionCase.category,
-          state: correctionCase.state,
-          reason: correctionCase.reason,
-          requestedAt: correctionCase.requestedAt,
-          version: correctionCase.version,
-        })),
-      });
-    }
     return {
       round: {
         id: round._id,
@@ -535,19 +590,19 @@ export const completeness = query({
         status: round.status,
         version: round.version,
         minimumScorersPerCriterion: round.minimumScorersPerCriterion,
+        correctionRequestsCloseAt: round.correctionRequestsCloseAt,
       },
+      serverNow: Date.now(),
       criteria: criteria.map((criterion) => ({
         id: criterion._id,
         label: criterion.label,
         displayOrder: criterion.displayOrder,
       })),
-      reviews: reviewRows,
       unresolvedTeamCount: states.filter(
         (state) => !["completed", "withdrawn"].includes(state.state),
       ).length,
-      pendingManualReviewCount: manualRecords.filter(
-        (record) => record.status === "draft" || record.status === "submitted",
-      ).length,
+      unresolvedCorrectionCount: requestedCorrections.length + openCorrections.length,
+      pendingManualReviewCount: draftManualRecords.length + submittedManualRecords.length,
       canReadValues: valueGrants.length > 0,
       canStartClose: closeGrants.length > 0,
       canRelease: releaseGrants.length > 0,
@@ -559,52 +614,168 @@ export const completeness = query({
   },
 });
 
-export const roundValues = query({
-  args: { eventSlug: v.string(), roundId: v.id("reviewRounds") },
-  returns: v.object({
-    round: v.object({ id: v.id("reviewRounds"), name: v.string(), status: v.string() }),
-    criteria: v.array(
-      v.object({ id: v.id("reviewRubricCriteria"), label: v.string(), weight: v.number() }),
-    ),
-    reviews: v.array(
-      v.object({
-        reviewSessionId: v.id("reviewSessions"),
-        teamName: v.string(),
-        evaluation: v.union(
-          v.null(),
-          v.object({
-            state: v.string(),
-            version: v.number(),
-            criterionResults: v.array(
-              v.object({
-                criterionId: v.id("reviewRubricCriteria"),
-                scoreCount: v.number(),
-                meanScore: v.number(),
-                weightedPoints: v.number(),
-                spreadFlag: v.boolean(),
-              }),
-            ),
-            totalPoints: v.number(),
-          }),
-        ),
-        scorecards: v.array(
-          v.object({
-            reviewerName: v.string(),
-            version: v.number(),
-            submittedAt: v.number(),
-            manualReviewRecordId: v.optional(v.id("manualReviewRecords")),
-            ratings: v.array(
-              v.object({
-                criterionId: v.id("reviewRubricCriteria"),
-                score: v.number(),
-                evidenceNote: v.optional(v.string()),
-              }),
-            ),
-          }),
-        ),
+export const completenessReviews = query({
+  args: {
+    eventSlug: v.string(),
+    roundId: v.id("reviewRounds"),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: paginationResultValidator(completenessReview),
+  handler: async (ctx, args) => {
+    requireScoreGovernancePageSize(args.paginationOpts.numItems);
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const round = await requireRound(ctx, event._id, args.roundId);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "score.completeness.read",
+      scopeType: "round",
+      scopeId: round._id,
+    });
+    const [criteria, sessions, openGrants, voidGrants] = await Promise.all([
+      ctx.db
+        .query("reviewRubricCriteria")
+        .withIndex("by_rubric_order", (index) =>
+          index.eq("rubricVersionId", round.rubricVersionId),
+        )
+        .collect(),
+      ctx.db
+        .query("reviewSessions")
+        .withIndex("by_round_status_updated", (index) => index.eq("roundId", round._id))
+        .paginate(args.paginationOpts),
+      activeGrants(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "scorecard.correction.open",
       }),
-    ),
-  }),
+      activeGrants(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "scorecard.void",
+      }),
+    ]);
+    const correctionRequestsOpen = scoreCorrectionRequestIsOpen(round, Date.now());
+    const page = await Promise.all(
+      sessions.page.map((session) =>
+        completenessReviewView(
+          ctx,
+          session,
+          criteria,
+          openGrants,
+          voidGrants,
+          round.minimumScorersPerCriterion,
+          correctionRequestsOpen,
+        ),
+      ),
+    );
+    return { ...sessions, page };
+  },
+});
+
+const roundValueReview = v.object({
+  reviewSessionId: v.id("reviewSessions"),
+  teamName: v.string(),
+  evaluation: v.union(
+    v.null(),
+    v.object({
+      state: v.string(),
+      version: v.number(),
+      criterionResults: v.array(
+        v.object({
+          criterionId: v.id("reviewRubricCriteria"),
+          scoreCount: v.number(),
+          meanScore: v.number(),
+          weightedPoints: v.number(),
+          spreadFlag: v.boolean(),
+        }),
+      ),
+      totalPoints: v.number(),
+    }),
+  ),
+  scorecards: v.array(
+    v.object({
+      reviewerName: v.string(),
+      version: v.number(),
+      submittedAt: v.number(),
+      manualReviewRecordId: v.optional(v.id("manualReviewRecords")),
+      ratings: v.array(
+        v.object({
+          criterionId: v.id("reviewRubricCriteria"),
+          score: v.number(),
+          evidenceNote: v.optional(v.string()),
+        }),
+      ),
+    }),
+  ),
+});
+
+async function roundValueReviewView(ctx: QueryCtx, session: Doc<"reviewSessions">) {
+  const [team, evaluation, scorecards] = await Promise.all([
+    ctx.db.get(session.teamId),
+    ctx.db
+      .query("reviewEvaluations")
+      .withIndex("by_session", (index) => index.eq("reviewSessionId", session._id))
+      .unique(),
+    ctx.db
+      .query("scorecards")
+      .withIndex("by_session_status", (index) =>
+        index.eq("reviewSessionId", session._id),
+      )
+      .collect(),
+  ]);
+  if (!team) throw new Error("A completed review references a missing team.");
+  const submittedScorecards = scorecards.filter(
+    (scorecard) => scorecard.status === "submitted" && scorecard.submittedVersionId,
+  );
+  const scorecardRows = await Promise.all(
+    submittedScorecards.map(async (scorecard) => {
+      if (!scorecard.submittedVersionId) {
+        throw new Error("A submitted scorecard has no immutable version.");
+      }
+      const [reviewer, version] = await Promise.all([
+        ctx.db.get(scorecard.reviewerPersonId),
+        ctx.db.get(scorecard.submittedVersionId),
+      ]);
+      if (!reviewer || !version) throw new Error("A submitted scorecard is incomplete.");
+      return {
+        reviewerName: reviewer.displayName,
+        version: version.version,
+        submittedAt: version.submittedAt,
+        ...(version.manualReviewRecordId !== undefined
+          ? { manualReviewRecordId: version.manualReviewRecordId }
+          : {}),
+        ratings: version.ratings,
+      };
+    }),
+  );
+  return {
+    reviewSessionId: session._id,
+    teamName: team.name,
+    evaluation: evaluation
+      ? {
+          state: evaluation.state,
+          version: evaluation.version,
+          criterionResults: evaluation.criterionResults.map((result) => ({
+            criterionId: result.criterionId,
+            scoreCount: result.scoreCount,
+            meanScore: result.meanScore,
+            weightedPoints: result.weightedPoints,
+            spreadFlag: result.spreadFlag,
+          })),
+          totalPoints: evaluation.totalPoints,
+        }
+      : null,
+    scorecards: scorecardRows,
+  };
+}
+
+export const roundValueCriteria = query({
+  args: { eventSlug: v.string(), roundId: v.id("reviewRounds") },
+  returns: v.array(
+    v.object({ id: v.id("reviewRubricCriteria"), label: v.string(), weight: v.number() }),
+  ),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -617,82 +788,50 @@ export const roundValues = query({
       scopeType: "round",
       scopeId: round._id,
     });
-    const [criteria, sessions] = await Promise.all([
-      ctx.db
-        .query("reviewRubricCriteria")
-        .withIndex("by_rubric_order", (index) =>
-          index.eq("rubricVersionId", round.rubricVersionId),
-        )
-        .collect(),
-      ctx.db
-        .query("reviewSessions")
-        .withIndex("by_round_team_status", (index) => index.eq("roundId", round._id))
-        .collect(),
-    ]);
-    const reviews = [];
-    for (const session of sessions.filter((candidate) => candidate.status === "completed")) {
-      const [team, evaluation, scorecards] = await Promise.all([
-        ctx.db.get(session.teamId),
-        ctx.db
-          .query("reviewEvaluations")
-          .withIndex("by_session", (index) => index.eq("reviewSessionId", session._id))
-          .unique(),
-        ctx.db
-          .query("scorecards")
-          .withIndex("by_session_status", (index) =>
-            index.eq("reviewSessionId", session._id),
-          )
-          .collect(),
-      ]);
-      if (!team) throw new Error("A completed review references a missing team.");
-      const scorecardRows = [];
-      for (const scorecard of scorecards) {
-        if (!scorecard.submittedVersionId || scorecard.status !== "submitted") continue;
-        const [reviewer, version] = await Promise.all([
-          ctx.db.get(scorecard.reviewerPersonId),
-          ctx.db.get(scorecard.submittedVersionId),
-        ]);
-        if (!reviewer || !version) throw new Error("A submitted scorecard is incomplete.");
-        scorecardRows.push({
-          reviewerName: reviewer.displayName,
-          version: version.version,
-          submittedAt: version.submittedAt,
-          ...(version.manualReviewRecordId !== undefined
-            ? { manualReviewRecordId: version.manualReviewRecordId }
-            : {}),
-          ratings: version.ratings,
-        });
-      }
-      reviews.push({
-        reviewSessionId: session._id,
-        teamName: team.name,
-        evaluation: evaluation
-          ? {
-              state: evaluation.state,
-              version: evaluation.version,
-              criterionResults: evaluation.criterionResults.map((result) => ({
-                criterionId: result.criterionId,
-                scoreCount: result.scoreCount,
-                meanScore: result.meanScore,
-                weightedPoints: result.weightedPoints,
-                spreadFlag: result.spreadFlag,
-              })),
-              totalPoints: evaluation.totalPoints,
-            }
-          : null,
-        scorecards: scorecardRows,
-      });
-    }
-    reviews.sort((left, right) => left.teamName.localeCompare(right.teamName));
-    return {
-      round: { id: round._id, name: round.name, status: round.status },
-      criteria: criteria.map((criterion) => ({
-        id: criterion._id,
-        label: criterion.label,
-        weight: criterion.weight,
-      })),
-      reviews,
-    };
+    const criteria = await ctx.db
+      .query("reviewRubricCriteria")
+      .withIndex("by_rubric_order", (index) =>
+        index.eq("rubricVersionId", round.rubricVersionId),
+      )
+      .collect();
+    return criteria.map((criterion) => ({
+      id: criterion._id,
+      label: criterion.label,
+      weight: criterion.weight,
+    }));
+  },
+});
+
+export const roundValues = query({
+  args: {
+    eventSlug: v.string(),
+    roundId: v.id("reviewRounds"),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: paginationResultValidator(roundValueReview),
+  handler: async (ctx, args) => {
+    requireScoreGovernancePageSize(args.paginationOpts.numItems);
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const round = await requireRound(ctx, event._id, args.roundId);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "score.values.read",
+      scopeType: "round",
+      scopeId: round._id,
+    });
+    const sessions = await ctx.db
+      .query("reviewSessions")
+      .withIndex("by_round_status_updated", (index) =>
+        index.eq("roundId", round._id).eq("status", "completed"),
+      )
+      .paginate(args.paginationOpts);
+    const page = await Promise.all(
+      sessions.page.map((session) => roundValueReviewView(ctx, session)),
+    );
+    return { ...sessions, page };
   },
 });
 
@@ -725,22 +864,44 @@ export const myCorrectionOptions = query({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const scorecards = await ctx.db
       .query("scorecards")
-      .withIndex("by_reviewer_status", (index) =>
-        index.eq("reviewerPersonId", person._id).eq("status", "submitted"),
+      .withIndex("by_event_reviewer_status", (index) =>
+        index
+          .eq("eventId", event._id)
+          .eq("reviewerPersonId", person._id)
+          .eq("status", "submitted"),
       )
-      .collect();
+      .take(maximumReviewerAssignmentsPerEvent + 1);
+    if (scorecards.length > maximumReviewerAssignmentsPerEvent) {
+      throw new Error("A reviewer exceeds the event scorecard limit.");
+    }
+    const now = Date.now();
     const rows = [];
     for (const scorecard of scorecards) {
-      if (scorecard.eventId !== event._id || scorecard.submittedAt === undefined) continue;
-      const [round, session, cases, grantIds] = await Promise.all([
+      if (scorecard.submittedAt === undefined) {
+        throw new Error("A submitted scorecard is missing its submission time.");
+      }
+      const [round, session, latestCorrection, requestedCase, openCase, grantIds] = await Promise.all([
         ctx.db.get(scorecard.roundId),
         ctx.db.get(scorecard.reviewSessionId),
         ctx.db
           .query("scorecardCorrectionCases")
-          .withIndex("by_scorecard_state", (index) =>
-            index.eq("scorecardId", scorecard._id),
+          .withIndex("by_scorecard_kind_requested", (index) =>
+            index.eq("scorecardId", scorecard._id).eq("kind", "correction"),
           )
-          .collect(),
+          .order("desc")
+          .first(),
+        ctx.db
+          .query("scorecardCorrectionCases")
+          .withIndex("by_scorecard_state", (index) =>
+            index.eq("scorecardId", scorecard._id).eq("state", "requested"),
+          )
+          .first(),
+        ctx.db
+          .query("scorecardCorrectionCases")
+          .withIndex("by_scorecard_state", (index) =>
+            index.eq("scorecardId", scorecard._id).eq("state", "open"),
+          )
+          .first(),
         matchingPermissionGrantIds(ctx, {
           eventId: event._id,
           eventAccessSubjectId: subject._id,
@@ -752,9 +913,6 @@ export const myCorrectionOptions = query({
       if (!round || !session || round.status !== "open") continue;
       const team = await ctx.db.get(session.teamId);
       if (!team) throw new Error("A submitted scorecard references a missing team.");
-      const currentCase = cases
-        .filter((correctionCase) => correctionCase.kind === "correction")
-        .sort((left, right) => right.requestedAt - left.requestedAt)[0] ?? null;
       rows.push({
         scorecardId: scorecard._id,
         scorecardVersion: scorecard.version,
@@ -763,17 +921,19 @@ export const myCorrectionOptions = query({
         submittedAt: scorecard.submittedAt,
         canRequest:
           grantIds.length > 0 &&
-          !cases.some((correctionCase) => unresolvedCorrection(correctionCase.state)),
-        currentCase: currentCase
+          requestedCase === null &&
+          openCase === null &&
+          scoreCorrectionRequestIsOpen(round, now),
+        currentCase: latestCorrection
           ? {
-              id: currentCase._id,
-              state: currentCase.state,
-              category: currentCase.category,
-              reason: currentCase.reason,
-              ...(currentCase.decisionReason !== undefined
-                ? { decisionReason: currentCase.decisionReason }
+              id: latestCorrection._id,
+              state: latestCorrection.state,
+              category: latestCorrection.category,
+              reason: latestCorrection.reason,
+              ...(latestCorrection.decisionReason !== undefined
+                ? { decisionReason: latestCorrection.decisionReason }
                 : {}),
-              requestedAt: currentCase.requestedAt,
+              requestedAt: latestCorrection.requestedAt,
             }
           : null,
       });
@@ -845,12 +1005,15 @@ export const requestCorrection = mutation({
     const [session, round, cases] = await Promise.all([
       ctx.db.get(scorecard.reviewSessionId),
       ctx.db.get(scorecard.roundId),
-      ctx.db
-        .query("scorecardCorrectionCases")
-        .withIndex("by_scorecard_state", (index) => index.eq("scorecardId", scorecard._id))
-        .collect(),
+      scorecardCorrectionCasesBeforeInsert(ctx, scorecard._id),
     ]);
-    if (!session || !round || round.eventId !== event._id || round.status !== "open") {
+    const now = Date.now();
+    if (
+      !session ||
+      !round ||
+      round.eventId !== event._id ||
+      !scoreCorrectionRequestIsOpen(round, now)
+    ) {
       throw new ConvexError({
         code: "CORRECTION_WINDOW_CLOSED",
         message: "This round no longer accepts scorecard correction requests.",
@@ -862,7 +1025,6 @@ export const requestCorrection = mutation({
         message: "This scorecard already has a correction request in progress.",
       });
     }
-    const now = Date.now();
     const correctionCaseId = await ctx.db.insert("scorecardCorrectionCases", {
       eventId: event._id,
       roundId: round._id,
@@ -972,7 +1134,11 @@ export const decideCorrection = mutation({
       });
     }
     const round = await requireRound(ctx, event._id, correctionCase.roundId);
-    if (round.status !== "open") {
+    const now = Date.now();
+    if (
+      round.status !== "open" ||
+      (args.decision === "open" && !scoreCorrectionRequestIsOpen(round, now))
+    ) {
       throw new ConvexError({
         code: "CORRECTION_WINDOW_CLOSED",
         message: "This round no longer accepts scorecard corrections.",
@@ -985,7 +1151,6 @@ export const decideCorrection = mutation({
       scorecardId: scorecard._id,
       reviewSessionId: correctionCase.reviewSessionId,
     });
-    const now = Date.now();
     const state = args.decision === "open" ? "open" : "rejected";
     await ctx.db.patch(correctionCase._id, {
       state,
@@ -1120,10 +1285,7 @@ export const voidScorecard = mutation({
           index.eq("reviewSessionId", scorecard.reviewSessionId),
         )
         .unique(),
-      ctx.db
-        .query("scorecardCorrectionCases")
-        .withIndex("by_scorecard_state", (index) => index.eq("scorecardId", scorecard._id))
-        .collect(),
+      scorecardCorrectionCasesBeforeInsert(ctx, scorecard._id),
     ]);
     if (!session || session.status !== "completed" || !evaluation || evaluation.state !== "complete") {
       throw new ConvexError({
@@ -1180,7 +1342,7 @@ export const voidScorecard = mutation({
       if (!teamState || teamState.teamId !== session.teamId) {
         throw new Error("The completed review has no matching team-round state.");
       }
-      await ctx.db.patch(teamState._id, {
+      await patchTeamRoundState(ctx, teamState, {
         state: "held",
         holdReason: "Replacement review required after an invalidated scorecard",
         completedAt: undefined,
@@ -1467,9 +1629,15 @@ export const participantFeedback = query({
     const entries = await ctx.db
       .query("scoreReleaseEntries")
       .withIndex("by_team_time", (index) => index.eq("teamId", team._id))
-      .collect();
+      .take(maximumReviewRoundsPerEvent + 1);
+    if (entries.length > maximumReviewRoundsPerEvent) {
+      throw new Error("A team exceeds the participant feedback release limit.");
+    }
     const rows = [];
     for (const entry of entries) {
+      if (entry.criterionResults.length > maximumReviewCriteriaPerRubric) {
+        throw new Error("A participant feedback entry exceeds the rubric criterion limit.");
+      }
       const [release, round] = await Promise.all([
         ctx.db.get(entry.releaseId),
         ctx.db.get(entry.roundId),

@@ -1,10 +1,11 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useAction, useMutation, useQuery } from 'convex/react'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 import { LoadingLabel, SkeletonCard } from './Skeleton'
 
 type Workspace = FunctionReturnType<typeof api.roundExports.workspace>
@@ -115,28 +116,26 @@ function StartClose({ workspace }: { workspace: Workspace }) {
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
-
-  const changed = () => {
-    operationRef.current = null
-    setError(null)
-  }
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.roundExports.start>>()
+  const operationSlot = `round-export-start:${workspace.round.id}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
+  const changed = () => setError(null)
 
   const submit = async () => {
     if (busy || !confirmed || reason.trim().length < 5) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await start({
-        eventSlug,
-        roundId: workspace.round.id,
-        expectedRoundVersion: workspace.round.version,
-        reason,
-        clientOperationId,
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          roundId: workspace.round.id,
+          expectedRoundVersion: workspace.round.version,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => start(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -152,17 +151,17 @@ function StartClose({ workspace }: { workspace: Workspace }) {
       <p>This freezes judging writes and starts the private round export. It does not close the round yet.</p>
       <label className="field">
         <span>Close reason</span>
-        <textarea disabled={busy} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
+        <textarea disabled={busy || operationPending} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
       </label>
       <label className="check-filter">
-        <input checked={confirmed} disabled={busy} type="checkbox" onChange={(event) => { setConfirmed(event.target.checked); changed() }} />
+        <input checked={confirmed} disabled={busy || operationPending} type="checkbox" onChange={(event) => { setConfirmed(event.target.checked); changed() }} />
         I reviewed every team, review, correction, paper record, and score result shown above.
       </label>
       <div className="button-row">
         <button className="primary" disabled={busy || !confirmed || reason.trim().length < 5} type="button" onClick={() => void submit()}>
-          {busy ? 'Starting…' : 'Start export'}
+          {busy ? 'Starting…' : operationPending ? 'Confirm earlier export' : 'Start export'}
         </button>
-        <button className="secondary" disabled={busy} type="button" onClick={() => setOpen(false)}>Cancel</button>
+        <button className="secondary" disabled={busy || operationPending} type="button" onClick={() => setOpen(false)}>Cancel</button>
       </div>
       {error ? <p className="notice error">{error}</p> : null}
     </div>
@@ -180,24 +179,26 @@ function RetryExport({
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.roundExports.retry>>()
+  const operationSlot = `round-export-retry:${activeExport.id}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
 
   const submit = async () => {
     if (busy || reason.trim().length < 5) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await retry({
-        eventSlug,
-        roundExportId: activeExport.id,
-        expectedExportVersion: activeExport.version,
-        expectedRoundVersion: workspace.round.version,
-        reason,
-        clientOperationId,
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          roundExportId: activeExport.id,
+          expectedExportVersion: activeExport.version,
+          expectedRoundVersion: workspace.round.version,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => retry(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -209,10 +210,10 @@ function RetryExport({
     <div className="score-command">
       <label className="field">
         <span>Retry reason</span>
-        <textarea disabled={busy} value={reason} onChange={(event) => { setReason(event.target.value); operationRef.current = null; setError(null) }} />
+        <textarea disabled={busy || operationPending} value={reason} onChange={(event) => { setReason(event.target.value); setError(null) }} />
       </label>
       <button className="primary" disabled={busy || reason.trim().length < 5} type="button" onClick={() => void submit()}>
-        {busy ? 'Retrying…' : 'Retry export'}
+        {busy ? 'Retrying…' : operationPending ? 'Confirm earlier retry' : 'Retry export'}
       </button>
       {error ? <p className="notice error">{error}</p> : null}
     </div>
@@ -272,31 +273,29 @@ function VerifyExport({
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
-
-  const changed = () => {
-    operationRef.current = null
-    setError(null)
-  }
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.roundExportActions.verify>>()
+  const operationSlot = `round-export-verify:${activeExport.id}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
+  const changed = () => setError(null)
 
   const submit = async () => {
     if (busy || !filesOpened || !countsMatch || reason.trim().length < 5) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await verify({
-        eventSlug,
-        roundExportId: activeExport.id,
-        expectedExportVersion: activeExport.version,
-        expectedRoundVersion: workspace.round.version,
-        filesOpened,
-        countsMatch,
-        reason,
-        clientOperationId,
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          roundExportId: activeExport.id,
+          expectedExportVersion: activeExport.version,
+          expectedRoundVersion: workspace.round.version,
+          filesOpened,
+          countsMatch,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => verify(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -308,19 +307,19 @@ function VerifyExport({
     <div className="score-command">
       <h3>Verify and close</h3>
       <label className="check-filter">
-        <input checked={filesOpened} disabled={busy} type="checkbox" onChange={(event) => { setFilesOpened(event.target.checked); changed() }} />
+        <input checked={filesOpened} disabled={busy || operationPending} type="checkbox" onChange={(event) => { setFilesOpened(event.target.checked); changed() }} />
         I opened both downloaded files and checked their contents.
       </label>
       <label className="check-filter">
-        <input checked={countsMatch} disabled={busy} type="checkbox" onChange={(event) => { setCountsMatch(event.target.checked); changed() }} />
+        <input checked={countsMatch} disabled={busy || operationPending} type="checkbox" onChange={(event) => { setCountsMatch(event.target.checked); changed() }} />
         The team, result, review, scorecard, correction, and paper-record counts match this screen.
       </label>
       <label className="field">
         <span>Verification reason</span>
-        <textarea disabled={busy} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
+        <textarea disabled={busy || operationPending} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
       </label>
       <button className="primary" disabled={busy || !filesOpened || !countsMatch || reason.trim().length < 5} type="button" onClick={() => void submit()}>
-        {busy ? 'Verifying…' : 'Verify and close round'}
+        {busy ? 'Verifying…' : operationPending ? 'Confirm earlier verification' : 'Verify and close round'}
       </button>
       {error ? <p className="notice error">{error}</p> : null}
     </div>
@@ -340,30 +339,28 @@ function ReopenRound({
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
-
-  const changed = () => {
-    operationRef.current = null
-    setError(null)
-  }
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.roundExports.reopen>>()
+  const operationSlot = `round-reopen:${workspace.round.id}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
+  const changed = () => setError(null)
 
   const submit = async () => {
     if (busy || !confirmed || reason.trim().length < 5) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await reopen({
-        eventSlug,
-        roundId: workspace.round.id,
-        roundExportId: activeExport.id,
-        expectedRoundVersion: workspace.round.version,
-        expectedExportVersion: activeExport.version,
-        reason,
-        clientOperationId,
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          roundId: workspace.round.id,
+          roundExportId: activeExport.id,
+          expectedRoundVersion: workspace.round.version,
+          expectedExportVersion: activeExport.version,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => reopen(args)
       })
-      operationRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -379,17 +376,17 @@ function ReopenRound({
       <p>The verified files remain in the audit history. Closing again creates a new export.</p>
       <label className="field">
         <span>Reopen reason</span>
-        <textarea disabled={busy} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
+        <textarea disabled={busy || operationPending} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
       </label>
       <label className="check-filter">
-        <input checked={confirmed} disabled={busy} type="checkbox" onChange={(event) => { setConfirmed(event.target.checked); changed() }} />
+        <input checked={confirmed} disabled={busy || operationPending} type="checkbox" onChange={(event) => { setConfirmed(event.target.checked); changed() }} />
         I understand corrections can resume and another verified export will be required.
       </label>
       <div className="button-row">
         <button className="primary" disabled={busy || !confirmed || reason.trim().length < 5} type="button" onClick={() => void submit()}>
-          {busy ? 'Reopening…' : 'Reopen round'}
+          {busy ? 'Reopening…' : operationPending ? 'Confirm earlier reopen' : 'Reopen round'}
         </button>
-        <button className="secondary" disabled={busy} type="button" onClick={() => setOpen(false)}>Cancel</button>
+        <button className="secondary" disabled={busy || operationPending} type="button" onClick={() => setOpen(false)}>Cancel</button>
       </div>
       {error ? <p className="notice error">{error}</p> : null}
     </div>

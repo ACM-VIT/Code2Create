@@ -1,7 +1,10 @@
+import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
+import { api, components } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
+import { insertPermissionGrant } from "./lib/permissions.ts";
 import { permissionCatalog } from "./lib/permissionCatalog.ts";
 import {
   normalizePhaseSchedule,
@@ -18,10 +21,14 @@ import {
 import {
   projectCheckpointAvailabilityAt,
   projectCheckpointClosesAt,
+  projectCheckpointSummaryCounts,
 } from "./projectCheckpoints.ts";
 import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
+const betterAuthModules = import.meta.glob(
+  "../node_modules/@convex-dev/better-auth/src/component/**/*.ts",
+);
 type BackendTest = TestConvex<typeof schema>;
 
 describe("project checkpoint lifecycle", () => {
@@ -104,6 +111,94 @@ describe("project checkpoint lifecycle", () => {
       closesAt,
       now: closesAt + 1,
     })).toBe("submitted");
+  });
+
+  test("reports global checkpoint totals independently of a loaded page", () => {
+    expect(
+      projectCheckpointSummaryCounts(
+        ["team-a", "team-b", "team-c", "team-d"],
+        new Set(["team-b", "team-d", "unreadable-team"]),
+      ),
+    ).toEqual({
+      totalTeamCount: 4,
+      submittedCount: 2,
+      outstandingCount: 2,
+    });
+  });
+
+  test("counts only confirmed event teams in the operations summary", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const authUserId = await createAuthUser(backend);
+    const authSessionId = await createAuthSession(backend, authUserId);
+    const fixture = await seedFixture(backend, authUserId);
+    await backend.run(async (ctx) => {
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.event._id,
+        personId: fixture.personId,
+        eventAccessSubjectId: fixture.subjectId,
+        permissionKey: "project.checkpoint.read",
+        scopeType: "event",
+        sourceType: "manual",
+        sourceId: "checkpoint-summary-test",
+        grantedByPersonId: fixture.personId,
+        reason: "Checkpoint summary test",
+        validFrom: Date.now() - 1,
+      });
+      for (const [index, status] of (
+        ["forming", "submitted", "admitted", "withdrawn"] as const
+      ).entries()) {
+        await ctx.db.insert("teams", {
+          eventId: fixture.event._id,
+          name: `Excluded team ${index}`,
+          publicCode: `EXCL${index}`,
+          leadMembershipId: fixture.membershipId,
+          status,
+          activeMemberCount: 0,
+          activeVitMemberCount: 0,
+          activeExternalMemberCount: 0,
+          membershipLocked: false,
+          trackLocked: false,
+          version: 1,
+          createdAt: fixture.now,
+          updatedAt: fixture.now,
+        });
+      }
+      for (const [index, status] of (
+        ["checked_in", "active", "completed"] as const
+      ).entries()) {
+        await ctx.db.insert("teams", {
+          eventId: fixture.event._id,
+          name: `Included team ${index}`,
+          publicCode: `INCL${index}`,
+          leadMembershipId: fixture.membershipId,
+          status,
+          activeMemberCount: 0,
+          activeVitMemberCount: 0,
+          activeExternalMemberCount: 0,
+          membershipLocked: true,
+          trackLocked: true,
+          version: 1,
+          createdAt: fixture.now,
+          updatedAt: fixture.now,
+        });
+      }
+    });
+
+    const reader = backend.withIdentity({
+      subject: authUserId,
+      sessionId: authSessionId,
+    });
+    await expect(
+      reader.query(api.projectCheckpoints.operationsCheckpointSummary, {
+        eventSlug: fixture.event.slug,
+        checkpointKey: "ideation",
+      }),
+    ).resolves.toEqual({
+      totalTeamCount: 4,
+      submittedCount: 0,
+      outstandingCount: 4,
+    });
   });
 
   test("does not publish checkpoints before the event phases", async () => {
@@ -299,12 +394,12 @@ async function requireEvent(backend: BackendTest, eventId: Id<"events">) {
   return event;
 }
 
-async function seedFixture(backend: BackendTest) {
+async function seedFixture(backend: BackendTest, authUserId?: string) {
   const now = Date.UTC(2027, 8, 10, 8);
   const phaseStart = now + 60 * 60_000;
   return backend.run(async (ctx) => {
     const personId = await ctx.db.insert("people", {
-      authUserId: `checkpoint-user-${now}`,
+      authUserId: authUserId ?? `checkpoint-user-${now}`,
       googleSubject: `checkpoint-subject-${now}`,
       verifiedEmail: `checkpoint-${now}@example.test`,
       displayName: "Mira Shah",
@@ -351,6 +446,9 @@ async function seedFixture(backend: BackendTest) {
       publicCode: "CHECK1",
       leadMembershipId: membershipId,
       status: "confirmed",
+      activeMemberCount: 0,
+      activeVitMemberCount: 0,
+      activeExternalMemberCount: 0,
       membershipLocked: true,
       trackLocked: true,
       version: 1,
@@ -359,6 +457,59 @@ async function seedFixture(backend: BackendTest) {
     });
     const event = await ctx.db.get(eventId);
     if (!event) throw new Error("The event fixture did not persist.");
-    return { event, personId, membershipId, teamId, now, phaseStart };
+    return {
+      event,
+      personId,
+      subjectId,
+      membershipId,
+      teamId,
+      now,
+      phaseStart,
+    };
   });
+}
+
+async function createAuthUser(backend: BackendTest) {
+  const now = Date.now();
+  const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
+    input: {
+      model: "user",
+      data: {
+        name: "Checkpoint operator",
+        email: `checkpoint-operator-${crypto.randomUUID()}@example.test`,
+        emailVerified: true,
+        createdAt: now,
+        updatedAt: now,
+      },
+    },
+  });
+  return documentId(result, "Better Auth user");
+}
+
+async function createAuthSession(backend: BackendTest, userId: string) {
+  const now = Date.now();
+  const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
+    input: {
+      model: "session",
+      data: {
+        expiresAt: now + 60 * 60_000,
+        token: crypto.randomUUID(),
+        createdAt: now,
+        updatedAt: now,
+        userId,
+      },
+    },
+  });
+  return documentId(result, "Better Auth session");
+}
+
+function documentId(value: unknown, label: string) {
+  if (typeof value !== "object" || value === null || !("_id" in value)) {
+    throw new Error(`${label} did not return a document ID.`);
+  }
+  const id = value._id;
+  if (typeof id !== "string" || id.length === 0) {
+    throw new Error(`${label} returned an invalid document ID.`);
+  }
+  return id;
 }

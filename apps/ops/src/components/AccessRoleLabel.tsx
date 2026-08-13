@@ -5,6 +5,7 @@ import { useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 type AccessDetail = NonNullable<FunctionReturnType<typeof api.access.detail>>
 type EventRole = Exclude<AccessDetail['person']['role'], undefined>
@@ -27,10 +28,12 @@ export function AccessRoleLabel({
   accessVersion: number
 }) {
   const setRole = useMutation(api.accessRoles.set)
+  const operations = useOperationRunner()
   const [selectedRole, setSelectedRole] = useState<EventRole | ''>(currentRole ?? '')
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const rolePending = operations.hasPending('access-role-set')
 
   const selectRole = (value: string) => {
     if (!value) {
@@ -46,14 +49,16 @@ export function AccessRoleLabel({
     setBusy(true)
     setError(null)
     try {
-      await setRole({
-        eventSlug,
-        targetPersonId: personId,
-        role: selectedRole || null,
-        expectedAccessVersion: accessVersion,
-        reason,
-        clientOperationId: crypto.randomUUID(),
-      })
+      await operations.run(
+        'access-role-set', (clientOperationId) => () => setRole({
+          eventSlug,
+          targetPersonId: personId,
+          role: selectedRole || null,
+          expectedAccessVersion: accessVersion,
+          reason,
+          clientOperationId,
+        }),
+      )
       setReason('')
     } catch (caught) {
       setError(readableError(caught))
@@ -73,7 +78,7 @@ export function AccessRoleLabel({
       <form className="role-form" onSubmit={submit}>
         <label className="field">
           <span>Role label</span>
-          <select value={selectedRole} onChange={(event) => selectRole(event.target.value)}>
+          <select disabled={busy || rolePending} value={selectedRole} onChange={(event) => selectRole(event.target.value)}>
             <option value="">No role label</option>
             {roleOptions.map((option) => (
               <option key={option.value} value={option.value}>{option.label}</option>
@@ -82,15 +87,17 @@ export function AccessRoleLabel({
         </label>
         <label className="field">
           <span>Why this role is changing</span>
-          <textarea required value={reason} onChange={(event) => setReason(event.target.value)} />
+          <textarea required disabled={busy || rolePending} value={reason} onChange={(event) => setReason(event.target.value)} />
         </label>
         <div className="role-submit">
           <button
             className="secondary"
             type="submit"
-            disabled={busy || reason.trim().length < 5 || selectedRole === (currentRole ?? '')}
+            disabled={busy || (!rolePending && (
+              reason.trim().length < 5 || selectedRole === (currentRole ?? '')
+            ))}
           >
-            {busy ? 'Saving…' : 'Save role label'}
+            {busy ? 'Saving…' : rolePending ? 'Confirm earlier role change' : 'Save role label'}
           </button>
           <small>You may be asked to sign in again before this change.</small>
         </div>

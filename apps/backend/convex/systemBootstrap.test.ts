@@ -18,6 +18,7 @@ describe("event bootstrap", () => {
 
   test("lets the configured owner create the complete draft baseline once", async () => {
     vi.stubEnv("INITIAL_SUPREME_EMAILS", "owner@example.test");
+    vi.stubEnv("INITIAL_EVENT_SLUG", "code2create-7");
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const identity = await createGoogleIdentity(backend, "owner@example.test");
@@ -69,8 +70,61 @@ describe("event bootstrap", () => {
         maxActiveGitHubRepositoriesPerTeam: 10,
         maxActiveFigmaFilesPerTeam: 10,
       },
+      requiredCoreTrackCount: 5,
       tracks: trackInputs(),
     });
+
+    const [handbookAccess, operationsAccess] = await Promise.all([
+      owner.query(api.access.handbookCapabilities, { eventSlug: "code2create-7" }),
+      owner.query(api.access.operationsCapabilities, { eventSlug: "code2create-7" }),
+    ]);
+    expect(handbookAccess).toEqual({ read: true });
+    expect(operationsAccess).toMatchObject({
+      eventLifecycle: true,
+      accessPeople: true,
+      health: true,
+      reviews: true,
+    });
+    expect(operationsAccess).not.toHaveProperty("grants");
+    const shellState = await owner.query(api.system.getPublicShellState, {
+      eventSlug: "code2create-7",
+    });
+    expect(shellState.event).toMatchObject({
+      id: created.eventId,
+      slug: "code2create-7",
+      name: "Code2Create 7.0",
+      status: "draft",
+    });
+    expect(shellState.event).not.toHaveProperty("tracks");
+    expect(shellState.event).not.toHaveProperty("phases");
+    const ownerPersonId = await backend.run(async (ctx) => {
+      const person = await ctx.db
+        .query("people")
+        .withIndex("by_auth_user", (index) => index.eq("authUserId", identity.authUserId))
+        .unique();
+      if (!person) throw new Error("The bootstrap owner person is missing.");
+      return person._id;
+    });
+    const accessDetail = await owner.query(api.access.detail, {
+      eventSlug: "code2create-7",
+      personId: ownerPersonId,
+    });
+    expect(accessDetail?.effectivePermissionKeys).toContain("event.lifecycle.manage");
+    expect(accessDetail).not.toHaveProperty("grants");
+    const grantPage = await owner.query(api.access.grantLedger, {
+      eventSlug: "code2create-7",
+      personId: ownerPersonId,
+      paginationOpts: { cursor: null, numItems: 5 },
+    });
+    expect(grantPage.page).toHaveLength(5);
+    expect(grantPage.isDone).toBe(false);
+    await expect(
+      owner.query(api.access.grantLedger, {
+        eventSlug: "code2create-7",
+        personId: ownerPersonId,
+        paginationOpts: { cursor: null, numItems: 51 },
+      }),
+    ).rejects.toThrow("Request 1–50 permission grants");
 
     await backend.run(async (ctx) => {
       const event = await ctx.db.get(created.eventId);
@@ -86,7 +140,28 @@ describe("event bootstrap", () => {
       expect(event?.publishedAdmissionPolicyId).toBeDefined();
       expect(event?.publishedCommunicationsPolicyId).toBeDefined();
       expect(event?.publishedIntegrationPolicyId).toBeDefined();
-      expect(event?.publishedOperationsIntelligencePolicyId).toBeDefined();
+
+      const autonomyPolicy = await ctx.db
+        .query("operationsAutonomyPolicyVersions")
+        .withIndex("by_event_status", (index) =>
+          index.eq("eventId", created.eventId).eq("status", "published"),
+        )
+        .unique();
+      expect(autonomyPolicy).toMatchObject({
+        enabled: false,
+        mode: "observe",
+        allowedReadTools: expect.arrayContaining(["operations_health"]),
+        allowedRecommendationKinds: [],
+      });
+      const autonomyState = autonomyPolicy
+        ? await ctx.db
+            .query("operationsAutonomyStates")
+            .withIndex("by_policy", (index) =>
+              index.eq("policyVersionId", autonomyPolicy._id),
+            )
+            .unique()
+        : null;
+      expect(autonomyState?.lifecycle.kind).toBe("disabled");
 
       const subject = await ctx.db
         .query("eventAccessSubjects")
@@ -123,7 +198,7 @@ describe("event bootstrap", () => {
 
     expect(await owner.query(api.system.bootstrapEligibility, {
       eventSlug: "code2create-7",
-    })).toMatchObject({ allowed: true, eventExists: true });
+    })).toMatchObject({ allowed: false, eventExists: true });
     await expect(owner.mutation(api.system.bootstrapEvent, {
       eventSlug: "code2create-7",
       eventName: "Code2Create 7.0",
@@ -156,12 +231,14 @@ describe("event bootstrap", () => {
         maxActiveGitHubRepositoriesPerTeam: 10,
         maxActiveFigmaFilesPerTeam: 10,
       },
+      requiredCoreTrackCount: 5,
       tracks: trackInputs(),
-    })).rejects.toThrow("already exists");
+    })).rejects.toThrow("already has an event");
   });
 
   test("does not offer setup to an unconfigured Google account", async () => {
     vi.stubEnv("INITIAL_SUPREME_EMAILS", "owner@example.test");
+    vi.stubEnv("INITIAL_EVENT_SLUG", "code2create-7");
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const identity = await createGoogleIdentity(backend, "someone-else@example.test");
@@ -177,6 +254,54 @@ describe("event bootstrap", () => {
       email: "someone-else@example.test",
       eventExists: false,
     });
+  });
+
+  test("pins bootstrap to the configured slug before the first event is created", async () => {
+    vi.stubEnv("INITIAL_SUPREME_EMAILS", "owner@example.test");
+    vi.stubEnv("INITIAL_EVENT_SLUG", "code2create-7");
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const identity = await createGoogleIdentity(backend, "owner@example.test");
+    const owner = backend.withIdentity({
+      subject: identity.authUserId,
+      sessionId: identity.authSessionId,
+    });
+
+    expect(
+      await owner.query(api.system.bootstrapEligibility, { eventSlug: "attacker-event" }),
+    ).toMatchObject({ allowed: false, eventExists: false });
+    await expect(
+      owner.mutation(api.system.bootstrapEvent, {
+        eventSlug: "attacker-event",
+        eventName: "Attacker event",
+        timezone: "Asia/Kolkata",
+        vitEmailDomains: ["vitstudent.ac.in"],
+        participantPolicy: defaultParticipantPolicy,
+        admissionPolicyVersion: "admission-v1",
+        admissionParticipantCapacity: 1_000,
+        admissionMinimumHumanReviews: 2,
+        intakePolicy: defaultDeterministicIntakePolicy,
+        communicationsPolicy: {
+          venueName: "VIT Chennai",
+          startsAt: Date.UTC(2027, 6, 18, 3, 30),
+          endsAt: Date.UTC(2027, 6, 20, 3, 30),
+          nextSteps: [],
+          discordUrl: "https://discord.gg/code2create",
+          discordLabel: "Open event Discord",
+          notificationProvider: "cloudflare_email",
+          notificationSubject: "Event update",
+          notificationIntro: "There is a new event update in your portal.",
+        },
+        integrationPolicy: {
+          version: "integrations-v1",
+          requiredGitHubTopic: "code2create-7",
+          maxActiveGitHubRepositoriesPerTeam: 10,
+          maxActiveFigmaFilesPerTeam: 10,
+        },
+        requiredCoreTrackCount: 5,
+        tracks: trackInputs(),
+      }),
+    ).rejects.toThrow("not configured to create that event");
   });
 });
 

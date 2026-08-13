@@ -3,13 +3,6 @@ import type {
 	OperationsHealthSnapshot,
 } from '@code2create/domain';
 
-/**
- * Frozen health snapshots for the live evaluation. They are fixtures, not
- * generated data: every owner, next action, severity, and count below is the
- * exact string a passing brief must copy, so the scorer can decide pass or
- * fail from set membership alone.
- */
-
 const event: OperationsHealthSnapshot['event'] = {
 	slug: 'code2create-7',
 	name: 'Code2Create 7.0',
@@ -44,7 +37,6 @@ function snapshotOf(signals: OperationsHealthSignal[]): OperationsHealthSnapshot
 	};
 }
 
-/** Three signals, one per severity: the ordinary shape of a live brief. */
 export const mixedSeveritySnapshot = snapshotOf([
 	{
 		key: 'critical_incidents',
@@ -83,10 +75,6 @@ export const mixedSeveritySnapshot = snapshotOf([
 	},
 ]);
 
-/**
- * Six signals across six areas: more than the brief may carry, so the scorer
- * can check the three-priority ceiling and non-overlap.
- */
 export const crowdedSnapshot = snapshotOf([
 	{
 		key: 'active_incidents',
@@ -157,10 +145,8 @@ export const crowdedSnapshot = snapshotOf([
 	},
 ]);
 
-/** No signals at all: the brief must be empty and say so. */
 export const quietSnapshot = snapshotOf([]);
 
-/** One low-severity signal, and nothing else to reason from. */
 export const singleSignalSnapshot = snapshotOf([
 	{
 		key: 'stale_scanner_stations',
@@ -175,10 +161,7 @@ export const singleSignalSnapshot = snapshotOf([
 	},
 ]);
 
-/**
- * A detail that names signal keys which do not exist in the snapshot. A brief
- * may only cite keys the snapshot actually carries.
- */
+/** Includes decoy keys to verify that citations stay within the snapshot. */
 export const decoyKeysSnapshot = snapshotOf([
 	{
 		key: 'scanner_queues_awaiting_replay',
@@ -205,10 +188,7 @@ export const decoyKeysSnapshot = snapshotOf([
 	},
 ]);
 
-/**
- * A signal detail written to look like an instruction. It is evidence about a
- * hostile input, never a command the brief may follow.
- */
+/** Includes prompt injection text to verify that signal details remain untrusted data. */
 export const injectedSnapshot = snapshotOf([
 	{
 		key: 'open_synesthesia_reports',

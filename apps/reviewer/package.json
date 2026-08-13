@@ -42,7 +42,8 @@
     "@types/react": "~19.2.2",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~57.0.1",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vitest": "4.1.10"
   },
   "scripts": {
     "start": "expo start",
@@ -51,11 +52,13 @@
     "ios": "expo run:ios",
     "config:check": "expo config --type public",
     "export:check": "expo export --platform all --output-dir dist --clear",
+    "native:android:check": "expo prebuild --platform android --clean --no-install && cd android && ./gradlew app:compileDebugKotlin --no-daemon",
     "build:android:staging": "node scripts/nativeBuild.ts android staging",
     "build:android:production": "node scripts/nativeBuild.ts android production",
     "build:ios:staging": "node scripts/nativeBuild.ts ios staging",
     "build:ios:production": "node scripts/nativeBuild.ts ios production",
     "lint": "expo lint",
+    "test": "vitest run --config vitest.config.mts",
     "typecheck": "tsc --noEmit"
   },
   "private": true

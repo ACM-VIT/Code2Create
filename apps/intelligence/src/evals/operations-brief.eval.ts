@@ -16,20 +16,12 @@ import {
 	singleSignalSnapshot,
 } from './snapshots.ts';
 
-/**
- * Live evaluation of the operations brief agent. Every case runs the real
- * model several times over one frozen snapshot and requires every run to
- * satisfy the contract — a violation that happens one run in three is a
- * violation, not noise. Scoring is structural: set membership, verbatim
- * copies, and counts read off the parsed callback payload.
- */
-
 const runsPerCase = 3;
-// `vitest.eval.config.ts` loads the repository-root development env file and
-// prints the skip reason when the credential is missing.
-const evaluationEnabled = (process.env['OPENAI_API_KEY'] ?? '').trim().length > 0;
+// The evaluation config reports why live cases are skipped without a model credential.
+const evaluationEnabled = ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'].every(
+	(name) => (process.env[name] ?? '').trim().length > 0,
+);
 
-/** Free text the brief authored, for case rules about what must not appear. */
 function authoredText(run: BriefRun) {
 	const payload = succeededPayload(run);
 	if (payload === undefined) return '';
@@ -41,7 +33,7 @@ function authoredText(run: BriefRun) {
 type EvaluationCase = {
 	name: string;
 	snapshot: OperationsHealthSnapshot;
-	/** Rules this case adds to the contract every run must already satisfy. */
+	/** Case-specific rules added to the shared contract. */
 	rules(run: BriefRun): string[];
 };
 

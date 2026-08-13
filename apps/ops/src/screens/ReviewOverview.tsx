@@ -1,50 +1,44 @@
 import { api } from '@code2create/backend/api'
 import { reviewRoundStatusLabels } from '@code2create/domain'
+import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useRef, useState } from 'react'
+import { ConvexError } from 'convex/values'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
-
-type OpenAttempt = {
-  roundId: string
-  expectedVersion: number
-  clientOperationId: string
-}
+import { useMutationAttempt } from '../lib/operations'
 
 export function ReviewOverview({ showSetup }: { showSetup: boolean }) {
   const overview = useQuery(api.reviewOperations.overview, { eventSlug })
   const openRound = useMutation(api.reviewOperations.openRound)
-  const openAttemptRef = useRef<OpenAttempt | null>(null)
+  const openAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewOperations.openRound>>()
   const [busyRoundId, setBusyRoundId] = useState<string | null>(null)
+  const [pendingRoundId, setPendingRoundId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   if (overview === undefined) return <p className="muted">Loading review rounds…</p>
 
   const open = async (round: (typeof overview.rounds)[number]) => {
-    const prior = openAttemptRef.current
-    const attempt =
-      prior?.roundId === round.id && prior.expectedVersion === round.version
-        ? prior
-        : {
-            roundId: round.id,
-            expectedVersion: round.version,
-            clientOperationId: crypto.randomUUID(),
-          }
-    openAttemptRef.current = attempt
+    if (pendingRoundId && pendingRoundId !== round.id) return
+    if (!openAttempt.hasPending('review-round-open')) setPendingRoundId(round.id)
     setBusyRoundId(round.id)
     setError(null)
     try {
-      await openRound({
-        eventSlug,
-        roundId: round.id,
-        expectedVersion: round.version,
-        reason: 'Opened from the live review board',
-        clientOperationId: attempt.clientOperationId,
+      await openAttempt.run('review-round-open', () => {
+        const args = {
+          eventSlug,
+          roundId: round.id,
+          expectedVersion: round.version,
+          reason: 'Opened from the live review board',
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => openRound(args)
       })
-      openAttemptRef.current = null
+      setPendingRoundId(null)
     } catch (caught) {
+      if (caught instanceof ConvexError) setPendingRoundId(null)
       setError(readableError(caught))
     } finally {
       setBusyRoundId(null)
@@ -100,10 +94,10 @@ export function ReviewOverview({ showSetup }: { showSetup: boolean }) {
               <button
                 className="primary"
                 type="button"
-                disabled={busyRoundId !== null}
+                disabled={busyRoundId !== null || (pendingRoundId !== null && pendingRoundId !== round.id)}
                 onClick={() => void open(round)}
               >
-                {busyRoundId === round.id ? 'Opening…' : 'Open round'}
+                {busyRoundId === round.id ? 'Opening…' : pendingRoundId === round.id ? 'Confirm earlier open' : 'Open round'}
               </button>
             ) : null}
           </article>

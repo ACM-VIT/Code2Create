@@ -127,8 +127,8 @@ export const releaseRehearsalTemplate = [
     14,
     "integrations",
     "Required GitHub topic is missing",
-    "The repository is flagged as missing `code2create-7-0`; the read-only App does not claim to repair it.",
-    "Ask the team to add the topic, then run the provider verification again.",
+    "The repository is flagged as missing the event's published required topic; the read-only App does not claim to repair it.",
+    "Ask the team to add the exact topic shown in its portal, then run provider verification again.",
   ),
   scenario(
     15,

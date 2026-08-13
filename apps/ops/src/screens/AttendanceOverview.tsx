@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 
 type AttendanceOverviewData = FunctionReturnType<typeof api.attendanceOperations.overview>
 type AttendanceSessionData = AttendanceOverviewData['sessions'][number]
@@ -13,6 +14,11 @@ type AttendanceStationData = AttendanceOverviewData['stations'][number]
 type SessionAction = {
   sessionId: AttendanceSessionData['id']
   command: 'extend' | 'close' | 'cancel'
+}
+type SessionCommand = SessionAction['command'] | 'prepare' | 'open'
+type PendingSessionIntent = {
+  sessionId: AttendanceSessionData['id']
+  command: SessionCommand
 }
 type StationAction = {
   stationId: AttendanceStationData['id']
@@ -28,11 +34,14 @@ export function AttendanceOverview() {
   const cancel = useMutation(api.attendanceSessions.cancel)
   const disableStation = useMutation(api.attendanceSecurity.disableStation)
   const enableStation = useMutation(api.attendanceSecurity.enableStation)
+  const operations = useOperationRunner()
   const [busySessionId, setBusySessionId] = useState<string | null>(null)
   const [sessionAction, setSessionAction] = useState<SessionAction | null>(null)
+  const [pendingSessionIntent, setPendingSessionIntent] = useState<PendingSessionIntent | null>(null)
   const [sessionReason, setSessionReason] = useState('')
   const [extensionMinutes, setExtensionMinutes] = useState('30')
   const [stationAction, setStationAction] = useState<StationAction | null>(null)
+  const [pendingStationIntent, setPendingStationIntent] = useState<StationAction | null>(null)
   const [stationReason, setStationReason] = useState('')
   const [busyStationId, setBusyStationId] = useState<AttendanceStationData['id'] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -43,58 +52,78 @@ export function AttendanceOverview() {
     (station) => station.status === 'active',
   ).length
   const waitingStationCount = overview.stations.length - activeStationCount
+  const pendingSessionSlot = pendingSessionIntent
+    ? sessionOperationSlot(pendingSessionIntent)
+    : null
+  const sessionCommandPending = pendingSessionSlot !== null && operations.hasPending(pendingSessionSlot)
+  const pendingStationSlot = pendingStationIntent
+    ? stationOperationSlot(pendingStationIntent)
+    : null
+  const stationCommandPending = pendingStationSlot !== null && operations.hasPending(pendingStationSlot)
+  const operationPending = sessionCommandPending || stationCommandPending
 
-  const run = async (
-    session: AttendanceSessionData,
-    command: 'prepare' | 'open' | SessionAction['command'],
+  const runSessionCommand = async (
+    session: AttendanceSessionData | undefined,
+    requestedIntent: PendingSessionIntent,
   ) => {
-    setBusySessionId(session.id)
+    const intent = pendingSessionIntent ?? requestedIntent
+    const slot = sessionOperationSlot(intent)
+    if (!session && !operations.hasPending(slot)) {
+      setPendingSessionIntent(null)
+      setError('The original session is no longer available to retry.')
+      return
+    }
+    setPendingSessionIntent(intent)
+    setBusySessionId(intent.sessionId)
     setError(null)
     try {
-      if (command === 'prepare') {
-        await prepare({
+      await operations.run(slot, (clientOperationId) => {
+        if (!session || session.id !== intent.sessionId) {
+          return async () => {
+            throw new Error('The original session is unavailable. Refresh its status before retrying.')
+          }
+        }
+        if (intent.command === 'prepare') return () => prepare({
           eventSlug,
           sessionId: session.id,
           expectedSessionVersion: session.version,
-          clientOperationId: crypto.randomUUID(),
+          clientOperationId,
         })
-      } else if (command === 'open') {
-        await open({
+        if (intent.command === 'open') return () => open({
           eventSlug,
           sessionId: session.id,
           expectedSessionVersion: session.version,
-          clientOperationId: crypto.randomUUID(),
+          clientOperationId,
         })
-      } else if (command === 'extend') {
-        await extend({
+        if (intent.command === 'extend') return () => extend({
           eventSlug,
           sessionId: session.id,
           expectedSessionVersion: session.version,
           extensionMinutes: Number(extensionMinutes),
           reason: sessionReason,
-          clientOperationId: crypto.randomUUID(),
+          clientOperationId,
         })
-        resetSessionAction()
-      } else if (command === 'close') {
-        await close({
+        if (intent.command === 'close') return () => close({
           eventSlug,
           sessionId: session.id,
           expectedSessionVersion: session.version,
           reason: sessionReason,
-          clientOperationId: crypto.randomUUID(),
+          clientOperationId,
         })
-        resetSessionAction()
-      } else {
-        await cancel({
+        return () => cancel({
           eventSlug,
           sessionId: session.id,
           expectedSessionVersion: session.version,
           reason: sessionReason,
-          clientOperationId: crypto.randomUUID(),
+          clientOperationId,
         })
+      })
+      setPendingSessionIntent(null)
+      if (intent.command === 'extend' || intent.command === 'close' || intent.command === 'cancel') {
         resetSessionAction()
       }
     } catch (caught) {
+      if (!operations.hasPending(slot)) setPendingSessionIntent(null)
       setError(readableError(caught))
     } finally {
       setBusySessionId(null)
@@ -130,24 +159,43 @@ export function AttendanceOverview() {
 
   const runStationAction = async (station: AttendanceStationData) => {
     if (!stationAction || stationAction.stationId !== station.id) return
-    setBusyStationId(station.id)
+    await runStationCommand(station, stationAction)
+  }
+
+  const runStationCommand = async (
+    station: AttendanceStationData | undefined,
+    requestedIntent: StationAction,
+  ) => {
+    const intent = pendingStationIntent ?? requestedIntent
+    const slot = stationOperationSlot(intent)
+    if (!station && !operations.hasPending(slot)) {
+      setPendingStationIntent(null)
+      setError('The original scanner station is no longer available to retry.')
+      return
+    }
+    setPendingStationIntent(intent)
+    setBusyStationId(intent.stationId)
     setError(null)
     try {
-      const input = {
-        eventSlug,
-        stationId: station.id,
-        expectedConfigurationVersion: station.configurationVersion,
-        reason: stationReason,
-        clientOperationId: crypto.randomUUID(),
-      }
-      if (stationAction.command === 'disable') {
-        await disableStation(input)
-      } else {
-        await enableStation(input)
-      }
+      await operations.run(slot, (clientOperationId) => async () => {
+        if (!station || station.id !== intent.stationId) {
+          throw new Error('The original scanner station is unavailable. Refresh its status before retrying.')
+        }
+        const input = {
+          eventSlug,
+          stationId: station.id,
+          expectedConfigurationVersion: station.configurationVersion,
+          reason: stationReason,
+          clientOperationId,
+        }
+        if (intent.command === 'disable') await disableStation(input)
+        else await enableStation(input)
+      })
+      setPendingStationIntent(null)
       setStationAction(null)
       setStationReason('')
     } catch (caught) {
+      if (!operations.hasPending(slot)) setPendingStationIntent(null)
       setError(readableError(caught))
     } finally {
       setBusyStationId(null)
@@ -166,11 +214,28 @@ export function AttendanceOverview() {
           <div className="plan-meta">
             <span>{overview.publishedPlan.name}</span>
             {overview.canConfigure || overview.canPublish ? (
-              <Link to="/attendance-setup">Edit plan</Link>
+              <Link
+                aria-disabled={operationPending}
+                onClick={(event) => {
+                  if (operationPending) event.preventDefault()
+                }}
+                to="/attendance-setup"
+              >
+                Edit plan
+              </Link>
             ) : null}
           </div>
         ) : overview.canConfigure || overview.canPublish ? (
-          <Link className="secondary compact-link" to="/attendance-setup">Set up attendance</Link>
+          <Link
+            aria-disabled={operationPending}
+            className="secondary compact-link"
+            onClick={(event) => {
+              if (operationPending) event.preventDefault()
+            }}
+            to="/attendance-setup"
+          >
+            Set up attendance
+          </Link>
         ) : null}
       </header>
 
@@ -241,12 +306,22 @@ export function AttendanceOverview() {
                   <small>{station.zoneName}</small>
                   <small>{stationDeviceSummary(station)}</small>
                   {station.canManage && !action && station.status === 'active' ? (
-                    <button className="text-button" type="button" onClick={() => beginStationAction(station, 'disable')}>
+                    <button
+                      className="text-button"
+                      type="button"
+                      disabled={stationAction !== null || pendingStationIntent !== null}
+                      onClick={() => beginStationAction(station, 'disable')}
+                    >
                       Disable scanner
                     </button>
                   ) : null}
                   {station.canManage && !action && station.status === 'disabled' ? (
-                    <button className="text-button" type="button" onClick={() => beginStationAction(station, 'enable')}>
+                    <button
+                      className="text-button"
+                      type="button"
+                      disabled={stationAction !== null || pendingStationIntent !== null}
+                      onClick={() => beginStationAction(station, 'enable')}
+                    >
                       Make available
                     </button>
                   ) : null}
@@ -254,7 +329,11 @@ export function AttendanceOverview() {
                     <div className="station-command">
                       <label className="field">
                         <span>Reason</span>
-                        <textarea value={stationReason} onChange={(event) => setStationReason(event.target.value)} />
+                        <textarea
+                          disabled={stationCommandPending}
+                          value={stationReason}
+                          onChange={(event) => setStationReason(event.target.value)}
+                        />
                       </label>
                       <p className="muted">
                         {action.command === 'disable'
@@ -265,11 +344,13 @@ export function AttendanceOverview() {
                         <button
                           className="primary"
                           type="button"
-                          disabled={busy || stationReason.trim().length < 5}
+                          disabled={busy || (!stationCommandPending && stationReason.trim().length < 5)}
                           onClick={() => void runStationAction(station)}
                         >
                           {busy
                             ? 'Saving…'
+                            : stationCommandPending
+                              ? `Retry ${action.command === 'disable' ? 'disable' : 'make available'}`
                             : action.command === 'disable'
                               ? 'Confirm disable'
                               : 'Confirm available'}
@@ -277,7 +358,7 @@ export function AttendanceOverview() {
                         <button
                           className="secondary"
                           type="button"
-                          disabled={busy}
+                          disabled={busy || stationCommandPending}
                           onClick={() => {
                             setStationAction(null)
                             setStationReason('')
@@ -293,6 +374,22 @@ export function AttendanceOverview() {
             })}
           </ul>
         </details>
+      ) : null}
+
+      {pendingStationIntent && !overview.stations.some(
+        (station) => station.id === pendingStationIntent.stationId,
+      ) ? (
+        <div className="notice" role="status">
+          <p>The scanner command has an unknown outcome and its station is no longer visible.</p>
+          <button
+            className="secondary"
+            type="button"
+            disabled={busyStationId !== null}
+            onClick={() => void runStationCommand(undefined, pendingStationIntent)}
+          >
+            {busyStationId !== null ? 'Retrying…' : `Retry ${stationCommandName(pendingStationIntent.command)}`}
+          </button>
+        </div>
       ) : null}
 
       <div className="session-list">
@@ -320,7 +417,14 @@ export function AttendanceOverview() {
                     {session.zoneName} · {formatWindow(session.startsAt, session.endsAt, overview.timezone)}
                   </p>
                 </div>
-                <Link className="secondary compact-link" to={`/attendance/${session.id}`}>
+                <Link
+                  aria-disabled={operationPending}
+                  className="secondary compact-link"
+                  onClick={(event) => {
+                    if (operationPending) event.preventDefault()
+                  }}
+                  to={`/attendance/${session.id}`}
+                >
                   View people
                 </Link>
               </div>
@@ -354,17 +458,32 @@ export function AttendanceOverview() {
               {session.canManage ? (
                 <div className="session-actions">
                   {!action && session.status === 'scheduled' && session.expectationBuildState === 'not_started' ? (
-                    <button className="primary" type="button" disabled={busy} onClick={() => void run(session, 'prepare')}>
+                    <button
+                      className="primary"
+                      type="button"
+                      disabled={busy || sessionAction !== null || pendingSessionIntent !== null}
+                      onClick={() => void runSessionCommand(session, { sessionId: session.id, command: 'prepare' })}
+                    >
                       {busy ? 'Preparing…' : 'Prepare session'}
                     </button>
                   ) : null}
                   {!action && session.status === 'ready' ? (
-                    <button className="primary" type="button" disabled={busy || !canOpen} onClick={() => void run(session, 'open')}>
+                    <button
+                      className="primary"
+                      type="button"
+                      disabled={busy || !canOpen || sessionAction !== null || pendingSessionIntent !== null}
+                      onClick={() => void runSessionCommand(session, { sessionId: session.id, command: 'open' })}
+                    >
                       {busy ? 'Opening…' : canOpen ? 'Open check-in' : now < session.checkInOpensAt ? 'Check-in not open yet' : 'Check-in window ended'}
                     </button>
                   ) : null}
                   {!action && session.status === 'open' ? (
-                    <button className="secondary" type="button" onClick={() => beginSessionAction(session, 'extend')}>
+                    <button
+                      className="secondary"
+                      type="button"
+                      disabled={sessionAction !== null || pendingSessionIntent !== null}
+                      onClick={() => beginSessionAction(session, 'extend')}
+                    >
                       Extend
                     </button>
                   ) : null}
@@ -372,16 +491,36 @@ export function AttendanceOverview() {
                     <button
                       className="secondary"
                       type="button"
+                      disabled={sessionAction !== null || pendingSessionIntent !== null}
                       onClick={() => beginSessionAction(session, 'close')}
                     >
                       Close session
                     </button>
                   ) : null}
                   {!action && canCancel ? (
-                    <button className="text-button" type="button" onClick={() => beginSessionAction(session, 'cancel')}>
+                    <button
+                      className="text-button"
+                      type="button"
+                      disabled={sessionAction !== null || pendingSessionIntent !== null}
+                      onClick={() => beginSessionAction(session, 'cancel')}
+                    >
                       Cancel session
                     </button>
                   ) : null}
+                </div>
+              ) : null}
+
+              {pendingSessionIntent?.sessionId === session.id && !action ? (
+                <div className="notice" role="status">
+                  <p>The {sessionCommandName(pendingSessionIntent.command)} command has an unknown outcome.</p>
+                  <button
+                    className="secondary"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void runSessionCommand(session, pendingSessionIntent)}
+                  >
+                    {busy ? 'Retrying…' : `Retry ${sessionCommandName(pendingSessionIntent.command)}`}
+                  </button>
                 </div>
               ) : null}
 
@@ -395,6 +534,7 @@ export function AttendanceOverview() {
                         min="1"
                         max="1440"
                         step="1"
+                        disabled={sessionCommandPending}
                         value={extensionMinutes}
                         onChange={(event) => setExtensionMinutes(event.target.value)}
                       />
@@ -403,6 +543,7 @@ export function AttendanceOverview() {
                   <label className="field">
                     <span>Reason</span>
                     <textarea
+                      disabled={sessionCommandPending}
                       value={sessionReason}
                       onChange={(event) => setSessionReason(event.target.value)}
                       placeholder={sessionActionPlaceholder(action.command)}
@@ -415,17 +556,21 @@ export function AttendanceOverview() {
                       type="button"
                       disabled={
                         busy ||
-                        sessionReason.trim().length < 5 ||
-                        (action.command === 'extend' && !extensionValid)
+                        (!sessionCommandPending && sessionReason.trim().length < 5) ||
+                        (!sessionCommandPending && action.command === 'extend' && !extensionValid)
                       }
-                      onClick={() => void run(session, action.command)}
+                      onClick={() => void runSessionCommand(session, action)}
                     >
-                      {busy ? 'Saving…' : sessionActionLabel(action.command)}
+                      {busy
+                        ? 'Saving…'
+                        : sessionCommandPending
+                          ? `Retry ${sessionCommandName(action.command)}`
+                          : sessionActionLabel(action.command)}
                     </button>
                     <button
                       className="secondary"
                       type="button"
-                      disabled={busy}
+                      disabled={busy || sessionCommandPending}
                       onClick={resetSessionAction}
                     >
                       Back
@@ -437,6 +582,21 @@ export function AttendanceOverview() {
           )
         })}
       </div>
+      {pendingSessionIntent && !overview.sessions.some(
+        (session) => session.id === pendingSessionIntent.sessionId,
+      ) ? (
+        <div className="notice" role="status">
+          <p>The session command has an unknown outcome and its session is no longer visible.</p>
+          <button
+            className="secondary"
+            type="button"
+            disabled={busySessionId !== null}
+            onClick={() => void runSessionCommand(undefined, pendingSessionIntent)}
+          >
+            {busySessionId !== null ? 'Retrying…' : `Retry ${sessionCommandName(pendingSessionIntent.command)}`}
+          </button>
+        </div>
+      ) : null}
       {overview.publishedPlan && overview.sessions.length === 0 ? (
         <p className="empty">No sessions are visible to your permission scope.</p>
       ) : null}
@@ -490,6 +650,26 @@ function sessionActionLabel(command: SessionAction['command']) {
   if (command === 'extend') return 'Confirm extension'
   if (command === 'cancel') return 'Confirm cancellation'
   return 'Confirm close'
+}
+
+function sessionOperationSlot(intent: PendingSessionIntent) {
+  return `attendance-session-${intent.command}:${intent.sessionId}`
+}
+
+function stationOperationSlot(intent: StationAction) {
+  return `attendance-station-${intent.command}:${intent.stationId}`
+}
+
+function sessionCommandName(command: SessionCommand) {
+  if (command === 'prepare') return 'prepare session'
+  if (command === 'open') return 'open check-in'
+  if (command === 'extend') return 'extend session'
+  if (command === 'cancel') return 'cancel session'
+  return 'close session'
+}
+
+function stationCommandName(command: StationAction['command']) {
+  return command === 'disable' ? 'disable scanner' : 'make scanner available'
 }
 
 function symbologyName(value: string) {

@@ -1,16 +1,33 @@
 declare namespace Cloudflare {
+	type IntelligenceAiModels = {
+		'@cf/moonshotai/kimi-k2.6': {
+			inputs: Record<string, unknown>;
+			postProcessedOutputs: Record<string, unknown>;
+		};
+	};
+
 	interface Env {
+		AI: Ai<IntelligenceAiModels>;
+		FLUE_OPERATIONS_AUTOPILOT_AGENT: {
+			getByName(runId: string): {
+				requestAutonomyArtifactPurge(): Promise<void>;
+			};
+		};
+		OPERATIONS_AUTONOMY_ADMISSION_FENCE:
+			import('./lib/autonomyAdmissionController.ts').AutonomyAdmissionControllerNamespace;
 		INTELLIGENCE_INGRESS_SECRET: string;
 		INTELLIGENCE_CALLBACK_SECRET: string;
-		// A separate secret for the read direction: the callback secret proves
-		// "the Worker finished a brief", the read secret proves "the Worker may
-		// ask for a redacted projection" — revocable independently.
+		INTELLIGENCE_STREAM_SECRET: string;
+		// Separate from callback signing so read access can be revoked independently.
 		INTELLIGENCE_READ_SECRET: string;
 		CONVEX_INTELLIGENCE_CALLBACK_URL: string;
 		CONVEX_INTELLIGENCE_READ_URL: string;
 		CONVEX_INTELLIGENCE_RECOMMENDATION_URL: string;
-		// Read by the model provider through `process.env` (nodejs_compat),
-		// never by application code.
-		OPENAI_API_KEY: string;
+		CONVEX_INTELLIGENCE_AUTONOMY_CALLBACK_URL: string;
+		CONVEX_INTELLIGENCE_AUTONOMY_READ_URL: string;
+		CONVEX_INTELLIGENCE_AUTONOMY_WORK_URL: string;
+		CONVEX_INTELLIGENCE_AUTONOMY_RECOMMENDATION_URL: string;
+		CONVEX_INTELLIGENCE_AUTONOMY_RECOMMENDATION_EVIDENCE_URL: string;
+		OPS_ORIGIN: string;
 	}
 }

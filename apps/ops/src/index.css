@@ -1,7 +1,4 @@
 :root {
-  /* Tokens matched to the Cursor dashboard: one near-black page, one raised
-     surface for the sidebar and every card, and a single light text colour
-     used at varying opacity instead of a ladder of greys. */
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color: #f0f0f0;
   background: #141414;
@@ -61,7 +58,7 @@ p { line-height: 1.55; font-size: .8125rem; }
 .incident-banner li { display: grid; gap: 3px; padding-top: 8px; border-top: 1px solid var(--border); }
 .incident-banner li strong { font-size: .76rem; }
 .incident-banner li span { color: var(--muted); font-size: .7rem; line-height: 1.45; }
-.queue-shell, .application-detail, .attendance-shell, .access-shell, .integration-health-shell, .review-shell, .health-shell, .intelligence-activity-shell, .floor-shell, .emergency-pack-shell, .support-desk-shell, .rehearsal-shell, .track-config-shell, .phase-config-shell, .intake-policy-shell, .setup-home { width: min(100%, var(--shell-max)); margin: 0 auto; }
+.queue-shell, .application-detail, .attendance-shell, .access-shell, .integration-health-shell, .review-shell, .health-shell, .intelligence-workspace-shell, .floor-shell, .emergency-pack-shell, .support-desk-shell, .rehearsal-shell, .track-config-shell, .phase-config-shell, .intake-policy-shell, .setup-home { width: min(100%, var(--shell-max)); margin: 0 auto; }
 .configuration-back { margin-bottom: 30px; }
 .configuration-back a { color: var(--muted); font-size: .75rem; text-decoration: none; }
 .configuration-back a:hover { color: var(--text); }
@@ -262,8 +259,6 @@ p { line-height: 1.55; font-size: .8125rem; }
 .rehearsal-history small { display: block; margin-top: 4px; }
 .rehearsal-history p { margin: 7px 0 0; font-size: .72rem; white-space: pre-wrap; }
 .support-desk-heading > div { max-width: 720px; }
-/* Help-desk rows are <button>s, so they need the browser's own chrome cleared
-   before the shared .list-row anatomy can take over. */
 .support-desk-row { width: 100%; color: var(--text); text-align: left; background: transparent; border: 0; cursor: pointer; }
 .support-create { margin-top: 0; padding: 14px 16px; background: var(--surface); border: 0; border-radius: var(--radius-card); }
 .support-create summary { color: var(--muted); font-size: .76rem; cursor: pointer; }
@@ -299,9 +294,6 @@ p { line-height: 1.55; font-size: .8125rem; }
 .floor-zone-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; }
 .floor-zone-heading h2 { margin: 0; }
 .floor-zone-heading span { color: var(--muted); font-size: .72rem; }
-/* The zone is drawn at the proportions of the real room, so a long thin hall
-   looks long and thin. The nine areas are the granularity anybody speaks in;
-   the dots on top are only as accurate as the finger that placed them. */
 .floor-map { position: relative; display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); min-height: 300px; background: var(--surface); border: 0; border-radius: var(--radius-card); overflow: hidden; }
 .floor-map-area { display: flex; align-items: flex-start; justify-content: flex-start; padding: 5px 7px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .floor-map-area:nth-child(3n) { border-right: 0; }
@@ -323,7 +315,6 @@ p { line-height: 1.55; font-size: .8125rem; }
 .floor-setup h2, .floor-setup p { margin-bottom: 0; }
 .floor-csv { min-height: 230px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .76rem; white-space: pre; }
 .page-heading, .application-heading, .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
-/* A heading's trailing control keeps its width; only the prose beside it wraps. */
 .page-heading > .primary, .page-heading > .secondary,
 .section-heading > .primary, .section-heading > .secondary { flex: 0 0 auto; }
 .configuration-tabs { display: flex; width: fit-content; margin-top: 22px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 3px; }
@@ -367,17 +358,6 @@ textarea { min-height: 110px; padding: 11px; line-height: 1.5; resize: vertical;
 .health-summary div { padding: 15px 16px 15px 0; }
 .health-summary dt { color: var(--muted); font-size: .7rem; }
 .health-summary dd { margin: 4px 0 0; font-size: 1.5rem; }
-.intelligence-brief { display: grid; gap: 18px; margin-top: 34px; padding: 26px 0; border-bottom: 1px solid var(--border); }
-.intelligence-brief-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
-.intelligence-brief-heading h2, .intelligence-brief-heading p { margin-bottom: 0; }
-.intelligence-brief-heading p { max-width: 620px; font-size: .76rem; }
-.intelligence-brief-result { display: grid; max-width: 820px; gap: 10px; }
-.intelligence-brief-result h3, .intelligence-brief-result p { margin: 0; }
-.intelligence-brief-result > p:not(.eyebrow) { color: var(--muted); font-size: .82rem; }
-.intelligence-priorities { display: grid; margin: 12px 0 0; padding: 0; border-top: 1px solid var(--border); list-style: none; }
-.intelligence-priorities > li { display: grid; gap: 9px; padding: 18px 0; border-bottom: 1px solid var(--border); }
-.intelligence-priorities h4, .intelligence-priorities p { margin: 0; }
-.intelligence-priorities p { color: var(--muted); font-size: .78rem; }
 .health-list { display: grid; overflow: hidden; background: var(--surface); border-radius: var(--radius-card); }
 .health-row { display: grid; gap: 6px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
 .health-row:last-child { border-bottom: 0; }
@@ -434,7 +414,6 @@ textarea { min-height: 110px; padding: 11px; line-height: 1.5; resize: vertical;
 .detail-section { padding: 34px 0; border-bottom: 1px solid var(--border); }
 .application-detail > .detail-section:last-child { border-bottom: 0; }
 .review-list, .text-list ul { margin: 0; padding: 0; list-style: none; }
-/* The one thing this application is waiting on, stated before the record. */
 .application-next-step { display: grid; gap: 6px; margin-top: 22px; padding: 18px 20px; background: var(--surface); border-radius: var(--radius-card); }
 .application-next-step .eyebrow, .application-next-step h2, .application-next-step p { margin: 0; }
 .application-next-step h2 { font-size: .9375rem; font-weight: 500; }
@@ -696,7 +675,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .grant-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; max-width: 820px; margin-top: 22px; }
 .resource-field { display: grid; gap: 10px; }
 
-/* ---- Permission matrix: one row per permission, grouped by area ---- */
 .access-person-summary { margin-top: 22px; }
 .access-person-summary div { padding-left: 16px; }
 .permission-matrix { margin-top: 40px; }
@@ -884,7 +862,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .governance-summary { margin-top: 30px; }
 .score-review-list { display: grid; margin-top: 32px; border-top: 1px solid var(--border); }
 .score-review-row { display: grid; gap: 17px; padding: 24px 2px; border-bottom: 1px solid var(--border); }
-/* The sentence the coverage chips add up to, stated before the chips. */
 .review-team-shortfall { max-width: 720px; margin: 10px 0 12px; color: var(--muted); font-size: .78rem; }
 .coverage-strip { display: flex; flex-wrap: wrap; gap: 7px; }
 .coverage-strip span { padding: 5px 7px; color: var(--muted); font-size: .7rem; background: var(--surface); border: 0; border-radius: var(--radius-card); }
@@ -1069,8 +1046,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .health-heading { display: grid; }
   .home-actions { grid-template-columns: 1fr; }
   .home-actions a:nth-child(n) { padding: 16px 0; border-left: 0; }
-  .intelligence-brief-heading { display: grid; }
-  .intelligence-brief-heading .secondary { justify-self: start; }
   .health-current { padding: 0; border-top: 2px solid var(--border-strong); border-left: 0; }
   .health-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .health-action { grid-template-columns: 1fr; gap: 10px; }
@@ -1212,7 +1187,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .first-event-setup .span-two { grid-column: auto; }
 }
 
-/* Where the event is, and what stands between it and the next step. */
 .stage-block {
   border-left: 2px solid var(--line, var(--border));
   padding: 0 0 0 16px;
@@ -1229,7 +1203,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   gap: 6px;
 }
 
-/* Destinations this stage of the event does not routinely need. */
 .navigation-rest > summary {
   padding: 16px 10px 6px;
   color: var(--faint);
@@ -1238,7 +1211,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 }
 .navigation-rest > summary:hover { color: var(--muted); }
 
-/* Cursor-style surfaces: one raised card colour, no borders, 12px radius. */
 .card-surface, .health-empty, .stage-block {
   background: var(--surface);
   border: 0;
@@ -1261,7 +1233,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .page-heading h1, .health-heading h1 { font-size: 1.3rem; }
 .eyebrow { font-size: .75rem; font-weight: 500; letter-spacing: 0; }
 
-/* The signed-in account sits at the foot of the sidebar, not in a top bar. */
 .sidebar-identity {
   display: flex;
   align-items: center;
@@ -1284,17 +1255,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   text-decoration: none;
 }
 
-/* Cursor stacks cards in a single column with a consistent 20px gutter. */
-.health-shell, .intelligence-activity-shell { display: grid; gap: 20px; align-content: start; }
+.health-shell, .intelligence-workspace-shell, .intelligence-activity-shell { display: grid; gap: 20px; align-content: start; }
 .health-shell > .health-heading, .intelligence-activity-shell > .health-heading { margin-bottom: 0; }
 
-/* Agent instance ids are the join key to worker logs and traces, so they stay
-   verbatim and monospaced instead of being prettied into a label. */
 .instance-id { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .7rem; color: var(--faint); }
-.agent-instance-list { display: grid; gap: 22px; }
-.copilot-instance { display: grid; gap: 8px; }
-.copilot-instance-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 0 2px; }
-.copilot-instance-heading > span:last-child { flex: 0 0 auto; color: var(--muted); font-size: .75rem; }
 .stage-block { margin: 0; padding: 20px; }
 .attention-section { margin-top: 0; }
 .health-row { padding: 16px 20px; transition: background 120ms ease; }
@@ -1302,10 +1266,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .health-row .health-row-main > div { display: grid; gap: 2px; }
 .health-row small.muted { color: var(--faint); font-size: .75rem; }
 .health-count { color: var(--faint); font-size: .8125rem; font-weight: 500; }
-.intelligence-brief { padding: 20px; background: var(--surface); border-radius: var(--radius-card); }
-.intelligence-brief-heading h2 { font-size: .8125rem; }
 
-/* Setting rows read as one card of divided rows, like Cursor's integrations. */
 .setup-list {
   overflow: hidden;
   background: var(--surface);
@@ -1327,7 +1288,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .event-lifecycle-confirmation { background: var(--surface); border: 0; border-radius: var(--radius-card); }
 .setup-home { display: grid; gap: 0; }
 
-/* ---- Sidebar: glyph + label, grouped by whitespace rather than headings ---- */
 .sidebar nav a { gap: 8px; }
 .sidebar nav a .icon { flex: 0 0 auto; opacity: .7; }
 .sidebar nav a.active .icon { opacity: 1; }
@@ -1338,7 +1298,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .navigation-rest > summary::before { content: '▸ '; }
 .navigation-rest[open] > summary::before { content: '▾ '; }
 
-/* ---- List rows: glyph square, two lines, action on the right ---- */
 .list-row {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) auto;
@@ -1389,24 +1348,14 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 button.row-action { cursor: pointer; }
 .row-count { color: var(--faint); font-size: .8125rem; }
 
-/* A row can carry both a decision and a route, so the trailing cell holds
-   more than one control without either one growing. */
 .row-controls { display: inline-flex; align-items: center; gap: 6px; }
 
-/* Picked-up work stays on the board but stops competing for a first glance. */
 .list-row.acknowledged .row-glyph { opacity: .45; }
 .list-row.acknowledged .row-text strong { color: var(--muted); }
 
-/* Links inside the workspace read as controls, not prose. */
 .workspace a { text-decoration: none; }
 .workspace a:hover { color: var(--text); }
 
-/* ============================================================
-   Surfaces
-   One card treatment applied across every screen, rather than
-   each one inventing its own rules. Lists become a single card
-   of divided rows; detail panels and cards become surfaces.
-   ============================================================ */
 
 .access-list,
 .assignment-list,
@@ -1480,13 +1429,10 @@ button.row-action { cursor: pointer; }
 .roster-row:hover,
 .support-desk-row:hover { background: var(--hover); }
 
-/* Hover and selection were both var(--hover), so the row you had open was
-   indistinguishable from the row under the cursor. Selection gets an edge. */
 .support-desk-row.selected,
 .rehearsal-run.selected { background: var(--raised); border-bottom-color: var(--border); }
 .support-desk-row.selected { box-shadow: inset 2px 0 0 var(--accent); }
 
-/* Detail panels, editor cards, and standalone blocks are all one surface. */
 .attendance-export-panel,
 .configuration-card,
 .integration-team-detail,
@@ -1507,7 +1453,6 @@ button.row-action { cursor: pointer; }
   border-radius: var(--radius-card);
 }
 
-/* Stat strips read as one card of columns, like the reference's usage row. */
 .admission-summary,
 .application-state-summary,
 .catalog-summary,
@@ -1523,7 +1468,6 @@ button.row-action { cursor: pointer; }
   border-radius: var(--radius-card);
 }
 
-/* Section labels sit above their card, quiet and small. */
 .setup-section > h2,
 .detail-section > h2,
 .command-section > h2,
@@ -1535,7 +1479,6 @@ button.row-action { cursor: pointer; }
   font-weight: 500;
 }
 
-/* Chips: state labels stop looking like outlined buttons. */
 .state-label {
   padding: 3px 8px;
   color: var(--muted);
@@ -1545,15 +1488,12 @@ button.row-action { cursor: pointer; }
   border-radius: var(--radius-control);
 }
 
-/* Form controls sit on the page, inside cards that own the padding. */
 .form-grid,
 .phase-field-grid,
 .track-field-grid,
 .intake-policy-grid { gap: 14px; }
 label > span { color: var(--muted); font-size: .75rem; }
 
-/* An empty list is still a card, so its message needs the card's padding
-   rather than sitting in a bare strip. */
 .access-list > p,
 .bundle-list > p,
 .grant-list > p,
@@ -1572,7 +1512,6 @@ label > span { color: var(--muted); font-size: .75rem; }
 }
 .invitation-list { margin-top: 16px; border-top: 0; }
 
-/* Forms that stand alone on a page get the same surface as everything else. */
 .invite-form,
 .access-lookup,
 .roster-import,
@@ -1585,15 +1524,11 @@ label > span { color: var(--muted); font-size: .75rem; }
   border-radius: var(--radius-card);
 }
 
-/* Long directory lists scroll inside their card rather than running off. */
 .access-list { max-height: 60vh; overflow-y: auto; }
 
-/* Buttons are compact controls; inside a grid they were stretching to the
-   full column, which reads as a banner rather than an action. */
 .primary, .secondary, .row-action { justify-self: start; align-self: start; }
 .button-row .primary, .button-row .secondary { justify-self: auto; }
 
-/* A section heading and its description are two lines, not one run-on. */
 .manual-entry-heading, .manual-section-heading {
   display: flex;
   flex-wrap: wrap;
@@ -1605,12 +1540,10 @@ label > span { color: var(--muted); font-size: .75rem; }
 .manual-entry-heading h2, .manual-entry-heading h3,
 .manual-section-heading h2, .manual-section-heading h3 { flex: 1 1 100%; font-size: .8125rem; }
 
-/* Title and description stack; they were rendering inline as one run-on line. */
 .manual-subheading > div,
 .manual-incident-summary > div,
 .manual-sheet-title > div,
 .manual-new-sheet > div,
-.intelligence-brief-heading > div,
 .section-heading > div,
 .page-heading > div {
   display: grid;
@@ -1621,8 +1554,6 @@ label > span { color: var(--muted); font-size: .75rem; }
 .manual-subheading strong,
 .manual-sheet-title strong { font-size: .8125rem; font-weight: 500; }
 
-/* Bare text actions read as stray labels; give them a control's shape on hover
-   so a tappable thing looks tappable without competing with primary buttons. */
 .text-button {
   display: inline-flex;
   align-items: center;
@@ -1643,7 +1574,6 @@ label > span { color: var(--muted); font-size: .75rem; }
   border: 1px solid var(--border-strong);
 }
 
-/* Panel cards size to their content instead of stretching to the tallest. */
 .review-panel-list { align-items: start; }
 .review-panel-card { display: grid; gap: 10px; }
 .panel-reviewers { display: grid; gap: 8px; }
@@ -1651,7 +1581,6 @@ label > span { color: var(--muted); font-size: .75rem; }
 .panel-reviewers span { font-size: .8125rem; }
 .panel-reviewers small { color: var(--faint); font-size: .75rem; }
 
-/* Grids of cards are layout, not a surface; only the cards inside are raised. */
 .review-panel-list,
 .track-card-list,
 .phase-card-list,
@@ -1662,8 +1591,6 @@ label > span { color: var(--muted); font-size: .75rem; }
   padding: 0;
 }
 
-/* Stage filter: a row of chips carrying their own counts, so the size of each
-   group is visible without selecting it. */
 .stage-filter {
   display: flex;
   flex-wrap: wrap;
@@ -1689,8 +1616,6 @@ label > span { color: var(--muted); font-size: .75rem; }
 .stage-chip > span { color: var(--faint); font-variant-numeric: tabular-nums; }
 .stage-chip.active > span { color: var(--muted); }
 
-/* Stat strips: label above value, columns divided, like the reference's
-   usage row. Used by every screen that opens on a few key numbers. */
 .catalog-summary,
 .score-summary-grid,
 .governance-summary,
@@ -1742,7 +1667,6 @@ label > span { color: var(--muted); font-size: .75rem; }
   font-size: .9375rem;
 }
 
-/* Team updates: three columns — who, what they wrote, when. */
 .checkpoint-operations-row {
   display: grid;
   grid-template-columns: minmax(150px, .8fr) minmax(0, 2fr) minmax(140px, auto);
@@ -1756,7 +1680,6 @@ label > span { color: var(--muted); font-size: .75rem; }
 .checkpoint-operations-answer small { display: block; margin-top: 4px; color: var(--faint); font-size: .75rem; }
 .checkpoint-operations-row > small { color: var(--faint); font-size: .75rem; text-align: right; }
 
-/* ---- Loading shells ---- */
 @keyframes skeleton-sweep {
   from { background-position: 200% 0; }
   to { background-position: -200% 0; }
@@ -1804,7 +1727,6 @@ label > span { color: var(--muted); font-size: .75rem; }
   white-space: nowrap;
 }
 
-/* ---- Round board ---- */
 .board-section-label {
   margin: 24px 0 8px;
   color: var(--muted);
@@ -1823,8 +1745,6 @@ label > span { color: var(--muted); font-size: .75rem; }
 .review-team-state { text-align: right; font-size: .8125rem; }
 .review-team-state strong { display: block; font-size: .8125rem; font-weight: 500; }
 
-/* Recovery is for the day something breaks; it should not own a third of the
-   screen used to move teams through their reviews. */
 .board-recovery { margin-top: 32px; }
 .board-recovery > summary {
   padding: 10px 0;
@@ -1834,8 +1754,6 @@ label > span { color: var(--muted); font-size: .75rem; }
 }
 .board-recovery > summary:hover { color: var(--text); }
 
-/* Group headings inside the disclosure were reading at the same weight as the
-   destinations under them, so the list looked flat. */
 .navigation-rest .navigation-group { margin-top: 12px; }
 .navigation-rest .navigation-group:first-of-type { margin-top: 4px; }
 .navigation-rest .navigation-group > p {
@@ -1851,7 +1769,6 @@ label > span { color: var(--muted); font-size: .75rem; }
   border-top: 1px solid var(--border);
 }
 
-/* ---- Round board team rows ---- */
 .review-team-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .review-team-heading > div { display: grid; gap: 2px; min-width: 0; }
 .review-team-heading strong { font-size: .8125rem; font-weight: 500; }
@@ -1862,14 +1779,12 @@ label > span { color: var(--muted); font-size: .75rem; }
 .review-team-row .state-label.missed { color: var(--warn); }
 .review-team-row > p.muted { margin: 0; font-size: .8125rem; }
 
-/* A blocked step says what is missing instead of showing a dead button. */
 .review-blocked {
   margin: 0;
   color: var(--faint);
   font-size: .8125rem;
 }
 
-/* Progress reads as a quiet inline row, not a card inside a card. */
 .review-progress {
   display: flex;
   flex-wrap: wrap;
@@ -1882,22 +1797,15 @@ label > span { color: var(--muted); font-size: .75rem; }
 .review-progress dt { color: var(--faint); font-size: .75rem; }
 .review-progress dd { margin: 0; font-size: .75rem; }
 
-/* Placing a team is one line: which panel, and go. */
 .review-team-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .review-team-actions .field { display: contents; }
 .review-team-actions .compact-select select { width: min(100%, 260px); }
 
-/* ---- Panels ----
-   A ragged three-up grid left an orphan card and a hole beside it, and
-   repeated every reviewer's heartbeat eleven times. Panels are a list: the
-   ones missing people first, the full roster behind a disclosure. */
 .panel-list {
   overflow: hidden;
   background: var(--surface);
   border-radius: var(--radius-card);
 }
-/* A panel is one line until you open it: closed it answers "can this table
-   review?", open it answers everything else about that table. */
 .panel-row { border-bottom: 1px solid var(--border); }
 .panel-row:last-child { border-bottom: 0; }
 .panel-row-summary {
@@ -1958,7 +1866,6 @@ label > span { color: var(--muted); font-size: .75rem; }
 
 .review-team-meta { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
 
-/* Reviewers are named inside the opened panel. Only their state is conditional. */
 .panel-row .panel-reviewers {
   display: flex;
   flex-wrap: wrap;
@@ -1974,7 +1881,6 @@ label > span { color: var(--muted); font-size: .75rem; }
 .panel-row .panel-reviewers li small { color: var(--faint); font-size: .75rem; }
 .panel-shortfall { display: block; margin-top: 4px; color: var(--warn); font-size: .75rem; }
 
-/* Setup lists were left out of the surface pass. */
 .published-rounds,
 .reviewer-profile-list,
 .criterion-editors,
@@ -1999,7 +1905,6 @@ label > span { color: var(--muted); font-size: .75rem; }
 .reviewer-profile-state { gap: 10px; }
 .reviewer-profile-state > span { color: var(--muted); font-size: .75rem; }
 
-/* Publishing a round is five steps, not five unrelated forms. */
 .step-number {
   display: inline-grid;
   width: 20px;
@@ -2016,14 +1921,6 @@ label > span { color: var(--muted); font-size: .75rem; }
 .published-round-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .published-round-row > div { display: grid; gap: 2px; min-width: 0; }
 
-/* ============================================================
-   Code and design
-   Each team row used to spell out "GitHub" and "Figma" as
-   headings above three lines of absence, so fourteen rows
-   repeated the same six strings. The row is now the standard
-   list anatomy: glyph square, team, and the two provider marks
-   carrying their own counts on the right.
-   ============================================================ */
 .integration-health-row {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) auto;
@@ -2035,8 +1932,6 @@ label > span { color: var(--muted); font-size: .75rem; }
 .integration-health-row:hover { background: var(--hover); }
 .integration-health-list > .empty { margin: 0; padding: 16px; color: var(--muted); }
 
-/* Fixed tracks, including an empty one where a row without anything to open
-   would otherwise pull the two counts out of line with the rows above it. */
 .integration-row-side {
   display: grid;
   grid-template-columns: 44px 44px 68px;
@@ -2058,8 +1953,6 @@ label > span { color: var(--muted); font-size: .75rem; }
 .integration-provider.unconnected { color: var(--faint); }
 .integration-provider .icon { opacity: .85; }
 
-/* The panel of what a team connected is nested inside a card, so it needs a
-   step up from the surface rather than the same colour twice. */
 .integration-team-detail {
   margin-top: 12px;
   background: var(--raised);
@@ -2071,4 +1964,312 @@ label > span { color: var(--muted); font-size: .75rem; }
 @media (max-width: 720px) {
   .integration-health-row { grid-template-columns: 28px minmax(0, 1fr); align-items: start; }
   .integration-row-side { grid-column: 2 / -1; justify-items: start; }
+}
+
+/* Intelligence workspace */
+.intelligence-console {
+  display: grid;
+  overflow: hidden;
+  padding: 0;
+}
+
+.intelligence-console-header {
+  align-items: center;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.intelligence-console-header .eyebrow,
+.intelligence-console-header h2 {
+  margin: 0;
+}
+
+.intelligence-console-header h2 {
+  font-size: .8125rem;
+}
+
+.intelligence-console-connection .state-label.connected {
+  color: var(--accent);
+}
+
+.intelligence-console-connection .state-label.connecting,
+.intelligence-console-connection .state-label.reconnecting {
+  color: var(--warn);
+}
+
+.intelligence-console-connection .state-label.offline {
+  color: var(--danger);
+}
+
+.intelligence-console-timeline {
+  max-height: min(58vh, 580px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 0;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.intelligence-console-row {
+  align-items: start;
+}
+
+.intelligence-console-row.operator {
+  background: var(--raised);
+}
+
+.intelligence-console-row .row-text small {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.intelligence-console-row.streaming .state-label,
+.intelligence-console-row.running .state-label {
+  color: var(--warn);
+}
+
+.intelligence-console-row.failed .state-label {
+  color: var(--danger);
+}
+
+.intelligence-console-thinking {
+  border-bottom: 1px solid var(--border);
+}
+
+.intelligence-console-thinking > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.intelligence-console-thinking > summary::-webkit-details-marker {
+  display: none;
+}
+
+.intelligence-console-thinking > summary:hover {
+  background: var(--hover);
+}
+
+.intelligence-console-thinking > p {
+  margin: 0;
+  padding: 0 16px 14px 56px;
+  font-size: .75rem;
+}
+
+.intelligence-console-empty {
+  border-radius: 0;
+}
+
+.intelligence-console-composer {
+  display: grid;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.intelligence-console-composer textarea {
+  min-height: 76px;
+}
+
+.intelligence-console-composer .button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.intelligence-console-composer .notice {
+  margin: 0;
+}
+
+.intelligence-brief {
+  display: grid;
+  gap: 16px;
+  padding: 18px 20px;
+}
+
+.intelligence-brief-heading h2,
+.intelligence-brief-heading p {
+  margin: 0;
+}
+
+.intelligence-brief-heading h2 {
+  font-size: .8125rem;
+}
+
+.intelligence-brief-heading p {
+  max-width: 620px;
+  font-size: .75rem;
+}
+
+.intelligence-brief-trace-toggle {
+  justify-self: start;
+}
+
+.intelligence-brief-stream {
+  min-width: 0;
+}
+
+.intelligence-brief-stream .intelligence-console-timeline {
+  max-height: 360px;
+}
+
+.intelligence-brief-result {
+  display: grid;
+  gap: 10px;
+}
+
+.intelligence-brief-result h3,
+.intelligence-brief-result p {
+  margin: 0;
+}
+
+.intelligence-brief-result > p:not(.eyebrow) {
+  color: var(--muted);
+}
+
+.intelligence-priorities {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.intelligence-instance-list {
+  gap: 20px;
+}
+
+.intelligence-instance {
+  display: grid;
+  gap: 10px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.intelligence-instance:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.intelligence-instance > .section-heading p {
+  margin: 2px 0 0;
+  font-size: .75rem;
+}
+
+.intelligence-recommendation {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+.intelligence-recommendation > .section-heading h4,
+.intelligence-recommendation > .section-heading p {
+  margin: 0;
+}
+
+.intelligence-recommendation > .section-heading h4 {
+  max-width: 760px;
+  font-size: .8125rem;
+  line-height: 1.45;
+}
+
+.intelligence-recommendation > .muted {
+  margin: 0;
+  font-size: .75rem;
+}
+
+.intelligence-recommendation.proposed > .section-heading .state-label {
+  color: var(--warn);
+}
+
+.intelligence-recommendation.approved > .section-heading .state-label {
+  color: var(--accent);
+}
+
+.intelligence-recommendation.rejected > .section-heading .state-label {
+  color: var(--danger);
+}
+
+.intelligence-recommendation-command {
+  margin: 0;
+}
+
+.intelligence-recommendation-command div:first-child {
+  border-top: 0;
+}
+
+.intelligence-recommendation-command code,
+.intelligence-recommendation-citations code {
+  color: var(--muted);
+  font-size: .6875rem;
+  overflow-wrap: anywhere;
+}
+
+.intelligence-recommendation-evidence {
+  gap: 4px 20px;
+}
+
+.intelligence-recommendation-citations > .board-section-label {
+  margin-top: 0;
+}
+
+.intelligence-recommendation-citations .review-list {
+  border-bottom: 1px solid var(--border);
+}
+
+.intelligence-recommendation-citations time {
+  color: var(--faint);
+  font-size: .75rem;
+}
+
+.intelligence-recommendation-citations p {
+  margin: 8px 0 0;
+}
+
+.intelligence-recommendation-feedback {
+  margin-top: 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.intelligence-recommendation-feedback textarea {
+  min-height: 76px;
+}
+
+.intelligence-recommendation-feedback .button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .intelligence-console-header,
+  .intelligence-brief-heading,
+  .intelligence-recommendation > .section-heading {
+    display: grid;
+  }
+
+  .intelligence-console-connection,
+  .intelligence-brief-heading .secondary,
+  .intelligence-recommendation > .section-heading .state-label {
+    justify-self: start;
+  }
+
+  .intelligence-console-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .intelligence-console-row > .state-label {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .intelligence-console-thinking > summary {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .intelligence-console-thinking > summary > .state-label {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .intelligence-console-thinking > p {
+    padding-left: 56px;
+  }
 }

@@ -19,6 +19,7 @@ import {
   participantPolicyChecksum,
 } from "./lib/participantPolicy.ts";
 import { enqueueApplicationNotifications } from "./lib/participantNotificationDelivery.ts";
+import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import { acceptedTeamCommunicationsForTeam } from "./participantCommunications.ts";
 import schema from "./schema.ts";
 
@@ -102,17 +103,18 @@ describe("communications policy lifecycle", () => {
       decidedAt: fixture.now,
       version: 2,
     }));
-    const deliveryIds = await backend.run((ctx) => enqueueApplicationNotifications(ctx, {
+    await backend.run((ctx) => enqueueApplicationNotifications(ctx, {
       eventId: fixture.event._id,
       applicationId: fixture.applicationId,
       teamId: fixture.teamId,
-      lockedTeamMemberIds: [fixture.teamMemberId],
-      templateKey: "accept",
-      applicationVersion: 2,
-      now: fixture.now + 1,
-    }));
-    const deliveryId = deliveryIds[0];
-    if (!deliveryId) throw new Error("The fixture notification was not queued.");
+      lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
+      lockedMemberCount: 1,
+    templateKey: "accept",
+    applicationVersion: 2,
+    now: fixture.now + 1,
+    schedule: false,
+  }));
+    const deliveryId = await runQueuedNotificationBatch(backend, fixture);
 
     const draft = await backend.run((ctx) => saveCommunicationsPolicyDraft(ctx, {
       event: fixture.event,
@@ -282,18 +284,41 @@ async function queueAcceptedNotification(
     decidedAt: fixture.now,
     version: 2,
   }));
-  const deliveryIds = await backend.run((ctx) => enqueueApplicationNotifications(ctx, {
+  await backend.run((ctx) => enqueueApplicationNotifications(ctx, {
     eventId: fixture.event._id,
     applicationId: fixture.applicationId,
     teamId: fixture.teamId,
-    lockedTeamMemberIds: [fixture.teamMemberId],
+    lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
+    lockedMemberCount: 1,
     templateKey: "accept",
     applicationVersion: 2,
     now: fixture.now + 1,
+    schedule: false,
   }));
-  const deliveryId = deliveryIds[0];
-  if (!deliveryId) throw new Error("The fixture notification was not queued.");
-  return deliveryId;
+  return runQueuedNotificationBatch(backend, fixture);
+}
+
+async function runQueuedNotificationBatch(
+  backend: BackendTest,
+  fixture: Awaited<ReturnType<typeof seedFixture>>,
+) {
+  await backend.mutation(internal.participantNotifications.enqueueRosterBatch, {
+    eventId: fixture.event._id,
+    applicationId: fixture.applicationId,
+    teamId: fixture.teamId,
+    lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
+    lockedMemberCount: 1,
+    communicationsPolicyVersionId: fixture.communicationsPolicyId,
+    templateKey: "accept",
+    applicationVersion: 2,
+    cursor: null,
+    processedMemberCount: 0,
+  });
+  const delivery = await backend.run((ctx) =>
+    ctx.db.query("participantNotificationDeliveries").first(),
+  );
+  if (!delivery) throw new Error("The fixture notification was not queued.");
+  return delivery._id;
 }
 
 async function seedFixture(backend: BackendTest, slug: string) {
@@ -376,6 +401,9 @@ async function seedFixture(backend: BackendTest, slug: string) {
       publicCode: `COMM${slug.length}`,
       leadMembershipId: membershipId,
       status: "submitted",
+      activeMemberCount: 1,
+      activeVitMemberCount: 0,
+      activeExternalMemberCount: 1,
       membershipLocked: true,
       trackLocked: true,
       version: 1,
@@ -438,6 +466,16 @@ async function seedFixture(backend: BackendTest, slug: string) {
       createdAt: now,
       publishedAt: now,
     });
+    const lockedRosterSnapshotId = await createTestSubmissionSnapshot(ctx, {
+      eventId,
+      teamId,
+      teamMemberIds: [teamMemberId],
+      intakePolicyVersionId: intakePolicyId,
+      participantPolicyVersionId: participantPolicyId,
+      admissionPolicyVersionId: admissionPolicyId,
+      coreTrackVersionId: trackId,
+      submittedAt: now,
+    });
     const projectId = await ctx.db.insert("projectVersions", {
       eventId,
       teamId,
@@ -447,7 +485,8 @@ async function seedFixture(backend: BackendTest, slug: string) {
       intakeResponses: [],
       coreTrackVersionId: trackId,
       sponsorTrackVersionIds: [],
-      lockedTeamMemberIds: [teamMemberId],
+      lockedRosterSnapshotId,
+      lockedMemberCount: 1,
       lockedLeadMembershipId: membershipId,
       freshForEventAttestation: {
         participantPolicyVersionId: participantPolicyId,
@@ -492,6 +531,7 @@ async function seedFixture(backend: BackendTest, slug: string) {
       personId,
       teamId,
       teamMemberId,
+      lockedRosterSnapshotId,
       applicationId,
       communicationsPolicyId,
     };

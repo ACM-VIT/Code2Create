@@ -12,6 +12,15 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
   workerd: true
+overrides:
+  esbuild: 0.28.1
+  image-size: 1.2.1
+  nanoid: 3.3.17
+  next: 16.2.11
+  postcss: 8.5.25
+  react-server-dom-webpack: 19.2.8
+  sharp: 0.35.2
+  uuid: 11.1.1
 minimumReleaseAgeExclude:
   - '@expo/cli@57.0.13'
   - '@expo/config-plugins@57.0.7'
@@ -26,3 +35,35 @@ minimumReleaseAgeExclude:
   - '@cloudflare/vite-plugin@1.51.1'
   - miniflare@5.20260801.1-alpha
   - wrangler@4.120.0
+  - '@remotion/bundler@4.0.508'
+  - '@remotion/captions@4.0.508'
+  - '@remotion/cli@4.0.508'
+  - '@remotion/compositor-darwin-arm64@4.0.508'
+  - '@remotion/compositor-darwin-x64@4.0.508'
+  - '@remotion/compositor-linux-arm64-gnu@4.0.508'
+  - '@remotion/compositor-linux-arm64-musl@4.0.508'
+  - '@remotion/compositor-linux-x64-gnu@4.0.508'
+  - '@remotion/compositor-linux-x64-musl@4.0.508'
+  - '@remotion/compositor-win32-x64-msvc@4.0.508'
+  - '@remotion/google-fonts@4.0.508'
+  - '@remotion/licensing@4.0.508'
+  - '@remotion/media-parser@4.0.508'
+  - '@remotion/media-utils@4.0.508'
+  - '@remotion/media@4.0.508'
+  - '@remotion/motion-blur@4.0.508'
+  - '@remotion/noise@4.0.508'
+  - '@remotion/player@4.0.508'
+  - '@remotion/renderer@4.0.508'
+  - '@remotion/streaming@4.0.508'
+  - '@remotion/studio-codemods@4.0.508'
+  - '@remotion/studio-protocol@4.0.508'
+  - '@remotion/studio-server@4.0.508'
+  - '@remotion/studio-shared@4.0.508'
+  - '@remotion/studio@4.0.508'
+  - '@remotion/timeline-utils@4.0.508'
+  - '@remotion/web-renderer@4.0.508'
+  - '@remotion/zod-types@4.0.508'
+  - remotion@4.0.508
+patchedDependencies:
+  '@flue/runtime@2.0.3': patches/@flue__runtime@2.0.3.patch
+  image-size@1.2.1: patches/image-size@1.2.1.patch

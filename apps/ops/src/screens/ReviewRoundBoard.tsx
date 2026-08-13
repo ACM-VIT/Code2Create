@@ -5,8 +5,8 @@ import {
   teamRoundStateOperatorLabels,
 } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
-import { useMutation, useQuery } from 'convex/react'
-import { useRef, useState, type FormEvent } from 'react'
+import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
+import { useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { Icon } from '../components/Icon'
@@ -14,22 +14,19 @@ import { ReviewManualRecovery } from '../components/ReviewManualRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useMutationAttempt } from '../lib/operations'
 
 type Board = FunctionReturnType<typeof api.reviewOperations.roundBoard>
-type Team = Board['teams'][number]
-type Panel = Board['panels'][number]
+type Staffing = FunctionReturnType<typeof api.reviewOperations.roundStaffing>
+type Team = FunctionReturnType<typeof api.reviewOperations.roundTeams>['page'][number]
+type Panel = Board['panels'][number] & { reviewers: Staffing['panels'][number]['reviewers'] }
+type OverviewPanel = NonNullable<FunctionReturnType<typeof api.reviewOperations.overview>>['rounds'][number]['panels'][number]
 type Substitutions = FunctionReturnType<typeof api.reviewSubstitutions.roundStatus>
 type SubstitutionPanel = Substitutions['panels'][number]
 type SubstituteMember = SubstitutionPanel['activeMembers'][number]
 type Reserve = Substitutions['reserves'][number]
 type ActiveIncident = FunctionReturnType<typeof api.incidents.active>[number]
 type Command = 'queue' | 'call' | 'start' | 'complete'
-type Attempt = {
-  command: Command
-  expectedVersion: number
-  requestKey: string
-  clientOperationId: string
-}
 
 export function ReviewRoundBoard() {
   const { roundId } = useParams<{ roundId: string }>()
@@ -37,6 +34,15 @@ export function ReviewRoundBoard() {
   const visibleRound = overview?.rounds.find((round) => round.id === roundId)
   const board = useQuery(
     api.reviewOperations.roundBoard,
+    visibleRound ? { eventSlug, roundId: visibleRound.id } : 'skip',
+  )
+  const teams = usePaginatedQuery(
+    api.reviewOperations.roundTeams,
+    visibleRound ? { eventSlug, roundId: visibleRound.id } : 'skip',
+    { initialNumItems: 30 },
+  )
+  const staffing = useQuery(
+    api.reviewOperations.roundStaffing,
     visibleRound ? { eventSlug, roundId: visibleRound.id } : 'skip',
   )
   const substitutions = useQuery(
@@ -51,7 +57,12 @@ export function ReviewRoundBoard() {
   if (!roundId) return <p className="notice error">Round ID is missing.</p>
   if (
     overview === undefined ||
-    (visibleRound && (board === undefined || substitutions === undefined || incidents === undefined))
+    (visibleRound &&
+      (board === undefined ||
+        teams.status === 'LoadingFirstPage' ||
+        staffing === undefined ||
+        substitutions === undefined ||
+        incidents === undefined))
   ) {
     return (
       <section className="review-shell">
@@ -65,7 +76,13 @@ export function ReviewRoundBoard() {
   if (!visibleRound) {
     return <p className="notice error">This round is not visible to your permission scope.</p>
   }
-  if (!board || !substitutions || !incidents) return <p className="muted">Loading round board…</p>
+  if (!board || !staffing || !substitutions || !incidents) return <p className="muted">Loading round board…</p>
+  const boardTeams = teams.results
+  const panels: Panel[] = board.panels.map((panel) => {
+    const panelStaffing = staffing.panels.find((candidate) => candidate.panelId === panel.id)
+    if (!panelStaffing) throw new Error('The round staffing view is missing a published panel.')
+    return { ...panel, reviewers: panelStaffing.reviewers }
+  })
 
   const reviewIncidents = incidents.filter(
     (incident) => incident.affectedService === 'review_backend',
@@ -84,28 +101,30 @@ export function ReviewRoundBoard() {
       </header>
 
       <dl className="catalog-summary">
-        <div><dt>Waiting for the desk</dt><dd>{countTeams(board, 'unassigned')}</dd></div>
-        <div><dt>Queued</dt><dd>{countTeams(board, 'queued')}</dd></div>
-        <div><dt>Called</dt><dd>{countTeams(board, 'called')}</dd></div>
-        <div><dt>In review</dt><dd>{countTeams(board, 'in_review')}</dd></div>
-        <div><dt>Complete</dt><dd>{countTeams(board, 'completed')}</dd></div>
-        <div><dt>Held</dt><dd>{countTeams(board, 'held')}</dd></div>
+        <div><dt>Waiting for the desk</dt><dd>{visibleRound.stateCounts.unassigned}</dd></div>
+        <div><dt>Queued</dt><dd>{visibleRound.stateCounts.queued}</dd></div>
+        <div><dt>Called</dt><dd>{visibleRound.stateCounts.called}</dd></div>
+        <div><dt>In review</dt><dd>{visibleRound.stateCounts.inReview}</dd></div>
+        <div><dt>Complete</dt><dd>{visibleRound.stateCounts.completed}</dd></div>
+        <div><dt>Held</dt><dd>{visibleRound.stateCounts.held}</dd></div>
       </dl>
 
       <RoundPauseControl
-        key={`${board.round.version}:${board.round.pause?.version ?? 0}`}
+        key={board.round.id}
         incidents={reviewIncidents}
         round={board.round}
       />
 
       <p className="board-section-label">Panels</p>
       <div className="panel-list">
-        {[...board.panels].sort(byPanelUrgency).map((panel) => (
+        {[...panels].sort(byPanelUrgency).map((panel) => (
           <PanelRow
-            board={board}
             key={panel.id}
+            overviewPanel={visibleRound.panels.find((candidate) => candidate.id === panel.id)}
             panel={panel}
+            serverNow={staffing.serverNow}
             substitutions={substitutions}
+            teams={boardTeams}
           />
         ))}
       </div>
@@ -117,7 +136,7 @@ export function ReviewRoundBoard() {
             {substitutions.reserves.map((reserve) => (
               <div key={reserve.reserveId}>
                 <strong>{reserve.displayName}</strong>
-                <span>{stateName(reserve.status)} · {stateName(reserve.clockInStatus)} · {reserve.pageCount} pages</span>
+                <span>{stateName(reserve.status)} · {stateName(staffing.reserves.find((candidate) => candidate.personId === reserve.personId)?.clockInStatus ?? 'not_clocked_in')} · {reserve.pageCount} pages</span>
               </div>
             ))}
           </div>
@@ -125,12 +144,22 @@ export function ReviewRoundBoard() {
       ) : null}
 
       <div className="review-team-list">
-        {[...board.teams].sort(byDeskUrgency).map((team) => (
+        {[...boardTeams].sort(byDeskUrgency).map((team) => (
           <TeamRow board={board} key={team.stateId ?? team.teamId} team={team} />
         ))}
       </div>
-      {board.teams.length === 0 ? (
+      {boardTeams.length === 0 ? (
         <p className="empty">No team is eligible for this round yet.</p>
+      ) : null}
+      {teams.status !== 'Exhausted' ? (
+        <button
+          className="secondary"
+          disabled={teams.status === 'LoadingMore'}
+          type="button"
+          onClick={() => teams.loadMore(30)}
+        >
+          {teams.status === 'LoadingMore' ? 'Loading more teams…' : 'Load more teams'}
+        </button>
       ) : null}
 
       <details className="board-recovery">
@@ -141,7 +170,6 @@ export function ReviewRoundBoard() {
   )
 }
 
-/** Order the desk works in: things it must act on, then live, then done. */
 const deskOrder: Record<Team['state'], number> = {
   unassigned: 0,
   called: 1,
@@ -161,7 +189,6 @@ function byDeskUrgency(left: Team, right: Team) {
   )
 }
 
-/** Panels missing people come first; a full panel needs nothing from you. */
 function panelShortfall(panel: Panel) {
   return (
     panel.reviewers.length -
@@ -176,37 +203,30 @@ function byPanelUrgency(left: Panel, right: Panel) {
   )
 }
 
-function countTeams(board: Board, state: Team['state']) {
-  return board.teams.filter((team) => team.state === state).length
-}
-
-/**
- * One panel, closed to a single line until you ask for it.
- *
- * The board listed every reviewer of every panel at once, so four panels filled
- * the screen before the desk queue below them was visible. Closed, a row answers
- * "can this table review?"; opened, it answers everything else about that table.
- */
 function PanelRow({
-  board,
+  overviewPanel,
   panel,
+  serverNow,
   substitutions,
+  teams,
 }: {
-  board: Board
+  overviewPanel: OverviewPanel | undefined
   panel: Panel
+  serverNow: number
   substitutions: Substitutions
+  teams: Team[]
 }) {
   const [open, setOpen] = useState(false)
   const substitutionPanel = substitutions.panels.find(
     (candidate) => candidate.panelId === panel.id,
   )
   const short = panelShortfall(panel)
-  const teams = board.teams.filter((team) => team.panelId === panel.id)
-  const waiting = teams.filter(
+  const panelTeams = teams.filter((team) => team.panelId === panel.id)
+  const waiting = panelTeams.filter(
     (team) => team.state === 'queued' || team.state === 'called' || team.state === 'at_table',
   )
-  const live = teams.filter((team) => team.state === 'in_review')
-  const done = teams.filter((team) => team.state === 'completed')
+  const live = panelTeams.filter((team) => team.state === 'in_review')
+  const done = panelTeams.filter((team) => team.state === 'completed')
 
   return (
     <article className={`panel-row ${short > 0 ? 'short' : 'ready'} ${open ? 'open' : ''}`}>
@@ -228,8 +248,8 @@ function PanelRow({
             {panelSummary({
               short,
               total: panel.reviewers.length,
-              waiting: waiting.length,
-              reviewing: live[0]?.teamName,
+              waiting: overviewPanel?.queuedCount ?? waiting.length,
+              reviewing: (overviewPanel?.activeReviewCount ?? live.length) > 0,
             })}
           </small>
         </span>
@@ -247,16 +267,15 @@ function PanelRow({
                     {reviewer.displayName}
                     {reviewer.isCoordinator ? ' · runs this panel' : ''}
                   </span>
-                  {/* A reviewer who is at the table needs no commentary; a
-                      stale heartbeat is already a system check. */}
                   {reviewer.clockInStatus === 'present' ? null : (
-                    <small>{reviewerState(reviewer, board.serverNow)}</small>
+                    <small>{reviewerState(reviewer, serverNow)}</small>
                   )}
                   {reviewer.clockInStatus !== 'present' && substitutionPanel ? (
                     <ReviewerNoShow
                       member={substitutionPanel.activeMembers.find(
                         (member) => member.personId === reviewer.personId,
                       )}
+                      clockInVersion={reviewer.clockInVersion}
                       panelVersion={substitutionPanel.panelVersion}
                     />
                   ) : null}
@@ -267,7 +286,7 @@ function PanelRow({
 
           <div className="panel-detail-block">
             <p className="board-section-label">Teams routed to this panel</p>
-            {teams.length === 0 ? (
+            {panelTeams.length === 0 ? (
               <p className="muted">Nothing routed here yet.</p>
             ) : (
               <ul className="panel-team-list">
@@ -300,17 +319,11 @@ function PanelRow({
   )
 }
 
-/**
- * The one line a closed panel gets: can it review, and what is it doing.
- *
- * A panel is people, not a place. It walks to whichever team's table it is
- * reviewing, so its location is the team it is with, never a table of its own.
- */
 function panelSummary(counts: {
   short: number
   total: number
   waiting: number
-  reviewing: string | undefined
+  reviewing: boolean
 }) {
   if (counts.short > 0) {
     const seats = counts.short === 1 ? 'One reviewer is missing' : `${counts.short} reviewers are missing`
@@ -333,19 +346,12 @@ function RoundPauseControl({ round, incidents }: { round: Board['round']; incide
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
-  const expectedRoundVersionRef = useRef(round.version)
-  const expectedPauseVersionRef = useRef(round.pause?.version)
-
-  const changed = () => {
-    operationRef.current = null
-    setError(null)
-  }
+  const operationAttempt = useMutationAttempt<unknown>()
+  const pausePending = operationAttempt.hasPending(`round-pause:${round.id}`)
+  const resumePending = operationAttempt.hasPending(`round-resume:${round.id}`)
+  const commandPending = pausePending || resumePending
 
   const open = (nextMode: 'pause' | 'resume') => {
-    expectedRoundVersionRef.current = round.version
-    expectedPauseVersionRef.current = round.pause?.version
-    operationRef.current = null
     setMode(nextMode)
     setReason('')
     setError(null)
@@ -354,8 +360,6 @@ function RoundPauseControl({ round, incidents }: { round: Board['round']; incide
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (busy || reason.trim().length < 5) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
@@ -365,25 +369,31 @@ function RoundPauseControl({ round, incidents }: { round: Board['round']; incide
           setError('Choose an active review incident.')
           return
         }
-        await pauseRound({
-          eventSlug,
-          roundId: round.id,
-          incidentId: incident.id,
-          expectedRoundVersion: expectedRoundVersionRef.current,
-          reason,
-          clientOperationId,
+        await operationAttempt.run(`round-pause:${round.id}`, () => {
+          const args = {
+            eventSlug,
+            roundId: round.id,
+            incidentId: incident.id,
+            expectedRoundVersion: round.version,
+            reason,
+            clientOperationId: crypto.randomUUID(),
+          }
+          return () => pauseRound(args)
         })
-      } else if (mode === 'resume' && round.pause && expectedPauseVersionRef.current !== undefined) {
-        await resumeRound({
-          eventSlug,
-          pauseId: round.pause.id,
-          expectedPauseVersion: expectedPauseVersionRef.current,
-          expectedRoundVersion: expectedRoundVersionRef.current,
-          reason,
-          clientOperationId,
+      } else if (mode === 'resume' && round.pause) {
+        const pause = round.pause
+        await operationAttempt.run(`round-resume:${round.id}`, () => {
+          const args = {
+            eventSlug,
+            pauseId: pause.id,
+            expectedPauseVersion: pause.version,
+            expectedRoundVersion: round.version,
+            reason,
+            clientOperationId: crypto.randomUUID(),
+          }
+          return () => resumeRound(args)
         })
       }
-      operationRef.current = null
       setMode(null)
       setReason('')
     } catch (caught) {
@@ -411,13 +421,13 @@ function RoundPauseControl({ round, incidents }: { round: Board['round']; incide
           <form className="round-pause-form" onSubmit={submit}>
             <label className="field">
               <span>Why it is safe to resume</span>
-              <textarea required minLength={5} value={reason} onChange={(event) => { changed(); setReason(event.target.value) }} />
+              <textarea disabled={resumePending} required minLength={5} value={reason} onChange={(event) => { setError(null); setReason(event.target.value) }} />
             </label>
             <div className="button-row">
               <button className="primary" disabled={busy || reason.trim().length < 5} type="submit">
-                {busy ? 'Resuming…' : 'Resume'}
+                {busy ? 'Resuming…' : resumePending ? 'Confirm earlier resume' : 'Resume'}
               </button>
-              <button className="secondary" disabled={busy} type="button" onClick={() => setMode(null)}>Cancel</button>
+              <button className="secondary" disabled={busy || commandPending} type="button" onClick={() => setMode(null)}>Cancel</button>
             </div>
             {error ? <p className="notice error" role="alert">{error}</p> : null}
           </form>
@@ -446,19 +456,19 @@ function RoundPauseControl({ round, incidents }: { round: Board['round']; incide
         <form className="round-pause-form" onSubmit={submit}>
           <label className="field">
             <span>Review incident</span>
-            <select value={incidentId} onChange={(event) => { changed(); setIncidentId(event.target.value) }}>
+            <select disabled={pausePending} value={incidentId} onChange={(event) => { setError(null); setIncidentId(event.target.value) }}>
               {incidents.map((incident) => <option key={incident.id} value={incident.id}>{incident.title}</option>)}
             </select>
           </label>
           <label className="field">
             <span>Operational reason</span>
-            <textarea required minLength={5} value={reason} onChange={(event) => { changed(); setReason(event.target.value) }} />
+            <textarea disabled={pausePending} required minLength={5} value={reason} onChange={(event) => { setError(null); setReason(event.target.value) }} />
           </label>
           <div className="button-row">
             <button className="primary" disabled={busy || reason.trim().length < 5} type="submit">
-              {busy ? 'Pausing…' : 'Pause new reviews'}
+              {busy ? 'Pausing…' : pausePending ? 'Confirm earlier pause' : 'Pause new reviews'}
             </button>
-            <button className="secondary" disabled={busy} type="button" onClick={() => setMode(null)}>Cancel</button>
+            <button className="secondary" disabled={busy || commandPending} type="button" onClick={() => setMode(null)}>Cancel</button>
           </div>
           {error ? <p className="notice error" role="alert">{error}</p> : null}
         </form>
@@ -469,39 +479,35 @@ function RoundPauseControl({ round, incidents }: { round: Board['round']; incide
   )
 }
 
-function ReviewerNoShow({ member, panelVersion }: { member: SubstituteMember | undefined; panelVersion: number }) {
+function ReviewerNoShow({ member, clockInVersion, panelVersion }: { member: SubstituteMember | undefined; clockInVersion: number; panelVersion: number }) {
   const markNoShow = useMutation(api.reviewSubstitutions.markNoShow)
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewSubstitutions.markNoShow>>()
+  const operationSlot = `reviewer-no-show:${member?.panelMemberId ?? 'missing'}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
 
   if (!member?.canMarkNoShow) return null
 
-  const changed = () => {
-    operationRef.current = null
-    setConfirmed(false)
-    setError(null)
-  }
-
   const submit = async () => {
     if (busy || !confirmed || reason.trim().length < 5) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await markNoShow({
-        eventSlug,
-        panelMemberId: member.panelMemberId,
-        expectedPanelVersion: panelVersion,
-        expectedClockInVersion: member.clockInVersion,
-        reason,
-        clientOperationId,
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          panelMemberId: member.panelMemberId,
+          expectedPanelVersion: panelVersion,
+          expectedClockInVersion: clockInVersion,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => markNoShow(args)
       })
-      operationRef.current = null
       setOpen(false)
     } catch (caught) {
       setError(readableError(caught))
@@ -517,20 +523,19 @@ function ReviewerNoShow({ member, panelVersion }: { member: SubstituteMember | u
     <div className="inline-command">
       <label className="field">
         <span>Operational reason</span>
-        <input value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
+        <input disabled={operationPending} value={reason} onChange={(event) => { setReason(event.target.value); setConfirmed(false); setError(null) }} />
       </label>
       <label className="check-filter">
-        <input checked={confirmed} type="checkbox" onChange={(event) => {
+        <input checked={confirmed} disabled={operationPending} type="checkbox" onChange={(event) => {
           setConfirmed(event.target.checked)
-          operationRef.current = null
         }} />
         I confirm this reviewer cannot take the seat. A running review is never interrupted.
       </label>
       <div className="button-row">
         <button className="primary" disabled={busy || !confirmed || reason.trim().length < 5} type="button" onClick={() => void submit()}>
-          {busy ? 'Saving…' : 'Create vacancy'}
+          {busy ? 'Saving…' : operationPending ? 'Confirm earlier vacancy' : 'Create vacancy'}
         </button>
-        <button className="secondary compact-link" disabled={busy} type="button" onClick={() => setOpen(false)}>Cancel</button>
+        <button className="secondary compact-link" disabled={busy || operationPending} type="button" onClick={() => setOpen(false)}>Cancel</button>
       </div>
       {error ? <small className="notice error">{error}</small> : null}
     </div>
@@ -543,30 +548,28 @@ function SubstitutionControl({ panel, serverNow }: { panel: SubstitutionPanel; s
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewSubstitutions.startPageChain>>()
+  const operationSlot = `review-page-chain:${panel.panelId}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
 
   if (!panel.vacancy && !panel.pageChain) return null
 
-  const changed = () => {
-    operationRef.current = null
-    setError(null)
-  }
-
   const submit = async () => {
     if (!panel.vacancy || busy || reason.trim().length < 5) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
+    const vacancy = panel.vacancy
     setBusy(true)
     setError(null)
     try {
-      await startPageChain({
-        eventSlug,
-        missingPanelMemberId: panel.vacancy.panelMemberId,
-        expectedPanelVersion: panel.panelVersion,
-        reason,
-        clientOperationId,
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          missingPanelMemberId: vacancy.panelMemberId,
+          expectedPanelVersion: panel.panelVersion,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => startPageChain(args)
       })
-      operationRef.current = null
       setOpen(false)
     } catch (caught) {
       setError(readableError(caught))
@@ -605,14 +608,14 @@ function SubstitutionControl({ panel, serverNow }: { panel: SubstitutionPanel; s
         <div className="exception-form">
           <label className="field">
             <span>Substitution reason</span>
-            <textarea value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
+            <textarea disabled={operationPending} value={reason} onChange={(event) => { setReason(event.target.value); setError(null) }} />
           </label>
           <p className="muted">The server pages one present, qualified reserve at a time using the published response window.</p>
           <div className="button-row">
             <button className="primary" disabled={busy || reason.trim().length < 5} type="button" onClick={() => void submit()}>
-              {busy ? 'Paging…' : 'Start page chain'}
+              {busy ? 'Paging…' : operationPending ? 'Confirm earlier page chain' : 'Start page chain'}
             </button>
-            <button className="secondary compact-link" disabled={busy} type="button" onClick={() => setOpen(false)}>Cancel</button>
+            <button className="secondary compact-link" disabled={busy || operationPending} type="button" onClick={() => setOpen(false)}>Cancel</button>
           </div>
         </div>
       ) : null}
@@ -630,38 +633,38 @@ function PanelMembership({ panel, reserves }: { panel: SubstitutionPanel; reserv
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewPanelMembership.swapPanelMember>>()
+  const operationSlot = `review-panel-membership:${panel.panelId}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
 
   if (!panel.canSwapMembers) return null
 
-  // A reserve who is out on a page or already seated cannot take this seat.
   const candidates = reserves.filter((reserve) => reserve.status === 'available')
   const leaving = panel.activeMembers.find((member) => member.personId === leavingPersonId)
   const joining = candidates.find((reserve) => reserve.personId === joiningPersonId)
 
   const changed = () => {
-    operationRef.current = null
     setConfirmed(false)
     setError(null)
   }
 
   const submit = async () => {
     if (busy || !confirmed || reason.trim().length < 5 || (!leaving && !joining)) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await swapPanelMember({
-        eventSlug,
-        panelId: panel.panelId,
-        ...(leaving ? { leavingPersonId: leaving.personId } : {}),
-        ...(joining ? { joiningPersonId: joining.personId } : {}),
-        expectedPanelVersion: panel.panelVersion,
-        reason,
-        clientOperationId,
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          panelId: panel.panelId,
+          ...(leaving ? { leavingPersonId: leaving.personId } : {}),
+          ...(joining ? { joiningPersonId: joining.personId } : {}),
+          expectedPanelVersion: panel.panelVersion,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => swapPanelMember(args)
       })
-      operationRef.current = null
       setOpen(false)
       setLeavingPersonId('')
       setJoiningPersonId('')
@@ -685,7 +688,7 @@ function PanelMembership({ panel, reserves }: { panel: SubstitutionPanel; reserv
     <div className="panel-command">
       <label className="field compact-select">
         <span>Reviewer leaving</span>
-        <select value={leavingPersonId} onChange={(event) => { setLeavingPersonId(event.target.value); changed() }}>
+        <select disabled={operationPending} value={leavingPersonId} onChange={(event) => { setLeavingPersonId(event.target.value); changed() }}>
           <option value="">Nobody leaves</option>
           {panel.activeMembers.map((member) => (
             <option key={member.personId} value={member.personId}>
@@ -696,7 +699,7 @@ function PanelMembership({ panel, reserves }: { panel: SubstitutionPanel; reserv
       </label>
       <label className="field compact-select">
         <span>Reviewer joining</span>
-        <select value={joiningPersonId} onChange={(event) => { setJoiningPersonId(event.target.value); changed() }}>
+        <select disabled={operationPending} value={joiningPersonId} onChange={(event) => { setJoiningPersonId(event.target.value); changed() }}>
           <option value="">Nobody joins</option>
           {candidates.map((reserve) => (
             <option key={reserve.personId} value={reserve.personId}>{reserve.displayName}</option>
@@ -711,12 +714,11 @@ function PanelMembership({ panel, reserves }: { panel: SubstitutionPanel; reserv
       ) : null}
       <label className="field">
         <span>Operational reason</span>
-        <input value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
+        <input disabled={operationPending} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
       </label>
       <label className="check-filter">
-        <input checked={confirmed} type="checkbox" onChange={(event) => {
+        <input checked={confirmed} disabled={operationPending} type="checkbox" onChange={(event) => {
           setConfirmed(event.target.checked)
-          operationRef.current = null
         }} />
         I confirm this seat change with the panel. A running review is never interrupted.
       </label>
@@ -727,9 +729,9 @@ function PanelMembership({ panel, reserves }: { panel: SubstitutionPanel; reserv
           type="button"
           onClick={() => void submit()}
         >
-          {busy ? 'Saving…' : 'Change the panel'}
+          {busy ? 'Saving…' : operationPending ? 'Confirm earlier panel change' : 'Change the panel'}
         </button>
-        <button className="secondary compact-link" disabled={busy} type="button" onClick={() => setOpen(false)}>Cancel</button>
+        <button className="secondary compact-link" disabled={busy || operationPending} type="button" onClick={() => setOpen(false)}>Cancel</button>
       </div>
       {error ? <p className="notice error">{error}</p> : null}
     </div>
@@ -749,50 +751,37 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
   const [error, setError] = useState<string | null>(null)
   const [availabilityOverrideReason, setAvailabilityOverrideReason] = useState('')
   const [availabilityOverrideConfirmed, setAvailabilityOverrideConfirmed] = useState(false)
-  const attemptRef = useRef<Attempt | null>(null)
+  const operationAttempt = useMutationAttempt<unknown>()
+  const queueSlot = `review-queue:${team.teamId}`
+  const callSlot = `review-call:${team.teamId}`
+  const startSlot = `review-start:${team.review?.id ?? team.teamId}`
+  const completeSlot = `review-complete:${team.review?.id ?? team.teamId}`
+  const queuePending = operationAttempt.hasPending(queueSlot)
+  const callPending = operationAttempt.hasPending(callSlot)
+  const startPending = operationAttempt.hasPending(startSlot)
+  const completePending = operationAttempt.hasPending(completeSlot)
   const selectedPanel = manageablePanels.find((panel) => panel.id === selectedPanelId) ?? manageablePanels[0]
   const assignedPanel = team.panelId
     ? board.panels.find((panel) => panel.id === team.panelId)
     : undefined
-
-  const operationId = (
-    command: Command,
-    expectedVersion: number,
-    requestKey: string = command,
-  ) => {
-    const prior = attemptRef.current
-    if (
-      prior?.command === command &&
-      prior.expectedVersion === expectedVersion &&
-      prior.requestKey === requestKey
-    ) {
-      return prior.clientOperationId
-    }
-    const attempt = {
-      command,
-      expectedVersion,
-      requestKey,
-      clientOperationId: crypto.randomUUID(),
-    }
-    attemptRef.current = attempt
-    return attempt.clientOperationId
-  }
 
   const runQueue = async () => {
     if (!selectedPanel || busy) return
     setBusy('queue')
     setError(null)
     try {
-      await queueTeam({
-        eventSlug,
-        roundId: board.round.id,
-        panelId: selectedPanel.id,
-        teamId: team.teamId,
-        expectedTeamRoundVersion: team.version,
-        reason: 'Placed by the live review board',
-        clientOperationId: operationId('queue', team.version),
+      await operationAttempt.run(queueSlot, () => {
+        const args = {
+          eventSlug,
+          roundId: board.round.id,
+          panelId: selectedPanel.id,
+          teamId: team.teamId,
+          expectedTeamRoundVersion: team.version,
+          reason: 'Placed by the live review board',
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => queueTeam(args)
       })
-      attemptRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -806,23 +795,21 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
     setBusy('call')
     setError(null)
     try {
-      await callTeam({
-        eventSlug,
-        roundId: board.round.id,
-        panelId: assignedPanel.id,
-        teamId: team.teamId,
-        expectedTeamRoundVersion: team.version,
-        reason: 'Called from the live review board',
-        ...(overrideReason
-          ? { participantAvailabilityOverrideReason: overrideReason }
-          : {}),
-        clientOperationId: operationId(
-          'call',
-          team.version,
-          overrideReason ?? 'no_availability_exception',
-        ),
+      await operationAttempt.run(callSlot, () => {
+        const args = {
+          eventSlug,
+          roundId: board.round.id,
+          panelId: assignedPanel.id,
+          teamId: team.teamId,
+          expectedTeamRoundVersion: team.version,
+          reason: 'Called from the live review board',
+          ...(overrideReason
+            ? { participantAvailabilityOverrideReason: overrideReason }
+            : {}),
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => callTeam(args)
       })
-      attemptRef.current = null
       setAvailabilityOverrideReason('')
       setAvailabilityOverrideConfirmed(false)
     } catch (caught) {
@@ -834,17 +821,20 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
 
   const runStart = async () => {
     if (!team.review || busy) return
+    const review = team.review
     setBusy('start')
     setError(null)
     try {
-      await startReview({
-        eventSlug,
-        reviewSessionId: team.review.id,
-        expectedVersion: team.review.version,
-        reason: 'Started from the live review board',
-        clientOperationId: operationId('start', team.review.version),
+      await operationAttempt.run(startSlot, () => {
+        const args = {
+          eventSlug,
+          reviewSessionId: review.id,
+          expectedVersion: review.version,
+          reason: 'Started from the live review board',
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => startReview(args)
       })
-      attemptRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -854,17 +844,20 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
 
   const runComplete = async () => {
     if (!team.review || busy) return
+    const review = team.review
     setBusy('complete')
     setError(null)
     try {
-      await completeReview({
-        eventSlug,
-        reviewSessionId: team.review.id,
-        expectedVersion: team.review.version,
-        reason: 'Completed after all fixed scorecards were submitted',
-        clientOperationId: operationId('complete', team.review.version),
+      await operationAttempt.run(completeSlot, () => {
+        const args = {
+          eventSlug,
+          reviewSessionId: review.id,
+          expectedVersion: review.version,
+          reason: 'Completed after all fixed scorecards were submitted',
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => completeReview(args)
       })
-      attemptRef.current = null
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -881,7 +874,6 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
     : false
   const participantAvailabilityReady =
     team.participantAvailability.isMet || team.participantAvailability.isWaived
-  // What is standing between this team and its next step, said once.
   const blocker =
     review?.status === 'awaiting_presence' && !allReviewersPresent
       ? `Waiting for reviewers to scan in · ${review.reviewerPresenceCount} of ${review.reviewerCount} done`
@@ -916,8 +908,6 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
         </div>
       </div>
 
-      {/* Attendance only matters when it is blocking the call, or when someone
-          has already waived it; otherwise it is the same line on every row. */}
       {participantAvailabilityReady && !team.participantAvailability.isWaived ? null : (
         <p className="muted">
           {team.participantAvailability.isWaived
@@ -941,20 +931,20 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
         <div className="review-team-actions">
           <label className="field compact-select">
             <span className="visually-hidden">Panel</span>
-            <select value={selectedPanel?.id ?? ''} onChange={(event) => setSelectedPanelId(event.target.value)}>
+            <select disabled={queuePending} value={selectedPanel?.id ?? ''} onChange={(event) => setSelectedPanelId(event.target.value)}>
               {manageablePanels.map((panel) => (
                 <option key={panel.id} value={panel.id}>{panel.name}</option>
               ))}
             </select>
           </label>
           <button className="primary" type="button" disabled={busy !== null || !selectedPanel} onClick={() => void runQueue()}>
-            {busy === 'queue' ? 'Placing…' : 'Place in queue'}
+            {busy === 'queue' ? 'Placing…' : queuePending ? 'Confirm earlier placement' : 'Place in queue'}
           </button>
         </div>
       ) : null}
       {team.state === 'queued' && assignedPanel?.canPrepareReview && team.participantAvailability.isMet ? (
         <button className="primary" type="button" disabled={busy !== null} onClick={() => void runCall()}>
-          {busy === 'call' ? 'Calling…' : 'Call team'}
+          {busy === 'call' ? 'Calling…' : callPending ? 'Confirm earlier call' : 'Call team'}
         </button>
       ) : null}
       {team.state === 'queued' && assignedPanel?.canPrepareReview && !team.participantAvailability.isMet ? (
@@ -968,11 +958,11 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
               <label className="field">
                 <span>Reason</span>
                 <textarea
+                  disabled={callPending}
                   value={availabilityOverrideReason}
                   onChange={(event) => {
                     setAvailabilityOverrideReason(event.target.value)
                     setAvailabilityOverrideConfirmed(false)
-                    attemptRef.current = null
                     setError(null)
                   }}
                 />
@@ -980,10 +970,10 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
               <label className="check-filter">
                 <input
                   checked={availabilityOverrideConfirmed}
+                  disabled={callPending}
                   type="checkbox"
                   onChange={(event) => {
                     setAvailabilityOverrideConfirmed(event.target.checked)
-                    attemptRef.current = null
                   }}
                 />
                 I confirmed the team can be called with the current attendance state.
@@ -998,7 +988,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
                 type="button"
                 onClick={() => void runCall(availabilityOverrideReason)}
               >
-                {busy === 'call' ? 'Calling…' : 'Record exception and call'}
+                {busy === 'call' ? 'Calling…' : callPending ? 'Confirm earlier exception and call' : 'Record exception and call'}
               </button>
             </div>
           </details>
@@ -1013,7 +1003,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
           disabled={busy !== null}
           onClick={() => void runStart()}
         >
-          {busy === 'start' ? 'Starting…' : 'Start review'}
+          {busy === 'start' ? 'Starting…' : startPending ? 'Confirm earlier start' : 'Start review'}
         </button>
       ) : null}
       {(review?.status === 'active' || review?.status === 'overdue') &&
@@ -1025,7 +1015,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
           disabled={busy !== null}
           onClick={() => void runComplete()}
         >
-          {busy === 'complete' ? 'Completing…' : 'Complete review'}
+          {busy === 'complete' ? 'Completing…' : completePending ? 'Confirm earlier completion' : 'Complete review'}
         </button>
       ) : null}
       {blocker ? <p className="review-blocked">{blocker}</p> : null}
@@ -1050,30 +1040,27 @@ function PanelAvailability({ panel }: { panel: Panel }) {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
-  const nextStatus = panel.status === 'paused' ? 'ready' : 'paused'
-
-  const changed = () => {
-    operationRef.current = null
-    setError(null)
-  }
+  const nextStatus: 'ready' | 'paused' = panel.status === 'paused' ? 'ready' : 'paused'
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewExceptions.setPanelAvailability>>()
+  const operationSlot = `review-panel-availability:${panel.id}:${nextStatus}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
 
   const submit = async () => {
     if (busy || reason.trim().length < 5) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await setPanelAvailability({
-        eventSlug,
-        panelId: panel.id,
-        expectedVersion: panel.version,
-        status: nextStatus,
-        reason,
-        clientOperationId,
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          panelId: panel.id,
+          expectedVersion: panel.version,
+          status: nextStatus,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => setPanelAvailability(args)
       })
-      operationRef.current = null
       setOpen(false)
       setReason('')
     } catch (caught) {
@@ -1094,13 +1081,13 @@ function PanelAvailability({ panel }: { panel: Panel }) {
     <div className="panel-command">
       <label className="field">
         <span>{nextStatus === 'paused' ? 'Pause reason' : 'Resume reason'}</span>
-        <input value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
+        <input disabled={operationPending} value={reason} onChange={(event) => { setReason(event.target.value); setError(null) }} />
       </label>
       <div className="button-row">
         <button className="primary" disabled={busy || reason.trim().length < 5} type="button" onClick={() => void submit()}>
-          {busy ? 'Saving…' : nextStatus === 'paused' ? 'Pause' : 'Resume'}
+          {busy ? 'Saving…' : operationPending ? `Confirm earlier ${nextStatus === 'paused' ? 'pause' : 'resume'}` : nextStatus === 'paused' ? 'Pause' : 'Resume'}
         </button>
-        <button className="secondary compact-link" disabled={busy} type="button" onClick={() => setOpen(false)}>Cancel</button>
+        <button className="secondary compact-link" disabled={busy || operationPending} type="button" onClick={() => setOpen(false)}>Cancel</button>
       </div>
       {error ? <p className="notice error">{error}</p> : null}
     </div>
@@ -1121,8 +1108,8 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
   const stateId = team.stateId
+  const operationAttempt = useMutationAttempt<unknown>()
   const moveTargets = board.panels.filter(
     (panel) =>
       panel.id !== team.panelId &&
@@ -1141,13 +1128,16 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
 
   if (!stateId || (!canHold && !canResume && !canMove && !canCall)) return null
 
+  const operationSlot = `review-team-exception:${stateId ?? team.teamId}:${command ?? 'none'}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
+
   const changed = () => {
-    operationRef.current = null
     setConfirmed(false)
     setError(null)
   }
 
   const choose = (next: ExceptionCommand) => {
+    if (operationPending) return
     setCommand(next)
     setTargetPanelId(moveTargets[0]?.id ?? '')
     setReason('')
@@ -1156,56 +1146,68 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
 
   const submit = async () => {
     if (!command || busy || reason.trim().length < 3 || (command === 'miss' && !confirmed)) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
       if (command === 'hold') {
-        await holdTeam({
-          eventSlug,
-          teamRoundStateId: stateId,
-          expectedVersion: team.version,
-          reason,
-          clientOperationId,
+        await operationAttempt.run(operationSlot, () => {
+          const args = {
+            eventSlug,
+            teamRoundStateId: stateId,
+            expectedVersion: team.version,
+            reason,
+            clientOperationId: crypto.randomUUID(),
+          }
+          return () => holdTeam(args)
         })
       } else if (command === 'resume') {
-        await resumeTeam({
-          eventSlug,
-          teamRoundStateId: stateId,
-          expectedVersion: team.version,
-          reason,
-          clientOperationId,
+        await operationAttempt.run(operationSlot, () => {
+          const args = {
+            eventSlug,
+            teamRoundStateId: stateId,
+            expectedVersion: team.version,
+            reason,
+            clientOperationId: crypto.randomUUID(),
+          }
+          return () => resumeTeam(args)
         })
       } else if (command === 'move') {
         const panel = moveTargets.find((candidate) => candidate.id === targetPanelId)
         if (!panel) throw new Error('Choose a current target panel.')
-        await moveQueuedTeam({
-          eventSlug,
-          teamRoundStateId: stateId,
-          targetPanelId: panel.id,
-          expectedVersion: team.version,
-          reason,
-          clientOperationId,
+        await operationAttempt.run(operationSlot, () => {
+          const args = {
+            eventSlug,
+            teamRoundStateId: stateId,
+            targetPanelId: panel.id,
+            expectedVersion: team.version,
+            reason,
+            clientOperationId: crypto.randomUUID(),
+          }
+          return () => moveQueuedTeam(args)
         })
       } else if (command === 'call') {
-        await recordCallAttempt({
-          eventSlug,
-          teamRoundStateId: stateId,
-          expectedVersion: team.version,
-          reason,
-          clientOperationId,
+        await operationAttempt.run(operationSlot, () => {
+          const args = {
+            eventSlug,
+            teamRoundStateId: stateId,
+            expectedVersion: team.version,
+            reason,
+            clientOperationId: crypto.randomUUID(),
+          }
+          return () => recordCallAttempt(args)
         })
       } else {
-        await markMissed({
-          eventSlug,
-          teamRoundStateId: stateId,
-          expectedVersion: team.version,
-          reason,
-          clientOperationId,
+        await operationAttempt.run(operationSlot, () => {
+          const args = {
+            eventSlug,
+            teamRoundStateId: stateId,
+            expectedVersion: team.version,
+            reason,
+            clientOperationId: crypto.randomUUID(),
+          }
+          return () => markMissed(args)
         })
       }
-      operationRef.current = null
       setCommand(null)
       setReason('')
     } catch (caught) {
@@ -1219,11 +1221,11 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
     <details className="team-exceptions" open={command !== null}>
       <summary>Something went wrong</summary>
       <div className="exception-choice-row">
-        {canHold ? <button className="secondary compact-link" type="button" onClick={() => choose('hold')}>Hold</button> : null}
-        {canResume ? <button className="secondary compact-link" type="button" onClick={() => choose('resume')}>Return to queue</button> : null}
-        {canMove ? <button className="secondary compact-link" type="button" onClick={() => choose('move')}>Move panel</button> : null}
-        {canCall ? <button className="secondary compact-link" type="button" onClick={() => choose('call')}>Record another call</button> : null}
-        {missedPolicyMet ? <button className="secondary compact-link" type="button" onClick={() => choose('miss')}>Mark missed</button> : null}
+        {canHold ? <button className="secondary compact-link" disabled={operationPending} type="button" onClick={() => choose('hold')}>Hold</button> : null}
+        {canResume ? <button className="secondary compact-link" disabled={operationPending} type="button" onClick={() => choose('resume')}>Return to queue</button> : null}
+        {canMove ? <button className="secondary compact-link" disabled={operationPending} type="button" onClick={() => choose('move')}>Move panel</button> : null}
+        {canCall ? <button className="secondary compact-link" disabled={operationPending} type="button" onClick={() => choose('call')}>Record another call</button> : null}
+        {missedPolicyMet ? <button className="secondary compact-link" disabled={operationPending} type="button" onClick={() => choose('miss')}>Mark missed</button> : null}
       </div>
       {canCall ? (
         <p className="muted exception-policy">
@@ -1235,7 +1237,7 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
           {command === 'move' ? (
             <label className="field compact-select">
               <span>Target panel</span>
-              <select value={targetPanelId} onChange={(event) => { setTargetPanelId(event.target.value); changed() }}>
+              <select disabled={operationPending} value={targetPanelId} onChange={(event) => { setTargetPanelId(event.target.value); changed() }}>
                 {moveTargets.map((panel) => (
                   <option key={panel.id} value={panel.id}>{panel.name}</option>
                 ))}
@@ -1244,11 +1246,11 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
           ) : null}
           <label className="field">
             <span>Reason</span>
-            <textarea value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
+            <textarea disabled={operationPending} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
           </label>
           {command === 'miss' ? (
             <label className="check-filter">
-              <input checked={confirmed} type="checkbox" onChange={(event) => { setConfirmed(event.target.checked); operationRef.current = null }} />
+              <input checked={confirmed} disabled={operationPending} type="checkbox" onChange={(event) => setConfirmed(event.target.checked)} />
               I confirm the published call count and grace period elapsed.
             </label>
           ) : null}
@@ -1259,9 +1261,9 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
               type="button"
               onClick={() => void submit()}
             >
-              {busy ? 'Saving…' : commandLabel(command)}
+              {busy ? 'Saving…' : operationPending ? `Confirm earlier ${commandLabel(command).toLowerCase()}` : commandLabel(command)}
             </button>
-            <button className="secondary" disabled={busy} type="button" onClick={() => setCommand(null)}>Cancel</button>
+            <button className="secondary" disabled={busy || operationPending} type="button" onClick={() => setCommand(null)}>Cancel</button>
           </div>
           {error ? <p className="notice error">{error}</p> : null}
         </div>
@@ -1278,12 +1280,13 @@ function PresenceWaiver({ review }: { review: NonNullable<Team['review']> }) {
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewExceptions.waivePresence>>()
+  const operationSlot = `review-presence-waiver:${review.id}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
 
   if (missing.length === 0) return null
 
   const changed = () => {
-    operationRef.current = null
     setConfirmed(false)
     setError(null)
   }
@@ -1291,20 +1294,20 @@ function PresenceWaiver({ review }: { review: NonNullable<Team['review']> }) {
   const submit = async () => {
     const selectedReviewers = missing.filter((reviewer) => selected.includes(reviewer.personId))
     if (busy || !confirmed || selectedReviewers.length === 0 || reason.trim().length < 5) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await waivePresence({
-        eventSlug,
-        reviewSessionId: review.id,
-        reviewerPersonIds: selectedReviewers.map((reviewer) => reviewer.personId),
-        expectedVersion: review.version,
-        reason,
-        clientOperationId,
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          reviewSessionId: review.id,
+          reviewerPersonIds: selectedReviewers.map((reviewer) => reviewer.personId),
+          expectedVersion: review.version,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => waivePresence(args)
       })
-      operationRef.current = null
       setSelected([])
       setReason('')
     } catch (caught) {
@@ -1323,6 +1326,7 @@ function PresenceWaiver({ review }: { review: NonNullable<Team['review']> }) {
           <label className="check-filter" key={reviewer.personId}>
             <input
               checked={selected.includes(reviewer.personId)}
+              disabled={operationPending}
               type="checkbox"
               onChange={(event) => {
                 setSelected((current) => event.target.checked
@@ -1334,9 +1338,9 @@ function PresenceWaiver({ review }: { review: NonNullable<Team['review']> }) {
             {reviewer.displayName}
           </label>
         ))}
-        <label className="field"><span>Reason</span><textarea value={reason} onChange={(event) => { setReason(event.target.value); changed() }} /></label>
+        <label className="field"><span>Reason</span><textarea disabled={operationPending} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} /></label>
         <label className="check-filter">
-          <input checked={confirmed} type="checkbox" onChange={(event) => { setConfirmed(event.target.checked); operationRef.current = null }} />
+          <input checked={confirmed} disabled={operationPending} type="checkbox" onChange={(event) => setConfirmed(event.target.checked)} />
           I personally confirmed these reviewers are present.
         </label>
         <button
@@ -1345,7 +1349,7 @@ function PresenceWaiver({ review }: { review: NonNullable<Team['review']> }) {
           type="button"
           onClick={() => void submit()}
         >
-          {busy ? 'Recording…' : 'Record waiver'}
+          {busy ? 'Recording…' : operationPending ? 'Confirm earlier waiver' : 'Record waiver'}
         </button>
         {error ? <p className="notice error">{error}</p> : null}
       </div>
@@ -1365,29 +1369,30 @@ function ParticipantAvailabilityWaiver({
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationRef = useRef<string | null>(null)
+  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewExceptions.waiveParticipantAvailability>>()
+  const operationSlot = `review-participant-waiver:${review.id}`
+  const operationPending = operationAttempt.hasPending(operationSlot)
 
   const changed = () => {
-    operationRef.current = null
     setConfirmed(false)
     setError(null)
   }
 
   const submit = async () => {
     if (busy || !confirmed || reason.trim().length < 5) return
-    const clientOperationId = operationRef.current ?? crypto.randomUUID()
-    operationRef.current = clientOperationId
     setBusy(true)
     setError(null)
     try {
-      await waiveParticipantAvailability({
-        eventSlug,
-        reviewSessionId: review.id,
-        expectedVersion: review.version,
-        reason,
-        clientOperationId,
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          reviewSessionId: review.id,
+          expectedVersion: review.version,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => waiveParticipantAvailability(args)
       })
-      operationRef.current = null
       setReason('')
       setConfirmed(false)
     } catch (caught) {
@@ -1407,6 +1412,7 @@ function ParticipantAvailabilityWaiver({
         <label className="field">
           <span>Reason</span>
           <textarea
+            disabled={operationPending}
             value={reason}
             onChange={(event) => {
               setReason(event.target.value)
@@ -1417,10 +1423,10 @@ function ParticipantAvailabilityWaiver({
         <label className="check-filter">
           <input
             checked={confirmed}
+            disabled={operationPending}
             type="checkbox"
             onChange={(event) => {
               setConfirmed(event.target.checked)
-              operationRef.current = null
             }}
           />
           I confirmed the team can start with the current attendance state.
@@ -1431,7 +1437,7 @@ function ParticipantAvailabilityWaiver({
           type="button"
           onClick={() => void submit()}
         >
-          {busy ? 'Recording…' : 'Record exception'}
+          {busy ? 'Recording…' : operationPending ? 'Confirm earlier exception' : 'Record exception'}
         </button>
         {error ? <p className="notice error">{error}</p> : null}
       </div>
@@ -1470,7 +1476,7 @@ function formatWindow(startsAt: number, endsAt: number) {
 }
 
 function reviewerState(
-  reviewer: Board['panels'][number]['reviewers'][number],
+  reviewer: Panel['reviewers'][number],
   serverNow: number,
 ) {
   if (reviewer.clockInStatus === 'temporarily_unavailable') {

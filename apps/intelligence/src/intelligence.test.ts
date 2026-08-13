@@ -20,6 +20,7 @@ import {
 } from './protocol.ts';
 
 const secret = 'f'.repeat(64);
+const conversationId = `cv_${'a'.repeat(64)}`;
 
 describe('operations intelligence transport', () => {
 	test('accepts only a current signature over the exact body and context', async () => {
@@ -160,16 +161,22 @@ describe('operations intelligence transport', () => {
 				data: {
 					generatedAt: 1,
 					byState: { open: 2, investigating: 1, waiting: 0, resolved: 5, closed: 3 },
-					openByCategory: [{ category: 'queue', count: 2 }],
-					unassignedOpenCount: 1,
-					atLeast: false,
+						openByCategory: [{ category: 'queue', count: 2 }],
+						unassignedActiveCount: 1,
+						atLeast: false,
+						cases: [{
+							caseId: 'support-case-1',
+							category: 'queue',
+							state: 'open',
+							createdAt: 1,
+						}],
 				},
 			});
 		};
 
 		const result = await performPlatformRead(
 			'support_load',
-			'code2create-7',
+			{ eventSlug: 'code2create-7', conversationId },
 			{
 				CONVEX_INTELLIGENCE_READ_URL: 'https://example.test/reads',
 				INTELLIGENCE_READ_SECRET: secret,
@@ -177,16 +184,14 @@ describe('operations intelligence transport', () => {
 			request,
 		);
 		expect(received).toBe(true);
-		expect(result).toMatchObject({ unassignedOpenCount: 1 });
+		expect(result).toMatchObject({ unassignedActiveCount: 1 });
 
-		// A response whose shape breaks the read's contract must never reach a
-		// model, however well it was signed.
 		const wrongShape: typeof fetch = async () =>
 			Response.json({ read: 'support_load', data: { generatedAt: 1, leaked: 'value' } });
 		await expect(
 			performPlatformRead(
 				'support_load',
-				'code2create-7',
+				{ eventSlug: 'code2create-7', conversationId },
 				{
 					CONVEX_INTELLIGENCE_READ_URL: 'https://example.test/reads',
 					INTELLIGENCE_READ_SECRET: secret,
@@ -199,8 +204,8 @@ describe('operations intelligence transport', () => {
 	test('signs recommendation proposals with their own context', async () => {
 		const proposal: CopilotProposal = {
 			protocolVersion: operationsIntelligenceProtocolVersion,
-			proposalKey: 'conversation-1:hold-team',
-			conversationId: 'conversation-1',
+			proposalKey: `${conversationId}:hold-team`,
+			conversationId,
 			eventSlug: 'code2create-7',
 			agentVersion: 'operations-copilot-v1',
 			model: 'cloudflare/test-model',
@@ -210,6 +215,7 @@ describe('operations intelligence transport', () => {
 			arguments: {
 				kind: 'hold_review_team',
 				teamRoundStateId: 'state-1',
+				expectedTeamRoundStateVersion: 2,
 				reason: 'Two calls went unanswered while the queue waited.',
 			},
 		};
@@ -244,11 +250,34 @@ describe('operations intelligence transport', () => {
 	test('rejects unknown fields at the conversational ingress boundary', () => {
 		const parsed = v.safeParse(operationsCopilotRequestSchema, {
 			protocolVersion: operationsIntelligenceProtocolVersion,
-			conversationId: 'conversation-1',
+			conversationId,
+			turnId: 'turn-1',
 			eventSlug: 'code2create-7',
 			message: 'How is review going?',
 			unexpected: true,
 		});
 		expect(parsed.success).toBe(false);
+	});
+
+	test('requires a bounded stable turn id at the conversational ingress boundary', () => {
+		const request = {
+			protocolVersion: operationsIntelligenceProtocolVersion,
+			conversationId,
+			turnId: 'turn-018fa6c1',
+			eventSlug: 'code2create-7',
+			message: 'How is review going?',
+		};
+		expect(v.safeParse(operationsCopilotRequestSchema, request).success).toBe(true);
+		expect(
+			v.safeParse(operationsCopilotRequestSchema, { ...request, turnId: 'different turn' }).success,
+		).toBe(false);
+		expect(
+			v.safeParse(operationsCopilotRequestSchema, {
+				protocolVersion: request.protocolVersion,
+				conversationId: request.conversationId,
+				eventSlug: request.eventSlug,
+				message: request.message,
+			}).success,
+		).toBe(false);
 	});
 });

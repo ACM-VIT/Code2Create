@@ -12,11 +12,6 @@ import { palette } from '@/theme'
 
 const observabilityEnabled = initializeReviewerObservability()
 
-/**
- * Two levels of navigation, both the platform's own: a tab bar for the things
- * you hold, and a pushed stack for the duty you are in. Nothing is a modal
- * except the pager, which is supposed to interrupt.
- */
 function RootLayout() {
   if (!reviewerRuntime) return <ConfigurationNeeded />
 
@@ -32,17 +27,9 @@ function RootLayout() {
                 contentStyle: { backgroundColor: palette.background },
               }}
             >
-              {/* The tab group never shows this header, but a pushed duty
-                  screen's back button borrows it: the long-press history menu
-                  and the chevron's screen-reader label both read this title,
-                  and without one they read the folder name "(tabs)". */}
+              {/* Pushed routes use this title for back-button accessibility and history. */}
               <Stack.Screen name="(tabs)" options={{ title: 'Duties' }} />
-              {/* No title here: every duty renders through DutyScreen, which
-                  sets its own before the header first draws. */}
               <Stack.Screen name="duty/[surface]" />
-              {/* A real iOS form sheet: system grabber, a detent it rests at,
-                  and the screen behind still visible. Declared here because the
-                  presentation style has to be known before the route mounts. */}
               <Stack.Screen
                 name="duty/door-tools"
                 options={{

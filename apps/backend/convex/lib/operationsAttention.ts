@@ -1,19 +1,4 @@
-/**
- * The contract every attention detector writes to, and the two things that keep
- * a durable ledger honest: hysteresis and inhibition.
- *
- * `specs/06-operations-dashboard.md:5` asks the dashboard to answer two
- * questions — what needs my attention now, and where do I do that work. A
- * severity and a count answer neither. Every item here names the thing that is
- * stuck, says what is wrong in the words an operator would use, carries the
- * route to the screen where it gets fixed, and where a single command can fix
- * it, carries that command with its arguments already filled in.
- *
- * A proposal is data. `specs/06-operations-dashboard.md:181` is explicit that
- * execution is never an agent tool: confirming a proposal opens the ordinary
- * mutation, which rechecks the confirming human's grant, scope, current state,
- * and version. Nothing here holds authority.
- */
+/** Shared detector contract. Proposals are data and carry no authority. */
 
 import type { AttentionProposal } from "./operationsAttentionProposals";
 import type {
@@ -41,12 +26,11 @@ export type DetectedAttentionItem = {
   route: string;
   actionLabel: string;
   visibility: AttentionVisibility;
-  /** What the detector read, kept verbatim so a row can be argued with later. */
+  /** Raw detector input retained for audit. */
   evidenceJson: string;
   /**
-   * The loci this item belongs to, as `panel:<id>` or `team:<id>`. Inhibition
-   * only fires between items that share a locus, so a short panel silences the
-   * teams queued behind it and nothing else.
+   * Inhibition applies only to items that share a `panel:<id>` or `team:<id>`
+   * locus.
    */
   scopes: readonly string[];
   proposal?: AttentionProposal;
@@ -58,23 +42,10 @@ export const severityRank: Record<AttentionSeverity, number> = {
   watch: 2,
 };
 
-/**
- * How long a condition must stay clear before its item resolves.
- *
- * Flapping is solved with time, not cleverness. The persistence side of the
- * same idea lives in each detector, which only reports a condition that has
- * already lasted a stated interval, measured from a timestamp the database
- * already holds rather than from a counter this layer would have to keep.
- */
+/** Clear delay prevents a flapping condition from resolving immediately. */
 export const attentionClearDelayMs = 90_000;
 
-/**
- * A high-severity item suppresses the low-severity ones it causes.
- *
- * Without this the board states one problem several times: a panel missing a
- * reviewer also shows every team queued behind it as waiting too long, and the
- * desk reads five rows where there is one job.
- */
+/** Suppresses lower-severity symptoms that share a locus with their cause. */
 const inhibitedBy: Record<AttentionDetectorKey, readonly AttentionDetectorKey[]> = {
   panel_seat_empty: [],
   seat_at_risk: ["panel_seat_empty"],
@@ -95,9 +66,9 @@ const inhibitedBy: Record<AttentionDetectorKey, readonly AttentionDetectorKey[]>
 };
 
 /** Drops items whose cause is already stated by a higher-severity neighbour. */
-export function applyInhibition(
-  items: readonly DetectedAttentionItem[],
-): DetectedAttentionItem[] {
+export function applyInhibition<Item extends DetectedAttentionItem>(
+  items: readonly Item[],
+): Item[] {
   return items.filter((item) => {
     const suppressors = inhibitedBy[item.detectorKey];
     if (suppressors.length === 0) return true;
@@ -122,7 +93,6 @@ export function sortAttentionItems<
   );
 }
 
-/** "9m40s", the unit an operator uses out loud for a pace or an overrun. */
 export function durationPhrase(milliseconds: number) {
   const totalSeconds = Math.max(0, Math.round(milliseconds / 1_000));
   const hours = Math.floor(totalSeconds / 3_600);
@@ -133,7 +103,6 @@ export function durationPhrase(milliseconds: number) {
   return `${seconds}s`;
 }
 
-/** "4 teams" / "one team", so a statement reads like a sentence. */
 export function countPhrase(count: number, singular: string, plural: string) {
   return count === 1 ? `one ${singular}` : `${count} ${plural}`;
 }

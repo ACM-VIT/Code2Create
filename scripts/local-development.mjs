@@ -1,25 +1,18 @@
 import { existsSync } from 'node:fs'
 import { loadEnvFile } from 'node:process'
 
-/*
- * The developer's own secrets live in the repository-root `.env.local`, and
- * this module is imported by config files — a Vite config, a setup script —
- * that are not run through anything which loads it. Reading `process.env`
- * without this loaded the file's values silently as undefined, so the
- * intelligence worker booted, served health, and could not call a model.
- *
- * Values already in the environment win, so an explicit override on the
- * command line still beats the file.
- */
+// Explicit process values override the repository environment file.
 const rootEnvironmentPath = new URL('../.env.local', import.meta.url)
 if (existsSync(rootEnvironmentPath)) loadEnvFile(rootEnvironmentPath)
 
 const intelligenceIngressSecret = 'code2create-local-intelligence-ingress-2026-v1'
 const intelligenceCallbackSecret = 'code2create-local-intelligence-callback-2026-v1'
-/* The copilot reads the platform over its own signed channel. A separate
-   secret from the callback's, because they run in opposite directions and one
-   leaking should not hand over the other. */
+// Read and callback channels use separate secrets to limit credential exposure.
 const intelligenceReadSecret = 'code2create-local-intelligence-read-2026-v1'
+const intelligenceStreamSecret = 'code2create-local-intelligence-stream-2026-v1'
+
+// Local-only deterministic key; production requires a random versioned key.
+const attendanceWrappingKey = 'Y29kZTJjcmVhdGUtbG9jYWwtYXR0ZW5kYW5jZS1rZXk'
 
 const privateEnvironmentKeys = [
   'BETTER_AUTH_SECRET',
@@ -46,27 +39,32 @@ export const localConvexEnvironment = Object.freeze({
   INTELLIGENCE_INGRESS_SECRET: intelligenceIngressSecret,
   INTELLIGENCE_CALLBACK_SECRET: intelligenceCallbackSecret,
   INTELLIGENCE_READ_SECRET: intelligenceReadSecret,
+  INTELLIGENCE_STREAM_SECRET: intelligenceStreamSecret,
+  ATTENDANCE_WRAPPING_KEY: attendanceWrappingKey,
+  ATTENDANCE_WRAPPING_KEY_VERSION: 'local-v1',
+  INITIAL_EVENT_SLUG: 'code2create-7',
   ...localPrivateEnvironment,
 })
-
-/* The agents call a model, and the key for it lives in the developer's own
-   .env.local rather than in this file. Absent, the worker still boots and
-   serves health — it just cannot think. */
-const localModelEnvironment = Object.fromEntries(
-  ['OPENAI_API_KEY'].flatMap((key) => {
-    const value = process.env[key]?.trim()
-    return value ? [[key, value]] : []
-  }),
-)
 
 export const localIntelligenceWorkerEnvironment = Object.freeze({
   INTELLIGENCE_INGRESS_SECRET: intelligenceIngressSecret,
   INTELLIGENCE_CALLBACK_SECRET: intelligenceCallbackSecret,
   INTELLIGENCE_READ_SECRET: intelligenceReadSecret,
+  INTELLIGENCE_STREAM_SECRET: intelligenceStreamSecret,
   CONVEX_INTELLIGENCE_CALLBACK_URL:
     'http://127.0.0.1:3211/intelligence/operations-briefs/callback',
   CONVEX_INTELLIGENCE_READ_URL: 'http://127.0.0.1:3211/intelligence/operations-reads',
   CONVEX_INTELLIGENCE_RECOMMENDATION_URL:
     'http://127.0.0.1:3211/intelligence/operations-recommendations',
-  ...localModelEnvironment,
+  CONVEX_INTELLIGENCE_AUTONOMY_CALLBACK_URL:
+    'http://127.0.0.1:3211/intelligence/operations-autonomy/callback',
+  CONVEX_INTELLIGENCE_AUTONOMY_READ_URL:
+    'http://127.0.0.1:3211/intelligence/operations-autonomy/reads',
+  CONVEX_INTELLIGENCE_AUTONOMY_WORK_URL:
+    'http://127.0.0.1:3211/intelligence/operations-autonomy/work',
+  CONVEX_INTELLIGENCE_AUTONOMY_RECOMMENDATION_URL:
+    'http://127.0.0.1:3211/intelligence/operations-autonomy/recommendations',
+	CONVEX_INTELLIGENCE_AUTONOMY_RECOMMENDATION_EVIDENCE_URL:
+		'http://127.0.0.1:3211/intelligence/operations-autonomy/recommendation-evidence',
+  OPS_ORIGIN: 'http://localhost:5181',
 })

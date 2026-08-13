@@ -1,5 +1,5 @@
 export interface StoredAsset {
-  bytes: ArrayBuffer
+  body: ReadableStream<Uint8Array>
   contentType: string
   sha256: string
 }

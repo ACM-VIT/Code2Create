@@ -2,26 +2,16 @@ import { api } from '@code2create/backend/api'
 import { emergencyPackStatusLabels, type EmergencyPackStatus } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useAction, useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
-
-type RequestAttempt = {
-  purpose: string
-  spareAttendanceSheetCount: number
-  spareReviewSheetCount: number
-  clientOperationId: string
-}
+import { useMutationAttempt } from '../lib/operations'
 
 type EmergencyPack = FunctionReturnType<typeof api.emergencyPacks.list>[number]
 type EmergencyPackId = EmergencyPack['id']
 
-/**
- * A backup you could print right now leads; one still being built comes next;
- * the ones that failed or went stale are a record of what was tried.
- */
 const packOrder: Record<EmergencyPackStatus, number> = {
   ready: 0,
   pending: 1,
@@ -41,7 +31,7 @@ export function EmergencyPack({
   const packs = useQuery(api.emergencyPacks.list, canRead ? { eventSlug } : 'skip')
   const requestPack = useMutation(api.emergencyPacks.request)
   const openPack = useAction(api.emergencyPackActions.print)
-  const requestAttemptRef = useRef<RequestAttempt | null>(null)
+  const requestAttempt = useMutationAttempt<FunctionReturnType<typeof api.emergencyPacks.request>>()
   const [purpose, setPurpose] = useState('Current event-day paper fallback')
   const [spareAttendanceSheetCount, setSpareAttendanceSheetCount] = useState(4)
   const [spareReviewSheetCount, setSpareReviewSheetCount] = useState(4)
@@ -50,6 +40,7 @@ export function EmergencyPack({
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now)
+  const requestPending = requestAttempt.hasPending('emergency-pack-request')
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000)
@@ -57,32 +48,26 @@ export function EmergencyPack({
   }, [])
 
   const changeRequest = () => {
-    requestAttemptRef.current = null
     setError(null)
     setMessage(null)
   }
 
   const prepare = async () => {
     const normalizedPurpose = purpose.trim()
-    const prior = requestAttemptRef.current
-    const attempt =
-      prior?.purpose === normalizedPurpose &&
-      prior.spareAttendanceSheetCount === spareAttendanceSheetCount &&
-      prior.spareReviewSheetCount === spareReviewSheetCount
-        ? prior
-        : {
-            purpose: normalizedPurpose,
-            spareAttendanceSheetCount,
-            spareReviewSheetCount,
-            clientOperationId: crypto.randomUUID(),
-          }
-    requestAttemptRef.current = attempt
     setPreparing(true)
     setError(null)
     setMessage(null)
     try {
-      await requestPack({ eventSlug, ...attempt })
-      requestAttemptRef.current = null
+      await requestAttempt.run('emergency-pack-request', () => {
+        const args = {
+          eventSlug,
+          purpose: normalizedPurpose,
+          spareAttendanceSheetCount,
+          spareReviewSheetCount,
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => requestPack(args)
+      })
       setMessage(
         canRead
           ? 'Requested. It becomes printable above once it has been built.'
@@ -256,8 +241,10 @@ export function EmergencyPack({
               minLength={10}
               maxLength={240}
               required
+              disabled={preparing || requestPending}
               value={purpose}
               onChange={(event) => {
+                if (requestPending) return
                 changeRequest()
                 setPurpose(event.target.value)
               }}
@@ -271,8 +258,10 @@ export function EmergencyPack({
                 min={0}
                 max={20}
                 required
+                disabled={preparing || requestPending}
                 value={spareAttendanceSheetCount}
                 onChange={(event) => {
+                  if (requestPending) return
                   changeRequest()
                   const next = event.currentTarget.valueAsNumber
                   setSpareAttendanceSheetCount(Number.isNaN(next) ? 0 : next)
@@ -286,8 +275,10 @@ export function EmergencyPack({
                 min={0}
                 max={20}
                 required
+                disabled={preparing || requestPending}
                 value={spareReviewSheetCount}
                 onChange={(event) => {
+                  if (requestPending) return
                   changeRequest()
                   const next = event.currentTarget.valueAsNumber
                   setSpareReviewSheetCount(Number.isNaN(next) ? 0 : next)
@@ -308,8 +299,9 @@ export function EmergencyPack({
               !validCount(spareReviewSheetCount)
             }
           >
-            {preparing ? 'Preparing…' : 'Prepare paper backup'}
+            {preparing ? 'Preparing…' : requestPending ? 'Confirm backup request' : 'Prepare paper backup'}
           </button>
+          {requestPending ? <p className="muted">Confirm the earlier backup request before changing it.</p> : null}
         </form>
       ) : (
         <p className="muted">
@@ -323,11 +315,6 @@ export function EmergencyPack({
   )
 }
 
-/**
- * What the event can fall back on right now, said before the form that changes
- * it. The screen used to open with a request form and leave the answer to a
- * line at the foot of the page.
- */
 function PackLead({
   beingPrepared,
   canPrepare,
@@ -390,10 +377,6 @@ function validCount(value: number) {
   return Number.isSafeInteger(value) && value >= 0 && value <= 20
 }
 
-/**
- * The stored status says nothing about the four-hour lifetime, so a pack the
- * server still calls "ready" may already be useless on the floor.
- */
 function currentStatus(pack: EmergencyPack, now: number): EmergencyPackStatus {
   return pack.expiresAt <= now ? 'expired' : pack.status
 }

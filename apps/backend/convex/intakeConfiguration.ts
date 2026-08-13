@@ -16,6 +16,8 @@ import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions
 import { normalizedText } from "./lib/strings";
 import {
   loadTrackCatalogTracks,
+  maximumCoreTrackCount,
+  maximumSponsorTrackCount,
   publishTrackCatalog,
   saveTrackCatalogDraft,
   trackCatalogChecksum,
@@ -39,6 +41,7 @@ const catalogTrackView = v.object({
 const catalogView = v.object({
   id: v.id("trackCatalogVersions"),
   version: v.number(),
+  requiredCoreTrackCount: v.number(),
   status: v.union(
     v.literal("draft"),
     v.literal("published"),
@@ -87,6 +90,7 @@ async function readCatalog(ctx: QueryCtx, catalog: Doc<"trackCatalogVersions">) 
   return {
     id: catalog._id,
     version: catalog.version,
+    requiredCoreTrackCount: catalog.requiredCoreTrackCount,
     status: catalog.status,
     checksum: catalog.checksum,
     createdAt: catalog.createdAt,
@@ -103,6 +107,10 @@ export const current = query({
   args: { eventSlug: v.string() },
   returns: v.object({
     eventVersion: v.number(),
+    limits: v.object({
+      maximumCoreTrackCount: v.number(),
+      maximumSponsorTrackCount: v.number(),
+    }),
     publishedCatalog: catalogView,
     draftCatalog: v.union(v.null(), catalogView),
     canDraft: v.boolean(),
@@ -158,6 +166,7 @@ export const current = query({
     ]);
     return {
       eventVersion: event.version,
+      limits: { maximumCoreTrackCount, maximumSponsorTrackCount },
       publishedCatalog: await readCatalog(ctx, publishedCatalog),
       draftCatalog: draftCatalog ? await readCatalog(ctx, draftCatalog) : null,
       canDraft: draftGrantIds.length > 0,
@@ -205,24 +214,39 @@ export const validateDraft = query({
       loadTrackCatalogTracks(ctx, published._id),
     ]);
     const draftTracks = draftRows.map(trackInput);
-    const issues = trackCatalogIssues(draftTracks);
-    if (trackCatalogChecksum(draftTracks) !== draft.checksum) {
+    const issues = trackCatalogIssues(draft.requiredCoreTrackCount, draftTracks);
+    if (
+      trackCatalogChecksum(draft.requiredCoreTrackCount, draftTracks) !==
+      draft.checksum
+    ) {
       issues.push("The draft checksum does not match its track rows.");
     }
     return {
       valid: issues.length === 0,
       issues,
-      changes: describeChanges(publishedRows.map(trackInput), draftTracks),
+      changes: describeChanges(
+        published.requiredCoreTrackCount,
+        publishedRows.map(trackInput),
+        draft.requiredCoreTrackCount,
+        draftTracks,
+      ),
       pinnedParticipantDraftCount: await activeDraftCount(ctx, published),
     };
   },
 });
 
 function describeChanges(
+  publishedCoreTrackCount: number,
   published: readonly TrackCatalogTrack[],
+  draftCoreTrackCount: number,
   draft: readonly TrackCatalogTrack[],
 ) {
   const changes: string[] = [];
+  if (publishedCoreTrackCount !== draftCoreTrackCount) {
+    changes.push(
+      `Require ${draftCoreTrackCount} core ${draftCoreTrackCount === 1 ? "track" : "tracks"} instead of ${publishedCoreTrackCount}.`,
+    );
+  }
   const publishedByKey = new Map(published.map((track) => [track.stableKey, track]));
   const draftByKey = new Map(draft.map((track) => [track.stableKey, track]));
   for (const track of draft) {
@@ -241,6 +265,7 @@ function describeChanges(
 export const createDraft = mutation({
   args: {
     eventSlug: v.string(),
+    requiredCoreTrackCount: v.number(),
     tracks: v.array(trackCatalogTrackInput),
     expectedEventVersion: v.number(),
     expectedDraftCatalogId: v.optional(v.id("trackCatalogVersions")),
@@ -259,6 +284,7 @@ export const createDraft = mutation({
     const requestFingerprint = operationFingerprint([
       args.expectedEventVersion,
       args.expectedDraftCatalogId ?? null,
+      args.requiredCoreTrackCount,
       JSON.stringify(args.tracks),
       args.reason,
     ]);
@@ -298,6 +324,7 @@ export const createDraft = mutation({
     const result = await saveTrackCatalogDraft(ctx, {
       event,
       actorPersonId: person._id,
+      requiredCoreTrackCount: args.requiredCoreTrackCount,
       tracks: args.tracks,
       ...(args.expectedDraftCatalogId !== undefined
         ? { expectedDraftCatalogId: args.expectedDraftCatalogId }

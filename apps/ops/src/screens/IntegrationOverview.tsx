@@ -36,7 +36,6 @@ function plural(count: number, singular: string, many: string) {
   return `${count} ${count === 1 ? singular : many}`
 }
 
-/** A team nobody can look at: nothing connected on either side. */
 function isDisconnected(team: IntegrationTeam) {
   return team.github.health === 'not_connected' && team.figma.health === 'not_connected'
 }
@@ -45,22 +44,12 @@ function needsAttention(team: IntegrationTeam) {
   return team.github.health === 'needs_attention' || team.figma.health === 'needs_attention'
 }
 
-/**
- * Teams a reviewer cannot look at come first, then teams whose connection is
- * broken, then everything working. A page of identical "Not connected" rows in
- * team order told an operator nothing about where to spend the next five minutes.
- */
 function teamRank(team: IntegrationTeam) {
   if (isDisconnected(team)) return 0
   if (needsAttention(team)) return 1
   return 2
 }
 
-/**
- * The provider is a glyph, not a repeated heading. Fourteen rows that each
- * spelled out "GitHub" and "Figma" above "Nothing connected" said the same six
- * strings fourteen times; the mark plus a count carries it in one glance.
- */
 function providerTone(health: ProviderHealth) {
   if (health === 'needs_attention') return 'attention'
   if (health === 'not_connected') return 'unconnected'
@@ -95,11 +84,6 @@ function ProviderCount({
   )
 }
 
-/**
- * The one line that differs between rows. A team with nothing connected gets no
- * line at all: the headline already says what that means, and the two dimmed
- * marks on the right say it again without words.
- */
 function teamNote(team: IntegrationTeam) {
   const notes: string[] = []
   if (team.github.topicMissingCount > 0) {
@@ -123,8 +107,6 @@ function teamNote(team: IntegrationTeam) {
       ? 'GitHub is not reading properly'
       : 'Figma is not reading properly'
   }
-  // A team with nothing connected is the reason this screen exists, so its row
-  // says what is missing rather than leaving the only line blank.
   if (isDisconnected(team)) return 'No repository and no design file'
   if (team.github.health === 'not_connected') return 'No repository'
   if (team.figma.health === 'not_connected') return 'No design file'
@@ -142,14 +124,15 @@ export function IntegrationOverview() {
     { eventSlug },
     { initialNumItems: 30 },
   )
-  const unwatchable = results.filter(isDisconnected)
-  const broken = results.filter((team) => !isDisconnected(team) && needsAttention(team))
-  const outstanding = unwatchable.length + broken.length
+  const summary = useQuery(api.integrationOperations.summary, { eventSlug })
+  const outstanding = summary === undefined
+    ? 0
+    : summary.disconnectedCount + summary.attentionCount
   const view = chosen ?? (outstanding > 0 ? 'attention' : 'all')
-  const visible = (view === 'attention'
+  const visible = [...(view === 'attention'
     ? results.filter((team) => teamRank(team) < 2)
     : results
-  ).sort((left, right) => teamRank(left) - teamRank(right) || left.teamName.localeCompare(right.teamName))
+  )].sort((left, right) => teamRank(left) - teamRank(right) || left.teamName.localeCompare(right.teamName))
 
   return (
     <section className="integration-health-shell">
@@ -158,18 +141,20 @@ export function IntegrationOverview() {
           <p className="eyebrow">Connected project work</p>
           <h1>Code and design</h1>
           <p className="muted">
-            {results.length === 0
-              ? 'Teams connect their GitHub repositories and Figma files from their own dashboard. None have been loaded yet.'
-              : unwatchable.length > 0
-                ? `${unwatchable.length} of ${results.length} teams have connected no code and no design. A reviewer opening those teams has nothing to look at.`
-                : broken.length > 0
-                  ? `Every team has connected something, but ${broken.length} ${broken.length === 1 ? 'connection is' : 'connections are'} not reading properly. Their recent work will look emptier than it is.`
-                  : `All ${results.length} teams have code or design connected and reading normally.`}
+            {summary === undefined
+              ? 'Loading connection health for every team you can read.'
+              : summary.totalTeamCount === 0
+                ? 'No teams are available in this workspace.'
+                : summary.disconnectedCount > 0
+                  ? `${summary.disconnectedCount} of ${summary.totalTeamCount} teams have connected no code and no design. A reviewer opening those teams has nothing to look at.`
+                  : summary.attentionCount > 0
+                    ? `Every team has connected something, but ${summary.attentionCount} ${summary.attentionCount === 1 ? 'connection is' : 'connections are'} not reading properly. Their recent work will look emptier than it is.`
+                    : `All ${summary.totalTeamCount} teams have code or design connected and reading normally.`}
           </p>
         </div>
       </div>
 
-      {outstanding > 0 && outstanding < results.length ? (
+      {summary !== undefined && outstanding > 0 && outstanding < summary.totalTeamCount ? (
         <div className="configuration-tabs" role="tablist" aria-label="Which teams to show">
           <button
             aria-selected={view === 'attention'}
@@ -187,7 +172,7 @@ export function IntegrationOverview() {
             type="button"
             onClick={() => setView('all')}
           >
-            Every team · {results.length}
+            Every team · {summary.totalTeamCount}
           </button>
         </div>
       ) : null}
@@ -209,9 +194,6 @@ export function IntegrationOverview() {
                   <Icon name="users" />
                 </span>
                 <div className="row-text">
-                  {/* The ordinary status repeated on every row taught nothing.
-                      It appears only when it changes whether the missing work
-                      still matters. */}
                   <strong>
                     {team.teamName}
                     {team.teamStatus === 'confirmed' ? null : (
@@ -254,9 +236,11 @@ export function IntegrationOverview() {
           })}
           {visible.length === 0 ? (
             <p className="empty">
-              {results.length === 0
-                ? 'No team has connected code or design yet.'
-                : 'Every team loaded so far is connected and reading normally.'}
+              {summary?.totalTeamCount === 0
+                ? 'No teams are available in this workspace.'
+                : view === 'attention'
+                  ? 'No affected teams are in the rows loaded so far.'
+                  : 'No team rows have been loaded.'}
             </p>
           ) : null}
         </div>

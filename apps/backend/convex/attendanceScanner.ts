@@ -6,14 +6,19 @@ import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
-import { openAttendanceSessionInZone } from "./lib/attendanceSessionLifecycle";
+import { isConfiguredAttendanceStation } from "./lib/attendance";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   matchingPermissionGrantIds,
   requirePermission,
 } from "./lib/permissions";
-import { attendanceScanTransition, barcodeSymbology } from "./values";
+import {
+  attendanceScannerCredentialKind,
+  attendanceScanTransition,
+  attendanceStationMode,
+  barcodeSymbology,
+} from "./values";
 
 const stationSummary = v.object({
   id: v.id("attendanceStations"),
@@ -21,6 +26,9 @@ const stationSummary = v.object({
   name: v.string(),
   configurationVersion: v.number(),
   barcodeSymbologies: v.array(barcodeSymbology),
+  mode: attendanceStationMode,
+  allowedCredentialKinds: v.array(attendanceScannerCredentialKind),
+  sessionId: v.optional(v.id("attendanceSessions")),
   zoneName: v.string(),
 });
 
@@ -51,13 +59,7 @@ const scanReceipt = v.object({
   participantName: v.optional(v.string()),
 });
 
-/**
- * The one gate for every device-scoped scanner read: the signed-in caller must
- * hold station read on the station this exact installation is actively
- * assigned to. A missing or inactive device or station returns null rather
- * than throwing, because a device mid-provisioning or retired by operations is
- * a state the client renders, not an error.
- */
+/** Requires this installation's active station assignment and station-read grant. */
 async function authoriseScannerDevice(
   ctx: QueryCtx,
   args: { eventSlug: string; installationId: string },
@@ -78,7 +80,13 @@ async function authoriseScannerDevice(
       index.eq("deviceInstallationId", device._id).eq("status", "active"),
     )
     .unique();
-  if (!station || station.eventId !== event._id) return null;
+  if (
+    !station ||
+    station.eventId !== event._id ||
+    !isConfiguredAttendanceStation(station)
+  ) {
+    return null;
+  }
   await requirePermission(ctx, {
     eventId: event._id,
     eventAccessSubjectId: subject._id,
@@ -89,11 +97,7 @@ async function authoriseScannerDevice(
   return { event, device, station };
 }
 
-/**
- * A presence event becomes a receipt only when a scanner produced it.
- * Reconciliation rows share the table and the device index, but they belong to
- * operations, so a device reading its own trail never sees them.
- */
+/** Device receipts exclude operations reconciliation events in the same table. */
 async function scannerReceipt(
   ctx: QueryCtx,
   presenceEvent: Doc<"attendancePresenceEvents">,
@@ -155,7 +159,13 @@ export const availableStations = query({
       .collect();
     const visible = [];
     for (const station of stations) {
-      if (station.planVersionId !== plan._id || station.deviceInstallationId !== undefined) continue;
+      if (
+        station.planVersionId !== plan._id ||
+        station.deviceInstallationId !== undefined ||
+        !isConfiguredAttendanceStation(station)
+      ) {
+        continue;
+      }
       const grantIds = await matchingPermissionGrantIds(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
@@ -172,6 +182,9 @@ export const availableStations = query({
         name: station.name,
         configurationVersion: station.configurationVersion,
         barcodeSymbologies: plan.vitBarcodeSymbologies,
+        mode: station.mode,
+        allowedCredentialKinds: station.allowedCredentialKinds,
+        ...(station.sessionId !== undefined ? { sessionId: station.sessionId } : {}),
         zoneName: zone.name,
       });
     }
@@ -212,7 +225,7 @@ export const current = query({
     const [plan, zone, session, recentEvents] = await Promise.all([
       ctx.db.get(station.planVersionId),
       ctx.db.get(station.zoneId),
-      openAttendanceSessionInZone(ctx, { eventId: event._id, zoneId: station.zoneId }),
+      station.sessionId === undefined ? null : ctx.db.get(station.sessionId),
       ctx.db
         .query("attendancePresenceEvents")
         .withIndex("by_device_sequence", (index) =>
@@ -226,7 +239,11 @@ export const current = query({
       plan.eventId !== event._id ||
       plan.status !== "published" ||
       !zone ||
-      zone.eventId !== event._id
+      zone.eventId !== event._id ||
+      (session !== null &&
+        (session.eventId !== event._id ||
+          session.planVersionId !== station.planVersionId ||
+          session.zoneId !== station.zoneId))
     ) {
       return null;
     }
@@ -252,9 +269,12 @@ export const current = query({
         name: station.name,
         configurationVersion: station.configurationVersion,
         barcodeSymbologies: plan.vitBarcodeSymbologies,
+        mode: station.mode,
+        allowedCredentialKinds: station.allowedCredentialKinds,
+        ...(station.sessionId !== undefined ? { sessionId: station.sessionId } : {}),
         zoneName: zone.name,
       },
-      openSession: session
+      openSession: session?.status === "open"
         ? {
             id: session._id,
             name: session.name,
@@ -272,14 +292,7 @@ export const current = query({
   },
 });
 
-/**
- * Everything this device has ever produced, newest first, for auditing a whole
- * shift. `current` keeps only the last handful for the live surface; this pages
- * the rest behind exactly the same station gate, so a device can never read
- * another door's trail. Pages can come back short because reconciliation rows
- * interleaved in the device index are dropped, but the cursor still advances
- * through them.
- */
+/** Paginates device-only receipts; filtered reconciliation rows can make pages short. */
 export const history = query({
   args: {
     eventSlug: v.string(),
@@ -292,8 +305,7 @@ export const history = query({
       eventSlug: args.eventSlug,
       installationId: args.installationId,
     });
-    // The states `current` answers with null — a device mid-provisioning or
-    // retired — have no trail to page, so history is simply finished.
+    // Mid-provisioning and retired devices have no receipt history.
     if (!authorised) return { page: [], isDone: true, continueCursor: "" };
     const result = await ctx.db
       .query("attendancePresenceEvents")

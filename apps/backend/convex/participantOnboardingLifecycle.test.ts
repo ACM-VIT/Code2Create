@@ -128,6 +128,95 @@ describe("participant onboarding lifecycle", () => {
       expect(teamMembers[0]?.role).toBe("lead");
     });
 
+    const currentTeam = await participant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(currentTeam?.activeMemberCount).toBe(1);
+
+    const duplicateTransferIds = await backend.run(async (ctx) => {
+      const transfer = {
+        eventId: fixture.eventId,
+        teamId: created.teamId,
+        fromMembershipId: fixture.membershipId,
+        toMembershipId: fixture.membershipId,
+        expectedTeamVersion: 1,
+        state: "pending" as const,
+        requestedByPersonId: fixture.personId,
+        requestedAt: fixture.now,
+        expiresAt: fixture.now + 60_000,
+      };
+      return Promise.all([
+        ctx.db.insert("teamLeadershipTransfers", {
+          ...transfer,
+          clientOperationId: "duplicate-transfer-one",
+        }),
+        ctx.db.insert("teamLeadershipTransfers", {
+          ...transfer,
+          clientOperationId: "duplicate-transfer-two",
+        }),
+      ]);
+    });
+    await expect(
+      participant.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).rejects.toThrow("more than one pending leadership transfer");
+    await backend.run(async (ctx) => {
+      await Promise.all(
+        duplicateTransferIds.map((transferId) =>
+          ctx.db.delete("teamLeadershipTransfers", transferId),
+        ),
+      );
+      for (let index = 0; index < 4; index += 1) {
+        const personId = await ctx.db.insert("people", {
+          authUserId: `overflow-member-auth-${index}`,
+          googleSubject: `overflow-member-google-${index}`,
+          verifiedEmail: `overflow-member-${index}@example.test`,
+          displayName: `Overflow Member ${index}`,
+          status: "active",
+          createdAt: fixture.now,
+          updatedAt: fixture.now,
+        });
+        const subjectId = await ctx.db.insert("eventAccessSubjects", {
+          eventId: fixture.eventId,
+          personId,
+          emailNormalized: `overflow-member-${index}@example.test`,
+          displayName: `Overflow Member ${index}`,
+          status: "active",
+          linkedBy: "participant_provisioning",
+          accessVersion: 1,
+          createdAt: fixture.now,
+          updatedAt: fixture.now,
+        });
+        const membershipId = await ctx.db.insert("eventMemberships", {
+          eventId: fixture.eventId,
+          personId,
+          eventAccessSubjectId: subjectId,
+          participantClass: "external_participant",
+          eligibilityStatus: "eligible",
+          onboardingStatus: "project_required",
+          acceptedParticipantPolicyVersionIds: [fixture.policyId],
+          createdAt: fixture.now,
+          updatedAt: fixture.now,
+        });
+        await ctx.db.insert("teamMembers", {
+          eventId: fixture.eventId,
+          teamId: created.teamId,
+          membershipId,
+          role: "member",
+          status: "active",
+          joinedAt: fixture.now,
+          source: "invitation",
+        });
+      }
+      await ctx.db.patch(created.teamId, {
+        activeMemberCount: 5,
+        activeVitMemberCount: 0,
+        activeExternalMemberCount: 5,
+      });
+    });
+    await expect(
+      participant.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).rejects.toThrow("exceeds the published participant-policy maximum size");
+
     await backend.run(async (ctx) => {
       const event = await ctx.db.get(fixture.eventId);
       if (!event) throw new Error("The onboarding event is missing.");
@@ -144,7 +233,7 @@ describe("participant onboarding lifecycle", () => {
       expectedTeamVersion: 1,
       clientOperationId: "leave-after-applications-close",
     })).rejects.toThrow("Applications are closed");
-  });
+  }, 10_000);
 });
 
 async function seedParticipant(backend: BackendTest) {

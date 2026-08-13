@@ -7,6 +7,9 @@ import {
 import * as v from 'valibot';
 
 import { admissionReadEnvelopeSchema, admissionReadSchemas } from '../protocol.ts';
+import { readBoundedJsonResponse } from './boundedHttpBody.ts';
+import { requireStrongServiceSecret } from './serviceSecret.ts';
+import { serviceUrl } from './serviceUrl.ts';
 
 type AdmissionReadBindings = Pick<
 	Cloudflare.Env,
@@ -19,19 +22,11 @@ export type AdmissionReadParameters = {
 	limit?: number;
 };
 
-/**
- * The admission reads live beside the operations reads on the same Convex
- * deployment, so their route is derived from the one configured read URL
- * rather than a second binding: the last path segment `operations-reads`
- * becomes `admission-reads`. Trailing slashes are stripped first so a
- * configuration written either way resolves to the same route.
- */
+const maximumAdmissionReadResponseBytes = 256 * 1_024;
+
+/** Derives the admission route from the configured operations-read endpoint. */
 function admissionReadUrl(configured: string) {
-	const url = new URL(configured);
-	const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
-	if (url.protocol !== 'https:' && !(local && url.protocol === 'http:')) {
-		throw new Error('The Convex admission read endpoint must use HTTPS outside local development.');
-	}
+	const url = serviceUrl(configured, 'Convex admission read');
 	url.pathname = url.pathname.replace(/\/+$/u, '');
 	return new URL('admission-reads', url);
 }
@@ -40,14 +35,7 @@ export type AdmissionReadResult = v.InferOutput<
 	(typeof admissionReadSchemas)[AdmissionIntelligenceReadName]
 >;
 
-/**
- * Ask Convex for one whitelisted admission read. Identical discipline to
- * `performPlatformRead`: the request names the read, the event, and bounded
- * parameters — no query language crosses this boundary — it is signed under
- * this route's own context with the shared read secret, and the response is
- * re-parsed against the read's declared shape before any of it can reach a
- * model.
- */
+/** Performs one signed, whitelisted admission read and validates its response. */
 export async function performAdmissionRead(
 	name: AdmissionIntelligenceReadName,
 	eventSlug: string,
@@ -55,6 +43,10 @@ export async function performAdmissionRead(
 	bindings: AdmissionReadBindings,
 	request: typeof fetch = fetch,
 ): Promise<AdmissionReadResult> {
+	const secret = requireStrongServiceSecret(
+		bindings.INTELLIGENCE_READ_SECRET,
+		'INTELLIGENCE_READ_SECRET',
+	);
 	const body = JSON.stringify({
 		protocolVersion: operationsIntelligenceProtocolVersion,
 		read: name,
@@ -68,7 +60,7 @@ export async function performAdmissionRead(
 	const timestamp = Date.now().toString();
 	const signature = await signServiceBody({
 		context: admissionIntelligenceReadSignatureContext,
-		secret: bindings.INTELLIGENCE_READ_SECRET,
+		secret,
 		timestamp,
 		body,
 	});
@@ -82,12 +74,23 @@ export async function performAdmissionRead(
 		body,
 		signal: AbortSignal.timeout(20_000),
 	});
-	if (!response.ok) {
+	if (response.status !== 200) {
 		throw new Error(`Convex refused the ${name} read with HTTP ${response.status}.`);
 	}
-	const envelope = v.parse(admissionReadEnvelopeSchema, await response.json());
+	const parsedEnvelope = v.safeParse(
+		admissionReadEnvelopeSchema,
+		await readBoundedJsonResponse(response, maximumAdmissionReadResponseBytes),
+	);
+	if (!parsedEnvelope.success) {
+		throw new Error(`The Convex ${name} read envelope is invalid.`);
+	}
+	const envelope = parsedEnvelope.output;
 	if (envelope.read !== name) {
 		throw new Error(`Convex answered the ${name} read with ${envelope.read} data.`);
 	}
-	return v.parse(admissionReadSchemas[name], envelope.data);
+	const parsedData = v.safeParse(admissionReadSchemas[name], envelope.data);
+	if (!parsedData.success) {
+		throw new Error(`The Convex ${name} read data is invalid.`);
+	}
+	return parsedData.output;
 }
