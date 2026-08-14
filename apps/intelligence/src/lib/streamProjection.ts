@@ -309,7 +309,7 @@ function sanitizePart(
 	}
 	if (part.type === 'text') return part;
 	if (part.type === 'reasoning') {
-		return { type: 'reasoning', text: '', state: part.state };
+		return { type: 'reasoning', text: part.text, state: part.state };
 	}
 	if (part.type !== 'dynamic-tool') return null;
 
@@ -533,7 +533,7 @@ function sanitizeChunk(
 			conversationId: publicConversationId,
 			messageId: chunk.messageId,
 			kind: chunk.kind,
-			delta: chunk.kind === 'reasoning' ? '' : chunk.delta,
+			delta: chunk.delta,
 			position: chunk.position,
 		};
 	}

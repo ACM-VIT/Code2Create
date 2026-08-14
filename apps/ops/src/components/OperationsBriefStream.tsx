@@ -40,6 +40,7 @@ export function OperationsBriefStream({
       <LiveAgentConsole
         agentLabel="Brief agent"
         connectionState={connectionState}
+        embedded
         emptyDescription="The trace appears when the brief agent begins reading the frozen health snapshot."
         emptyTitle="Waiting for agent activity."
         historyCanLoadMore={stream.historyCanLoadMore}
@@ -65,7 +66,6 @@ export function OperationsBriefStream({
             detail: 'No further work is running for this brief.',
           },
         }}
-        title="Operations brief agent"
         workingCopy={{
           title: 'Preparing brief',
           detail: 'The agent is reading the frozen event snapshot.',

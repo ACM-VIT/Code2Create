@@ -17,7 +17,13 @@ import {
 } from '../lib/operationsAutonomyPresentation'
 import { LiveAgentConsole } from './intelligence'
 
-export function OperationsAutonomyRunStream({ run }: { run: AutonomyRun }) {
+export function OperationsAutonomyRunStream({
+  embedded = true,
+  run,
+}: {
+  embedded?: boolean
+  run: AutonomyRun
+}) {
   const openStream = useAction(api.operationsAutonomyActions.openRunStream)
   const loadAccess = useCallback(
     () => openStream({ eventSlug, runId: run.runId }),
@@ -39,6 +45,7 @@ export function OperationsAutonomyRunStream({ run }: { run: AutonomyRun }) {
     <LiveAgentConsole
       agentLabel="Autonomous agent"
       connectionState={connectionState}
+      embedded={embedded}
       emptyDescription="The trace contains only the approved planning, read, investigation, critique, and proposal lifecycle."
       emptyTitle="No public lifecycle event was recorded."
       historyCanLoadMore={stream.historyCanLoadMore}
@@ -51,7 +58,6 @@ export function OperationsAutonomyRunStream({ run }: { run: AutonomyRun }) {
       showOperatorMessages={false}
       terminalState={autonomyRunTerminalState(run.state)}
       terminalCopy={terminalCopy(run)}
-      title="Autonomous operations run"
       workingCopy={{
         title: autonomyRunPhaseLabel(run.phase),
         detail: 'Convex is rechecking current authority while the agent reads and reasons.',

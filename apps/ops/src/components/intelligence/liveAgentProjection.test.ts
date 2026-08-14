@@ -4,13 +4,14 @@ import type { FlueConversationMessage, FlueConversationPart } from '@flue/react'
 
 import { projectVisibleAgentTimeline } from './liveAgentProjection.ts'
 
+const visibleReasoning = 'Visible reasoning trace.'
+
 const privateValues = {
   data: 'PRIVATE_DATA_PAYLOAD',
   file: 'PRIVATE_FILE_NAME',
   hiddenAssistant: 'PRIVATE_HIDDEN_ASSISTANT',
   identifier: 'PRIVATE_MESSAGE_IDENTIFIER',
   metadata: 'PRIVATE_METADATA',
-  reasoning: 'PRIVATE_REASONING',
   system: 'PRIVATE_SYSTEM_MESSAGE',
   toolError: 'PRIVATE_TOOL_ERROR',
   toolInput: 'PRIVATE_TOOL_INPUT',
@@ -23,7 +24,7 @@ let messageSequence = 0
 
 test('projects only visible assistant text and safe lifecycle information', () => {
   const unsafeParts: FlueConversationPart[] = [
-    { type: 'reasoning', text: privateValues.reasoning, state: 'done' },
+    { type: 'reasoning', text: visibleReasoning, state: 'done' },
     { type: 'data-private', data: { value: privateValues.data } },
     {
       type: 'file',
@@ -84,7 +85,7 @@ test('projects only visible assistant text and safe lifecycle information', () =
       kind: 'operator-text',
       text: 'Which queue needs attention?',
     },
-    { kind: 'thinking', state: 'done' },
+    { kind: 'thinking', state: 'done', text: visibleReasoning },
     {
       kind: 'tool',
       label: 'Read operations health',
@@ -169,11 +170,11 @@ test('projects the real sanitized autonomy lifecycle data parts', () => {
   ])
 })
 
-test('consolidates reasoning without retaining its text and sanitizes duration values', () => {
+test('consolidates reasoning into one visible trace and sanitizes duration values', () => {
   const messages: FlueConversationMessage[] = [
     message('assistant', 'assistant', 'visible', [
-      { type: 'reasoning', text: 'first private thought', state: 'done' },
-      { type: 'reasoning', text: 'second private thought', state: 'streaming' },
+      { type: 'reasoning', text: 'first recorded thought', state: 'done' },
+      { type: 'reasoning', text: 'second recorded thought', state: 'streaming' },
       {
         type: 'dynamic-tool',
         toolName: 'task',
@@ -187,7 +188,11 @@ test('consolidates reasoning without retaining its text and sanitizes duration v
   ]
 
   assert.deepEqual(timelineContent(projectVisibleAgentTimeline(messages)), [
-    { kind: 'thinking', state: 'streaming' },
+    {
+      kind: 'thinking',
+      state: 'streaming',
+      text: 'first recorded thought\n\nsecond recorded thought',
+    },
     {
       kind: 'tool',
       label: 'Investigator agent',

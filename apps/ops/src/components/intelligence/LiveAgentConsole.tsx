@@ -9,12 +9,13 @@ import {
   useRef,
   useState,
 } from 'react'
+import { Streamdown } from 'streamdown'
 
 import {
   projectVisibleAgentTimeline,
   type SafeAgentTimelineItem,
 } from './liveAgentProjection'
-import { Icon, type IconName } from '../Icon'
+import { LoadingState, ShimmerText } from './LoadingState'
 
 export type LiveAgentConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'offline'
 export type LiveAgentTerminalState = 'none' | 'completed' | 'failed' | 'aborted'
@@ -27,7 +28,7 @@ export function LiveAgentConsole({
   composerResetKey = 0,
   composerDisabled = false,
   connectionState,
-  connectionLabel,
+  embedded = false,
   emptyDescription = 'Ask about review flow, attendance, floor mapping, support load, or admissions.',
   emptyTitle = 'Start with the live event.',
   historyCanLoadMore = false,
@@ -41,7 +42,6 @@ export function LiveAgentConsole({
   showOperatorMessages = true,
   terminalState,
   terminalCopy: terminalCopyOverrides,
-  title = 'Operations copilot',
   workingCopy = {
     title: 'Preparing response',
     detail: 'Live output continues here.',
@@ -53,7 +53,7 @@ export function LiveAgentConsole({
   composerResetKey?: number
   composerDisabled?: boolean
   connectionState: LiveAgentConnectionState
-  connectionLabel?: string
+  embedded?: boolean
   emptyDescription?: string
   emptyTitle?: string
   historyCanLoadMore?: boolean
@@ -67,7 +67,6 @@ export function LiveAgentConsole({
   showOperatorMessages?: boolean
   terminalState: LiveAgentTerminalState
   terminalCopy?: Partial<Record<Exclude<LiveAgentTerminalState, 'none'>, LiveAgentCopy>>
-  title?: string
   workingCopy?: LiveAgentCopy
 }) {
   const timeline = useMemo(
@@ -77,7 +76,6 @@ export function LiveAgentConsole({
   const timelineRef = useRef<HTMLDivElement>(null)
   const historyAnchorRef = useRef<{ timelineId: string; viewportOffset: number } | null>(null)
   const stickToLiveTailRef = useRef(true)
-  const titleId = useId()
   const promptId = useId()
   const promptHintId = useId()
   const [prompt, setPrompt] = useState('')
@@ -158,132 +156,143 @@ export function LiveAgentConsole({
     && (!composerRequiresConnection || connectionState === 'connected')
 
   return (
-    <section className="card-surface intelligence-console" aria-labelledby={titleId}>
-      <header className="section-heading intelligence-console-header">
-        <div>
-          <p className="eyebrow">Live agent</p>
-          <h2 id={titleId}>{title}</h2>
-        </div>
-        <ConnectionStatus
-          {...connectionLabel === undefined ? {} : { label: connectionLabel }}
-          state={connectionState}
-          onReconnect={onReconnect}
-        />
-      </header>
-
+    <section
+      aria-label={`${agentLabel} conversation`}
+      className={embedded
+        ? 'flex flex-col rounded-xl border border-line bg-canvas'
+        : 'flex min-h-0 flex-1 flex-col'}
+    >
       <div
         aria-busy={isStreaming}
         aria-live="polite"
         aria-relevant="additions text"
-        className="health-list intelligence-console-timeline"
+        className={embedded
+          ? 'max-h-80 overflow-y-auto'
+          : 'min-h-0 flex-1 overflow-y-auto'}
         onScroll={(event) => {
           stickToLiveTailRef.current = isNearLiveTail(event.currentTarget)
         }}
         ref={timelineRef}
         role="log"
       >
-        {onLoadOlder !== undefined && (historyCanLoadMore || historyLoading) ? (
-          <div className="list-row">
-            <div className="row-text">
-              <strong>Earlier agent activity</strong>
-              <small>History pages remain sanitized and read-only.</small>
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-2.5 px-4 pt-4 pb-2">
+          {onLoadOlder !== undefined && (historyCanLoadMore || historyLoading) ? (
+            <div className="flex justify-center pb-1">
+              {historyLoading ? (
+                <ShimmerText>Loading earlier activity</ShimmerText>
+              ) : (
+                <button
+                  className="cursor-pointer border-0 bg-transparent p-0 text-[11.5px] text-ink-3 transition-colors duration-100 hover:text-ink"
+                  type="button"
+                  onClick={loadOlderActivity}
+                >
+                  Load earlier activity
+                </button>
+              )}
             </div>
-            <button
-              className="secondary"
-              disabled={historyLoading}
-              type="button"
-              onClick={loadOlderActivity}
-            >
-              {historyLoading ? 'Loading activity…' : 'Load older activity'}
-            </button>
-          </div>
-        ) : null}
-        {historyLoadError === undefined ? null : (
-          <p className="notice error" role="alert">
-            Older activity could not be loaded. Try again.
-          </p>
-        )}
-        {timeline.length === 0 && !isStreaming ? (
-          <AgentEmptyState description={emptyDescription} title={emptyTitle} />
-        ) : null}
-        {timeline.map((item) => <TimelineItem agentLabel={agentLabel} item={item} key={item.id} />)}
-        {isStreaming ? <StreamingIndicator copy={workingCopy} /> : null}
-        {terminalState !== 'none' && !isStreaming ? (
-          <TerminalState
-            {...terminalCopyOverrides?.[terminalState] === undefined
-              ? {}
-              : { copy: terminalCopyOverrides[terminalState] }}
-            state={terminalState}
-          />
-        ) : null}
+          ) : null}
+          {historyLoadError === undefined ? null : (
+            <p className="notice error" role="alert">
+              Older activity could not be loaded. Try again.
+            </p>
+          )}
+          {timeline.length === 0 && !isStreaming ? (
+            <AgentEmptyState description={emptyDescription} title={emptyTitle} />
+          ) : null}
+          {timeline.map((item) => (
+            <TimelineItem agentLabel={agentLabel} item={item} key={item.id} />
+          ))}
+          {isStreaming ? <StreamingIndicator copy={workingCopy} /> : null}
+          {terminalState !== 'none'
+            && !isStreaming
+            && (terminalState !== 'completed' || terminalCopyOverrides?.completed !== undefined) ? (
+            <TerminalState
+              {...terminalCopyOverrides?.[terminalState] === undefined
+                ? {}
+                : { copy: terminalCopyOverrides[terminalState] }}
+              state={terminalState}
+            />
+          ) : null}
+        </div>
       </div>
 
+      {connectionState === 'offline' ? (
+        <div className="flex shrink-0 items-center justify-center gap-2 py-1 text-[11.5px] text-ink-3" role="status">
+          Updates paused
+          <button
+            className="cursor-pointer border-0 bg-transparent p-0 text-ink-2 underline-offset-2 transition-colors duration-100 hover:text-ink hover:underline"
+            type="button"
+            onClick={onReconnect}
+          >
+            Reconnect
+          </button>
+        </div>
+      ) : null}
+
       {onSubmitPrompt === undefined ? null : (
-        <form className="intelligence-console-composer" onSubmit={(event) => void sendPrompt(event)}>
-          <label className="field" htmlFor={promptId}>
-            <span className="visually-hidden">Ask the operations copilot</span>
-            <textarea
-              aria-describedby={promptHintId}
-              disabled={composerDisabled || submitting}
-              id={promptId}
-              maxLength={4_000}
-              onChange={(event) => {
-                setPrompt(event.target.value)
-                if (submitFailed) setSubmitFailed(false)
-              }}
-              onKeyDown={submitOnEnter}
-              placeholder="Ask what needs attention…"
-              readOnly={composerPendingConfirmation}
-              rows={2}
-              value={prompt}
-            />
-            <small id={promptHintId}>
-              {composerPendingConfirmation
-                ? 'The previous send may have committed. Confirm it before starting another prompt.'
-                : `Enter to send · Shift+Enter for a new line · ${prompt.length}/4000`}
-            </small>
-          </label>
-          <div className="button-row">
-            <button className="primary" disabled={!canSubmit} type="submit">
-              {submitting ? 'Sending…' : composerPendingConfirmation ? 'Confirm send' : 'Send'}
-            </button>
+        <form
+          className={embedded ? 'shrink-0 p-1.5' : 'shrink-0 px-4 pb-4'}
+          onSubmit={(event) => void sendPrompt(event)}
+        >
+          <div className="mx-auto w-full max-w-3xl">
+            <div className="flex cursor-text flex-col gap-2 rounded-[14px] border border-line bg-field p-2.5 transition-[border-color] duration-150 focus-within:border-line-strong">
+              <label className="visually-hidden" htmlFor={promptId}>
+                Ask the operations copilot
+              </label>
+              <textarea
+                aria-describedby={promptHintId}
+                className="field-sizing-content max-h-40 min-h-[22px] w-full resize-none border-0 bg-transparent p-0 px-0.5 text-[13px] leading-[1.4] text-ink outline-none [overflow-wrap:anywhere] placeholder:text-ink-3 focus-visible:outline-none disabled:opacity-50"
+                disabled={composerDisabled || submitting}
+                id={promptId}
+                maxLength={4_000}
+                onChange={(event) => {
+                  setPrompt(event.target.value)
+                  if (submitFailed) setSubmitFailed(false)
+                }}
+                onKeyDown={submitOnEnter}
+                placeholder="Ask what needs attention…"
+                readOnly={composerPendingConfirmation}
+                rows={1}
+                value={prompt}
+              />
+              <div className="flex items-center justify-between gap-2">
+                <small className="text-[11px] text-ink-3" id={promptHintId}>
+                  {composerPendingConfirmation
+                    ? 'The previous send may have committed. Confirm it before starting another prompt.'
+                    : 'Enter to send · Shift+Enter for a new line'}
+                </small>
+                <button
+                  aria-label={submitting ? 'Sending' : composerPendingConfirmation ? 'Confirm send' : 'Send'}
+                  className="flex size-7 shrink-0 items-center justify-center rounded-[8px] border-0 bg-ink text-canvas transition-[background-color,color,transform] duration-200 enabled:cursor-pointer enabled:active:scale-[0.96] disabled:bg-line-strong disabled:text-ink-2"
+                  disabled={!canSubmit}
+                  type="submit"
+                >
+                  {composerPendingConfirmation && !submitting ? (
+                    <Glyph name="check" size={15} stroke={2.4} />
+                  ) : (
+                    <Glyph name="arrow-up" size={16} stroke={2.4} />
+                  )}
+                </button>
+              </div>
+            </div>
+            {submitFailed ? (
+              <p className="notice error" role="alert">
+                The prompt was not sent. Your draft is still here; check the connection and try again.
+              </p>
+            ) : null}
           </div>
-          {submitFailed ? (
-            <p className="notice error" role="alert">
-              The prompt was not sent. Your draft is still here; check the connection and try again.
-            </p>
-          ) : null}
         </form>
       )}
     </section>
   )
 }
 
-function ConnectionStatus({
-  label,
-  onReconnect,
-  state,
-}: {
-  label?: string
-  onReconnect: () => void
-  state: LiveAgentConnectionState
-}) {
-  const visibleLabel = label ?? connectionLabel(state)
-  return (
-    <div className="row-controls intelligence-console-connection" role="status">
-      <span className={`state-label ${state}`}>{visibleLabel}</span>
-      {state === 'offline' ? (
-        <button className="row-action" type="button" onClick={onReconnect}>Reconnect</button>
-      ) : null}
-    </div>
-  )
-}
-
 function AgentEmptyState({ description, title }: { description: string; title: string }) {
   return (
-    <div className="health-empty intelligence-console-empty">
-      <strong>{title}</strong>
-      <span>{description}</span>
+    <div className="m-auto flex flex-col items-center gap-1.5 px-6 py-10 text-center">
+      <Glyph className="text-ink-3" name="sparkle" size={20} />
+      <strong className="text-[13px] font-medium text-ink">{title}</strong>
+      <span className="max-w-90 text-[12.5px] leading-normal text-ink-3">{description}</span>
     </div>
   )
 }
@@ -291,47 +300,58 @@ function AgentEmptyState({ description, title }: { description: string; title: s
 function TimelineItem({ agentLabel, item }: { agentLabel: string; item: SafeAgentTimelineItem }) {
   if (item.kind === 'operator-text') {
     return (
-      <article className="list-row intelligence-console-row operator" data-timeline-id={item.id}>
+      <article className="flex justify-end pl-14" data-timeline-id={item.id}>
         <span className="visually-hidden">You said:</span>
-        <span className="row-glyph"><Icon name="users" /></span>
-        <div className="row-text">
-          <strong>You</strong>
-          <small>{item.text}</small>
-        </div>
+        <p className="m-0 rounded-xl bg-field px-3 py-1.5 text-[13px] leading-[1.4] whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">
+          {item.text}
+        </p>
       </article>
     )
   }
 
   if (item.kind === 'assistant-text') {
     return (
-      <article className={`list-row intelligence-console-row ${item.state}`} data-timeline-id={item.id}>
-        <span className="row-glyph watch"><Icon name="pulse" /></span>
-        <div className="row-text">
-          <strong>{agentLabel}</strong>
-          <small>{item.text}</small>
-        </div>
-        {item.state === 'streaming' ? <span className="state-label">Writing</span> : null}
+      <article className="w-full animate-fade-up" data-timeline-id={item.id}>
+        <span className="visually-hidden">{agentLabel} said:</span>
+        <Streamdown className="text-[13px] leading-normal text-ink">
+          {item.text}
+        </Streamdown>
       </article>
     )
   }
 
-  if (item.kind === 'thinking') return <ThinkingLifecycle id={item.id} state={item.state} />
+  if (item.kind === 'thinking') {
+    return <ThinkingTrace id={item.id} state={item.state} text={item.text} />
+  }
 
   return (
-    <div className={`list-row intelligence-console-row ${item.state}`} data-timeline-id={item.id}>
-      <span className={`row-glyph ${toolTone(item.state)}`}>
-        <Icon name={toolIcon(item.state)} />
+    <div
+      className="flex h-7 w-full min-w-0 items-center gap-2 px-[3px]"
+      data-timeline-id={item.id}
+    >
+      <span className="relative flex size-4 shrink-0 items-center justify-center text-ink-3">
+        <ToolStateGlyph state={item.state} />
       </span>
-      <div className="row-text">
-        <strong>{item.label}</strong>
-        {item.durationMs === undefined ? null : <small>{formatDuration(item.durationMs)}</small>}
-      </div>
-      <span className="state-label">{toolStateLabel(item.state)}</span>
+      <span className="shrink-0 text-[12.5px] font-medium text-ink">{item.label}</span>
+      {item.durationMs === undefined ? null : (
+        <span className="inline-flex h-5.5 min-w-0 items-center truncate rounded-[6px] bg-field px-1.5 text-[11.5px] text-ink-2 tabular-nums">
+          {formatDuration(item.durationMs)}
+        </span>
+      )}
+      <span className="visually-hidden">{toolStateLabel(item.state)}</span>
     </div>
   )
 }
 
-function ThinkingLifecycle({ id, state }: { id: string; state: 'streaming' | 'done' }) {
+function ThinkingTrace({
+  id,
+  state,
+  text,
+}: {
+  id: string
+  state: 'streaming' | 'done'
+  text: string
+}) {
   const [open, setOpen] = useState(state === 'streaming')
 
   useEffect(() => {
@@ -339,36 +359,52 @@ function ThinkingLifecycle({ id, state }: { id: string; state: 'streaming' | 'do
   }, [state])
 
   return (
-    <details
-      className={`intelligence-console-thinking ${state}`}
-      data-timeline-id={id}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-      open={open}
-    >
-      <summary className="list-row">
-        <span className={`row-glyph ${state === 'streaming' ? 'attention' : 'watch'}`}>
-          <Icon name="pulse" />
+    <div data-timeline-id={id}>
+      <button
+        aria-expanded={open}
+        className="-mx-1.5 flex w-fit cursor-pointer items-center gap-2 rounded-[6px] border-0 bg-transparent px-1.5 py-1 transition-colors duration-100 hover:bg-hover-2"
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <Glyph className="text-ink-3" name="sparkle" size={16} />
+        <span className={state === 'streaming'
+          ? undefined
+          : 'text-[13px] font-medium whitespace-nowrap text-ink-2'}
+        >
+          {state === 'streaming'
+            ? <ShimmerText>Thinking</ShimmerText>
+            : 'Thought through the request'}
         </span>
-        <span className="row-text">
-          <strong>{state === 'streaming' ? 'Thinking' : 'Thought through the request'}</strong>
-          <small>Internal reasoning stays private.</small>
-        </span>
-        <span className="state-label">{state === 'streaming' ? 'Working' : 'Done'}</span>
-      </summary>
-      <p className="muted">This entry shows only the reasoning lifecycle.</p>
-    </details>
+        <Glyph
+          className={`text-ink-3 transition-transform duration-300 ${open ? 'rotate-180' : ''}`}
+          name="chevron"
+          size={14}
+          stroke={2.2}
+        />
+      </button>
+      <div
+        className={`grid transition-[grid-template-rows,opacity] duration-400 ease-[cubic-bezier(0.23,1,0.32,1)] ${
+          open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div className="relative mt-1 ml-[5px] pl-4">
+            <span aria-hidden className="absolute top-0 left-[3px] h-full w-px bg-line" />
+            <p className="m-0 py-1 text-[12.5px] leading-[1.6] whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">
+              {text.length > 0 ? text : 'No reasoning text was recorded for this step.'}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
 function StreamingIndicator({ copy }: { copy: LiveAgentCopy }) {
   return (
-    <div className="list-row intelligence-console-row" role="status">
-      <span className="row-glyph attention"><Icon name="pulse" /></span>
-      <div className="row-text">
-        <strong>{copy.title}</strong>
-        <small>{copy.detail}</small>
-      </div>
-      <span className="state-label">Working</span>
+    <div className="px-[3px] py-1" role="status">
+      <LoadingState label={copy.title} />
+      <span className="visually-hidden">{copy.detail}</span>
     </div>
   )
 }
@@ -382,23 +418,77 @@ function TerminalState({
 }) {
   const copy = copyOverride ?? terminalCopy(state)
   return (
-    <div className={`list-row intelligence-console-row ${state}`} role={state === 'failed' ? 'alert' : 'status'}>
-      <span className={`row-glyph ${terminalTone(state)}`}>
-        <Icon name={terminalIcon(state)} />
+    <div
+      className="flex items-center gap-2 py-1"
+      role={state === 'failed' ? 'alert' : 'status'}
+    >
+      <span className={`inline-flex h-5.5 shrink-0 items-center rounded-full px-2 text-[11.5px] font-medium ${terminalTone(state)}`}>
+        {terminalLabel(state)}
       </span>
-      <div className="row-text">
-        <strong>{copy.title}</strong>
-        <small>{copy.detail}</small>
-      </div>
+      <span className="text-[11.5px] text-ink-3">{copy.detail}</span>
     </div>
   )
 }
 
-function connectionLabel(state: LiveAgentConnectionState) {
-  if (state === 'connecting') return 'Connecting'
-  if (state === 'connected') return 'Live'
-  if (state === 'reconnecting') return 'Reconnecting'
-  return 'Updates paused'
+function ToolStateGlyph({
+  state,
+}: {
+  state: Extract<SafeAgentTimelineItem, { kind: 'tool' }>['state']
+}) {
+  if (state === 'running') return <Spinner />
+  if (state === 'failed') return <Glyph className="text-red" name="alert" size={14} stroke={2.2} />
+  return <Glyph name="check" size={14} stroke={2.5} />
+}
+
+function Spinner() {
+  return (
+    <span
+      aria-hidden
+      className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-line-strong border-t-ink-2"
+    />
+  )
+}
+
+const glyphPaths = {
+  'arrow-up': 'M12 19V5M5 12l7-7 7 7',
+  check: 'M20 6L9 17l-5-5',
+  chevron: 'M6 9l6 6 6-6',
+  alert: 'M12 8.5v5M12 17h.01M10.3 3.9 2.6 17.2A2 2 0 0 0 4.3 20.2h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z',
+  sparkle: 'M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z',
+} as const
+
+function Glyph({
+  className,
+  name,
+  size,
+  stroke,
+}: {
+  className?: string
+  name: keyof typeof glyphPaths
+  size: number
+  stroke?: number
+}) {
+  const filled = stroke === undefined
+  return (
+    <svg
+      aria-hidden
+      {...className === undefined ? {} : { className }}
+      fill={filled ? 'currentColor' : 'none'}
+      height={size}
+      {...filled
+        ? {}
+        : {
+            stroke: 'currentColor',
+            strokeLinecap: 'round' as const,
+            strokeLinejoin: 'round' as const,
+            strokeWidth: stroke,
+          }}
+      viewBox="0 0 24 24"
+      width={size}
+    >
+      <path d={glyphPaths[name]} />
+    </svg>
+  )
 }
 
 function toolStateLabel(state: Extract<SafeAgentTimelineItem, { kind: 'tool' }>['state']) {
@@ -407,30 +497,16 @@ function toolStateLabel(state: Extract<SafeAgentTimelineItem, { kind: 'tool' }>[
   return 'Stopped'
 }
 
-function toolIcon(
-  state: Extract<SafeAgentTimelineItem, { kind: 'tool' }>['state'],
-): IconName {
-  if (state === 'complete') return 'check'
-  if (state === 'failed') return 'alert'
-  return 'code'
-}
-
-function toolTone(state: Extract<SafeAgentTimelineItem, { kind: 'tool' }>['state']) {
-  if (state === 'failed') return 'critical'
-  if (state === 'running') return 'attention'
-  return 'watch'
-}
-
-function terminalIcon(state: Exclude<LiveAgentTerminalState, 'none'>): IconName {
-  if (state === 'completed') return 'check'
-  if (state === 'failed') return 'alert'
-  return 'pause'
+function terminalLabel(state: Exclude<LiveAgentTerminalState, 'none'>) {
+  if (state === 'completed') return 'Completed'
+  if (state === 'aborted') return 'Stopped'
+  return 'Failed'
 }
 
 function terminalTone(state: Exclude<LiveAgentTerminalState, 'none'>) {
-  if (state === 'failed') return 'critical'
-  if (state === 'aborted') return 'attention'
-  return 'watch'
+  if (state === 'completed') return 'bg-green/10 text-green'
+  if (state === 'aborted') return 'bg-amber/10 text-amber'
+  return 'bg-red/10 text-red'
 }
 
 function terminalCopy(state: Exclude<LiveAgentTerminalState, 'none'>) {

@@ -15,18 +15,16 @@ const policyFieldsSource = read('./AutonomyPolicyFields.tsx')
 const stylesheet = read('../../index.css')
 
 test('intelligence surfaces compose the established operations primitives', () => {
+  assert.match(liveConsoleSource, /from 'streamdown'/)
+  assert.match(liveConsoleSource, /<Streamdown/)
   assertUsesClasses(liveConsoleSource, [
-    'card-surface',
-    'section-heading',
-    'health-list',
-    'list-row',
-    'row-glyph',
-    'row-text',
-    'state-label',
-    'field',
-    'button-row',
-    'primary',
-    'row-action',
+    'justify-end',
+    'rounded-xl',
+    'bg-field',
+    'text-ink',
+    'border-line',
+    'field-sizing-content',
+    'animate-spin',
     'notice error',
   ])
   assertUsesClasses(recommendationSource, [
@@ -68,7 +66,7 @@ test('intelligence surfaces compose the established operations primitives', () =
   ])
 })
 
-test('intelligence does not restore its former standalone visual skin', () => {
+test('intelligence keeps the legacy console skin removed and ships the chat surface', () => {
   const componentSources = [
     liveConsoleSource,
     recommendationSource,
@@ -103,34 +101,17 @@ test('intelligence does not restore its former standalone visual skin', () => {
     assert.equal(componentSources.includes(className), false, `${className} must stay removed`)
   }
 
-  const workspaceStyles = stylesheet.slice(stylesheet.indexOf('/* Intelligence workspace */'))
-  assert.notEqual(workspaceStyles, stylesheet, 'intelligence style boundary must exist')
-  for (const forbiddenStyle of [
-    /(?:radial-|linear-)?gradient\(/,
-    /box-shadow\s*:/,
-    /text-shadow\s*:/,
-    /backdrop-filter\s*:/,
-    /font-family\s*:/,
-    /animation\s*:/,
-    /@keyframes\b/,
-    /#[\da-f]{3,8}\b/i,
-    /rgba?\(/,
-  ]) {
-    assert.doesNotMatch(workspaceStyles, forbiddenStyle)
-  }
-
-  const intelligenceClasses = new Set(
-    Array.from(workspaceStyles.matchAll(/\.intelligence-[a-z\d-]+/g), (match) => match[0]),
-  )
   assert.ok(
-    intelligenceClasses.size <= 21,
-    `intelligence layout grew to ${intelligenceClasses.size} bespoke classes`,
+    stylesheet.includes('@import "tailwindcss/utilities.css"'),
+    'the chat surface is styled with Tailwind utilities',
   )
+  assert.ok(stylesheet.includes('--color-ink'), 'the Beautiful UI color tokens must exist')
+  assert.equal(stylesheet.includes('.ic-'), false, 'bespoke ic- chat CSS must stay removed')
 })
 
 test('the reusable trace does not mislabel every agent as the copilot', () => {
   assert.match(liveConsoleSource, /agentLabel = 'Copilot'/)
-  assert.match(liveConsoleSource, /<strong>\{agentLabel\}<\/strong>/)
+  assert.match(liveConsoleSource, /\{agentLabel\} said:/)
   assert.doesNotMatch(liveConsoleSource, /<strong>Copilot<\/strong>/)
   assert.match(read('../OperationsBriefStream.tsx'), /agentLabel="Brief agent"/)
   assert.match(autonomyStreamSource, /agentLabel="Autonomous agent"/)
@@ -146,7 +127,7 @@ test('the reusable trace does not mislabel every agent as the copilot', () => {
 
 test('the reusable trace exposes complete paged history without losing the reading position', () => {
   const streamHookSource = read('../../lib/useIntelligenceStream.ts')
-  assert.match(liveConsoleSource, /Load older activity/)
+  assert.match(liveConsoleSource, /Load earlier activity/)
   assert.match(liveConsoleSource, /historyAnchorRef/)
   assert.match(liveConsoleSource, /useLayoutEffect/)
   assert.match(streamHookSource, /loadOlderIntelligenceHistory/)

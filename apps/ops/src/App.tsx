@@ -12,6 +12,7 @@ import {
   type OperationsNavigationItem,
 } from './components/OperationsLayout'
 import type { ConfigurationTabsVisibility } from './components/ConfigurationTabs'
+import { Gate, GateAction, GateBoot } from './components/AuthGate'
 import { eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
 import { useOperationRunner } from './lib/operations'
@@ -124,11 +125,11 @@ const CheckpointConfiguration = lazy(() =>
 
 export default function App({ authClient }: { authClient: Code2CreateAuthClient }) {
   const publicState = useQuery(api.system.getPublicShellState, { eventSlug })
-  if (publicState === undefined) return <Centered>Loading…</Centered>
+  if (publicState === undefined) return <GateBoot status="Loading…" />
 
   return (
     <>
-      <AuthLoading><Centered>Checking access…</Centered></AuthLoading>
+      <AuthLoading><GateBoot status="Checking access…" /></AuthLoading>
       <Unauthenticated>
         <SignIn
           authClient={authClient}
@@ -157,7 +158,7 @@ function Operations({
   const roster = useQuery(api.rosters.mine, { eventSlug })
   const { data: session } = authClient.useSession()
   if (access === undefined || invitation === undefined || roster === undefined) {
-    return <Centered>Loading your event access…</Centered>
+    return <GateBoot status="Loading your event access…" />
   }
   if (roster) {
     return <RosterClaim authClient={authClient} roster={roster} />
@@ -692,16 +693,12 @@ function InvitationClaim({
 
 function NoOperationsAccess({ authClient }: { authClient: Code2CreateAuthClient }) {
   return (
-    <main className="centered">
-      <section className="sign-in">
-        <p className="eyebrow">Code2Create</p>
-        <h1>No event access</h1>
-        <p className="muted">This Google account has no current invitation or active event account.</p>
-        <button className="text-button" type="button" onClick={() => void authClient.signOut()}>
-          Use another Google account
-        </button>
-      </section>
-    </main>
+    <Gate
+      subtitle="This Google account has no current invitation or active event account."
+      title="No event access"
+    >
+      <GateAction label="Use another Google account" onClick={() => void authClient.signOut()} secondary />
+    </Gate>
   )
 }
 
@@ -752,25 +749,27 @@ function SignIn({
     }
   }
   return (
-    <main className="centered">
-      <section className="sign-in">
-        <p className="eyebrow">Code2Create</p>
-        <h1>Operations</h1>
-        <p className="muted">Sign in with the Google account assigned to your event permissions.</p>
-        <button className="primary" type="button" disabled={!googleConfigured || busy} onClick={() => void signIn()}>
-          {busy ? 'Opening Google…' : 'Continue with Google'}
-        </button>
-        {localDevelopmentFixturesEnabled ? (
-          <button className="secondary" type="button" disabled={busy} onClick={() => void signInLocally()}>
-            {busy ? 'Opening…' : 'Use local Supreme account'}
-          </button>
-        ) : null}
-        {!googleConfigured && !localDevelopmentFixturesEnabled ? (
-          <p className="notice">Google sign-in is not configured in this environment.</p>
-        ) : null}
-        {error ? <p className="notice error" role="alert">{error}</p> : null}
-      </section>
-    </main>
+    <Gate
+      error={error}
+      title="Operations"
+    >
+      <GateAction
+        disabled={!googleConfigured || busy}
+        label={busy ? 'Opening Google…' : 'Continue with Google'}
+        onClick={() => void signIn()}
+      />
+      {localDevelopmentFixturesEnabled ? (
+        <GateAction
+          disabled={busy}
+          label={busy ? 'Opening…' : 'Use local Supreme account'}
+          onClick={() => void signInLocally()}
+          secondary
+        />
+      ) : null}
+      {!googleConfigured && !localDevelopmentFixturesEnabled ? (
+        <p className="gate-error">Google sign-in is not configured in this environment.</p>
+      ) : null}
+    </Gate>
   )
 }
 

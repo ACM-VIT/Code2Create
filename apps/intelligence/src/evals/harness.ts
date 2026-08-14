@@ -15,7 +15,6 @@ import * as v from 'valibot';
 import { OperationsBrief, operationsBriefModel } from '../agents/operations-brief.ts';
 import {
 	intelligenceWorkersAiModelId,
-	maximumModelOutputTokens,
 	modelStreamIdleTimeoutMs,
 } from '../lib/workersAi.ts';
 import {
@@ -63,10 +62,7 @@ function configureEvaluationProvider() {
 							authorization: `Bearer ${apiToken}`,
 							'content-type': 'application/json',
 						},
-						body: JSON.stringify({
-							...inputs,
-							max_completion_tokens: maximumModelOutputTokens,
-						}),
+						body: JSON.stringify(inputs),
 						...(signal instanceof AbortSignal ? { signal } : {}),
 					},
 				);

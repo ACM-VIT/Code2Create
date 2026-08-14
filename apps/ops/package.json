@@ -23,12 +23,15 @@
     "@date-fns/tz": "^1.5.0",
     "@flue/react": "2.0.3",
     "@flue/sdk": "2.0.3",
+    "@tailwindcss/vite": "^4.3.3",
     "better-auth": "~1.6.25",
     "convex": "^1.43.0",
     "papaparse": "^5.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.2"
+    "react-router-dom": "^7.18.2",
+    "streamdown": "^2.5.0",
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.51.1",

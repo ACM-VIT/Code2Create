@@ -2,8 +2,6 @@ import { cloudflareBindingProvider } from '@flue/runtime/cloudflare/workers-ai';
 
 export const intelligenceWorkersAiModelId = '@cf/moonshotai/kimi-k2.6';
 export const operationsIntelligenceModel = `cloudflare/${intelligenceWorkersAiModelId}`;
-export const maximumModelOutputTokens = 2_048;
-export const modelRequestTimeoutMs = 60_000;
 export const modelStreamIdleTimeoutMs = 75_000;
 
 export async function runConfiguredWorkersAi(
@@ -16,23 +14,15 @@ export async function runConfiguredWorkersAi(
 		throw new Error('The configured Workers AI model is not allowed.');
 	}
 	const callerSignal = options?.['signal'];
-	const timeoutSignal = AbortSignal.timeout(modelRequestTimeoutMs);
-	const signals: AbortSignal[] = [timeoutSignal];
-	if (callerSignal instanceof AbortSignal) signals.push(callerSignal);
-	const signal = signals.length === 1 ? timeoutSignal : AbortSignal.any(signals);
 	const extraHeaders = options?.['extraHeaders'];
-	return ai.run(modelId, {
-		...inputs,
-		max_completion_tokens: maximumModelOutputTokens,
-	}, {
+	return ai.run(modelId, inputs, {
 		returnRawResponse: true,
 		gateway: {
 			id: 'default',
 			collectLog: false,
 			skipCache: true,
-			requestTimeoutMs: modelRequestTimeoutMs,
 		},
-		signal,
+		...(callerSignal instanceof AbortSignal ? { signal: callerSignal } : {}),
 		...(typeof extraHeaders === 'object' && extraHeaders !== null
 			? { extraHeaders }
 			: {}),

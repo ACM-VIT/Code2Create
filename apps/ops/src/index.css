@@ -1,3 +1,49 @@
+/* Tailwind v4 (no preflight — the app keeps its own base styles; utilities stay
+   unlayered so they beat the app's element selectors). */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css";
+@source "../node_modules/streamdown/dist/index.js";
+
+@theme {
+  --color-canvas: #141414;
+  --color-surface: #181818;
+  --color-field: #1f1f1f;
+  --color-ink: #f0f0f0;
+  --color-ink-2: rgb(240 240 240 / .74);
+  --color-ink-3: rgb(240 240 240 / .45);
+  --color-line: rgb(240 240 240 / .08);
+  --color-line-strong: rgb(240 240 240 / .14);
+  --color-hover: rgb(240 240 240 / .06);
+  --color-hover-2: rgb(240 240 240 / .1);
+  --color-green: #4ade80;
+  --color-red: #f0857d;
+  --color-amber: #e5b567;
+
+  --animate-fade-up: fade-up 320ms cubic-bezier(0.23, 1, 0.32, 1) both;
+
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+/* Keyframes for the Beautiful UI loading state and shimmer labels; referenced
+   from inline animation styles, so they live outside @theme. */
+@keyframes pixel-on {
+  0%, 100% { opacity: .15; }
+  50% { opacity: 1; }
+}
+
+@keyframes shimmer-text {
+  from { background-position: 130% 0; }
+  to { background-position: -70% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [style*="pixel-on"], [style*="shimmer-text"] { animation: none !important; }
+  [style*="shimmer-text"] { color: var(--color-ink-2); background: none; }
+}
+
 :root {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color: #f0f0f0;
@@ -49,6 +95,10 @@ p { line-height: 1.55; font-size: .8125rem; }
 .sidebar nav a:hover { color: var(--text); background: var(--hover); }
 .sidebar nav a.active { color: var(--text); background: var(--hover); }
 .workspace { min-width: 0; padding: 28px clamp(16px, 4vw, 40px) 96px; }
+/* The intelligence chat fills the viewport exactly; the page itself must not scroll. */
+html:has(.intelligence-workspace) { overflow: hidden; }
+.operations-shell:has(.intelligence-workspace) { height: 100dvh; min-height: 0; overflow: hidden; }
+.workspace:has(.intelligence-workspace) { display: flex; min-height: 0; flex-direction: column; padding: 0; overflow: hidden; }
 .incident-banner { display: grid; width: min(100%, 1080px); gap: 12px; margin: 0 auto 28px; padding: 16px; background: var(--surface); border: 1px solid var(--border-strong); }
 .incident-banner.critical { border-color: var(--border-strong); }
 .incident-banner-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; }
@@ -58,7 +108,7 @@ p { line-height: 1.55; font-size: .8125rem; }
 .incident-banner li { display: grid; gap: 3px; padding-top: 8px; border-top: 1px solid var(--border); }
 .incident-banner li strong { font-size: .76rem; }
 .incident-banner li span { color: var(--muted); font-size: .7rem; line-height: 1.45; }
-.queue-shell, .application-detail, .attendance-shell, .access-shell, .integration-health-shell, .review-shell, .health-shell, .intelligence-workspace-shell, .floor-shell, .emergency-pack-shell, .support-desk-shell, .rehearsal-shell, .track-config-shell, .phase-config-shell, .intake-policy-shell, .setup-home { width: min(100%, var(--shell-max)); margin: 0 auto; }
+.queue-shell, .application-detail, .attendance-shell, .access-shell, .integration-health-shell, .review-shell, .health-shell, .floor-shell, .emergency-pack-shell, .support-desk-shell, .rehearsal-shell, .track-config-shell, .phase-config-shell, .intake-policy-shell, .setup-home { width: min(100%, var(--shell-max)); margin: 0 auto; }
 .configuration-back { margin-bottom: 30px; }
 .configuration-back a { color: var(--muted); font-size: .75rem; text-decoration: none; }
 .configuration-back a:hover { color: var(--text); }
@@ -1255,7 +1305,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   text-decoration: none;
 }
 
-.health-shell, .intelligence-workspace-shell, .intelligence-activity-shell { display: grid; gap: 20px; align-content: start; }
+.health-shell, .intelligence-activity-shell { display: grid; gap: 20px; align-content: start; }
 .health-shell > .health-heading, .intelligence-activity-shell > .health-heading { margin-bottom: 0; }
 
 .instance-id { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .7rem; color: var(--faint); }
@@ -1966,118 +2016,6 @@ label > span { color: var(--muted); font-size: .75rem; }
   .integration-row-side { grid-column: 2 / -1; justify-items: start; }
 }
 
-/* Intelligence workspace */
-.intelligence-console {
-  display: grid;
-  overflow: hidden;
-  padding: 0;
-}
-
-.intelligence-console-header {
-  align-items: center;
-  padding: 18px 20px;
-  border-bottom: 1px solid var(--border);
-}
-
-.intelligence-console-header .eyebrow,
-.intelligence-console-header h2 {
-  margin: 0;
-}
-
-.intelligence-console-header h2 {
-  font-size: .8125rem;
-}
-
-.intelligence-console-connection .state-label.connected {
-  color: var(--accent);
-}
-
-.intelligence-console-connection .state-label.connecting,
-.intelligence-console-connection .state-label.reconnecting {
-  color: var(--warn);
-}
-
-.intelligence-console-connection .state-label.offline {
-  color: var(--danger);
-}
-
-.intelligence-console-timeline {
-  max-height: min(58vh, 580px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border-radius: 0;
-  scrollbar-color: var(--border-strong) transparent;
-}
-
-.intelligence-console-row {
-  align-items: start;
-}
-
-.intelligence-console-row.operator {
-  background: var(--raised);
-}
-
-.intelligence-console-row .row-text small {
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
-.intelligence-console-row.streaming .state-label,
-.intelligence-console-row.running .state-label {
-  color: var(--warn);
-}
-
-.intelligence-console-row.failed .state-label {
-  color: var(--danger);
-}
-
-.intelligence-console-thinking {
-  border-bottom: 1px solid var(--border);
-}
-
-.intelligence-console-thinking > summary {
-  cursor: pointer;
-  list-style: none;
-}
-
-.intelligence-console-thinking > summary::-webkit-details-marker {
-  display: none;
-}
-
-.intelligence-console-thinking > summary:hover {
-  background: var(--hover);
-}
-
-.intelligence-console-thinking > p {
-  margin: 0;
-  padding: 0 16px 14px 56px;
-  font-size: .75rem;
-}
-
-.intelligence-console-empty {
-  border-radius: 0;
-}
-
-.intelligence-console-composer {
-  display: grid;
-  gap: 10px;
-  padding: 16px 20px;
-  border-top: 1px solid var(--border);
-}
-
-.intelligence-console-composer textarea {
-  min-height: 76px;
-}
-
-.intelligence-console-composer .button-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.intelligence-console-composer .notice {
-  margin: 0;
-}
 
 .intelligence-brief {
   display: grid;
@@ -2107,9 +2045,6 @@ label > span { color: var(--muted); font-size: .75rem; }
   min-width: 0;
 }
 
-.intelligence-brief-stream .intelligence-console-timeline {
-  max-height: 360px;
-}
 
 .intelligence-brief-result {
   display: grid;
@@ -2239,37 +2174,50 @@ label > span { color: var(--muted); font-size: .75rem; }
 }
 
 @media (max-width: 760px) {
-  .intelligence-console-header,
   .intelligence-brief-heading,
   .intelligence-recommendation > .section-heading {
     display: grid;
   }
 
-  .intelligence-console-connection,
   .intelligence-brief-heading .secondary,
   .intelligence-recommendation > .section-heading .state-label {
     justify-self: start;
   }
 
-  .intelligence-console-row {
-    grid-template-columns: 28px minmax(0, 1fr);
-  }
+}
 
-  .intelligence-console-row > .state-label {
-    grid-column: 2;
-    justify-self: start;
-  }
-
-  .intelligence-console-thinking > summary {
-    grid-template-columns: 28px minmax(0, 1fr);
-  }
-
-  .intelligence-console-thinking > summary > .state-label {
-    grid-column: 2;
-    justify-self: start;
-  }
-
-  .intelligence-console-thinking > p {
-    padding-left: 56px;
-  }
+/* Brand gate (sign-in, access, and boot screens) */
+.brand-backdrop { position: relative; min-height: 100dvh; overflow: hidden; background: linear-gradient(180deg, #0c0004 0%, #0c0004 71%, #6d2b42 100%); }
+.brand-backdrop-tree { position: absolute; top: -40px; left: -170px; height: 108%; max-width: none; opacity: .92; pointer-events: none; user-select: none; }
+.brand-backdrop-scrim { position: absolute; right: 0; bottom: 0; left: 0; height: 55%; pointer-events: none; background: linear-gradient(180deg, rgba(12, 0, 4, 0) 0%, rgba(12, 0, 4, .72) 55%, rgba(12, 0, 4, .92) 100%); }
+.gate { position: relative; z-index: 1; display: flex; min-height: 100dvh; flex-direction: column; align-items: center; justify-content: center; padding: 48px 24px 110px; }
+.gate-body { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.gate-wordmark { margin-top: 22px; }
+.gate-title { margin: 20px 0 0; color: #fafbfb; font-size: 1.625rem; font-weight: 600; letter-spacing: -0.02em; }
+.gate-subtitle { margin: 10px 0 0; max-width: 340px; color: #b9a3ac; font-size: .9375rem; line-height: 1.5; }
+.gate-who { margin: 8px 0 0; color: #b9a3ac; font-size: 1rem; }
+.gate-error { width: min(100%, 340px); margin: 18px 0 0; color: #ff8a80; font-size: .875rem; line-height: 1.5; text-align: center; }
+.gate-actions { display: grid; width: min(100%, 340px); gap: 10px; margin-top: 28px; }
+.gate-actions:empty { display: none; }
+.gate-action { display: inline-flex; height: 54px; align-items: center; justify-content: center; padding: 0 20px; color: #0c0004; font-size: 1.0625rem; font-weight: 600; background: #fafbfb; border: 0; border-radius: 999px; cursor: pointer; transition: opacity .15s ease, transform .15s ease; }
+.gate-action-secondary { color: #fafbfb; background: rgba(250, 251, 251, .12); }
+.gate-action:hover:not(:disabled) { opacity: .88; }
+.gate-action:active:not(:disabled) { opacity: .8; transform: scale(.99); }
+.gate-action:disabled { opacity: .4; cursor: default; }
+.gate-action:focus-visible { outline: 2px solid #fafbfb; outline-offset: 3px; }
+.gate-foot { position: absolute; bottom: 34px; left: 50%; z-index: 1; transform: translateX(-50%); }
+.gate-booting { padding-bottom: 48px; }
+.gate-boot-mark { animation: gate-enter .7s cubic-bezier(.2, .8, .3, 1) both; }
+.gate-boot-mark svg { animation: gate-breathe 3.8s ease-in-out .7s infinite; }
+.gate-boot-wordmark { margin-top: 26px; animation: gate-fade .9s ease-out both; }
+@keyframes gate-enter { from { opacity: 0; transform: scale(1.45); } to { opacity: 1; transform: scale(1); } }
+@keyframes gate-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@keyframes gate-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (max-width: 640px) {
+  .brand-backdrop-tree { left: -220px; }
+  .gate { justify-content: flex-end; padding-bottom: 96px; }
+  .gate-booting { justify-content: center; padding-bottom: 48px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gate-boot-mark, .gate-boot-mark svg, .gate-boot-wordmark { animation: none; }
 }

@@ -102,7 +102,6 @@ export function OperationsCopilotConsole({
       composerPendingConfirmation={hasPendingTurn}
       composerRequiresConnection={false}
       composerResetKey={composerResetKey}
-      {...canRead ? {} : { connectionLabel: 'Submit only' }}
       connectionState={connectionState}
       emptyDescription={canRead
         ? 'Ask about review flow, attendance, floor mapping, support load, or admissions.'

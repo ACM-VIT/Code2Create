@@ -85,7 +85,7 @@ describe('sanitized Flue projection', () => {
 				turnId: 'turn-safe-1',
 				metadata: { prompt: 'private metadata' },
 				parts: [
-					{ type: 'reasoning', text: 'private chain of thought', state: 'done' },
+					{ type: 'reasoning', text: 'visible chain of thought', state: 'done' },
 					{ type: 'data-secret', data: { private: true } },
 					{ type: 'file', mediaType: 'text/plain', url: 'https://private.test/file' },
 					{
@@ -124,7 +124,7 @@ describe('sanitized Flue projection', () => {
 		expect(history.messages[1]).toMatchObject({
 			id: 'message-assistant',
 			parts: [
-				{ type: 'reasoning', text: '', state: 'done' },
+				{ type: 'reasoning', text: 'visible chain of thought', state: 'done' },
 				{
 					type: 'dynamic-tool',
 					toolName: 'task',
@@ -137,7 +137,6 @@ describe('sanitized Flue projection', () => {
 		const serialized = JSON.stringify(history);
 		for (const privateValue of [
 			'private system instruction',
-			'private chain of thought',
 			'private metadata',
 			'private prompt',
 			'tool result',
@@ -475,7 +474,7 @@ describe('sanitized Flue projection', () => {
 				conversationId: nativeConversationId,
 				messageId: 'assistant-live',
 				kind: 'reasoning',
-				delta: 'private reasoning',
+				delta: 'visible reasoning',
 				position: position(1),
 			},
 			{
@@ -576,7 +575,7 @@ describe('sanitized Flue projection', () => {
 		expect(serialized).toContain('Live answer.');
 		expect(serialized).toContain('"agent":"investigator"');
 		expect(serialized).not.toContain('private prompt');
-		expect(serialized).not.toContain('private reasoning');
+		expect(serialized).toContain('visible reasoning');
 		expect(serialized).not.toContain('"private":"result"');
 	});
 });

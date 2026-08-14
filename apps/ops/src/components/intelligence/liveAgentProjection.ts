@@ -22,6 +22,7 @@ export type SafeAgentTimelineItem =
       id: string
       kind: 'thinking'
       state: 'streaming' | 'done'
+      text: string
     }>
   | Readonly<{
       durationMs?: number
@@ -99,6 +100,11 @@ export function projectVisibleAgentTimeline(
             id: timelineItemId(message.id, partIndex),
             kind: 'thinking',
             state: reasoningState,
+            text: message.parts
+              .filter((candidate) => candidate.type === 'reasoning')
+              .map((candidate) => candidate.text)
+              .join('\n\n')
+              .trim(),
           })
           projectedReasoning = true
         }

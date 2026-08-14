@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ops",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "apps/ops", "dev"],
+      "port": 5181
+    }
+  ]
+}

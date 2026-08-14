@@ -3,8 +3,6 @@ import { describe, expect, test, vi } from 'vitest';
 import {
 	createIntelligenceWorkersAiProvider,
 	intelligenceWorkersAiModelId,
-	maximumModelOutputTokens,
-	modelRequestTimeoutMs,
 	runConfiguredWorkersAi,
 } from './workersAi.ts';
 
@@ -23,25 +21,19 @@ function aiBinding() {
 }
 
 describe('Workers AI policy', () => {
-	test('pins the model, output cap, privacy, cache, and request timeout', async () => {
+	test('pins the model, privacy, and cache without capping output or racing a timeout', async () => {
 		const { ai, run } = aiBinding();
 		run.mockResolvedValueOnce(new Response(null, { status: 200 }));
 		const controller = new AbortController();
 		await runConfiguredWorkersAi(ai, intelligenceWorkersAiModelId, {
 			messages: [],
-			max_completion_tokens: maximumModelOutputTokens * 2,
 		}, { signal: controller.signal, extraHeaders: { 'x-session-affinity': 'session-1' } });
 
 		expect(run).toHaveBeenCalledOnce();
 		const invocation = run.mock.calls[0];
 		if (invocation === undefined) throw new Error('Workers AI was not called.');
 		expect(invocation[0]).toBe(intelligenceWorkersAiModelId);
-		expect(invocation[1]).toEqual(
-			{
-				messages: [],
-				max_completion_tokens: maximumModelOutputTokens,
-			},
-		);
+		expect(invocation[1]).toEqual({ messages: [] });
 		expect(invocation[2]).toMatchObject(
 			{
 				returnRawResponse: true,
@@ -49,16 +41,13 @@ describe('Workers AI policy', () => {
 					id: 'default',
 					collectLog: false,
 					skipCache: true,
-					requestTimeoutMs: modelRequestTimeoutMs,
 				},
 				extraHeaders: { 'x-session-affinity': 'session-1' },
 			},
 		);
-		const combinedSignal = invocation[2]?.signal;
-		expect(combinedSignal).toBeInstanceOf(AbortSignal);
-		expect(combinedSignal).not.toBe(controller.signal);
-		controller.abort();
-		expect(combinedSignal?.aborted).toBe(true);
+		expect(invocation[2]?.gateway).not.toHaveProperty('requestTimeoutMs');
+		expect(invocation[1]).not.toHaveProperty('max_completion_tokens');
+		expect(invocation[2]?.signal).toBe(controller.signal);
 	});
 
 	test('rejects every other model before calling the binding', async () => {
