@@ -140,12 +140,48 @@ const GlyphIn: React.FC<{ glyph: Glyph; i: number; start: number }> = ({ glyph, 
   )
 }
 
-export const Wordmark: React.FC<{ start: number; width: number }> = ({ start, width }) => {
+export const Wordmark: React.FC<{ start: number; width: number; sheen?: number }> = ({
+  start,
+  width,
+  sheen,
+}) => {
+  const sheenActive = sheen !== undefined && sheen > -1 && sheen < 2
+  const sheenX = (sheen ?? 0) * 0.6 * 1032
   return (
     <svg viewBox="0 0 1032 131" style={{ width, overflow: 'visible' }}>
       {GLYPHS.map((glyph, i) => (
         <GlyphIn key={i} glyph={glyph} i={i} start={start} />
       ))}
+      {sheenActive ? (
+        <>
+          <defs>
+            <linearGradient
+              id="wm-sheen"
+              gradientUnits="userSpaceOnUse"
+              x1={sheenX - 186}
+              y1={15}
+              x2={sheenX + 186}
+              y2={116}
+            >
+              <stop offset="0" stopColor="#fff" stopOpacity="0" />
+              <stop offset="0.5" stopColor="#fff" stopOpacity="1" />
+              <stop offset="1" stopColor="#fff" stopOpacity="0" />
+            </linearGradient>
+            <mask id="wm-sheen-mask">
+              <rect x={-200} y={-60} width={1432} height={260} fill="url(#wm-sheen)" />
+            </mask>
+          </defs>
+          <g
+            mask="url(#wm-sheen-mask)"
+            opacity={0.8}
+            style={{ filter: 'drop-shadow(0 0 18px rgba(241, 206, 223, 0.9))' }}
+          >
+            {GLYPHS.flatMap((glyph) => glyph.paths).map((d, i) => (
+              <path key={i} d={d} fill="#FFF0F5" />
+            ))}
+          </g>
+        </>
+      ) : null}
     </svg>
   )
 }

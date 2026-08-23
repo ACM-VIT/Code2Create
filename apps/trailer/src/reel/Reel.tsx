@@ -1,4 +1,4 @@
-import { AbsoluteFill, Easing, Img, interpolate, random, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion'
+import { AbsoluteFill, Easing, Img, interpolate, OffthreadVideo, random, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion'
 import { Audio } from '@remotion/media'
 import { noise3D } from '@remotion/noise'
 import { Wordmark } from '../components/Wordmark.tsx'
@@ -17,15 +17,15 @@ const ASSEMBLE_H = 1200
 
 
 const LANTERN_FLIGHTS = [
-  { x: 130, size: 140, sway: 36, glow: 0.4, from: 0, to: 430, y0: 1250, y1: -280 },
-  { x: 640, size: 280, sway: 26, glow: 0.5, from: 36, to: 470, y0: 1780, y1: -340 },
-  { x: 900, size: 82, sway: 28, glow: 0.32, from: 120, to: 640, y0: 1560, y1: 100 },
-  { x: 80, size: 190, sway: 24, glow: 0.5, from: 340, to: 660, y0: 1800, y1: 360 },
+  { x: 130, size: 140, sway: 36, glow: 0.4, from: 0, to: 310, y0: 1250, y1: -280 },
+  { x: 640, size: 280, sway: 26, glow: 0.5, from: 26, to: 340, y0: 1780, y1: -340 },
+  { x: 900, size: 82, sway: 28, glow: 0.32, from: 90, to: 470, y0: 1560, y1: 100 },
+  { x: 80, size: 190, sway: 24, glow: 0.5, from: 250, to: 490, y0: 1800, y1: 360 },
 ]
 
 const World: React.FC = () => {
   const frame = useCurrentFrame()
-  const settle = interpolate(frame, [0, 220], [0, 1], {
+  const settle = interpolate(frame, [0, 150], [0, 1], {
     easing: Easing.bezier(0.45, 0, 0.55, 1),
     ...CLAMP,
   })
@@ -113,16 +113,6 @@ const World: React.FC = () => {
           maskImage: 'linear-gradient(180deg, black 56%, transparent 80%)',
         }}
       />
-      <Img
-        src={staticFile('acm-vit.svg')}
-        style={{
-          position: 'absolute',
-          left: 540 - 150,
-          top: 1580,
-          width: 300,
-          opacity: interpolate(frame, [14, 38, 200, 224], [0, 0.6, 0.6, 0], CLAMP),
-        }}
-      />
     </AbsoluteFill>
   )
 }
@@ -184,7 +174,7 @@ const AssembleMark: React.FC = () => {
     easing: Easing.out(Easing.cubic),
     ...CLAMP,
   })
-  const settled = frame >= R.snap + 12
+  const settled = frame >= R.snap + 30
   if (settled) {
     return (
       <div
@@ -195,7 +185,7 @@ const AssembleMark: React.FC = () => {
           transform: `translate(-50%, -50%) scale(${impact})`,
         }}
       >
-        <LogoMark start={R.snap - 40} height={height} />
+        <LogoMark start={R.snap - 80} height={height} />
       </div>
     )
   }
@@ -208,7 +198,23 @@ const AssembleMark: React.FC = () => {
         transform: `translate(-50%, -50%) scale(${impact})`,
       }}
     >
-      <svg viewBox={LOGO_VIEWBOX} style={{ height, overflow: 'visible', display: 'block' }}>
+      <svg
+        viewBox={LOGO_VIEWBOX}
+        style={{
+          height,
+          overflow: 'visible',
+          display: 'block',
+          filter: 'drop-shadow(0 20px 44px rgba(12, 0, 4, 0.55))',
+        }}
+      >
+        <defs>
+          {FACETS.map((facet, i) => (
+            <linearGradient key={i} id={`asmf${i}`} x1="0" y1="0" x2="0.35" y2="1">
+              <stop offset="0" stopColor={facet.from} />
+              <stop offset="1" stopColor={facet.to} />
+            </linearGradient>
+          ))}
+        </defs>
         <path d={RIM} fill={COLORS.white} opacity={rimFill} />
         <path
           d={RIM}
@@ -218,7 +224,7 @@ const AssembleMark: React.FC = () => {
           pathLength={1}
           strokeDasharray={1}
           strokeDashoffset={rimDraw}
-          opacity={rimFill < 1 ? 0.95 : 0}
+          opacity={(1 - rimFill) * 0.95}
           style={{ filter: 'drop-shadow(0 0 8px rgba(250, 251, 251, 0.6))' }}
         />
         <g>
@@ -236,24 +242,25 @@ const AssembleMark: React.FC = () => {
               ...CLAMP,
             })
             const commit = interpolate(frame, [R.snap - 34 + i * 2, R.snap + i * 2 - 4], [0, 1], {
-              easing: Easing.in(Easing.cubic),
+              easing: Easing.bezier(0.6, 0, 0.2, 1),
               ...CLAMP,
             })
             const p = Math.min(1, drift + commit * (1 - drift))
             const wobble = noise3D(`fw${i}`, 0, 0, frame / 60) * (1 - p) * 6
             const appear = interpolate(frame, [R.flight + i * 3, R.flight + 16 + i * 3], [0, 1], CLAMP)
-            const shimmer = 0.82 + Math.abs(noise3D(`fs${i}`, 0, 0, frame / 22)) * 0.18
+            const shimmer = 0.9 + Math.abs(noise3D(`fs${i}`, 0, 0, frame / 40)) * 0.1
+            const solid = interpolate(p, [0.85, 0.99], [0, 1], CLAMP)
             return (
               <path
                 key={i}
                 d={facet.d}
-                fill={facet.fill}
-                opacity={(p >= 0.99 ? 1 : shimmer) * appear}
+                fill={`url(#asmf${i})`}
+                opacity={lerp(shimmer, 1, solid) * appear}
                 style={{
                   transform: `translate(${(1 - p) * s.dx}px, ${(1 - p) * s.dy}px) rotate(${(1 - p) * s.rot + wobble}deg)`,
                   transformBox: 'fill-box',
                   transformOrigin: 'center',
-                  ...(p < 0.85 ? { filter: `blur(${(1 - p) * 1.6}px)` } : {}),
+                  filter: `blur(${(1 - p) * 1.6}px)`,
                 }}
               />
             )
@@ -304,7 +311,10 @@ const PullPetals: React.FC = () => {
 
 const SnapImpact: React.FC = () => {
   const frame = useCurrentFrame()
-  const flash = interpolate(frame, [R.snap - 1, R.snap + 3, R.snap + 16], [0, 0.85, 0], CLAMP)
+  const flash = interpolate(frame, [R.snap - 1, R.snap + 3, R.snap + 22], [0, 0.5, 0], {
+    easing: Easing.out(Easing.quad),
+    ...CLAMP,
+  })
   const ringP = interpolate(frame, [R.snap, R.snap + 28], [0, 1], {
     easing: Easing.out(Easing.cubic),
     ...CLAMP,
@@ -489,6 +499,7 @@ const LaunchLine: React.FC<{ from: number; size: number; y: number; weight: numb
         color,
         opacity: p,
         filter: `blur(${(1 - p) * 10}px)`,
+        transform: `translateY(${(1 - p) * 16}px)`,
       }}
     >
       {children}
@@ -496,9 +507,84 @@ const LaunchLine: React.FC<{ from: number; size: number; y: number; weight: numb
   )
 }
 
+const RegistrationsOpen: React.FC = () => {
+  const frame = useCurrentFrame()
+  if (frame < R.url) {
+    return null
+  }
+  const p = interpolate(frame, [R.url, R.url + 34], [0, 1], {
+    easing: Easing.bezier(0.16, 1, 0.3, 1),
+    ...CLAMP,
+  })
+  const breathe = 0.88 + Math.abs(noise3D('reg', 0, 0, frame / 30)) * 0.12
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 1178,
+        width: '100%',
+        textAlign: 'center',
+        fontFamily: launch,
+        fontWeight: 600,
+        fontSize: 31,
+        letterSpacing: `${lerp(0.4, 0.26, p)}em`,
+        paddingLeft: '0.26em',
+        color: COLORS.blossomLight,
+        opacity: p * breathe,
+        filter: `blur(${(1 - p) * 10}px)`,
+        transform: `translateY(${(1 - p) * 16}px)`,
+        textShadow: '0 0 26px rgba(216, 132, 162, 0.45)',
+      }}
+    >
+      REGISTRATIONS OPEN
+    </div>
+  )
+}
+
+const AcmEnd: React.FC = () => {
+  const frame = useCurrentFrame()
+  if (frame < R.url + 22) {
+    return null
+  }
+  const p = interpolate(frame, [R.url + 22, R.url + 56], [0, 1], {
+    easing: Easing.bezier(0.16, 1, 0.3, 1),
+    ...CLAMP,
+  })
+  return (
+    <Img
+      src={staticFile('acm-vit.svg')}
+      style={{
+        position: 'absolute',
+        left: 540 - 110,
+        top: 1560,
+        width: 220,
+        opacity: p * 0.8,
+        filter: `brightness(0) invert(0.92) blur(${(1 - p) * 8}px)`,
+        transform: `translateY(${(1 - p) * 14}px)`,
+      }}
+    />
+  )
+}
+
+const Outro: React.FC = () => {
+  const frame = useCurrentFrame()
+  const fadeIn = interpolate(frame, [0, 10], [0, 1], CLAMP)
+  return (
+    <AbsoluteFill style={{ backgroundColor: COLORS.night }}>
+      <OffthreadVideo
+        src={staticFile('outro.mp4')}
+        style={{ width: '100%', height: '100%', opacity: fadeIn }}
+      />
+    </AbsoluteFill>
+  )
+}
+
 const ReelFade: React.FC = () => {
   const frame = useCurrentFrame()
-  const opacity = interpolate(frame, [R.fade, R.total - 2], [0, 1], CLAMP)
+  const opacity = interpolate(frame, [R.fade, R.outro - 2], [0, 1], {
+    easing: Easing.in(Easing.quad),
+    ...CLAMP,
+  })
   if (opacity === 0) {
     return null
   }
@@ -525,36 +611,23 @@ export const Reel: React.FC = () => {
             transform: 'translate(-50%, -50%)',
           }}
         >
-          <div style={{ position: 'relative', overflow: 'hidden', paddingBottom: 6 }}>
-            <Wordmark start={R.word} width={880} />
-            {wordP > -1 && wordP < 2 ? (
-              <div
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  mixBlendMode: 'screen',
-                  background: `linear-gradient(105deg, transparent ${wordP * 60 - 18}%, rgba(255, 240, 245, 0.4) ${wordP * 60}%, transparent ${wordP * 60 + 18}%)`,
-                }}
-              />
-            ) : null}
-          </div>
+          <Wordmark start={R.word} width={880} sheen={wordP} />
         </div>
       ) : null}
-      <LaunchLine from={R.tagline} size={46} weight={600} y={1120}>
+      <LaunchLine from={R.tagline} size={46} weight={600} y={1080}>
         Don’t just code for the vibes.
       </LaunchLine>
-      <LaunchLine from={R.url} size={54} weight={700} y={1250} color={COLORS.white}>
-        code2create.in
-      </LaunchLine>
-      <LaunchLine from={R.url + 14} size={26} weight={500} y={1330} color="#B9A3AC">
-        VIT Vellore
-      </LaunchLine>
+      <RegistrationsOpen />
+      <AcmEnd />
       <Sequence from={R.snap - 8} durationInFrames={40} premountFor={30}>
-        <Audio src={staticFile('sfx/whoosh.wav')} volume={0.35} />
+        <Audio src={staticFile('sfx/whoosh.wav')} volume={0.25} />
       </Sequence>
       <Grain />
       <Vignette strength={0.38} />
       <ReelFade />
+      <Sequence from={R.outro} durationInFrames={R.total - R.outro} premountFor={60}>
+        <Outro />
+      </Sequence>
     </AbsoluteFill>
   )
 }

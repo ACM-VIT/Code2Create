@@ -38,14 +38,16 @@ export const CLAMP = {
   extrapolateRight: 'clamp',
 } as const
 
+// R.snap sits on the music drop: sakura.mp3 is trimmed so its hit lands at 8s.
 export const R = {
-  flight: 240,
-  snap: 330,
-  lockup: 342,
-  word: 358,
-  night: 400,
-  tagline: 448,
-  url: 500,
-  fade: 586,
-  total: 600,
+  flight: 150,
+  snap: 240,
+  lockup: 252,
+  word: 268,
+  night: 310,
+  tagline: 358,
+  url: 410,
+  fade: 572,
+  outro: 600,
+  total: 735,
 } as const
