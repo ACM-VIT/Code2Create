@@ -3,7 +3,6 @@ import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { api, components } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
 import {
   defaultParticipantPolicy,
   normalizeParticipantPolicy,
@@ -43,6 +42,11 @@ describe("participant onboarding lifecycle", () => {
     const firstAcceptance = await participant.mutation(api.participants.acceptPolicy, acceptance);
     const replayedAcceptance = await participant.mutation(api.participants.acceptPolicy, acceptance);
     expect(replayedAcceptance).toEqual(firstAcceptance);
+    await expect(
+      participant.query(api.access.participantCapabilities, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({ teamJoin: true });
 
     await backend.run(async (ctx) => {
       const membership = await ctx.db.get(fixture.membershipId);
@@ -80,6 +84,11 @@ describe("participant onboarding lifecycle", () => {
         revokeReason: "Permission-boundary test",
       });
     });
+    await expect(
+      participant.query(api.access.participantCapabilities, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({ teamJoin: false });
     await expect(participant.mutation(api.teams.create, {
       eventSlug: fixture.eventSlug,
       name: "Quiet Circuit",
@@ -104,6 +113,11 @@ describe("participant onboarding lifecycle", () => {
         revokeReason: undefined,
       });
     });
+    await expect(
+      participant.query(api.access.participantCapabilities, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({ teamJoin: true });
 
     const createRequest = {
       eventSlug: fixture.eventSlug,
@@ -132,6 +146,258 @@ describe("participant onboarding lifecycle", () => {
       eventSlug: fixture.eventSlug,
     });
     expect(currentTeam?.activeMemberCount).toBe(1);
+    expect(currentTeam).toMatchObject({
+      canLeave: true,
+      canManageMembers: true,
+      canTransferLeadership: true,
+      canRespondToLeadershipTransfer: true,
+      canWriteProject: true,
+      canSubmitApplication: true,
+      canRespondToInformationRequest: true,
+      canRespondToOffer: true,
+    });
+
+    await expect(
+      participant.query(api.access.participantCapabilities, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({
+      profileRead: true,
+      profileWrite: true,
+      teamJoin: true,
+      hasTeamMembership: true,
+      teamRead: true,
+      integrations: true,
+      notifications: true,
+    });
+    const profileReadGrantId = await backend.run(async (ctx) => {
+      const profileReadGrant = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_subject_permission_status", (index) =>
+          index
+            .eq("eventAccessSubjectId", fixture.subjectId)
+            .eq("permissionKey", "participant.profile.read")
+            .eq("status", "active"),
+        )
+        .unique();
+      if (
+        !profileReadGrant ||
+        profileReadGrant.scopeType !== "self" ||
+        profileReadGrant.scopeId !== fixture.membershipId
+      ) {
+        throw new Error("The exact profile-read grant is missing.");
+      }
+      await ctx.db.patch(profileReadGrant._id, {
+        status: "revoked",
+        revokedAt: fixture.now + 1,
+        revokedByPersonId: fixture.personId,
+        revokeReason: "Permission-boundary test",
+      });
+      return profileReadGrant._id;
+    });
+    await expect(
+      participant.query(api.access.participantCapabilities, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({ profileRead: false, profileWrite: true });
+    await expect(
+      participant.query(api.participants.me, { eventSlug: fixture.eventSlug }),
+    ).resolves.toMatchObject({
+      membership: { id: fixture.membershipId },
+      profile: null,
+    });
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(profileReadGrantId, {
+        status: "active",
+        revokedAt: undefined,
+        revokedByPersonId: undefined,
+        revokeReason: undefined,
+      });
+    });
+    const projectWriteGrantId = await backend.run(async (ctx) => {
+      const projectWriteGrant = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_subject_permission_status", (index) =>
+          index
+            .eq("eventAccessSubjectId", fixture.subjectId)
+            .eq("permissionKey", "team.project.write")
+            .eq("status", "active"),
+        )
+        .unique();
+      if (
+        !projectWriteGrant ||
+        projectWriteGrant.scopeType !== "team" ||
+        projectWriteGrant.scopeId !== created.teamId
+      ) {
+        throw new Error("The exact project-write grant is missing.");
+      }
+      await ctx.db.patch(projectWriteGrant._id, {
+        status: "revoked",
+        revokedAt: fixture.now + 1,
+        revokedByPersonId: fixture.personId,
+        revokeReason: "Permission-boundary test",
+      });
+      return projectWriteGrant._id;
+    });
+    await expect(
+      participant.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).resolves.toMatchObject({ canWriteProject: false, canLeave: true });
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(projectWriteGrantId, {
+        status: "active",
+        revokedAt: undefined,
+        revokedByPersonId: undefined,
+        revokeReason: undefined,
+      });
+    });
+    const teamReadGrantId = await backend.run(async (ctx) => {
+      const teamReadGrant = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_subject_permission_status", (index) =>
+          index
+            .eq("eventAccessSubjectId", fixture.subjectId)
+            .eq("permissionKey", "team.read")
+            .eq("status", "active"),
+        )
+        .unique();
+      if (
+        !teamReadGrant ||
+        teamReadGrant.scopeType !== "team" ||
+        teamReadGrant.scopeId !== created.teamId
+      ) {
+        throw new Error("The exact team-read grant is missing.");
+      }
+      await ctx.db.patch(teamReadGrant._id, {
+        status: "revoked",
+        revokedAt: fixture.now + 1,
+        revokedByPersonId: fixture.personId,
+        revokeReason: "Permission-boundary test",
+      });
+      return teamReadGrant._id;
+    });
+    await expect(
+      participant.query(api.access.participantCapabilities, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({
+      hasTeamMembership: true,
+      teamRead: false,
+      integrations: true,
+      notifications: true,
+    });
+    await expect(
+      participant.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).resolves.toBeNull();
+    await expect(
+      participant.query(api.teams.members, {
+        eventSlug: fixture.eventSlug,
+        paginationOpts: { numItems: 25, cursor: null },
+      }),
+    ).resolves.toEqual({ page: [], isDone: true, continueCursor: "" });
+    await expect(
+      participant.query(api.intake.status, { eventSlug: fixture.eventSlug }),
+    ).resolves.toBeNull();
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(teamReadGrantId, {
+        status: "active",
+        revokedAt: undefined,
+        revokedByPersonId: undefined,
+        revokeReason: undefined,
+      });
+    });
+
+    const integrationReadGrantId = await backend.run(async (ctx) => {
+      const integrationReadGrant = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_subject_permission_status", (index) =>
+          index
+            .eq("eventAccessSubjectId", fixture.subjectId)
+            .eq("permissionKey", "integration.read")
+            .eq("status", "active"),
+        )
+        .unique();
+      if (
+        !integrationReadGrant ||
+        integrationReadGrant.scopeType !== "team" ||
+        integrationReadGrant.scopeId !== created.teamId
+      ) {
+        throw new Error("The exact integration-read grant is missing.");
+      }
+      await ctx.db.patch(integrationReadGrant._id, {
+        status: "revoked",
+        revokedAt: fixture.now + 2,
+        revokedByPersonId: fixture.personId,
+        revokeReason: "Permission-boundary test",
+      });
+      return integrationReadGrant._id;
+    });
+    await expect(
+      participant.query(api.access.participantCapabilities, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({ integrations: false });
+    await expect(
+      participant.query(api.githubIntegrations.current, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      participant.query(api.figmaIntegrations.current, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toBeNull();
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(integrationReadGrantId, {
+        status: "active",
+        revokedAt: undefined,
+        revokedByPersonId: undefined,
+        revokeReason: undefined,
+      });
+    });
+
+    const notificationReadGrantId = await backend.run(async (ctx) => {
+      const notificationReadGrant = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_subject_permission_status", (index) =>
+          index
+            .eq("eventAccessSubjectId", fixture.subjectId)
+            .eq("permissionKey", "communications.delivery.self.read")
+            .eq("status", "active"),
+        )
+        .unique();
+      if (
+        !notificationReadGrant ||
+        notificationReadGrant.scopeType !== "self" ||
+        notificationReadGrant.scopeId !== fixture.membershipId
+      ) {
+        throw new Error("The exact notification-read grant is missing.");
+      }
+      await ctx.db.patch(notificationReadGrant._id, {
+        status: "revoked",
+        revokedAt: fixture.now + 3,
+        revokedByPersonId: fixture.personId,
+        revokeReason: "Permission-boundary test",
+      });
+      return notificationReadGrant._id;
+    });
+    await expect(
+      participant.query(api.access.participantCapabilities, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({ notifications: false });
+    await expect(
+      participant.query(api.participantNotifications.mine, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toBeNull();
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(notificationReadGrantId, {
+        status: "active",
+        revokedAt: undefined,
+        revokedByPersonId: undefined,
+        revokeReason: undefined,
+      });
+    });
 
     const duplicateTransferIds = await backend.run(async (ctx) => {
       const transfer = {
@@ -234,6 +500,127 @@ describe("participant onboarding lifecycle", () => {
       clientOperationId: "leave-after-applications-close",
     })).rejects.toThrow("Applications are closed");
   }, 10_000);
+
+  test("transfers team leadership and its exact grants through an idempotent acceptance", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const nextLead = await seedAdditionalParticipant(backend, fixture);
+    const currentLeadClient = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    const nextLeadClient = backend.withIdentity({
+      subject: nextLead.authUserId,
+      sessionId: nextLead.authSessionId,
+    });
+
+    await currentLeadClient.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "lead-policy-acceptance",
+    });
+    await nextLeadClient.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "next-lead-policy-acceptance",
+    });
+
+    const created = await currentLeadClient.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Transfer Test",
+      clientOperationId: "transfer-team-create",
+    });
+    await nextLeadClient.mutation(api.teams.join, {
+      eventSlug: fixture.eventSlug,
+      code: created.publicCode,
+      clientOperationId: "transfer-team-join",
+    });
+
+    const request = {
+      eventSlug: fixture.eventSlug,
+      toMembershipId: nextLead.membershipId,
+      expectedTeamVersion: 2,
+      clientOperationId: "lead-transfer-request-once",
+    } as const;
+    const transfer = await currentLeadClient.mutation(api.teams.requestLeadershipTransfer, request);
+    expect(await currentLeadClient.mutation(api.teams.requestLeadershipTransfer, request)).toEqual(transfer);
+
+    await expect(currentLeadClient.mutation(api.teams.respondToLeadershipTransfer, {
+      eventSlug: fixture.eventSlug,
+      transferId: transfer.transferId,
+      accept: true,
+      clientOperationId: "wrong-person-transfer-response",
+    })).rejects.toThrow("not available");
+
+    const response = {
+      eventSlug: fixture.eventSlug,
+      transferId: transfer.transferId,
+      accept: true,
+      clientOperationId: "lead-transfer-accept-once",
+    } as const;
+    expect(await nextLeadClient.mutation(api.teams.respondToLeadershipTransfer, response)).toEqual({
+      state: "accepted",
+    });
+    expect(await nextLeadClient.mutation(api.teams.respondToLeadershipTransfer, response)).toEqual({
+      state: "accepted",
+    });
+
+    const [oldLeadView, newLeadView] = await Promise.all([
+      currentLeadClient.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+      nextLeadClient.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ]);
+    expect(oldLeadView?.currentRole).toBe("member");
+    expect(newLeadView?.currentRole).toBe("lead");
+    expect(newLeadView?.version).toBe(3);
+    expect(oldLeadView).toMatchObject({
+      canLeave: true,
+      canManageMembers: false,
+      canTransferLeadership: false,
+      canRespondToLeadershipTransfer: true,
+      canWriteProject: true,
+      canSubmitApplication: false,
+      canRespondToInformationRequest: false,
+      canRespondToOffer: false,
+    });
+    expect(newLeadView).toMatchObject({
+      canLeave: true,
+      canManageMembers: true,
+      canTransferLeadership: true,
+      canRespondToLeadershipTransfer: true,
+      canWriteProject: true,
+      canSubmitApplication: true,
+      canRespondToInformationRequest: true,
+      canRespondToOffer: true,
+    });
+
+    await backend.run(async (ctx) => {
+      const oldLeadGrants = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_subject_permission_status", (index) =>
+          index
+            .eq("eventAccessSubjectId", fixture.subjectId)
+            .eq("permissionKey", "team.lead.transfer")
+            .eq("status", "active"),
+        )
+        .collect();
+      const newLeadGrants = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_subject_permission_status", (index) =>
+          index
+            .eq("eventAccessSubjectId", nextLead.subjectId)
+            .eq("permissionKey", "team.lead.transfer")
+            .eq("status", "active"),
+        )
+        .collect();
+      expect(oldLeadGrants).toHaveLength(0);
+      expect(newLeadGrants).toHaveLength(1);
+      expect(newLeadGrants[0]?.scopeType).toBe("team");
+      expect(newLeadGrants[0]?.scopeId).toBe(created.teamId);
+    });
+  }, 10_000);
 });
 
 async function seedParticipant(backend: BackendTest) {
@@ -257,6 +644,7 @@ async function seedParticipant(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,
@@ -300,6 +688,17 @@ async function seedParticipant(backend: BackendTest) {
       eventId,
       personId,
       eventAccessSubjectId: subjectId,
+      permissionKey: "participant.profile.read",
+      scopeType: "self",
+      scopeId: membershipId,
+      sourceType: "participant_membership",
+      sourceId: membershipId,
+      reason: "Participant onboarding fixture",
+    });
+    await insertPermissionGrant(ctx, {
+      eventId,
+      personId,
+      eventAccessSubjectId: subjectId,
       permissionKey: "participant.profile.write",
       scopeType: "self",
       scopeId: membershipId,
@@ -312,6 +711,17 @@ async function seedParticipant(backend: BackendTest) {
       personId,
       eventAccessSubjectId: subjectId,
       permissionKey: "team.join",
+      scopeType: "self",
+      scopeId: membershipId,
+      sourceType: "participant_membership",
+      sourceId: membershipId,
+      reason: "Participant onboarding fixture",
+    });
+    await insertPermissionGrant(ctx, {
+      eventId,
+      personId,
+      eventAccessSubjectId: subjectId,
+      permissionKey: "communications.delivery.self.read",
       scopeType: "self",
       scopeId: membershipId,
       sourceType: "participant_membership",
@@ -332,13 +742,88 @@ async function seedParticipant(backend: BackendTest) {
   });
 }
 
-async function createAuthUser(backend: BackendTest, now: number) {
+async function seedAdditionalParticipant(
+  backend: BackendTest,
+  fixture: Awaited<ReturnType<typeof seedParticipant>>,
+) {
+  const identity = {
+    name: "Meera Rao",
+    email: "meera@example.test",
+    googleSubject: "participant-onboarding-next-lead-google-subject",
+    sessionToken: "participant-onboarding-next-lead-session-token",
+  };
+  const authUserId = await createAuthUser(backend, fixture.now, identity.name, identity.email);
+  const authSessionId = await createAuthSession(
+    backend,
+    authUserId,
+    fixture.now,
+    identity.sessionToken,
+  );
+  return backend.run(async (ctx) => {
+    const personId = await ctx.db.insert("people", {
+      authUserId,
+      googleSubject: identity.googleSubject,
+      verifiedEmail: identity.email,
+      displayName: identity.name,
+      status: "active",
+      createdAt: fixture.now,
+      updatedAt: fixture.now,
+    });
+    const subjectId = await ctx.db.insert("eventAccessSubjects", {
+      eventId: fixture.eventId,
+      personId,
+      emailNormalized: identity.email,
+      displayName: identity.name,
+      status: "active",
+      linkedBy: "participant_provisioning",
+      accessVersion: 1,
+      createdAt: fixture.now,
+      updatedAt: fixture.now,
+    });
+    const membershipId = await ctx.db.insert("eventMemberships", {
+      eventId: fixture.eventId,
+      personId,
+      eventAccessSubjectId: subjectId,
+      participantClass: "external_participant",
+      eligibilityStatus: "eligible",
+      onboardingStatus: "profile_required",
+      acceptedParticipantPolicyVersionIds: [],
+      createdAt: fixture.now,
+      updatedAt: fixture.now,
+    });
+    for (const permissionKey of [
+      "participant.profile.read",
+      "participant.profile.write",
+      "team.join",
+    ] as const) {
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId,
+        eventAccessSubjectId: subjectId,
+        permissionKey,
+        scopeType: "self",
+        scopeId: membershipId,
+        sourceType: "participant_membership",
+        sourceId: membershipId,
+        reason: "Participant onboarding transfer fixture",
+      });
+    }
+    return { authUserId, authSessionId, personId, subjectId, membershipId };
+  });
+}
+
+async function createAuthUser(
+  backend: BackendTest,
+  now: number,
+  name = "Aarav Menon",
+  email = "participant@example.test",
+) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "user",
       data: {
-        name: "Aarav Menon",
-        email: "participant@example.test",
+        name,
+        email,
         emailVerified: true,
         createdAt: now,
         updatedAt: now,
@@ -348,13 +833,18 @@ async function createAuthUser(backend: BackendTest, now: number) {
   return documentId(result, "Better Auth user");
 }
 
-async function createAuthSession(backend: BackendTest, userId: string, now: number) {
+async function createAuthSession(
+  backend: BackendTest,
+  userId: string,
+  now: number,
+  token = "participant-onboarding-session-token",
+) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "session",
       data: {
         expiresAt: now + 60 * 60 * 1_000,
-        token: "participant-onboarding-session-token",
+        token,
         createdAt: now,
         updatedAt: now,
         userId,

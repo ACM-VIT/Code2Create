@@ -17,7 +17,6 @@ A caller with `reviewer.profile.manage` prepares each reviewer record before the
 - reviewer type for staffing only;
 - technical domains;
 - product/user domains;
-- published core/sponsor track-version keys the reviewer can assess;
 - rubric criteria the reviewer can score;
 - languages;
 - venue availability windows;
@@ -51,13 +50,13 @@ Every round publishes three reviewer-staffing controls with the otherwise immuta
 
 ### Changing a seat after publication
 
-Panels are built when a round is published, and teams are never pre-assigned to them — the desk sends each team to a panel when it is ready. The operations dashboard must state that model where panels are built, because a screen full of forms with no account of how rounds, panels and routing relate cannot be used by someone who has not read this document.
+Operations builds panels when it publishes a round. It does not pre-assign teams. The review desk sends each ready team to a panel. The operations dashboard must show this relationship.
 
 A published panel still has to be changeable. People go home sick, and waiting for a no-show to trigger the substitute chain is not a reasonable answer. An authorized operator can swap one reviewer for another on a live panel under its own exact permission, with the panel's current version, a reason, a fresh Google session, and an audit event.
 
 The command refuses in three cases:
 
-- a review is under way on that panel — presence records and criterion assignments are pinned to the seats that existed when it started, so changing them mid-review would invalidate both;
+- a review is active on that panel because its presence records and criterion assignments are pinned to the starting seats;
 - the change would leave the panel without a coordinator;
 - the joining reviewer already holds a seat on that panel.
 
@@ -65,7 +64,7 @@ The leaving seat is marked replaced rather than deleted, so the round export can
 
 ## 4. Routing teams
 
-Panels are not fixed only by track. The router reads the confirmed core-track version, any sponsor eligibility, the team-confirmed brief, and reviewer domain tags. The router never reads an unconfirmed model suggestion. A security project still needs product and communication coverage. A health project still needs technical and responsible-use coverage.
+The router reads the current proposal and reviewer domain tags. It does not read novelty or admission-model output. A security project still needs product and communication coverage. A health project still needs technical and responsible-use coverage.
 
 The routing function first removes ineligible panels:
 
@@ -78,7 +77,7 @@ The routing function first removes ineligible panels:
 
 It then ranks eligible panels using:
 
-1. confirmed core-track and team-domain match;
+1. proposal-domain and reviewer-domain match;
 2. rubric coverage;
 3. current queue length and observed review pace;
 4. continuity or rotation policy for the round;
@@ -86,8 +85,6 @@ It then ranks eligible panels using:
 6. number of recent manual exceptions.
 
 The ranker is deterministic code with a recorded rules version. It does not call a language model.
-
-A sponsor-track entry can require an eligible domain reviewer for sponsor-award evidence when that policy is published. It cannot remove ordinary rubric coverage, guarantee a sponsor judge, or route a team into a separate scoring formula by itself.
 
 Operations can auto-accept the top result for ordinary teams during a configured assignment window. A manual choice outside the top result requires a reason. Assignment becomes fixed when the team enters `queued`; later moves use the exception flow.
 
@@ -97,9 +94,9 @@ A panel has no table. A panel is a group of reviewers who walk to whichever team
 
 The hall has no addressable seats. Tables are dragged around by the people using them, are not numbered, and nobody can be asked to identify "E-03" while standing in the middle of a room of nine hundred people. So a team's location is not a claim on a spot. It is a point in a zone's rectangle, recorded as percentages across and along that rectangle, together with the part of the zone that point falls in.
 
-Each zone is divided into the same nine parts — the four corners, the four sides, and the middle — named by compass direction on a plan drawn with hall north at the top. Nine names is the whole vocabulary, because "which part of the room" is the finest thing a roving mapper can honestly record and the coarsest thing a reviewer can be sent to. The recorded point is drawn as a dot; the area name is what gets said out loud.
+Each zone has nine named parts. They are the four corners, four sides, and center. Names use compass directions on a plan with hall north at the top. The map shows the recorded point as a dot. Staff say the area name.
 
-Operations publishes a versioned hall plan from a checked CSV of zones and landmarks. A zone has a stable key, a name, and its width and depth in paced metres, which is what lets a phone draw the room in the shape it really is. A landmark is a fixed thing inside a zone — the stage, the windows, the food counter, the main entrance — with a name and a position. Every zone needs at least one, because a mapper holding a blank rectangle cannot tell which way it faces. Nothing in the plan is a table. The plan remains replaceable only until the first team location is saved.
+Operations publishes a versioned hall plan from a checked CSV of zones and landmarks. A zone has a stable key, name, width, and depth in paced metres. The phone uses these values to draw the room shape. A landmark is a fixed named point, such as the stage, windows, food counter, or main entrance. Each zone needs at least one landmark. The plan contains no tables. Operations can replace the plan only before the first team location is saved.
 
 Roving floor staff record locations roughly 90 minutes before the review window:
 
@@ -111,7 +108,7 @@ Roving floor staff record locations roughly 90 minutes before the review window:
 
 No QR is attached to a table. The team credential identifies the team. The mapper says where in the room the team is. The scan consumes one short-lived token and creates an operator-owned claim before the location write. The server serializes replay, two mappers scanning one code, and two claims for one team. Two teams sitting beside each other is an ordinary reading and not a conflict: nothing in the model is exclusive, so no mapper is ever told a place is taken.
 
-The description a reviewer receives names the area and, when the team is within a few paces of a published landmark, that landmark — "North-east corner of East wing, near the windows". A team standing away from everything gets the area alone. The server never invents a nearer landmark than the one that is there.
+The description a reviewer receives names the area and, when the team is within a few paces of a published landmark, that landmark. "North-east corner of East wing, near the windows". A team standing away from everything gets the area alone. The server never invents a nearer landmark than the one that is there.
 
 Operations freezes the hall map 30–60 minutes before routing. The server rejects the freeze until every currently confirmed/checked-in/active team has one location. A selected or offer-pending team is not yet mapping-eligible. A later physical correction requires the separate override permission for every affected zone and a reason. The correction supersedes history. It does not edit history.
 
@@ -159,9 +156,9 @@ When a required seat is empty or a reviewer becomes unavailable:
 6. a declined or expired page advances to the next candidate;
 7. operations sees the entire page chain and can select a different eligible reviewer.
 
-The working acknowledgment window is 90 seconds and remains configurable.
+The working acknowledgment window is 90 seconds. Push repeats every 30 seconds, and the first repeat can add the phone fallback.
 
-A delivered push does not count as acceptance. Only an authenticated in-app action can accept the page. If no candidate responds, operations calls the reviewer or sends a floor runner while the exception stays visible.
+A delivered push does not count as acceptance. The system sends push first. If the reviewer gave current call consent and does not acknowledge by the first 30-second repage, the reusable outbound-calling service can place a synthesized call under the page chain's still-current `review.substitute.page` authority. If push is unavailable, the call can start at once. Only an authenticated in-app action accepts or declines the page. If no candidate responds, the server advances to the next candidate and operations sends a floor runner. The exception stays visible.
 
 ## 8. Queue
 
@@ -234,6 +231,8 @@ The server checks:
 - reviewer has not already scanned for that session.
 
 The presence record stores reviewer, device, scan time, token version, and result. A reviewer cannot scan for another reviewer.
+
+The phone saves one stable operation ID before it sends the confirmation. The operation identifies the review, reviewer, and registered phone. It does not identify one short-lived QR value. If the response is uncertain, the reviewer scans the current code and the phone retries the same operation. A committed retry returns the first confirmation receipt and does not use later presence totals. The phone clears its saved retry only after the response succeeds or subscribed review state proves that the confirmation committed or is no longer actionable.
 
 If the camera fails, the judge types the fallback code. If both methods fail, `review.presence.waive` for that review may waive one or more presence requirements. The override names each missing judge, grant, actor, and reason.
 

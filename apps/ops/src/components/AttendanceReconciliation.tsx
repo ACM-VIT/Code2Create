@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { attendanceHistoryEventLabel, sessionPresenceStateLabels } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { useState, type FormEvent } from 'react'
@@ -20,15 +21,17 @@ type ActionKind =
 export function AttendanceReconciliation({
   session,
   participant,
+  serverNow,
 }: {
   session: AttendanceSession
   participant: AttendanceParticipant
+  serverNow: number
 }) {
   const reconcile = useMutation(api.attendanceReconciliation.reconcile)
   const options = actionOptions(participant)
   const [open, setOpen] = useState(false)
   const [action, setAction] = useState<ActionKind>(options[0]?.kind ?? 'mark_needs_review')
-  const [effectiveAt, setEffectiveAt] = useState(localDateTime(Date.now()))
+  const [effectiveAt, setEffectiveAt] = useState(localDateTime(serverNow))
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -130,7 +133,14 @@ export function AttendanceReconciliation({
 
   if (!open) {
     return (
-      <button className="text-button" type="button" onClick={() => setOpen(true)}>
+      <button
+        className="text-button"
+        type="button"
+        onClick={() => {
+          setEffectiveAt(localDateTime(serverNow))
+          setOpen(true)
+        }}
+      >
         Correct
       </button>
     )
@@ -176,7 +186,7 @@ export function AttendanceReconciliation({
       {preview === undefined ? <p className="muted">Loading current history…</p> : (
         <div className="attendance-correction-preview">
           <p>
-            <strong>Current state:</strong> {stateName(preview.state)}
+            <strong>Current state:</strong> {sessionPresenceStateLabels[preview.state]}
             {preview.currentInterval
               ? ` · present since ${timeName(preview.currentInterval.openedAt)}`
               : ' · no open interval'}
@@ -188,7 +198,7 @@ export function AttendanceReconciliation({
               <ol>
                 {preview.recentEvents.map((presenceEvent) => (
                   <li key={presenceEvent.id}>
-                    <span>{eventName(presenceEvent)}</span>
+                    <span>{attendanceHistoryEventLabel(presenceEvent)}</span>
                     <small>{timeName(presenceEvent.effectiveAt)}</small>
                   </li>
                 ))}
@@ -263,13 +273,6 @@ function localDateTime(timestamp: number) {
   return new Date(localTimestamp).toISOString().slice(0, 16)
 }
 
-function stateName(value: string) {
-  if (value === 'confirmation_due') return 'waiting for confirmation'
-  if (value === 'temporarily_out') return 'temporarily out'
-  if (value === 'needs_review') return 'needs review'
-  return value.replaceAll('_', ' ')
-}
-
 function timeName(timestamp: number) {
   return new Intl.DateTimeFormat(undefined, {
     hour: 'numeric',
@@ -287,26 +290,9 @@ function consequenceText(action: ActionKind, hasOpenInterval: boolean) {
     return 'This closes the current presence interval at the effective time.'
   }
   if (action === 'void_last_transition') {
-    return 'This reverses only the latest accepted scanner transition. Its original ledger event remains visible.'
+    return 'This reverses only the latest accepted scan. The original scan remains in history.'
   }
   return hasOpenInterval
     ? 'This closes the current interval and marks the participant for human review.'
     : 'This marks the participant for human review without inventing an interval.'
-}
-
-function eventName(event: {
-  sourceKind: 'scanner' | 'staff_reconciliation' | 'manual_import'
-  transition: string
-  outcome: string
-  reasonCode: string
-}) {
-  const source = event.sourceKind === 'scanner'
-    ? 'Scanner'
-    : event.sourceKind === 'manual_import'
-      ? 'Paper import'
-      : 'Correction'
-  const result = event.outcome === 'reconciled'
-    ? event.reasonCode
-    : `${event.transition} · ${event.outcome}`
-  return `${source}: ${result.replaceAll('_', ' ')}`
 }

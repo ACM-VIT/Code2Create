@@ -6,13 +6,14 @@ import {
 } from '@code2create/domain'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { Icon, type IconName } from '../components/Icon'
 import { LoadingLabel, SkeletonCard, SkeletonLine, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
+import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
 
 type StaffList = FunctionReturnType<typeof api.support.staffList>
 type SupportCase = StaffList['cases'][number]
@@ -50,17 +51,15 @@ export function SupportDesk() {
   const [filter, setFilter] = useState<StaffFilter>('active')
   const list = useQuery(api.support.staffList, { eventSlug, state: filter })
   const [selectedId, setSelectedId] = useState<SupportCaseId | null>(null)
-  const now = useCurrentMinute()
+  const now = useEstimatedServerNow(list?.serverNow, ageTickMs)
 
   const ordered = list === undefined
     ? []
     : [...list.cases].sort((left, right) => urgency(left) - urgency(right) || sortWithinRank(left, right))
   const mostUrgentId = ordered.at(0)?.id ?? null
-
-  // Keep the selected case stable while live sorting changes.
-  useEffect(() => {
-    setSelectedId((current) => current ?? mostUrgentId)
-  }, [mostUrgentId])
+  const visibleSelectedId = selectedId !== null && ordered.some((supportCase) => supportCase.id === selectedId)
+    ? selectedId
+    : mostUrgentId
 
   const heading = (
     <header className="page-heading support-desk-heading">
@@ -95,8 +94,6 @@ export function SupportDesk() {
   }
 
   const totals = list.totals
-  const visibleSelectedId = selectedId ?? mostUrgentId
-
   return (
     <section className="support-desk-shell health-shell">
       {heading}
@@ -118,7 +115,9 @@ export function SupportDesk() {
         </p>
       ) : null}
 
-      {list.canCreate ? <CreateCase onCreated={setSelectedId} /> : null}
+      {list.canCreate ? (
+        <CreateCase defaultOpen={everyCase(totals) === 0} onCreated={setSelectedId} />
+      ) : null}
 
       {ordered.length === 0 ? null : (
         <div className="support-desk-list" aria-label="Help requests">
@@ -153,21 +152,19 @@ export function SupportDesk() {
   )
 }
 
-function useCurrentMinute() {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), ageTickMs)
-    return () => clearInterval(timer)
-  }, [])
-  return now
-}
-
-function CreateCase({ onCreated }: { onCreated: (supportCaseId: SupportCaseId) => void }) {
+function CreateCase({
+  defaultOpen,
+  onCreated,
+}: {
+  defaultOpen: boolean
+  onCreated: (supportCaseId: SupportCaseId) => void
+}) {
   const createCase = useMutation(api.support.createStaff)
   const [category, setCategory] = useState<SupportCategory>('queue')
   const [description, setDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [open, setOpen] = useState(defaultOpen)
   const busyRef = useRef(false)
   const createAttempt = useMutationAttempt<CreateStaffResult>()
   const createPending = createAttempt.hasPending('create-support-case')
@@ -202,7 +199,11 @@ function CreateCase({ onCreated }: { onCreated: (supportCaseId: SupportCaseId) =
   const ready = description.trim().length >= 10
 
   return (
-    <details className="support-create">
+    <details
+      className="support-create"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
       <summary>Log a walk-up issue</summary>
       <form onSubmit={(event) => void submit(event)}>
         <label className="field">
@@ -270,6 +271,9 @@ function CaseDetail({ currentPersonId, supportCaseId }: {
         <SkeletonCard lines={5} />
       </>
     )
+  }
+  if (detail === null) {
+    return <p className="review-blocked">This request is no longer available.</p>
   }
 
   const nextState = stateDraft?.caseVersion === detail.supportCase.version
@@ -621,7 +625,7 @@ function availableStates(current: SupportState): SupportState[] {
   return [current, ...stateTransitions[current]]
 }
 
-function actionLabel(action: FunctionReturnType<typeof api.support.detail>['actions'][number]) {
+function actionLabel(action: NonNullable<FunctionReturnType<typeof api.support.detail>>['actions'][number]) {
   if (action.kind === 'opened') return 'Request opened'
   if (action.kind === 'reporter_reply') return 'Reporter replied'
   if (action.kind === 'public_note') return 'Reply to the reporter'

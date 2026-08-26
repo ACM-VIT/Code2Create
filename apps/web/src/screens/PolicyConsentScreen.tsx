@@ -7,7 +7,7 @@ import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
 import type { ParticipantMe } from '../types'
 
-export function PolicyConsentScreen({ me }: { me: ParticipantMe }) {
+export function PolicyConsentScreen({ canAccept, me }: { canAccept: boolean; me: ParticipantMe }) {
   const acceptPolicy = useMutation(api.participants.acceptPolicy)
   const [accepted, setAccepted] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -44,23 +44,27 @@ export function PolicyConsentScreen({ me }: { me: ParticipantMe }) {
           <p>{policy.projectTextNotice}</p>
           <a href={policy.privacyNoticeUrl} target="_blank" rel="noreferrer">Read the privacy notice</a>
         </div>
-        <form onSubmit={submit}>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={accepted}
-              disabled={busy || acceptPending}
-              onChange={(event) => setAccepted(event.target.checked)}
-            />
-            <span>I accept the participant policy.</span>
-          </label>
-          <ErrorNotice message={error} />
-          <div className="form-actions">
-            <button type="submit" className="primary" disabled={busy || (!acceptPending && !accepted)}>
-              {busy ? 'Saving…' : acceptPending ? 'Confirm earlier acceptance' : 'Accept and continue'}
-            </button>
-          </div>
-        </form>
+        {canAccept ? (
+          <form onSubmit={submit}>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={accepted}
+                disabled={busy || acceptPending}
+                onChange={(event) => setAccepted(event.target.checked)}
+              />
+              <span>I accept the participant policy.</span>
+            </label>
+            <ErrorNotice message={error} />
+            <div className="form-actions">
+              <button type="submit" className="primary" disabled={busy || (!acceptPending && !accepted)}>
+                {busy ? 'Saving…' : acceptPending ? 'Confirm earlier acceptance' : 'Accept and continue'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <p className="notice">Policy acceptance is unavailable. Ask an organizer if this looks wrong.</p>
+        )}
       </section>
     </main>
   )

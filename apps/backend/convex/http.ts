@@ -7,6 +7,7 @@ import { githubWebhook } from "./githubWebhook";
 import { intelligenceReadEndpoint } from "./intelligenceReads";
 import { intelligenceRecommendationWebhook } from "./intelligenceRecommendations";
 import { operationsIntelligenceWebhook } from "./operationsIntelligenceWebhook";
+import { outboundCallEvent } from "./outboundCallEvent";
 import {
   autonomyCallbackEndpoint,
   autonomyReadEndpoint,
@@ -33,6 +34,11 @@ http.route({
   path: "/communications/cloudflare-email/events",
   method: "POST",
   handler: participantEmailEvent,
+});
+http.route({
+  path: "/communications/outbound-call/events",
+  method: "POST",
+  handler: outboundCallEvent,
 });
 http.route({
   path: "/intelligence/operations-briefs/callback",

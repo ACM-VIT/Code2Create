@@ -21,6 +21,7 @@ export const mint = internalMutation({
   returns: v.object({
     tokenId: v.id("attendancePortalQrTokens"),
     expiresAt: v.number(),
+    serverNow: v.number(),
   }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -109,6 +110,6 @@ export const mint = internalMutation({
       issuedAt: now,
       expiresAt,
     });
-    return { tokenId, expiresAt };
+    return { tokenId, expiresAt, serverNow: now };
   },
 });

@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import { songRequestStateLabels } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
-import { useMutation } from 'convex/react'
+import { useMutation, usePaginatedQuery } from 'convex/react'
 import { useState } from 'react'
 
 import { eventSlug } from '../lib/config'
@@ -10,7 +10,9 @@ import { useOperationRunner } from '../lib/operations'
 
 type QueueResult = FunctionReturnType<typeof api.synesthesiaOperations.queue>
 type QueueRequest = QueueResult['requests'][number] & { voteCount: number }
-type OpenReport = QueueRequest['openReports'][number]
+type ReportPage = FunctionReturnType<typeof api.synesthesiaOperations.reports>
+type OpenReport = ReportPage['page'][number]
+const reportPageSize = 12
 
 type RequestActionKind =
   | 'approve'
@@ -75,6 +77,7 @@ export function SynesthesiaRequestCard({
   const operations = useOperationRunner()
   const [action, setAction] = useState<RequestAction | null>(null)
   const [reportAction, setReportAction] = useState<ReportAction | null>(null)
+  const [reportsOpen, setReportsOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [publicText, setPublicText] = useState('')
   const [internalText, setInternalText] = useState('')
@@ -324,21 +327,28 @@ export function SynesthesiaRequestCard({
           <strong>Reports</strong>
           {!request.canReadReports ? (
             <p>You need a separate permission to read report reasons.</p>
-          ) : request.openReports.length === 0 ? (
-            <p>No report reason is available in this bounded page.</p>
-          ) : request.openReports.map((report) => (
-            <div className="synesthesia-report" key={report.id}>
-              <p>{report.reason}</p>
-              <small>{new Date(report.createdAt).toLocaleString()}</small>
-              {request.canResolveReports ? (
-                <div>
-                  <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseReportAction(report, 'resolved')}>Resolve</button>
-                  <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => chooseReportAction(report, 'dismissed')}>Dismiss</button>
-                </div>
+          ) : (
+            <>
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => setReportsOpen((open) => !open)}
+              >
+                {reportsOpen
+                  ? 'Hide reports'
+                  : `View ${request.openReportCount} open ${request.openReportCount === 1 ? 'report' : 'reports'}`}
+              </button>
+              {reportsOpen ? (
+                <OpenReportList
+                  busy={busy}
+                  canResolve={request.canResolveReports}
+                  operationPending={operationPending}
+                  requestId={request.id}
+                  onChoose={chooseReportAction}
+                />
               ) : null}
-            </div>
-          ))}
-          {request.reportsTruncated ? <p>Some report reasons are outside this bounded page.</p> : null}
+            </>
+          )}
         </div>
       ) : null}
 
@@ -373,5 +383,55 @@ export function SynesthesiaRequestCard({
         </form>
       ) : null}
     </article>
+  )
+}
+
+function OpenReportList({
+  busy,
+  canResolve,
+  operationPending,
+  requestId,
+  onChoose,
+}: {
+  busy: boolean
+  canResolve: boolean
+  operationPending: boolean
+  requestId: QueueRequest['id']
+  onChoose: (report: OpenReport, disposition: ReportAction['disposition']) => void
+}) {
+  const reports = usePaginatedQuery(
+    api.synesthesiaOperations.reports,
+    { eventSlug, requestId },
+    { initialNumItems: reportPageSize },
+  )
+
+  if (reports.status === 'LoadingFirstPage') return <p>Loading reports…</p>
+  if (reports.results.length === 0) return <p>No open reports.</p>
+
+  return (
+    <>
+      {reports.results.map((report) => (
+        <div className="synesthesia-report" key={report.id}>
+          <p>{report.reason}</p>
+          <small>{new Date(report.createdAt).toLocaleString()}</small>
+          {canResolve ? (
+            <div>
+              <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => onChoose(report, 'resolved')}>Resolve</button>
+              <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => onChoose(report, 'dismissed')}>Dismiss</button>
+            </div>
+          ) : null}
+        </div>
+      ))}
+      {reports.status === 'CanLoadMore' ? (
+        <button
+          className="text-button"
+          type="button"
+          onClick={() => reports.loadMore(reportPageSize)}
+        >
+          Load more reports
+        </button>
+      ) : null}
+      {reports.status === 'LoadingMore' ? <p>Loading more reports…</p> : null}
+    </>
   )
 }

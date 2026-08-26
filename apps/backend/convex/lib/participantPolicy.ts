@@ -72,7 +72,7 @@ export const defaultParticipantPolicy: ParticipantPolicy = {
   privacyNoticeUrl: "https://code2create.in/privacy",
   freshProjectAttestation,
   finalSubmissionWarning:
-    "Submitting locks this exact team, core track, and selected sponsor tracks. Review every item before you continue.",
+    "Submitting locks this exact team. You can edit the proposal until the published application deadline.",
 };
 
 function invalidPolicy(message: string): never {
@@ -122,8 +122,10 @@ export function normalizeParticipantPolicy(input: ParticipantPolicy): Participan
     400,
   );
   const warningText = finalSubmissionWarning.toLocaleLowerCase("en");
-  if (!["team", "track", "lock"].every((term) => warningText.includes(term))) {
-    invalidPolicy("The final-submission warning must plainly say that the team and track lock.");
+  if (!["team", "lock", "edit", "deadline"].every((term) => warningText.includes(term))) {
+    invalidPolicy(
+      "The final-submission warning must say that the team locks and the proposal remains editable until the deadline.",
+    );
   }
   return {
     label: normalizedText(input.label, "Policy label", 3, 80),

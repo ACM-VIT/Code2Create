@@ -26,6 +26,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+!**/.env.example
 !apps/web/.env.development
 !apps/ops/.env.development
 !apps/handbook/.env.development

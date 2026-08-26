@@ -46,6 +46,7 @@ vi.mock('expo-crypto', () => ({
 }))
 
 import {
+  confirmObservedClientOperation,
   runPersistentClientOperation,
 } from './client-operation-intents'
 
@@ -140,6 +141,26 @@ describe('persistent client-operation intents', () => {
     ).resolves.toBe('next command')
   })
 
+  test('clears an uncertain intent after subscribed state proves success', async () => {
+    await expect(
+      runPersistentClientOperation({
+        eventSlug: 'code2create-7',
+        slot: 'review.presence',
+        fingerprint: 'claim-team-a',
+        execute: async () => {
+          throw new Error('uncertain')
+        },
+      }),
+    ).rejects.toThrow('uncertain')
+
+    expect(secureStore.values.size).toBe(1)
+    await confirmObservedClientOperation({
+      eventSlug: 'code2create-7',
+      slot: 'review.presence',
+    })
+    expect(secureStore.values.size).toBe(0)
+  })
+
   test('fails closed when a stored operation cannot be trusted', async () => {
     secureStore.values.set(
       'c2c.operation.code2create-7.floor.claim',
@@ -153,7 +174,7 @@ describe('persistent client-operation intents', () => {
         fingerprint: 'claim-team-a',
         execute: async () => 'must not run',
       }),
-    ).rejects.toThrow('cannot be read safely')
+    ).rejects.toThrow('cannot be verified')
 
     expect(secureStore.deleteItemAsync).not.toHaveBeenCalled()
   })

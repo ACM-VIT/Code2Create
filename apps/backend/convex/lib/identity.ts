@@ -78,22 +78,30 @@ export async function requireFreshAuthSession(
   ctx: ReadCtx,
   maximumAgeMs: number,
 ) {
+  const current = await currentAuthSessionFreshness(ctx, maximumAgeMs);
+  if (!current.fresh) {
+    throw new ConvexError({
+      code: "FRESH_AUTH_REQUIRED",
+      message: "Verify with Google again before performing this sensitive action.",
+    });
+  }
+  return { sessionId: current.sessionId, createdAt: current.createdAt };
+}
+
+type AuthSessionFreshness =
+  | { fresh: false }
+  | { fresh: true; sessionId: string; createdAt: number };
+
+export async function currentAuthSessionFreshness(
+  ctx: ReadCtx,
+  maximumAgeMs: number,
+): Promise<AuthSessionFreshness> {
   const { auth, headers } = await authComponent.getAuth(createAuth, ctx);
   const current = await auth.api.getSession({ headers });
-  if (!current) {
-    throw new ConvexError({
-      code: "FRESH_AUTH_REQUIRED",
-      message: "Sign in with Google again before performing this sensitive action.",
-    });
-  }
+  if (!current) return { fresh: false };
   const createdAt = authSessionCreatedAtMs(current.session.createdAt);
-  if (Date.now() - createdAt >= maximumAgeMs) {
-    throw new ConvexError({
-      code: "FRESH_AUTH_REQUIRED",
-      message: "Sign out and sign in with Google again before performing this sensitive action.",
-    });
-  }
-  return { sessionId: current.session.id, createdAt };
+  if (Date.now() - createdAt >= maximumAgeMs) return { fresh: false };
+  return { fresh: true, sessionId: current.session.id, createdAt };
 }
 
 export async function refreshExistingPersonIdentity(

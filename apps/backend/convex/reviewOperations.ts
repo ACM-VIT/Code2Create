@@ -3,6 +3,7 @@ import {
   paginationResultValidator,
 } from "convex/server";
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -21,7 +22,13 @@ import {
   githubTopicVerificationIsCurrent,
   loadPublishedIntegrationPolicy,
 } from "./lib/integrationPolicy";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+  storedOperationVersion,
+} from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { grantReviewAssignmentAccess } from "./lib/reviewAccess";
 import {
@@ -49,11 +56,13 @@ import { normalizedText } from "./lib/strings";
 import {
   reviewPanelStatus,
   reviewRoundStatus,
+  reviewerClockInViewStatus,
   reviewSessionStatus,
   teamRoundState,
 } from "./values";
 
 const liveReviewStatuses = ["awaiting_presence", "active", "overdue"] as const;
+const notClockedInStatus = "not_clocked_in" as const;
 const roundBoardPermissionKeys = [
   "queue.manage",
   "review.prepare",
@@ -62,6 +71,8 @@ const roundBoardPermissionKeys = [
   "review.round.resume",
 ] as const;
 const roundTeamPermissionKeys = [
+  "application.read",
+  "application.review.read",
   "review.queue.hold",
   "review.queue.resume",
   "review.queue.miss",
@@ -72,6 +83,38 @@ const roundTeamPermissionKeys = [
   "review.presence.waive",
 ] as const;
 type EvidenceCompleteness = "complete" | "partial" | "missing";
+
+const callTeamOperationResult = z
+  .object({
+    reviewSessionId: z.string().min(1),
+    evidenceCompleteness: z.enum(["complete", "partial", "missing"]),
+  })
+  .strict();
+
+const startReviewOperationResult = z
+  .object({
+    reviewSessionId: z.string().min(1),
+    startedAt: z.number().int().nonnegative(),
+    plannedEndAt: z.number().int().nonnegative(),
+    serverNow: z.number().int().nonnegative(),
+    version: z.number().int().positive(),
+  })
+  .strict();
+
+const extendReviewOperationResult = z
+  .object({
+    plannedEndAt: z.number().int().nonnegative(),
+    extensionCount: z.number().int().nonnegative(),
+    version: z.number().int().positive(),
+  })
+  .strict();
+
+const completeReviewOperationResult = z
+  .object({
+    reviewSessionId: z.string().min(1),
+    completedAt: z.number().int().nonnegative(),
+  })
+  .strict();
 type OverviewRoundView = {
   id: Id<"reviewRounds">;
   name: string;
@@ -146,7 +189,6 @@ const roundBoardTeamValidator = v.object({
   teamId: v.id("teams"),
   applicationId: v.optional(v.id("applications")),
   teamName: v.string(),
-  trackName: v.string(),
   state: teamRoundState,
   version: v.number(),
   queuedAt: v.optional(v.number()),
@@ -209,7 +251,6 @@ function isReviewableTeam(team: Doc<"teams">) {
   return (
     ["confirmed", "checked_in", "active"].includes(team.status) &&
     team.membershipLocked &&
-    team.trackLocked &&
     team.lockedProjectVersionId !== undefined
   );
 }
@@ -773,7 +814,7 @@ export const roundStaffing = query({
             personId: v.id("people"),
             displayName: v.string(),
             isCoordinator: v.boolean(),
-            clockInStatus: v.string(),
+            clockInStatus: reviewerClockInViewStatus,
             clockInVersion: v.number(),
             unavailableReason: v.optional(v.string()),
             expectedReturnAt: v.optional(v.number()),
@@ -788,7 +829,7 @@ export const roundStaffing = query({
     reserves: v.array(
       v.object({
         personId: v.id("people"),
-        clockInStatus: v.string(),
+        clockInStatus: reviewerClockInViewStatus,
         clockInVersion: v.number(),
       }),
     ),
@@ -878,7 +919,7 @@ export const roundStaffing = query({
               personId: reviewer._id,
               displayName: reviewer.displayName,
               isCoordinator: member.isCoordinator,
-              clockInStatus: clockIn?.status ?? "not_clocked_in",
+              clockInStatus: clockIn?.status ?? notClockedInStatus,
               clockInVersion: clockIn?.version ?? 0,
               ...(clockIn?.unavailableReason !== undefined
                 ? { unavailableReason: clockIn.unavailableReason }
@@ -912,7 +953,7 @@ export const roundStaffing = query({
           .unique();
         return {
           personId: reserve.personId,
-          clockInStatus: clockIn?.status ?? "not_clocked_in",
+          clockInStatus: clockIn?.status ?? notClockedInStatus,
           clockInVersion: clockIn?.version ?? 0,
         };
       }),
@@ -950,7 +991,6 @@ export const roundTeams = query({
         .filter((filter) =>
           filter.and(
             filter.eq(filter.field("membershipLocked"), true),
-            filter.eq(filter.field("trackLocked"), true),
             filter.neq(filter.field("lockedProjectVersionId"), undefined),
           ),
         )
@@ -1005,10 +1045,6 @@ export const roundTeams = query({
         if (!state && !isReviewableTeam(team)) return null;
         if (sessions.length > maximumReviewSessionsPerTeamRound) {
           throw new Error("A team exceeds the review-attempt limit for this round.");
-        }
-        const track = await ctx.db.get(project.coreTrackVersionId);
-        if (!track || track.eventId !== event._id) {
-          throw new Error("A review queue team has no published track.");
         }
         const liveSessions = sessions.filter((session) => isLiveReviewStatus(session.status));
         if (liveSessions.length > 1) {
@@ -1109,13 +1145,18 @@ export const roundTeams = query({
                 : []),
             ]
           : [];
+        const canReadApplication =
+          application !== null &&
+          (allows("application.read", [{ type: "application", id: application._id }]) ||
+            allows("application.review.read", [
+              { type: "application", id: application._id },
+            ]));
         const lastCallAt = state?.lastCallAttemptAt ?? state?.calledAt;
         return {
           ...(state ? { stateId: state._id } : {}),
-          ...(application ? { applicationId: application._id } : {}),
+          ...(canReadApplication ? { applicationId: application._id } : {}),
           teamId: team._id,
           teamName: team.name,
-          trackName: track.displayName,
           state: state?.state ?? "unassigned",
           version: state?.version ?? 0,
           ...(state?.queuedAt !== undefined ? { queuedAt: state.queuedAt } : {}),
@@ -1183,9 +1224,11 @@ export const openRound = mutation({
     if (prior) {
       const roundId = ctx.db.normalizeId("reviewRounds", prior.targetId);
       if (!roundId) throw new Error("Prior open-round result is invalid.");
-      const saved = await ctx.db.get(roundId);
-      if (!saved || saved.status !== "open") throw new Error("Prior open round no longer resolves.");
-      return { roundId, status: "open", version: saved.version };
+      return {
+        roundId,
+        status: "open",
+        version: storedOperationVersion(prior.resultJson, "open round"),
+      };
     }
     const round = await requireRound(ctx, event._id, args.roundId);
     const grantIds = await requirePermission(ctx, {
@@ -1211,6 +1254,7 @@ export const openRound = mutation({
       requestFingerprint,
       targetType: "review_round",
       targetId: round._id,
+      resultJson: String(round.version + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1264,9 +1308,10 @@ export const queueTeam = mutation({
     if (prior) {
       const teamRoundStateId = ctx.db.normalizeId("teamRoundStates", prior.targetId);
       if (!teamRoundStateId) throw new Error("Prior queue result is invalid.");
-      const saved = await ctx.db.get(teamRoundStateId);
-      if (!saved) throw new Error("Prior queue result no longer resolves.");
-      return { teamRoundStateId, version: saved.version };
+      return {
+        teamRoundStateId,
+        version: storedOperationVersion(prior.resultJson, "team queue"),
+      };
     }
     const [round, panel, team] = await Promise.all([
       requireRound(ctx, event._id, args.roundId),
@@ -1344,6 +1389,7 @@ export const queueTeam = mutation({
       requestFingerprint,
       targetType: "team_round_state",
       targetId: teamRoundStateId,
+      resultJson: String(nextVersion),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1421,13 +1467,16 @@ export const callTeam = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const reviewSessionId = ctx.db.normalizeId("reviewSessions", prior.targetId);
-      if (!reviewSessionId) throw new Error("Prior call-team result is invalid.");
-      const session = await ctx.db.get(reviewSessionId);
-      if (!session) throw new Error("Prior call-team result no longer resolves.");
-      const checkpoint = await ctx.db.get(session.evidenceCheckpointSetId);
-      if (!checkpoint) throw new Error("Prior call-team evidence no longer resolves.");
-      return { reviewSessionId, evidenceCompleteness: checkpoint.completeness };
+      const result = storedOperationResult(
+        prior.resultJson,
+        "team call",
+        callTeamOperationResult,
+      );
+      const reviewSessionId = ctx.db.normalizeId("reviewSessions", result.reviewSessionId);
+      if (!reviewSessionId || reviewSessionId !== prior.targetId) {
+        throw new Error("The stored team-call result is invalid.");
+      }
+      return { reviewSessionId, evidenceCompleteness: result.evidenceCompleteness };
     }
     const [round, panel, team] = await Promise.all([
       requireRound(ctx, event._id, args.roundId),
@@ -1682,6 +1731,10 @@ export const callTeam = mutation({
       updatedByPersonId: person._id,
       updatedAt: now,
     });
+    const result = {
+      reviewSessionId,
+      evidenceCompleteness: evidence.completeness,
+    };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1690,6 +1743,7 @@ export const callTeam = mutation({
       requestFingerprint,
       targetType: "review_session",
       targetId: reviewSessionId,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1711,7 +1765,7 @@ export const callTeam = mutation({
       }),
       reason,
     });
-    return { reviewSessionId, evidenceCompleteness: evidence.completeness };
+    return result;
   },
 });
 
@@ -1747,18 +1801,21 @@ export const startReview = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const reviewSessionId = ctx.db.normalizeId("reviewSessions", prior.targetId);
-      if (!reviewSessionId) throw new Error("Prior start-review result is invalid.");
-      const saved = await ctx.db.get(reviewSessionId);
-      if (!saved?.startedAt || !saved.plannedEndAt) {
-        throw new Error("Prior started review no longer resolves.");
+      const result = storedOperationResult(
+        prior.resultJson,
+        "review start",
+        startReviewOperationResult,
+      );
+      const reviewSessionId = ctx.db.normalizeId("reviewSessions", result.reviewSessionId);
+      if (!reviewSessionId || reviewSessionId !== prior.targetId) {
+        throw new Error("The stored review-start result is invalid.");
       }
       return {
         reviewSessionId,
-        startedAt: saved.startedAt,
-        plannedEndAt: saved.plannedEndAt,
-        serverNow: Date.now(),
-        version: saved.version,
+        startedAt: result.startedAt,
+        plannedEndAt: result.plannedEndAt,
+        serverNow: result.serverNow,
+        version: result.version,
       };
     }
     const session = await ctx.db.get(args.reviewSessionId);
@@ -1835,7 +1892,7 @@ export const startReview = mutation({
       if (conflict) {
         throw new ConvexError({
           code: "REVIEWER_CONFLICT_ACTIVE",
-          message: "A fixed reviewer has an active conflict with this team. Reroute the team.",
+          message: "A fixed reviewer has an active conflict with this team. Replace that reviewer before starting.",
         });
       }
       if (!presence) {
@@ -1894,6 +1951,13 @@ export const startReview = mutation({
       reviewSessionId: session._id,
       expectedPlannedEndAt: plannedEndAt,
     });
+    const result = {
+      reviewSessionId: session._id,
+      startedAt: now,
+      plannedEndAt,
+      serverNow: now,
+      version: session.version + 1,
+    };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1902,6 +1966,7 @@ export const startReview = mutation({
       requestFingerprint,
       targetType: "review_session",
       targetId: session._id,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1923,13 +1988,7 @@ export const startReview = mutation({
       }),
       reason: normalizedText(args.reason, "Reason", 3, 300),
     });
-    return {
-      reviewSessionId: session._id,
-      startedAt: now,
-      plannedEndAt,
-      serverNow: now,
-      version: session.version + 1,
-    };
+    return result;
   },
 });
 
@@ -1985,14 +2044,12 @@ export const extendReview = mutation({
     });
     if (prior) {
       const reviewSessionId = ctx.db.normalizeId("reviewSessions", prior.targetId);
-      if (!reviewSessionId) throw new Error("Prior extension result is invalid.");
-      const saved = await ctx.db.get(reviewSessionId);
-      if (!saved?.plannedEndAt) throw new Error("Prior extension no longer resolves.");
-      return {
-        plannedEndAt: saved.plannedEndAt,
-        extensionCount: saved.extensionCount,
-        version: saved.version,
-      };
+      if (!reviewSessionId) throw new Error("The stored review extension is invalid.");
+      return storedOperationResult(
+        prior.resultJson,
+        "review extension",
+        extendReviewOperationResult,
+      );
     }
     const session = await ctx.db.get(args.reviewSessionId);
     if (!session || session.eventId !== event._id) {
@@ -2033,6 +2090,11 @@ export const extendReview = mutation({
         expectedPlannedEndAt: plannedEndAt,
       });
     }
+    const result = {
+      plannedEndAt,
+      extensionCount,
+      version: session.version + 1,
+    };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -2041,6 +2103,7 @@ export const extendReview = mutation({
       requestFingerprint,
       targetType: "review_session",
       targetId: session._id,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -2061,7 +2124,7 @@ export const extendReview = mutation({
       nextSummary: JSON.stringify({ plannedEndAt, extensionCount, version: session.version + 1 }),
       reason: normalizedText(args.reason, "Reason", 3, 300),
     });
-    return { plannedEndAt, extensionCount, version: session.version + 1 };
+    return result;
   },
 });
 
@@ -2095,9 +2158,9 @@ export const saveSharedNotes = mutation({
     if (prior) {
       const reviewSessionId = ctx.db.normalizeId("reviewSessions", prior.targetId);
       if (!reviewSessionId) throw new Error("Prior shared-notes result is invalid.");
-      const saved = await ctx.db.get(reviewSessionId);
-      if (!saved) throw new Error("Prior shared-notes result no longer resolves.");
-      return { sharedNotesVersion: saved.sharedNotesVersion };
+      return {
+        sharedNotesVersion: storedOperationVersion(prior.resultJson, "shared notes"),
+      };
     }
     const session = await ctx.db.get(args.reviewSessionId);
     if (!session || session.eventId !== event._id) {
@@ -2138,6 +2201,7 @@ export const saveSharedNotes = mutation({
       requestFingerprint,
       targetType: "review_session",
       targetId: session._id,
+      resultJson: String(session.sharedNotesVersion + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -2184,11 +2248,16 @@ export const completeReview = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const reviewSessionId = ctx.db.normalizeId("reviewSessions", prior.targetId);
-      if (!reviewSessionId) throw new Error("Prior completion result is invalid.");
-      const saved = await ctx.db.get(reviewSessionId);
-      if (!saved?.completedAt) throw new Error("Prior completed review no longer resolves.");
-      return { reviewSessionId, completedAt: saved.completedAt };
+      const result = storedOperationResult(
+        prior.resultJson,
+        "review completion",
+        completeReviewOperationResult,
+      );
+      const reviewSessionId = ctx.db.normalizeId("reviewSessions", result.reviewSessionId);
+      if (!reviewSessionId || reviewSessionId !== prior.targetId) {
+        throw new Error("The stored review-completion result is invalid.");
+      }
+      return { reviewSessionId, completedAt: result.completedAt };
     }
     const session = await ctx.db.get(args.reviewSessionId);
     if (!session || session.eventId !== event._id) {
@@ -2286,6 +2355,7 @@ export const completeReview = mutation({
       updatedByPersonId: person._id,
       updatedAt: now,
     });
+    const result = { reviewSessionId: session._id, completedAt: now };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -2294,6 +2364,7 @@ export const completeReview = mutation({
       requestFingerprint,
       targetType: "review_session",
       targetId: session._id,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -2315,6 +2386,6 @@ export const completeReview = mutation({
       }),
       reason: normalizedText(args.reason, "Reason", 3, 300),
     });
-    return { reviewSessionId: session._id, completedAt: now };
+    return result;
   },
 });

@@ -4,6 +4,8 @@ import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
+import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -14,6 +16,9 @@ type Policy = Configuration['publishedPolicy']['policy']
 type Purpose = Policy['allowedPurposeKeys'][number]
 type AnswerLength = Policy['fallbackQuestions'][number]['answerLength']
 type AssistedModel = Extract<Policy['model'], { mode: 'assisted' }>
+type IntakePolicyOperationResult =
+  | FunctionReturnType<typeof api.intakePolicyConfiguration.createDraft>
+  | FunctionReturnType<typeof api.intakePolicyConfiguration.publish>
 
 const purposeOptions = [
   'user',
@@ -22,7 +27,6 @@ const purposeOptions = [
   'event_goal',
   'tradeoff',
   'risk',
-  'track_fit',
 ] satisfies readonly Purpose[]
 
 const answerLengthOptions = ['short', 'medium'] satisfies readonly AnswerLength[]
@@ -31,7 +35,7 @@ const assistedModelTemplate: AssistedModel = {
   mode: 'assisted',
   modelId: '',
   systemInstruction:
-    'Generate one short, supportive follow-up question for a hackathon team. Use only the supplied source and catalog identifiers. Never score, rank, reject, discourage, request personal information, or penalise a team for choosing another track.',
+    'Generate one short, supportive follow-up question for a hackathon team. Use only the supplied source identifiers. Never score, rank, reject, discourage, or request personal information.',
   instructionVersion: 'intake-instruction-v1',
   schemaVersion: 'intake-output-v1',
   redactionVersion: 'intake-redaction-v1',
@@ -49,7 +53,7 @@ export function IntakePolicyConfiguration({
   const configuration = useQuery(api.intakePolicyConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.intakePolicyConfiguration.createDraft)
   const publish = useMutation(api.intakePolicyConfiguration.publish)
-  const operations = useOperationRunner()
+  const operations = useOperationRunner<IntakePolicyOperationResult>()
   const validation = useQuery(
     api.intakePolicyConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPolicy
@@ -65,6 +69,20 @@ export function IntakePolicyConfiguration({
   const [error, setError] = useState<string | null>(null)
   const draftPending = operations.hasPending('intake-policy-draft')
   const publishPending = operations.hasPending('intake-policy-publish')
+  const pendingOperation = publishPending
+    ? {
+        slot: 'intake-policy-publish',
+        title: 'Finish publishing the idea questions',
+        action: 'Confirm earlier publication',
+      }
+    : draftPending
+      ? {
+          slot: 'intake-policy-draft',
+          title: 'Finish saving the draft idea questions',
+          action: 'Confirm earlier save',
+        }
+      : null
+  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!configuration) return
@@ -124,6 +142,7 @@ export function IntakePolicyConfiguration({
 
   const saveDraft = async (event: FormEvent) => {
     event.preventDefault()
+    if (busy || operationPending) return
     setBusy(true)
     setError(null)
     try {
@@ -146,7 +165,7 @@ export function IntakePolicyConfiguration({
 
   const publishDraft = async () => {
     const draft = configuration.draftPolicy
-    if (!draft || !validation?.valid) return
+    if (busy || operationPending || !draft || !validation?.valid) return
     setBusy(true)
     setError(null)
     try {
@@ -166,10 +185,24 @@ export function IntakePolicyConfiguration({
     }
   }
 
+  const confirmPendingOperation = async () => {
+    if (busy || pendingOperation === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      await operations.retryPending(pendingOperation.slot)
+      setPublishArmed(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <section className="track-config-shell intake-policy-shell">
+    <section className="configuration-shell intake-policy-shell">
       <ConfigurationTabs visibility={tabs} />
-      <header className="page-heading track-config-heading">
+      <header className="page-heading configuration-heading">
         <div>
           <p className="eyebrow">Participant introduction</p>
           <h1>Idea questions</h1>
@@ -185,7 +218,16 @@ export function IntakePolicyConfiguration({
         <div><dt>Teams writing</dt><dd>{configuration.publishedPolicy.activeDraftCount}</dd></div>
       </dl>
 
-      {configuration.draftPolicy ? (
+      {pendingOperation ? (
+        <PendingOperationRecovery
+          action={pendingOperation.action}
+          busy={busy}
+          onConfirm={() => void confirmPendingOperation()}
+          title={pendingOperation.title}
+        />
+      ) : null}
+
+      {!operationPending && configuration.draftPolicy ? (
         <section className="catalog-review">
           <div className="section-heading">
             <div>
@@ -224,7 +266,7 @@ export function IntakePolicyConfiguration({
         </section>
       ) : null}
 
-      {configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
+      {!operationPending && configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish these idea questions?</h2>
           <p className="muted">New project drafts use these questions immediately.</p>
@@ -241,10 +283,15 @@ export function IntakePolicyConfiguration({
         </section>
       ) : null}
 
-      {configuration.canDraft ? (
-        <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
+      {!operationPending && configuration.canDraft ? (
+        <ConfigurationEditorDisclosure
+          defaultOpen={Boolean(configuration.draftPolicy)}
+          description="Participant copy, answer limits, fallback questions, and question source."
+          title={configuration.draftPolicy ? 'Continue idea-question draft' : 'Edit idea questions'}
+        >
+        <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
           <fieldset disabled={draftPending} style={{ display: 'contents' }}>
-          <div className="track-editor-heading">
+          <div className="configuration-editor-heading">
             <div>
               <p className="eyebrow">{configuration.draftPolicy ? 'Replace current draft' : 'Create a draft'}</p>
               <h2>Participant copy</h2>
@@ -335,7 +382,7 @@ export function IntakePolicyConfiguration({
             <div className="phase-card-list">
               {policy.commonIdeaPatterns.map((pattern, index) => (
                 <article className="phase-card" key={index}>
-                  <header className="track-card-heading">
+                  <header className="configuration-card-heading">
                     <div><span>Pattern {index + 1}</span><strong>{pattern.description || 'New pattern'}</strong></div>
                     <button className="text-button" type="button" onClick={() => updatePolicy('commonIdeaPatterns', policy.commonIdeaPatterns.filter((_, patternIndex) => patternIndex !== index))}>Remove</button>
                   </header>
@@ -391,13 +438,14 @@ export function IntakePolicyConfiguration({
           </PolicySection>
 
           </fieldset>
-          <section className="track-save">
+          <section className="configuration-save">
             <label className="field"><span>Why this changed</span><textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} /></label>
             <button className="primary" disabled={busy || draftReason.trim().length < 5} type="submit">
               {busy ? 'Saving…' : draftPending ? 'Confirm earlier draft' : configuration.draftPolicy ? 'Replace draft' : 'Save draft'}
             </button>
           </section>
         </form>
+        </ConfigurationEditorDisclosure>
       ) : null}
 
       {error ? <p className="notice error" role="alert">{error}</p> : null}
@@ -489,7 +537,6 @@ function humanize(value: string) {
     problem: 'Problem',
     risk: 'Risk or unknown',
     short: 'Short',
-    track_fit: 'Track fit',
     tradeoff: 'Important choice',
     user: 'Who it helps',
   }

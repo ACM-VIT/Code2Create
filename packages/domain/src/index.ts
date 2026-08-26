@@ -108,6 +108,7 @@ export * from "./intelligence.ts";
 export * from "./intelligenceRecommendations.ts";
 export * from "./operationsAutonomy.ts";
 export * from "./email.ts";
+export * from "./voice.ts";
 export * from "./labels.ts";
 export * from "./eventStage.ts";
 export * from "./synesthesia.ts";

@@ -3,12 +3,17 @@ import { usePaginatedQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
 
 import { eventSlug } from '../../lib/config'
+import { type OperationRunner, useOperationRunner } from '../../lib/operations'
 import { LoadingLabel, SkeletonList } from '../Skeleton'
 import { RecommendationCard } from './RecommendationCard'
 
 const recommendationPageSize = 12
+type RecommendationDecisionResult = FunctionReturnType<
+  typeof api.intelligenceRecommendations.approve
+>
 
 export function RecommendationQueues() {
+  const operations = useOperationRunner<RecommendationDecisionResult>()
   const proposed = usePaginatedQuery(
     api.intelligenceRecommendations.proposed,
     { eventSlug },
@@ -33,6 +38,7 @@ export function RecommendationQueues() {
         <RecommendationList
           empty="No recommendation is awaiting a human decision."
           loading="Loading recommendation queue"
+          operations={operations}
           recommendations={proposed.results}
           status={proposed.status}
         />
@@ -58,6 +64,7 @@ export function RecommendationQueues() {
         <RecommendationList
           empty="No recommendation has been decided yet."
           loading="Loading recommendation history"
+          operations={operations}
           recommendations={settled.results}
           status={settled.status}
         />
@@ -83,10 +90,12 @@ function RecommendationList({
   empty,
   loading,
   recommendations,
+  operations,
   status,
 }: {
   empty: string
   loading: string
+  operations: OperationRunner<RecommendationDecisionResult>
   recommendations: Recommendation[]
   status: PaginationStatus
 }) {
@@ -109,7 +118,11 @@ function RecommendationList({
   return (
     <div className="configuration-card-stack">
       {recommendations.map((recommendation) => (
-        <RecommendationCard key={recommendation.id} recommendation={recommendation} />
+        <RecommendationCard
+          key={recommendation.id}
+          operations={operations}
+          recommendation={recommendation}
+        />
       ))}
       {status === 'LoadingMore' ? <LoadingLabel>Loading more recommendations</LoadingLabel> : null}
     </div>

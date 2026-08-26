@@ -30,6 +30,7 @@ import {
   findOperation,
   operationFingerprint,
   recordOperation,
+  storedOperationResult,
   type OperationFingerprintPart,
 } from "./lib/operations";
 import type { PermissionKey } from "./lib/permissionCatalog";
@@ -59,6 +60,29 @@ const maximumBundlesPerEvent = 100;
 const claimedOutcome: "claimed" = "claimed";
 const alreadyClaimedOutcome: "already_claimed" = "already_claimed";
 const revokedStatus: "revoked" = "revoked";
+
+const rosterImportOperationResult = z
+  .object({
+    rosterImportId: z.string().min(1),
+    createdCount: z.number().int().nonnegative(),
+    replacedCount: z.number().int().nonnegative(),
+    unchangedCount: z.number().int().nonnegative(),
+    alreadyClaimedCount: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const rosterClaimOperationResult = z
+  .object({
+    outcome: z.enum(["claimed", "already_claimed"]),
+    rosterEntryId: z.string().min(1),
+    personId: z.string().min(1),
+    eventAccessSubjectId: z.string().min(1),
+    role: z.enum(["supreme", "board", "sc", "jc", "external_judge"]),
+    bundleCount: z.number().int().nonnegative(),
+    grantCount: z.number().int().nonnegative(),
+    accessVersion: z.number().int().positive(),
+  })
+  .strict();
 
 const importRow = v.object({
   rowNumber: v.number(),
@@ -396,6 +420,7 @@ export const workspace = query({
   returns: v.object({
     canImport: v.boolean(),
     canReadAll: v.boolean(),
+    serverNow: v.number(),
     recommendedValidFrom: v.number(),
     recommendedValidUntil: v.optional(v.number()),
     importBlocker: v.optional(v.string()),
@@ -481,6 +506,7 @@ export const workspace = query({
     return {
       canImport,
       canReadAll,
+      serverNow: now,
       recommendedValidFrom: event.startsAt ?? now,
       ...(event.endsAt !== undefined ? { recommendedValidUntil: event.endsAt } : {}),
       ...(hasImportPermission && event.endsAt === undefined
@@ -814,19 +840,21 @@ export const confirmImport = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const rosterImportId = ctx.db.normalizeId("rosterImports", prior.targetId);
-      const rosterImport = rosterImportId
-        ? await ctx.db.get("rosterImports", rosterImportId)
-        : null;
-      if (!rosterImport || rosterImport.eventId !== event._id) {
-        throw new Error("Prior roster import no longer resolves.");
+      const result = storedOperationResult(
+        prior.resultJson,
+        "roster import",
+        rosterImportOperationResult,
+      );
+      const rosterImportId = ctx.db.normalizeId("rosterImports", result.rosterImportId);
+      if (!rosterImportId || rosterImportId !== prior.targetId) {
+        throw new Error("The stored roster import is invalid.");
       }
       return {
-        rosterImportId: rosterImport._id,
-        createdCount: rosterImport.createdCount,
-        replacedCount: rosterImport.replacedCount,
-        unchangedCount: rosterImport.unchangedCount,
-        alreadyClaimedCount: rosterImport.alreadyClaimedCount,
+        rosterImportId,
+        createdCount: result.createdCount,
+        replacedCount: result.replacedCount,
+        unchangedCount: result.unchangedCount,
+        alreadyClaimedCount: result.alreadyClaimedCount,
       };
     }
     const prepared = await prepareImport(ctx, event, subject._id, args);
@@ -925,6 +953,13 @@ export const confirmImport = mutation({
       }),
       reason: prepared.normalized.reason,
     });
+    const result = {
+      rosterImportId,
+      createdCount: prepared.counts.create,
+      replacedCount: prepared.counts.replace,
+      unchangedCount: prepared.counts.unchanged,
+      alreadyClaimedCount: prepared.counts.alreadyClaimed,
+    };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -933,15 +968,10 @@ export const confirmImport = mutation({
       requestFingerprint,
       targetType: "roster_import",
       targetId: rosterImportId,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
-    return {
-      rosterImportId,
-      createdCount: prepared.counts.create,
-      replacedCount: prepared.counts.replace,
-      unchangedCount: prepared.counts.unchanged,
-      alreadyClaimedCount: prepared.counts.alreadyClaimed,
-    };
+    return result;
   },
 });
 
@@ -1105,42 +1135,35 @@ export const claim = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const rosterEntryId = ctx.db.normalizeId("rosterEntries", prior.targetId);
-      const entry = rosterEntryId
-        ? await ctx.db.get("rosterEntries", rosterEntryId)
-        : null;
-      const subject = entry?.claimedEventAccessSubjectId
-        ? await ctx.db.get("eventAccessSubjects", entry.claimedEventAccessSubjectId)
-        : null;
+      const result = storedOperationResult(
+        prior.resultJson,
+        "roster claim",
+        rosterClaimOperationResult,
+      );
+      const rosterEntryId = ctx.db.normalizeId("rosterEntries", result.rosterEntryId);
+      const personId = ctx.db.normalizeId("people", result.personId);
+      const eventAccessSubjectId = ctx.db.normalizeId(
+        "eventAccessSubjects",
+        result.eventAccessSubjectId,
+      );
       if (
-        !entry ||
-        entry.status !== "claimed" ||
-        entry.claimedByPersonId !== person._id ||
-        !subject ||
-        subject.eventId !== event._id
+        !rosterEntryId ||
+        !personId ||
+        !eventAccessSubjectId ||
+        rosterEntryId !== prior.targetId ||
+        personId !== person._id
       ) {
-        throw new Error("Prior roster claim no longer resolves.");
+        throw new Error("The stored roster claim is invalid.");
       }
       return {
-        outcome:
-          entry.claimOperationId === operationId
-            ? claimedOutcome
-            : alreadyClaimedOutcome,
-        rosterEntryId: entry._id,
-        personId: person._id,
-        eventAccessSubjectId: subject._id,
-        role: entry.role,
-        bundleCount: entry.permissionGrantBatchIds?.length ?? 0,
-        grantCount: entry.permissionGrantBatchIds
-          ? (
-              await Promise.all(
-                entry.permissionGrantBatchIds.map((id) =>
-                  ctx.db.get("permissionGrantBatches", id),
-                ),
-              )
-            ).reduce((total, batch) => total + (batch?.createdCount ?? 0), 0)
-          : 0,
-        accessVersion: subject.accessVersion,
+        outcome: result.outcome,
+        rosterEntryId,
+        personId,
+        eventAccessSubjectId,
+        role: result.role,
+        bundleCount: result.bundleCount,
+        grantCount: result.grantCount,
+        accessVersion: result.accessVersion,
       };
     }
 
@@ -1169,17 +1192,7 @@ export const claim = mutation({
       if (!subject || subject.eventId !== event._id) {
         throw new Error("Claimed roster event account is missing.");
       }
-      await recordOperation(ctx, {
-        eventId: event._id,
-        actorPersonId: person._id,
-        clientOperationId: operationId,
-        commandName: "rosters.claim",
-        requestFingerprint,
-        targetType: "roster_entry",
-        targetId: entry._id,
-        createdAt: Date.now(),
-      });
-      return {
+      const result = {
         outcome: alreadyClaimedOutcome,
         rosterEntryId: entry._id,
         personId: person._id,
@@ -1189,6 +1202,18 @@ export const claim = mutation({
         grantCount: 0,
         accessVersion: subject.accessVersion,
       };
+      await recordOperation(ctx, {
+        eventId: event._id,
+        actorPersonId: person._id,
+        clientOperationId: operationId,
+        commandName: "rosters.claim",
+        requestFingerprint,
+        targetType: "roster_entry",
+        targetId: entry._id,
+        resultJson: JSON.stringify(result),
+        createdAt: Date.now(),
+      });
+      return result;
     }
     if (entry.status !== "pending" || entry.version !== args.expectedVersion) {
       throw new ConvexError({
@@ -1457,6 +1482,16 @@ export const claim = mutation({
       claimedGoogleSubject: googleIdentity.googleSubject,
       claimedAt: now,
     });
+    const result = {
+      outcome: claimedOutcome,
+      rosterEntryId: entry._id,
+      personId: person._id,
+      eventAccessSubjectId: subject._id,
+      role: entry.role,
+      bundleCount: batchResults.length,
+      grantCount: totalCreatedGrants,
+      accessVersion,
+    };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1465,6 +1500,7 @@ export const claim = mutation({
       requestFingerprint,
       targetType: "roster_entry",
       targetId: entry._id,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await ctx.db.insert("auditEvents", {
@@ -1491,16 +1527,7 @@ export const claim = mutation({
       reason: "Exact-email roster entry claimed by the authenticated Google account.",
       serverTime: now,
     });
-    return {
-      outcome: claimedOutcome,
-      rosterEntryId: entry._id,
-      personId: person._id,
-      eventAccessSubjectId: subject._id,
-      role: entry.role,
-      bundleCount: batchResults.length,
-      grantCount: totalCreatedGrants,
-      accessVersion,
-    };
+    return result;
   },
 });
 
@@ -1541,13 +1568,8 @@ export const revoke = mutation({
     });
     if (prior) {
       const rosterEntryId = ctx.db.normalizeId("rosterEntries", prior.targetId);
-      const entry = rosterEntryId
-        ? await ctx.db.get("rosterEntries", rosterEntryId)
-        : null;
-      if (!entry || entry.status !== "revoked") {
-        throw new Error("Prior roster revocation no longer resolves.");
-      }
-      return { rosterEntryId: entry._id, status: revokedStatus };
+      if (!rosterEntryId) throw new Error("The stored roster revocation is invalid.");
+      return { rosterEntryId, status: revokedStatus };
     }
     const authorizingGrantIds = await requirePermission(ctx, {
       eventId: event._id,

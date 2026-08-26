@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -12,7 +13,13 @@ import {
   requireFreshAuthSession,
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+  storedOperationVersion,
+} from "./lib/operations";
 import { appendReviewPanelVacancyReadFactById } from "./lib/operationsAutonomyReadFacts";
 import {
   matchingPermissionGrantIds,
@@ -21,7 +28,6 @@ import {
 } from "./lib/permissions";
 import {
   createReviewParticipantAvailabilityWaiver,
-  findReviewParticipantAvailabilityWaiver,
   readReviewParticipantAvailability,
 } from "./lib/reviewParticipantAvailability";
 import { patchTeamRoundState } from "./lib/reviewQueueProjection";
@@ -32,6 +38,21 @@ type QueueExceptionPermission =
   | "review.queue.resume"
   | "review.queue.miss"
   | "review.queue.move";
+
+const queueResumeOperationResult = z
+  .object({
+    state: z.enum(["unassigned", "queued"]),
+    version: z.number().int().positive(),
+  })
+  .strict();
+
+const callAttemptOperationResult = z
+  .object({
+    callAttemptCount: z.number().int().positive(),
+    missedEligibleAt: z.number().int().nonnegative(),
+    version: z.number().int().positive(),
+  })
+  .strict();
 
 async function requireTeamRoundState(
   ctx: MutationCtx,
@@ -250,9 +271,10 @@ export const holdTeam = mutation({
     if (prior) {
       const stateId = ctx.db.normalizeId("teamRoundStates", prior.targetId);
       if (!stateId) throw new Error("Prior queue-hold result is invalid.");
-      const saved = await ctx.db.get(stateId);
-      if (!saved) throw new Error("Prior queue-hold result no longer resolves.");
-      return { teamRoundStateId: stateId, version: saved.version };
+      return {
+        teamRoundStateId: stateId,
+        version: storedOperationVersion(prior.resultJson, "queue hold"),
+      };
     }
     const { state, round, team } = await requireTeamRoundState(
       ctx,
@@ -304,6 +326,7 @@ export const holdTeam = mutation({
       requestFingerprint,
       targetType: "team_round_state",
       targetId: state._id,
+      resultJson: String(state.version + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -362,9 +385,14 @@ export const resumeTeam = mutation({
     if (prior) {
       const stateId = ctx.db.normalizeId("teamRoundStates", prior.targetId);
       if (!stateId) throw new Error("Prior queue-resume result is invalid.");
-      const saved = await ctx.db.get(stateId);
-      if (!saved) throw new Error("Prior queue-resume result no longer resolves.");
-      return { teamRoundStateId: stateId, state: saved.state, version: saved.version };
+      return {
+        teamRoundStateId: stateId,
+        ...storedOperationResult(
+          prior.resultJson,
+          "queue resume",
+          queueResumeOperationResult,
+        ),
+      };
     }
     const { state, round } = await requireTeamRoundState(
       ctx,
@@ -429,6 +457,7 @@ export const resumeTeam = mutation({
       requestFingerprint,
       targetType: "team_round_state",
       targetId: state._id,
+      resultJson: JSON.stringify({ state: nextState, version: state.version + 1 }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -482,15 +511,11 @@ export const recordCallAttempt = mutation({
     if (prior) {
       const stateId = ctx.db.normalizeId("teamRoundStates", prior.targetId);
       if (!stateId) throw new Error("Prior call-attempt result is invalid.");
-      const saved = await ctx.db.get(stateId);
-      if (!saved?.lastCallAttemptAt) throw new Error("Prior call-attempt result no longer resolves.");
-      const round = await ctx.db.get(saved.roundId);
-      if (!round) throw new Error("Prior call-attempt round no longer resolves.");
-      return {
-        callAttemptCount: saved.callAttemptCount,
-        missedEligibleAt: saved.lastCallAttemptAt + round.missedCallGraceSeconds * 1_000,
-        version: saved.version,
-      };
+      return storedOperationResult(
+        prior.resultJson,
+        "queue call attempt",
+        callAttemptOperationResult,
+      );
     }
     const { state, round } = await requireTeamRoundState(ctx, event._id, args.teamRoundStateId);
     if (
@@ -522,6 +547,11 @@ export const recordCallAttempt = mutation({
       requestFingerprint,
       targetType: "team_round_state",
       targetId: state._id,
+      resultJson: JSON.stringify({
+        callAttemptCount: state.callAttemptCount + 1,
+        missedEligibleAt: now + round.missedCallGraceSeconds * 1_000,
+        version: state.version + 1,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -582,9 +612,10 @@ export const markMissed = mutation({
     if (prior) {
       const stateId = ctx.db.normalizeId("teamRoundStates", prior.targetId);
       if (!stateId) throw new Error("Prior missed-team result is invalid.");
-      const saved = await ctx.db.get(stateId);
-      if (!saved) throw new Error("Prior missed-team result no longer resolves.");
-      return { teamRoundStateId: stateId, version: saved.version };
+      return {
+        teamRoundStateId: stateId,
+        version: storedOperationVersion(prior.resultJson, "missed team"),
+      };
     }
     const { state, round, team } = await requireTeamRoundState(ctx, event._id, args.teamRoundStateId);
     const lastCallAttemptAt = state.lastCallAttemptAt ?? state.calledAt;
@@ -633,6 +664,7 @@ export const markMissed = mutation({
       requestFingerprint,
       targetType: "team_round_state",
       targetId: state._id,
+      resultJson: String(state.version + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -692,9 +724,10 @@ export const moveQueuedTeam = mutation({
     if (prior) {
       const stateId = ctx.db.normalizeId("teamRoundStates", prior.targetId);
       if (!stateId) throw new Error("Prior queue-move result is invalid.");
-      const saved = await ctx.db.get(stateId);
-      if (!saved) throw new Error("Prior queue-move result no longer resolves.");
-      return { teamRoundStateId: stateId, version: saved.version };
+      return {
+        teamRoundStateId: stateId,
+        version: storedOperationVersion(prior.resultJson, "queue move"),
+      };
     }
     const { state, round } = await requireTeamRoundState(ctx, event._id, args.teamRoundStateId);
     const targetPanel = await ctx.db.get(args.targetPanelId);
@@ -745,6 +778,7 @@ export const moveQueuedTeam = mutation({
       requestFingerprint,
       targetType: "team_round_state",
       targetId: state._id,
+      resultJson: String(state.version + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -799,9 +833,11 @@ export const setPanelAvailability = mutation({
     if (prior) {
       const panelId = ctx.db.normalizeId("reviewPanels", prior.targetId);
       if (!panelId) throw new Error("Prior panel-availability result is invalid.");
-      const saved = await ctx.db.get(panelId);
-      if (!saved) throw new Error("Prior panel-availability result no longer resolves.");
-      return { panelId, status: saved.status, version: saved.version };
+      return {
+        panelId,
+        status: args.status,
+        version: storedOperationVersion(prior.resultJson, "panel availability"),
+      };
     }
     const panel = await ctx.db.get(args.panelId);
     if (
@@ -853,6 +889,7 @@ export const setPanelAvailability = mutation({
       requestFingerprint,
       targetType: "review_panel",
       targetId: panel._id,
+      resultJson: String(panel.version + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -911,17 +948,9 @@ export const waivePresence = mutation({
     if (prior) {
       const sessionId = ctx.db.normalizeId("reviewSessions", prior.targetId);
       if (!sessionId) throw new Error("Prior presence-waiver result is invalid.");
-      const saved = await ctx.db.get(sessionId);
-      if (!saved) throw new Error("Prior presence-waiver result no longer resolves.");
-      const presences = await ctx.db
-        .query("reviewPresence")
-        .withIndex("by_session_reviewer", (index) =>
-          index.eq("reviewSessionId", saved._id),
-        )
-        .collect();
       return {
-        waivedCount: presences.filter((presence) => presence.method === "board_override").length,
-        version: saved.version,
+        waivedCount: uniqueReviewerIds.length,
+        version: storedOperationVersion(prior.resultJson, "presence waiver"),
       };
     }
     const session = await ctx.db.get(args.reviewSessionId);
@@ -999,6 +1028,7 @@ export const waivePresence = mutation({
       requestFingerprint,
       targetType: "review_session",
       targetId: session._id,
+      resultJson: String(session.version + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1057,18 +1087,20 @@ export const waiveParticipantAvailability = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const reviewSessionId = ctx.db.normalizeId("reviewSessions", prior.targetId);
-      if (!reviewSessionId) {
+      const waiverId = ctx.db.normalizeId(
+        "reviewParticipantAvailabilityWaivers",
+        prior.targetId,
+      );
+      if (!waiverId) {
         throw new Error("Prior participant-availability waiver result is invalid.");
       }
-      const [session, waiver] = await Promise.all([
-        ctx.db.get(reviewSessionId),
-        findReviewParticipantAvailabilityWaiver(ctx, reviewSessionId),
-      ]);
-      if (!session || !waiver) {
-        throw new Error("Prior participant-availability waiver no longer resolves.");
-      }
-      return { waiverId: waiver._id, version: session.version };
+      return {
+        waiverId,
+        version: storedOperationVersion(
+          prior.resultJson,
+          "participant-availability waiver",
+        ),
+      };
     }
     const session = await ctx.db.get(args.reviewSessionId);
     if (
@@ -1135,8 +1167,9 @@ export const waiveParticipantAvailability = mutation({
       clientOperationId: args.clientOperationId,
       commandName: "review.participant_availability.waive",
       requestFingerprint,
-      targetType: "review_session",
-      targetId: session._id,
+      targetType: "review_participant_availability_waiver",
+      targetId: waiverId,
+      resultJson: String(session.version + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

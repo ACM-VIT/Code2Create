@@ -160,6 +160,8 @@ describe("intelligence observability", () => {
       eventSlug: fixture.eventSlug,
     });
     expect(copilot.expiresAt - copilot.issuedAt).toBe(60_000);
+    expect(copilot.serverNow).toBeGreaterThanOrEqual(copilot.issuedAt);
+    expect(copilot.serverNow).toBeLessThan(copilot.expiresAt);
     expect(copilot.conversationUrl).toMatch(
       /^https:\/\/intelligence\.example\.test\/v1\/operations-copilot\/conversations\//u,
     );
@@ -353,6 +355,7 @@ async function seedActivity(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       version: 1,
       createdAt: now,
       updatedAt: now,

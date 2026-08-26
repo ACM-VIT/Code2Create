@@ -64,6 +64,8 @@ type GithubBrowseResult =
     };
 
 type FigmaAccessContext = {
+  artifactId: Id<"integrationArtifacts">;
+  snapshotId: Id<"figmaFileSnapshots">;
   objectKey: string;
   storageRegion: string;
   storageBucket: string;
@@ -104,6 +106,7 @@ type FigmaPreviewListResult = {
 type FigmaArtifactResult = {
   url: string;
   expiresAt: number;
+  serverNow: number;
   sha256: string;
   capturedAt: number;
   providerVersionId: string;
@@ -115,9 +118,13 @@ type FigmaBrowseResult = FigmaEvidenceBrowserPage & {
 };
 
 type FigmaPreviewAccessContext = {
+  factId: Id<"figmaNodeFacts">;
+  snapshotId: Id<"figmaFileSnapshots">;
+  previewSetId: Id<"figmaPreviewSets">;
   objectKey: string;
   storageRegion: string;
   storageBucket: string;
+  byteCount: number;
   sha256: string;
   width: number;
   height: number;
@@ -129,6 +136,7 @@ type FigmaPreviewAccessContext = {
 type FigmaPreviewResult = {
   url: string;
   expiresAt: number;
+  serverNow: number;
   sha256: string;
   width: number;
   height: number;
@@ -402,6 +410,7 @@ const figmaComparisonResult = v.object({
 const figmaPreviewResult = v.object({
   url: v.string(),
   expiresAt: v.number(),
+  serverNow: v.number(),
   sha256: v.string(),
   width: v.number(),
   height: v.number(),
@@ -830,6 +839,7 @@ export const openFigmaArtifact = action({
   returns: v.object({
     url: v.string(),
     expiresAt: v.number(),
+    serverNow: v.number(),
     sha256: v.string(),
     capturedAt: v.number(),
     providerVersionId: v.string(),
@@ -847,9 +857,28 @@ export const openFigmaArtifact = action({
       args,
     );
     const expiresAt = Date.now() + 60_000;
+    const url = await signArtifactDownload(context);
+    const access = await ctx.runMutation(
+      internal.reviewEvidence.recordFigmaArtifactAccess,
+      {
+        ...args,
+        artifactId: context.artifactId,
+        snapshotId: context.snapshotId,
+        expectedObjectKey: context.objectKey,
+        expectedStorageRegion: context.storageRegion,
+        expectedStorageBucket: context.storageBucket,
+        expectedStoredBytes: context.storedBytes,
+        expectedUncompressedBytes: context.uncompressedBytes,
+        expectedSha256: context.sha256,
+        expectedCapturedAt: context.capturedAt,
+        expectedProviderVersionId: context.providerVersionId,
+        signedUrlExpiresAt: expiresAt,
+      },
+    );
     return {
-      url: await signArtifactDownload(context),
+      url,
       expiresAt,
+      serverNow: access.serverNow,
       sha256: context.sha256,
       capturedAt: context.capturedAt,
       providerVersionId: context.providerVersionId,
@@ -867,6 +896,7 @@ export const openFigmaPreview = action({
   returns: v.object({
     url: v.string(),
     expiresAt: v.number(),
+    serverNow: v.number(),
     sha256: v.string(),
     width: v.number(),
     height: v.number(),
@@ -887,9 +917,20 @@ export const openFigmaPreview = action({
       internal.reviewEvidence.figmaPreviewAccessContext,
       args,
     );
+    const expiresAt = Date.now() + 60_000;
+    const url = await signFigmaPreview(context);
+    const access = await ctx.runMutation(
+      internal.reviewEvidence.recordFigmaPreviewAccess,
+      {
+        ...args,
+        expected: context,
+        signedUrlExpiresAt: expiresAt,
+      },
+    );
     return {
-      url: await signFigmaPreview(context),
-      expiresAt: Date.now() + 60_000,
+      url,
+      expiresAt,
+      serverNow: access.serverNow,
       sha256: context.sha256,
       width: context.width,
       height: context.height,
@@ -934,12 +975,22 @@ export const openFigmaComparison = action({
       context.current ? signFigmaPreview(context.current) : Promise.resolve(null),
       context.previous ? signFigmaPreview(context.previous) : Promise.resolve(null),
     ]);
+    const access = await ctx.runMutation(
+      internal.reviewEvidence.recordFigmaComparisonPreviewAccess,
+      {
+        ...args,
+        ...(context.current ? { expectedCurrent: context.current } : {}),
+        ...(context.previous ? { expectedPrevious: context.previous } : {}),
+        signedUrlExpiresAt: expiresAt,
+      },
+    );
     return {
       ...(context.current && currentUrl
         ? {
             current: {
               url: currentUrl,
               expiresAt,
+              serverNow: access.serverNow,
               sha256: context.current.sha256,
               width: context.current.width,
               height: context.current.height,
@@ -954,6 +1005,7 @@ export const openFigmaComparison = action({
             previous: {
               url: previousUrl,
               expiresAt,
+              serverNow: access.serverNow,
               sha256: context.previous.sha256,
               width: context.previous.width,
               height: context.previous.height,

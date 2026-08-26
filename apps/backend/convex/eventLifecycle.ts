@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import {
   eventLifecycleBlockers,
@@ -17,7 +17,12 @@ import {
   requireFreshAuthSession,
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationVersion,
+} from "./lib/operations";
 import { revokeOperationsAutonomyForEventClosure } from "./lib/operationsAutonomyRevocation";
 import { eventStatus } from "./values";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
@@ -63,7 +68,7 @@ export const current = query({
       canManage: manageGrantIds.length > 0,
       transitions: eventLifecycleTargets(event.status).map((targetStatus) => ({
         targetStatus,
-        blockers: eventLifecycleBlockers(event.status, targetStatus, configuration),
+        blockers: eventLifecycleBlockers(targetStatus, configuration),
       })),
     };
   },
@@ -96,7 +101,7 @@ export const transition = mutation({
     if (prior) {
       return {
         status: args.targetStatus,
-        eventVersion: args.expectedEventVersion + 1,
+        eventVersion: storedOperationVersion(prior.resultJson, "event lifecycle"),
       };
     }
 
@@ -121,7 +126,7 @@ export const transition = mutation({
       });
     }
     const configuration = await readLifecycleConfiguration(ctx, event);
-    const blockers = eventLifecycleBlockers(event.status, args.targetStatus, configuration);
+    const blockers = eventLifecycleBlockers(args.targetStatus, configuration);
     if (blockers.length > 0) {
       throw new ConvexError({
         code: "EVENT_NOT_READY",
@@ -153,6 +158,7 @@ export const transition = mutation({
       requestFingerprint,
       targetType: "event",
       targetId: event._id,
+      resultJson: String(nextVersion),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -169,6 +175,56 @@ export const transition = mutation({
       reason,
     });
     return { status: args.targetStatus, eventVersion: nextVersion };
+  },
+});
+
+export const closeRegistrationAtDeadline = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    expectedApplicationsCloseAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get(args.eventId);
+    if (
+      !event ||
+      event.applicationsCloseAt !== args.expectedApplicationsCloseAt ||
+      event.status !== "registration_open" ||
+      Date.now() < event.applicationsCloseAt
+    ) {
+      return null;
+    }
+    const now = Date.now();
+    const nextVersion = event.version + 1;
+    await ctx.db.patch(event._id, {
+      status: "registration_closed",
+      version: nextVersion,
+      updatedAt: now,
+    });
+    if (event.createdByPersonId !== undefined) {
+      await ctx.db.insert("auditEvents", {
+        eventId: event._id,
+        actorPersonId: event.createdByPersonId,
+        authorizingPermissionKey: "configured_application_deadline",
+        authorizingGrantIds: [],
+        resolvedScopeType: "event",
+        action: "event_registration_closed_at_deadline",
+        targetType: "event",
+        targetId: event._id,
+        previousSummary: JSON.stringify({
+          status: event.status,
+          version: event.version,
+        }),
+        nextSummary: JSON.stringify({
+          status: "registration_closed",
+          version: nextVersion,
+          applicationsCloseAt: event.applicationsCloseAt,
+        }),
+        reason: "The configured application deadline passed",
+        serverTime: now,
+      });
+    }
+    return null;
   },
 });
 
@@ -213,6 +269,7 @@ async function readLifecycleConfiguration(
       event.startsAt !== undefined &&
       event.endsAt !== undefined &&
       event.startsAt < event.endsAt,
+    hasFutureApplicationDeadline: Date.now() < event.applicationsCloseAt,
     hasFloorPlan: event.publishedFloorPlanVersionId !== undefined,
     hasIntegrationPolicy: event.publishedIntegrationPolicyId !== undefined,
     hasIntakePolicy: event.publishedIntakePolicyId !== undefined,
@@ -220,7 +277,6 @@ async function readLifecycleConfiguration(
     hasPhaseSchedule: event.publishedEventPhaseScheduleId !== undefined,
     hasProjectCheckpointPlan: event.publishedProjectCheckpointPlanId !== undefined,
     hasPublishedReviewRound: publishedReviewRound !== null,
-    hasTrackCatalog: event.publishedTrackCatalogId !== undefined,
   };
 }
 

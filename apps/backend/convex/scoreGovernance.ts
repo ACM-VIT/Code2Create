@@ -3,6 +3,7 @@ import {
   paginationResultValidator,
 } from "convex/server";
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -14,7 +15,13 @@ import {
   requireCurrentPerson,
   requireEventSubject,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+  storedOperationVersion,
+} from "./lib/operations";
 import {
   boundedActivePermissionGrants,
   matchingPermissionGrantIds,
@@ -61,6 +68,22 @@ const correctionCategory = v.union(
   v.literal("other"),
 );
 
+const correctionDecisionOperationResult = z
+  .object({
+    correctionCaseId: z.string().min(1),
+    state: z.enum(["open", "rejected"]),
+    version: z.number().int().positive(),
+  })
+  .strict();
+
+const scoreReleaseOperationResult = z
+  .object({
+    releaseId: z.string().min(1),
+    publishedAt: z.number().int().nonnegative(),
+    releasedTeamCount: z.number().int().nonnegative(),
+  })
+  .strict();
+
 const roundSummary = v.object({
   id: v.id("reviewRounds"),
   name: v.string(),
@@ -70,7 +93,7 @@ const roundSummary = v.object({
   endsAt: v.number(),
   correctionRequestsCloseAt: v.number(),
   version: v.number(),
-  exportState: v.optional(v.string()),
+  exportState: v.optional(roundExportState),
   exportRevision: v.optional(v.number()),
   releasedAt: v.optional(v.number()),
   canReadValues: v.boolean(),
@@ -211,7 +234,7 @@ export const rounds = query({
       endsAt: number;
       correctionRequestsCloseAt: number;
       version: number;
-      exportState?: string;
+      exportState?: Doc<"roundExports">["state"];
       exportRevision?: number;
       releasedAt?: number;
       canReadValues: boolean;
@@ -977,9 +1000,10 @@ export const requestCorrection = mutation({
     if (prior) {
       const correctionCaseId = ctx.db.normalizeId("scorecardCorrectionCases", prior.targetId);
       if (!correctionCaseId) throw new Error("Prior correction request is invalid.");
-      const saved = await ctx.db.get(correctionCaseId);
-      if (!saved) throw new Error("Prior correction request no longer resolves.");
-      return { correctionCaseId, version: saved.version };
+      return {
+        correctionCaseId,
+        version: storedOperationVersion(prior.resultJson, "correction request"),
+      };
     }
     const scorecard = await ctx.db.get(args.scorecardId);
     if (
@@ -1047,6 +1071,7 @@ export const requestCorrection = mutation({
       requestFingerprint,
       targetType: "scorecard_correction_case",
       targetId: correctionCaseId,
+      resultJson: "1",
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1105,11 +1130,19 @@ export const decideCorrection = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const correctionCaseId = ctx.db.normalizeId("scorecardCorrectionCases", prior.targetId);
-      if (!correctionCaseId) throw new Error("Prior correction decision is invalid.");
-      const saved = await ctx.db.get(correctionCaseId);
-      if (!saved) throw new Error("Prior correction decision no longer resolves.");
-      return { correctionCaseId, state: saved.state, version: saved.version };
+      const result = storedOperationResult(
+        prior.resultJson,
+        "correction decision",
+        correctionDecisionOperationResult,
+      );
+      const correctionCaseId = ctx.db.normalizeId(
+        "scorecardCorrectionCases",
+        result.correctionCaseId,
+      );
+      if (!correctionCaseId || correctionCaseId !== prior.targetId) {
+        throw new Error("The stored correction decision is invalid.");
+      }
+      return { correctionCaseId, state: result.state, version: result.version };
     }
     const correctionCase = await ctx.db.get(args.correctionCaseId);
     if (
@@ -1167,6 +1200,11 @@ export const decideCorrection = mutation({
         updatedAt: now,
       });
     }
+    const result = {
+      correctionCaseId: correctionCase._id,
+      state,
+      version: correctionCase.version + 1,
+    };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1175,6 +1213,7 @@ export const decideCorrection = mutation({
       requestFingerprint,
       targetType: "scorecard_correction_case",
       targetId: correctionCase._id,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1194,11 +1233,7 @@ export const decideCorrection = mutation({
       nextSummary: JSON.stringify({ state, version: correctionCase.version + 1 }),
       reason,
     });
-    return {
-      correctionCaseId: correctionCase._id,
-      state,
-      version: correctionCase.version + 1,
-    };
+    return result;
   },
 });
 
@@ -1246,9 +1281,7 @@ export const voidScorecard = mutation({
     if (prior) {
       const correctionCaseId = ctx.db.normalizeId("scorecardCorrectionCases", prior.targetId);
       if (!correctionCaseId) throw new Error("Prior void result is invalid.");
-      const saved = await ctx.db.get(correctionCaseId);
-      if (!saved?.voidDisposition) throw new Error("Prior void result no longer resolves.");
-      return { correctionCaseId, disposition: saved.voidDisposition };
+      return { correctionCaseId, disposition: args.disposition };
     }
     const scorecard = await ctx.db.get(args.scorecardId);
     if (
@@ -1429,18 +1462,19 @@ export const publishRelease = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const releaseId = ctx.db.normalizeId("scoreReleaseVersions", prior.targetId);
-      if (!releaseId) throw new Error("Prior score-release result is invalid.");
-      const release = await ctx.db.get(releaseId);
-      if (!release) throw new Error("Prior score-release result no longer resolves.");
-      const entries = await ctx.db
-        .query("scoreReleaseEntries")
-        .withIndex("by_release_team", (index) => index.eq("releaseId", releaseId))
-        .collect();
+      const result = storedOperationResult(
+        prior.resultJson,
+        "score release",
+        scoreReleaseOperationResult,
+      );
+      const releaseId = ctx.db.normalizeId("scoreReleaseVersions", result.releaseId);
+      if (!releaseId || releaseId !== prior.targetId) {
+        throw new Error("The stored score-release result is invalid.");
+      }
       return {
         releaseId,
-        publishedAt: release.publishedAt,
-        releasedTeamCount: entries.length,
+        publishedAt: result.publishedAt,
+        releasedTeamCount: result.releasedTeamCount,
       };
     }
     const round = await requireRound(ctx, event._id, args.roundId);
@@ -1563,6 +1597,11 @@ export const publishRelease = mutation({
       requestFingerprint,
       targetType: "score_release",
       targetId: releaseId,
+      resultJson: JSON.stringify({
+        releaseId,
+        publishedAt: now,
+        releasedTeamCount: resultEntries.length,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

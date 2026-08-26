@@ -12,17 +12,37 @@ import {
   signEmergencyPackDownload,
   storeEmergencyPack,
 } from "./lib/artifactStorage";
-import { buildEmergencyPackHtml } from "./lib/emergencyPack";
+import {
+  buildEmergencyPackHtml,
+  type EmergencyPackSnapshot,
+} from "./lib/emergencyPack";
 
 function digest(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+type EmergencyPackGenerationContext =
+  | { kind: "skip" }
+  | {
+      kind: "generate";
+      eventId: Id<"events">;
+      packId: Id<"emergencyPacks">;
+      purpose: string;
+      expiresAt: number;
+      spareAttendanceSheetCount: number;
+      spareReviewSheetCount: number;
+      serialPrefix: string;
+      snapshot: EmergencyPackSnapshot;
+    };
+
 export const generate = internalAction({
   args: { packId: v.id("emergencyPacks") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const context = await ctx.runQuery(internal.emergencyPacks.generationContext, args);
+    const context: EmergencyPackGenerationContext = await ctx.runQuery(
+      internal.emergencyPacks.generationContext,
+      args,
+    );
     if (context.kind === "skip") return null;
     const snapshotChecksum = digest(JSON.stringify(context.snapshot));
     const built = buildEmergencyPackHtml({

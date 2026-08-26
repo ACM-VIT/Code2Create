@@ -13,6 +13,11 @@ import {
 } from "./lib/reviewLimits";
 import { requireScoreGovernancePageSize } from "./scoreGovernance";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot";
+import {
+  defaultDeterministicIntakePolicy,
+  intakePolicyChecksum,
+  normalizeIntakePolicy,
+} from "./lib/intakePolicy";
 import schema from "./schema";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -51,6 +56,7 @@ describe("score governance pagination", () => {
         timezone: "Asia/Kolkata",
         status: "live",
         vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
         startsAt: fixture.now - 60_000,
         endsAt: fixture.now + 3_600_000,
         version: 1,
@@ -420,7 +426,7 @@ describe("score governance pagination", () => {
     ).rejects.toThrow("participant feedback release limit");
   });
 
-  test("submitted participant view reads the immutable project without the full draft catalog", async () => {
+  test("submitted participant view reads the immutable project instead of a mutable draft", async () => {
     const backend = seededBackend({ documentsRead: 30 });
     const fixture = await seedCorrectionFixture(backend);
     const applicationId = await backend.run(async (ctx) => {
@@ -436,47 +442,12 @@ describe("score governance pagination", () => {
         grantedByPersonId: fixture.personId,
         reason: "Submitted participant view test",
       });
-      for (let index = 1; index < 5; index += 1) {
-        await ctx.db.insert("trackVersions", {
-          eventId: fixture.eventId,
-          catalogVersionId: fixture.catalogVersionId,
-          stableKey: `unused_core_${index}`,
-          slug: `unused-core-${index}`,
-          displayName: `Unused core ${index}`,
-          description: "A valid unselected core track in the pinned draft catalog.",
-          examples: ["An unused core example"],
-          displayOrder: index,
-          type: "core",
-          status: "published",
-          createdAt: fixture.now,
-        });
-      }
-      for (let index = 0; index < 10; index += 1) {
-        await ctx.db.insert("trackVersions", {
-          eventId: fixture.eventId,
-          catalogVersionId: fixture.catalogVersionId,
-          stableKey: `unused_sponsor_${index}`,
-          slug: `unused-sponsor-${index}`,
-          displayName: `Unused sponsor ${index}`,
-          description: "A valid unselected sponsor track in the pinned draft catalog.",
-          examples: ["An unused sponsor example"],
-          displayOrder: index,
-          type: "sponsor",
-          status: "published",
-          eligibilityText: "The project must use this sponsor service.",
-          createdAt: fixture.now,
-        });
-      }
       await ctx.db.insert("projectDrafts", {
         eventId: fixture.eventId,
         teamId: fixture.teamId,
-        trackCatalogVersionId: fixture.catalogVersionId,
         intakePolicyVersionId: fixture.intakePolicyVersionId,
         stage: "submitted",
         initialIdea: "A stale mutable draft value that must not reach the submitted view.",
-        chosenCoreTrackVersionId: fixture.trackVersionId,
-        chosenSponsorTrackVersionIds: [],
-        recommendationState: "not_requested",
         freshnessAttestedByMembershipId: fixture.membershipId,
         freshnessAttestedAt: fixture.now,
         version: 1,
@@ -504,19 +475,27 @@ describe("score governance pagination", () => {
     await expect(
       participant.query(api.intake.submitted, { eventSlug: fixture.eventSlug }),
     ).resolves.toEqual({
+      serverNow: expect.any(Number),
       currentRole: "lead",
       project: {
+        id: fixture.projectVersionId,
         initialIdea: "A fixture project for score correction tests.",
-        coreTrack: {
-          id: fixture.trackVersionId,
-          displayName: "Correction track",
-        },
-        sponsorTracks: [],
+        intakeResponses: [],
+        version: 1,
       },
+      editRules: {
+        initialIdeaMinLength: defaultDeterministicIntakePolicy.initialIdeaMinLength,
+        initialIdeaMaxLength: defaultDeterministicIntakePolicy.initialIdeaMaxLength,
+        followUpAnswerMinLength: defaultDeterministicIntakePolicy.followUpAnswerMinLength,
+        followUpAnswerMaxLength: defaultDeterministicIntakePolicy.followUpAnswerMaxLength,
+      },
+      applicationsCloseAt: expect.any(Number),
+      canEdit: false,
       application: {
         id: applicationId,
         state: "confirmed",
         version: 1,
+        contentVersion: 1,
         submittedAt: fixture.now,
         informationRequest: null,
         currentOffer: null,
@@ -676,6 +655,7 @@ async function seedCorrectionFixture(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,
@@ -714,7 +694,6 @@ async function seedCorrectionFixture(backend: BackendTest) {
       activeVitMemberCount: 0,
       activeExternalMemberCount: 1,
       membershipLocked: true,
-      trackLocked: true,
       version: 1,
       createdAt: now,
       updatedAt: now,
@@ -743,50 +722,13 @@ async function seedCorrectionFixture(backend: BackendTest) {
       createdAt: now,
       publishedAt: now,
     });
-    const catalogVersionId = await ctx.db.insert("trackCatalogVersions", {
-      eventId,
-      version: 1,
-      status: "published",
-      requiredCoreTrackCount: 1,
-      checksum: crypto.randomUUID(),
-      createdByPersonId: personId,
-      createdAt: now,
-      publishedAt: now,
-    });
-    const trackVersionId = await ctx.db.insert("trackVersions", {
-      eventId,
-      catalogVersionId,
-      stableKey: "correction-track",
-      slug: "correction-track",
-      displayName: "Correction track",
-      description: "Track used by the score correction fixture.",
-      examples: [],
-      displayOrder: 0,
-      type: "core",
-      status: "published",
-      createdAt: now,
-    });
+    const intakePolicy = normalizeIntakePolicy(defaultDeterministicIntakePolicy);
     const intakePolicyVersionId = await ctx.db.insert("intakePolicyVersions", {
       eventId,
       version: 1,
       status: "published",
-      openingText: "Hello.",
-      initialPrompt: "What is your project about?",
-      initialHelpText: "Describe the fixture project.",
-      initialIdeaMinLength: 1,
-      initialIdeaMaxLength: 1_000,
-      followUpAnswerMinLength: 1,
-      followUpAnswerMaxLength: 1_000,
-      minimumFollowUpCount: 0,
-      maximumFollowUpCount: 0,
-      deterministicFollowUpCount: 0,
-      questionMaxLength: 200,
-      allowedPurposeKeys: [],
-      fallbackQuestions: [],
-      blockedTerms: [],
-      commonIdeaPatterns: [],
-      model: { mode: "deterministic" },
-      checksum: crypto.randomUUID(),
+      ...intakePolicy,
+      checksum: intakePolicyChecksum(intakePolicy),
       createdByPersonId: personId,
       createdAt: now,
       publishedAt: now,
@@ -821,7 +763,6 @@ async function seedCorrectionFixture(backend: BackendTest) {
       intakePolicyVersionId,
       participantPolicyVersionId,
       admissionPolicyVersionId,
-      coreTrackVersionId: trackVersionId,
       submittedAt: now,
     });
     const projectVersionId = await ctx.db.insert("projectVersions", {
@@ -831,8 +772,6 @@ async function seedCorrectionFixture(backend: BackendTest) {
       initialIdea: "A fixture project for score correction tests.",
       intakePolicyVersionId,
       intakeResponses: [],
-      coreTrackVersionId: trackVersionId,
-      sponsorTrackVersionIds: [],
       lockedRosterSnapshotId,
       lockedMemberCount: 1,
       lockedLeadMembershipId: membershipId,
@@ -845,8 +784,6 @@ async function seedCorrectionFixture(backend: BackendTest) {
         participantPolicyVersionId,
         previewedDraftVersion: 1,
         previewedTeamVersion: 1,
-        previewedTrackVersionId: trackVersionId,
-        previewedSponsorTrackVersionIds: [],
         confirmedByMembershipId: membershipId,
         confirmedAt: now,
       },
@@ -1011,8 +948,6 @@ async function seedCorrectionFixture(backend: BackendTest) {
       subjectId,
       membershipId,
       teamId,
-      catalogVersionId,
-      trackVersionId,
       intakePolicyVersionId,
       admissionPolicyVersionId,
       projectVersionId,

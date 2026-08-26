@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { reviewRoundStatusLabels } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { useRef, useState, type FormEvent } from 'react'
@@ -45,6 +46,7 @@ type AvailabilityWindowDraft = {
   startsAt: string
   endsAt: string
 }
+type ReviewerView = 'needs_setup' | 'ready' | 'all'
 type RoundDraft = {
   stableKey: string
   name: string
@@ -138,10 +140,12 @@ export function ReviewSetup({
   canPublish,
   canReadConfiguration,
   canReadProfiles,
+  canReadRounds,
 }: {
   canPublish: boolean
   canReadConfiguration: boolean
   canReadProfiles: boolean
+  canReadRounds: boolean
 }) {
   const configuration = useQuery(
     api.reviewConfiguration.current,
@@ -164,7 +168,7 @@ export function ReviewSetup({
 
   return (
     <section className="review-shell setup-shell">
-      <Link className="back-link" to="/reviews">← Judging</Link>
+      {canReadRounds ? <Link className="back-link" to="/reviews">← Judging</Link> : null}
       <header className="page-heading">
         <div>
           <p className="eyebrow">Judging</p>
@@ -185,15 +189,17 @@ export function ReviewSetup({
               <div className="published-round-row" key={round.id}>
                 <div>
                   <strong>{round.name}</strong>
-                  <span>{stateName(round.status)} · {round.panelCount} panels · {round.reviewerCount} reviewers · {round.reserveCount} reserves</span>
+                  <span>{reviewRoundStatusLabels[round.status]} · {round.panelCount} panels · {round.reviewerCount} reviewers · {round.reserveCount} reserves</span>
                   <span>
                     Clock-in {formatMoment(round.clockInOpensAt)} · report {formatMoment(round.reviewerReportAt)} · no-show after {round.noShowGraceSeconds}s
                   </span>
                   <span>Score-correction requests close {formatMoment(round.correctionRequestsCloseAt)}</span>
                 </div>
-                <Link className="row-action" to={`/reviews/${round.id}`}>
-                  See its panels
-                </Link>
+                {round.canReadBoard ? (
+                  <Link className="row-action" to={`/reviews/${round.id}`}>
+                    See its panels
+                  </Link>
+                ) : null}
               </div>
             ))}
             {configuration.rounds.length === 0 ? <p className="muted">No round has been published.</p> : null}
@@ -206,11 +212,22 @@ export function ReviewSetup({
       ) : null}
 
       {canReadConfiguration && canReadProfiles ? (
-        <RoundPublisher
-          canPublish={canPublish}
-          candidates={reviewerCandidates}
-          nextSequence={nextSequence}
-        />
+        <details className="workspace-disclosure review-round-builder">
+          <summary>
+            <span>
+              <strong>New judging round</strong>
+              <small>Set timing, rubric, panels, reserves, and publish when everything is ready.</small>
+            </span>
+            <span className="workspace-disclosure-toggle" aria-hidden="true" />
+          </summary>
+          <div className="workspace-disclosure-body">
+            <RoundPublisher
+              canPublish={canPublish}
+              candidates={reviewerCandidates}
+              nextSequence={nextSequence}
+            />
+          </div>
+        </details>
       ) : (
         <p className="notice">
           Building panels needs access to both judging rules and reviewer profiles.
@@ -221,18 +238,19 @@ export function ReviewSetup({
 }
 
 function ReviewerProfiles({ candidates }: { candidates: Candidate[] }) {
-  const ready = candidates.filter(
-    (candidate) =>
-      candidate.profile?.status === 'active' &&
-      candidate.profile.trainingStatus === 'complete' &&
-      candidate.profile.availabilityWindows.length > 0,
-  ).length
+  const [view, setView] = useState<ReviewerView>('needs_setup')
+  const ready = candidates.filter(reviewerIsReady).length
   const outstanding = candidates.length - ready
   const ordered = [...candidates].sort((left, right) => {
     const leftReady = left.profile?.trainingStatus === 'complete'
     const rightReady = right.profile?.trainingStatus === 'complete'
     if (leftReady !== rightReady) return leftReady ? 1 : -1
     return left.displayName.localeCompare(right.displayName)
+  })
+  const visible = ordered.filter((candidate) => {
+    if (view === 'ready') return reviewerIsReady(candidate)
+    if (view === 'needs_setup') return !reviewerIsReady(candidate)
+    return true
   })
 
   return (
@@ -243,14 +261,43 @@ function ReviewerProfiles({ candidates }: { candidates: Candidate[] }) {
           ? `All ${candidates.length} reviewers are ready to judge.`
           : `${outstanding} of ${candidates.length} reviewers still need setting up before they can judge.`}
       </p>
+      <div className="configuration-tabs reviewer-view-tabs" role="group" aria-label="Reviewer setup view">
+        <button
+          aria-pressed={view === 'needs_setup'}
+          className={view === 'needs_setup' ? 'active' : ''}
+          type="button"
+          onClick={() => setView('needs_setup')}
+        >
+          Needs setup · {outstanding}
+        </button>
+        <button
+          aria-pressed={view === 'ready'}
+          className={view === 'ready' ? 'active' : ''}
+          type="button"
+          onClick={() => setView('ready')}
+        >
+          Ready · {ready}
+        </button>
+        <button
+          aria-pressed={view === 'all'}
+          className={view === 'all' ? 'active' : ''}
+          type="button"
+          onClick={() => setView('all')}
+        >
+          All · {candidates.length}
+        </button>
+      </div>
       <div className="reviewer-profile-list">
-        {ordered.map((candidate) => (
+        {visible.map((candidate) => (
           <ReviewerProfileRow
             candidate={candidate}
             canManage={candidate.canManage}
             key={candidate.personId}
           />
         ))}
+        {visible.length === 0 && candidates.length > 0 ? (
+          <p className="list-empty">No reviewers match this view.</p>
+        ) : null}
       </div>
       {candidates.length === 0 ? (
         <p className="notice">Add reviewers to the event team before setting up their training.</p>
@@ -259,10 +306,17 @@ function ReviewerProfiles({ candidates }: { candidates: Candidate[] }) {
   )
 }
 
+function reviewerIsReady(candidate: Candidate) {
+  return candidate.profile?.status === 'active' &&
+    candidate.profile.trainingStatus === 'complete' &&
+    candidate.profile.availabilityWindows.length > 0
+}
+
 function ReviewerProfileRow({ candidate, canManage }: { candidate: Candidate; canManage: boolean }) {
   const saveProfile = useMutation(api.reviewConfiguration.saveProfile)
   const nextAvailabilityIdRef = useRef(candidate.profile?.availabilityWindows.length ?? 0)
   const [editing, setEditing] = useState(false)
+  const [contactPhone, setContactPhone] = useState(candidate.profile?.contactPhone ?? '')
   const [technicalDomains, setTechnicalDomains] = useState(candidate.profile?.technicalDomains.join(', ') ?? '')
   const [productDomains, setProductDomains] = useState(candidate.profile?.productDomains.join(', ') ?? '')
   const [languages, setLanguages] = useState(candidate.profile?.languages.join(', ') ?? '')
@@ -322,6 +376,7 @@ function ReviewerProfileRow({ candidate, canManage }: { candidate: Candidate; ca
         const args = {
           eventSlug,
           personId: candidate.personId,
+          ...(contactPhone.trim() ? { contactPhone: contactPhone.trim() } : {}),
           technicalDomains: commaList(technicalDomains),
           productDomains: commaList(productDomains),
           languages: commaList(languages),
@@ -367,6 +422,18 @@ function ReviewerProfileRow({ candidate, canManage }: { candidate: Candidate; ca
       {editing ? (
         <form className="reviewer-profile-form" onSubmit={submit}>
           <fieldset disabled={operationPending} style={{ display: 'contents' }}>
+          <label className="field">
+            <span>Phone <small>For urgent paging</small></span>
+            <input
+              inputMode="tel"
+              placeholder="+919876543210"
+              value={contactPhone}
+              onChange={(event) => {
+                setContactPhone(event.target.value)
+                changed()
+              }}
+            />
+          </label>
           <label className="field">
             <span>Technical domains <small>Comma separated</small></span>
             <input value={technicalDomains} onChange={(event) => {
@@ -1043,7 +1110,7 @@ function RoundPublisher({
             I reviewed the clock-in and report times, no-show grace, rubric weights, panel seats, coordinators, and reviewer availability.
           </label>
           <button className="primary" type="submit" disabled={!canPublish || busy || !confirmed || reason.trim().length < 5}>
-            {busy ? 'Publishing…' : publishPending ? 'Confirm earlier publication' : canPublish ? 'Publish round' : 'Publication permission required'}
+            {busy ? 'Publishing…' : publishPending ? 'Confirm earlier publication' : canPublish ? 'Publish round' : 'You cannot publish this round'}
           </button>
         </section>
       </form>
@@ -1068,7 +1135,7 @@ function CriterionEditor({
     onUpdate((current) => ({ ...current, anchors: { ...current.anchors, [key]: value } }))
   }
   return (
-    <details className="criterion-editor" open>
+    <details className="criterion-editor">
       <summary>{criterion.label} · {criterion.weight}%</summary>
       <div className="criterion-editor-body">
         <div className="form-grid">
@@ -1282,9 +1349,4 @@ function formatMoment(value: number) {
     hour: 'numeric',
     minute: '2-digit',
   }).format(value)
-}
-
-function stateName(value: string) {
-  const words = value.replaceAll('_', ' ')
-  return words.charAt(0).toUpperCase() + words.slice(1)
 }

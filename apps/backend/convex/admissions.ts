@@ -23,8 +23,15 @@ import {
   requireMembership,
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+  storedOperationVersion,
+} from "./lib/operations";
+import {
+  boundedActivePermissionScopeIds,
   hasAnyActivePermissionGrant,
   insertPermissionGrant,
   matchingPermissionGrantIds,
@@ -41,7 +48,6 @@ import {
   normalizedText,
   optionalNormalizedText,
 } from "./lib/strings";
-import { requireProjectTrackSelection } from "./lib/trackCatalog";
 import {
   admissionAiDisposition,
   admissionDecision,
@@ -61,7 +67,6 @@ const listItem = v.object({
   teamName: v.string(),
   state: applicationState,
   experienceBand: v.optional(admissionExperienceBand),
-  trackName: v.string(),
   submittedAt: v.number(),
   aiState: v.optional(admissionRecommendationState),
   assignedReviewCount: v.number(),
@@ -69,18 +74,28 @@ const listItem = v.object({
   version: v.number(),
 });
 
-/** Returns whole-queue stage counts independently of the selected stage. */
+const maximumScopedApplicationsForStageCounts = 2_000;
+
+/** Returns stage counts only for applications covered by the caller's grants. */
 export const stageCounts = query({
   args: { eventSlug: v.string() },
   returns: v.array(v.object({ state: applicationState, count: v.number() })),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
-    await requireEventSubject(ctx, event._id, person._id);
-    const applications = await ctx.db
-      .query("applications")
-      .withIndex("by_event_state_submitted", (index) => index.eq("eventId", event._id))
-      .collect();
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const eventGrantIds = await matchingPermissionGrantIds(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "application.read",
+      scopeType: "event",
+    });
+    const applications = eventGrantIds.length > 0
+      ? await ctx.db
+          .query("applications")
+          .withIndex("by_event_state_submitted", (index) => index.eq("eventId", event._id))
+          .collect()
+      : await scopedApplicationsForStageCounts(ctx, event._id, subject._id);
     const counts = new Map<Doc<"applications">["state"], number>();
     for (const application of applications) {
       counts.set(application.state, (counts.get(application.state) ?? 0) + 1);
@@ -88,6 +103,34 @@ export const stageCounts = query({
     return [...counts.entries()].map(([state, count]) => ({ state, count }));
   },
 });
+
+async function scopedApplicationsForStageCounts(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+) {
+  const scopeIds = await boundedActivePermissionScopeIds(ctx, {
+    eventId,
+    eventAccessSubjectId,
+    permissionKey: "application.read",
+    scopeType: "application",
+    maximumScopeCount: maximumScopedApplicationsForStageCounts,
+  });
+  if (scopeIds.size === 0) {
+    throw new ConvexError({
+      code: "ACCESS_DENIED",
+      message: "This account cannot read application counts.",
+    });
+  }
+  const applications = await Promise.all(
+    [...scopeIds].map(async (scopeId) => {
+      const applicationId = ctx.db.normalizeId("applications", scopeId);
+      const application = applicationId ? await ctx.db.get(applicationId) : null;
+      return application?.eventId === eventId ? application : null;
+    }),
+  );
+  return applications.filter((application) => application !== null);
+}
 
 export const list = query({
   args: {
@@ -137,8 +180,6 @@ export const list = query({
         ctx.db.get(application.submittedProjectVersionId),
       ]);
       if (!team || !project) continue;
-      const track = await ctx.db.get(project.coreTrackVersionId);
-      if (!track || track.eventId !== event._id) continue;
       const recommendation =
         aiGrantIds.length > 0 && application.aiRecommendationId
           ? await ctx.db.get(application.aiRecommendationId)
@@ -150,7 +191,6 @@ export const list = query({
         ...(profileGrantIds.length > 0
           ? { experienceBand: application.experienceBand }
           : {}),
-        trackName: track.displayName,
         submittedAt: application.submittedAt,
         ...(recommendation ? { aiState: recommendation.state } : {}),
         assignedReviewCount: application.assignedReviewCount,
@@ -171,7 +211,6 @@ const assignedReviewItem = v.object({
   applicationState,
   applicationVersion: v.number(),
   teamName: v.string(),
-  trackName: v.string(),
   experienceBand: v.optional(admissionExperienceBand),
   aiState: v.optional(admissionRecommendationState),
   ownRecommendation: v.optional(admissionDecision),
@@ -238,8 +277,6 @@ export const myReviewAssignments = query({
           .unique(),
       ]);
       if (!team || !project) continue;
-      const track = await ctx.db.get(project.coreTrackVersionId);
-      if (!track || track.eventId !== event._id) continue;
       const recommendation =
         aiGrantIds.length > 0 && application.aiRecommendationId
           ? await ctx.db.get(application.aiRecommendationId)
@@ -253,7 +290,6 @@ export const myReviewAssignments = query({
         applicationState: application.state,
         applicationVersion: application.version,
         teamName: team.name,
-        trackName: track.displayName,
         ...(profileGrantIds.length > 0
           ? { experienceBand: application.experienceBand }
           : {}),
@@ -386,6 +422,8 @@ export const detail = query({
   returns: v.union(
     v.null(),
     v.object({
+      serverNow: v.number(),
+      applicationsCloseAt: v.number(),
       eventTimezone: v.string(),
       application: v.object({
         id: v.id("applications"),
@@ -424,10 +462,6 @@ export const detail = query({
             ),
             respondedAt: v.number(),
           }),
-        ),
-        trackName: v.string(),
-        sponsorTracks: v.array(
-          v.object({ id: v.id("trackVersions"), name: v.string(), eligibilityText: v.string() }),
         ),
       }),
       policy: v.object({
@@ -470,6 +504,10 @@ export const detail = query({
         }),
       ),
       aiRecommendationVisible: v.boolean(),
+      aiRecommendationRerun: v.union(
+        v.null(),
+        v.object({ recommendationId: v.id("admissionAIRecommendations") }),
+      ),
       humanReviews: v.array(
         v.object({
           id: v.id("admissionHumanReviews"),
@@ -539,6 +577,7 @@ export const detail = query({
       reviewReadGrantIds,
       profileGrantIds,
       aiGrantIds,
+      aiRunGrantIds,
       assignmentGrantIds,
       reviewGrantIds,
       decideGrantIds,
@@ -560,6 +599,10 @@ export const detail = query({
       matchingPermissionGrantIds(ctx, {
         ...permissionRequest,
         permissionKey: "application.ai_recommendation.read",
+      }),
+      matchingPermissionGrantIds(ctx, {
+        ...permissionRequest,
+        permissionKey: "application.ai_recommendation.run",
       }),
       matchingPermissionGrantIds(ctx, {
         ...permissionRequest,
@@ -593,6 +636,7 @@ export const detail = query({
     }
     const canReadProfileContext = profileGrantIds.length > 0;
     const canReadAiRecommendation = aiGrantIds.length > 0;
+    const canRunAiRecommendation = aiRunGrantIds.length > 0;
     const canManageAssignments = assignmentGrantIds.length > 0;
     const [team, project, policy, reviews] = await Promise.all([
       ctx.db.get(application.teamId),
@@ -613,7 +657,7 @@ export const detail = query({
       currentOffer,
       assignmentRows,
     ] = await Promise.all([
-      canReadAiRecommendation && application.aiRecommendationId
+      (canReadAiRecommendation || canRunAiRecommendation) && application.aiRecommendationId
         ? ctx.db.get(application.aiRecommendationId)
         : Promise.resolve(null),
       application.currentInformationRequestId
@@ -622,11 +666,8 @@ export const detail = query({
       canReadApplication
         ? ctx.db
         .query("admissionCapacityBuckets")
-        .withIndex("by_policy_scope_track", (index) =>
-          index
-            .eq("admissionPolicyVersionId", application.admissionPolicyVersionId)
-            .eq("scope", "overall")
-            .eq("trackVersionId", undefined),
+        .withIndex("by_policy", (index) =>
+          index.eq("admissionPolicyVersionId", application.admissionPolicyVersionId),
         )
             .unique()
         : Promise.resolve(null),
@@ -642,10 +683,6 @@ export const detail = query({
             .collect()
         : Promise.resolve(null),
     ]);
-    const { coreTrack: track, sponsorTracks } = await requireProjectTrackSelection(
-      ctx,
-      project,
-    );
     const currentReviews = reviews.filter(
       (review) => review.applicationContentVersion === application.contentVersion,
     );
@@ -704,6 +741,8 @@ export const detail = query({
       });
     }
     return {
+      serverNow: Date.now(),
+      applicationsCloseAt: event.applicationsCloseAt,
       eventTimezone: event.timezone,
       application: {
         id: application._id,
@@ -743,12 +782,6 @@ export const detail = query({
             respondedAt: response.respondedAt,
           }),
         ),
-        trackName: track.displayName,
-        sponsorTracks: sponsorTracks.map((sponsorTrack) => ({
-          id: sponsorTrack._id,
-          name: sponsorTrack.displayName,
-          eligibilityText: sponsorTrack.eligibilityText,
-        })),
       },
       policy: {
         id: policy._id,
@@ -768,7 +801,7 @@ export const detail = query({
         })),
         decisionReasonCodes: policy.decisionReasonCodes,
       },
-      aiRecommendation: recommendation
+      aiRecommendation: canReadAiRecommendation && recommendation
         && recommendation.eventId === event._id
         && recommendation.applicationId === application._id
         ? {
@@ -788,6 +821,14 @@ export const detail = query({
           }
         : null,
       aiRecommendationVisible: canReadAiRecommendation,
+      aiRecommendationRerun:
+        canRunAiRecommendation &&
+        recommendation &&
+        recommendation.eventId === event._id &&
+        recommendation.applicationId === application._id &&
+        admissionRecommendationCanRerun(application, recommendation)
+          ? { recommendationId: recommendation._id }
+          : null,
       humanReviews: reviewViews,
       currentInformationRequest:
         currentInformationRequest &&
@@ -1443,7 +1484,11 @@ export async function saveAdmissionHumanReview(
       message: "The application content changed. Read the current version before saving.",
     });
   }
-  if (["accepted", "waitlisted", "declined", "withdrawn"].includes(args.application.state)) {
+  if (
+    args.application.state !== "submitted" &&
+    args.application.state !== "under_review" &&
+    args.application.state !== "needs_information"
+  ) {
     throw new ConvexError({
       code: "APPLICATION_DECIDED",
       message: "This application no longer accepts ordinary reviews.",
@@ -1546,10 +1591,13 @@ export const saveReview = mutation({
     if (prior) {
       const reviewId = ctx.db.normalizeId("admissionHumanReviews", prior.targetId);
       if (!reviewId) throw new Error("Prior admission review result is invalid.");
-      const review = await ctx.db.get(reviewId);
-      const currentApplication = await ctx.db.get(args.applicationId);
-      if (!review || !currentApplication) throw new Error("Prior admission review no longer resolves.");
-      return { reviewId, applicationVersion: currentApplication.version };
+      return {
+        reviewId,
+        applicationVersion: storedOperationVersion(
+          prior.resultJson,
+          "admission-review",
+        ),
+      };
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -1576,6 +1624,7 @@ export const saveReview = mutation({
       requestFingerprint,
       targetType: "admission_human_review",
       targetId: result.reviewId,
+      resultJson: String(result.applicationVersion),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1600,6 +1649,194 @@ export const saveReview = mutation({
       reviewId: result.reviewId,
       applicationVersion: result.applicationVersion,
     };
+  },
+});
+
+const rerunnableAdmissionRecommendationStates = new Set<
+  Doc<"admissionAIRecommendations">["state"]
+>([
+  "refused",
+  "invalid",
+  "timed_out",
+  "rate_limited",
+  "failed",
+  "stale",
+]);
+
+export function admissionRecommendationCanRerun(
+  application: Doc<"applications">,
+  recommendation: Doc<"admissionAIRecommendations">,
+) {
+  return (
+    (application.state === "submitted" || application.state === "under_review") &&
+    application.aiRecommendationId === recommendation._id &&
+    recommendation.eventId === application.eventId &&
+    recommendation.applicationId === application._id &&
+    recommendation.teamId === application.teamId &&
+    recommendation.projectVersionId === application.submittedProjectVersionId &&
+    recommendation.admissionPolicyVersionId === application.admissionPolicyVersionId &&
+    recommendation.applicationContentVersion === application.contentVersion &&
+    rerunnableAdmissionRecommendationStates.has(recommendation.state)
+  );
+}
+
+export async function createAdmissionRecommendationRerun(
+  ctx: MutationCtx,
+  args: {
+    event: Doc<"events">;
+    application: Doc<"applications">;
+    currentRecommendation: Doc<"admissionAIRecommendations">;
+    expectedApplicationVersion: number;
+    expectedRecommendationId: Id<"admissionAIRecommendations">;
+    now: number;
+  },
+) {
+  if (args.application.version !== args.expectedApplicationVersion) {
+    throw new ConvexError({
+      code: "APPLICATION_CHANGED",
+      message: "The application changed. Review it before retrying the analysis.",
+    });
+  }
+  if (
+    args.expectedRecommendationId !== args.currentRecommendation._id ||
+    !admissionRecommendationCanRerun(args.application, args.currentRecommendation)
+  ) {
+    throw new ConvexError({
+      code: "ADMISSION_ANALYSIS_NOT_RETRYABLE",
+      message: "This analysis is current, still running, or no longer part of active admission review.",
+    });
+  }
+  const admissionConfiguration = await loadPublishedAdmissionConfiguration(ctx, args.event);
+  if (
+    admissionConfiguration.policy._id !== args.application.admissionPolicyVersionId ||
+    !admissionConfiguration.model
+  ) {
+    throw new ConvexError({
+      code: "ADMISSION_ANALYSIS_UNAVAILABLE",
+      message: "The published admission policy does not have an available AI release.",
+    });
+  }
+  const project = await ctx.db.get(args.application.submittedProjectVersionId);
+  if (
+    !project ||
+    project.eventId !== args.event._id ||
+    project.teamId !== args.application.teamId ||
+    project.admissionPolicyVersionId !== args.application.admissionPolicyVersionId
+  ) {
+    throw new Error("The submitted project does not match its admission application.");
+  }
+  const recommendationId = await createAdmissionRecommendation(ctx, {
+    application: args.application,
+    project,
+    policy: admissionConfiguration.policy,
+    modelConfig: admissionConfiguration.model,
+    now: args.now,
+  });
+  const applicationVersion = args.application.version + 1;
+  await ctx.db.patch(args.application._id, { version: applicationVersion });
+  return { recommendationId, applicationVersion };
+}
+
+export const rerunAiRecommendation = mutation({
+  args: {
+    eventSlug: v.string(),
+    applicationId: v.id("applications"),
+    expectedApplicationVersion: v.number(),
+    expectedRecommendationId: v.id("admissionAIRecommendations"),
+    reason: v.string(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({
+    recommendationId: v.id("admissionAIRecommendations"),
+    applicationVersion: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const { event, person, subject, application } = await applicationContext(ctx, args);
+    const reason = normalizedLongText(args.reason, "Retry reason", 8, 240);
+    const requestFingerprint = operationFingerprint([
+      args.applicationId,
+      args.expectedApplicationVersion,
+      args.expectedRecommendationId,
+      reason,
+    ]);
+    const prior = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "admissions.ai_recommendation.rerun",
+      requestFingerprint,
+    });
+    if (prior) {
+      const recommendationId = ctx.db.normalizeId(
+        "admissionAIRecommendations",
+        prior.targetId,
+      );
+      if (!recommendationId) throw new Error("Prior admission-analysis retry is invalid.");
+      return {
+        recommendationId,
+        applicationVersion: storedOperationVersion(
+          prior.resultJson,
+          "admission-analysis retry",
+        ),
+      };
+    }
+    const grantIds = await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "application.ai_recommendation.run",
+      scopeType: "application",
+      scopeId: application._id,
+    });
+    const currentRecommendation = await ctx.db.get(args.expectedRecommendationId);
+    if (!currentRecommendation) {
+      throw new ConvexError({
+        code: "ADMISSION_ANALYSIS_NOT_FOUND",
+        message: "The admission analysis is no longer available.",
+      });
+    }
+    const now = Date.now();
+    const result = await createAdmissionRecommendationRerun(ctx, {
+      event,
+      application,
+      currentRecommendation,
+      expectedApplicationVersion: args.expectedApplicationVersion,
+      expectedRecommendationId: args.expectedRecommendationId,
+      now,
+    });
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "admissions.ai_recommendation.rerun",
+      requestFingerprint,
+      targetType: "admission_ai_recommendation",
+      targetId: result.recommendationId,
+      resultJson: String(result.applicationVersion),
+      createdAt: now,
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "application.ai_recommendation.run",
+      grantIds,
+      scopeType: "application",
+      scopeId: application._id,
+      action: "admission.ai_recommendation_rerun",
+      targetType: "application",
+      targetId: application._id,
+      previousSummary: JSON.stringify({
+        recommendationId: currentRecommendation._id,
+        state: currentRecommendation.state,
+        applicationVersion: application.version,
+      }),
+      nextSummary: JSON.stringify({
+        recommendationId: result.recommendationId,
+        state: "pending",
+        applicationVersion: result.applicationVersion,
+      }),
+      reason,
+    });
+    return result;
   },
 });
 
@@ -1637,35 +1874,17 @@ async function reserveAdmissionCapacity(
   const participantCount = args.project.lockedMemberCount;
   const overall = await ctx.db
     .query("admissionCapacityBuckets")
-    .withIndex("by_policy_scope_track", (index) =>
-      index
-        .eq("admissionPolicyVersionId", args.policy._id)
-        .eq("scope", "overall")
-        .eq("trackVersionId", undefined),
+    .withIndex("by_policy", (index) =>
+      index.eq("admissionPolicyVersionId", args.policy._id),
     )
     .unique();
   if (!overall || overall.eventId !== args.eventId) {
     throw new Error("Published admission capacity is missing.");
   }
-  const track = await ctx.db
-    .query("admissionCapacityBuckets")
-    .withIndex("by_policy_scope_track", (index) =>
-      index
-        .eq("admissionPolicyVersionId", args.policy._id)
-        .eq("scope", "track")
-        .eq("trackVersionId", args.project.coreTrackVersionId),
-    )
-    .unique();
   if (overall.reserved + participantCount > overall.capacity) {
     throw new ConvexError({
       code: "ADMISSION_CAPACITY_FULL",
       message: "Sending this offer would exceed the published participant capacity.",
-    });
-  }
-  if (track && track.reserved + participantCount > track.capacity) {
-    throw new ConvexError({
-      code: "TRACK_CAPACITY_FULL",
-      message: "Sending this offer would exceed the published track capacity.",
     });
   }
   await ctx.db.patch(overall._id, {
@@ -1673,21 +1892,12 @@ async function reserveAdmissionCapacity(
     version: overall.version + 1,
     updatedAt: args.now,
   });
-  if (track) {
-    await ctx.db.patch(track._id, {
-      reserved: track.reserved + participantCount,
-      version: track.version + 1,
-      updatedAt: args.now,
-    });
-  }
   await ctx.db.insert("admissionCapacityReservations", {
     eventId: args.eventId,
     applicationId: args.application._id,
     offerId: args.offerId,
     admissionPolicyVersionId: args.policy._id,
-    trackVersionId: args.project.coreTrackVersionId,
     participantCount,
-    trackCapacityReserved: Boolean(track),
     state: "active",
     reservedAt: args.now,
   });
@@ -1717,11 +1927,8 @@ async function releaseAdmissionCapacity(
   }
   const overall = await ctx.db
     .query("admissionCapacityBuckets")
-    .withIndex("by_policy_scope_track", (index) =>
-      index
-        .eq("admissionPolicyVersionId", reservation.admissionPolicyVersionId)
-        .eq("scope", "overall")
-        .eq("trackVersionId", undefined),
+    .withIndex("by_policy", (index) =>
+      index.eq("admissionPolicyVersionId", reservation.admissionPolicyVersionId),
     )
     .unique();
   if (!overall || overall.eventId !== args.offer.eventId) {
@@ -1735,28 +1942,6 @@ async function releaseAdmissionCapacity(
     version: overall.version + 1,
     updatedAt: args.now,
   });
-  if (reservation.trackCapacityReserved) {
-    const track = await ctx.db
-      .query("admissionCapacityBuckets")
-      .withIndex("by_policy_scope_track", (index) =>
-        index
-          .eq("admissionPolicyVersionId", reservation.admissionPolicyVersionId)
-          .eq("scope", "track")
-          .eq("trackVersionId", reservation.trackVersionId),
-      )
-      .unique();
-    if (!track || track.eventId !== args.offer.eventId) {
-      throw new Error("The track admission capacity bucket is missing.");
-    }
-    if (track.reserved < reservation.participantCount) {
-      throw new Error("The track admission reservation count is inconsistent.");
-    }
-    await ctx.db.patch(track._id, {
-      reserved: track.reserved - reservation.participantCount,
-      version: track.version + 1,
-      updatedAt: args.now,
-    });
-  }
   await ctx.db.patch(reservation._id, {
     state: "released",
     releasedAt: args.now,
@@ -1766,6 +1951,19 @@ async function releaseAdmissionCapacity(
       : {}),
   });
 }
+
+const admissionDecisionOperationResult = z
+  .object({
+    state: z.enum([
+      "needs_information",
+      "accepted",
+      "waitlisted",
+      "declined",
+    ]),
+    applicationVersion: z.number().int().positive(),
+    informationRequestId: z.string().nullable(),
+  })
+  .strict();
 
 export const decide = mutation({
   args: {
@@ -1804,13 +2002,25 @@ export const decide = mutation({
     if (prior) {
       const replayApplicationId = ctx.db.normalizeId("applications", prior.targetId);
       if (!replayApplicationId) throw new Error("Prior admission decision is invalid.");
-      const replay = await ctx.db.get(replayApplicationId);
-      if (!replay) throw new Error("Prior admission decision no longer resolves.");
+      const stored = storedOperationResult(
+        prior.resultJson,
+        "admission-decision",
+        admissionDecisionOperationResult,
+      );
+      const informationRequestId = stored.informationRequestId
+        ? ctx.db.normalizeId(
+            "admissionInformationRequests",
+            stored.informationRequestId,
+          )
+        : null;
+      if (stored.informationRequestId && !informationRequestId) {
+        throw new Error("Prior admission decision is invalid.");
+      }
       return {
-        applicationId: replay._id,
-        state: replay.state,
-        applicationVersion: replay.version,
-        informationRequestId: replay.currentInformationRequestId ?? null,
+        applicationId: replayApplicationId,
+        state: stored.state,
+        applicationVersion: stored.applicationVersion,
+        informationRequestId,
       };
     }
     const grantIds = await requirePermission(ctx, {
@@ -1820,6 +2030,12 @@ export const decide = mutation({
       scopeType: "application",
       scopeId: application._id,
     });
+    if (Date.now() < event.applicationsCloseAt) {
+      throw new ConvexError({
+        code: "APPLICATIONS_STILL_OPEN",
+        message: "Publish admission decisions after the application deadline.",
+      });
+    }
     const aiReadGrantIds = await matchingPermissionGrantIds(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -1973,6 +2189,7 @@ export const decide = mutation({
       requestFingerprint,
       targetType: "application",
       targetId: application._id,
+      resultJson: JSON.stringify({ state, applicationVersion, informationRequestId }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -2158,8 +2375,6 @@ export async function respondToAdmissionInformationRequest(
     initialIdea: project.initialIdea,
     intakePolicyVersionId: project.intakePolicyVersionId,
     intakeResponses: project.intakeResponses,
-    coreTrackVersionId: project.coreTrackVersionId,
-    sponsorTrackVersionIds: project.sponsorTrackVersionIds,
     lockedRosterSnapshotId: project.lockedRosterSnapshotId,
     lockedMemberCount: project.lockedMemberCount,
     lockedLeadMembershipId: project.lockedLeadMembershipId,
@@ -2280,8 +2495,8 @@ export const respondToInformationRequest = mutation({
     });
     if (prior) {
       const responseProjectVersionId = ctx.db.normalizeId("projectVersions", prior.targetId);
-      if (!responseProjectVersionId || !(await ctx.db.get(responseProjectVersionId))) {
-        throw new Error("The prior information response no longer resolves.");
+      if (!responseProjectVersionId) {
+        throw new Error("The prior information response is invalid.");
       }
       return { responseProjectVersionId };
     }
@@ -2362,6 +2577,27 @@ const offerMutationResult = v.object({
   applicationVersion: v.number(),
 });
 
+const offerOperationResult = z
+  .object({
+    offerState: z.enum([
+      "offered",
+      "confirmed",
+      "declined",
+      "expired",
+      "revoked",
+    ]),
+    offerVersion: z.number().int().positive(),
+    applicationState: z.enum([
+      "accepted",
+      "offer_sent",
+      "confirmed",
+      "offer_expired",
+      "withdrawn",
+    ]),
+    applicationVersion: z.number().int().positive(),
+  })
+  .strict();
+
 function offerResult(
   offer: Doc<"admissionOffers">,
   application: Doc<"applications">,
@@ -2372,6 +2608,28 @@ function offerResult(
     offerVersion: offer.version,
     applicationState: application.state,
     applicationVersion: application.version,
+  };
+}
+
+function offerOperationResultJson(result: ReturnType<typeof offerResult>) {
+  return JSON.stringify({
+    offerState: result.offerState,
+    offerVersion: result.offerVersion,
+    applicationState: result.applicationState,
+    applicationVersion: result.applicationVersion,
+  });
+}
+
+function storedOfferOperationResult(
+  ctx: MutationCtx,
+  targetId: string,
+  resultJson: string | undefined,
+) {
+  const offerId = ctx.db.normalizeId("admissionOffers", targetId);
+  if (!offerId) throw new Error("The stored admission offer result is invalid.");
+  return {
+    offerId,
+    ...storedOperationResult(resultJson, "admission-offer", offerOperationResult),
   };
 }
 
@@ -2585,7 +2843,6 @@ export async function createAdmissionOffer(
     teamId: args.team._id,
     lockedRosterSnapshotId: args.project.lockedRosterSnapshotId,
     participantCount: args.project.lockedMemberCount,
-    reservedCoreTrackVersionId: args.project.coreTrackVersionId,
     source: "accepted_decision",
     state: "offered",
     sentAt: args.now,
@@ -2725,13 +2982,7 @@ export const sendOffer = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const offerId = ctx.db.normalizeId("admissionOffers", prior.targetId);
-      const offer = offerId ? await ctx.db.get(offerId) : null;
-      const currentApplication = offer ? await ctx.db.get(offer.applicationId) : null;
-      if (!offer || !currentApplication || currentApplication.eventId !== event._id) {
-        throw new Error("Prior offer result no longer resolves.");
-      }
-      return offerResult(offer, currentApplication);
+      return storedOfferOperationResult(ctx, prior.targetId, prior.resultJson);
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -2783,6 +3034,7 @@ export const sendOffer = mutation({
     });
     const offerId = created.offer._id;
     const applicationVersion = created.application.version;
+    const result = offerResult(created.offer, created.application);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -2791,6 +3043,7 @@ export const sendOffer = mutation({
       requestFingerprint,
       targetType: "admission_offer",
       targetId: offerId,
+      resultJson: offerOperationResultJson(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -2815,7 +3068,7 @@ export const sendOffer = mutation({
       }),
       reason: "Sent an admission offer to the locked team",
     });
-    return offerResult(created.offer, created.application);
+    return result;
   },
 });
 
@@ -2891,13 +3144,7 @@ export const respondToOffer = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const priorOfferId = ctx.db.normalizeId("admissionOffers", prior.targetId);
-      const priorOffer = priorOfferId ? await ctx.db.get(priorOfferId) : null;
-      const priorApplication = priorOffer
-        ? await ctx.db.get(priorOffer.applicationId)
-        : null;
-      if (!priorOffer || !priorApplication) throw new Error("Prior offer response is missing.");
-      return offerResult(priorOffer, priorApplication);
+      return storedOfferOperationResult(ctx, prior.targetId, prior.resultJson);
     }
     const matchingTerminalResponse =
       (args.response === "confirm" &&
@@ -2949,6 +3196,7 @@ export const respondToOffer = mutation({
       reason,
       now,
     });
+    const result = offerResult(transitioned.offer, transitioned.application);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -2957,6 +3205,7 @@ export const respondToOffer = mutation({
       requestFingerprint,
       targetType: "admission_offer",
       targetId: offer._id,
+      resultJson: offerOperationResultJson(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -2983,7 +3232,7 @@ export const respondToOffer = mutation({
       }),
       reason,
     });
-    return offerResult(transitioned.offer, transitioned.application);
+    return result;
   },
 });
 
@@ -3014,11 +3263,7 @@ export const revokeOffer = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const offerId = ctx.db.normalizeId("admissionOffers", prior.targetId);
-      const offer = offerId ? await ctx.db.get(offerId) : null;
-      const currentApplication = offer ? await ctx.db.get(offer.applicationId) : null;
-      if (!offer || !currentApplication) throw new Error("Prior offer revocation is missing.");
-      return offerResult(offer, currentApplication);
+      return storedOfferOperationResult(ctx, prior.targetId, prior.resultJson);
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -3066,6 +3311,7 @@ export const revokeOffer = mutation({
       reason: transitionReason,
       now,
     });
+    const result = offerResult(transitioned.offer, transitioned.application);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -3074,6 +3320,7 @@ export const revokeOffer = mutation({
       requestFingerprint,
       targetType: "admission_offer",
       targetId: offer._id,
+      resultJson: offerOperationResultJson(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -3100,7 +3347,7 @@ export const revokeOffer = mutation({
       }),
       reason: transitionReason,
     });
-    return offerResult(transitioned.offer, transitioned.application);
+    return result;
   },
 });
 

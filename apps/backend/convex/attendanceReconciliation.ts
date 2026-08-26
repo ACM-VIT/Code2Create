@@ -200,11 +200,10 @@ export const reconcile = mutation({
     });
     if (prior) {
       const presenceEventId = ctx.db.normalizeId("attendancePresenceEvents", prior.targetId);
-      const presenceEvent = presenceEventId ? await ctx.db.get(presenceEventId) : null;
-      if (!presenceEvent || presenceEvent.sourceKind !== "staff_reconciliation") {
-        throw new Error("Prior attendance reconciliation no longer resolves.");
+      if (!presenceEventId) {
+        throw new Error("Prior attendance reconciliation result is invalid.");
       }
-      return { presenceEventId: presenceEvent._id };
+      return { presenceEventId };
     }
     const reusedPresenceOperation = await ctx.db
       .query("attendancePresenceEvents")

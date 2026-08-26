@@ -126,6 +126,7 @@ export const download = action({
   returns: v.object({
     url: v.string(),
     expiresAt: v.number(),
+    serverNow: v.number(),
     sha256: v.string(),
   }),
   handler: async (
@@ -135,14 +136,26 @@ export const download = action({
       roundExportId: Id<"roundExports">;
       kind: "json" | "csv";
     },
-  ): Promise<{ url: string; expiresAt: number; sha256: string }> => {
-    const context: { files: StoredRoundExportFiles; kind: "json" | "csv" } =
-      await ctx.runQuery(internal.roundExports.downloadContext, args);
+  ): Promise<{ url: string; expiresAt: number; serverNow: number; sha256: string }> => {
+    const context: {
+      files: StoredRoundExportFiles;
+      kind: "json" | "csv";
+      version: number;
+    } = await ctx.runQuery(internal.roundExports.downloadContext, args);
+    const expiresAt = Date.now() + 60_000;
     const url = await signRoundExportDownload(context);
-    await ctx.runMutation(internal.roundExports.recordDownload, args);
+    const access = await ctx.runMutation(internal.roundExports.recordDownload, {
+      ...args,
+      expectedVersion: context.version,
+      expectedStorageRegion: context.files.storageRegion,
+      expectedStorageBucket: context.files.storageBucket,
+      expectedFile: context.files[context.kind],
+      signedUrlExpiresAt: expiresAt,
+    });
     return {
       url,
-      expiresAt: Date.now() + 60_000,
+      expiresAt,
+      serverNow: access.serverNow,
       sha256: context.files[context.kind].sha256,
     };
   },

@@ -223,7 +223,10 @@ async function targetSelfScopeId(
   targetPersonId: Id<"people">,
   permissionKey: PermissionKey,
 ) {
-  if (permissionKey === "reviewer.device.register") {
+  if (
+    permissionKey === "reviewer.device.register" ||
+    permissionKey === "communications.call_consent.manage"
+  ) {
     const subject = await ctx.db
       .query("eventAccessSubjects")
       .withIndex("by_event_person", (index) =>

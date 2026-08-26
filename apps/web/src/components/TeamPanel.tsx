@@ -1,6 +1,7 @@
 import { api } from '@code2create/backend/api'
 import { useMutation } from 'convex/react'
-import { useState } from 'react'
+import type { FunctionReturnType } from 'convex/server'
+import { useEffect, useState } from 'react'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
@@ -10,6 +11,11 @@ import { ErrorNotice } from './Form'
 type PendingAction =
   | { kind: 'leave' }
   | { kind: 'remove'; teamMemberId: CurrentTeamMember['teamMemberId']; displayName: string }
+type TeamOperationResult =
+  | FunctionReturnType<typeof api.teams.requestLeadershipTransfer>
+  | FunctionReturnType<typeof api.teams.respondToLeadershipTransfer>
+  | FunctionReturnType<typeof api.teams.leave>
+  | FunctionReturnType<typeof api.teams.removeMember>
 
 export function TeamPanel({
   team,
@@ -33,13 +39,28 @@ export function TeamPanel({
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const currentTransfer = team.pendingLeadershipTransfer
-  const operations = useOperationRunner()
+  const operations = useOperationRunner<TeamOperationResult>()
   const transferPending = operations.hasPending('lead-transfer')
   const responsePending = operations.hasPending('lead-transfer-response')
   const leavePending = operations.hasPending('team-leave')
   const removePending = operations.hasPending('team-member-remove')
   const actionPending = leavePending || removePending
   const operationPending = transferPending || responsePending || actionPending
+
+  useEffect(() => {
+    if (
+      !transferPending
+      || transferTargetId === null
+      || !members.some(
+        (member) => member.membershipId === transferTargetId && member.role === 'lead',
+      )
+    ) {
+      return
+    }
+    operations.confirmExactObservation('lead-transfer')
+    setTransferTargetId(null)
+    setError(null)
+  }, [members, operations, transferPending, transferTargetId])
 
   const copyJoinLink = async () => {
     const link = `${window.location.origin}/join/${team.publicCode}`
@@ -120,7 +141,7 @@ export function TeamPanel({
     }
   }
 
-  const canLeave = team.currentRole === 'member' || team.activeMemberCount === 1
+  const canLeaveByTeamRule = team.currentRole === 'member' || team.activeMemberCount === 1
 
   return (
     <aside className="team-panel" aria-label="Team">
@@ -152,50 +173,62 @@ export function TeamPanel({
       ) : null}
 
       <ul className="member-list">
-        {members.map((member) => (
-          <li key={member.teamMemberId}>
-            <div>
-              <span>{member.displayName}</span>
-              <small>
-                {member.role === 'lead' ? 'Team lead' : 'Member'}
-                {member.membershipId === team.currentMembershipId ? ' · You' : ''}
-              </small>
-            </div>
-            {team.currentRole === 'lead' && member.role === 'member' && !team.membershipLocked ? (
-              <div className="member-actions">
-                <button
-                  type="button"
-                  className="text-button"
-                  disabled={
-                    busyMemberId !== null ||
-                    responsePending ||
-                    actionPending ||
-                    (transferPending && transferTargetId !== member.membershipId)
-                  }
-                  onClick={() => transfer(member.membershipId)}
-                >
-                  {transferPending && transferTargetId === member.membershipId
-                    ? 'Confirm earlier transfer'
-                    : 'Make lead'}
-                </button>
-                <button
-                  type="button"
-                  className="text-button quiet-danger"
-                  disabled={busyMemberId !== null || operationPending}
-                  onClick={() =>
-                    setPendingAction({
-                      kind: 'remove',
-                      teamMemberId: member.teamMemberId,
-                      displayName: member.displayName,
-                    })
-                  }
-                >
-                  Remove
-                </button>
+        {members.map((member) => {
+          const canTransferToMember =
+            team.currentRole === 'lead' && team.canTransferLeadership && member.role === 'member'
+          const canRemoveMember =
+            team.canManageMembers &&
+            member.role === 'member' &&
+            member.membershipId !== team.currentMembershipId
+          return (
+            <li key={member.teamMemberId}>
+              <div>
+                <span>{member.displayName}</span>
+                <small>
+                  {member.role === 'lead' ? 'Team lead' : 'Member'}
+                  {member.membershipId === team.currentMembershipId ? ' · You' : ''}
+                </small>
               </div>
-            ) : null}
-          </li>
-        ))}
+              {!team.membershipLocked && (canTransferToMember || canRemoveMember) ? (
+                <div className="member-actions">
+                  {canTransferToMember ? (
+                    <button
+                      type="button"
+                      className="text-button"
+                      disabled={
+                        busyMemberId !== null ||
+                        responsePending ||
+                        actionPending ||
+                        (transferPending && transferTargetId !== member.membershipId)
+                      }
+                      onClick={() => transfer(member.membershipId)}
+                    >
+                      {transferPending && transferTargetId === member.membershipId
+                        ? 'Confirm earlier transfer'
+                        : 'Make lead'}
+                    </button>
+                  ) : null}
+                  {canRemoveMember ? (
+                    <button
+                      type="button"
+                      className="text-button quiet-danger"
+                      disabled={busyMemberId !== null || operationPending}
+                      onClick={() =>
+                        setPendingAction({
+                          kind: 'remove',
+                          teamMemberId: member.teamMemberId,
+                          displayName: member.displayName,
+                        })
+                      }
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </li>
+          )
+        })}
       </ul>
       {rosterStatus === 'CanLoadMore' || rosterStatus === 'LoadingMore' ? (
         <button
@@ -208,7 +241,7 @@ export function TeamPanel({
         </button>
       ) : null}
 
-      {currentTransfer?.toMembershipId === team.currentMembershipId || responsePending ? (
+      {(currentTransfer?.toMembershipId === team.currentMembershipId && team.canRespondToLeadershipTransfer) || responsePending ? (
         <div className="transfer-card">
           <p>The current lead asked you to take over.</p>
           <div className="button-row">
@@ -230,13 +263,15 @@ export function TeamPanel({
             </button>
           </div>
         </div>
+      ) : currentTransfer?.toMembershipId === team.currentMembershipId ? (
+        <p className="fine-print">A leadership transfer is waiting, but this account cannot respond.</p>
       ) : currentTransfer ? (
         <p className="fine-print">A leadership transfer is waiting for acceptance.</p>
       ) : null}
 
       {!team.membershipLocked ? (
         <div className="team-exit">
-          {canLeave ? (
+          {team.canLeave && canLeaveByTeamRule ? (
             <button
               type="button"
               className="text-button quiet-danger"
@@ -245,8 +280,10 @@ export function TeamPanel({
             >
               Leave team
             </button>
-          ) : (
+          ) : team.canLeave ? (
             <p className="fine-print">Transfer leadership before leaving.</p>
+          ) : (
+            <p className="fine-print">Leaving this team is unavailable.</p>
           )}
         </div>
       ) : null}

@@ -75,7 +75,6 @@ function candidate(overrides: Partial<AdmissionCohortSignals>): AdmissionCohortS
     reviewAccepts: 0,
     reviewDeclines: 0,
     aiRecommendation: null,
-    noveltyScore: null,
     ...overrides,
   };
 }
@@ -108,22 +107,17 @@ describe("admission cohort arithmetic", () => {
       .toMatchObject({ suggestedIn: true });
   });
 
-  test("ordering composes existing signals: reviews, then AI, then novelty, then time", () => {
+  test("ordering composes admission signals: reviews, then AI, then time", () => {
     const byReviews = compareAdmissionCohortCandidates(
-      candidate({ reviewAccepts: 2, noveltyScore: 0 }),
-      candidate({ reviewAccepts: 0, aiRecommendation: "accept", noveltyScore: 100 }),
+      candidate({ reviewAccepts: 2 }),
+      candidate({ reviewAccepts: 0, aiRecommendation: "accept" }),
     );
     expect(byReviews).toBeLessThan(0);
     const byAi = compareAdmissionCohortCandidates(
       candidate({ aiRecommendation: "accept" }),
-      candidate({ aiRecommendation: "decline", noveltyScore: 100 }),
+      candidate({ aiRecommendation: "decline" }),
     );
     expect(byAi).toBeLessThan(0);
-    const byNovelty = compareAdmissionCohortCandidates(
-      candidate({ noveltyScore: 80 }),
-      candidate({ noveltyScore: 20 }),
-    );
-    expect(byNovelty).toBeLessThan(0);
     const byTime = compareAdmissionCohortCandidates(
       candidate({ submittedAt: 1 }),
       candidate({ submittedAt: 2 }),
@@ -163,6 +157,7 @@ describe("admission cohort query and decisions", () => {
       "Night Kiln",
       "Split Signal",
     ]);
+    expect(view.candidates.every((entry) => !("novelty" in entry))).toBe(true);
     expect(view.candidates.map((entry) => entry.entryCapacityPeople)).toEqual([2, 5, 6]);
     expect(view.candidates.map((entry) => entry.suggestedIn)).toEqual([true, false, false]);
     expect(view.summary).toMatchObject({
@@ -304,6 +299,31 @@ describe("admission cohort query and decisions", () => {
     ).rejects.toThrow("permission");
   });
 
+  test("keeps decisions unavailable while teams can still revise proposals", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend);
+    await backend.run((ctx) => ctx.db.patch(fixture.eventId, {
+      status: "registration_open",
+      applicationsCloseAt: Date.now() + 86_400_000,
+    }));
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    await expect(operator.mutation(api.admissions.decide, {
+      eventSlug: fixture.eventSlug,
+      applicationId: fixture.decidableApplicationId,
+      expectedApplicationVersion: 1,
+      decision: "accept",
+      reasonCode: "strong_fit",
+      informationQuestions: [],
+      aiDisposition: "unavailable",
+      clientOperationId: "cohort-decision-before-deadline",
+    })).rejects.toThrow("after the application deadline");
+    await expect(backend.run((ctx) => ctx.db.get(fixture.decidableApplicationId)))
+      .resolves.toMatchObject({ state: "under_review", version: 1 });
+  });
+
   test("the admission read endpoint accepts only its own signature context", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);
@@ -427,8 +447,7 @@ describe("admission cohort at seeded scale", () => {
       }
       expect(view.candidates.some((entry) => entry.reviewCoverage.decidable)).toBe(true);
       expect(view.candidates.some((entry) => !entry.reviewCoverage.decidable)).toBe(true);
-      expect(view.candidates.some((entry) => entry.novelty !== null)).toBe(true);
-      expect(view.candidates.some((entry) => entry.novelty === null)).toBe(true);
+      expect(view.candidates.every((entry) => !("novelty" in entry))).toBe(true);
 
       const widerCapacity = capacity + 40;
       const wider = await backend.query(internal.admissionCohort.cohortRead, {
@@ -564,6 +583,7 @@ async function seedLocalCohortEvent(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
+      applicationsCloseAt: now + 86_400_000,
       startsAt: now + 14 * 24 * 60 * 60 * 1_000,
       endsAt: now + 16 * 24 * 60 * 60 * 1_000,
       version: 1,
@@ -604,29 +624,6 @@ async function insertPolicyChain(
     createdByPersonId: personId,
     createdAt: now,
     publishedAt: now,
-  });
-  const catalogId = await ctx.db.insert("trackCatalogVersions", {
-    eventId,
-    version: 1,
-    status: "published",
-    requiredCoreTrackCount: 1,
-    checksum: "cohort-catalog",
-    createdByPersonId: personId,
-    createdAt: now,
-    publishedAt: now,
-  });
-  const trackId = await ctx.db.insert("trackVersions", {
-    eventId,
-    catalogVersionId: catalogId,
-    stableKey: "open-innovation",
-    slug: "open-innovation",
-    displayName: "Open innovation",
-    description: "A practical event-sized project.",
-    examples: [],
-    displayOrder: 0,
-    type: "core",
-    status: "published",
-    createdAt: now,
   });
   const admissionPolicyId = await ctx.db.insert("admissionPolicyVersions", {
     eventId,
@@ -704,15 +701,12 @@ async function insertPolicyChain(
   await ctx.db.patch(eventId, {
     publishedParticipantPolicyId: participantPolicyId,
     publishedIntakePolicyId: intakePolicyId,
-    publishedTrackCatalogId: catalogId,
     publishedAdmissionPolicyId: admissionPolicyId,
     publishedCommunicationsPolicyId: communicationsPolicyId,
   });
   return {
     participantPolicyId,
     intakePolicyId,
-    catalogId,
-    trackId,
     admissionPolicyId,
     communicationsPolicyId,
   };
@@ -733,8 +727,9 @@ async function seedCohortFixture(backend: BackendTest) {
       slug: eventSlug,
       name: "Cohort fixture",
       timezone: "Asia/Kolkata",
-      status: "registration_open",
+      status: "registration_closed",
       vitEmailDomains: ["vitstudent.ac.in"],
+      applicationsCloseAt: now - 1,
       startsAt: now + 14 * 24 * 60 * 60 * 1_000,
       endsAt: now + 16 * 24 * 60 * 60 * 1_000,
       version: 1,
@@ -813,7 +808,6 @@ async function seedCohortFixture(backend: BackendTest) {
         activeVitMemberCount: args.size,
         activeExternalMemberCount: 0,
         membershipLocked: true,
-        trackLocked: true,
         version: 1,
         createdAt: now,
         updatedAt: now,
@@ -839,7 +833,6 @@ async function seedCohortFixture(backend: BackendTest) {
         intakePolicyVersionId: chain.intakePolicyId,
         participantPolicyVersionId: chain.participantPolicyId,
         admissionPolicyVersionId: chain.admissionPolicyId,
-        coreTrackVersionId: chain.trackId,
         submittedAt: now,
       });
       const projectVersionId = await ctx.db.insert("projectVersions", {
@@ -849,8 +842,6 @@ async function seedCohortFixture(backend: BackendTest) {
         initialIdea: `A calm coordination tool for ${args.name.toLowerCase()} volunteers.`,
         intakePolicyVersionId: chain.intakePolicyId,
         intakeResponses: [],
-        coreTrackVersionId: chain.trackId,
-        sponsorTrackVersionIds: [],
         lockedRosterSnapshotId,
         lockedMemberCount: teamMemberIds.length,
         lockedLeadMembershipId: leadMembershipId,
@@ -863,8 +854,6 @@ async function seedCohortFixture(backend: BackendTest) {
           participantPolicyVersionId: chain.participantPolicyId,
           previewedDraftVersion: 1,
           previewedTeamVersion: 1,
-          previewedTrackVersionId: chain.trackId,
-          previewedSponsorTrackVersionIds: [],
           confirmedByMembershipId: leadMembershipId,
           confirmedAt: now,
         },

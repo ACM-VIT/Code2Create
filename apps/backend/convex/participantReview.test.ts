@@ -5,6 +5,7 @@ import { afterAll, describe, expect, test } from "vitest";
 
 import { api, components } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { initializeAttendanceTeamAvailability } from "./lib/attendanceTeamAvailability.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import {
@@ -39,6 +40,136 @@ afterAll(() => {
 });
 
 describe("participant review queue projection", () => {
+  test("lets a participant observe staff placement but not place or call the team", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    await seedAwaitingReview(backend, fixture);
+    const participant = asParticipant(backend, fixture);
+
+    const queue = await currentQueue(backend, fixture);
+    expect(queue).toMatchObject({
+      state: "queued",
+      teamsAhead: 0,
+    });
+    if (!queue?.estimate) throw new Error("The queued team has no wait estimate.");
+    expect(queue.serverNow).toBeLessThanOrEqual(queue.estimate.earliestAt);
+    expect(queue.estimate.latestAt).toBeGreaterThan(queue.estimate.earliestAt);
+    expect("lowerMinutes" in queue.estimate).toBe(false);
+    await expect(
+      participant.mutation(api.reviewOperations.queueTeam, {
+        eventSlug: fixture.eventSlug,
+        roundId: fixture.roundId,
+        panelId: fixture.panelId,
+        teamId: fixture.teamId,
+        expectedTeamRoundVersion: 1,
+        reason: "Participant cannot place a team",
+        clientOperationId: "participant-cannot-queue-team",
+      }),
+    ).rejects.toThrow("does not have permission for that exact resource");
+    await expect(
+      participant.mutation(api.reviewOperations.callTeam, {
+        eventSlug: fixture.eventSlug,
+        roundId: fixture.roundId,
+        panelId: fixture.panelId,
+        teamId: fixture.teamId,
+        expectedTeamRoundVersion: 1,
+        reason: "Participant cannot call a team",
+        clientOperationId: "participant-cannot-call-team",
+      }),
+    ).rejects.toThrow("does not have permission for that exact resource");
+  });
+
+  test("keeps review status readable without exposing the separately scoped team code", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend, { grantTeamQr: false });
+    const reviewSessionId = await seedAwaitingReview(backend, fixture);
+    const participant = asParticipant(backend, fixture);
+
+    await expect(currentQueue(backend, fixture)).resolves.toMatchObject({
+      review: { id: reviewSessionId, canShowTeamQr: false },
+    });
+    await expect(
+      participant.mutation(api.participantReview.mintTeamQr, {
+        eventSlug: fixture.eventSlug,
+        reviewSessionId,
+      }),
+    ).rejects.toThrow("does not have permission for that exact resource");
+  });
+
+  test("only exposes an admission link when the operator can read that application", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    await seedAwaitingReview(backend, fixture);
+    const applicationId = await backend.run(async (ctx) => {
+      const team = await ctx.db.get(fixture.teamId);
+      if (!team?.lockedProjectVersionId) throw new Error("The fixture project is missing.");
+      const project = await ctx.db.get(team.lockedProjectVersionId);
+      if (!project) throw new Error("The fixture project is missing.");
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.personId,
+        eventAccessSubjectId: fixture.subjectId,
+        permissionKey: "round.read",
+        scopeType: "round",
+        scopeId: fixture.roundId,
+        sourceType: "manual",
+        sourceId: `${fixture.eventSlug}:round.read`,
+        grantedByPersonId: fixture.personId,
+        reason: "Review board access test",
+      });
+      return ctx.db.insert("applications", {
+        eventId: fixture.eventId,
+        teamId: fixture.teamId,
+        submittedProjectVersionId: project._id,
+        admissionPolicyVersionId: project.admissionPolicyVersionId,
+        state: "submitted",
+        experienceBand: "first_year",
+        assignedReviewCount: 0,
+        completedReviewCount: 0,
+        contentVersion: 1,
+        version: 1,
+        submittedAt: fixture.now,
+      });
+    });
+    const participant = asParticipant(backend, fixture);
+    const boardWithoutApplicationAccess = await participant.query(
+      api.reviewOperations.roundTeams,
+      {
+        eventSlug: fixture.eventSlug,
+        roundId: fixture.roundId,
+        paginationOpts: { cursor: null, numItems: 10 },
+      },
+    );
+
+    expect(boardWithoutApplicationAccess.page).toHaveLength(1);
+    expect(boardWithoutApplicationAccess.page[0]?.applicationId).toBeUndefined();
+
+    await backend.run(async (ctx) => {
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.personId,
+        eventAccessSubjectId: fixture.subjectId,
+        permissionKey: "application.read",
+        scopeType: "application",
+        scopeId: applicationId,
+        sourceType: "manual",
+        sourceId: `${fixture.eventSlug}:application.read`,
+        grantedByPersonId: fixture.personId,
+        reason: "Admission link access test",
+      });
+    });
+    const boardWithApplicationAccess = await participant.query(
+      api.reviewOperations.roundTeams,
+      {
+        eventSlug: fixture.eventSlug,
+        roundId: fixture.roundId,
+        paginationOpts: { cursor: null, numItems: 10 },
+      },
+    );
+
+    expect(boardWithApplicationAccess.page[0]?.applicationId).toBe(applicationId);
+  });
+
   test("preserves priority and time order through reorder, move, start, and completion", async () => {
     const backend = seededBackend();
     const fixture = await seedQueueFixture(backend);
@@ -120,7 +251,9 @@ describe("participant review queue projection", () => {
 
   test("reads an exact rank and constant participant payload within a strict document budget", async () => {
     const backend = seededBackend(48);
-    const fixture = await seedQueueFixture(backend, fixtureNow() + 1_000_000);
+    const fixture = await seedQueueFixture(backend, {
+      targetQueuedAt: fixtureNow() + 1_000_000,
+    });
     const queuedAhead = 64;
     for (let index = 0; index < queuedAhead; index += 1) {
       await addQueueTeam(backend, fixture, {
@@ -150,7 +283,6 @@ describe("participant review queue projection", () => {
         activeVitMemberCount: 0,
         activeExternalMemberCount: 0,
         membershipLocked: true,
-        trackLocked: true,
         version: 1,
         createdAt: fixture.now,
         updatedAt: fixture.now,
@@ -216,8 +348,21 @@ describe("participant review queue projection", () => {
       reviewSessionId,
     });
     expect(first.payload).toMatch(/^c2c-review-v1\.[a-f0-9]{64}$/);
+    expect(first.serverNow).toBeLessThan(first.expiresAt);
     expect(second.payload).toMatch(/^c2c-review-v1\.[a-f0-9]{64}$/);
     expect(second.payload).not.toBe(first.payload);
+    await expect(
+      participant.query(api.participantReview.teamQrState, {
+        eventSlug: fixture.eventSlug,
+        tokenId: first.tokenId,
+      }),
+    ).resolves.toMatchObject({ state: "superseded" });
+    await expect(
+      participant.query(api.participantReview.teamQrState, {
+        eventSlug: fixture.eventSlug,
+        tokenId: second.tokenId,
+      }),
+    ).resolves.toMatchObject({ state: "active" });
 
     await backend.run(async (ctx) => {
       const active = await ctx.db
@@ -330,7 +475,6 @@ async function addQueueTeam(
       activeVitMemberCount: 0,
       activeExternalMemberCount: 0,
       membershipLocked: true,
-      trackLocked: true,
       version: 1,
       createdAt: fixture.now,
       updatedAt: fixture.now,
@@ -353,7 +497,10 @@ async function addQueueTeam(
 
 async function seedQueueFixture(
   backend: BackendTest,
-  targetQueuedAt?: number,
+  {
+    grantTeamQr = true,
+    targetQueuedAt,
+  }: { grantTeamQr?: boolean; targetQueuedAt?: number } = {},
 ) {
   const now = fixtureNow();
   const eventSlug = `participant-review-${crypto.randomUUID()}`;
@@ -366,6 +513,7 @@ async function seedQueueFixture(
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,
@@ -414,10 +562,15 @@ async function seedQueueFixture(
       activeVitMemberCount: 1,
       activeExternalMemberCount: 0,
       membershipLocked: true,
-      trackLocked: true,
       version: 1,
       createdAt: now,
       updatedAt: now,
+    });
+    await initializeAttendanceTeamAvailability(ctx, {
+      eventId,
+      teamId,
+      activeMemberCount: 1,
+      now,
     });
     const teamMemberId = await ctx.db.insert("teamMembers", {
       eventId,
@@ -498,19 +651,28 @@ async function seedQueueFixture(
       createdAt: now,
       updatedAt: now,
     });
-    for (const permissionKey of [
-      "queue.participant.read",
-      "review.team_qr.mint",
-    ] as const) {
+    await insertPermissionGrant(ctx, {
+      eventId,
+      personId,
+      eventAccessSubjectId: subjectId,
+      permissionKey: "queue.participant.read",
+      scopeType: "team",
+      scopeId: teamId,
+      sourceType: "manual",
+      sourceId: `${eventSlug}:queue.participant.read`,
+      grantedByPersonId: personId,
+      reason: "Participant review test",
+    });
+    if (grantTeamQr) {
       await insertPermissionGrant(ctx, {
         eventId,
         personId,
         eventAccessSubjectId: subjectId,
-        permissionKey,
+        permissionKey: "review.team_qr.mint",
         scopeType: "team",
         scopeId: teamId,
         sourceType: "manual",
-        sourceId: `${eventSlug}:${permissionKey}`,
+        sourceId: `${eventSlug}:review.team_qr.mint`,
         grantedByPersonId: personId,
         reason: "Participant review test",
       });
@@ -613,29 +775,6 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
       createdAt: fixture.now,
       publishedAt: fixture.now,
     });
-    const catalogVersionId = await ctx.db.insert("trackCatalogVersions", {
-      eventId: fixture.eventId,
-      version: 1,
-      status: "published",
-      requiredCoreTrackCount: 1,
-      checksum: "qr-fixture-track-catalog",
-      createdByPersonId: fixture.personId,
-      createdAt: fixture.now,
-      publishedAt: fixture.now,
-    });
-    const trackVersionId = await ctx.db.insert("trackVersions", {
-      eventId: fixture.eventId,
-      catalogVersionId,
-      stableKey: "qr-fixture-track",
-      slug: "qr-fixture-track",
-      displayName: "QR fixture track",
-      description: "QR fixture track description.",
-      examples: [],
-      displayOrder: 0,
-      type: "core",
-      status: "published",
-      createdAt: fixture.now,
-    });
     const lockedRosterSnapshotId = await createTestSubmissionSnapshot(ctx, {
       eventId: fixture.eventId,
       teamId: fixture.teamId,
@@ -643,7 +782,6 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
       intakePolicyVersionId,
       participantPolicyVersionId,
       admissionPolicyVersionId,
-      coreTrackVersionId: trackVersionId,
       submittedAt: fixture.now,
     });
     const projectVersionId = await ctx.db.insert("projectVersions", {
@@ -653,8 +791,6 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
       initialIdea: "A fixture project idea.",
       intakePolicyVersionId,
       intakeResponses: [],
-      coreTrackVersionId: trackVersionId,
-      sponsorTrackVersionIds: [],
       lockedRosterSnapshotId,
       lockedMemberCount: 1,
       lockedLeadMembershipId: fixture.membershipId,
@@ -667,8 +803,6 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
         participantPolicyVersionId,
         previewedDraftVersion: 1,
         previewedTeamVersion: 1,
-        previewedTrackVersionId: trackVersionId,
-        previewedSponsorTrackVersionIds: [],
         confirmedByMembershipId: fixture.membershipId,
         confirmedAt: fixture.now,
       },
@@ -678,6 +812,7 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
       submittedByMembershipId: fixture.membershipId,
       submittedAt: fixture.now,
     });
+    await ctx.db.patch(fixture.teamId, { lockedProjectVersionId: projectVersionId });
     const evidenceCheckpointSetId = await ctx.db.insert("reviewEvidenceCheckpointSets", {
       eventId: fixture.eventId,
       roundId: fixture.roundId,

@@ -1,4 +1,5 @@
 import { ConvexError, v, type Infer } from "convex/values";
+import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -14,8 +15,13 @@ import {
   requireEventSubject,
   requireMembership,
 } from "./lib/identity";
-import { requirePermission } from "./lib/permissions";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+} from "./lib/operations";
 import {
   isProfileCompleteForPolicy,
   loadPublishedParticipantPolicy,
@@ -25,6 +31,9 @@ import {
 } from "./lib/participantPolicy";
 import { normalizeEmail, normalizedLongText } from "./lib/strings";
 import {
+  intakePolicyChecksum,
+  intakePolicyFromDocument,
+  normalizeIntakePolicy,
   requirePinnedIntakePolicy,
   requirePublishedIntakePolicy,
 } from "./lib/intakePolicy";
@@ -35,17 +44,18 @@ import {
   replaceIntakeQuestionsAfter,
   replaceCurrentIntakeQuestions,
 } from "./lib/intakeQuestions";
-import {
-  requirePinnedTrackCatalog,
-  requireProjectTrackSelection,
-  requireSponsorTrackSelection,
-} from "./lib/trackCatalog";
 import { intakeWorkpool } from "./workpools";
 import { teamClassesMeetPolicy, teamRosterCounts } from "./lib/teamRoster";
+import {
+  admissionDecision,
+  admissionInformationRequestState,
+  admissionOfferState,
+  applicationState,
+  projectDraftStage,
+} from "./values";
 
 const currentDraftView = v.object({
   id: v.id("projectDrafts"),
-  trackCatalogVersionId: v.id("trackCatalogVersions"),
   intakePolicyVersionId: v.id("intakePolicyVersions"),
   intakePolicy: v.object({
     openingText: v.string(),
@@ -58,26 +68,8 @@ const currentDraftView = v.object({
     minimumFollowUpCount: v.number(),
     maximumFollowUpCount: v.number(),
   }),
-  tracks: v.array(
-    v.object({
-      id: v.id("trackVersions"),
-      stableKey: v.string(),
-      slug: v.string(),
-      displayName: v.string(),
-      description: v.string(),
-      examples: v.array(v.string()),
-      displayOrder: v.number(),
-      type: v.union(v.literal("core"), v.literal("sponsor")),
-      eligibilityText: v.optional(v.string()),
-    }),
-  ),
-  stage: v.string(),
+  stage: projectDraftStage,
   initialIdea: v.optional(v.string()),
-  chosenCoreTrackVersionId: v.optional(v.id("trackVersions")),
-  chosenSponsorTrackVersionIds: v.array(v.id("trackVersions")),
-  recommendedCoreTrackVersionId: v.optional(v.id("trackVersions")),
-  recommendationReason: v.optional(v.string()),
-  recommendationState: v.string(),
   novelty: v.union(
     v.null(),
     v.object({
@@ -121,20 +113,17 @@ const currentDraftView = v.object({
 
 const participantApplicationView = v.object({
   id: v.id("applications"),
-  state: v.string(),
+  state: applicationState,
   version: v.number(),
+  contentVersion: v.number(),
   submittedAt: v.number(),
-  humanDecision: v.optional(v.string()),
+  humanDecision: v.optional(admissionDecision),
   humanReasonCode: v.optional(v.string()),
   informationRequest: v.union(
     v.null(),
     v.object({
       id: v.id("admissionInformationRequests"),
-      state: v.union(
-        v.literal("open"),
-        v.literal("answered"),
-        v.literal("superseded"),
-      ),
+      state: admissionInformationRequestState,
       questions: v.array(
         v.object({ questionKey: v.string(), question: v.string() }),
       ),
@@ -148,12 +137,32 @@ const participantApplicationView = v.object({
     v.null(),
     v.object({
       id: v.id("admissionOffers"),
-      state: v.string(),
+      state: admissionOfferState,
       sentAt: v.number(),
       expiresAt: v.number(),
       version: v.number(),
     }),
   ),
+});
+
+const proposalRevisionResponseInput = v.object({
+  questionId: v.id("intakeGeneratedQuestions"),
+  answer: v.optional(v.string()),
+  skipped: v.boolean(),
+});
+
+const proposalRevisionResult = v.object({
+  projectVersionId: v.id("projectVersions"),
+  projectVersion: v.number(),
+  applicationVersion: v.number(),
+  applicationContentVersion: v.number(),
+});
+
+const storedProposalRevisionResult = z.object({
+  projectVersionId: z.string().min(1),
+  projectVersion: z.number().int().positive(),
+  applicationVersion: z.number().int().positive(),
+  applicationContentVersion: z.number().int().positive(),
 });
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -223,13 +232,14 @@ async function currentReadTeamContext(ctx: QueryCtx, eventSlug: string) {
   const team = await ctx.db.get(member.teamId);
   if (!team || team.eventId !== event._id) return null;
   const subject = await requireEventSubject(ctx, event._id, person._id);
-  await requirePermission(ctx, {
+  const readGrantIds = await matchingPermissionGrantIds(ctx, {
     eventId: event._id,
     eventAccessSubjectId: subject._id,
     permissionKey: "team.read",
     scopeType: "team",
     scopeId: team._id,
   });
+  if (readGrantIds.length === 0) return null;
   return { event, member, team };
 }
 
@@ -278,6 +288,7 @@ async function participantApplicationForTeam(
       id: application._id,
       state: application.state,
       version: application.version,
+      contentVersion: application.contentVersion,
       submittedAt: application.submittedAt,
       ...(application.humanDecision !== undefined
         ? { humanDecision: application.humanDecision }
@@ -356,15 +367,13 @@ export const current = query({
     const participantApplication = await participantApplicationForTeam(ctx, event, team);
     let visibleDraft: Infer<typeof currentDraftView> | null = null;
     if (draft) {
-      const [pinnedCatalog, pinnedPolicy, followUps, novelty] = await Promise.all([
-        requirePinnedTrackCatalog(ctx, draft),
+      const [pinnedPolicy, followUps, novelty] = await Promise.all([
         requirePinnedIntakePolicy(ctx, draft),
         loadCurrentIntakeResponses(ctx, draft._id),
         participantNoveltyConfig(ctx, event, draft),
       ]);
       visibleDraft = {
         id: draft._id,
-        trackCatalogVersionId: draft.trackCatalogVersionId,
         intakePolicyVersionId: draft.intakePolicyVersionId,
         intakePolicy: {
           openingText: pinnedPolicy.normalized.openingText,
@@ -377,32 +386,8 @@ export const current = query({
           minimumFollowUpCount: pinnedPolicy.normalized.minimumFollowUpCount,
           maximumFollowUpCount: pinnedPolicy.normalized.maximumFollowUpCount,
         },
-        tracks: pinnedCatalog.tracks.map((track) => ({
-          id: track._id,
-          stableKey: track.stableKey,
-          slug: track.slug,
-          displayName: track.displayName,
-          description: track.description,
-          examples: track.examples,
-          displayOrder: track.displayOrder,
-          type: track.type,
-          ...(track.eligibilityText !== undefined
-            ? { eligibilityText: track.eligibilityText }
-            : {}),
-        })),
         stage: draft.stage,
         ...(draft.initialIdea !== undefined ? { initialIdea: draft.initialIdea } : {}),
-        ...(draft.chosenCoreTrackVersionId !== undefined
-          ? { chosenCoreTrackVersionId: draft.chosenCoreTrackVersionId }
-          : {}),
-        chosenSponsorTrackVersionIds: draft.chosenSponsorTrackVersionIds,
-        ...(draft.recommendedCoreTrackVersionId !== undefined
-          ? { recommendedCoreTrackVersionId: draft.recommendedCoreTrackVersionId }
-          : {}),
-        ...(draft.recommendationReason !== undefined
-          ? { recommendationReason: draft.recommendationReason }
-          : {}),
-        recommendationState: draft.recommendationState,
         novelty,
         noveltySignal:
           draft.initialIdea &&
@@ -449,20 +434,29 @@ export const submitted = query({
   returns: v.union(
     v.null(),
     v.object({
+      serverNow: v.number(),
       currentRole: v.union(v.literal("lead"), v.literal("member")),
       project: v.object({
+        id: v.id("projectVersions"),
         initialIdea: v.string(),
-        coreTrack: v.object({
-          id: v.id("trackVersions"),
-          displayName: v.string(),
-        }),
-        sponsorTracks: v.array(
+        intakeResponses: v.array(
           v.object({
-            id: v.id("trackVersions"),
-            displayName: v.string(),
+            questionId: v.id("intakeGeneratedQuestions"),
+            question: v.string(),
+            answer: v.optional(v.string()),
+            skipped: v.boolean(),
           }),
         ),
+        version: v.number(),
       }),
+      editRules: v.object({
+        initialIdeaMinLength: v.number(),
+        initialIdeaMaxLength: v.number(),
+        followUpAnswerMinLength: v.number(),
+        followUpAnswerMaxLength: v.number(),
+      }),
+      applicationsCloseAt: v.number(),
+      canEdit: v.boolean(),
       application: participantApplicationView,
     }),
   ),
@@ -482,22 +476,395 @@ export const submitted = query({
     ) {
       throw new Error("A participant application has an invalid submitted project.");
     }
-    const { coreTrack, sponsorTracks } = await requireProjectTrackSelection(ctx, project);
+    const intakePolicy = await ctx.db.get(project.intakePolicyVersionId);
+    if (
+      !intakePolicy ||
+      intakePolicy.eventId !== event._id ||
+      (intakePolicy.status !== "published" && intakePolicy.status !== "superseded")
+    ) {
+      throw new Error("A submitted project references an invalid intake policy.");
+    }
+    const normalizedPolicy = normalizeIntakePolicy(
+      intakePolicyFromDocument(intakePolicy),
+    );
+    if (intakePolicyChecksum(normalizedPolicy) !== intakePolicy.checksum) {
+      throw new Error("A submitted project's intake policy checksum is invalid.");
+    }
+    const now = Date.now();
     return {
+      serverNow: now,
       currentRole: member.role,
       project: {
+        id: project._id,
         initialIdea: project.initialIdea,
-        coreTrack: {
-          id: coreTrack._id,
-          displayName: coreTrack.displayName,
-        },
-        sponsorTracks: sponsorTracks.map((track) => ({
-          id: track._id,
-          displayName: track.displayName,
+        intakeResponses: project.intakeResponses.map((response) => ({
+          questionId: response.questionId,
+          question: response.question,
+          ...(response.answer !== undefined ? { answer: response.answer } : {}),
+          skipped: response.skipped,
         })),
+        version: project.version,
       },
+      editRules: {
+        initialIdeaMinLength: normalizedPolicy.initialIdeaMinLength,
+        initialIdeaMaxLength: normalizedPolicy.initialIdeaMaxLength,
+        followUpAnswerMinLength: normalizedPolicy.followUpAnswerMinLength,
+        followUpAnswerMaxLength: normalizedPolicy.followUpAnswerMaxLength,
+      },
+      applicationsCloseAt: event.applicationsCloseAt,
+      canEdit:
+        member.role === "lead" &&
+        now < event.applicationsCloseAt &&
+        ["submitted", "under_review"].includes(
+          participantApplication.application.state,
+        ),
       application: participantApplication.view,
     };
+  },
+});
+
+export const reviseSubmission = mutation({
+  args: {
+    eventSlug: v.string(),
+    applicationId: v.id("applications"),
+    expectedApplicationVersion: v.number(),
+    expectedApplicationContentVersion: v.number(),
+    expectedProjectVersionId: v.id("projectVersions"),
+    expectedProjectVersion: v.number(),
+    initialIdea: v.string(),
+    responses: v.array(proposalRevisionResponseInput),
+    clientOperationId: v.string(),
+  },
+  returns: proposalRevisionResult,
+  handler: async (ctx, args) => {
+    const { event, person, subject, membership, member, team } =
+      await currentTeamContext(ctx, args.eventSlug);
+    const requestFingerprint = operationFingerprint([
+      args.applicationId,
+      args.expectedApplicationVersion,
+      args.expectedApplicationContentVersion,
+      args.expectedProjectVersionId,
+      args.expectedProjectVersion,
+      args.initialIdea,
+      JSON.stringify(args.responses),
+    ]);
+    const prior = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "intake.submission.revise",
+      requestFingerprint,
+    });
+    if (prior) {
+      const stored = storedOperationResult(
+        prior.resultJson,
+        "proposal revision",
+        storedProposalRevisionResult,
+      );
+      const projectVersionId = ctx.db.normalizeId(
+        "projectVersions",
+        stored.projectVersionId,
+      );
+      if (!projectVersionId || projectVersionId !== prior.targetId) {
+        throw new Error("The stored proposal revision is invalid.");
+      }
+      return { ...stored, projectVersionId };
+    }
+
+    const now = Date.now();
+    if (now >= event.applicationsCloseAt) {
+      throw new ConvexError({
+        code: "APPLICATION_DEADLINE_PASSED",
+        message: "The application deadline has passed.",
+      });
+    }
+    if (member.role !== "lead" || team.leadMembershipId !== membership._id) {
+      throw new ConvexError({
+        code: "TEAM_LEAD_REQUIRED",
+        message: "Only the current team lead can edit the proposal.",
+      });
+    }
+    const grantIds = await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "application.submit",
+      scopeType: "team",
+      scopeId: team._id,
+    });
+    const application = await ctx.db.get(args.applicationId);
+    if (
+      !application ||
+      application.eventId !== event._id ||
+      application.teamId !== team._id
+    ) {
+      throw new ConvexError({
+        code: "APPLICATION_NOT_FOUND",
+        message: "That application is unavailable.",
+      });
+    }
+    if (
+      application.version !== args.expectedApplicationVersion ||
+      application.contentVersion !== args.expectedApplicationContentVersion
+    ) {
+      throw new ConvexError({
+        code: "APPLICATION_CHANGED",
+        message: "The application changed. Review the current proposal before saving.",
+      });
+    }
+    if (application.state !== "submitted" && application.state !== "under_review") {
+      throw new ConvexError({
+        code: "APPLICATION_NOT_EDITABLE",
+        message: "This application can no longer be edited.",
+      });
+    }
+    const project = await ctx.db.get(application.submittedProjectVersionId);
+    if (
+      !project ||
+      project._id !== args.expectedProjectVersionId ||
+      project.version !== args.expectedProjectVersion ||
+      project.eventId !== event._id ||
+      project.teamId !== team._id ||
+      team.lockedProjectVersionId !== project._id ||
+      !team.membershipLocked
+    ) {
+      throw new ConvexError({
+        code: "PROJECT_CHANGED",
+        message: "The proposal changed. Review the current version before saving.",
+      });
+    }
+    const latestProject = await ctx.db
+      .query("projectVersions")
+      .withIndex("by_team_version", (index) => index.eq("teamId", team._id))
+      .order("desc")
+      .first();
+    if (latestProject?._id !== project._id) {
+      throw new Error("The application does not point to the latest project version.");
+    }
+    const intakePolicy = await ctx.db.get(project.intakePolicyVersionId);
+    if (
+      !intakePolicy ||
+      intakePolicy.eventId !== event._id ||
+      (intakePolicy.status !== "published" && intakePolicy.status !== "superseded")
+    ) {
+      throw new Error("The proposal references an invalid intake policy.");
+    }
+    const policy = normalizeIntakePolicy(intakePolicyFromDocument(intakePolicy));
+    if (intakePolicyChecksum(policy) !== intakePolicy.checksum) {
+      throw new Error("The proposal's intake policy checksum is invalid.");
+    }
+    const initialIdea = normalizedLongText(
+      args.initialIdea,
+      "Project idea",
+      policy.initialIdeaMinLength,
+      policy.initialIdeaMaxLength,
+    );
+    if (
+      args.responses.length !== project.intakeResponses.length ||
+      args.responses.some(
+        (response, index) =>
+          response.questionId !== project.intakeResponses[index]?.questionId,
+      )
+    ) {
+      throw new ConvexError({
+        code: "PROJECT_RESPONSES_CHANGED",
+        message: "The proposal questions changed. Refresh before saving.",
+      });
+    }
+    const intakeResponses = project.intakeResponses.map((response, index) => {
+      const input = args.responses[index];
+      if (!input) throw new Error("A validated proposal response is missing.");
+      if (input.skipped ? input.answer !== undefined : input.answer === undefined) {
+        throw new ConvexError({
+          code: "INVALID_FOLLOW_UP_RESPONSE",
+          message: "Answer each question or skip it, but not both.",
+        });
+      }
+      const answer = input.answer === undefined
+        ? undefined
+        : normalizedLongText(
+            input.answer,
+            "Follow-up answer",
+            policy.followUpAnswerMinLength,
+            policy.followUpAnswerMaxLength,
+          );
+      return {
+        questionId: response.questionId,
+        ordinal: response.ordinal,
+        question: response.question,
+        purposeKey: response.purposeKey,
+        answerLength: response.answerLength,
+        source: response.source,
+        ...(answer !== undefined ? { answer } : {}),
+        skipped: input.skipped,
+      };
+    });
+    const unchanged =
+      project.initialIdea === initialIdea &&
+      project.intakeResponses.every((response, index) => {
+        const next = intakeResponses[index];
+        return next !== undefined &&
+          response.questionId === next.questionId &&
+          response.answer === next.answer &&
+          response.skipped === next.skipped;
+      });
+    if (unchanged) {
+      const result = {
+        projectVersionId: project._id,
+        projectVersion: project.version,
+        applicationVersion: application.version,
+        applicationContentVersion: application.contentVersion,
+      };
+      await recordOperation(ctx, {
+        eventId: event._id,
+        actorPersonId: person._id,
+        clientOperationId: args.clientOperationId,
+        commandName: "intake.submission.revise",
+        requestFingerprint,
+        targetType: "project_version",
+        targetId: project._id,
+        resultJson: JSON.stringify(result),
+        createdAt: now,
+      });
+      return result;
+    }
+
+    const [admissionConfiguration, activeReviews, activeAssignments, priorRecommendation] =
+      await Promise.all([
+        loadPublishedAdmissionConfiguration(ctx, event),
+        ctx.db
+          .query("admissionHumanReviews")
+          .withIndex("by_application_status", (index) =>
+            index.eq("applicationId", application._id).eq("status", "active"),
+          )
+          .collect(),
+        ctx.db
+          .query("admissionReviewAssignments")
+          .withIndex("by_application_state_assigned", (index) =>
+            index.eq("applicationId", application._id).eq("state", "active"),
+          )
+          .collect(),
+        application.aiRecommendationId
+          ? ctx.db.get(application.aiRecommendationId)
+          : Promise.resolve(null),
+      ]);
+    if (admissionConfiguration.policy._id !== application.admissionPolicyVersionId) {
+      throw new Error("The application admission policy is no longer current.");
+    }
+    const projectVersionId = await ctx.db.insert("projectVersions", {
+      eventId: event._id,
+      teamId: team._id,
+      version: project.version + 1,
+      initialIdea,
+      intakePolicyVersionId: project.intakePolicyVersionId,
+      intakeResponses,
+      lockedRosterSnapshotId: project.lockedRosterSnapshotId,
+      lockedMemberCount: project.lockedMemberCount,
+      lockedLeadMembershipId: project.lockedLeadMembershipId,
+      freshForEventAttestation: project.freshForEventAttestation,
+      finalConfirmation: project.finalConfirmation,
+      participantPolicyVersionId: project.participantPolicyVersionId,
+      admissionPolicyVersionId: project.admissionPolicyVersionId,
+      ...(project.admissionInformationResponses !== undefined
+        ? { admissionInformationResponses: project.admissionInformationResponses }
+        : {}),
+      proposalRevision: {
+        sourceProjectVersionId: project._id,
+        editedByMembershipId: membership._id,
+        editedAt: now,
+      },
+      sourceDraftVersion: project.sourceDraftVersion,
+      submittedByMembershipId: membership._id,
+      submittedAt: now,
+    });
+    const nextContentVersion = application.contentVersion + 1;
+    for (const review of activeReviews) {
+      await ctx.db.patch(review._id, { status: "superseded" });
+    }
+    for (const assignment of activeAssignments) {
+      await ctx.db.patch(assignment._id, {
+        applicationContentVersion: nextContentVersion,
+        version: assignment.version + 1,
+      });
+    }
+    if (
+      priorRecommendation &&
+      (priorRecommendation.state === "pending" || priorRecommendation.state === "running")
+    ) {
+      await ctx.db.patch(priorRecommendation._id, {
+        state: "stale",
+        completedAt: now,
+        failureCategory: "proposal_revised",
+      });
+    }
+    await ctx.db.patch(team._id, {
+      lockedProjectVersionId: projectVersionId,
+      version: team.version + 1,
+      updatedAt: now,
+    });
+    await ctx.db.patch(application._id, {
+      submittedProjectVersionId: projectVersionId,
+      aiDisposition: undefined,
+      aiRecommendationId: undefined,
+      assignedReviewCount: activeAssignments.length,
+      completedReviewCount: 0,
+      contentVersion: nextContentVersion,
+      version: application.version + 1,
+    });
+    const [updatedApplication, updatedProject] = await Promise.all([
+      ctx.db.get(application._id),
+      ctx.db.get(projectVersionId),
+    ]);
+    if (!updatedApplication || !updatedProject) {
+      throw new Error("The revised proposal did not persist.");
+    }
+    await createAdmissionRecommendation(ctx, {
+      application: updatedApplication,
+      project: updatedProject,
+      policy: admissionConfiguration.policy,
+      modelConfig: admissionConfiguration.model,
+      now,
+    });
+    const result = {
+      projectVersionId,
+      projectVersion: updatedProject.version,
+      applicationVersion: updatedApplication.version,
+      applicationContentVersion: updatedApplication.contentVersion,
+    };
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "intake.submission.revise",
+      requestFingerprint,
+      targetType: "project_version",
+      targetId: projectVersionId,
+      resultJson: JSON.stringify(result),
+      createdAt: now,
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "application.submit",
+      grantIds,
+      scopeType: "team",
+      scopeId: team._id,
+      action: "application.proposal_revised",
+      targetType: "application",
+      targetId: application._id,
+      previousSummary: JSON.stringify({
+        projectVersionId: project._id,
+        projectVersion: project.version,
+        applicationContentVersion: application.contentVersion,
+      }),
+      nextSummary: JSON.stringify({
+        projectVersionId,
+        projectVersion: updatedProject.version,
+        applicationContentVersion: updatedApplication.contentVersion,
+        supersededHumanReviewCount: activeReviews.length,
+      }),
+      reason: "Team lead revised the proposal before the application deadline",
+    });
+    return result;
   },
 });
 
@@ -573,7 +940,7 @@ async function currentTeamContext(ctx: MutationCtx, eventSlug: string) {
 }
 
 function requireEditableTeam(team: Doc<"teams">) {
-  if (team.membershipLocked || team.trackLocked) {
+  if (team.membershipLocked) {
     throw new ConvexError({
       code: "SUBMISSION_LOCKED",
       message: "This team has submitted and the project intake is locked.",
@@ -637,13 +1004,6 @@ function requireDraftVersion(actual: number, expected: number) {
   }
 }
 
-function sameTrackIds(
-  left: readonly Id<"trackVersions">[],
-  right: readonly Id<"trackVersions">[],
-) {
-  return left.length === right.length && left.every((id, index) => id === right[index]);
-}
-
 async function saveAnswerVersion(
   ctx: MutationCtx,
   args: {
@@ -700,7 +1060,6 @@ export const saveInitialIdea = mutation({
   args: {
     eventSlug: v.string(),
     idea: v.string(),
-    noveltyCorpusVersionId: v.optional(v.id("noveltyCorpusVersions")),
     expectedDraftVersion: v.number(),
     clientOperationId: v.string(),
   },
@@ -714,7 +1073,6 @@ export const saveInitialIdea = mutation({
       team._id,
       args.expectedDraftVersion,
       args.idea,
-      args.noveltyCorpusVersionId ?? null,
     ]);
     const replay = await replayDraftOperation(
       ctx,
@@ -733,12 +1091,6 @@ export const saveInitialIdea = mutation({
       .unique();
     requireDraftVersion(existing?.version ?? 0, args.expectedDraftVersion);
     const novelty = await participantNoveltyConfig(ctx, event, existing ?? undefined);
-    if (novelty?.corpusVersionId !== args.noveltyCorpusVersionId) {
-      throw new ConvexError({
-        code: "NOVELTY_CORPUS_CHANGED",
-        message: "The project comparison set changed. Refresh and submit the idea again.",
-      });
-    }
     const pinnedPolicy = existing
       ? await requirePinnedIntakePolicy(ctx, existing)
       : await requirePublishedIntakePolicy(ctx, event);
@@ -750,8 +1102,7 @@ export const saveInitialIdea = mutation({
     );
     const now = Date.now();
     if (
-      existing?.initialIdea === idea &&
-      existing.noveltyCorpusVersionId === novelty?.corpusVersionId
+      existing?.initialIdea === idea
     ) {
       await recordDraftOperation(ctx, {
         eventId: event._id,
@@ -767,10 +1118,9 @@ export const saveInitialIdea = mutation({
     const draftVersion = (existing?.version ?? 0) + 1;
     let draftId: Id<"projectDrafts">;
     if (existing) {
-      await requirePinnedTrackCatalog(ctx, existing);
       await replaceCurrentIntakeQuestions(ctx, existing._id);
       await ctx.db.patch(existing._id, {
-        stage: "track_selection",
+        stage: "follow_up",
         initialIdea: idea,
         noveltyCorpusVersionId: novelty?.corpusVersionId,
         noveltyEvaluatedInputFingerprint: undefined,
@@ -780,40 +1130,19 @@ export const saveInitialIdea = mutation({
         noveltyReflectionPrompt: undefined,
         noveltyPreviewRequestId: undefined,
         noveltyEvaluatedAt: undefined,
-        recommendedCoreTrackVersionId: undefined,
-        recommendationReason: undefined,
-        recommendationState: "pending",
         version: draftVersion,
         lastEditedByMembershipId: membership._id,
         updatedAt: now,
       });
       draftId = existing._id;
     } else {
-      const trackCatalogVersionId = event.publishedTrackCatalogId;
-      const trackCatalog = trackCatalogVersionId
-        ? await ctx.db.get(trackCatalogVersionId)
-        : null;
-      if (
-        !trackCatalogVersionId ||
-        !trackCatalog ||
-        trackCatalog.eventId !== event._id ||
-        trackCatalog.status !== "published"
-      ) {
-        throw new ConvexError({
-          code: "TRACK_CATALOG_UNAVAILABLE",
-          message: "The event track catalog is unavailable. Try again after operations fixes it.",
-        });
-      }
       draftId = await ctx.db.insert("projectDrafts", {
         eventId: event._id,
         teamId: team._id,
-        trackCatalogVersionId,
         intakePolicyVersionId: pinnedPolicy.policy._id,
         ...(novelty ? { noveltyCorpusVersionId: novelty.corpusVersionId } : {}),
-        stage: "track_selection",
+        stage: "follow_up",
         initialIdea: idea,
-        chosenSponsorTrackVersionIds: [],
-        recommendationState: "pending",
         version: draftVersion,
         lastEditedByMembershipId: membership._id,
         updatedAt: now,
@@ -857,161 +1186,12 @@ export const saveInitialIdea = mutation({
       targetId: draftId,
       nextSummary: JSON.stringify({
         draftVersion,
-        stage: "track_selection",
+        stage: "follow_up",
         noveltyCorpusVersionId: novelty?.corpusVersionId ?? null,
       }),
       reason: "Team saved its initial project idea",
     });
     return { draftId, draftVersion };
-  },
-});
-
-export const chooseTrack = mutation({
-  args: {
-    eventSlug: v.string(),
-    trackVersionId: v.id("trackVersions"),
-    expectedDraftVersion: v.number(),
-    clientOperationId: v.string(),
-  },
-  returns: v.object({ draftVersion: v.number() }),
-  handler: async (ctx, args) => {
-    const { event, person, membership, team } = await currentTeamContext(ctx, args.eventSlug);
-    const requestFingerprint = operationFingerprint([
-      team._id,
-      args.trackVersionId,
-      args.expectedDraftVersion,
-    ]);
-    const replay = await replayDraftOperation(
-      ctx,
-      event._id,
-      person._id,
-      args.clientOperationId,
-      "intake.track.choose",
-      requestFingerprint,
-    );
-    if (replay) return { draftVersion: replay.version };
-    requireRegistrationOpen(event);
-    requireEditableTeam(team);
-    const draft = await ctx.db
-      .query("projectDrafts")
-      .withIndex("by_team", (index) => index.eq("teamId", team._id))
-      .unique();
-    if (!draft?.initialIdea) {
-      throw new ConvexError({ code: "IDEA_REQUIRED", message: "Describe the project first." });
-    }
-    requireDraftVersion(draft.version, args.expectedDraftVersion);
-    await requirePinnedTrackCatalog(ctx, draft);
-    await requirePinnedIntakePolicy(ctx, draft);
-    const track = await ctx.db.get(args.trackVersionId);
-    if (
-      !track ||
-      track.eventId !== event._id ||
-      track.catalogVersionId !== draft.trackCatalogVersionId ||
-      track.type !== "core" ||
-      track.status !== "published"
-    ) {
-      throw new ConvexError({ code: "TRACK_NOT_AVAILABLE", message: "That track is not available." });
-    }
-    const responses = await loadCurrentIntakeResponses(ctx, draft._id);
-    const hasActiveQuestion = responses.some(({ question }) => question.state === "active");
-    const stage = hasActiveQuestion
-      ? "follow_up" as const
-      : draft.stage === "review"
-        ? "review" as const
-        : draft.stage === "follow_up"
-          ? "follow_up" as const
-          : "track_selection" as const;
-    const now = Date.now();
-    const changed =
-      draft.chosenCoreTrackVersionId !== track._id || draft.stage !== stage;
-    const draftVersion = changed ? draft.version + 1 : draft.version;
-    if (changed) {
-      await ctx.db.patch(draft._id, {
-        chosenCoreTrackVersionId: track._id,
-        stage,
-        version: draftVersion,
-        lastEditedByMembershipId: membership._id,
-        updatedAt: now,
-      });
-    }
-    await recordDraftOperation(ctx, {
-      eventId: event._id,
-      personId: person._id,
-      clientOperationId: args.clientOperationId,
-      commandName: "intake.track.choose",
-      requestFingerprint,
-      draftId: draft._id,
-      createdAt: now,
-    });
-    return { draftVersion };
-  },
-});
-
-export const setSponsorTracks = mutation({
-  args: {
-    eventSlug: v.string(),
-    sponsorTrackVersionIds: v.array(v.id("trackVersions")),
-    expectedDraftVersion: v.number(),
-    clientOperationId: v.string(),
-  },
-  returns: v.object({ draftVersion: v.number() }),
-  handler: async (ctx, args) => {
-    const { event, person, membership, team } = await currentTeamContext(ctx, args.eventSlug);
-    const requestFingerprint = operationFingerprint([
-      team._id,
-      args.expectedDraftVersion,
-      JSON.stringify([...args.sponsorTrackVersionIds].toSorted()),
-    ]);
-    const replay = await replayDraftOperation(
-      ctx,
-      event._id,
-      person._id,
-      args.clientOperationId,
-      "intake.sponsor_tracks.set",
-      requestFingerprint,
-    );
-    if (replay) return { draftVersion: replay.version };
-    requireRegistrationOpen(event);
-    requireEditableTeam(team);
-    const draft = await ctx.db
-      .query("projectDrafts")
-      .withIndex("by_team", (index) => index.eq("teamId", team._id))
-      .unique();
-    if (!draft?.initialIdea) {
-      throw new ConvexError({ code: "IDEA_REQUIRED", message: "Describe the project first." });
-    }
-    requireDraftVersion(draft.version, args.expectedDraftVersion);
-    const pinnedCatalog = await requirePinnedTrackCatalog(ctx, draft);
-    const sponsorTracks = requireSponsorTrackSelection(
-      pinnedCatalog.tracks,
-      args.sponsorTrackVersionIds,
-    );
-    const sponsorTrackVersionIds = sponsorTracks.map((track) => track._id);
-    const now = Date.now();
-    const draftVersion = sameTrackIds(
-      draft.chosenSponsorTrackVersionIds,
-      sponsorTrackVersionIds,
-    )
-      ? draft.version
-      : draft.version + 1;
-    if (draftVersion !== draft.version) {
-      await ctx.db.patch(draft._id, {
-        chosenSponsorTrackVersionIds: sponsorTrackVersionIds,
-        version: draftVersion,
-        lastEditedByMembershipId: membership._id,
-        updatedAt: now,
-      });
-    }
-    await recordDraftOperation(ctx, {
-      eventId: event._id,
-      personId: person._id,
-      clientOperationId: args.clientOperationId,
-      commandName: "intake.sponsor_tracks.set",
-      requestFingerprint,
-      draftId: draft._id,
-      createdAt: now,
-    });
-    return { draftVersion };
   },
 });
 
@@ -1049,10 +1229,10 @@ export const respondToFollowUp = mutation({
       .query("projectDrafts")
       .withIndex("by_team", (index) => index.eq("teamId", team._id))
       .unique();
-    if (!draft?.chosenCoreTrackVersionId) {
+    if (!draft?.initialIdea || draft.stage !== "follow_up") {
       throw new ConvexError({
         code: "FOLLOW_UP_NOT_READY",
-        message: "Choose a track before answering the follow-up.",
+        message: "Wait for the current project question before answering.",
       });
     }
     requireDraftVersion(draft.version, args.expectedDraftVersion);
@@ -1179,7 +1359,7 @@ export const reviseFollowUp = mutation({
       .query("projectDrafts")
       .withIndex("by_team", (index) => index.eq("teamId", team._id))
       .unique();
-    if (!draft?.chosenCoreTrackVersionId || draft.stage !== "review") {
+    if (!draft?.initialIdea || draft.stage !== "review") {
       throw new ConvexError({
         code: "FOLLOW_UP_NOT_EDITABLE",
         message: "Follow-up answers can be edited from the final review before submission.",
@@ -1346,17 +1526,7 @@ export const submissionPreview = query({
       teamName: v.string(),
       teamVersion: v.number(),
       draftVersion: v.number(),
-      track: v.union(
-        v.null(),
-        v.object({ id: v.id("trackVersions"), name: v.string(), description: v.string() }),
-      ),
-      sponsorTracks: v.array(
-        v.object({
-          id: v.id("trackVersions"),
-          name: v.string(),
-          eligibilityText: v.string(),
-        }),
-      ),
+      applicationsCloseAt: v.number(),
       initialIdea: v.optional(v.string()),
       followUps: v.array(
         v.object({
@@ -1371,6 +1541,14 @@ export const submissionPreview = query({
       ),
       freshnessAttested: v.boolean(),
       memberCount: v.number(),
+      members: v.array(
+        v.object({
+          membershipId: v.id("eventMemberships"),
+          displayName: v.string(),
+          role: v.union(v.literal("lead"), v.literal("member")),
+          submissionReady: v.boolean(),
+        }),
+      ),
       blockers: v.array(v.string()),
       participantPolicyVersionId: v.id("participantPolicyVersions"),
       warning: v.string(),
@@ -1414,27 +1592,53 @@ export const submissionPreview = query({
     if (!draft) return null;
     const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
     const rosterCounts = teamRosterCounts(team);
-    const track = draft.chosenCoreTrackVersionId
-      ? await ctx.db.get(draft.chosenCoreTrackVersionId)
-      : null;
-    const [pinnedCatalog, pinnedPolicy, followUps] = await Promise.all([
-      requirePinnedTrackCatalog(ctx, draft),
+    const [pinnedPolicy, followUps, activeMembers] = await Promise.all([
       requirePinnedIntakePolicy(ctx, draft),
       loadCurrentIntakeResponses(ctx, draft._id),
+      ctx.db
+        .query("teamMembers")
+        .withIndex("by_team_status", (index) =>
+          index.eq("teamId", team._id).eq("status", "active"),
+        )
+        .take(rosterCounts.activeMemberCount + 1),
     ]);
-    const sponsorTracks = requireSponsorTrackSelection(
-      pinnedCatalog.tracks,
-      draft.chosenSponsorTrackVersionIds,
-    );
-    if (
-      track &&
-      (track.eventId !== event._id ||
-        track.catalogVersionId !== draft.trackCatalogVersionId ||
-        track.type !== "core" ||
-        track.status !== "published")
-    ) {
-      throw new Error("The project draft's selected track is invalid.");
+    if (activeMembers.length !== rosterCounts.activeMemberCount) {
+      throw new Error("The team roster count does not match its active members.");
     }
+    const previewMembers = await Promise.all(activeMembers.map(async (activeMember) => {
+      if (activeMember.eventId !== event._id) {
+        throw new Error("An active team member belongs to another event.");
+      }
+      const eventMembership = await ctx.db.get(activeMember.membershipId);
+      if (!eventMembership || eventMembership.eventId !== event._id) {
+        throw new Error("An active team member references an invalid event membership.");
+      }
+      const [memberPerson, profile] = await Promise.all([
+        ctx.db.get(eventMembership.personId),
+        ctx.db
+          .query("participantProfiles")
+          .withIndex("by_membership", (index) =>
+            index.eq("membershipId", eventMembership._id),
+          )
+          .unique(),
+      ]);
+      if (!memberPerson) {
+        throw new Error("An active team member references a missing person.");
+      }
+      return {
+        membershipId: eventMembership._id,
+        displayName: profile?.preferredName ?? profile?.fullName ?? memberPerson.displayName,
+        role: activeMember.role,
+        submissionReady:
+          eventMembership.eligibilityStatus === "eligible" &&
+          memberPerson.status === "active" &&
+          isProfileCompleteForPolicy(profile, eventMembership, participantPolicy.policy),
+      };
+    }));
+    previewMembers.sort((left, right) => {
+      if (left.role !== right.role) return left.role === "lead" ? -1 : 1;
+      return left.displayName.localeCompare(right.displayName, "en");
+    });
     const blockers: string[] = [];
     if (rosterCounts.activeMemberCount < participantPolicy.normalized.teamMinimumSize) {
       blockers.push(`At least ${participantPolicy.normalized.teamMinimumSize} members are required.`);
@@ -1443,22 +1647,22 @@ export const submissionPreview = query({
       blockers.push("The current participant policy does not allow mixed VIT and external teams.");
     }
     if (!draft.initialIdea) blockers.push("The initial project idea is missing.");
-    if (!draft.chosenCoreTrackVersionId) blockers.push("Choose one core track.");
     if (!intakeSequenceComplete(pinnedPolicy.normalized, followUps)) {
       blockers.push("Complete the project follow-ups.");
     }
+    if (previewMembers.some((member) => !member.submissionReady)) {
+      blockers.push(
+        "Every team member must be eligible, accept the current policy, and finish their profile.",
+      );
+    }
     if (!draft.freshnessAttestedAt) blockers.push("Accept the fresh-project rule.");
+    if (Date.now() >= event.applicationsCloseAt) blockers.push("The application deadline has passed.");
     return {
       teamId: team._id,
       teamName: team.name,
       teamVersion: team.version,
       draftVersion: draft.version,
-      track: track ? { id: track._id, name: track.displayName, description: track.description } : null,
-      sponsorTracks: sponsorTracks.map((sponsorTrack) => ({
-        id: sponsorTrack._id,
-        name: sponsorTrack.displayName,
-        eligibilityText: sponsorTrack.eligibilityText,
-      })),
+      applicationsCloseAt: event.applicationsCloseAt,
       ...(draft.initialIdea !== undefined ? { initialIdea: draft.initialIdea } : {}),
       followUps: followUps.map(({ question, answer }) => ({
         id: question._id,
@@ -1471,6 +1675,7 @@ export const submissionPreview = query({
       })),
       freshnessAttested: Boolean(draft.freshnessAttestedAt),
       memberCount: rosterCounts.activeMemberCount,
+      members: previewMembers,
       blockers,
       participantPolicyVersionId: participantPolicy.policy._id,
       warning: participantPolicy.normalized.finalSubmissionWarning,
@@ -1515,8 +1720,6 @@ export const submit = mutation({
     eventSlug: v.string(),
     expectedDraftVersion: v.number(),
     expectedTeamVersion: v.number(),
-    expectedTrackVersionId: v.id("trackVersions"),
-    expectedSponsorTrackVersionIds: v.array(v.id("trackVersions")),
     participantPolicyVersionId: v.id("participantPolicyVersions"),
     clientOperationId: v.string(),
   },
@@ -1527,8 +1730,6 @@ export const submit = mutation({
     const requestFingerprint = operationFingerprint([
       args.expectedDraftVersion,
       args.expectedTeamVersion,
-      args.expectedTrackVersionId,
-      JSON.stringify(args.expectedSponsorTrackVersionIds),
       args.participantPolicyVersionId,
     ]);
     const priorAttempt = await ctx.db
@@ -1572,6 +1773,12 @@ export const submit = mutation({
     }
 
     requireRegistrationOpen(event);
+    if (Date.now() >= event.applicationsCloseAt) {
+      throw new ConvexError({
+        code: "APPLICATION_DEADLINE_PASSED",
+        message: "The application deadline has passed.",
+      });
+    }
 
     const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
     if (participantPolicy.policy._id !== args.participantPolicyVersionId) {
@@ -1596,13 +1803,13 @@ export const submit = mutation({
       throw new ConvexError({ code: "TEAM_LEAD_REQUIRED", message: "Only the team lead can submit." });
     }
     const team = await ctx.db.get(member.teamId);
-    if (!team || team.membershipLocked || team.trackLocked) {
+    if (!team || team.membershipLocked) {
       throw new ConvexError({ code: "SUBMISSION_LOCKED", message: "This team is already locked." });
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
-      permissionKey: "team.members.manage",
+      permissionKey: "application.submit",
       scopeType: "team",
       scopeId: team._id,
     });
@@ -1613,15 +1820,7 @@ export const submit = mutation({
       .query("projectDrafts")
       .withIndex("by_team", (index) => index.eq("teamId", team._id))
       .unique();
-    if (
-      !draft ||
-      draft.version !== args.expectedDraftVersion ||
-      draft.chosenCoreTrackVersionId !== args.expectedTrackVersionId ||
-      !sameTrackIds(
-        draft.chosenSponsorTrackVersionIds,
-        args.expectedSponsorTrackVersionIds,
-      )
-    ) {
+    if (!draft || draft.version !== args.expectedDraftVersion) {
       throw new ConvexError({ code: "DRAFT_CHANGED", message: "The project changed. Review it again." });
     }
     if (
@@ -1631,9 +1830,7 @@ export const submit = mutation({
     ) {
       throw new ConvexError({ code: "DRAFT_INCOMPLETE", message: "Complete every project step first." });
     }
-    const track = await ctx.db.get(args.expectedTrackVersionId);
-    const [pinnedCatalog, pinnedPolicy, intakeResponses] = await Promise.all([
-      requirePinnedTrackCatalog(ctx, draft),
+    const [pinnedPolicy, intakeResponses] = await Promise.all([
       requirePinnedIntakePolicy(ctx, draft),
       loadCurrentIntakeResponses(ctx, draft._id),
     ]);
@@ -1645,19 +1842,6 @@ export const submit = mutation({
         code: "DRAFT_INCOMPLETE",
         message: "Complete every project follow-up first.",
       });
-    }
-    const sponsorTracks = requireSponsorTrackSelection(
-      pinnedCatalog.tracks,
-      draft.chosenSponsorTrackVersionIds,
-    );
-    if (
-      !track ||
-      track.eventId !== event._id ||
-      track.catalogVersionId !== draft.trackCatalogVersionId ||
-      track.type !== "core" ||
-      track.status !== "published"
-    ) {
-      throw new ConvexError({ code: "TRACK_NOT_AVAILABLE", message: "The selected track is unavailable." });
     }
     const rosterCounts = teamRosterCounts(team);
     if (
@@ -1694,10 +1878,6 @@ export const submit = mutation({
       sourceDraftVersion: draft.version,
       participantPolicyVersionId: participantPolicy.policy._id,
       admissionPolicyVersionId: admissionConfiguration.policy._id,
-      expectedCoreTrackVersionId: track._id,
-      expectedSponsorTrackVersionIds: sponsorTracks.map(
-        (sponsorTrack) => sponsorTrack._id,
-      ),
       processedMemberCount: 0,
       processedVitMemberCount: 0,
       processedExternalMemberCount: 0,
@@ -1711,7 +1891,6 @@ export const submit = mutation({
     });
     await ctx.db.patch(team._id, {
       membershipLocked: true,
-      trackLocked: true,
       submissionAttemptId,
       lockedAt: now,
       lockParticipantPolicyVersionId: participantPolicy.policy._id,
@@ -1742,7 +1921,6 @@ async function failSubmissionAttempt(
   ) {
     await ctx.db.patch(team._id, {
       membershipLocked: false,
-      trackLocked: false,
       lockedAt: undefined,
       lockParticipantPolicyVersionId: undefined,
       version: team.version + 1,
@@ -1781,7 +1959,6 @@ export const materializeSubmissionRoster = internalMutation({
       participantPolicy.eventId !== event._id ||
       team.submissionAttemptId !== attempt._id ||
       !team.membershipLocked ||
-      !team.trackLocked ||
       team.version !== attempt.lockedTeamVersion ||
       draft.version !== attempt.sourceDraftVersion
     ) {
@@ -1991,30 +2168,18 @@ export const finalizeSubmission = internalMutation({
       );
       return null;
     }
-    const [participantPolicy, admissionPolicy, track, pinnedPolicy, pinnedCatalog, intakeResponses] =
+    const [participantPolicy, admissionPolicy, pinnedPolicy, intakeResponses] =
       await Promise.all([
         ctx.db.get(attempt.participantPolicyVersionId),
         ctx.db.get(attempt.admissionPolicyVersionId),
-        ctx.db.get(attempt.expectedCoreTrackVersionId),
         requirePinnedIntakePolicy(ctx, draft),
-        requirePinnedTrackCatalog(ctx, draft),
         loadCurrentIntakeResponses(ctx, draft._id),
       ]);
     if (
       !participantPolicy ||
       !admissionPolicy ||
-      !track ||
       participantPolicy.eventId !== event._id ||
       admissionPolicy.eventId !== event._id ||
-      track.eventId !== event._id ||
-      track.catalogVersionId !== draft.trackCatalogVersionId ||
-      track.type !== "core" ||
-      track.status !== "published" ||
-      draft.chosenCoreTrackVersionId !== track._id ||
-      !sameTrackIds(
-        draft.chosenSponsorTrackVersionIds,
-        attempt.expectedSponsorTrackVersionIds,
-      ) ||
       draft.stage !== "review" ||
       !intakeSequenceComplete(pinnedPolicy.normalized, intakeResponses)
     ) {
@@ -2022,15 +2187,11 @@ export const finalizeSubmission = internalMutation({
         ctx,
         attempt,
         "SUBMISSION_CONTEXT_CHANGED",
-        "The frozen project, track, or policy context is no longer valid.",
+        "The frozen project or policy context is no longer valid.",
         now,
       );
       return null;
     }
-    const sponsorTracks = requireSponsorTrackSelection(
-      pinnedCatalog.tracks,
-      attempt.expectedSponsorTrackVersionIds,
-    );
     const admissionConfiguration = await loadPublishedAdmissionConfiguration(ctx, event);
     if (admissionConfiguration.policy._id !== admissionPolicy._id) {
       await failSubmissionAttempt(
@@ -2063,8 +2224,6 @@ export const finalizeSubmission = internalMutation({
         ...(answer ? { answer: answer.value } : {}),
         skipped: question.state === "skipped",
       })),
-      coreTrackVersionId: track._id,
-      sponsorTrackVersionIds: sponsorTracks.map((sponsorTrack) => sponsorTrack._id),
       lockedRosterSnapshotId: attempt._id,
       lockedMemberCount: attempt.processedMemberCount,
       lockedLeadMembershipId: team.leadMembershipId,
@@ -2077,10 +2236,6 @@ export const finalizeSubmission = internalMutation({
         participantPolicyVersionId: participantPolicy._id,
         previewedDraftVersion: attempt.sourceDraftVersion,
         previewedTeamVersion: attempt.sourceTeamVersion,
-        previewedTrackVersionId: track._id,
-        previewedSponsorTrackVersionIds: sponsorTracks.map(
-          (sponsorTrack) => sponsorTrack._id,
-        ),
         confirmedByMembershipId: attempt.requestedByMembershipId,
         confirmedAt: attempt.createdAt,
       },
@@ -2148,7 +2303,7 @@ export const finalizeSubmission = internalMutation({
     await writeAuditEvent(ctx, {
       eventId: event._id,
       actorPersonId: attempt.requestedByPersonId,
-      permissionKey: "team.members.manage",
+      permissionKey: "application.submit",
       grantIds: attempt.authorizingGrantIds,
       scopeType: "team",
       scopeId: team._id,
@@ -2162,8 +2317,6 @@ export const finalizeSubmission = internalMutation({
       nextSummary: JSON.stringify({
         projectVersionId,
         memberCount: attempt.processedMemberCount,
-        trackVersionId: track._id,
-        sponsorTrackVersionIds: sponsorTracks.map((sponsorTrack) => sponsorTrack._id),
         lockedAt: attempt.createdAt,
       }),
       reason: "Team lead explicitly confirmed final submission",

@@ -45,26 +45,70 @@ function localConvexOrigin(value: string | undefined) {
   return url.origin;
 }
 
+function quickTunnelOrigin(value: string | undefined) {
+  const configured = value?.trim();
+  if (!configured) return null;
+  let url: URL;
+  try {
+    url = new URL(configured);
+  } catch {
+    return null;
+  }
+  if (
+    url.origin !== configured ||
+    url.protocol !== "https:" ||
+    !url.hostname.endsWith(".trycloudflare.com")
+  ) {
+    return null;
+  }
+  return url.origin;
+}
+
 export function localBrowserFixtureOrigins(): LocalBrowserFixtureOrigins | null {
   if (process.env.LOCAL_DEVELOPMENT_SEED_ENABLED !== "true") return null;
   const convexCloud = localConvexOrigin(process.env.CONVEX_CLOUD_URL);
   const convexSite = localConvexOrigin(process.env.CONVEX_SITE_URL);
   if (!convexCloud || !convexSite) return null;
-  const auth = localOrigin(process.env.AUTH_SITE_URL);
-  const participant = localOrigin(process.env.PARTICIPANT_SITE_URL);
-  const operations = localOrigin(process.env.OPERATIONS_SITE_URL);
-  const handbook = localOrigin(process.env.HANDBOOK_SITE_URL);
+  const tunnelMode = process.env.LOCAL_TUNNEL_FIXTURES_ENABLED === "true";
+  const webOrigin = tunnelMode ? quickTunnelOrigin : localOrigin;
+  const auth = webOrigin(process.env.AUTH_SITE_URL);
+  const participant = webOrigin(process.env.PARTICIPANT_SITE_URL);
+  const operations = webOrigin(process.env.OPERATIONS_SITE_URL);
+  const handbook = webOrigin(process.env.HANDBOOK_SITE_URL);
   if (!auth || !participant || !operations || !handbook) return null;
-  if (new URL(auth).port !== new URL(convexSite).port) return null;
+  if (!tunnelMode && new URL(auth).port !== new URL(convexSite).port) return null;
   if (new Set([auth, participant, operations, handbook]).size !== 4) return null;
   return { auth, participant, operations, handbook };
+}
+
+export function localBrowserReturnUrl(origin: string, returnPath: string) {
+  if (
+    returnPath.length === 0 ||
+    returnPath.length > 2_048 ||
+    !returnPath.startsWith("/") ||
+    /[\u0000-\u001f\u007f]/u.test(returnPath)
+  ) {
+    throw new ConvexError({
+      code: "INVALID_LOCAL_RETURN_PATH",
+      message: "The local sign-in return path is invalid.",
+    });
+  }
+  const base = new URL(origin);
+  const url = new URL(returnPath, base);
+  if (url.origin !== base.origin) {
+    throw new ConvexError({
+      code: "INVALID_LOCAL_RETURN_PATH",
+      message: "The local sign-in return path must stay on the same app.",
+    });
+  }
+  return url;
 }
 
 export function requireLocalDeployment() {
   if (localBrowserFixtureOrigins() === null) {
     throw new ConvexError({
       code: "LOCAL_ONLY",
-      message: "Local development fixtures require the full localhost-only stack.",
+      message: "Local development fixtures require an approved local test stack.",
     });
   }
 }

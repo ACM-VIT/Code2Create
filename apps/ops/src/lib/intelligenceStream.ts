@@ -16,20 +16,40 @@ export type IntelligenceHistoryPageState = {
   incarnation?: string
 }
 
-export function createIntelligenceStreamHeaderProvider(load: HeaderLoader) {
-  let cached: OperationsIntelligenceStreamAccess | undefined
-  let pending: Promise<OperationsIntelligenceStreamAccess> | undefined
+export function createIntelligenceStreamHeaderProvider(
+  load: HeaderLoader,
+  monotonicNow: () => number = () => performance.now(),
+) {
+  let cached: { access: OperationsIntelligenceStreamAccess; receivedAt: number } | undefined
+  let pending: {
+    generation: number
+    promise: Promise<OperationsIntelligenceStreamAccess>
+    token: object
+  } | undefined
+  let generation = 0
 
   const current = async () => {
-    if (cached && cached.expiresAt - Date.now() > refreshBeforeExpiryMs) return cached
-    pending ??= load().then((access) => {
+    if (
+      cached &&
+      cached.access.expiresAt - cached.access.serverNow -
+        (monotonicNow() - cached.receivedAt) > refreshBeforeExpiryMs
+    ) return cached.access
+    if (pending?.generation === generation) return pending.promise
+
+    const requestGeneration = generation
+    const token = {}
+    const promise = load().then((access) => {
       assertStreamAccess(access)
-      cached = access
+      if (generation !== requestGeneration) {
+        throw new Error('The intelligence stream changed while access was loading.')
+      }
+      cached = { access, receivedAt: monotonicNow() }
       return access
     }).finally(() => {
-      pending = undefined
+      if (pending?.token === token) pending = undefined
     })
-    return pending
+    pending = { generation: requestGeneration, promise, token }
+    return promise
   }
 
   return {
@@ -45,7 +65,9 @@ export function createIntelligenceStreamHeaderProvider(load: HeaderLoader) {
       return (await current()).conversationUrl
     },
     invalidate() {
+      generation += 1
       cached = undefined
+      pending = undefined
     },
   }
 }
@@ -141,7 +163,10 @@ function assertStreamAccess(access: OperationsIntelligenceStreamAccess) {
     || access.signature.length === 0
     || !Number.isSafeInteger(access.issuedAt)
     || !Number.isSafeInteger(access.expiresAt)
+    || !Number.isSafeInteger(access.serverNow)
     || access.expiresAt <= access.issuedAt
+    || access.serverNow < access.issuedAt
+    || access.serverNow >= access.expiresAt
   ) {
     throw new Error('The intelligence stream returned an invalid access ticket.')
   }

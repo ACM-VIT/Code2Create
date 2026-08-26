@@ -1,4 +1,5 @@
 import { ConvexError, type Infer, v } from "convex/values";
+import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -23,7 +24,12 @@ import {
 } from "./lib/attendanceSessionLifecycle";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson } from "./lib/identity";
-import { operationFingerprint } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+} from "./lib/operations";
 import { attendanceScanTransition, attendanceStationMode } from "./values";
 
 type Transition = Infer<typeof attendanceScanTransition>;
@@ -89,6 +95,73 @@ type Receipt = {
     vitRegistrationNumber?: string;
   };
 };
+
+const scanReceiptOperationResult = z
+  .object({
+    outcome: z.enum(["accepted", "duplicate", "rejected", "needs_review"]),
+    reasonCode: z.string(),
+    serverTime: z.number().int().nonnegative(),
+    transition: z.enum([
+      "venue_entry",
+      "venue_exit",
+      "session_confirm",
+      "zone_entry",
+      "zone_exit",
+    ]),
+    previousState: z.string().optional(),
+    nextState: z.string().optional(),
+    participantMembershipId: z.string().min(1).nullable(),
+  })
+  .strict();
+
+function scanReceiptResultJson(result: Receipt) {
+  return JSON.stringify({
+    outcome: result.outcome,
+    reasonCode: result.reasonCode,
+    serverTime: result.serverTime,
+    transition: result.transition,
+    ...(result.previousState !== undefined
+      ? { previousState: result.previousState }
+      : {}),
+    ...(result.nextState !== undefined ? { nextState: result.nextState } : {}),
+    participantMembershipId: result.participant?.membershipId ?? null,
+  });
+}
+
+async function storedScanReceipt(
+  ctx: MutationCtx,
+  targetId: string,
+  resultJson: string | undefined,
+): Promise<Receipt> {
+  const presenceEventId = ctx.db.normalizeId("attendancePresenceEvents", targetId);
+  if (!presenceEventId) throw new Error("The stored attendance scan result is invalid.");
+  const stored = storedOperationResult(
+    resultJson,
+    "attendance scan",
+    scanReceiptOperationResult,
+  );
+  const membershipId = stored.participantMembershipId
+    ? ctx.db.normalizeId("eventMemberships", stored.participantMembershipId)
+    : null;
+  if (stored.participantMembershipId && !membershipId) {
+    throw new Error("The stored attendance scan result is invalid.");
+  }
+  const participant = membershipId
+    ? await participantForReceipt(ctx, membershipId)
+    : null;
+  return {
+    presenceEventId,
+    outcome: stored.outcome,
+    reasonCode: stored.reasonCode,
+    serverTime: stored.serverTime,
+    transition: stored.transition,
+    ...(stored.previousState !== undefined
+      ? { previousState: stored.previousState }
+      : {}),
+    ...(stored.nextState !== undefined ? { nextState: stored.nextState } : {}),
+    participant,
+  };
+}
 
 function venueDecision(state: VenueState, transition: VenueTransition): Decision {
   if (transition === "venue_entry") {
@@ -294,19 +367,15 @@ export const recordScan = internalMutation({
       args.deviceSequence,
       args.capturedAt,
     ]);
-    const prior = await ctx.db
-      .query("attendancePresenceEvents")
-      .withIndex("by_operator_operation", (index) =>
-        index
-          .eq("operatorPersonId", person._id)
-          .eq("clientOperationId", args.clientOperationId),
-      )
-      .unique();
+    const prior = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "attendance.scan.record",
+      requestFingerprint,
+    });
     if (prior) {
-      if (prior.eventId !== event._id || prior.requestFingerprint !== requestFingerprint) {
-        throw new ConvexError({ code: "OPERATION_ID_REUSED", message: "Operation ID was reused." });
-      }
-      return receiptForEvent(ctx, prior);
+      return storedScanReceipt(ctx, prior.targetId, prior.resultJson);
     }
     if (args.isOfflineReplay && args.credentialKind === "portal_qr") {
       throw new ConvexError({
@@ -717,6 +786,18 @@ export const recordScan = internalMutation({
     if (!presenceEvent) {
       throw new ConvexError({ code: "SCAN_NOT_SAVED", message: "The scan did not save. Scan the same card again." });
     }
-    return receiptForEvent(ctx, presenceEvent);
+    const result = await receiptForEvent(ctx, presenceEvent);
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "attendance.scan.record",
+      requestFingerprint,
+      targetType: "attendance_presence_event",
+      targetId: presenceEventId,
+      resultJson: scanReceiptResultJson(result),
+      createdAt: now,
+    });
+    return result;
   },
 });

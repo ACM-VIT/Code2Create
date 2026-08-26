@@ -123,11 +123,19 @@ describe("operations attention ledger", () => {
     const row = before.rows[0];
     if (!row) throw new Error("The overview returned no row.");
 
-    await operator.mutation(api.operationsAttention.acknowledge, {
+    const acknowledgeCommand = {
       eventSlug: fixture.eventSlug,
       itemId: row.id,
       expectedVersion: row.version,
-    });
+      clientOperationId: "attention-acknowledge-survives",
+    };
+    const acknowledgement = await operator.mutation(
+      api.operationsAttention.acknowledge,
+      acknowledgeCommand,
+    );
+    await expect(
+      operator.mutation(api.operationsAttention.acknowledge, acknowledgeCommand),
+    ).resolves.toEqual(acknowledgement);
 
     await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
     const after = await operator.query(api.operationsAttention.overview, {
@@ -164,6 +172,7 @@ describe("operations attention ledger", () => {
         eventSlug: fixture.eventSlug,
         itemId: row.id,
         expectedVersion: row.version,
+        clientOperationId: "stale-attention-acknowledgement",
       }),
     ).rejects.toThrow("Refresh before continuing");
   });
@@ -184,6 +193,7 @@ describe("operations attention ledger", () => {
         eventSlug: fixture.eventSlug,
         itemId: row.id,
         expectedVersion: row.version,
+        clientOperationId: "unchanged-attention-acknowledgement",
       }),
     ).resolves.toEqual({ version: row.version + 1 });
   });
@@ -239,12 +249,17 @@ describe("operations attention ledger", () => {
     ).rows[0];
     if (!row) throw new Error("The overview returned no row.");
 
-    await operator.mutation(api.operationsAttention.dismiss, {
+    const dismissCommand = {
       eventSlug: fixture.eventSlug,
       itemId: row.id,
       expectedVersion: row.version,
       reason: "The third seat is deliberately empty for this round.",
-    });
+      clientOperationId: "attention-dismissal-survives",
+    };
+    const dismissal = await operator.mutation(api.operationsAttention.dismiss, dismissCommand);
+    await expect(
+      operator.mutation(api.operationsAttention.dismiss, dismissCommand),
+    ).resolves.toEqual(dismissal);
 
     const board = await operator.query(api.operationsAttention.overview, {
       eventSlug: fixture.eventSlug,
@@ -279,6 +294,7 @@ describe("operations attention ledger", () => {
         eventSlug: fixture.eventSlug,
         itemId: hidden._id,
         expectedVersion: hidden.version,
+        clientOperationId: "hidden-attention-acknowledgement",
       }),
     ).rejects.toThrow("permission");
   });
@@ -395,6 +411,7 @@ describe("operations attention ledger", () => {
         eventSlug: fixture.eventSlug,
         itemId: historicalId,
         expectedVersion: 1,
+        clientOperationId: "historical-attention-acknowledgement",
       }),
     ).rejects.toThrow("unavailable");
   });
@@ -655,6 +672,7 @@ async function seedFloor(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,
@@ -796,7 +814,6 @@ async function seedFloor(backend: BackendTest) {
       activeVitMemberCount: 0,
       activeExternalMemberCount: 0,
       membershipLocked: true,
-      trackLocked: true,
       version: 1,
       createdAt: now,
       updatedAt: now,

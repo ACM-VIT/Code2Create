@@ -18,8 +18,8 @@ export function autonomyRunCanStream(run: Pick<AutonomyRun, 'hasStream'>) {
 
 export function autonomyRunStateLabel(state: AutonomyRun['state']) {
   if (state === 'pending') return 'Queued'
-  if (state === 'leased') return 'Dispatching'
-  if (state === 'accepted') return 'Accepted'
+  if (state === 'leased') return 'Starting'
+  if (state === 'accepted') return 'Ready'
   if (state === 'running') return 'Working'
   if (state === 'succeeded') return 'Complete'
   if (state === 'no_op') return 'No action'
@@ -29,15 +29,15 @@ export function autonomyRunStateLabel(state: AutonomyRun['state']) {
 }
 
 export function autonomyRunPhaseLabel(phase: AutonomyRun['phase']) {
-  if (phase === 'planning') return 'Planning operations review'
-  if (phase === 'reading') return 'Reading approved event data'
-  if (phase === 'investigating') return 'Investigating event area'
-  if (phase === 'criticizing') return 'Checking evidence and conclusions'
-  if (phase === 'proposing') return 'Recording recommendation proposal'
-  if (phase === 'continuing') return 'Continuing durable review work'
-  if (phase === 'finalizing') return 'Finalizing run record'
-  if (phase === 'terminal') return 'Terminal record written'
-  if (phase === 'accepted') return 'Worker accepted run'
+  if (phase === 'planning') return 'Planning what to check'
+  if (phase === 'reading') return 'Checking event information'
+  if (phase === 'investigating') return 'Investigating a problem'
+  if (phase === 'criticizing') return 'Testing the conclusion'
+  if (phase === 'proposing') return 'Preparing an action'
+  if (phase === 'continuing') return 'Continuing the review'
+  if (phase === 'finalizing') return 'Saving the result'
+  if (phase === 'terminal') return 'Review finished'
+  if (phase === 'accepted') return 'Agent started'
   return 'Starting autonomous review'
 }
 
@@ -49,12 +49,12 @@ export function autonomyRunTerminalState(state: AutonomyRun['state']): LiveAgent
 }
 
 export function autonomyFailureLabel(code: AutonomyRun['failureCode']) {
-  if (code === 'provider_failed') return 'The model provider did not complete the run.'
-  if (code === 'tool_failed') return 'An approved read or proposal boundary failed.'
-  if (code === 'policy_violation') return 'The run attempted work outside its frozen policy.'
-  if (code === 'callback_rejected') return 'The authoritative lifecycle callback was rejected.'
-  if (code === 'dispatch_failed') return 'The Worker did not accept the immutable run.'
-  return 'The run ended before it produced a valid terminal record.'
+  if (code === 'provider_failed') return 'The AI service did not finish this review.'
+  if (code === 'tool_failed') return 'The agent could not read approved evidence or save a proposal.'
+  if (code === 'policy_violation') return 'The agent tried to work outside its approved access.'
+  if (code === 'callback_rejected') return 'The agent result could not be saved.'
+  if (code === 'dispatch_failed') return 'The agent could not start this review.'
+  return 'The review ended without a valid result.'
 }
 
 export function autonomyCancellationLabel(reason: AutonomyRun['cancellationReason']) {
@@ -62,5 +62,5 @@ export function autonomyCancellationLabel(reason: AutonomyRun['cancellationReaso
   if (reason === 'policy_superseded') return 'A newly published policy superseded this run.'
   if (reason === 'owner_revoked') return 'The accountable owner no longer has the required authority.'
   if (reason === 'event_not_live') return 'The event is no longer live.'
-  return 'The run was canceled by an authoritative server transition.'
+  return 'The review was canceled by an event state change.'
 }

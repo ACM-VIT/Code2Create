@@ -148,6 +148,7 @@ type MintPortalQrResult = {
   tokenId: Id<"attendancePortalQrTokens">;
   payload: string;
   expiresAt: number;
+  serverNow: number;
 };
 
 const textEncoder = new TextEncoder();
@@ -585,6 +586,7 @@ export const mintPortalQr = action({
     tokenId: v.id("attendancePortalQrTokens"),
     payload: v.string(),
     expiresAt: v.number(),
+    serverNow: v.number(),
   }),
   handler: async (ctx, args): Promise<MintPortalQrResult> => {
     const bearer = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
@@ -597,6 +599,7 @@ export const mintPortalQr = action({
     const result: {
       tokenId: Id<"attendancePortalQrTokens">;
       expiresAt: number;
+      serverNow: number;
     } = await ctx.runMutation(internal.attendancePortalQr.mint, {
       eventSlug: args.eventSlug,
       ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {}),
@@ -606,6 +609,7 @@ export const mintPortalQr = action({
       tokenId: result.tokenId,
       payload: attendanceQrPayload({ kind: "portal_qr", bearer }),
       expiresAt: result.expiresAt,
+      serverNow: result.serverNow,
     };
   },
 });

@@ -158,7 +158,6 @@ describe("project checkpoint lifecycle", () => {
           activeVitMemberCount: 0,
           activeExternalMemberCount: 0,
           membershipLocked: false,
-          trackLocked: false,
           version: 1,
           createdAt: fixture.now,
           updatedAt: fixture.now,
@@ -177,7 +176,6 @@ describe("project checkpoint lifecycle", () => {
           activeVitMemberCount: 0,
           activeExternalMemberCount: 0,
           membershipLocked: true,
-          trackLocked: true,
           version: 1,
           createdAt: fixture.now,
           updatedAt: fixture.now,
@@ -198,6 +196,191 @@ describe("project checkpoint lifecycle", () => {
       totalTeamCount: 4,
       submittedCount: 0,
       outstandingCount: 4,
+    });
+  });
+
+  test("keeps an open team checkpoint read-only without the exact write grant", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const authUserId = await createAuthUser(backend);
+    const authSessionId = await createAuthSession(backend, authUserId);
+    const fixture = await seedFixture(backend, authUserId);
+    const phaseStart = Date.now() - 90 * 60_000;
+
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.teamId, { activeMemberCount: 1 });
+      await ctx.db.insert("teamMembers", {
+        eventId: fixture.event._id,
+        teamId: fixture.teamId,
+        membershipId: fixture.membershipId,
+        role: "lead",
+        status: "active",
+        joinedAt: fixture.now,
+        source: "created",
+      });
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.event._id,
+        personId: fixture.personId,
+        eventAccessSubjectId: fixture.subjectId,
+        permissionKey: "project.checkpoint.read",
+        scopeType: "team",
+        scopeId: fixture.teamId,
+        sourceType: "manual",
+        sourceId: "checkpoint-read-only-test",
+        grantedByPersonId: fixture.personId,
+        reason: "Checkpoint read-only test",
+      });
+    });
+    const phaseDraft = await backend.run((ctx) =>
+      savePhaseScheduleDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        phases: phases(phaseStart),
+        now: fixture.now,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishPhaseSchedule(ctx, {
+        event: fixture.event,
+        draftScheduleId: phaseDraft.scheduleVersionId,
+        expectedDraftChecksum: phaseDraft.checksum,
+        now: fixture.now + 1,
+      }),
+    );
+    const eventWithPhases = await requireEvent(backend, fixture.event._id);
+    const checkpointDraft = await backend.run((ctx) =>
+      saveProjectCheckpointPlanDraft(ctx, {
+        event: eventWithPhases,
+        actorPersonId: fixture.personId,
+        definitions: definitions(),
+        now: fixture.now + 2,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishProjectCheckpointPlan(ctx, {
+        event: eventWithPhases,
+        draftPlanId: checkpointDraft.planVersionId,
+        expectedDraftChecksum: checkpointDraft.checksum,
+        now: fixture.now + 3,
+      }),
+    );
+    const participant = backend.withIdentity({
+      subject: authUserId,
+      sessionId: authSessionId,
+    });
+
+    const state = await participant.query(api.projectCheckpoints.mine, {
+      eventSlug: fixture.event.slug,
+    });
+    expect(state.checkpoints.find((checkpoint) => checkpoint.checkpointKey === "ideation"))
+      .toMatchObject({ availability: "open", canEdit: false });
+    await expect(
+      participant.mutation(api.projectCheckpoints.saveUpdate, {
+        eventSlug: fixture.event.slug,
+        checkpointKey: "ideation",
+        updateText: "We narrowed the problem after talking to the people who face it.",
+        expectedDraftVersion: 0,
+        clientOperationId: "checkpoint-read-only-write-attempt",
+      }),
+    ).rejects.toThrow("does not have permission for that exact resource");
+  });
+
+  test("replays the exact checkpoint draft version after later team edits", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const authUserId = await createAuthUser(backend);
+    const authSessionId = await createAuthSession(backend, authUserId);
+    const fixture = await seedFixture(backend, authUserId);
+    const phaseStart = Date.now() - 90 * 60_000;
+
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.teamId, { activeMemberCount: 1 });
+      await ctx.db.insert("teamMembers", {
+        eventId: fixture.event._id,
+        teamId: fixture.teamId,
+        membershipId: fixture.membershipId,
+        role: "lead",
+        status: "active",
+        joinedAt: fixture.now,
+        source: "created",
+      });
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.event._id,
+        personId: fixture.personId,
+        eventAccessSubjectId: fixture.subjectId,
+        permissionKey: "team.project.write",
+        scopeType: "team",
+        scopeId: fixture.teamId,
+        sourceType: "manual",
+        sourceId: "checkpoint-replay-test",
+        grantedByPersonId: fixture.personId,
+        reason: "Checkpoint replay test",
+      });
+    });
+    const phaseDraft = await backend.run((ctx) =>
+      savePhaseScheduleDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        phases: phases(phaseStart),
+        now: fixture.now,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishPhaseSchedule(ctx, {
+        event: fixture.event,
+        draftScheduleId: phaseDraft.scheduleVersionId,
+        expectedDraftChecksum: phaseDraft.checksum,
+        now: fixture.now + 1,
+      }),
+    );
+    const eventWithPhases = await requireEvent(backend, fixture.event._id);
+    const checkpointDraft = await backend.run((ctx) =>
+      saveProjectCheckpointPlanDraft(ctx, {
+        event: eventWithPhases,
+        actorPersonId: fixture.personId,
+        definitions: definitions(),
+        now: fixture.now + 2,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishProjectCheckpointPlan(ctx, {
+        event: eventWithPhases,
+        draftPlanId: checkpointDraft.planVersionId,
+        expectedDraftChecksum: checkpointDraft.checksum,
+        now: fixture.now + 3,
+      }),
+    );
+    const participant = backend.withIdentity({
+      subject: authUserId,
+      sessionId: authSessionId,
+    });
+    const firstArgs = {
+      eventSlug: fixture.event.slug,
+      checkpointKey: "ideation" as const,
+      updateText: "We narrowed the project to one complete participant journey.",
+      expectedDraftVersion: 0,
+      clientOperationId: "checkpoint-first-save",
+    };
+
+    const first = await participant.mutation(api.projectCheckpoints.saveUpdate, firstArgs);
+    const second = await participant.mutation(api.projectCheckpoints.saveUpdate, {
+      ...firstArgs,
+      updateText: "We tested that journey and changed the first interaction.",
+      expectedDraftVersion: first.draftVersion,
+      clientOperationId: "checkpoint-second-save",
+    });
+    const replayedFirst = await participant.mutation(
+      api.projectCheckpoints.saveUpdate,
+      firstArgs,
+    );
+    const currentDraft = await backend.run((ctx) => ctx.db.get(first.draftId));
+
+    expect(first.draftVersion).toBe(1);
+    expect(second.draftVersion).toBe(2);
+    expect(replayedFirst).toEqual(first);
+    expect(currentDraft).toMatchObject({
+      updateText: "We tested that journey and changed the first interaction.",
+      version: 2,
     });
   });
 
@@ -413,6 +596,7 @@ async function seedFixture(backend: BackendTest, authUserId?: string) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,
@@ -450,7 +634,6 @@ async function seedFixture(backend: BackendTest, authUserId?: string) {
       activeVitMemberCount: 0,
       activeExternalMemberCount: 0,
       membershipLocked: true,
-      trackLocked: true,
       version: 1,
       createdAt: now,
       updatedAt: now,

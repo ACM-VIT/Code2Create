@@ -29,7 +29,7 @@ export function EntryScreen({
         <section className="narrow-panel">
           <p className="eyebrow">Code2Create</p>
           <h1>Event setup is not complete</h1>
-          <p className="muted">An authorised Supreme account needs to publish the event and track catalog.</p>
+          <p className="muted">An organizer with event setup access needs to finish setup.</p>
         </section>
       </main>
     )
@@ -50,9 +50,9 @@ export function EntryScreen({
         provider: 'google',
         callbackURL: window.location.href,
       })
-      if (result.error) setError(result.error.message ?? 'Google sign-in could not start.')
-    } catch (caught) {
-      setError(readableError(caught))
+      if (result.error) setError('Google sign-in could not start. Try again.')
+    } catch {
+      setError('Google sign-in could not start. Try again.')
     } finally {
       setBusy(false)
     }
@@ -67,6 +67,7 @@ export function EntryScreen({
         confirmation: 'create-code2create-local-browser-session',
         actor: participantClass === 'vit_student' ? 'vitParticipant' : 'externalParticipant',
         surface: 'participant',
+        returnPath: `${window.location.pathname}${window.location.search}${window.location.hash}`,
       })
       window.location.assign(session.url)
     } catch (caught) {
@@ -82,13 +83,13 @@ export function EntryScreen({
         <h1>Hello.</h1>
         <p className="lead">Which describes you?</p>
 
-        <div className="choice-stack" aria-label="Participant type">
+        <div className="choice-stack" role="group" aria-label="Participant type">
           <button
             type="button"
             className={participantClass === 'vit_student' ? 'choice selected' : 'choice'}
             onClick={() => choose('vit_student')}
           >
-            <span>VIT Student</span>
+            <span>VIT student</span>
             <small>Use your VIT Google account.</small>
           </button>
           <button
@@ -120,7 +121,7 @@ export function EntryScreen({
           </button>
         ) : null}
         {!publicState.auth.googleConfigured && !publicState.auth.localDevelopmentFixturesEnabled ? (
-          <p className="configuration-note">Google sign-in has not been configured for this environment.</p>
+          <p className="configuration-note">Google sign-in is unavailable right now. Ask an organizer for help.</p>
         ) : null}
         <ErrorNotice message={error} />
         <p className="fine-print">Sign-in confirms who you are. Event eligibility is checked next.</p>

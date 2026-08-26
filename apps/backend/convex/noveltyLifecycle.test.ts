@@ -43,19 +43,40 @@ describe("live novelty", () => {
     const first = entries[0];
     const fifth = entries[4];
     if (!first || !fifth) throw new Error("The corpus fixture is incomplete.");
-    expect(normalizeNoveltyCorpusEntries(entries)).toHaveLength(5);
-    expect(() => normalizeNoveltyCorpusEntries([
-      ...entries.slice(0, 4),
-      { ...fifth, sourceKey: first.sourceKey },
-    ])).toThrow("source keys must be unique");
-    expect(() => normalizeNoveltyCorpusEntries([
-      ...entries.slice(0, 4),
-      { ...fifth, summary: "Contact prior-team@example.test for the complete project details." },
-    ])).toThrow("contains contact details");
-    expect(() => normalizeNoveltyCorpusEntries([
-      ...entries.slice(0, 4),
-      { ...fifth, reflectionPrompt: "Would judges reject this idea?" },
-    ])).toThrow("discouraging or decision-related wording");
+    expect(normalizeNoveltyCorpusEntries(entries, 2026)).toHaveLength(5);
+    expect(() =>
+      normalizeNoveltyCorpusEntries(
+        [...entries.slice(0, 4), { ...fifth, sourceKey: first.sourceKey }],
+        2026,
+      ),
+    ).toThrow("source keys must be unique");
+    expect(() =>
+      normalizeNoveltyCorpusEntries(
+        [
+          ...entries.slice(0, 4),
+          {
+            ...fifth,
+            summary: "Contact prior-team@example.test for the complete project details.",
+          },
+        ],
+        2026,
+      ),
+    ).toThrow("contains contact details");
+    expect(() =>
+      normalizeNoveltyCorpusEntries(
+        [
+          ...entries.slice(0, 4),
+          { ...fifth, reflectionPrompt: "Would judges reject this idea?" },
+        ],
+        2026,
+      ),
+    ).toThrow("discouraging or decision-related wording");
+    expect(() =>
+      normalizeNoveltyCorpusEntries(
+        [...entries.slice(0, 4), { ...fifth, sourceYear: 2027 }],
+        2026,
+      ),
+    ).toThrow("Corpus entry 5 year must be a whole number from 2000 through 2026");
   });
 
   test("settles one request exactly once and replays its result idempotently", async () => {
@@ -332,6 +353,7 @@ async function seedFixture(
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,
@@ -369,7 +391,6 @@ async function seedFixture(
       activeVitMemberCount: 0,
       activeExternalMemberCount: 1,
       membershipLocked: false,
-      trackLocked: false,
       version: 1,
       createdAt: now,
       updatedAt: now,
@@ -393,20 +414,9 @@ async function seedFixture(
       activeVitMemberCount: 0,
       activeExternalMemberCount: 0,
       membershipLocked: false,
-      trackLocked: false,
       version: 1,
       createdAt: now,
       updatedAt: now,
-    });
-    const catalogId = await ctx.db.insert("trackCatalogVersions", {
-      eventId,
-      version: 1,
-      status: "published",
-      requiredCoreTrackCount: 1,
-      checksum: "novelty-catalog-v1",
-      createdByPersonId: personId,
-      createdAt: now,
-      publishedAt: now,
     });
     const intakePolicy = normalizeIntakePolicy(defaultDeterministicIntakePolicy);
     const intakePolicyId = await ctx.db.insert("intakePolicyVersions", {
@@ -440,7 +450,6 @@ async function seedFixture(
       now,
     );
     await ctx.db.patch(eventId, {
-      publishedTrackCatalogId: catalogId,
       publishedIntakePolicyId: intakePolicyId,
       publishedNoveltyCorpusVersionId: publishedCorpusId,
     });
@@ -448,13 +457,10 @@ async function seedFixture(
     const projectDraftId = await ctx.db.insert("projectDrafts", {
       eventId,
       teamId,
-      trackCatalogVersionId: catalogId,
       intakePolicyVersionId: intakePolicyId,
       noveltyCorpusVersionId: publishedCorpusId,
-      stage: "track_selection",
+      stage: "follow_up",
       initialIdea: idea,
-      chosenSponsorTrackVersionIds: [],
-      recommendationState: "pending",
       version: 1,
       lastEditedByMembershipId: membershipId,
       updatedAt: now,

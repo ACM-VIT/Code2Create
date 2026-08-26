@@ -30,7 +30,7 @@ Current endpoints:
 
 Use the deployed Worker or its custom domain as `C2C_UPDATES_URL`, including `/manifest`. For each environment, the reviewer app's `.env.<environment>.local` is the single source for that URL. Add the private-key path to `apps/updates/.env.<environment>.local`, and put the URL and native identifiers/build values in `apps/reviewer/.env.<environment>.local`. Staging and production commands load only their matching files; explicit shell variables may be used instead.
 
-The current local signing key is under `/Users/ishaan/.config/code2create/updates/`; only `apps/reviewer/certs/certificate.pem` belongs in source control. Back up the private key in the event secret store before the first production binary is distributed. Losing it means existing binaries can no longer trust a newly signed update.
+The configure command looks for the local signing key at `~/.config/code2create/updates/private-key.pem`; only `apps/reviewer/certs/certificate.pem` belongs in source control. Back up the private key in the event secret store before the first production binary is distributed. Losing it means existing binaries can no longer trust a newly signed update.
 
 ## Release order
 

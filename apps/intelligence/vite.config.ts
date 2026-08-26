@@ -9,6 +9,9 @@ export default defineConfig(({ command }) => {
 	const configureFlueWorker = flueWorkerConfig();
 
 	return {
+		// Stream routes enforce one exact Operations origin. Let the Worker answer
+		// preflights so local tunnel traffic exercises the production CORS boundary.
+		server: { cors: false },
 		// The virtual Worker entry is absent from Vite's initial dependency scan.
 		// Pre-bundle Worker dependencies so workerd never imports renamed stale chunks.
 		environments: {

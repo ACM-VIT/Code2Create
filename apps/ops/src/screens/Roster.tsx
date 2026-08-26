@@ -11,6 +11,7 @@ import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from '../comp
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
+import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
 
 type Workspace = FunctionReturnType<typeof api.rosters.workspace>
 type Entry = Workspace['entries'][number]
@@ -43,8 +44,9 @@ const rosterGroups: ReadonlyArray<{ key: EntryGroup; label: string }> = [
   { key: 'ended', label: 'No longer on the team' },
 ]
 
-export function Roster() {
+export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
   const workspace = useQuery(api.rosters.workspace, { eventSlug })
+  const serverNow = useEstimatedServerNow(workspace?.serverNow)
   const rosterPage = usePaginatedQuery(
     api.rosters.list,
     workspace?.canReadAll ? { eventSlug } : 'skip',
@@ -137,7 +139,7 @@ export function Roster() {
       setError('Choose an access start time, and an end time after it.')
       return
     }
-    if (end <= Date.now()) {
+    if (end <= serverNow) {
       setError('Roster access must end in the future.')
       return
     }
@@ -367,8 +369,10 @@ export function Roster() {
                 {compatibleBundles.length === 0 ? (
                   <p>
                     No published access set can be handed out at sign-in, so these people
-                    arrive with no permissions.{' '}
-                    <Link to="/access/bundles">Make a reusable access set</Link>
+                    arrive with no permissions.
+                    {canReadBundles ? (
+                      <> <Link to="/access/bundles">Make a reusable access set</Link>.</>
+                    ) : null}
                   </p>
                 ) : null}
                 {laterBundles.length > 0 ? (

@@ -162,7 +162,6 @@ describe("intake policy configuration", () => {
       interpretationId: firstContext.interpretationId,
       inputFingerprint: firstContext.inputFingerprint,
       state: "succeeded",
-      recommendationSourceAnswerVersionIds: [],
       coveragePurposeKeys: ["user"],
       nextQuestionText: "Who would use this project first?",
       nextQuestionPurposeKey: "user",
@@ -178,7 +177,6 @@ describe("intake policy configuration", () => {
       interpretationId: secondContext.interpretationId,
       inputFingerprint: secondContext.inputFingerprint,
       state: "succeeded",
-      recommendationSourceAnswerVersionIds: [],
       coveragePurposeKeys: ["user", "problem"],
       nextQuestionSourceAnswerVersionIds: [],
       stopReason: "enough_context",
@@ -203,7 +201,6 @@ describe("intake policy configuration", () => {
       interpretationId: context.interpretationId,
       inputFingerprint: context.inputFingerprint,
       state: "failed",
-      recommendationSourceAnswerVersionIds: [],
       coveragePurposeKeys: [],
       nextQuestionSourceAnswerVersionIds: [],
       latencyMs: 25,
@@ -213,7 +210,6 @@ describe("intake policy configuration", () => {
       interpretationId: context.interpretationId,
       inputFingerprint: context.inputFingerprint,
       state: "succeeded",
-      recommendationSourceAnswerVersionIds: [],
       coveragePurposeKeys: ["problem"],
       nextQuestionText: "What different outcome should this project make possible?",
       nextQuestionPurposeKey: "problem",
@@ -266,7 +262,7 @@ function assistedPolicy(): IntakePolicy {
       mode: "assisted",
       modelId: "intake-test-model",
       systemInstruction:
-        "Ask one supportive plain-language question grounded only in supplied project answers. Never judge, rank, reject, discourage, request personal information, or treat a participant's track choice as evidence.",
+        "Ask one supportive plain-language question grounded only in supplied project answers. Never judge, rank, reject, discourage, or request personal information.",
       instructionVersion: "test-v1",
       schemaVersion: "test-v1",
       redactionVersion: "test-v1",
@@ -360,41 +356,12 @@ async function seedFixture(
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,
       updatedAt: now,
     });
-    const catalogId = await ctx.db.insert("trackCatalogVersions", {
-      eventId,
-      version: 1,
-      status: "published",
-      requiredCoreTrackCount: 5,
-      checksum: "intake-policy-track-catalog-v1",
-      createdByPersonId: personId,
-      createdAt: now,
-      publishedAt: now,
-    });
-    const trackNames = ["people", "health", "climate", "learning", "open"];
-    const trackIds: Id<"trackVersions">[] = [];
-    for (const [displayOrder, stableKey] of trackNames.entries()) {
-      const trackId = await ctx.db.insert("trackVersions", {
-        eventId,
-        catalogVersionId: catalogId,
-        stableKey,
-        slug: stableKey,
-        displayName: `${stableKey.slice(0, 1).toUpperCase()}${stableKey.slice(1)}`,
-        description: `A practical ${stableKey} project for the event community.`,
-        examples: [`A useful ${stableKey} workflow`],
-        displayOrder,
-        type: "core",
-        status: "published",
-        createdAt: now,
-      });
-      trackIds.push(trackId);
-    }
-    const firstTrackId = trackIds[0];
-    if (!firstTrackId) throw new Error("The fixture needs a core track.");
     const normalizedPolicy = normalizeIntakePolicy(
       mode === "assisted" ? assistedPolicy() : defaultDeterministicIntakePolicy,
     );
@@ -409,7 +376,6 @@ async function seedFixture(
       publishedAt: now,
     });
     await ctx.db.patch(eventId, {
-      publishedTrackCatalogId: catalogId,
       publishedIntakePolicyId: policyId,
     });
     const subjectId = await ctx.db.insert("eventAccessSubjects", {
@@ -444,7 +410,6 @@ async function seedFixture(
       activeVitMemberCount: 0,
       activeExternalMemberCount: 0,
       membershipLocked: false,
-      trackLocked: false,
       version: 1,
       createdAt: now,
       updatedAt: now,
@@ -452,13 +417,9 @@ async function seedFixture(
     const projectDraftId = await ctx.db.insert("projectDrafts", {
       eventId,
       teamId,
-      trackCatalogVersionId: catalogId,
       intakePolicyVersionId: policyId,
-      stage: "track_selection",
+      stage: "follow_up",
       initialIdea: "A shared campus workflow that helps volunteers route practical requests.",
-      chosenCoreTrackVersionId: firstTrackId,
-      chosenSponsorTrackVersionIds: [],
-      recommendationState: "pending",
       version: 1,
       lastEditedByMembershipId: membershipId,
       updatedAt: now,

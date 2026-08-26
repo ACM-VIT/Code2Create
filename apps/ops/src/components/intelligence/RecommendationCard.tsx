@@ -5,54 +5,53 @@ import type {
 } from '@code2create/domain'
 import { useMutation, usePaginatedQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { eventSlug } from '../../lib/config'
 import { readableError } from '../../lib/errors'
-import { useOperationRunner } from '../../lib/operations'
+import type { OperationRunner } from '../../lib/operations'
+import { PendingOperationRecovery } from '../PendingOperationRecovery'
 
 type RecommendationPage = FunctionReturnType<typeof api.intelligenceRecommendations.proposed>
 type Recommendation = RecommendationPage['page'][number]
 type Decision = 'reject' | 'suggest'
 
 export function RecommendationCard({
+  operations,
   recommendation,
   sourceLabel,
 }: {
+  operations: OperationRunner<{ version: number }>
   recommendation: Recommendation
   sourceLabel?: string
 }) {
   const approve = useMutation(api.intelligenceRecommendations.approve)
   const reject = useMutation(api.intelligenceRecommendations.reject)
   const suggest = useMutation(api.intelligenceRecommendations.suggest)
-  const operations = useOperationRunner<{ version: number }>()
   const [decision, setDecision] = useState<Decision>()
   const [note, setNote] = useState('')
   const [error, setError] = useState<string>()
+  const [confirming, setConfirming] = useState(false)
 
   const approveSlot = `${recommendation.id}:approve`
   const rejectSlot = `${recommendation.id}:reject`
   const suggestSlot = `${recommendation.id}:suggest`
-  const hasPending = operations.hasPending(approveSlot)
-    || operations.hasPending(rejectSlot)
-    || operations.hasPending(suggestSlot)
+  const pendingSlot = operations.hasPending(approveSlot)
+    ? approveSlot
+    : operations.hasPending(rejectSlot)
+      ? rejectSlot
+      : operations.hasPending(suggestSlot)
+        ? suggestSlot
+        : undefined
+  const hasPending = pendingSlot !== undefined
   const provenanceLabel = sourceLabel ?? (
     recommendation.provenance.kind === 'autonomy'
       ? 'Autonomous recommendation'
       : 'Copilot recommendation'
   )
 
-  useEffect(() => {
-    if (recommendation.status === 'proposed') return
-    operations.confirmObservedSuccess(approveSlot)
-    operations.confirmObservedSuccess(rejectSlot)
-    operations.confirmObservedSuccess(suggestSlot)
-    setDecision(undefined)
-    setNote('')
-    setError(undefined)
-  }, [approveSlot, operations, recommendation.status, rejectSlot, suggestSlot])
-
   const approveRecommendation = async () => {
+    setConfirming(true)
     setError(undefined)
     try {
       await operations.run(approveSlot, (clientOperationId) => () => approve({
@@ -63,6 +62,8 @@ export function RecommendationCard({
       }))
     } catch (caught) {
       setError(readableError(caught))
+    } finally {
+      setConfirming(false)
     }
   }
 
@@ -74,6 +75,7 @@ export function RecommendationCard({
       return
     }
     const slot = decision === 'reject' ? rejectSlot : suggestSlot
+    setConfirming(true)
     setError(undefined)
     try {
       await operations.run(slot, (clientOperationId) => decision === 'reject'
@@ -93,6 +95,21 @@ export function RecommendationCard({
           }))
     } catch (caught) {
       setError(readableError(caught))
+    } finally {
+      setConfirming(false)
+    }
+  }
+
+  const confirmPendingDecision = async () => {
+    if (pendingSlot === undefined) return
+    setConfirming(true)
+    setError(undefined)
+    try {
+      await operations.retryPending(pendingSlot)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setConfirming(false)
     }
   }
 
@@ -156,19 +173,30 @@ export function RecommendationCard({
         <p className="notice">{recommendation.operatorNote}</p>
       )}
 
-      {recommendation.status === 'proposed' ? (
+      {pendingSlot !== undefined ? (
+        <PendingOperationRecovery
+          action={pendingSlot === approveSlot
+            ? 'Confirm approval'
+            : pendingSlot === rejectSlot
+              ? 'Confirm rejection'
+              : 'Confirm guidance'}
+          busy={confirming}
+          onConfirm={() => void confirmPendingDecision()}
+          title="Confirm the earlier decision"
+        />
+      ) : recommendation.status === 'proposed' ? (
         <div className="button-row">
           <button
             className="primary"
-            disabled={hasPending && !operations.hasPending(approveSlot)}
+            disabled={confirming}
             onClick={() => void approveRecommendation()}
             type="button"
           >
-            {operations.hasPending(approveSlot) ? 'Confirm approval' : 'Approve and execute'}
+            Approve and execute
           </button>
           <button
             className="secondary"
-            disabled={hasPending && !operations.hasPending(rejectSlot)}
+            disabled={confirming}
             onClick={() => {
               setDecision('reject')
               setError(undefined)
@@ -179,7 +207,7 @@ export function RecommendationCard({
           </button>
           <button
             className="secondary"
-            disabled={hasPending && !operations.hasPending(suggestSlot)}
+            disabled={confirming}
             onClick={() => {
               setDecision('suggest')
               setError(undefined)
@@ -191,7 +219,7 @@ export function RecommendationCard({
         </div>
       ) : null}
 
-      {recommendation.status === 'proposed' && decision !== undefined ? (
+      {recommendation.status === 'proposed' && decision !== undefined && !hasPending ? (
         <div className="command-form intelligence-recommendation-feedback">
           <label className="field" htmlFor={`recommendation-note-${recommendation.id}`}>
             <span>
@@ -209,17 +237,15 @@ export function RecommendationCard({
           <div className="button-row">
             <button
               className="primary"
-              disabled={hasPending && !operations.hasPending(
-                decision === 'reject' ? rejectSlot : suggestSlot,
-              )}
+              disabled={confirming}
               onClick={() => void submitDecision()}
               type="button"
             >
-              {hasPending ? 'Confirm earlier decision' : decision === 'reject' ? 'Reject' : 'Send guidance'}
+              {decision === 'reject' ? 'Reject' : 'Send guidance'}
             </button>
             <button
               className="secondary"
-              disabled={hasPending}
+              disabled={confirming}
               onClick={() => {
                 setDecision(undefined)
                 setNote('')

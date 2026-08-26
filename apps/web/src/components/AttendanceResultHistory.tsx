@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { attendanceSessionResultLabels } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery } from 'convex/react'
 import { useState, type FormEvent } from 'react'
@@ -166,9 +167,7 @@ export function AttendanceResultHistory() {
 }
 
 function resultName(value: RemedySession['result']) {
-  if (value === 'not_expected') return 'Not expected'
-  if (value === 'needs_review') return 'Needs review'
-  return value.charAt(0).toUpperCase() + value.slice(1)
+  return attendanceSessionResultLabels[value]
 }
 
 function caseStateName(value: NonNullable<RemedySession['latestCase']>['state']) {

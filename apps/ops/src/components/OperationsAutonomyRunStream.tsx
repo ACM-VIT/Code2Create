@@ -46,8 +46,8 @@ export function OperationsAutonomyRunStream({
       agentLabel="Autonomous agent"
       connectionState={connectionState}
       embedded={embedded}
-      emptyDescription="The trace contains only the approved planning, read, investigation, critique, and proposal lifecycle."
-      emptyTitle="No public lifecycle event was recorded."
+      emptyDescription="This activity shows what the agent planned, checked, investigated, challenged, and proposed."
+      emptyTitle="No agent activity was recorded."
       historyCanLoadMore={stream.historyCanLoadMore}
       {...stream.historyLoadError === undefined ? {} : { historyLoadError: stream.historyLoadError }}
       historyLoading={stream.historyLoading}
@@ -60,7 +60,7 @@ export function OperationsAutonomyRunStream({
       terminalCopy={terminalCopy(run)}
       workingCopy={{
         title: autonomyRunPhaseLabel(run.phase),
-        detail: 'Convex is rechecking current authority while the agent reads and reasons.',
+        detail: 'Current access is checked again while the agent reads and reasons.',
       }}
     />
   )
@@ -79,7 +79,7 @@ function terminalCopy(run: AutonomyRun) {
     return {
       completed: {
         title: 'Review escalated',
-        detail: 'The authoritative run record marks this review for operator attention.',
+        detail: 'This review was flagged for an organizer.',
       },
     }
   }
@@ -95,8 +95,8 @@ function terminalCopy(run: AutonomyRun) {
     if (run.shutdownState === 'pending') {
       return {
         aborted: {
-          title: 'Autonomy authority revoked',
-          detail: `${autonomyCancellationLabel(run.cancellationReason)} The durable Worker abort is still being retried.`,
+          title: 'Agent access removed',
+          detail: `${autonomyCancellationLabel(run.cancellationReason)} The stop request is still being retried.`,
         },
       }
     }
@@ -104,21 +104,21 @@ function terminalCopy(run: AutonomyRun) {
       return {
         aborted: {
           title: 'Autonomous review canceled',
-          detail: `${autonomyCancellationLabel(run.cancellationReason)} No Worker submission was admitted, so no abort was required.`,
+          detail: `${autonomyCancellationLabel(run.cancellationReason)} The agent never started, so no stop request was needed.`,
         },
       }
     }
     return {
       aborted: {
         title: 'Autonomous review stopped',
-        detail: `${autonomyCancellationLabel(run.cancellationReason)} The Worker recorded the durable abort request.`,
+        detail: `${autonomyCancellationLabel(run.cancellationReason)} The stop request was recorded, and this run no longer has event access.`,
       },
     }
   }
   return {
     completed: {
       title: 'Autonomous review complete',
-      detail: 'The Convex run record is authoritative; any proposed command still requires human review.',
+      detail: 'This run is complete. Any proposed action still needs human review.',
     },
   }
 }

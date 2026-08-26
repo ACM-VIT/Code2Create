@@ -18,11 +18,26 @@ import {
   requireEventSubject,
   requireMembership,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationVersion,
+} from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
 import { appendGithubIntegrationReadFactById } from "./lib/operationsAutonomyReadFacts/integrationJobs";
-import { repositoryKind } from "./values";
+import {
+  eventStatus,
+  githubInstallationState,
+  githubRepositoryBindingState,
+  githubRepositoryCoverage,
+  githubRepositorySyncState,
+  githubRepositoryTopicState,
+  integrationProviderHealth,
+  repositoryKind,
+  teamStatus,
+} from "./values";
 import { integrationWorkpool } from "./workpools";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -33,24 +48,14 @@ const connectionTargetType = v.union(
   v.literal("Enterprise"),
 );
 const repositorySelection = v.union(v.literal("all"), v.literal("selected"));
-const topicState = v.union(
-  v.literal("present"),
-  v.literal("missing"),
-  v.literal("unknown"),
-);
-const metricCompleteness = v.union(
-  v.literal("complete"),
-  v.literal("partial"),
-  v.literal("unknown"),
-);
 const languageBytes = v.array(v.object({ language: v.string(), bytes: v.number() }));
 
 const currentView = v.union(
   v.null(),
   v.object({
-    eventStatus: v.string(),
+    eventStatus,
     teamId: v.id("teams"),
-    teamStatus: v.string(),
+    teamStatus,
     canManage: v.boolean(),
     githubConfigured: v.boolean(),
     policy: v.union(
@@ -69,7 +74,7 @@ const currentView = v.union(
         accountLogin: v.string(),
         targetType: connectionTargetType,
         repositorySelection,
-        state: v.string(),
+        state: githubInstallationState,
         version: v.number(),
         lastVerifiedAt: v.number(),
       }),
@@ -93,14 +98,14 @@ const currentView = v.union(
         rootPath: v.optional(v.string()),
         displayOrder: v.number(),
         requiredTopic: v.string(),
-        topicState,
-        state: v.string(),
+        topicState: githubRepositoryTopicState,
+        state: githubRepositoryBindingState,
         baselineSha: v.optional(v.string()),
         currentHeadSha: v.optional(v.string()),
         pendingHeadSha: v.optional(v.string()),
         lastWebhookAt: v.optional(v.number()),
         lastReconciledAt: v.optional(v.number()),
-        syncState: v.string(),
+        syncState: githubRepositorySyncState,
         syncErrorCode: v.optional(v.string()),
         version: v.number(),
         metrics: v.object({
@@ -110,7 +115,7 @@ const currentView = v.union(
           deletions: v.number(),
           changedFiles: v.number(),
           languageBytes,
-          completeness: metricCompleteness,
+          completeness: githubRepositoryCoverage,
           compareTruncated: v.boolean(),
           lastProviderCommitAt: v.optional(v.number()),
           capturedAt: v.number(),
@@ -121,12 +126,7 @@ const currentView = v.union(
     summary: v.union(
       v.null(),
       v.object({
-        health: v.union(
-          v.literal("not_connected"),
-          v.literal("ready"),
-          v.literal("syncing"),
-          v.literal("needs_attention"),
-        ),
+        health: integrationProviderHealth,
         installationCount: v.number(),
         repositoryCount: v.number(),
         completeRepositoryCount: v.number(),
@@ -142,7 +142,7 @@ const currentView = v.union(
         deletions: v.number(),
         changedFiles: v.number(),
         languageBytes,
-        completeness: metricCompleteness,
+        completeness: githubRepositoryCoverage,
         incompleteRepositoryCount: v.number(),
         lastActivityAt: v.optional(v.number()),
         version: v.number(),
@@ -231,6 +231,26 @@ function normalizedRootPath(value: string | undefined) {
   return path;
 }
 
+function repositoryAddOperationFingerprint(args: {
+  connectionId: Id<"githubInstallationConnections">;
+  repositoryId: string;
+  kind: Infer<typeof repositoryKind>;
+  customKind?: string;
+  purpose: string;
+  trackedBranch: string;
+  rootPath?: string;
+}) {
+  return operationFingerprint([
+    args.connectionId,
+    args.repositoryId,
+    args.kind,
+    args.customKind ?? null,
+    args.purpose,
+    args.trackedBranch,
+    args.rootPath ?? null,
+  ]);
+}
+
 function normalizedKindLabel(kind: Doc<"githubRepositoryBindings">["kind"], value: string | undefined) {
   if (kind === "other") {
     return normalizedText(value ?? "", "Custom repository kind", 2, 50);
@@ -306,13 +326,14 @@ export const current = query({
       ctx.db.get(membership.eventAccessSubjectId),
     ]);
     if (!team || !subject || subject.status !== "active") return null;
-    await requirePermission(ctx, {
+    const readGrantIds = await matchingPermissionGrantIds(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
-      permissionKey: "team.read",
+      permissionKey: "integration.read",
       scopeType: "team",
       scopeId: team._id,
     });
+    if (readGrantIds.length === 0) return null;
     const [policy, connections, bindings, teamMetric, manageGrantIds] = await Promise.all([
       event.publishedIntegrationPolicyId
         ? loadPublishedIntegrationPolicy(ctx, event).then((result) => result.policy)
@@ -721,6 +742,52 @@ export const failSetupIntent = internalMutation({
   },
 });
 
+export const repositoryAddReceipt = internalQuery({
+  args: {
+    eventSlug: v.string(),
+    connectionId: v.id("githubInstallationConnections"),
+    repositoryId: v.string(),
+    kind: repositoryKind,
+    customKind: v.optional(v.string()),
+    purpose: v.string(),
+    trackedBranch: v.string(),
+    rootPath: v.optional(v.string()),
+    clientOperationId: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({ bindingId: v.id("githubRepositoryBindings") }),
+  ),
+  handler: async (ctx, args) => {
+    const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "integration.github.manage",
+      scopeType: "team",
+      scopeId: team._id,
+    });
+    const priorOperation = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "github.repository.add",
+      requestFingerprint: repositoryAddOperationFingerprint(args),
+    });
+    if (!priorOperation) return null;
+    const bindingId = ctx.db.normalizeId(
+      "githubRepositoryBindings",
+      priorOperation.targetId,
+    );
+    if (!bindingId) throw new Error("The prior GitHub repository result is invalid.");
+    const binding = await ctx.db.get(bindingId);
+    if (!binding || binding.teamId !== team._id) {
+      throw new Error("The prior GitHub repository result is invalid.");
+    }
+    return { bindingId };
+  },
+});
+
 export const connectionContext = internalQuery({
   args: {
     eventSlug: v.string(),
@@ -785,7 +852,7 @@ export const commitRepository = internalMutation({
     purpose: v.string(),
     trackedBranch: v.string(),
     rootPath: v.optional(v.string()),
-    topicState,
+    topicState: githubRepositoryTopicState,
     headSha: v.string(),
     providerCommitAt: v.optional(v.number()),
     languageBytes,
@@ -794,17 +861,7 @@ export const commitRepository = internalMutation({
   returns: v.object({ bindingId: v.id("githubRepositoryBindings") }),
   handler: async (ctx, args) => {
     const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
-    const requestFingerprint = operationFingerprint([
-      args.connectionId,
-      args.integrationPolicyId,
-      args.repositoryId,
-      args.kind,
-      args.customKind ?? null,
-      args.purpose,
-      args.trackedBranch,
-      args.rootPath ?? null,
-      args.headSha,
-    ]);
+    const requestFingerprint = repositoryAddOperationFingerprint(args);
     const priorOperation = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -815,6 +872,10 @@ export const commitRepository = internalMutation({
     if (priorOperation) {
       const bindingId = ctx.db.normalizeId("githubRepositoryBindings", priorOperation.targetId);
       if (!bindingId) throw new Error("The prior GitHub repository result is invalid.");
+      const binding = await ctx.db.get(bindingId);
+      if (!binding || binding.teamId !== team._id) {
+        throw new Error("The prior GitHub repository result is invalid.");
+      }
       return { bindingId };
     }
     const policy = await requirePublishedPolicy(ctx, event);
@@ -1019,9 +1080,18 @@ export const refreshRepository = mutation({
       requestFingerprint,
     });
     if (priorOperation) {
-      const binding = await ctx.db.get(args.bindingId);
-      if (!binding) throw new Error("The prior repository refresh no longer resolves.");
-      return { bindingId: binding._id, syncRevision: binding.syncRevision };
+      const bindingId = ctx.db.normalizeId(
+        "githubRepositoryBindings",
+        priorOperation.targetId,
+      );
+      if (!bindingId) throw new Error("The stored repository refresh is invalid.");
+      return {
+        bindingId,
+        syncRevision: storedOperationVersion(
+          priorOperation.resultJson,
+          "repository refresh",
+        ),
+      };
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -1069,6 +1139,7 @@ export const refreshRepository = mutation({
       requestFingerprint,
       targetType: "github_repository_binding",
       targetId: binding._id,
+      resultJson: String(syncRevision),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1516,7 +1587,7 @@ export const finishRepositorySync = internalMutation({
     isPrivate: v.boolean(),
     isFork: v.boolean(),
     defaultBranch: v.string(),
-    topicState,
+    topicState: githubRepositoryTopicState,
     headSha: v.string(),
     providerCommitAt: v.optional(v.number()),
     commitCount: v.number(),
@@ -1526,7 +1597,7 @@ export const finishRepositorySync = internalMutation({
     observedCommitShas: v.array(v.string()),
     commitIdentityComplete: v.boolean(),
     languageBytes,
-    completeness: metricCompleteness,
+    completeness: githubRepositoryCoverage,
     compareTruncated: v.boolean(),
   },
   returns: v.null(),

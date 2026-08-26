@@ -45,6 +45,8 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
   const savePending = operations.hasPending('profile-save')
 
   if (!membership) return null
+  const vitStudent = membership.participantClass === 'vit_student'
+  const policy = me.participantPolicy.policy
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -56,15 +58,25 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
         participantPolicyVersionId: me.participantPolicy.id,
         fullName,
         ...(preferredName ? { preferredName } : {}),
-        ...(phone ? { phone } : {}),
+        ...(policy.phoneField !== 'not_collected' && phone ? { phone } : {}),
         institution,
         yearOfStudy,
-        ...(currentRole ? { currentRole } : {}),
-        ...(registrationNumber ? { vitRegistrationNumber: registrationNumber } : {}),
-        ...(programme ? { vitProgramme: programme } : {}),
-        ...(campus ? { vitCampus: campus } : {}),
-        ...(externalCity ? { externalCity } : {}),
-        ...(externalCountry ? { externalCountry } : {}),
+        ...(!vitStudent && yearOfStudy === 'not_applicable' && currentRole ? { currentRole } : {}),
+        ...(vitStudent && policy.vitRegistrationNumberField !== 'not_collected' && registrationNumber
+          ? { vitRegistrationNumber: registrationNumber }
+          : {}),
+        ...(vitStudent && policy.vitProgrammeField !== 'not_collected' && programme
+          ? { vitProgramme: programme }
+          : {}),
+        ...(vitStudent && policy.vitCampusField !== 'not_collected' && campus
+          ? { vitCampus: campus }
+          : {}),
+        ...(!vitStudent && policy.externalCityField !== 'not_collected' && externalCity
+          ? { externalCity }
+          : {}),
+        ...(!vitStudent && policy.externalCountryField !== 'not_collected' && externalCountry
+          ? { externalCountry }
+          : {}),
         expectedProfileVersion: existing?.profileVersion ?? 0,
         clientOperationId,
       }))
@@ -74,9 +86,6 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
       setBusy(false)
     }
   }
-
-  const vitStudent = membership.participantClass === 'vit_student'
-  const policy = me.participantPolicy.policy
 
   return (
     <main className="centered-shell top-aligned">

@@ -1,0 +1,55 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "code2create-voice",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-08",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "OUTBOUND_CALLS",
+        "class_name": "OutboundCallSession"
+      }
+    ]
+  },
+  "exports": {
+    "OutboundCallSession": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "env": {
+    "staging": {
+      "name": "code2create-voice-staging",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "OUTBOUND_CALLS",
+            "class_name": "OutboundCallSession"
+          }
+        ]
+      },
+      "vars": {
+        "PUBLIC_BASE_URL": "https://code2create-voice-staging.acmvit.workers.dev"
+      }
+    },
+    "production": {
+      "name": "code2create-voice",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "OUTBOUND_CALLS",
+            "class_name": "OutboundCallSession"
+          }
+        ]
+      },
+      "vars": {
+        "PUBLIC_BASE_URL": "https://code2create-voice.acmvit.workers.dev"
+      }
+    }
+  }
+}

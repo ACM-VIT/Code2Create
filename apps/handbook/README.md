@@ -1,32 +1,33 @@
-# React + TypeScript + Vite
+# Code2Create handbook
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+This Vite application renders the internal Markdown handbook on Cloudflare. It uses Google identity and the exact event-scoped `handbook.read` permission.
 
-Currently, two official plugins are available:
+The browser bundle does not contain handbook Markdown. The separate backend serves documents generated from `README.md` and `specs/*.md`.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Development
 
-## React Compiler
+Run the local product from the repository root:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+pnpm dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The tracked `.env.development` connects this application to local Convex. To run only this application against an active backend:
+
+```sh
+pnpm --filter @code2create/handbook dev
+```
+
+## Checks
+
+```sh
+pnpm --filter @code2create/handbook lint
+pnpm --filter @code2create/handbook typecheck
+pnpm --filter @code2create/handbook build
+```
+
+The release build regenerates the backend handbook module before building the client.
+
+## Deployment
+
+The protected `Deploy web surfaces` workflow builds and deploys all web surfaces from one commit. `.env.example` lists release variables.

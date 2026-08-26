@@ -2,6 +2,10 @@ import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { internal } from "./_generated/api";
+import {
+  reviewerCallConsentPolicyVersion,
+  reviewerCallScriptPolicyVersion,
+} from "./outboundCallConsents";
 import schema from "./schema";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -14,13 +18,13 @@ describe("reviewer repaging", () => {
       label: "60-second",
       responseWindowMs: 60_000,
       reminderOffsets: [30_000],
-      scheduledCount: 1,
+      scheduledCount: 2,
     },
     {
       label: "90-second",
       responseWindowMs: 90_000,
       reminderOffsets: [30_000, 60_000],
-      scheduledCount: 3,
+      scheduledCount: 4,
     },
   ])(
     "$label page creates every valid reminder once and none at expiry",
@@ -35,6 +39,7 @@ describe("reviewer repaging", () => {
         timezone: "Asia/Kolkata",
         status: "live",
         vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: now - 60_000,
         startsAt: now - 1_000,
         endsAt: now + 600_000,
         version: 1,
@@ -67,6 +72,34 @@ describe("reviewer repaging", () => {
         status: "active",
         linkedBy: "access_invitation",
         accessVersion: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("reviewerProfiles", {
+        eventId,
+        personId: targetPersonId,
+        contactPhone: "+919876543210",
+        technicalDomains: ["backend"],
+        productDomains: ["operations"],
+        languages: ["english"],
+        criterionKeys: ["quality"],
+        availabilityWindows: [{ startsAt: now - 60_000, endsAt: now + 600_000 }],
+        trainingStatus: "complete",
+        status: "active",
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("outboundCallConsents", {
+        eventId,
+        personId: targetPersonId,
+        purpose: "reviewer_substitute_page",
+        destinationPhoneE164: "+919876543210",
+        state: "granted",
+        consentPolicyVersion: reviewerCallConsentPolicyVersion,
+        scriptPolicyVersion: reviewerCallScriptPolicyVersion,
+        version: 1,
+        grantedAt: now,
         createdAt: now,
         updatedAt: now,
       });
@@ -164,6 +197,22 @@ describe("reviewer repaging", () => {
         assignedAt: now,
         endedAt: now,
       });
+      const pageGrantId = await ctx.db.insert("permissionGrants", {
+        eventId,
+        personId: coordinatorPersonId,
+        eventAccessSubjectId: missingSubjectId,
+        permissionKey: "review.substitute.page",
+        scopeType: "panel",
+        scopeId: panelId,
+        validFrom: now - 60_000,
+        status: "active",
+        sourceType: "manual",
+        sourceId: "reviewer-repage-test",
+        grantedByPersonId: coordinatorPersonId,
+        reason: "Reviewer repage test",
+        createdAt: now,
+        activatedAt: now,
+      });
       const reserveId = await ctx.db.insert("reviewRoundReserves", {
         eventId,
         roundId,
@@ -188,7 +237,7 @@ describe("reviewer repaging", () => {
         currentRank: 1,
         version: 1,
         createdByPersonId: coordinatorPersonId,
-        pageGrantIds: [],
+        pageGrantIds: [pageGrantId],
         assignmentGrantIds: [],
         resolvedScopeType: "panel",
         resolvedScopeId: panelId,
@@ -281,14 +330,60 @@ describe("reviewer repaging", () => {
           attemptCount: 0,
         });
       }
+      const firstDelivery = deliveries[0];
+      if (!firstDelivery) throw new Error("The page has no source delivery.");
+      const calls = await backend.run((ctx) =>
+        ctx.db
+          .query("outboundCallDeliveries")
+          .withIndex("by_source", (index) =>
+            index
+              .eq("eventId", firstDelivery.eventId)
+              .eq("sourceType", "reviewer_page")
+              .eq("sourceId", pageId)
+              .eq("purpose", "reviewer_substitute_page"),
+          )
+          .collect(),
+      );
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({
+        destinationPhoneE164: "+919876543210",
+        state: "pending",
+        attemptCount: 0,
+      });
       const scheduled = await backend.run((ctx) =>
         ctx.db.system.query("_scheduled_functions").collect(),
       );
       expect(scheduled).toHaveLength(scheduledCount);
 
+      const call = calls[0];
+      if (!call || call.consentId === undefined) {
+        throw new Error("The page call has no consent reference.");
+      }
+      const consentId = call.consentId;
+      await backend.run(async (ctx) => {
+        const consent = await ctx.db.get(consentId);
+        if (!consent) throw new Error("The page call consent is missing.");
+        await ctx.db.patch(consent._id, {
+          state: "revoked",
+          destinationPhoneE164: undefined,
+          version: consent.version + 1,
+          revokedAt: now,
+          updatedAt: now,
+        });
+      });
+      await expect(
+        backend.mutation(internal.outboundCallState.claimDelivery, {
+          deliveryId: call._id,
+          attemptId: crypto.randomUUID(),
+        }),
+      ).resolves.toBeNull();
+      await expect(backend.run((ctx) => ctx.db.get(call._id))).resolves.toMatchObject({
+        state: "cancelled",
+        providerErrorCode: "call_consent_changed",
+      });
+
       const historicalDeliveryId = await backend.run(async (ctx) => {
-        const source = deliveries[0];
-        if (!source) throw new Error("The page has no source delivery.");
+        const source = firstDelivery;
         return ctx.db.insert("reviewerPushDeliveries", {
           eventId: source.eventId,
           pageId: source.pageId,

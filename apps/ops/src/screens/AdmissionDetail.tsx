@@ -25,6 +25,7 @@ import { Link, useParams } from 'react-router-dom'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
+import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
 import { Icon } from '../components/Icon'
 import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
 import { ParticipantDeliveryStatus } from '../components/ParticipantDeliveryStatus'
@@ -38,6 +39,7 @@ export function AdmissionDetail() {
     api.admissions.detail,
     applicationId ? { eventSlug, applicationId } : 'skip',
   )
+  const serverNow = useEstimatedServerNow(detail?.serverNow)
   const memberPage = usePaginatedQuery(
     api.admissions.members,
     detail ? { eventSlug, applicationId: detail.application.id } : 'skip',
@@ -55,7 +57,7 @@ export function AdmissionDetail() {
       </article>
     )
   }
-  if (!detail) return <p className="notice error">This application is not available to your permission scope.</p>
+  if (!detail) return <p className="notice error">You do not have access to this application.</p>
 
   const canReview = detail.permissions.review
   const canAssign = detail.permissions.assign
@@ -64,16 +66,26 @@ export function AdmissionDetail() {
   const hasRequiredReviews = detail.application.completedReviewCount >= detail.policy.minimumHumanReviews
   const canReadParticipantDelivery = detail.permissions.participantDeliveryRead
   const reviewOpen = canAcceptAdmissionReview(detail.application.state)
-  const step = nextStep(detail, { canReview, canDecide, canManageOffer })
+  const applicationsOpen = serverNow < detail.applicationsCloseAt
+  const step = nextStep(
+    detail,
+    { canReview, canDecide, canManageOffer },
+    applicationsOpen,
+  )
   const offerActionable = canManageOffer &&
     (detail.currentOffer !== null || detail.application.state === 'accepted')
+  const canPublishDecision = canDecide && !applicationsOpen && reviewOpen && hasRequiredReviews
+  const canManageAssignments = canAssign && reviewOpen && detail.reviewAssignments !== null
+  const canReadDelivery = detail.application.humanDecision !== null && canReadParticipantDelivery
+  const hasActionPanel = canPublishDecision || offerActionable || canManageAssignments ||
+    (canReview && reviewOpen) || canReadDelivery
 
   return (
     <article className="application-detail">
       <Link className="back-link" to="/admissions">← Applications</Link>
       <header className="application-heading">
         <div>
-          <p className="eyebrow">{detail.project.trackName}</p>
+          <p className="eyebrow">Application</p>
           <h1>{detail.team.name}</h1>
           <p className="muted">
             {teamSizeLabel(detail.team.memberCount)} · applied {formatEventTime(detail.application.submittedAt, detail.eventTimezone)}
@@ -89,13 +101,12 @@ export function AdmissionDetail() {
         {step.blocker ? <p className="application-blocker">{step.blocker}</p> : null}
       </section>
 
-      {canDecide && reviewOpen && hasRequiredReviews ? <DecisionForm detail={detail} /> : null}
-      {offerActionable ? <OfferControl detail={detail} /> : null}
-
+      <div className={hasActionPanel ? 'application-review-layout' : 'application-review-layout single'}>
+      <div className="application-evidence">
       <section className="detail-section">
         <h2>Team · {detail.team.memberCount}</h2>
         {members.length > 0 && members.every((member) => member.profileContext === null) ? (
-          <p className="muted">Year and institution are outside your permission scope.</p>
+          <p className="muted">Year and institution are not available to this account.</p>
         ) : null}
         <div className="member-list">
           {members.map((member) => (
@@ -129,14 +140,6 @@ export function AdmissionDetail() {
 
       <section className="detail-section prose-section">
         <h2>Project</h2>
-        {detail.project.sponsorTracks.length > 0 ? (
-          <div className="answer">
-            <span>Sponsor tracks</span>
-            {detail.project.sponsorTracks.map((track) => (
-              <p key={track.id}><strong>{track.name}</strong> · {track.eligibilityText}</p>
-            ))}
-          </div>
-        ) : null}
         <div className="answer">
           <span>Initial idea</span>
           <p>{detail.project.initialIdea}</p>
@@ -170,22 +173,40 @@ export function AdmissionDetail() {
             {detail.policy.criteria.map((criterion) => (
               <div key={criterion.criterionKey}>
                 <dt>{criterion.label}</dt>
-                <dd>{criterion.guidance ?? 'Year context is outside your permission scope.'}</dd>
+                <dd>{criterion.guidance ?? 'You do not have access to year context.'}</dd>
               </div>
             ))}
           </dl>
         </section>
       ) : null}
       {detail.aiRecommendationVisible && detail.aiRecommendation ? (
-        <AiRecommendation recommendation={detail.aiRecommendation} detail={detail} />
+        <AiRecommendation
+          recommendation={detail.aiRecommendation}
+          detail={detail}
+          rerun={detail.aiRecommendationRerun}
+        />
+      ) : detail.aiRecommendationRerun ? (
+        <section className="detail-section ai-section">
+          <h2>AI recommendation</h2>
+          <p className="muted">The previous analysis did not finish. Human review can continue without it.</p>
+          <AdmissionAnalysisRetry detail={detail} rerun={detail.aiRecommendationRerun} />
+        </section>
       ) : null}
       {detail.currentInformationRequest?.state === 'open' ? <InformationRequest detail={detail} /> : null}
       <HumanReviews detail={detail} reviewOpen={reviewOpen} />
-      {canAssign && reviewOpen && detail.reviewAssignments ? <ReviewAssignmentControl detail={detail} /> : null}
-      {canReview && reviewOpen ? <ReviewForm detail={detail} /> : null}
-      {detail.application.humanDecision && canReadParticipantDelivery ? (
-        <ParticipantDeliveryStatus applicationId={detail.application.id} teamName={detail.team.name} />
+      </div>
+      {hasActionPanel ? (
+        <aside className="application-actions" aria-label="Application actions">
+          {canPublishDecision ? <DecisionForm detail={detail} /> : null}
+          {canReview && reviewOpen ? <ReviewForm detail={detail} /> : null}
+          {offerActionable ? <OfferControl detail={detail} /> : null}
+          {canManageAssignments ? <ReviewAssignmentControl detail={detail} /> : null}
+          {canReadDelivery ? (
+            <ParticipantDeliveryStatus applicationId={detail.application.id} teamName={detail.team.name} />
+          ) : null}
+        </aside>
       ) : null}
+      </div>
     </article>
   )
 }
@@ -261,10 +282,7 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
       {!showSend ? (
         <>
           {offer ? (
-            <p className="muted">
-              {admissionOfferStateLabels[offer.state]} · {placesLabel(offer.participantCount)} held until{' '}
-              {formatEventTime(offer.expiresAt, detail.eventTimezone)}.
-            </p>
+            <p className="muted">{offerStatusLine(offer, detail.eventTimezone)}</p>
           ) : null}
           {offer?.state === 'offered' || revokePending ? (
             <form className="command-form" onSubmit={revoke}>
@@ -295,7 +313,7 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
         <form className="command-form" onSubmit={submitOffer}>
           <p className="muted">
             Sending reserves {placesLabel(detail.team.memberCount)} until the deadline.
-            The places go back to the pool if nobody answers.
+            The places go back to the pool if the team lead does not respond.
           </p>
           <Field label={`Answer by · ${detail.eventTimezone}`}>
             <input
@@ -326,7 +344,15 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
 type AiRecommendationData = NonNullable<AdmissionDetailData['aiRecommendation']>
 
 function AiRecommendation(
-  { recommendation, detail }: { recommendation: AiRecommendationData; detail: AdmissionDetailData },
+  {
+    recommendation,
+    detail,
+    rerun,
+  }: {
+    recommendation: AiRecommendationData
+    detail: AdmissionDetailData
+    rerun: AdmissionDetailData['aiRecommendationRerun']
+  },
 ) {
   return (
     <section className="detail-section ai-section">
@@ -359,7 +385,71 @@ function AiRecommendation(
       {recommendation.concerns.length ? <TextList label="Concerns" values={recommendation.concerns} /> : null}
       {recommendation.proposedQuestions.length ? <TextList label="Questions for humans" values={recommendation.proposedQuestions} /> : null}
       {recommendation.limitations.length ? <TextList label="Limitations" values={recommendation.limitations} /> : null}
+      {rerun ? <AdmissionAnalysisRetry detail={detail} rerun={rerun} /> : null}
     </section>
+  )
+}
+
+function AdmissionAnalysisRetry({
+  detail,
+  rerun,
+}: {
+  detail: AdmissionDetailData
+  rerun: NonNullable<AdmissionDetailData['aiRecommendationRerun']>
+}) {
+  const rerunAnalysis = useMutation(api.admissions.rerunAiRecommendation)
+  const operations = useOperationRunner()
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const rerunPending = operations.hasPending('rerun-analysis')
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!rerunPending && reason.trim().length < 8) return
+    setBusy(true)
+    setError(null)
+    try {
+      await operations.run('rerun-analysis', (clientOperationId) => {
+        const command = {
+          eventSlug,
+          applicationId: detail.application.id,
+          expectedApplicationVersion: detail.application.version,
+          expectedRecommendationId: rerun.recommendationId,
+          reason: reason.trim(),
+          clientOperationId,
+        }
+        return () => rerunAnalysis(command)
+      })
+      setReason('')
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="command-form compact-command" onSubmit={submit}>
+      <Field label="Reason for retry">
+        <input
+          required
+          minLength={8}
+          maxLength={240}
+          value={reason}
+          disabled={busy || rerunPending}
+          onChange={(event) => setReason(event.target.value)}
+        />
+      </Field>
+      <button
+        className="secondary"
+        type="submit"
+        disabled={busy || (!rerunPending && reason.trim().length < 8)}
+      >
+        {busy ? 'Starting…' : rerunPending ? 'Confirm earlier retry' : 'Run analysis again'}
+      </button>
+      {error ? <p className="notice error" role="alert">{error}</p> : null}
+    </form>
   )
 }
 
@@ -576,9 +666,11 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
 function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
   const saveReview = useMutation(api.admissions.saveReview)
   const operations = useOperationRunner()
-  const [recommendation, setRecommendation] = useState<ApplicationDecision>('accept')
+  const [recommendation, setRecommendation] = useState<ApplicationDecision | null>(null)
   const reasons = useMemo(
-    () => detail.policy.decisionReasonCodes.filter((reason) => reason.allowedDecisions.includes(recommendation)),
+    () => recommendation === null
+      ? []
+      : detail.policy.decisionReasonCodes.filter((reason) => reason.allowedDecisions.includes(recommendation)),
     [detail.policy.decisionReasonCodes, recommendation],
   )
   const [reason, setReason] = useState('')
@@ -589,25 +681,30 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
   const selectedReason = reasons.some((candidate) => candidate.key === reason)
     ? reason
     : reasons[0]?.key ?? ''
+  const savePending = operations.hasPending('save')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!operations.hasPending('save') && !selectedReason) return
     setBusy(true)
     setError(null)
     try {
-      await operations.run('save', (clientOperationId) => {
-        const command = {
-          eventSlug,
-          applicationId: detail.application.id,
-          expectedApplicationContentVersion: detail.application.contentVersion,
-          recommendation,
-          reasonCode: selectedReason,
-          ...(note.trim() ? { note: note.trim() } : {}),
-          clientOperationId,
-        }
-        return () => saveReview(command)
-      })
+      if (savePending) {
+        await operations.retryPending('save')
+      } else {
+        if (recommendation === null || !selectedReason) return
+        await operations.run('save', (clientOperationId) => {
+          const command = {
+            eventSlug,
+            applicationId: detail.application.id,
+            expectedApplicationContentVersion: detail.application.contentVersion,
+            recommendation,
+            reasonCode: selectedReason,
+            ...(note.trim() ? { note: note.trim() } : {}),
+            clientOperationId,
+          }
+          return () => saveReview(command)
+        })
+      }
       setNote('')
     } catch (caught) {
       setError(readableError(caught))
@@ -615,8 +712,6 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
       setBusy(false)
     }
   }
-
-  const savePending = operations.hasPending('save')
 
   return (
     <section className="detail-section command-section">
@@ -626,15 +721,19 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
         <fieldset disabled={savePending || busy} style={{ display: 'contents' }}>
           <Field label="Recommendation">
             <select
-              value={recommendation}
+              required
+              value={recommendation ?? ''}
               onChange={(event) => {
                 const next = parseDecision(event.target.value)
                 setRecommendation(next)
-                setReason(detail.policy.decisionReasonCodes.find(
-                  (candidate) => candidate.allowedDecisions.includes(next),
-                )?.key ?? '')
+                setReason(next === null
+                  ? ''
+                  : detail.policy.decisionReasonCodes.find(
+                      (candidate) => candidate.allowedDecisions.includes(next),
+                    )?.key ?? '')
               }}
             >
+              <option value="">Choose a recommendation</option>
               {applicationDecisions.map((decision) => <option key={decision} value={decision}>{applicationDecisionLabels[decision]}</option>)}
             </select>
           </Field>
@@ -648,8 +747,8 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
           </Field>
         </fieldset>
         {error ? <p className="notice error" role="alert">{error}</p> : null}
-        <button className="primary" type="submit" disabled={busy || (!savePending && !selectedReason)}>
-          {busy ? 'Saving…' : savePending ? 'Confirm earlier review' : 'Save review'}
+        <button className="primary" type="submit" disabled={busy || (!savePending && (recommendation === null || !selectedReason))}>
+          {busy ? 'Saving…' : savePending ? 'Confirm earlier review' : recommendation === null ? 'Choose a recommendation' : 'Save review'}
         </button>
       </form>
     </section>
@@ -659,13 +758,15 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
 function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
   const decide = useMutation(api.admissions.decide)
   const operations = useOperationRunner()
-  const [decision, setDecision] = useState<ApplicationDecision>('accept')
+  const [decision, setDecision] = useState<ApplicationDecision | null>(null)
   const reasons = useMemo(
-    () => detail.policy.decisionReasonCodes.filter((reason) => reason.allowedDecisions.includes(decision)),
+    () => decision === null
+      ? []
+      : detail.policy.decisionReasonCodes.filter((reason) => reason.allowedDecisions.includes(decision)),
     [decision, detail.policy.decisionReasonCodes],
   )
-  const [reason, setReason] = useState(() => reasons[0]?.key ?? '')
-  const [aiDisposition, setAiDisposition] = useState<AiDisposition>(() => defaultAiDisposition(detail, 'accept'))
+  const [reason, setReason] = useState('')
+  const [aiDisposition, setAiDisposition] = useState<AiDisposition | null>(null)
   const [informationQuestions, setInformationQuestions] = useState([''])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -673,30 +774,37 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
   const selectedReason = reasons.some((candidate) => candidate.key === reason)
     ? reason
     : reasons[0]?.key ?? ''
-  const availableAiDispositions = aiDispositionOptions(detail, decision)
-  const selectedAiDisposition = availableAiDispositions.includes(aiDisposition)
-    ? aiDisposition
-    : availableAiDispositions[0] ?? 'unavailable'
+  const availableAiDispositions = decision === null ? [] : aiDispositionOptions(detail, decision)
+  const selectedAiDisposition = decision === null
+    ? null
+    : aiDisposition !== null && availableAiDispositions.includes(aiDisposition)
+      ? aiDisposition
+      : availableAiDispositions[0] ?? null
+  const publishPending = operations.hasPending('publish')
 
   const publish = async (event: FormEvent) => {
     event.preventDefault()
-    if (!operations.hasPending('publish') && !selectedReason) return
     setBusy(true)
     setError(null)
     try {
-      await operations.run('publish', (clientOperationId) => {
-        const command = {
-          eventSlug,
-          applicationId: detail.application.id,
-          expectedApplicationVersion: detail.application.version,
-          decision,
-          reasonCode: selectedReason,
-          informationQuestions: decision === 'needs_information' ? [...informationQuestions] : [],
-          aiDisposition: selectedAiDisposition,
-          clientOperationId,
-        }
-        return () => decide(command)
-      })
+      if (publishPending) {
+        await operations.retryPending('publish')
+      } else {
+        if (decision === null || !selectedReason || selectedAiDisposition === null) return
+        await operations.run('publish', (clientOperationId) => {
+          const command = {
+            eventSlug,
+            applicationId: detail.application.id,
+            expectedApplicationVersion: detail.application.version,
+            decision,
+            reasonCode: selectedReason,
+            informationQuestions: decision === 'needs_information' ? [...informationQuestions] : [],
+            aiDisposition: selectedAiDisposition,
+            clientOperationId,
+          }
+          return () => decide(command)
+        })
+      }
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -704,26 +812,28 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
     }
   }
 
-  const publishPending = operations.hasPending('publish')
-
   return (
     <section className="detail-section command-section final-command">
       <h2>Publish the decision</h2>
-      <p className="muted">Publishing emails the team straight away and cannot be undone.</p>
+      <p className="muted">Publishing updates the team portal immediately and queues an email notification. It cannot be undone.</p>
       <form className="command-form" onSubmit={publish}>
         <fieldset disabled={publishPending || busy} style={{ display: 'contents' }}>
           <Field label="Decision">
           <select
-            value={decision}
+            required
+            value={decision ?? ''}
             onChange={(event) => {
               const next = parseDecision(event.target.value)
               setDecision(next)
-              setReason(detail.policy.decisionReasonCodes.find(
-                (candidate) => candidate.allowedDecisions.includes(next),
-              )?.key ?? '')
-              setAiDisposition(defaultAiDisposition(detail, next))
+              setReason(next === null
+                ? ''
+                : detail.policy.decisionReasonCodes.find(
+                    (candidate) => candidate.allowedDecisions.includes(next),
+                  )?.key ?? '')
+              setAiDisposition(next === null ? null : defaultAiDisposition(detail, next))
             }}
           >
+            <option value="">Choose a decision</option>
             {applicationDecisions.map((value) => <option key={value} value={value}>{applicationDecisionLabels[value]}</option>)}
           </select>
           </Field>
@@ -757,11 +867,13 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
             </div>
           </div>
           ) : null}
-          <Field label="How you used the AI recommendation" hint="Recorded in the audit trail.">
-          <select value={selectedAiDisposition} onChange={(event) => setAiDisposition(parseAiDisposition(event.target.value))}>
-            {availableAiDispositions.map((value) => <option key={value} value={value}>{admissionAiDispositionLabels[value]}</option>)}
-          </select>
-          </Field>
+          {selectedAiDisposition ? (
+            <Field label="How you used the AI recommendation" hint="Recorded in the audit trail.">
+            <select value={selectedAiDisposition} onChange={(event) => setAiDisposition(parseAiDisposition(event.target.value))}>
+              {availableAiDispositions.map((value) => <option key={value} value={value}>{admissionAiDispositionLabels[value]}</option>)}
+            </select>
+            </Field>
+          ) : null}
           {detail.capacity ? (
             <p className="capacity-line">{detail.capacity.reserved} of {detail.capacity.capacity} places are held or confirmed.</p>
           ) : null}
@@ -771,7 +883,9 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
           className="primary"
           type="submit"
           disabled={busy || (!publishPending && (
+            decision === null ||
             !selectedReason ||
+            selectedAiDisposition === null ||
             (decision === 'needs_information' && informationQuestions.some((question) => question.trim().length < 8))
           ))}
         >
@@ -779,7 +893,9 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
             ? 'Publishing…'
             : publishPending
               ? 'Confirm earlier decision'
-              : `Publish ${applicationDecisionLabels[decision].toLowerCase()}`}
+              : decision === null
+                ? 'Choose a decision'
+                : `Publish ${applicationDecisionLabels[decision].toLowerCase()}`}
         </button>
       </form>
     </section>
@@ -801,6 +917,7 @@ function canAcceptAdmissionReview(state: string) {
 function nextStep(
   detail: AdmissionDetailData,
   permissions: { canReview: boolean; canDecide: boolean; canManageOffer: boolean },
+  applicationsOpen: boolean,
 ): { title: string; detail: string; blocker?: string } {
   const state = detail.application.state
   const { completedReviewCount } = detail.application
@@ -815,10 +932,16 @@ function nextStep(
         ...(permissions.canReview ? {} : { blocker: 'You can read this application but not review it.' }),
       }
     }
+    if (applicationsOpen) {
+      return {
+        title: 'Waiting for the application deadline',
+        detail: 'The team can still edit this proposal. Publish a decision after applications close.',
+      }
+    }
     return {
       title: 'Ready for a decision',
       detail: `All ${minimumHumanReviews} required reviews are in.`,
-      ...(permissions.canDecide ? {} : { blocker: 'Publishing a decision is outside your permission scope.' }),
+      ...(permissions.canDecide ? {} : { blocker: 'You do not have access to publish a decision.' }),
     }
   }
   if (state === 'needs_information') {
@@ -832,7 +955,7 @@ function nextStep(
     return {
       title: 'Send the offer',
       detail: `${detail.team.name} was accepted but has no offer, so no places are reserved.`,
-      ...(permissions.canManageOffer ? {} : { blocker: 'Sending offers is outside your permission scope.' }),
+      ...(permissions.canManageOffer ? {} : { blocker: 'You do not have access to send offers.' }),
     }
   }
   if (state === 'offer_sent') {
@@ -871,8 +994,8 @@ function nextStep(
   }
 }
 
-function parseDecision(value: string): ApplicationDecision {
-  return applicationDecisions.find((decision) => decision === value) ?? 'needs_information'
+function parseDecision(value: string): ApplicationDecision | null {
+  return applicationDecisions.find((decision) => decision === value) ?? null
 }
 
 function parseAiDisposition(value: string): AiDisposition {
@@ -896,12 +1019,25 @@ function placesLabel(count: number) {
   return `${count} ${count === 1 ? 'place' : 'places'}`
 }
 
+function offerStatusLine(
+  offer: NonNullable<AdmissionDetailData['currentOffer']>,
+  timezone: string,
+) {
+  const state = admissionOfferStateLabels[offer.state]
+  const places = placesLabel(offer.participantCount)
+  if (offer.state === 'offered') {
+    return `${state} · ${places} held until ${formatEventTime(offer.expiresAt, timezone)}.`
+  }
+  if (offer.state === 'confirmed') return `${state} · ${places} reserved for this team.`
+  return `${state} · ${places} released.`
+}
+
 function teamSizeLabel(count: number) {
   return `${count} ${count === 1 ? 'member' : 'members'}`
 }
 
 function experienceBandName(band: AdmissionDetailData['application']['experienceBand']) {
-  return band ? admissionExperienceBandLabels[band] : 'Experience band is outside your permission scope'
+  return band ? admissionExperienceBandLabels[band] : 'You do not have access to the experience band'
 }
 
 function sourceName(value: string) {

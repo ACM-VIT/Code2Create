@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { ConvexError, v, type Infer } from "convex/values";
+import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -7,6 +8,11 @@ import type { QueryCtx } from "./_generated/server";
 import { action, internalMutation, mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
 import { writeAuditEvent } from "./lib/audit";
+import {
+  configurationPublicationResultJson,
+  storedConfigurationPublicationResult,
+  storedConfigurationResult,
+} from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
@@ -60,6 +66,22 @@ const embeddedCorpusEntryInput = v.object({
   reflectionPrompt: v.string(),
   embedding: v.array(v.float64()),
 });
+
+const noveltyDraftOperationResult = z
+  .object({
+    version: z.number().int().positive(),
+    revision: z.number().int().positive(),
+    changed: z.boolean(),
+  })
+  .strict();
+
+const noveltyImportOperationResult = z
+  .object({
+    revision: z.number().int().positive(),
+    entryCount: z.number().int().nonnegative(),
+    checksum: z.string().min(1),
+  })
+  .strict();
 
 const corpusStatus = v.union(
   v.literal("draft"),
@@ -145,6 +167,7 @@ async function readCorpus(ctx: QueryCtx, corpus: Doc<"noveltyCorpusVersions">) {
 export const current = query({
   args: { eventSlug: v.string() },
   returns: v.object({
+    serverNow: v.number(),
     eventVersion: v.number(),
     providerConfigured: v.boolean(),
     publishedCorpus: v.union(v.null(), corpusView),
@@ -200,6 +223,7 @@ export const current = query({
       }),
     ]);
     return {
+      serverNow: Date.now(),
       eventVersion: event.version,
       providerConfigured:
         Boolean(process.env.OPENAI_API_KEY?.trim()) || localProviderFixturesEnabled(),
@@ -252,13 +276,16 @@ export const createDraft = mutation({
     if (prior) {
       const corpusVersionId = ctx.db.normalizeId("noveltyCorpusVersions", prior.targetId);
       if (!corpusVersionId) throw new Error("The prior novelty-corpus draft result is invalid.");
-      const corpus = await ctx.db.get(corpusVersionId);
-      if (!corpus) throw new Error("The prior novelty-corpus draft no longer resolves.");
+      const stored = storedConfigurationResult(
+        prior.resultJson,
+        "novelty-corpus draft",
+        noveltyDraftOperationResult,
+      );
       return {
         corpusVersionId,
-        corpusVersion: corpus.version,
-        revision: corpus.revision,
-        changed: false,
+        corpusVersion: stored.version,
+        revision: stored.revision,
+        changed: stored.changed,
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -306,12 +333,15 @@ export const createDraft = mutation({
     ) {
       throw new Error("The event's published novelty corpus is invalid.");
     }
+    const now = Date.now();
     const sourceCorpus = currentDraft?.entryCount ? currentDraft : publishedCorpus;
     const sourceEntries = sourceCorpus ? await entriesForCorpus(ctx, sourceCorpus._id) : [];
     const normalizedEntries = sourceEntries.length > 0
-      ? normalizeNoveltyCorpusEntries(sourceEntries.map(entryFromDocument))
+      ? normalizeNoveltyCorpusEntries(
+          sourceEntries.map(entryFromDocument),
+          new Date(now).getUTCFullYear(),
+        )
       : [];
-    const now = Date.now();
     if (currentDraft) await ctx.db.patch(currentDraft._id, { status: "retired", updatedAt: now });
     const corpusVersionId = await ctx.db.insert("noveltyCorpusVersions", {
       eventId: event._id,
@@ -352,6 +382,11 @@ export const createDraft = mutation({
       requestFingerprint,
       targetType: "novelty_corpus",
       targetId: corpusVersionId,
+      resultJson: JSON.stringify({
+        version: corpus.version,
+        revision: corpus.revision,
+        changed: true,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -435,7 +470,11 @@ export const beginEntryImport = internalMutation({
       permissionKey: "configuration.novelty.entries.write",
       scopeType: "event",
     });
-    const entries = normalizeNoveltyCorpusEntries(args.entries);
+    const now = Date.now();
+    const entries = normalizeNoveltyCorpusEntries(
+      args.entries,
+      new Date(now).getUTCFullYear(),
+    );
     const reason = normalizedText(args.reason, "Import reason", 5, 500);
     const requestFingerprint = operationFingerprint([
       args.corpusVersionId,
@@ -452,14 +491,16 @@ export const beginEntryImport = internalMutation({
     });
     if (prior) {
       const corpusVersionId = ctx.db.normalizeId("noveltyCorpusVersions", prior.targetId);
-      const corpus = corpusVersionId ? await ctx.db.get(corpusVersionId) : null;
-      if (!corpus?.checksum) throw new Error("The prior novelty import result is invalid.");
+      if (!corpusVersionId) throw new Error("The stored novelty import is invalid.");
+      const stored = storedConfigurationResult(
+        prior.resultJson,
+        "novelty import",
+        noveltyImportOperationResult,
+      );
       return {
         kind: "complete",
-        corpusVersionId: corpus._id,
-        revision: corpus.revision,
-        entryCount: corpus.entryCount,
-        checksum: corpus.checksum,
+        corpusVersionId,
+        ...stored,
       };
     }
     const corpus = await ctx.db.get(args.corpusVersionId);
@@ -494,7 +535,7 @@ export const beginEntryImport = internalMutation({
       activeImportFingerprint: requestFingerprint,
       importFailureCategory: undefined,
       lastEditedByPersonId: person._id,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
     return {
       kind: "run",
@@ -543,7 +584,11 @@ export const finishEntryImport = internalMutation({
         message: "The corpus changed before its embeddings could be saved.",
       });
     }
-    const normalizedEntries = normalizeNoveltyCorpusEntries(args.entries);
+    const now = Date.now();
+    const normalizedEntries = normalizeNoveltyCorpusEntries(
+      args.entries,
+      new Date(now).getUTCFullYear(),
+    );
     if (args.entries.some((entry) => !validEmbedding(entry.embedding))) {
       throw new Error("The embedding provider returned an invalid corpus vector.");
     }
@@ -555,7 +600,6 @@ export const finishEntryImport = internalMutation({
     const embeddingBySource = new Map(
       args.entries.map((entry) => [entry.sourceKey.trim().toLowerCase(), entry.embedding] as const),
     );
-    const now = Date.now();
     for (const entry of normalizedEntries) {
       const embedding = embeddingBySource.get(entry.sourceKey);
       if (!embedding) throw new Error("A normalized corpus entry has no embedding.");
@@ -589,6 +633,11 @@ export const finishEntryImport = internalMutation({
       requestFingerprint: args.requestFingerprint,
       targetType: "novelty_corpus",
       targetId: corpus._id,
+      resultJson: JSON.stringify({
+        revision,
+        entryCount: normalizedEntries.length,
+        checksum,
+      }),
       createdAt: now,
     });
     const subject = await requireEventSubject(ctx, corpus.eventId, args.actorPersonId);
@@ -806,12 +855,17 @@ export const publish = mutation({
     });
     if (prior) {
       const corpusVersionId = ctx.db.normalizeId("noveltyCorpusVersions", prior.targetId);
-      const corpus = corpusVersionId ? await ctx.db.get(corpusVersionId) : null;
-      if (!corpus) throw new Error("The prior novelty-corpus publication is invalid.");
+      if (!corpusVersionId) {
+        throw new Error("The prior novelty-corpus publication is invalid.");
+      }
+      const stored = storedConfigurationPublicationResult(
+        prior.resultJson,
+        "novelty-corpus publication",
+      );
       return {
-        corpusVersionId: corpus._id,
-        corpusVersion: corpus.version,
-        eventVersion: event.version,
+        corpusVersionId,
+        corpusVersion: stored.version,
+        eventVersion: stored.eventVersion,
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -846,7 +900,11 @@ export const publish = mutation({
       .query("noveltyCorpusEntries")
       .withIndex("by_corpus_source", (index) => index.eq("corpusVersionId", corpus._id))
       .collect();
-    const normalizedEntries = normalizeNoveltyCorpusEntries(entries.map(entryFromDocument));
+    const now = Date.now();
+    const normalizedEntries = normalizeNoveltyCorpusEntries(
+      entries.map(entryFromDocument),
+      new Date(now).getUTCFullYear(),
+    );
     if (entries.length !== corpus.entryCount) {
       throw new Error("The novelty-corpus entry projection is inconsistent.");
     }
@@ -865,7 +923,6 @@ export const publish = mutation({
     if (previous && (previous.eventId !== event._id || previous.status !== "published")) {
       throw new Error("The event's current novelty corpus is invalid.");
     }
-    const now = Date.now();
     if (previous) await ctx.db.patch(previous._id, { status: "superseded", updatedAt: now });
     await ctx.db.patch(corpus._id, {
       status: "published",
@@ -887,6 +944,10 @@ export const publish = mutation({
       requestFingerprint,
       targetType: "novelty_corpus",
       targetId: corpus._id,
+      resultJson: configurationPublicationResultJson({
+        version: corpus.version,
+        eventVersion: event.version + 1,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

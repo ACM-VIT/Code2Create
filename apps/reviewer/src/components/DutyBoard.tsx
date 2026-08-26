@@ -102,7 +102,6 @@ function groupHeadline(
   )
   const headline = live ? statuses[live].headline : undefined
   if (live && headline) {
-    const digits = headline.value.replace(/[^0-9]/gu, '').slice(0, 4)
     const status = statuses[live].status
     const restated =
       collapse(status) === collapse(`${headline.value} ${headline.unit ?? ''}`)
@@ -111,8 +110,6 @@ function groupHeadline(
       ...(headline.unit === undefined ? {} : { secondary: headline.unit }),
       context: who,
       ...(restated ? {} : { summary: status }),
-      accent: duty[dutyMeta[live].key].accent,
-      ...(digits === '' ? {} : { ghost: digits }),
     }
   }
   if (live) {
@@ -120,16 +117,12 @@ function groupHeadline(
       primary: dutyMeta[live].label,
       context: who,
       summary: statuses[live].status,
-      accent: duty[dutyMeta[live].key].accent,
     }
   }
-  const lead = shown[0] ?? (group === 'board' ? 'operations' : 'support')
   return {
     primary: String(shown.length),
     secondary: shown.length === 1 ? 'duty' : 'duties',
     context: who,
     summary: group === 'board' ? 'The event is quiet' : 'Nothing needs you right now',
-    accent: duty[dutyMeta[lead].key].accent,
-    ghost: String(shown.length),
   }
 }

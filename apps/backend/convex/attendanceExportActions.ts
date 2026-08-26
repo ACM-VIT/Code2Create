@@ -11,26 +11,9 @@ import {
   storeAttendanceExport,
 } from "./lib/artifactStorage";
 import { csvDocument } from "./lib/csv";
+import type { AttendanceExportSnapshotRow } from "./values";
 
 type ExportField = Doc<"attendanceExports">["fields"][number];
-type SnapshotRow = {
-  participantReference: string;
-  fullName: string;
-  email: string;
-  participantClass: string;
-  institution: string;
-  yearOfStudy: string;
-  vitRegistrationNumber: string;
-  expectation: string;
-  state: string;
-  result: string;
-  confirmedAt?: number;
-  presentDurationMs?: number;
-  late: boolean;
-  sessionName: string;
-  sessionStartsAt: number;
-  sessionEndsAt: number;
-};
 
 function columnName(field: ExportField) {
   switch (field) {
@@ -57,31 +40,31 @@ function isoTime(value: number | undefined) {
   return value === undefined ? "" : new Date(value).toISOString();
 }
 
-function fieldValue(field: ExportField, row: SnapshotRow) {
+function fieldValue(field: ExportField, row: AttendanceExportSnapshotRow) {
   switch (field) {
-    case "participant_reference": return row.participantReference;
-    case "full_name": return row.fullName;
-    case "email": return row.email;
-    case "participant_class": return row.participantClass;
-    case "institution": return row.institution;
-    case "year_of_study": return row.yearOfStudy;
-    case "vit_registration_number": return row.vitRegistrationNumber;
-    case "expectation": return row.expectation;
-    case "state": return row.state;
-    case "result": return row.result;
+    case "participant_reference": return row.participantReference ?? "";
+    case "full_name": return row.fullName ?? "";
+    case "email": return row.email ?? "";
+    case "participant_class": return row.participantClass ?? "";
+    case "institution": return row.institution ?? "";
+    case "year_of_study": return row.yearOfStudy ?? "";
+    case "vit_registration_number": return row.vitRegistrationNumber ?? "";
+    case "expectation": return row.expectation ?? "";
+    case "state": return row.state ?? "";
+    case "result": return row.result ?? "";
     case "confirmed_at": return isoTime(row.confirmedAt);
     case "present_duration_minutes":
       return row.presentDurationMs === undefined
         ? ""
         : (row.presentDurationMs / 60_000).toFixed(2);
-    case "late": return row.late ? "yes" : "no";
-    case "session_name": return row.sessionName;
+    case "late": return row.late === undefined ? "" : row.late ? "yes" : "no";
+    case "session_name": return row.sessionName ?? "";
     case "session_starts_at": return isoTime(row.sessionStartsAt);
     case "session_ends_at": return isoTime(row.sessionEndsAt);
   }
 }
 
-function buildCsv(fields: ExportField[], rows: SnapshotRow[]) {
+function buildCsv(fields: ExportField[], rows: AttendanceExportSnapshotRow[]) {
   return csvDocument([
     fields.map(columnName),
     ...rows.map((row) => fields.map((field) => fieldValue(field, row))),
@@ -122,12 +105,13 @@ export const download = action({
   returns: v.object({
     url: v.string(),
     expiresAt: v.number(),
+    serverNow: v.number(),
     sha256: v.string(),
   }),
   handler: async (
     ctx: ActionCtx,
     args: { eventSlug: string; exportId: Id<"attendanceExports"> },
-  ): Promise<{ url: string; expiresAt: number; sha256: string }> => {
+  ): Promise<{ url: string; expiresAt: number; serverNow: number; sha256: string }> => {
     const context = await ctx.runQuery(internal.attendanceExports.downloadContext, args);
     const now = Date.now();
     const remainingWholeSeconds = Math.floor((context.exportExpiresAt - now) / 1_000) - 1;
@@ -149,6 +133,7 @@ export const download = action({
     return {
       url,
       expiresAt,
+      serverNow: Date.now(),
       sha256: context.sha256,
     };
   },

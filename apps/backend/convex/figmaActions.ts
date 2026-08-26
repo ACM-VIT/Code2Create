@@ -339,6 +339,14 @@ type FileMetadataCheckContext = {
   fileKey: string;
 };
 
+type WebhookSetupContext = {
+  bindingId: Id<"figmaFileBindings">;
+  credentialId: Id<"figmaOAuthCredentials">;
+  fileKey: string;
+  role: string;
+  webhookId?: string;
+};
+
 type FigmaPreviewCandidate = {
   pageId: string;
   pageName: string;
@@ -379,9 +387,22 @@ type PreviewRenderResult =
 
 type ArtifactAccessContext = {
   artifactId: Id<"integrationArtifacts">;
+  snapshotId: Id<"figmaFileSnapshots">;
   objectKey: string;
   storageRegion: string;
   storageBucket: string;
+  sha256: string;
+  capturedAt: number;
+};
+
+type ArtifactAccessReceipt = {
+  serverNow: number;
+};
+
+type OpenFullCheckpointResult = {
+  url: string;
+  expiresAt: number;
+  serverNow: number;
   sha256: string;
   capturedAt: number;
 };
@@ -1298,82 +1319,127 @@ async function removeWebhook(accessToken: string, webhookId: string) {
       accessToken,
       `/v2/webhooks/${encodeURIComponent(webhookId)}`,
       webhookResponse,
-      { method: "DELETE" },
+      { method: "DELETE", timeoutMs: 30_000 },
     );
   } catch {
     // A paused orphan is inert. Operations can remove it from Figma if provider cleanup fails.
   }
 }
 
-async function configureWebhook(
-  ctx: ActionCtx,
-  configuration: FigmaConfiguration,
-  accessToken: string,
-  bindingId: Id<"figmaFileBindings">,
-  fileKey: string,
-  role: string,
-) {
-  const normalizedRole = role.trim().toLowerCase();
-  const endpoint = webhookEndpoint(configuration);
-  if (!endpoint || !["owner", "editor"].includes(normalizedRole)) {
-    await ctx.runMutation(internal.figmaIntegrations.setWebhookState, {
-      bindingId,
-      state: "unavailable",
-    });
-    return;
-  }
-  const passcode = randomBytes(32).toString("base64url");
-  let webhookId: string | null = null;
-  try {
-    const webhook = await figmaRequest(
-      accessToken,
-      "/v2/webhooks",
-      webhookResponse,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          event_type: "FILE_UPDATE",
-          context: "file",
-          context_id: fileKey,
-          endpoint,
-          passcode,
-          status: "PAUSED",
-          description: "Code2Create project file",
-        }),
-      },
+export const configureFileWebhook = internalAction({
+  args: {
+    bindingId: v.id("figmaFileBindings"),
+    leaseId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const setup: WebhookSetupContext | null = await ctx.runMutation(
+      internal.figmaIntegrations.beginWebhookSetup,
+      args,
     );
-    webhookId = webhook.id;
-    const attachment: { attached: boolean } = await ctx.runMutation(
-      internal.figmaIntegrations.attachWebhook,
-      {
-        bindingId,
-        webhookId,
-        passcodeDigest: opaqueDigest(passcode),
-      },
-    );
-    if (!attachment.attached) {
-      await removeWebhook(accessToken, webhookId);
-      return;
+    if (!setup) return null;
+
+    let endpoint: string | null;
+    try {
+      endpoint = webhookEndpoint(figmaConfiguration());
+    } catch (error) {
+      await ctx.runMutation(internal.figmaIntegrations.failWebhookSetup, {
+        bindingId: setup.bindingId,
+        leaseId: args.leaseId,
+        ...(setup.webhookId !== undefined
+          ? { expectedWebhookId: setup.webhookId }
+          : {}),
+        state: "error",
+      });
+      throw error;
     }
-    await figmaRequest(
-      accessToken,
-      `/v2/webhooks/${encodeURIComponent(webhookId)}`,
-      webhookResponse,
-      { method: "PUT", body: JSON.stringify({ status: "ACTIVE" }) },
-    );
-    await ctx.runMutation(internal.figmaIntegrations.setWebhookState, {
-      bindingId,
-      state: "active",
+    const normalizedRole = setup.role.trim().toLowerCase();
+    if (!endpoint || !["owner", "editor"].includes(normalizedRole)) {
+      await ctx.runMutation(internal.figmaIntegrations.failWebhookSetup, {
+        bindingId: setup.bindingId,
+        leaseId: args.leaseId,
+        ...(setup.webhookId !== undefined
+          ? { expectedWebhookId: setup.webhookId }
+          : {}),
+        state: "unavailable",
+      });
+      return null;
+    }
+
+    let accessToken: string | null = null;
+    let webhookId = setup.webhookId;
+    try {
+      accessToken = await freshAccessToken(ctx, setup.credentialId);
+      if (webhookId === undefined) {
+        const passcode = randomBytes(32).toString("base64url");
+        const webhook = await figmaRequest(
+          accessToken,
+          "/v2/webhooks",
+          webhookResponse,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              event_type: "FILE_UPDATE",
+              context: "file",
+              context_id: setup.fileKey,
+              endpoint,
+              passcode,
+              status: "PAUSED",
+              description: "Code2Create project file",
+            }),
+            timeoutMs: 30_000,
+          },
+        );
+        webhookId = webhook.id;
+        const attachment: { attached: boolean } = await ctx.runMutation(
+          internal.figmaIntegrations.attachWebhook,
+          {
+            bindingId: setup.bindingId,
+            leaseId: args.leaseId,
+            webhookId,
+            passcodeDigest: opaqueDigest(passcode),
+          },
+        );
+        if (!attachment.attached) {
+          await removeWebhook(accessToken, webhookId);
+          return null;
+        }
+      }
+      await figmaRequest(
+        accessToken,
+        `/v2/webhooks/${encodeURIComponent(webhookId)}`,
+        webhookResponse,
+        {
+          method: "PUT",
+          body: JSON.stringify({ status: "ACTIVE" }),
+          timeoutMs: 30_000,
+        },
+      );
+    } catch (error) {
+      if (accessToken !== null && webhookId !== undefined) {
+        await removeWebhook(accessToken, webhookId);
+      }
+      const unavailable = error instanceof FigmaHttpError && error.status === 403;
+      await ctx.runMutation(internal.figmaIntegrations.failWebhookSetup, {
+        bindingId: setup.bindingId,
+        leaseId: args.leaseId,
+        ...(webhookId !== undefined ? { expectedWebhookId: webhookId } : {}),
+        state: unavailable ? "unavailable" : "error",
+      });
+      if (!unavailable) throw error;
+      return null;
+    }
+    if (webhookId === undefined) {
+      throw new Error("Figma webhook activation completed without a webhook ID.");
+    }
+    await ctx.runMutation(internal.figmaIntegrations.finishWebhookSetup, {
+      bindingId: setup.bindingId,
+      leaseId: args.leaseId,
+      webhookId,
     });
-  } catch (error) {
-    if (webhookId) await removeWebhook(accessToken, webhookId);
-    const unavailable = error instanceof FigmaHttpError && error.status === 403;
-    await ctx.runMutation(internal.figmaIntegrations.setWebhookState, {
-      bindingId,
-      state: unavailable ? "unavailable" : "error",
-    });
-  }
-}
+    return null;
+  },
+});
 
 export const addFile = action({
   args: {
@@ -1385,6 +1451,13 @@ export const addFile = action({
   returns: v.object({ bindingId: v.id("figmaFileBindings") }),
   handler: async (ctx, args): Promise<{ bindingId: Id<"figmaFileBindings"> }> => {
     const location = parseFigmaFileLocation(args.fileUrl);
+    const prior = await ctx.runQuery(internal.figmaIntegrations.fileAddReceipt, {
+      eventSlug: args.eventSlug,
+      credentialConnectionId: args.credentialConnectionId,
+      fileKey: location.fileKey,
+      clientOperationId: args.clientOperationId,
+    });
+    if (prior) return prior;
     const connection: ConnectionContext = await ctx.runQuery(
       internal.figmaIntegrations.connectionContext,
       {
@@ -1431,14 +1504,6 @@ export const addFile = action({
         }),
         clientOperationId: args.clientOperationId,
       },
-    );
-    await configureWebhook(
-      ctx,
-      figmaConfiguration(),
-      accessToken,
-      result.bindingId,
-      location.fileKey,
-      capture.role,
     );
     return result;
   },
@@ -1695,22 +1760,42 @@ export const openFullCheckpoint = action({
   returns: v.object({
     url: v.string(),
     expiresAt: v.number(),
+    serverNow: v.number(),
     sha256: v.string(),
     capturedAt: v.number(),
   }),
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx: ActionCtx,
+    args: { eventSlug: string; bindingId: Id<"figmaFileBindings"> },
+  ): Promise<OpenFullCheckpointResult> => {
     const artifact: ArtifactAccessContext = await ctx.runQuery(
       internal.figmaIntegrations.artifactAccessContext,
       args,
     );
     const expiresAt = Date.now() + 60_000;
+    const url = await signArtifactDownload({
+      objectKey: artifact.objectKey,
+      storageRegion: artifact.storageRegion,
+      storageBucket: artifact.storageBucket,
+    });
+    const access: ArtifactAccessReceipt = await ctx.runMutation(
+      internal.figmaIntegrations.recordArtifactAccess,
+      {
+        ...args,
+        snapshotId: artifact.snapshotId,
+        artifactId: artifact.artifactId,
+        expectedObjectKey: artifact.objectKey,
+        expectedStorageRegion: artifact.storageRegion,
+        expectedStorageBucket: artifact.storageBucket,
+        expectedSha256: artifact.sha256,
+        expectedCapturedAt: artifact.capturedAt,
+        signedUrlExpiresAt: expiresAt,
+      },
+    );
     return {
-      url: await signArtifactDownload({
-        objectKey: artifact.objectKey,
-        storageRegion: artifact.storageRegion,
-        storageBucket: artifact.storageBucket,
-      }),
+      url,
       expiresAt,
+      serverNow: access.serverNow,
       sha256: artifact.sha256,
       capturedAt: artifact.capturedAt,
     };

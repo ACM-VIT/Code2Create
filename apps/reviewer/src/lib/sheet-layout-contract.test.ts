@@ -30,10 +30,10 @@ describe('native sheet layout contract', () => {
     expect(sheetHostStyle).toMatch(/\bheight:\s*0/)
   })
 
-  test('shows the compact table label once and bounds it to one line', () => {
+  test('shows the compact team-location label once and bounds it to one line', () => {
     expect(reviewPanelSource.match(/team\.tableLabel/g) ?? []).toHaveLength(1)
     expect(reviewPanelSource).toMatch(
-      /<Text ellipsizeMode="tail" numberOfLines=\{1\} style=\{styles\.eyebrow\}>\s*\{review\.team\.tableLabel \?\? 'No table yet'\}\s*<\/Text>/,
+      /<Text ellipsizeMode="tail" numberOfLines=\{1\} style=\{styles\.eyebrow\}>\s*\{review\.team\.tableLabel \?\? 'Location not mapped'\}\s*<\/Text>/,
     )
   })
 })

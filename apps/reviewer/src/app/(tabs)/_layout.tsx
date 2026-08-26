@@ -11,7 +11,7 @@ export default function TabsLayout() {
   const incidents = useIncidentStatus(eventSlug, surfaces.includes('incidents'))
   const openCases = help.headline?.value
   const liveIncidents = incidents.headline?.value
-  const board = splitDuties(surfaces).board
+  const duties = splitDuties(surfaces)
 
   return (
     <NativeTabs
@@ -22,7 +22,7 @@ export default function TabsLayout() {
       rippleColor={palette.strong}
       tintColor={palette.text}
     >
-      <NativeTabs.Trigger name="index">
+      <NativeTabs.Trigger hidden={duties.floor.length === 0} name="index">
         <NativeTabs.Trigger.Icon
           md={{ default: 'grid_view', selected: 'grid_view' }}
           sf={{ default: 'square.grid.2x2', selected: 'square.grid.2x2.fill' }}
@@ -30,7 +30,7 @@ export default function TabsLayout() {
         <NativeTabs.Trigger.Label>Duties</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger hidden={board.length === 0} name="board">
+      <NativeTabs.Trigger hidden={duties.board.length === 0} name="board">
         <NativeTabs.Trigger.Icon
           md={{ default: 'monitor_heart', selected: 'monitor_heart' }}
           sf={{ default: 'waveform.path.ecg', selected: 'waveform.path.ecg' }}

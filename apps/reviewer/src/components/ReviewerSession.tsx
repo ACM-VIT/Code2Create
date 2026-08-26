@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import { useAction, useConvexAuth, useMutation, useQuery } from 'convex/react'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { Animated, AppState, Pressable, StyleSheet, Text, View } from 'react-native'
+import { AppState, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { AcmMark, BrandBackdrop, BrandMark, BrandWordmark } from '@/components/Brand'
@@ -26,12 +26,14 @@ type ReviewerSession = {
   surfaces: Surface[]
   canCreateSupport: boolean
   canManageAttention: boolean
+  localReviewerFixturesEnabled: boolean
   judgingStatus: DutyStatus
   reviewHeartbeatIssue: string | null
   signOut: () => void
 }
 
 const SessionContext = createContext<ReviewerSession | null>(null)
+const localReviewerFixtureEmail = 'supreme@example.test'
 
 export function useReviewerSession() {
   const session = useContext(SessionContext)
@@ -105,7 +107,7 @@ export function ReviewerSessionProvider({
       } catch {
         if (active) {
           setReviewHeartbeatIssue(
-            'Live panel connection is interrupted. Actions still require a server response.',
+            'Live panel updates are interrupted. Reconnect before taking an action.',
           )
         }
       }
@@ -135,7 +137,7 @@ export function ReviewerSessionProvider({
           callbackURL: '/',
         })
         if (result.error) {
-          setAuthError(result.error.message || 'Google sign-in could not be completed.')
+          setAuthError('Google sign-in could not be completed. Try again.')
         }
       } catch (caught) {
         setAuthError(errorMessage(caught, 'Google sign-in could not be completed.'))
@@ -155,7 +157,7 @@ export function ReviewerSessionProvider({
           token: local.token,
         })
         if (result.error) {
-          setAuthError(result.error.message || 'The local event operator could not sign in.')
+          setAuthError('The local event operator could not sign in. Try again.')
           return
         }
         runtime.authClient.updateSession()
@@ -185,7 +187,7 @@ export function ReviewerSessionProvider({
           />
         ) : null}
         {!publicState.auth.googleConfigured && !publicState.auth.localDevelopmentFixturesEnabled ? (
-          <Text style={styles.error}>Google sign-in is not configured for this environment.</Text>
+          <Text style={styles.error}>Google sign-in is unavailable. Ask an organizer to check event access.</Text>
         ) : null}
       </Gate>
     )
@@ -236,6 +238,9 @@ export function ReviewerSessionProvider({
         surfaces,
         canCreateSupport: capabilities?.supportCreate ?? false,
         canManageAttention: capabilities?.attentionManage ?? false,
+        localReviewerFixturesEnabled:
+          publicState.auth.localDevelopmentFixturesEnabled
+          && session.user.email === localReviewerFixtureEmail,
         judgingStatus: currentJudgingStatus,
         reviewHeartbeatIssue: heartbeatRoundId ? reviewHeartbeatIssue : null,
         signOut,
@@ -254,41 +259,15 @@ export function ReviewerSessionProvider({
 }
 
 function Booting() {
-  const [entrance] = useState(() => new Animated.Value(0))
-  const [breath] = useState(() => new Animated.Value(0))
-
-  useEffect(() => {
-    Animated.spring(entrance, {
-      toValue: 1,
-      damping: 14,
-      mass: 0.8,
-      stiffness: 120,
-      useNativeDriver: true,
-    }).start()
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(breath, { toValue: 1, duration: 1_900, useNativeDriver: true }),
-        Animated.timing(breath, { toValue: 0, duration: 1_900, useNativeDriver: true }),
-      ]),
-    )
-    loop.start()
-    return () => loop.stop()
-  }, [breath, entrance])
-
-  const scale = entrance.interpolate({ inputRange: [0, 1], outputRange: [1.45, 1] })
-  const rise = breath.interpolate({ inputRange: [0, 1], outputRange: [0, -7] })
-
   return (
     <BrandBackdrop>
       <View style={[styles.gate, styles.centred]}>
-        <Animated.View
-          style={{ opacity: entrance, transform: [{ scale }, { translateY: rise }] }}
-        >
+        <View>
           <BrandMark size={112} />
-        </Animated.View>
-        <Animated.View style={[styles.bootWordmark, { opacity: entrance }]}>
+        </View>
+        <View style={styles.bootWordmark}>
           <BrandWordmark width={252} />
-        </Animated.View>
+        </View>
         <View style={styles.bootFoot}>
           <AcmMark size={40} />
         </View>
@@ -366,7 +345,7 @@ const styles = StyleSheet.create({
   bootFoot: { position: 'absolute', bottom: 34, alignSelf: 'center' },
   gateWordmark: { marginTop: 22 },
   title: { marginTop: 20, color: palette.text, fontSize: 26, fontWeight: '600', letterSpacing: -0.5 },
-  who: { marginTop: 8, color: '#B9A3AC', fontSize: 16 },
+  who: { marginTop: 8, color: palette.muted, fontSize: 16 },
   error: { color: palette.urgent, fontSize: 15, lineHeight: 21, marginBottom: 12 },
 
   actions: { paddingBottom: 12, gap: 10 },
@@ -377,7 +356,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: palette.text,
   },
-  actionSecondary: { backgroundColor: 'rgba(250,251,251,0.12)' },
+  actionSecondary: { backgroundColor: palette.tile },
   actionPressed: { opacity: 0.8 },
   actionDisabled: { opacity: 0.4 },
   actionText: { color: palette.background, fontSize: 17, fontWeight: '600' },

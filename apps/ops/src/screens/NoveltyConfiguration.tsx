@@ -4,23 +4,31 @@ import { useAction, useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
+import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
+import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
 
 type Configuration = FunctionReturnType<typeof api.noveltyConfiguration.current>
 type Policy = FunctionReturnType<typeof api.noveltyConfiguration.defaults>
 type Corpus = NonNullable<Configuration['draftCorpus']>
 type CorpusEntry = Corpus['entries'][number]
+type NoveltyOperationResult =
+  | FunctionReturnType<typeof api.noveltyConfiguration.createDraft>
+  | FunctionReturnType<typeof api.noveltyConfiguration.replaceEntries>
+  | FunctionReturnType<typeof api.noveltyConfiguration.publish>
 
 export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility }) {
   const configuration = useQuery(api.noveltyConfiguration.current, { eventSlug })
+  const serverNow = useEstimatedServerNow(configuration?.serverNow, 60_000)
   const defaults = useQuery(api.noveltyConfiguration.defaults, {})
   const createDraft = useMutation(api.noveltyConfiguration.createDraft)
   const replaceEntries = useAction(api.noveltyConfiguration.replaceEntries)
   const publish = useMutation(api.noveltyConfiguration.publish)
-  const operations = useOperationRunner()
+  const operations = useOperationRunner<NoveltyOperationResult>()
   const [policy, setPolicy] = useState<Policy | null>(null)
   const [entriesText, setEntriesText] = useState('')
   const [loadedSource, setLoadedSource] = useState('')
@@ -33,6 +41,26 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
   const draftPending = operations.hasPending('novelty-corpus-draft')
   const importPending = operations.hasPending('novelty-corpus-import')
   const publishPending = operations.hasPending('novelty-corpus-publish')
+  const pendingOperation = publishPending
+    ? {
+        slot: 'novelty-corpus-publish',
+        title: 'Finish publishing the idea comparison set',
+        action: 'Confirm earlier publication',
+      }
+    : importPending
+      ? {
+          slot: 'novelty-corpus-import',
+          title: 'Finish preparing the idea comparison set',
+          action: 'Confirm earlier preparation',
+        }
+      : draftPending
+        ? {
+            slot: 'novelty-corpus-draft',
+            title: 'Finish saving the idea comparison draft',
+            action: 'Confirm earlier save',
+          }
+        : null
+  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!configuration || !defaults) return
@@ -61,6 +89,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
   }
 
   const run = async (command: () => Promise<void>) => {
+    if (busy || operationPending) return
     setBusy(true)
     setError(null)
     try {
@@ -122,6 +151,20 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
     })
   }
 
+  const confirmPendingOperation = async () => {
+    if (busy || pendingOperation === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      await operations.retryPending(pendingOperation.slot)
+      setPublishArmed(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const readFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0]
     if (!file) return
@@ -154,7 +197,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
       ...preview.entries,
       {
         sourceKey: `past-project-${crypto.randomUUID()}`,
-        sourceYear: new Date().getFullYear(),
+        sourceYear: new Date(serverNow).getUTCFullYear(),
         themeLabel: 'New project theme',
         summary: '',
         reflectionPrompt: '',
@@ -173,9 +216,9 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
   const entriesPreview = parseCorpusPreview(entriesText)
 
   return (
-    <section className="track-config-shell intake-policy-shell">
+    <section className="configuration-shell intake-policy-shell">
       <ConfigurationTabs visibility={tabs} />
-      <header className="page-heading track-config-heading">
+      <header className="page-heading configuration-heading">
         <div>
           <p className="eyebrow">Applications</p>
           <h1>Idea originality</h1>
@@ -198,10 +241,24 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
         </div>
       </dl>
 
-      {configuration.canDraft ? (
-        <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
+      {pendingOperation ? (
+        <PendingOperationRecovery
+          action={pendingOperation.action}
+          busy={busy}
+          onConfirm={() => void confirmPendingOperation()}
+          title={pendingOperation.title}
+        />
+      ) : null}
+
+      {!operationPending && configuration.canDraft ? (
+        <ConfigurationEditorDisclosure
+          defaultOpen={Boolean(draft)}
+          description="Participant label, feedback timing, and uniqueness thresholds."
+          title={draft ? 'Continue idea-originality draft' : 'Edit idea originality'}
+        >
+        <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
           <fieldset disabled={draftPending} style={{ display: 'contents' }}>
-          <div className="track-editor-heading">
+          <div className="configuration-editor-heading">
             <div>
               <p className="eyebrow">{draft ? 'Replace draft changes' : 'Create a draft'}</p>
               <h2>Live feedback</h2>
@@ -223,7 +280,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
             </div>
           </details>
           </fieldset>
-          <section className="track-save">
+          <section className="configuration-save">
             <label className="field">
               <span>Why this changed</span>
               <textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.currentTarget.value)} />
@@ -233,9 +290,10 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
             </button>
           </section>
         </form>
+        </ConfigurationEditorDisclosure>
       ) : null}
 
-      {draft ? (
+      {!operationPending && draft ? (
         <section className="catalog-review novelty-corpus-editor">
           <div className="section-heading">
             <div>
@@ -274,7 +332,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
                         </label>
                         <label className="field">
                           <span>Year</span>
-                          <input required inputMode="numeric" min={2000} max={new Date().getFullYear()} type="number" value={entry.sourceYear} onChange={(event) => {
+                          <input required inputMode="numeric" min={2000} max={new Date(serverNow).getUTCFullYear()} type="number" value={entry.sourceYear} onChange={(event) => {
                             const sourceYear = event.currentTarget.valueAsNumber
                             if (Number.isFinite(sourceYear)) updatePreviewEntry(index, (current) => ({ ...current, sourceYear }))
                           }} />
@@ -332,7 +390,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
         </section>
       ) : null}
 
-      {draft && draftReady && configuration.canPublish ? (
+      {!operationPending && draft && draftReady && configuration.canPublish ? (
         publishArmed ? (
           <section className="publish-confirmation catalog-publish">
             <h2>Publish this past-project comparison set?</h2>

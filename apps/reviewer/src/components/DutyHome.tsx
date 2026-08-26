@@ -22,8 +22,6 @@ export type DutyHeadline = {
   secondary?: string
   context: string
   summary?: string
-  accent: string
-  ghost?: string
 }
 
 export function DutyHome({
@@ -64,16 +62,6 @@ export function DutyHome({
           onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
         >
           <View style={styles.head}>
-            {headline.ghost ? (
-              <Text
-                allowFontScaling={false}
-                numberOfLines={1}
-                style={[styles.ghost, ghostSize(headline.ghost.length)]}
-              >
-                {headline.ghost}
-              </Text>
-            ) : null}
-
             <Text allowFontScaling={false} numberOfLines={1} style={styles.value}>
               {headline.primary}
             </Text>
@@ -148,29 +136,15 @@ function Tile({ tile }: { tile: DutyTile }) {
   )
 }
 
-function ghostSize(length: number) {
-  if (length <= 3) return { fontSize: 170, letterSpacing: -7, lineHeight: 160 }
-  return { fontSize: 126, letterSpacing: -5, lineHeight: 120 }
-}
-
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: palette.background },
   body: { flex: 1 },
   scroll: { paddingBottom: 18 },
 
   head: {
-    position: 'relative',
     paddingTop: 22,
     paddingBottom: 27,
     paddingHorizontal: space.text,
-    overflow: 'hidden',
-  },
-  ghost: {
-    position: 'absolute',
-    right: -14,
-    top: -12,
-    color: palette.ghost,
-    ...type.ghost,
   },
   value: { color: palette.text, ...type.value },
 

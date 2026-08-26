@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ConvexError } from 'convex/values'
 
+import {
+  completeFreshAuthentication,
+  currentFreshAuthenticationRequest,
+} from './freshAuthentication.ts'
 import { createMutationAttempt, createOperationRunner } from './operations.ts'
 
 test('a congested retry keeps the original staff command and id', async () => {
@@ -67,12 +71,32 @@ test('an authoritative observed result can settle an ambiguous command', async (
     throw new Error('response lost')
   }), /response lost/)
 
-  runner.confirmObservedSuccess('brief')
+  runner.confirmExactObservation('brief')
   assert.equal(runner.hasPending('brief'), false)
 
   let nextOperationId = ''
   await runner.run('brief', (id) => async () => { nextOperationId = id })
   assert.notEqual(nextOperationId, operationId)
+})
+
+test('a pending command can be confirmed without rebuilding its input', async () => {
+  const runner = createOperationRunner<number>()
+  let responseLost = true
+  let calls = 0
+
+  await assert.rejects(
+    () => runner.run('decision', () => async () => {
+      calls += 1
+      if (responseLost) throw new Error('response lost')
+      return 9
+    }),
+    /response lost/,
+  )
+
+  responseLost = false
+  assert.equal(await runner.retryPending('decision'), 9)
+  assert.equal(calls, 2)
+  assert.equal(runner.hasPending('decision'), false)
 })
 
 test('ConvexError is the only definitive rejection signal', async () => {
@@ -101,6 +125,34 @@ test('ConvexError is the only definitive rejection signal', async () => {
   assert.notEqual(fakeId, '')
 })
 
+test('fresh Google verification retries the exact pending command once', async () => {
+  const runner = createOperationRunner<number>()
+  const operationIds: string[] = []
+  let calls = 0
+  const result = runner.run('sensitive-change', (clientOperationId) => async () => {
+    operationIds.push(clientOperationId)
+    calls += 1
+    if (calls === 1) {
+      throw new ConvexError({
+        code: 'FRESH_AUTH_REQUIRED',
+        message: 'Verify with Google again.',
+      })
+    }
+    return 17
+  })
+
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  const request = currentFreshAuthenticationRequest()
+  assert.ok(request)
+  assert.equal(runner.hasPending('sensitive-change'), true)
+  assert.equal(completeFreshAuthentication(request.id), true)
+
+  assert.equal(await result, 17)
+  assert.equal(calls, 2)
+  assert.deepEqual(operationIds, [operationIds[0], operationIds[0]])
+  assert.equal(runner.hasPending('sensitive-change'), false)
+})
+
 test('mutation slots retain immutable closures independently', async () => {
   const attempt = createMutationAttempt<number>()
   let version = 3
@@ -114,4 +166,24 @@ test('mutation slots retain immutable closures independently', async () => {
   await assert.rejects(() => attempt.run('assignment', () => () => Promise.resolve(version)), /lost:3/)
   await assert.rejects(() => attempt.run('assignment', () => () => Promise.resolve(version)), /lost:3/)
   assert.equal(attempt.hasPending('publish'), true)
+})
+
+test('a pending mutation can be confirmed without rebuilding its command', async () => {
+  const attempt = createMutationAttempt<number>()
+  let responseLost = true
+  let calls = 0
+
+  await assert.rejects(
+    () => attempt.run('pause', () => async () => {
+      calls += 1
+      if (responseLost) throw new Error('response lost')
+      return 7
+    }),
+    /response lost/,
+  )
+
+  responseLost = false
+  assert.equal(await attempt.retryPending('pause'), 7)
+  assert.equal(calls, 2)
+  assert.equal(attempt.hasPending('pause'), false)
 })

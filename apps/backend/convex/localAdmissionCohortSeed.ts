@@ -249,9 +249,7 @@ async function createCohortTeam(
     event: Doc<"events">;
     teamIndex: number;
     reviewers: Id<"people">[];
-    trackVersionIds: Id<"trackVersions">[];
     participantPolicyVersionId: Id<"participantPolicyVersions">;
-    trackCatalogVersionId: Id<"trackCatalogVersions">;
     intakePolicyVersionId: Id<"intakePolicyVersions">;
     policy: Doc<"admissionPolicyVersions">;
     now: number;
@@ -367,7 +365,6 @@ async function createCohortTeam(
       (membership) => membership.participantClass === "external_participant",
     ).length,
     membershipLocked: true,
-    trackLocked: true,
     version: 1,
     createdAt: now,
     updatedAt: now,
@@ -395,7 +392,6 @@ async function createCohortTeam(
   const projectDraftId = await ctx.db.insert("projectDrafts", {
     eventId: event._id,
     teamId,
-    trackCatalogVersionId: args.trackCatalogVersionId,
     intakePolicyVersionId: args.intakePolicyVersionId,
     stage: "submitted",
     initialIdea: idea,
@@ -409,16 +405,12 @@ async function createCohortTeam(
           noveltyEvaluatedAt: submittedAt,
         }
       : {}),
-    chosenCoreTrackVersionId: cycle(args.trackVersionIds, teamIndex),
-    chosenSponsorTrackVersionIds: [],
-    recommendationState: "not_requested",
     freshnessAttestedByMembershipId: leadMembership._id,
     freshnessAttestedAt: submittedAt,
     version: 2,
     lastEditedByMembershipId: leadMembership._id,
     updatedAt: submittedAt,
   });
-  const trackVersionId = cycle(args.trackVersionIds, teamIndex);
   const submissionAttemptId = await createLocalSubmissionSnapshot(ctx, {
     eventId: event._id,
     team,
@@ -426,7 +418,6 @@ async function createCohortTeam(
     teamMemberIds,
     participantPolicyVersionId: args.participantPolicyVersionId,
     admissionPolicyVersionId: args.policy._id,
-    coreTrackVersionId: trackVersionId,
     requesterMembershipId: leadMembership._id,
     requesterPersonId: leadMembership.personId,
     submittedAt,
@@ -438,8 +429,6 @@ async function createCohortTeam(
     initialIdea: idea,
     intakePolicyVersionId: args.intakePolicyVersionId,
     intakeResponses: [],
-    coreTrackVersionId: trackVersionId,
-    sponsorTrackVersionIds: [],
     lockedRosterSnapshotId: submissionAttemptId,
     lockedMemberCount: teamMemberIds.length,
     lockedLeadMembershipId: leadMembership._id,
@@ -452,8 +441,6 @@ async function createCohortTeam(
       participantPolicyVersionId: args.participantPolicyVersionId,
       previewedDraftVersion: 2,
       previewedTeamVersion: 1,
-      previewedTrackVersionId: trackVersionId,
-      previewedSponsorTrackVersionIds: [],
       confirmedByMembershipId: leadMembership._id,
       confirmedAt: submittedAt,
     },
@@ -564,12 +551,10 @@ export const seedCohortBatch = internalMutation({
     requireLocalDeployment();
     const event = await requireCohortEvent(ctx);
     const participantPolicyVersionId = event.publishedParticipantPolicyId;
-    const trackCatalogVersionId = event.publishedTrackCatalogId;
     const intakePolicyVersionId = event.publishedIntakePolicyId;
     const admissionPolicyVersionId = event.publishedAdmissionPolicyId;
     if (
       !participantPolicyVersionId ||
-      !trackCatalogVersionId ||
       !intakePolicyVersionId ||
       !admissionPolicyVersionId
     ) {
@@ -577,13 +562,6 @@ export const seedCohortBatch = internalMutation({
     }
     const policy = await ctx.db.get(admissionPolicyVersionId);
     if (!policy) throw new Error("The published admission policy no longer resolves.");
-    const tracks = await ctx.db
-      .query("trackVersions")
-      .withIndex("by_catalog_type_order", (index) =>
-        index.eq("catalogVersionId", trackCatalogVersionId).eq("type", "core"),
-      )
-      .collect();
-    if (tracks.length === 0) throw new Error("The local event has no core tracks to assign.");
     const now = Date.now();
     const reviewers = await ensureCohortReviewers(ctx, event._id, now);
     let created = 0;
@@ -592,9 +570,7 @@ export const seedCohortBatch = internalMutation({
         event,
         teamIndex: args.startIndex + offset,
         reviewers,
-        trackVersionIds: tracks.map((track) => track._id),
         participantPolicyVersionId,
-        trackCatalogVersionId,
         intakePolicyVersionId,
         policy,
         now,

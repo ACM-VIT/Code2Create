@@ -1,5 +1,6 @@
-import { floorAreaAt } from "@code2create/domain";
+import { floorAreaAt, floorAreas } from "@code2create/domain";
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -23,7 +24,12 @@ import {
 } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+} from "./lib/operations";
 import { normalizedText } from "./lib/strings";
 import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits";
 import { floorActiveMappingState, floorArea, floorMappingMode } from "./values";
@@ -46,6 +52,41 @@ const placedTeamView = v.object({
 
 /** How many teams are sitting in each part of a zone, in reading order. */
 const areaLoadView = v.object({ area: floorArea, teamCount: v.number() });
+
+const claimOperationResult = z
+  .object({
+    id: z.string().min(1),
+    version: z.number().int().positive(),
+    expiresAt: z.number(),
+    mode: z.enum(["map", "override"]),
+    team: z.object({ id: z.string().min(1), name: z.string() }).strict(),
+    currentLocation: z
+      .object({
+        id: z.string().min(1),
+        zoneId: z.string().min(1),
+        zoneName: z.string(),
+        x: z.number().finite(),
+        y: z.number().finite(),
+        area: z.enum(floorAreas),
+        description: z.string(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
+const assignmentOperationResult = z
+  .object({
+    locationId: z.string().min(1),
+    teamName: z.string(),
+    zoneName: z.string(),
+    x: z.number().finite(),
+    y: z.number().finite(),
+    area: z.enum(floorAreas),
+    description: z.string(),
+    unchanged: z.boolean(),
+  })
+  .strict();
 
 const claimView = v.object({
   id: v.id("floorMappingClaims"),
@@ -134,6 +175,7 @@ export const available = query({
   returns: v.union(
     v.null(),
     v.object({
+      serverNow: v.number(),
       plan: v.object({
         id: v.id("floorPlanVersions"),
         name: v.string(),
@@ -243,6 +285,7 @@ export const available = query({
       });
     }
     return {
+      serverNow: Date.now(),
       plan: { id: plan._id, name: plan.name, version: plan.version, mappingState: plan.mappingState },
       mode,
       zones: zoneViews,
@@ -273,10 +316,37 @@ export const claimTeamQr = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const claimId = ctx.db.normalizeId("floorMappingClaims", prior.targetId);
-      const claim = claimId ? await ctx.db.get(claimId) : null;
-      if (!claim) throw new Error("Prior mapping claim is unavailable.");
-      return claimResult(ctx, claim);
+      const result = storedOperationResult(
+        prior.resultJson,
+        "mapping claim",
+        claimOperationResult,
+      );
+      const claimId = ctx.db.normalizeId("floorMappingClaims", result.id);
+      const teamId = ctx.db.normalizeId("teams", result.team.id);
+      const currentLocation = result.currentLocation;
+      const locationId = currentLocation
+        ? ctx.db.normalizeId("teamFloorLocations", currentLocation.id)
+        : null;
+      const zoneId = currentLocation
+        ? ctx.db.normalizeId("floorZones", currentLocation.zoneId)
+        : null;
+      if (
+        !claimId ||
+        !teamId ||
+        claimId !== prior.targetId ||
+        (currentLocation !== null && (!locationId || !zoneId))
+      ) {
+        throw new Error("Prior mapping claim is unavailable.");
+      }
+      return {
+        ...result,
+        id: claimId,
+        team: { ...result.team, id: teamId },
+        currentLocation:
+          currentLocation && locationId && zoneId
+            ? { ...currentLocation, id: locationId, zoneId }
+            : null,
+      };
     }
     const plan = await publishedFloorPlan(ctx, event);
     const zone = await ctx.db.get(args.destinationZoneId);
@@ -361,6 +431,9 @@ export const claimTeamQr = mutation({
       createdAt: now,
     });
     await ctx.db.patch(token._id, { state: "used", usedAt: now });
+    const claim = await ctx.db.get(claimId);
+    if (!claim) throw new Error("Mapping claim did not persist.");
+    const result = await claimResult(ctx, claim);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -369,6 +442,7 @@ export const claimTeamQr = mutation({
       requestFingerprint,
       targetType: "floor_mapping_claim",
       targetId: claimId,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -384,9 +458,7 @@ export const claimTeamQr = mutation({
       nextSummary: JSON.stringify({ teamId: team._id, destinationZoneId: zone._id, mode, expiresAt: now + 3 * 60_000 }),
       reason: "Floor mapper scanned the team's current dashboard code",
     });
-    const claim = await ctx.db.get(claimId);
-    if (!claim) throw new Error("Mapping claim did not persist.");
-    return claimResult(ctx, claim);
+    return result;
   },
 });
 
@@ -394,7 +466,7 @@ export const claimTeamQr = mutation({
 export const assignClaim = mutation({
   args: {
     eventSlug: v.string(),
-    claimId: v.id("floorMappingClaims"),
+    claimId: v.string(),
     x: v.number(),
     y: v.number(),
     expectedClaimVersion: v.number(),
@@ -414,10 +486,17 @@ export const assignClaim = mutation({
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
+    const claimId = ctx.db.normalizeId("floorMappingClaims", args.claimId);
+    if (!claimId) {
+      throw new ConvexError({
+        code: "FLOOR_CLAIM_UNAVAILABLE",
+        message: "Scan the team's current code again.",
+      });
+    }
     const x = floorCoordinate(args.x, "Position across the zone");
     const y = floorCoordinate(args.y, "Position along the zone");
     const requestFingerprint = operationFingerprint([
-      args.claimId,
+      claimId,
       x,
       y,
       args.expectedClaimVersion,
@@ -431,12 +510,18 @@ export const assignClaim = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const claimId = ctx.db.normalizeId("floorMappingClaims", prior.targetId);
-      const claim = claimId ? await ctx.db.get(claimId) : null;
-      if (!claim?.locationId) throw new Error("Prior floor assignment is unavailable.");
-      return assignmentResult(ctx, claim, claim.locationId);
+      const result = storedOperationResult(
+        prior.resultJson,
+        "floor assignment",
+        assignmentOperationResult,
+      );
+      const locationId = ctx.db.normalizeId("teamFloorLocations", result.locationId);
+      if (!locationId || prior.targetId !== claimId) {
+        throw new Error("Prior floor assignment is unavailable.");
+      }
+      return { ...result, locationId };
     }
-    const claim = await ctx.db.get(args.claimId);
+    const claim = await ctx.db.get(claimId);
     if (
       !claim ||
       claim.eventId !== event._id ||
@@ -546,6 +631,9 @@ export const assignClaim = mutation({
       completedAt: now,
       locationId,
     });
+    const completedClaim = await ctx.db.get(claim._id);
+    if (!completedClaim) throw new Error("Completed mapping claim is unavailable.");
+    const result = await assignmentResult(ctx, completedClaim, locationId);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -554,6 +642,7 @@ export const assignClaim = mutation({
       requestFingerprint,
       targetType: "floor_mapping_claim",
       targetId: claim._id,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -580,9 +669,7 @@ export const assignClaim = mutation({
       nextSummary: JSON.stringify({ locationId, teamId: team._id, zoneId: zone._id, area, x, y, unchanged }),
       reason: reason ?? "Floor mapper confirmed where the team is sitting from the team's QR",
     });
-    const completedClaim = await ctx.db.get(claim._id);
-    if (!completedClaim) throw new Error("Completed mapping claim is unavailable.");
-    return assignmentResult(ctx, completedClaim, locationId);
+    return result;
   },
 });
 

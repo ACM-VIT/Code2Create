@@ -38,6 +38,7 @@ describe("surface capability projections", () => {
         timezone: "Asia/Kolkata",
         status: "live",
         vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
         startsAt: now - 60_000,
         endsAt: now + 60_000,
         version: 1,
@@ -103,10 +104,25 @@ describe("surface capability projections", () => {
     });
     await expect(
       participant.query(api.access.participantCapabilities, { eventSlug }),
-    ).resolves.toEqual({ supportRead: true, supportCreate: true });
+    ).resolves.toEqual({
+      profileRead: false,
+      profileWrite: false,
+      teamJoin: false,
+      hasTeamMembership: false,
+      teamRead: false,
+      integrations: false,
+      notifications: false,
+      attendance: false,
+      floor: false,
+      projectCheckpoints: false,
+      reviewQueue: false,
+      scoreFeedback: false,
+      supportRead: true,
+      supportCreate: true,
+    });
   });
 
-  test("does not advertise the event directory for an exact-person reader", async () => {
+  test("does not advertise broader surfaces from exact reads or action-only grants", async () => {
     const backend = convexTest({ schema, modules });
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const now = Date.now();
@@ -128,6 +144,7 @@ describe("surface capability projections", () => {
         timezone: "Asia/Kolkata",
         status: "live",
         vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
         startsAt: now - 60_000,
         endsAt: now + 60_000,
         version: 1,
@@ -160,7 +177,62 @@ describe("surface capability projections", () => {
         createdAt: now,
         activatedAt: now,
       });
-      return { personId };
+      await ctx.db.insert("permissionGrants", {
+        eventId,
+        personId,
+        eventAccessSubjectId: subjectId,
+        permissionKey: "support.case.manage",
+        scopeType: "event",
+        validFrom: now - 1_000,
+        status: "active",
+        sourceType: "manual",
+        sourceId: "manage-support-without-read",
+        reason: "Action-only capability fixture",
+        createdAt: now,
+        activatedAt: now,
+      });
+      const windowId = await ctx.db.insert("synesthesiaWindows", {
+        eventId,
+        name: "Assigned music queue",
+        kind: "working_session",
+        startsAt: now - 60_000,
+        endsAt: now + 60_000,
+        status: "published",
+        requestsOpen: true,
+        votingOpen: true,
+        playbackPaused: false,
+        catalogSourceLabel: "Capability fixture catalog",
+        autoApproveRequests: false,
+        maxRequestsPerParticipant: 3,
+        maxVotesPerParticipant: 8,
+        maxRequestsTotal: 200,
+        maxTrackDurationSeconds: 480,
+        allowExplicit: false,
+        allowedEnergyTags: ["focused"],
+        version: 1,
+        createdByPersonId: personId,
+        updatedByPersonId: personId,
+        createdAt: now,
+        updatedAt: now,
+        publishedByPersonId: personId,
+        publishedAt: now,
+      });
+      await ctx.db.insert("permissionGrants", {
+        eventId,
+        personId,
+        eventAccessSubjectId: subjectId,
+        permissionKey: "synesthesia.queue.read",
+        scopeType: "synesthesia_window",
+        scopeId: windowId,
+        validFrom: now - 1_000,
+        status: "active",
+        sourceType: "manual",
+        sourceId: "read-music-queue",
+        reason: "Queue-reader capability fixture",
+        createdAt: now,
+        activatedAt: now,
+      });
+      return { personId, windowId };
     });
 
     const operator = backend.withIdentity({
@@ -170,6 +242,13 @@ describe("surface capability projections", () => {
     const capabilities = await operator.query(api.access.operationsCapabilities, { eventSlug });
     expect(capabilities?.accessPeople).toBe(true);
     expect(capabilities?.accessDirectory).toBe(false);
+    expect(capabilities?.support).toBe(false);
+    expect(capabilities?.synesthesia).toBe(true);
+    await expect(
+      operator.query(api.synesthesiaConfiguration.overview, { eventSlug }),
+    ).resolves.toMatchObject({
+      windows: [{ id: fixture.windowId, canReadQueue: true, canManage: false }],
+    });
     await expect(
       operator.query(api.access.findByEmail, {
         eventSlug,

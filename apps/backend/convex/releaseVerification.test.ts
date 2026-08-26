@@ -8,10 +8,22 @@ import {
   requireStagingReleaseDeployment,
 } from "./releaseVerification.ts";
 import {
+  communicationsPolicyChecksum,
+  normalizeCommunicationsPolicy,
+} from "./lib/communicationsPolicy.ts";
+import {
+  defaultDeterministicIntakePolicy,
+  intakePolicyChecksum,
+} from "./lib/intakePolicy.ts";
+import {
   defaultParticipantPolicy,
   participantPolicyChecksum,
 } from "./lib/participantPolicy.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
+import {
+  createTestSubmissionSnapshot,
+  linkTestSubmissionSnapshot,
+} from "./lib/testSubmissionSnapshot.ts";
 import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -80,6 +92,32 @@ describe("release verification", () => {
     expect(readiness.missing).toEqual(["participant_team_read"]);
   });
 
+  test("requires the participant code and design grant for the fixture team", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedReleaseFixture(backend, {
+      operationsRole: null,
+      rehearsalGrant: true,
+      teamReadScope: "team",
+    });
+    await backend.run(async (ctx) => {
+      const grant = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_event_permission_status", (index) =>
+          index
+            .eq("eventId", fixture.eventId)
+            .eq("permissionKey", "integration.read")
+            .eq("status", "active"),
+        )
+        .unique();
+      if (!grant) throw new Error("The release fixture integration grant is missing.");
+      await ctx.db.patch(grant._id, { status: "revoked", revokedAt: Date.now() });
+    });
+
+    const readiness = await inspectFixture(backend, fixture);
+
+    expect(readiness.missing).toEqual(["participant_integration_read"]);
+  });
+
   test("rejects a profile that no longer accepts the published policy", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedReleaseFixture(backend, {
@@ -96,6 +134,43 @@ describe("release verification", () => {
     const readiness = await inspectFixture(backend, fixture);
 
     expect(readiness.missing).toEqual(["participant_profile"]);
+  });
+
+  test("requires the confirmed participant home and its published event details", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedReleaseFixture(backend, {
+      operationsRole: null,
+      rehearsalGrant: true,
+      teamReadScope: "team",
+    });
+    await backend.run(async (ctx) => {
+      await Promise.all([
+        ctx.db.patch(fixture.eventId, { publishedCommunicationsPolicyId: undefined }),
+        ctx.db.patch(fixture.applicationId, { state: "submitted" }),
+      ]);
+      return null;
+    });
+
+    const readiness = await inspectFixture(backend, fixture);
+
+    expect(readiness.missing).toEqual([
+      "published_communications_policy",
+      "participant_confirmed_application",
+    ]);
+  });
+
+  test("requires a current materialized operations overview", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedReleaseFixture(backend, {
+      operationsRole: null,
+      rehearsalGrant: true,
+      teamReadScope: "team",
+    });
+    await backend.run((ctx) => ctx.db.delete(fixture.operationsHealthSnapshotId));
+
+    const readiness = await inspectFixture(backend, fixture);
+
+    expect(readiness.missing).toEqual(["operations_health_snapshot"]);
   });
 });
 
@@ -120,6 +195,9 @@ async function seedReleaseFixture(
   },
 ) {
   const now = Date.UTC(2027, 1, 2, 3, 4, 5);
+  const healthGeneratedAt = Date.now();
+  const startsAt = now + 7 * 24 * 60 * 60 * 1_000;
+  const endsAt = startsAt + 36 * 60 * 60 * 1_000;
   const eventSlug = "release-fixture";
   const participantEmail = "participant.release@example.com";
   const operationsEmail = "operations.release@example.com";
@@ -130,9 +208,35 @@ async function seedReleaseFixture(
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
+      startsAt,
+      endsAt,
       version: 1,
       createdAt: now,
       updatedAt: now,
+    });
+    const operationsHealthSnapshotId = await ctx.db.insert("operationsHealthSnapshots", {
+      eventId,
+      snapshot: {
+        generatedAt: healthGeneratedAt,
+        event: {
+          slug: eventSlug,
+          name: "Release fixture",
+          timezone: "Asia/Kolkata",
+          status: "registration_open",
+        },
+        summary: {
+          status: "healthy",
+          signalCount: 0,
+          criticalSignalCount: 0,
+          attentionSignalCount: 0,
+          watchSignalCount: 0,
+        },
+        signals: [],
+      },
+      eventVersion: 1,
+      state: "ready",
+      staleAt: healthGeneratedAt + 90_000,
     });
     const participantPersonId = await insertPerson(
       ctx,
@@ -156,8 +260,64 @@ async function seedReleaseFixture(
       createdAt: now,
       publishedAt: now,
     });
+    const communicationsPolicy = normalizeCommunicationsPolicy({
+      venueName: "VIT Main Building",
+      venueAddress: "Vellore Institute of Technology, Vellore",
+      startsAt,
+      endsAt,
+      nextSteps: [
+        {
+          stableKey: "join_discord",
+          title: "Join Discord",
+          detail: "Use the event Discord for announcements and support.",
+          actionUrl: "https://discord.gg/code2create",
+        },
+      ],
+      discordUrl: "https://discord.gg/code2create",
+      discordLabel: "Open Discord",
+      notificationProvider: "cloudflare_email",
+      notificationSubject: "Code2Create portal update",
+      notificationIntro: "There is a new update in your Code2Create portal.",
+    });
+    const communicationsPolicyId = await ctx.db.insert("communicationsPolicyVersions", {
+      eventId,
+      version: 1,
+      status: "published",
+      ...communicationsPolicy,
+      checksum: communicationsPolicyChecksum(communicationsPolicy),
+      createdByPersonId: operationsPersonId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    const intakePolicyId = await ctx.db.insert("intakePolicyVersions", {
+      eventId,
+      version: 1,
+      status: "published",
+      ...defaultDeterministicIntakePolicy,
+      checksum: intakePolicyChecksum(defaultDeterministicIntakePolicy),
+      createdByPersonId: operationsPersonId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    const admissionPolicyId = await ctx.db.insert("admissionPolicyVersions", {
+      eventId,
+      version: "release-fixture-admission-v1",
+      status: "published",
+      aiRecommendationMode: "disabled",
+      minimumHumanReviews: 1,
+      overallParticipantCapacity: 100,
+      criteria: [],
+      decisionReasonCodes: [],
+      checksum: "release-fixture-admission-policy",
+      createdByPersonId: operationsPersonId,
+      createdAt: now,
+      publishedAt: now,
+    });
     await ctx.db.patch(eventId, {
       publishedParticipantPolicyId: participantPolicyId,
+      publishedCommunicationsPolicyId: communicationsPolicyId,
+      publishedIntakePolicyId: intakePolicyId,
+      publishedAdmissionPolicyId: admissionPolicyId,
     });
     const participantSubjectId = await insertSubject(
       ctx,
@@ -181,12 +341,12 @@ async function seedReleaseFixture(
       eventAccessSubjectId: participantSubjectId,
       participantClass: "external_participant",
       eligibilityStatus: "eligible",
-      onboardingStatus: "project_required",
+      onboardingStatus: "accepted",
       acceptedParticipantPolicyVersionIds: [participantPolicyId],
       createdAt: now,
       updatedAt: now,
     });
-    const participantProfileId = await ctx.db.insert("participantProfiles", {
+    await ctx.db.insert("participantProfiles", {
       eventId,
       membershipId: participantMembershipId,
       participantClass: "external_participant",
@@ -202,17 +362,16 @@ async function seedReleaseFixture(
       name: "Release team",
       publicCode: "RELEASE1",
       leadMembershipId: participantMembershipId,
-      status: "forming",
+      status: "confirmed",
       activeMemberCount: 1,
       activeVitMemberCount: 0,
       activeExternalMemberCount: 1,
-      membershipLocked: false,
-      trackLocked: false,
-      version: 1,
+      membershipLocked: true,
+      version: 2,
       createdAt: now,
       updatedAt: now,
     });
-    await ctx.db.insert("teamMembers", {
+    const teamMemberId = await ctx.db.insert("teamMembers", {
       eventId,
       teamId,
       membershipId: participantMembershipId,
@@ -220,6 +379,71 @@ async function seedReleaseFixture(
       status: "active",
       joinedAt: now,
       source: "created",
+    });
+    const submissionAttemptId = await createTestSubmissionSnapshot(ctx, {
+      eventId,
+      teamId,
+      teamMemberIds: [teamMemberId],
+      intakePolicyVersionId: intakePolicyId,
+      participantPolicyVersionId: participantPolicyId,
+      admissionPolicyVersionId: admissionPolicyId,
+      submittedAt: now,
+    });
+    const projectVersionId = await ctx.db.insert("projectVersions", {
+      eventId,
+      teamId,
+      version: 1,
+      initialIdea: "A practical release-verification project.",
+      intakePolicyVersionId: intakePolicyId,
+      intakeResponses: [],
+      lockedRosterSnapshotId: submissionAttemptId,
+      lockedMemberCount: 1,
+      lockedLeadMembershipId: participantMembershipId,
+      freshForEventAttestation: {
+        participantPolicyVersionId: participantPolicyId,
+        acceptedByMembershipId: participantMembershipId,
+        acceptedAt: now,
+      },
+      finalConfirmation: {
+        participantPolicyVersionId: participantPolicyId,
+        previewedDraftVersion: 1,
+        previewedTeamVersion: 1,
+        confirmedByMembershipId: participantMembershipId,
+        confirmedAt: now,
+      },
+      participantPolicyVersionId: participantPolicyId,
+      admissionPolicyVersionId: admissionPolicyId,
+      sourceDraftVersion: 1,
+      submittedByMembershipId: participantMembershipId,
+      submittedAt: now,
+    });
+    const applicationId = await ctx.db.insert("applications", {
+      eventId,
+      teamId,
+      submittedProjectVersionId: projectVersionId,
+      admissionPolicyVersionId: admissionPolicyId,
+      state: "confirmed",
+      experienceBand: "mixed_or_external",
+      aiDisposition: "unavailable",
+      humanDecision: "accept",
+      humanReasonCode: "release_fixture_accept",
+      decidedByPersonId: operationsPersonId,
+      decidedAt: now,
+      assignedReviewCount: 1,
+      completedReviewCount: 1,
+      contentVersion: 1,
+      version: 3,
+      submittedAt: now,
+    });
+    await linkTestSubmissionSnapshot(ctx, {
+      submissionAttemptId,
+      projectVersionId,
+      applicationId,
+    });
+    await ctx.db.patch(teamId, {
+      lockedProjectVersionId: projectVersionId,
+      lockedAt: now,
+      lockParticipantPolicyVersionId: participantPolicyId,
     });
     await insertPermissionGrant(ctx, {
       eventId,
@@ -243,6 +467,17 @@ async function seedReleaseFixture(
       sourceType: "team_membership",
       sourceId: teamId,
       reason: "Release fixture team",
+    });
+    await insertPermissionGrant(ctx, {
+      eventId,
+      personId: participantPersonId,
+      eventAccessSubjectId: participantSubjectId,
+      permissionKey: "integration.read",
+      scopeType: "team",
+      scopeId: teamId,
+      sourceType: "team_membership",
+      sourceId: teamId,
+      reason: "Release fixture code and design access",
     });
     await insertPermissionGrant(ctx, {
       eventId,
@@ -281,7 +516,10 @@ async function seedReleaseFixture(
       });
     }
     return {
+      eventId,
       eventSlug,
+      applicationId,
+      operationsHealthSnapshotId,
       operationsEmail,
       participantEmail,
       participantMembershipId,

@@ -5,6 +5,8 @@ import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
+import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -15,6 +17,9 @@ type Policy = Configuration['publishedPolicy']['policy']
 type NextStep = Policy['nextSteps'][number]
 type EditorStep = Omit<NextStep, 'dueAt'> & { dueAt: string }
 type EditorPolicy = Omit<Policy, 'nextSteps'> & { nextSteps: EditorStep[] }
+type CommunicationsPolicyOperationResult =
+  | FunctionReturnType<typeof api.communicationsPolicyConfiguration.createDraft>
+  | FunctionReturnType<typeof api.communicationsPolicyConfiguration.publish>
 
 export function CommunicationsPolicyConfiguration({
   tabs,
@@ -24,7 +29,7 @@ export function CommunicationsPolicyConfiguration({
   const configuration = useQuery(api.communicationsPolicyConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.communicationsPolicyConfiguration.createDraft)
   const publish = useMutation(api.communicationsPolicyConfiguration.publish)
-  const operations = useOperationRunner()
+  const operations = useOperationRunner<CommunicationsPolicyOperationResult>()
   const validation = useQuery(
     api.communicationsPolicyConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPolicy
@@ -40,6 +45,20 @@ export function CommunicationsPolicyConfiguration({
   const [error, setError] = useState<string | null>(null)
   const draftPending = operations.hasPending('communications-policy-draft')
   const publishPending = operations.hasPending('communications-policy-publish')
+  const pendingOperation = publishPending
+    ? {
+        slot: 'communications-policy-publish',
+        title: 'Finish publishing the accepted-team details',
+        action: 'Confirm earlier publication',
+      }
+    : draftPending
+      ? {
+          slot: 'communications-policy-draft',
+          title: 'Finish saving the accepted-team details draft',
+          action: 'Confirm earlier save',
+        }
+      : null
+  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!configuration) return
@@ -99,6 +118,7 @@ export function CommunicationsPolicyConfiguration({
 
   const saveDraft = async (event: FormEvent) => {
     event.preventDefault()
+    if (busy || operationPending) return
     setBusy(true)
     setError(null)
     try {
@@ -121,7 +141,7 @@ export function CommunicationsPolicyConfiguration({
 
   const publishDraft = async () => {
     const draft = configuration.draftPolicy
-    if (!draft || !validation?.valid) return
+    if (busy || operationPending || !draft || !validation?.valid) return
     setBusy(true)
     setError(null)
     try {
@@ -141,10 +161,24 @@ export function CommunicationsPolicyConfiguration({
     }
   }
 
+  const confirmPendingOperation = async () => {
+    if (busy || pendingOperation === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      await operations.retryPending(pendingOperation.slot)
+      setPublishArmed(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <section className="track-config-shell intake-policy-shell">
+    <section className="configuration-shell intake-policy-shell">
       <ConfigurationTabs visibility={tabs} />
-      <header className="page-heading track-config-heading">
+      <header className="page-heading configuration-heading">
         <div>
           <h1>Accepted team details</h1>
           <p className="muted">Controls the venue, next steps, Discord link, and email wording.</p>
@@ -164,7 +198,16 @@ export function CommunicationsPolicyConfiguration({
         </div>
       </dl>
 
-      {configuration.draftPolicy ? (
+      {pendingOperation ? (
+        <PendingOperationRecovery
+          action={pendingOperation.action}
+          busy={busy}
+          onConfirm={() => void confirmPendingOperation()}
+          title={pendingOperation.title}
+        />
+      ) : null}
+
+      {!operationPending && configuration.draftPolicy ? (
         <section className="catalog-review">
           <div className="section-heading">
             <div>
@@ -200,7 +243,7 @@ export function CommunicationsPolicyConfiguration({
         </section>
       ) : null}
 
-      {configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
+      {!operationPending && configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish these accepted-team details?</h2>
           <p className="muted">Accepted and offer-stage teams see the changes immediately.</p>
@@ -217,8 +260,13 @@ export function CommunicationsPolicyConfiguration({
         </section>
       ) : null}
 
-      {configuration.canDraft ? (
-        <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
+      {!operationPending && configuration.canDraft ? (
+        <ConfigurationEditorDisclosure
+          defaultOpen={Boolean(configuration.draftPolicy)}
+          description="Venue details, participant next steps, Discord access, and the selection email."
+          title={configuration.draftPolicy ? 'Continue accepted-team details draft' : 'Edit accepted-team details'}
+        >
+          <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
           <fieldset disabled={draftPending} style={{ display: 'contents' }}>
           <PolicySection title="Event details" description="Dates follow the event window and cannot be changed here.">
             <div className="intake-policy-grid">
@@ -304,7 +352,7 @@ export function CommunicationsPolicyConfiguration({
           </PolicySection>
 
           </fieldset>
-          <section className="track-save">
+          <section className="configuration-save">
             <label className="field">
               <span>Why this changed</span>
               <textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.currentTarget.value)} />
@@ -313,7 +361,8 @@ export function CommunicationsPolicyConfiguration({
               {busy ? 'Saving…' : draftPending ? 'Confirm earlier draft' : configuration.draftPolicy ? 'Replace draft' : 'Save draft'}
             </button>
           </section>
-        </form>
+          </form>
+        </ConfigurationEditorDisclosure>
       ) : null}
 
       {error ? <p className="notice error" role="alert">{error}</p> : null}

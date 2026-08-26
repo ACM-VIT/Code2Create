@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useAction, useMutation, useQuery } from 'convex/react'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -12,7 +12,10 @@ type AttendanceSession = AttendanceOverview['sessions'][number]
 type ExportRequest = FunctionArgs<typeof api.attendanceExports.request>
 type ExportField = ExportRequest['fields'][number]
 type ExportRecord = FunctionReturnType<typeof api.attendanceExports.list>[number]
-type Lifetime = 'one_hour' | 'one_day' | 'three_days'
+type Lifetime = ExportRequest['lifetime']
+type DownloadLink = FunctionReturnType<typeof api.attendanceExportActions.download> & {
+  clientNow: number
+}
 
 const defaultFields: ExportField[] = [
   'participant_reference',
@@ -57,12 +60,24 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
   const [lifetime, setLifetime] = useState<Lifetime>('one_day')
   const [busy, setBusy] = useState(false)
   const [downloadBusyId, setDownloadBusyId] = useState<string | null>(null)
-  const [downloadLinks, setDownloadLinks] = useState<
-    Record<string, { url: string; expiresAt: number; sha256: string }>
-  >({})
+  const [downloadLinks, setDownloadLinks] = useState<Record<string, DownloadLink>>({})
+  const [downloadClock, setDownloadClock] = useState(() => performance.now())
   const [error, setError] = useState<string | null>(null)
   const requestAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceExports.request>>()
   const requestPending = requestAttempt.hasPending('attendance-export-request')
+
+  useEffect(() => {
+    const nextExpiry = Object.values(downloadLinks)
+      .map((link) => link.clientNow + link.expiresAt - link.serverNow)
+      .filter((expiresAt) => expiresAt > downloadClock)
+      .toSorted((left, right) => left - right)[0]
+    if (nextExpiry === undefined) return
+    const timer = window.setTimeout(
+      () => setDownloadClock(performance.now()),
+      Math.max(nextExpiry - performance.now(), 0) + 25,
+    )
+    return () => window.clearTimeout(timer)
+  }, [downloadClock, downloadLinks])
 
   const invalidateRequest = () => {
     setError(null)
@@ -87,7 +102,7 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
           expectedSessionVersion: session.version,
           purpose,
           fields: [...fields],
-          expiresAt: Date.now() + lifetimeMilliseconds(lifetime),
+          lifetime,
           clientOperationId: crypto.randomUUID(),
         }
         return () => requestExport(args)
@@ -106,7 +121,12 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
     setError(null)
     try {
       const result = await prepareDownload({ eventSlug, exportId: record.id })
-      setDownloadLinks((current) => ({ ...current, [record.id]: result }))
+      const clientNow = performance.now()
+      setDownloadLinks((current) => ({
+        ...current,
+        [record.id]: { ...result, clientNow },
+      }))
+      setDownloadClock(clientNow)
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -167,9 +187,11 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
                 setLifetime(parseLifetime(event.target.value))
               }}
             >
+              <option value="fifteen_minutes">15 minutes</option>
               <option value="one_hour">1 hour</option>
               <option value="one_day">24 hours</option>
               <option value="three_days">3 days</option>
+              <option value="seven_days">7 days</option>
             </select>
           </label>
           <p className="muted">
@@ -203,7 +225,10 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
         <ul className="attendance-export-list">
           {exports.map((record) => {
             const link = downloadLinks[record.id]
-            const activeLink = link && link.expiresAt > Date.now() ? link : null
+            const activeLink = link &&
+              link.expiresAt > link.serverNow + downloadClock - link.clientNow
+              ? link
+              : null
             return (
               <li key={`${record.id}-${record.version}`}>
                 <div>
@@ -212,6 +237,7 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
                   <small>
                     {record.rowCount === undefined ? 'Waiting for snapshot' : `${record.rowCount} rows`}
                     {record.snapshotAt === undefined ? '' : ` · ${new Date(record.snapshotAt).toLocaleString()}`}
+                    {` · expires ${new Date(record.expiresAt).toLocaleString()}`}
                     {record.sha256 === undefined ? '' : ` · ${record.sha256.slice(0, 12)}`}
                   </small>
                 </div>
@@ -241,14 +267,13 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
   )
 }
 
-function lifetimeMilliseconds(lifetime: Lifetime) {
-  if (lifetime === 'one_hour') return 60 * 60 * 1_000
-  if (lifetime === 'three_days') return 3 * 24 * 60 * 60 * 1_000
-  return 24 * 60 * 60 * 1_000
-}
-
 function parseLifetime(value: string): Lifetime {
-  if (value === 'one_hour' || value === 'three_days') return value
+  if (
+    value === 'fifteen_minutes' ||
+    value === 'one_hour' ||
+    value === 'three_days' ||
+    value === 'seven_days'
+  ) return value
   return 'one_day'
 }
 

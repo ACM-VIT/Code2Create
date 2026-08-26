@@ -2,7 +2,6 @@ import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery } from 'convex/react'
 import { useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -16,7 +15,7 @@ const fiveMinutesMs = 5 * 60 * 1_000
 const sevenDaysMs = 7 * 24 * 60 * 60 * 1_000
 const thirtyDaysMs = 30 * 24 * 60 * 60 * 1_000
 
-export function AccessInvitations({ canReadPeople }: { canReadPeople: boolean }) {
+export function AccessInvitations({ serverNow }: { serverNow: number }) {
   const invitations = usePaginatedQuery(
     api.accessInvitations.open,
     { eventSlug },
@@ -25,12 +24,11 @@ export function AccessInvitations({ canReadPeople }: { canReadPeople: boolean })
   const create = useMutation(api.accessInvitations.create)
   const operations = useOperationRunner<CreateInvitationResult>()
   const [email, setEmail] = useState('')
-  const [validUntil, setValidUntil] = useState(() => localDateTime(Date.now() + sevenDaysMs))
+  const [validUntil, setValidUntil] = useState(() => localDateTime(serverNow + sevenDaysMs))
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{
     text: string
-    personId?: string
     error: boolean
   } | null>(null)
   const createPending = operations.hasPending('access-invitation-create')
@@ -57,7 +55,6 @@ export function AccessInvitations({ canReadPeople }: { canReadPeople: boolean })
       if (result.outcome === 'already_linked') {
         setMessage({
           text: 'That Google account is already linked to this event.',
-          personId: result.personId,
           error: false,
         })
       } else if (result.outcome === 'already_pending') {
@@ -69,7 +66,7 @@ export function AccessInvitations({ canReadPeople }: { canReadPeople: boolean })
         })
         setEmail('')
         setReason('')
-        setValidUntil(localDateTime(Date.now() + sevenDaysMs))
+        setValidUntil(localDateTime(serverNow + sevenDaysMs))
       }
     } catch (caught) {
       setMessage({ text: readableError(caught), error: true })
@@ -104,8 +101,8 @@ export function AccessInvitations({ canReadPeople }: { canReadPeople: boolean })
           <input
             required
             type="datetime-local"
-            min={localDateTime(Date.now() + fiveMinutesMs)}
-            max={localDateTime(Date.now() + thirtyDaysMs)}
+            min={localDateTime(serverNow + fiveMinutesMs)}
+            max={localDateTime(serverNow + thirtyDaysMs)}
             value={validUntil}
             disabled={busy || createPending}
             onChange={(event) => setValidUntil(event.target.value)}
@@ -130,8 +127,7 @@ export function AccessInvitations({ canReadPeople }: { canReadPeople: boolean })
       </form>
       {message ? (
         <p className={`notice${message.error ? ' error' : ''}`} role={message.error ? 'alert' : 'status'}>
-          {message.text}{' '}
-          {message.personId && canReadPeople ? <Link to={`/access/${message.personId}`}>Open account</Link> : null}
+          {message.text}
         </p>
       ) : null}
 

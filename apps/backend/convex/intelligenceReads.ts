@@ -219,7 +219,6 @@ function isReviewableTeam(team: Doc<"teams">) {
   return (
     ["confirmed", "checked_in", "active"].includes(team.status) &&
     team.membershipLocked &&
-    team.trackLocked &&
     team.lockedProjectVersionId !== undefined
   );
 }

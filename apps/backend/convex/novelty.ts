@@ -142,7 +142,7 @@ export const beginPreview = internalMutation({
       scopeType: "team",
       scopeId: team._id,
     });
-    if (team.membershipLocked || team.trackLocked) {
+    if (team.membershipLocked) {
       throw new ConvexError({
         code: "SUBMISSION_LOCKED",
         message: "This team has submitted and project intake is locked.",
@@ -375,7 +375,6 @@ export const finishPreview = internalMutation({
     if (
       team &&
       !team.membershipLocked &&
-      !team.trackLocked &&
       draft?.initialIdea &&
       draft.stage !== "submitted" &&
       draft.noveltyCorpusVersionId === request.corpusVersionId &&

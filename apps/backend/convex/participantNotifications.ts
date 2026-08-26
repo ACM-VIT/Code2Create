@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
@@ -13,7 +14,12 @@ import {
   requireMembership,
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+} from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import {
   applicationMatchesNotification,
@@ -58,17 +64,25 @@ const participantDeliveryView = v.object({
 const operationsDeliveryView = v.object({
   id: v.id("participantNotificationDeliveries"),
   state: notificationDeliveryState,
-  retryNumber: v.number(),
-  attemptCount: v.number(),
   version: v.number(),
-  providerErrorCode: v.optional(v.string()),
-  providerAcceptedAt: v.optional(v.number()),
-  sentAt: v.optional(v.number()),
-  deliveredAt: v.optional(v.number()),
-  completedAt: v.optional(v.number()),
-  createdAt: v.number(),
   updatedAt: v.number(),
 });
+
+const retryOperationResult = z
+  .object({
+    deliveryId: z.string().min(1),
+    version: z.number().int().positive(),
+  })
+  .strict();
+
+const disableDestinationOperationResult = z
+  .object({
+    destinationId: z.string().min(1),
+    status: z.literal("disabled"),
+    version: z.number().int().positive(),
+    suppressedDeliveryCount: z.number().int().nonnegative(),
+  })
+  .strict();
 
 const operationsRecipientView = v.object({
   personId: v.id("people"),
@@ -124,6 +138,7 @@ export const enqueueRosterBatch = internalMutation({
     ) {
       throw new Error("The participant notification batch context is invalid.");
     }
+    if (!applicationMatchesNotification(application, args)) return null;
     const page = await ctx.db
       .query("teamSubmissionMembers")
       .withIndex("by_submission_attempt_and_ordinal", (index) =>
@@ -167,13 +182,14 @@ export const mine = query({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const membership = await requireMembership(ctx, event._id, person._id);
-    await requirePermission(ctx, {
+    const readGrantIds = await matchingPermissionGrantIds(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
       permissionKey: "communications.delivery.self.read",
       scopeType: "self",
       scopeId: membership._id,
     });
+    if (readGrantIds.length === 0) return null;
     const delivery = await ctx.db
       .query("participantNotificationDeliveries")
       .withIndex("by_membership_created", (index) =>
@@ -294,23 +310,7 @@ export const forApplication = query({
           ? {
               id: delivery._id,
               state: delivery.state,
-              retryNumber: delivery.retryNumber,
-              attemptCount: delivery.attemptCount,
               version: delivery.version,
-              ...(delivery.providerErrorCode !== undefined
-                ? { providerErrorCode: delivery.providerErrorCode }
-                : {}),
-              ...(delivery.providerAcceptedAt !== undefined
-                ? { providerAcceptedAt: delivery.providerAcceptedAt }
-                : {}),
-              ...(delivery.sentAt !== undefined ? { sentAt: delivery.sentAt } : {}),
-              ...(delivery.deliveredAt !== undefined
-                ? { deliveredAt: delivery.deliveredAt }
-                : {}),
-              ...(delivery.completedAt !== undefined
-                ? { completedAt: delivery.completedAt }
-                : {}),
-              createdAt: delivery.createdAt,
               updatedAt: delivery.updatedAt,
             }
           : null,
@@ -351,13 +351,19 @@ export const retry = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const deliveryId = ctx.db.normalizeId("participantNotificationDeliveries", prior.targetId);
-      if (!deliveryId) throw new Error("Prior notification retry result is invalid.");
-      const delivery = await ctx.db.get(deliveryId);
-      if (!delivery || delivery.eventId !== event._id) {
-        throw new Error("Prior notification retry no longer resolves.");
+      const result = storedOperationResult(
+        prior.resultJson,
+        "notification retry",
+        retryOperationResult,
+      );
+      const deliveryId = ctx.db.normalizeId(
+        "participantNotificationDeliveries",
+        result.deliveryId,
+      );
+      if (!deliveryId || deliveryId !== prior.targetId) {
+        throw new Error("The stored notification retry target is invalid.");
       }
-      return { deliveryId: delivery._id, version: delivery.version };
+      return { deliveryId, version: result.version };
     }
 
     const source = await ctx.db.get(args.deliveryId);
@@ -469,6 +475,7 @@ export const retry = mutation({
     });
     await appendParticipantDeliveryReadFactById(ctx, deliveryId, now);
     await ctx.scheduler.runAfter(0, internal.participantEmail.deliver, { deliveryId });
+    const result = { deliveryId, version: 1 };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -477,6 +484,7 @@ export const retry = mutation({
       requestFingerprint,
       targetType: "participant_notification_delivery",
       targetId: deliveryId,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -499,11 +507,11 @@ export const retry = mutation({
         deliveryId,
         state: "pending",
         retryNumber: source.retryNumber + 1,
-        version: 1,
+        version: result.version,
       }),
       reason,
     });
-    return { deliveryId, version: 1 };
+    return result;
   },
 });
 
@@ -547,20 +555,23 @@ export const disableDestination = mutation({
       requestFingerprint,
     });
     if (prior) {
+      const result = storedOperationResult(
+        prior.resultJson,
+        "destination-disable",
+        disableDestinationOperationResult,
+      );
       const destinationId = ctx.db.normalizeId(
         "participantNotificationDestinations",
-        prior.targetId,
+        result.destinationId,
       );
-      if (!destinationId) throw new Error("Prior destination-disable result is invalid.");
-      const destination = await ctx.db.get(destinationId);
-      if (!destination || destination.eventId !== event._id || destination.status !== "disabled") {
-        throw new Error("Prior destination-disable result no longer resolves.");
+      if (!destinationId || destinationId !== prior.targetId) {
+        throw new Error("The stored destination-disable target is invalid.");
       }
       return {
-        destinationId: destination._id,
-        status: "disabled",
-        version: destination.version,
-        suppressedDeliveryCount: 0,
+        destinationId,
+        status: result.status,
+        version: result.version,
+        suppressedDeliveryCount: result.suppressedDeliveryCount,
       };
     }
 
@@ -623,6 +634,12 @@ export const disableDestination = mutation({
       });
       await appendParticipantDeliveryReadFactById(ctx, delivery._id, now);
     }
+    const result = {
+      destinationId: destination._id,
+      status: "disabled" as const,
+      version: destination.version + 1,
+      suppressedDeliveryCount: suppressible.length,
+    };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -631,6 +648,7 @@ export const disableDestination = mutation({
       requestFingerprint,
       targetType: "participant_notification_destination",
       targetId: destination._id,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -648,17 +666,12 @@ export const disableDestination = mutation({
         version: destination.version,
       }),
       nextSummary: JSON.stringify({
-        status: "disabled",
-        version: destination.version + 1,
-        suppressedDeliveryCount: suppressible.length,
+        status: result.status,
+        version: result.version,
+        suppressedDeliveryCount: result.suppressedDeliveryCount,
       }),
       reason,
     });
-    return {
-      destinationId: destination._id,
-      status: "disabled",
-      version: destination.version + 1,
-      suppressedDeliveryCount: suppressible.length,
-    };
+    return result;
   },
 });

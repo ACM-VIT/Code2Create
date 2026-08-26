@@ -27,20 +27,33 @@ import {
 } from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { appendFigmaIntegrationReadFactById } from "./lib/operationsAutonomyReadFacts/integrationJobs";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationVersion,
+} from "./lib/operations";
 import { normalizedText } from "./lib/strings";
+import {
+  eventStatus,
+  figmaCredentialConnectionState,
+  figmaCredentialState,
+  figmaFileBindingState,
+  figmaFileSyncState,
+  figmaWebhookState,
+  integrationMetricCompleteness,
+  integrationProviderHealth,
+  teamStatus,
+} from "./values";
 import { integrationWorkpool } from "./workpools";
 
 type ReadCtx = QueryCtx | MutationCtx;
 const maximumPreviewNodes = 48;
 const maximumCapturedVersions = 200;
 const maximumCapturedComments = 400;
+const figmaWebhookSetupDispatchBatchSize = 32;
+const figmaWebhookSetupLeaseDurationMs = 3 * 60 * 1_000;
 
-const metricCompleteness = v.union(
-  v.literal("complete"),
-  v.literal("partial"),
-  v.literal("unknown"),
-);
 const artifactInput = v.object({
   objectKey: v.string(),
   storageRegion: v.string(),
@@ -154,6 +167,13 @@ function requireFigmaWindow(
   }
 }
 
+function figmaFileAddOperationFingerprint(args: {
+  credentialConnectionId: Id<"figmaCredentialConnections">;
+  fileKey: string;
+}) {
+  return operationFingerprint([args.credentialConnectionId, args.fileKey]);
+}
+
 function figmaEnvironmentConfigured() {
   return Boolean(
     process.env.FIGMA_CLIENT_ID?.trim() &&
@@ -173,9 +193,9 @@ function figmaEnvironmentConfigured() {
 const currentView = v.union(
   v.null(),
   v.object({
-    eventStatus: v.string(),
+    eventStatus,
     teamId: v.id("teams"),
-    teamStatus: v.string(),
+    teamStatus,
     canManage: v.boolean(),
     figmaConfigured: v.boolean(),
     policy: v.union(
@@ -190,8 +210,8 @@ const currentView = v.union(
     connections: v.array(
       v.object({
         id: v.id("figmaCredentialConnections"),
-        state: v.string(),
-        credentialState: v.string(),
+        state: figmaCredentialConnectionState,
+        credentialState: figmaCredentialState,
         lastVerifiedAt: v.number(),
         version: v.number(),
       }),
@@ -199,12 +219,7 @@ const currentView = v.union(
     summary: v.union(
       v.null(),
       v.object({
-        health: v.union(
-          v.literal("not_connected"),
-          v.literal("ready"),
-          v.literal("syncing"),
-          v.literal("needs_attention"),
-        ),
+        health: integrationProviderHealth,
         authorizationCount: v.number(),
         fileCount: v.number(),
         completeFileCount: v.number(),
@@ -228,7 +243,7 @@ const currentView = v.union(
         commentCount: v.number(),
         unresolvedCommentCount: v.number(),
         versionCount: v.number(),
-        completeness: metricCompleteness,
+        completeness: integrationMetricCompleteness,
         oldestMetadataCheckAt: v.optional(v.number()),
         lastCaptureAt: v.optional(v.number()),
         lastActivityAt: v.optional(v.number()),
@@ -250,8 +265,8 @@ const currentView = v.union(
         versionId: v.string(),
         observedVersionId: v.optional(v.string()),
         lastTouchedAt: v.number(),
-        state: v.string(),
-        webhookState: v.string(),
+        state: figmaFileBindingState,
+        webhookState: figmaWebhookState,
         lastProviderEventAt: v.optional(v.number()),
         lastMetadataCheckAt: v.number(),
         nextMetadataCheckAt: v.optional(v.number()),
@@ -264,7 +279,7 @@ const currentView = v.union(
         rateLimitRetryAt: v.optional(v.number()),
         rateLimitPlanTier: v.optional(v.string()),
         rateLimitType: v.optional(v.string()),
-        syncState: v.string(),
+        syncState: figmaFileSyncState,
         syncErrorCode: v.optional(v.string()),
         hasFullArtifact: v.boolean(),
         artifactCapturedAt: v.optional(v.number()),
@@ -280,7 +295,7 @@ const currentView = v.union(
           commentCount: v.number(),
           unresolvedCommentCount: v.number(),
           versionCount: v.number(),
-          completeness: metricCompleteness,
+          completeness: integrationMetricCompleteness,
           capturedAt: v.number(),
         }),
       }),
@@ -317,13 +332,14 @@ export const current = query({
       ctx.db.get(membership.eventAccessSubjectId),
     ]);
     if (!team || !subject || subject.status !== "active") return null;
-    await requirePermission(ctx, {
+    const readGrantIds = await matchingPermissionGrantIds(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
-      permissionKey: "team.read",
+      permissionKey: "integration.read",
       scopeType: "team",
       scopeId: team._id,
     });
+    if (readGrantIds.length === 0) return null;
     const [policy, connections, bindings, teamMetric, manageGrantIds] = await Promise.all([
       event.publishedIntegrationPolicyId
         ? loadPublishedIntegrationPolicy(ctx, event).then((result) => result.policy)
@@ -402,13 +418,19 @@ export const current = query({
               ...(policy.figmaFreezeAt !== undefined ? { figmaFreezeAt: policy.figmaFreezeAt } : {}),
             }
           : null,
-      connections: connections.map((connection, index) => ({
-        id: connection._id,
-        state: connection.state,
-        credentialState: credentials[index]?.status ?? "missing",
-        lastVerifiedAt: connection.lastVerifiedAt,
-        version: connection.version,
-      })),
+      connections: connections.map((connection, index) => {
+        const credential = credentials[index];
+        if (!credential) {
+          throw new Error("A Figma connection references a missing credential.");
+        }
+        return {
+          id: connection._id,
+          state: connection.state,
+          credentialState: credential.status,
+          lastVerifiedAt: connection.lastVerifiedAt,
+          version: connection.version,
+        };
+      }),
       summary: teamMetric
         ? {
             health: teamMetric.health,
@@ -778,6 +800,44 @@ export const failSetupIntent = internalMutation({
   },
 });
 
+export const fileAddReceipt = internalQuery({
+  args: {
+    eventSlug: v.string(),
+    credentialConnectionId: v.id("figmaCredentialConnections"),
+    fileKey: v.string(),
+    clientOperationId: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({ bindingId: v.id("figmaFileBindings") }),
+  ),
+  handler: async (ctx, args) => {
+    const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "integration.figma.manage",
+      scopeType: "team",
+      scopeId: team._id,
+    });
+    const priorOperation = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "figma.file.add",
+      requestFingerprint: figmaFileAddOperationFingerprint(args),
+    });
+    if (!priorOperation) return null;
+    const bindingId = ctx.db.normalizeId("figmaFileBindings", priorOperation.targetId);
+    if (!bindingId) throw new Error("The prior Figma file result is invalid.");
+    const binding = await ctx.db.get(bindingId);
+    if (!binding || binding.teamId !== team._id) {
+      throw new Error("The prior Figma file result is invalid.");
+    }
+    return { bindingId };
+  },
+});
+
 export const connectionContext = internalQuery({
   args: {
     eventSlug: v.string(),
@@ -949,7 +1009,7 @@ const fileMetrics = v.object({
   commentCount: v.number(),
   unresolvedCommentCount: v.number(),
   versionCount: v.number(),
-  completeness: metricCompleteness,
+  completeness: integrationMetricCompleteness,
 });
 type FileMetricsInput = Infer<typeof fileMetrics>;
 
@@ -1354,12 +1414,7 @@ export const commitFile = internalMutation({
   returns: v.object({ bindingId: v.id("figmaFileBindings") }),
   handler: async (ctx, args) => {
     const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
-    const requestFingerprint = operationFingerprint([
-      args.credentialConnectionId,
-      args.integrationPolicyId,
-      args.fileKey,
-      args.versionId,
-    ]);
+    const requestFingerprint = figmaFileAddOperationFingerprint(args);
     const priorOperation = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1370,6 +1425,10 @@ export const commitFile = internalMutation({
     if (priorOperation) {
       const bindingId = ctx.db.normalizeId("figmaFileBindings", priorOperation.targetId);
       if (!bindingId) throw new Error("The prior Figma file result is invalid.");
+      const binding = await ctx.db.get(bindingId);
+      if (!binding || binding.teamId !== team._id) {
+        throw new Error("The prior Figma file result is invalid.");
+      }
       return { bindingId };
     }
     const policy = await requirePublishedPolicy(ctx, event);
@@ -1448,6 +1507,7 @@ export const commitFile = internalMutation({
       ...(args.thumbnailUrl !== undefined ? { thumbnailUrl: args.thumbnailUrl } : {}),
       state: "active",
       webhookState: "pending",
+      webhookSetupRetryAt: now,
       lastMetadataCheckAt: now,
       nextMetadataCheckAt: nextFigmaMetadataCheckAt({
         from: now,
@@ -1516,20 +1576,83 @@ export const commitFile = internalMutation({
       }),
       reason: "Added a team Figma file at its event baseline",
     });
+    const webhookSetupLeaseId = operationFingerprint([
+      bindingId,
+      now,
+      "figma_webhook_setup",
+    ]);
+    const webhookSetupLeaseExpiresAt = now + figmaWebhookSetupLeaseDurationMs;
+    await ctx.db.patch(bindingId, {
+      webhookSetupLeaseId,
+      webhookSetupLeaseExpiresAt,
+      webhookSetupRetryAt: webhookSetupLeaseExpiresAt,
+    });
+    await integrationWorkpool.enqueueAction(
+      ctx,
+      internal.figmaActions.configureFileWebhook,
+      { bindingId, leaseId: webhookSetupLeaseId },
+      { retry: true },
+    );
     return { bindingId };
+  },
+});
+
+const webhookSetupContext = v.object({
+  bindingId: v.id("figmaFileBindings"),
+  credentialId: v.id("figmaOAuthCredentials"),
+  fileKey: v.string(),
+  role: v.string(),
+  webhookId: v.optional(v.string()),
+});
+type WebhookSetupContext = Infer<typeof webhookSetupContext>;
+
+export const beginWebhookSetup = internalMutation({
+  args: { bindingId: v.id("figmaFileBindings"), leaseId: v.string() },
+  returns: v.union(v.null(), webhookSetupContext),
+  handler: async (ctx, args): Promise<WebhookSetupContext | null> => {
+    const binding = await ctx.db.get(args.bindingId);
+    if (
+      !binding ||
+      binding.state !== "active" ||
+      !["pending", "error"].includes(binding.webhookState) ||
+      binding.webhookSetupLeaseId !== args.leaseId
+    ) {
+      return null;
+    }
+    const now = Date.now();
+    const leaseExpiresAt = now + figmaWebhookSetupLeaseDurationMs;
+    await ctx.db.patch(binding._id, {
+      webhookSetupLeaseExpiresAt: leaseExpiresAt,
+      webhookSetupRetryAt: leaseExpiresAt,
+    });
+    return {
+      bindingId: binding._id,
+      credentialId: binding.credentialId,
+      fileKey: binding.fileKey,
+      role: binding.role,
+      ...(binding.webhookId !== undefined ? { webhookId: binding.webhookId } : {}),
+    };
   },
 });
 
 export const attachWebhook = internalMutation({
   args: {
     bindingId: v.id("figmaFileBindings"),
+    leaseId: v.string(),
     webhookId: v.string(),
     passcodeDigest: v.string(),
   },
   returns: v.object({ attached: v.boolean() }),
   handler: async (ctx, args) => {
     const binding = await ctx.db.get(args.bindingId);
-    if (!binding || binding.state !== "active") return { attached: false };
+    if (
+      !binding ||
+      binding.state !== "active" ||
+      binding.webhookSetupLeaseId !== args.leaseId ||
+      binding.webhookId !== undefined
+    ) {
+      return { attached: false };
+    }
     const now = Date.now();
     await ctx.db.patch(binding._id, {
       webhookId: args.webhookId,
@@ -1569,10 +1692,67 @@ export const webhookCleanupContext = internalQuery({
   },
 });
 
+async function requireArtifactAccess(
+  ctx: ReadCtx,
+  args: { eventSlug: string; bindingId: Id<"figmaFileBindings"> },
+) {
+  const event = await requireEventBySlug(ctx, args.eventSlug);
+  const { person } = await requireCurrentPerson(ctx);
+  const subject = await requireEventSubject(ctx, event._id, person._id);
+  const binding = await ctx.db.get(args.bindingId);
+  if (!binding || binding.eventId !== event._id || binding.state === "archived") {
+    throw new ConvexError({
+      code: "FIGMA_FILE_UNAVAILABLE",
+      message: "This Figma file is unavailable.",
+    });
+  }
+  const grantIds = await requirePermission(ctx, {
+    eventId: event._id,
+    eventAccessSubjectId: subject._id,
+    permissionKey: "integration.artifact.read",
+    scopeType: "team",
+    scopeId: binding.teamId,
+  });
+  const snapshot = await ctx.db
+    .query("figmaFileSnapshots")
+    .withIndex("by_binding_time", (index) =>
+      index.eq("figmaFileBindingId", binding._id),
+    )
+    .order("desc")
+    .first();
+  if (
+    !snapshot?.artifactId ||
+    snapshot.eventId !== event._id ||
+    snapshot.teamId !== binding.teamId
+  ) {
+    throw new ConvexError({
+      code: "FIGMA_ARTIFACT_UNAVAILABLE",
+      message: "This Figma checkpoint does not have a full-file artifact.",
+    });
+  }
+  const artifact = await ctx.db.get(snapshot.artifactId);
+  if (
+    !artifact ||
+    artifact.state !== "available" ||
+    artifact.provider !== "figma" ||
+    artifact.eventId !== event._id ||
+    artifact.teamId !== binding.teamId ||
+    artifact.figmaFileBindingId !== binding._id ||
+    artifact.providerVersionId !== snapshot.providerVersionId
+  ) {
+    throw new ConvexError({
+      code: "FIGMA_ARTIFACT_UNAVAILABLE",
+      message: "This Figma checkpoint artifact is unavailable.",
+    });
+  }
+  return { event, person, binding, snapshot, artifact, grantIds };
+}
+
 export const artifactAccessContext = internalQuery({
   args: { eventSlug: v.string(), bindingId: v.id("figmaFileBindings") },
   returns: v.object({
     artifactId: v.id("integrationArtifacts"),
+    snapshotId: v.id("figmaFileSnapshots"),
     objectKey: v.string(),
     storageRegion: v.string(),
     storageBucket: v.string(),
@@ -1580,57 +1760,80 @@ export const artifactAccessContext = internalQuery({
     capturedAt: v.number(),
   }),
   handler: async (ctx, args) => {
-    const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { person } = await requireCurrentPerson(ctx);
-    const subject = await requireEventSubject(ctx, event._id, person._id);
-    const binding = await ctx.db.get(args.bindingId);
-    if (!binding || binding.eventId !== event._id || binding.state === "archived") {
-      throw new ConvexError({
-        code: "FIGMA_FILE_UNAVAILABLE",
-        message: "This Figma file is unavailable.",
-      });
-    }
-    await requirePermission(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "integration.artifact.read",
-      scopeType: "team",
-      scopeId: binding.teamId,
-    });
-    const snapshot = await ctx.db
-      .query("figmaFileSnapshots")
-      .withIndex("by_binding_time", (index) =>
-        index.eq("figmaFileBindingId", binding._id),
-      )
-      .order("desc")
-      .first();
-    if (!snapshot?.artifactId) {
-      throw new ConvexError({
-        code: "FIGMA_ARTIFACT_UNAVAILABLE",
-        message: "This Figma checkpoint does not have a full-file artifact.",
-      });
-    }
-    const artifact = await ctx.db.get(snapshot.artifactId);
-    if (
-      !artifact ||
-      artifact.state !== "available" ||
-      artifact.eventId !== event._id ||
-      artifact.teamId !== binding.teamId ||
-      artifact.figmaFileBindingId !== binding._id
-    ) {
-      throw new ConvexError({
-        code: "FIGMA_ARTIFACT_UNAVAILABLE",
-        message: "This Figma checkpoint artifact is unavailable.",
-      });
-    }
+    const { artifact, snapshot } = await requireArtifactAccess(ctx, args);
     return {
       artifactId: artifact._id,
+      snapshotId: snapshot._id,
       objectKey: artifact.objectKey,
       storageRegion: artifact.storageRegion,
       storageBucket: artifact.storageBucket,
       sha256: artifact.sha256,
       capturedAt: snapshot.capturedAt,
     };
+  },
+});
+
+export const recordArtifactAccess = internalMutation({
+  args: {
+    eventSlug: v.string(),
+    bindingId: v.id("figmaFileBindings"),
+    snapshotId: v.id("figmaFileSnapshots"),
+    artifactId: v.id("integrationArtifacts"),
+    expectedObjectKey: v.string(),
+    expectedStorageRegion: v.string(),
+    expectedStorageBucket: v.string(),
+    expectedSha256: v.string(),
+    expectedCapturedAt: v.number(),
+    signedUrlExpiresAt: v.number(),
+  },
+  returns: v.object({ serverNow: v.number() }),
+  handler: async (ctx, args) => {
+    const { event, person, binding, snapshot, artifact, grantIds } =
+      await requireArtifactAccess(ctx, args);
+    if (
+      snapshot._id !== args.snapshotId ||
+      artifact._id !== args.artifactId ||
+      artifact.objectKey !== args.expectedObjectKey ||
+      artifact.storageRegion !== args.expectedStorageRegion ||
+      artifact.storageBucket !== args.expectedStorageBucket ||
+      artifact.sha256 !== args.expectedSha256 ||
+      snapshot.capturedAt !== args.expectedCapturedAt
+    ) {
+      throw new ConvexError({
+        code: "FIGMA_ARTIFACT_CHANGED",
+        message: "The Figma checkpoint changed while the download was prepared. Try again.",
+      });
+    }
+    const serverNow = Date.now();
+    if (
+      !Number.isSafeInteger(args.signedUrlExpiresAt) ||
+      args.signedUrlExpiresAt <= serverNow ||
+      args.signedUrlExpiresAt > serverNow + 60_000
+    ) {
+      throw new ConvexError({
+        code: "FIGMA_ARTIFACT_LINK_EXPIRED",
+        message: "The Figma checkpoint link expired while it was prepared. Try again.",
+      });
+    }
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "integration.artifact.read",
+      grantIds,
+      scopeType: "team",
+      scopeId: binding.teamId,
+      action: "figma.artifact_download_opened",
+      targetType: "integration_artifact",
+      targetId: artifact._id,
+      nextSummary: JSON.stringify({
+        bindingId: binding._id,
+        snapshotId: snapshot._id,
+        sha256: artifact.sha256,
+        signedUrlExpiresAt: args.signedUrlExpiresAt,
+      }),
+      reason: "Opened a team Figma checkpoint",
+    });
+    return { serverNow };
   },
 });
 
@@ -1649,6 +1852,9 @@ export const finishWebhookCleanup = internalMutation({
         webhookId: undefined,
         webhookPasscodeDigest: undefined,
         webhookState: "unavailable",
+        webhookSetupLeaseId: undefined,
+        webhookSetupLeaseExpiresAt: undefined,
+        webhookSetupRetryAt: undefined,
         version: binding.version + 1,
         updatedAt: now,
       });
@@ -1658,18 +1864,81 @@ export const finishWebhookCleanup = internalMutation({
   },
 });
 
-export const setWebhookState = internalMutation({
+export const finishWebhookSetup = internalMutation({
   args: {
     bindingId: v.id("figmaFileBindings"),
-    state: v.union(v.literal("active"), v.literal("unavailable"), v.literal("error")),
+    leaseId: v.string(),
+    webhookId: v.string(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const binding = await ctx.db.get(args.bindingId);
-    if (!binding || binding.state !== "active") return null;
+    if (
+      !binding ||
+      binding.state !== "active" ||
+      binding.webhookSetupLeaseId !== args.leaseId ||
+      binding.webhookId !== args.webhookId
+    ) {
+      return null;
+    }
     const now = Date.now();
     await ctx.db.patch(binding._id, {
+      webhookState: "active",
+      webhookSetupLeaseId: undefined,
+      webhookSetupLeaseExpiresAt: undefined,
+      webhookSetupRetryAt: undefined,
+      version: binding.version + 1,
+      updatedAt: now,
+    });
+    await appendFigmaIntegrationReadFactById(ctx, binding._id, now);
+    await refreshFigmaTeamMetrics(ctx, {
+      eventId: binding.eventId,
+      teamId: binding.teamId,
+      now,
+    });
+    return null;
+  },
+});
+
+export const failWebhookSetup = internalMutation({
+  args: {
+    bindingId: v.id("figmaFileBindings"),
+    leaseId: v.string(),
+    expectedWebhookId: v.optional(v.string()),
+    state: v.union(v.literal("unavailable"), v.literal("error")),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const binding = await ctx.db.get(args.bindingId);
+    const expectedWebhookMatches =
+      args.expectedWebhookId === undefined
+        ? binding?.webhookId === undefined
+        : binding?.webhookId === args.expectedWebhookId;
+    if (
+      !binding ||
+      binding.state !== "active" ||
+      binding.webhookSetupLeaseId !== args.leaseId ||
+      !expectedWebhookMatches
+    ) {
+      return null;
+    }
+    const now = Date.now();
+    const retryAt =
+      args.state === "error" ? binding.webhookSetupLeaseExpiresAt : undefined;
+    if (args.state === "error" && retryAt === undefined) {
+      throw new Error("An active Figma webhook setup lease has no expiry.");
+    }
+    await ctx.db.patch(binding._id, {
+      webhookId: undefined,
+      webhookPasscodeDigest: undefined,
       webhookState: args.state,
+      ...(args.state === "unavailable"
+        ? {
+            webhookSetupLeaseId: undefined,
+            webhookSetupLeaseExpiresAt: undefined,
+            webhookSetupRetryAt: undefined,
+          }
+        : { webhookSetupRetryAt: retryAt }),
       version: binding.version + 1,
       updatedAt: now,
     });
@@ -1714,9 +1983,12 @@ export const refreshFile = mutation({
       requestFingerprint,
     });
     if (priorOperation) {
-      const binding = await ctx.db.get(args.bindingId);
-      if (!binding) throw new Error("The prior Figma refresh no longer resolves.");
-      return { bindingId: binding._id, syncRevision: binding.syncRevision };
+      const bindingId = ctx.db.normalizeId("figmaFileBindings", priorOperation.targetId);
+      if (!bindingId) throw new Error("The stored Figma refresh is invalid.");
+      return {
+        bindingId,
+        syncRevision: storedOperationVersion(priorOperation.resultJson, "Figma refresh"),
+      };
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -1767,6 +2039,7 @@ export const refreshFile = mutation({
       requestFingerprint,
       targetType: "figma_file_binding",
       targetId: binding._id,
+      resultJson: String(syncRevision),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1834,6 +2107,9 @@ export const archiveFile = mutation({
     const now = Date.now();
     await ctx.db.patch(binding._id, {
       state: "archived",
+      webhookSetupLeaseId: undefined,
+      webhookSetupLeaseExpiresAt: undefined,
+      webhookSetupRetryAt: undefined,
       syncState: "ready",
       syncLeaseId: undefined,
       syncLeaseExpiresAt: undefined,
@@ -1878,6 +2154,63 @@ export const archiveFile = mutation({
       );
     }
     return { bindingId: binding._id };
+  },
+});
+
+export const dispatchWebhookSetups = internalMutation({
+  args: {},
+  returns: v.object({ dispatched: v.number() }),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const [pending, failed] = await Promise.all([
+      ctx.db
+        .query("figmaFileBindings")
+        .withIndex("by_state_webhook_retry", (index) =>
+          index
+            .eq("state", "active")
+            .eq("webhookState", "pending")
+            .lte("webhookSetupRetryAt", now),
+        )
+        .take(figmaWebhookSetupDispatchBatchSize),
+      ctx.db
+        .query("figmaFileBindings")
+        .withIndex("by_state_webhook_retry", (index) =>
+          index
+            .eq("state", "active")
+            .eq("webhookState", "error")
+            .lte("webhookSetupRetryAt", now),
+        )
+        .take(figmaWebhookSetupDispatchBatchSize),
+    ]);
+    const candidates = [...pending, ...failed].slice(
+      0,
+      figmaWebhookSetupDispatchBatchSize,
+    );
+    for (const binding of candidates) {
+      if (binding.webhookSetupRetryAt === undefined) {
+        throw new Error("A due Figma webhook setup has no retry time.");
+      }
+      const leaseId = operationFingerprint([
+        binding._id,
+        binding.version,
+        binding.webhookSetupRetryAt,
+        now,
+        "figma_webhook_recovery",
+      ]);
+      const leaseExpiresAt = now + figmaWebhookSetupLeaseDurationMs;
+      await ctx.db.patch(binding._id, {
+        webhookSetupLeaseId: leaseId,
+        webhookSetupLeaseExpiresAt: leaseExpiresAt,
+        webhookSetupRetryAt: leaseExpiresAt,
+      });
+      await integrationWorkpool.enqueueAction(
+        ctx,
+        internal.figmaActions.configureFileWebhook,
+        { bindingId: binding._id, leaseId },
+        { retry: true },
+      );
+    }
+    return { dispatched: candidates.length };
   },
 });
 
@@ -2808,6 +3141,9 @@ export const acceptWebhook = internalMutation({
     } else if (args.eventType === "PING") {
       await ctx.db.patch(binding._id, {
         webhookState: "active",
+        webhookSetupLeaseId: undefined,
+        webhookSetupLeaseExpiresAt: undefined,
+        webhookSetupRetryAt: undefined,
         version: binding.version + 1,
         updatedAt: now,
       });

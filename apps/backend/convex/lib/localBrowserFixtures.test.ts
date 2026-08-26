@@ -3,11 +3,13 @@ import test from "node:test";
 
 import {
   localBrowserFixtureOrigins,
+  localBrowserReturnUrl,
   requireLocalDeployment,
 } from "./localBrowserFixtures.ts";
 
 const fixtureEnvironmentKeys = [
   "LOCAL_DEVELOPMENT_SEED_ENABLED",
+  "LOCAL_TUNNEL_FIXTURES_ENABLED",
   "CONVEX_CLOUD_URL",
   "CONVEX_SITE_URL",
   "AUTH_SITE_URL",
@@ -21,6 +23,7 @@ type FixtureEnvironment = Record<FixtureEnvironmentKey, string | undefined>;
 
 const validLocalEnvironment: FixtureEnvironment = {
   LOCAL_DEVELOPMENT_SEED_ENABLED: "true",
+  LOCAL_TUNNEL_FIXTURES_ENABLED: undefined,
   CONVEX_CLOUD_URL: "http://127.0.0.1:3210",
   CONVEX_SITE_URL: "http://127.0.0.1:3211",
   AUTH_SITE_URL: "http://localhost:3211",
@@ -29,10 +32,21 @@ const validLocalEnvironment: FixtureEnvironment = {
   HANDBOOK_SITE_URL: "http://localhost:5182",
 };
 
+const validTunnelEnvironment: FixtureEnvironment = {
+  ...validLocalEnvironment,
+  LOCAL_TUNNEL_FIXTURES_ENABLED: "true",
+  AUTH_SITE_URL: "https://auth-code2create.trycloudflare.com",
+  PARTICIPANT_SITE_URL: "https://participant-code2create.trycloudflare.com",
+  OPERATIONS_SITE_URL: "https://operations-code2create.trycloudflare.com",
+  HANDBOOK_SITE_URL: "https://handbook-code2create.trycloudflare.com",
+};
+
 function readFixtureEnvironment(): FixtureEnvironment {
   return {
     LOCAL_DEVELOPMENT_SEED_ENABLED:
       process.env.LOCAL_DEVELOPMENT_SEED_ENABLED,
+    LOCAL_TUNNEL_FIXTURES_ENABLED:
+      process.env.LOCAL_TUNNEL_FIXTURES_ENABLED,
     CONVEX_CLOUD_URL: process.env.CONVEX_CLOUD_URL,
     CONVEX_SITE_URL: process.env.CONVEX_SITE_URL,
     AUTH_SITE_URL: process.env.AUTH_SITE_URL,
@@ -55,11 +69,11 @@ function rejectsLocalFixtures(environment: FixtureEnvironment) {
   assert.equal(localBrowserFixtureOrigins(), null);
   assert.throws(
     () => requireLocalDeployment(),
-    /full localhost-only stack/u,
+    /approved local test stack/u,
   );
 }
 
-test("local fixture access requires the complete localhost-only stack", async (t) => {
+test("local fixture access requires an approved local test stack", async (t) => {
   const originalEnvironment = readFixtureEnvironment();
   try {
     await t.test("accepts the normal local stack", () => {
@@ -73,9 +87,28 @@ test("local fixture access requires the complete localhost-only stack", async (t
       assert.doesNotThrow(() => requireLocalDeployment());
     });
 
+    await t.test("accepts an explicitly enabled quick-tunnel stack", () => {
+      setFixtureEnvironment(validTunnelEnvironment);
+      assert.deepEqual(localBrowserFixtureOrigins(), {
+        auth: validTunnelEnvironment.AUTH_SITE_URL,
+        participant: validTunnelEnvironment.PARTICIPANT_SITE_URL,
+        operations: validTunnelEnvironment.OPERATIONS_SITE_URL,
+        handbook: validTunnelEnvironment.HANDBOOK_SITE_URL,
+      });
+      assert.doesNotThrow(() => requireLocalDeployment());
+    });
+
+    await t.test("rejects quick-tunnel origins without the explicit flag", () => {
+      rejectsLocalFixtures({
+        ...validTunnelEnvironment,
+        LOCAL_TUNNEL_FIXTURES_ENABLED: undefined,
+      });
+    });
+
     await t.test("rejects the seed flag without all four origins", () => {
       rejectsLocalFixtures({
         LOCAL_DEVELOPMENT_SEED_ENABLED: "true",
+        LOCAL_TUNNEL_FIXTURES_ENABLED: undefined,
         CONVEX_CLOUD_URL: "http://127.0.0.1:3210",
         CONVEX_SITE_URL: "http://127.0.0.1:3211",
         AUTH_SITE_URL: undefined,
@@ -105,6 +138,13 @@ test("local fixture access requires the complete localhost-only stack", async (t
         ...validLocalEnvironment,
         CONVEX_CLOUD_URL: "https://example.convex.cloud",
         CONVEX_SITE_URL: "https://example.convex.site",
+      });
+    });
+
+    await t.test("rejects a tunnel fixture stack on a non-Cloudflare hostname", () => {
+      rejectsLocalFixtures({
+        ...validTunnelEnvironment,
+        OPERATIONS_SITE_URL: "https://operations.example.test",
       });
     });
 
@@ -170,5 +210,27 @@ test("local fixture access requires the complete localhost-only stack", async (t
     }
   } finally {
     setFixtureEnvironment(originalEnvironment);
+  }
+});
+
+test("local sign-in keeps only a same-app return path", () => {
+  assert.equal(
+    localBrowserReturnUrl(
+      "http://localhost:5180",
+      "/join/C2C7ABC?from=invite#team",
+    ).toString(),
+    "http://localhost:5180/join/C2C7ABC?from=invite#team",
+  );
+  for (const value of [
+    "",
+    "join/C2C7ABC",
+    "//example.test/join/C2C7ABC",
+    "/\\example.test/join/C2C7ABC",
+    `/join/${"x".repeat(2_048)}`,
+  ]) {
+    assert.throws(
+      () => localBrowserReturnUrl("http://localhost:5180", value),
+      /local sign-in return path/u,
+    );
   }
 });

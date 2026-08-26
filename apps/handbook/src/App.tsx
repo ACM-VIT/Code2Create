@@ -109,7 +109,7 @@ function Handbook({
   if (!firstDocument) return <Centered>The handbook has no documents.</Centered>
 
   return (
-    <div className="handbook-shell">
+    <div className="handbook-shell" data-app-surface="handbook">
       <header className="handbook-header">
         <NavLink className="wordmark" to={`/docs/${firstDocument.slug}`}>
           Code2Create handbook
@@ -291,6 +291,7 @@ function SignIn({
         confirmation: 'create-code2create-local-browser-session',
         actor: 'supreme',
         surface: 'handbook',
+        returnPath: `${window.location.pathname}${window.location.search}${window.location.hash}`,
       })
       window.location.assign(session.url)
     } catch (caught) {
@@ -314,7 +315,7 @@ function SignIn({
           </button>
         ) : null}
         {!googleConfigured && !localDevelopmentFixturesEnabled ? (
-          <p className="notice">Google sign-in is not configured in this environment.</p>
+          <p className="notice">Google sign-in is unavailable. Ask an organizer to check handbook access.</p>
         ) : null}
         {error ? <p className="notice error" role="alert">{error}</p> : null}
       </section>

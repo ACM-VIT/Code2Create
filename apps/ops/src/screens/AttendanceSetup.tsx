@@ -8,8 +8,10 @@ import { TZDateMini } from '@date-fns/tz'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
 
+import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
+import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
@@ -51,6 +53,11 @@ type CreateDraftArgs = FunctionArgs<typeof api.attendanceConfiguration.createDra
 type SessionInput = CreateDraftArgs['sessions'][number]
 type StationInput = CreateDraftArgs['stations'][number]
 type ZoneInput = CreateDraftArgs['zones'][number]
+type PendingAttendanceOperation = {
+  kind: 'draft' | 'publish'
+  title: string
+  action: string
+}
 
 const sessionKinds: readonly { value: SessionInput['kind']; label: string }[] = [
   { value: 'hacking', label: 'Hacking session' },
@@ -82,7 +89,23 @@ const credentialKinds: readonly { value: CredentialKind; label: string }[] = [
   { value: 'portal_qr', label: 'Participant portal QR' },
 ]
 
-export function AttendanceSetup() {
+const barcodeSymbologyLabels: Record<BarcodeSymbology, string> = {
+  aztec: 'Aztec',
+  ean13: 'EAN-13',
+  ean8: 'EAN-8',
+  qr: 'QR',
+  pdf417: 'PDF417',
+  upc_e: 'UPC-E',
+  datamatrix: 'Data Matrix',
+  code39: 'Code 39',
+  code93: 'Code 93',
+  itf14: 'ITF-14',
+  codabar: 'Codabar',
+  code128: 'Code 128',
+  upc_a: 'UPC-A',
+}
+
+export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility }) {
   const publicState = useQuery(api.system.getPublicShellState, { eventSlug })
   const configuration = useQuery(api.attendanceConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.attendanceConfiguration.createDraft)
@@ -106,6 +129,20 @@ export function AttendanceSetup() {
   const publishAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceConfiguration.publish>>()
   const draftPending = draftAttempt.hasPending('attendance-plan-draft')
   const publishPending = publishAttempt.hasPending('attendance-plan-publish')
+  const pendingOperation: PendingAttendanceOperation | null = publishPending
+    ? {
+        kind: 'publish',
+        title: 'Finish publishing the check-in plan',
+        action: 'Confirm earlier publication',
+      }
+    : draftPending
+      ? {
+          kind: 'draft',
+          title: 'Finish saving the check-in plan draft',
+          action: 'Confirm earlier save',
+        }
+      : null
+  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     const source = configuration?.editorSource
@@ -178,6 +215,7 @@ export function AttendanceSetup() {
 
   const saveDraft = async (event: FormEvent) => {
     event.preventDefault()
+    if (busy || operationPending) return
     setBusy(true)
     setError(null)
     try {
@@ -282,7 +320,7 @@ export function AttendanceSetup() {
   }
 
   const publishDraft = async () => {
-    if (!configuration.draftPlan) return
+    if (busy || operationPending || !configuration.draftPlan) return
     const draftPlan = configuration.draftPlan
     setBusy(true)
     setError(null)
@@ -305,13 +343,30 @@ export function AttendanceSetup() {
     }
   }
 
+  const confirmPendingOperation = async () => {
+    if (busy || pendingOperation === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      if (pendingOperation.kind === 'publish') {
+        await publishAttempt.retryPending('attendance-plan-publish')
+        setPublishArmed(false)
+      } else {
+        await draftAttempt.retryPending('attendance-plan-draft')
+      }
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <section className="attendance-shell setup-shell">
-      <Link className="back-link" to="/attendance">← Attendance</Link>
+      <ConfigurationTabs visibility={tabs} />
       <header className="page-heading">
         <div>
-          <p className="eyebrow">Event setup</p>
-          <h1>Check-in schedule</h1>
+          <h1>Check-in plan</h1>
           <p className="muted">Times are entered in {timezone}. Assign each scanner phone to the hacking sessions it will cover.</p>
         </div>
       </header>
@@ -326,7 +381,16 @@ export function AttendanceSetup() {
         </p>
       ) : null}
 
-      {configuration.draftPlan ? (
+      {pendingOperation ? (
+        <PendingOperationRecovery
+          action={pendingOperation.action}
+          busy={busy}
+          onConfirm={() => void confirmPendingOperation()}
+          title={pendingOperation.title}
+        />
+      ) : null}
+
+      {!operationPending && configuration.draftPlan ? (
         <section className="draft-summary">
           <div>
             <p className="eyebrow">Current draft</p>
@@ -341,7 +405,7 @@ export function AttendanceSetup() {
         </section>
       ) : null}
 
-      {configuration.draftPlan && configuration.canPublish && publishArmed ? (
+      {!operationPending && configuration.draftPlan && configuration.canPublish && publishArmed ? (
         <section className="publish-confirmation">
           <h2>Publish this plan?</h2>
           <p className="muted">
@@ -360,8 +424,13 @@ export function AttendanceSetup() {
         </section>
       ) : null}
 
-      {configuration.canConfigure ? (
-        <form className="setup-form" onSubmit={saveDraft}>
+      {!operationPending && configuration.canConfigure ? (
+        <ConfigurationEditorDisclosure
+          defaultOpen={Boolean(configuration.draftPlan)}
+          description="Hacking sessions, phone scanner stations, barcode credentials, and offline replay limits."
+          title={configuration.draftPlan ? 'Continue check-in-plan draft' : 'Edit check-in plan'}
+        >
+          <form className="setup-form" onSubmit={saveDraft}>
           <fieldset disabled={draftPending} style={{ display: 'contents' }}>
           <section className="setup-section">
             <h2>Plan</h2>
@@ -584,7 +653,7 @@ export function AttendanceSetup() {
           </section>
 
           </fieldset>
-          <section className="setup-section final-setup-section">
+          <section className="configuration-save final-setup-section">
             <Field label="Why this changed">
               <textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} />
             </Field>
@@ -592,7 +661,8 @@ export function AttendanceSetup() {
               {busy ? 'Saving…' : draftPending ? 'Confirm earlier draft' : configuration.draftPlan ? 'Replace draft' : 'Create draft'}
             </button>
           </section>
-        </form>
+          </form>
+        </ConfigurationEditorDisclosure>
       ) : null}
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </section>
@@ -720,16 +790,5 @@ function requiredPositiveInteger(value: string, label: string) {
 }
 
 function barcodeName(value: BarcodeSymbology) {
-  if (value === 'qr') return 'QR'
-  if (value === 'code128') return 'Code 128'
-  if (value === 'code39') return 'Code 39'
-  if (value === 'code93') return 'Code 93'
-  if (value === 'ean13') return 'EAN-13'
-  if (value === 'ean8') return 'EAN-8'
-  if (value === 'itf14') return 'ITF-14'
-  if (value === 'pdf417') return 'PDF417'
-  if (value === 'upc_a') return 'UPC-A'
-  if (value === 'upc_e') return 'UPC-E'
-  if (value === 'datamatrix') return 'Data Matrix'
-  return value.charAt(0).toUpperCase() + value.slice(1)
+  return barcodeSymbologyLabels[value]
 }

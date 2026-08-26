@@ -253,7 +253,6 @@ describe("admission offer lifecycle", () => {
     expect(state.team).toMatchObject({
       status: "withdrawn",
       membershipLocked: true,
-      trackLocked: true,
       lockedProjectVersionId: fixture.projectId,
     });
     expect(state.membership?.onboardingStatus).toBe("submitted");
@@ -276,6 +275,7 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt,
       endsAt,
       version: 1,
@@ -334,7 +334,6 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       activeVitMemberCount: 0,
       activeExternalMemberCount: 1,
       membershipLocked: true,
-      trackLocked: true,
       version: 2,
       createdAt: now,
       updatedAt: now,
@@ -347,29 +346,6 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       status: "active",
       joinedAt: now,
       source: "created",
-    });
-    const catalogId = await ctx.db.insert("trackCatalogVersions", {
-      eventId,
-      version: 1,
-      status: "published",
-      requiredCoreTrackCount: 1,
-      checksum: "offer-catalog",
-      createdByPersonId: personId,
-      createdAt: now,
-      publishedAt: now,
-    });
-    const trackId = await ctx.db.insert("trackVersions", {
-      eventId,
-      catalogVersionId: catalogId,
-      stableKey: "open-innovation",
-      slug: "open-innovation",
-      displayName: "Open innovation",
-      description: "A practical event-sized project.",
-      examples: [],
-      displayOrder: 0,
-      type: "core",
-      status: "published",
-      createdAt: now,
     });
     const policyId = await ctx.db.insert("admissionPolicyVersions", {
       eventId,
@@ -438,13 +414,9 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
     const projectDraftId = await ctx.db.insert("projectDrafts", {
       eventId,
       teamId,
-      trackCatalogVersionId: catalogId,
       intakePolicyVersionId: intakePolicyId,
       stage: "review",
       initialIdea: "A quiet, reliable venue coordination tool.",
-      chosenCoreTrackVersionId: trackId,
-      chosenSponsorTrackVersionIds: [],
-      recommendationState: "unavailable",
       version: 1,
       lastEditedByMembershipId: membershipId,
       updatedAt: now,
@@ -497,7 +469,6 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       intakePolicyVersionId: intakePolicyId,
       participantPolicyVersionId: participantPolicyId,
       admissionPolicyVersionId: policyId,
-      coreTrackVersionId: trackId,
       submittedAt: now,
     });
     const projectId = await ctx.db.insert("projectVersions", {
@@ -518,8 +489,6 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
           skipped: false,
         },
       ],
-      coreTrackVersionId: trackId,
-      sponsorTrackVersionIds: [],
       lockedRosterSnapshotId,
       lockedMemberCount: 1,
       lockedLeadMembershipId: membershipId,
@@ -532,8 +501,6 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
         participantPolicyVersionId: participantPolicyId,
         previewedDraftVersion: 1,
         previewedTeamVersion: 1,
-        previewedTrackVersionId: trackId,
-        previewedSponsorTrackVersionIds: [],
         confirmedByMembershipId: membershipId,
         confirmedAt: now,
       },
@@ -564,7 +531,6 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
     const capacityId = await ctx.db.insert("admissionCapacityBuckets", {
       eventId,
       admissionPolicyVersionId: policyId,
-      scope: "overall",
       capacity: 100,
       reserved: 0,
       version: 1,

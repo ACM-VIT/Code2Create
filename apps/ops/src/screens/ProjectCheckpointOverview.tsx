@@ -7,6 +7,7 @@ import { eventSlug } from '../lib/config'
 
 type CheckpointKey = 'ideation' | 'intermediate_update' | 'final_update'
 type Availability = 'awaiting_confirmation' | 'upcoming' | 'open' | 'late' | 'closed' | 'submitted'
+type CheckpointView = 'outstanding' | 'submitted' | 'all'
 
 const availabilityLabels: Record<Availability, string> = {
   awaiting_confirmation: 'Has not confirmed its place',
@@ -20,6 +21,8 @@ const availabilityLabels: Record<Availability, string> = {
 export function ProjectCheckpointOverview() {
   const eventState = useQuery(api.projectCheckpoints.eventState, { eventSlug })
   const [checkpointKey, setCheckpointKey] = useState<CheckpointKey>('ideation')
+  const [view, setView] = useState<CheckpointView>('outstanding')
+  const [search, setSearch] = useState('')
   const teams = usePaginatedQuery(
     api.projectCheckpoints.teams,
     eventState?.configured ? { eventSlug, checkpointKey } : 'skip',
@@ -49,6 +52,15 @@ export function ProjectCheckpointOverview() {
     if (leftDone !== rightDone) return leftDone ? 1 : -1
     return left.teamName.localeCompare(right.teamName)
   })
+  const normalizedSearch = search.trim().toLocaleLowerCase()
+  const visibleRows = rows.filter((team) => {
+    if (view === 'outstanding' && team.submittedAt !== undefined) return false
+    if (view === 'submitted' && team.submittedAt === undefined) return false
+    return normalizedSearch.length === 0 || team.teamName.toLocaleLowerCase().includes(normalizedSearch)
+  })
+  const completion = summary && summary.totalTeamCount > 0
+    ? Math.round((summary.submittedCount / summary.totalTeamCount) * 100)
+    : 0
   return (
     <section className="integration-health-shell">
       <div className="page-heading">
@@ -70,7 +82,11 @@ export function ProjectCheckpointOverview() {
                 className={candidate.checkpointKey === checkpointKey ? 'stage-chip active' : 'stage-chip'}
                 key={candidate.checkpointKey}
                 type="button"
-                onClick={() => setCheckpointKey(candidate.checkpointKey)}
+                onClick={() => {
+                  setCheckpointKey(candidate.checkpointKey)
+                  setView('outstanding')
+                  setSearch('')
+                }}
               >
                 {candidate.displayName}
               </button>
@@ -78,23 +94,67 @@ export function ProjectCheckpointOverview() {
           </nav>
 
           {checkpoint ? (
-            <div className="catalog-summary">
-              <Stat
-                label="Still to submit"
-                value={summary === undefined ? '…' : String(summary.outstandingCount)}
-              />
-              <Stat
-                label="Submitted"
-                value={summary === undefined ? '…' : `${summary.submittedCount} of ${summary.totalTeamCount}`}
-              />
-              <Stat label="Due" value={formatTime(checkpoint.dueAt)} />
-              <Stat label="Closes" value={formatTime(checkpoint.closesAt)} />
+            <div className="checkpoint-progress">
+              <div className="checkpoint-progress-copy">
+                <span>Submission progress</span>
+                <strong>
+                  {summary === undefined
+                    ? 'Loading teams…'
+                    : `${summary.submittedCount} of ${summary.totalTeamCount} submitted`}
+                </strong>
+              </div>
+              <div
+                aria-label={`${completion}% submitted`}
+                aria-valuemax={100}
+                aria-valuemin={0}
+                aria-valuenow={completion}
+                className="checkpoint-progress-track"
+                role="progressbar"
+              >
+                <span style={{ width: `${completion}%` }} />
+              </div>
+              <dl className="checkpoint-progress-window">
+                <Stat label="Due" value={formatTime(checkpoint.dueAt)} />
+                <Stat label="Closes" value={formatTime(checkpoint.closesAt)} />
+              </dl>
             </div>
           ) : null}
 
+          <div className="checkpoint-toolbar">
+            <div className="configuration-tabs" role="tablist" aria-label="Submission state">
+              <CheckpointViewButton
+                active={view === 'outstanding'}
+                count={summary?.outstandingCount}
+                label="Still to submit"
+                onClick={() => setView('outstanding')}
+              />
+              <CheckpointViewButton
+                active={view === 'submitted'}
+                count={summary?.submittedCount}
+                label="Submitted"
+                onClick={() => setView('submitted')}
+              />
+              <CheckpointViewButton
+                active={view === 'all'}
+                count={summary?.totalTeamCount}
+                label="Every team"
+                onClick={() => setView('all')}
+              />
+            </div>
+            <label className="compact-search">
+              <span className="visually-hidden">Find a team</span>
+              <input
+                type="search"
+                placeholder="Find a team"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </label>
+          </div>
+
           {teams.status === 'LoadingFirstPage' ? <SkeletonList rows={5} /> : null}
           <div className="checkpoint-operations-list">
-            {rows.map((team) => (
+            {visibleRows.map((team) => (
               <article className="checkpoint-operations-row" key={team.teamId}>
                 <div>
                   <strong>{team.teamName}</strong>
@@ -118,11 +178,17 @@ export function ProjectCheckpointOverview() {
               </article>
             ))}
 
-            {rows.length === 0 && teams.status !== 'LoadingFirstPage' ? (
+            {visibleRows.length === 0 && teams.status !== 'LoadingFirstPage' ? (
               <p className="muted">
                 {summary?.totalTeamCount === 0
                   ? 'No teams are available for this update.'
-                  : 'No team rows have been loaded.'}
+                  : normalizedSearch.length > 0
+                    ? `No team matches “${search.trim()}”.`
+                    : view === 'outstanding'
+                      ? 'Every loaded team has submitted this update.'
+                      : view === 'submitted'
+                        ? 'No loaded team has submitted this update yet.'
+                        : 'No team rows have been loaded.'}
               </p>
             ) : null}
           </div>
@@ -134,6 +200,30 @@ export function ProjectCheckpointOverview() {
         </>
       )}
     </section>
+  )
+}
+
+function CheckpointViewButton({
+  active,
+  count,
+  label,
+  onClick,
+}: {
+  active: boolean
+  count: number | undefined
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      aria-selected={active}
+      className={active ? 'active' : ''}
+      role="tab"
+      type="button"
+      onClick={onClick}
+    >
+      {label}{count === undefined ? '' : ` · ${count}`}
+    </button>
   )
 }
 

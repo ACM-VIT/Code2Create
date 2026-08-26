@@ -205,11 +205,11 @@ describe("permission grant writes", () => {
 
     await backend.run((ctx) => grantPanelMemberAccess(ctx, args));
     expect(await subjectAccessVersion(backend, fixture.reviewerSubjectId)).toBe(2);
-    expect(await sourceGrantCount(backend, fixture.eventId, review.panelMemberId)).toBe(4);
+    expect(await sourceGrantCount(backend, fixture.eventId, review.panelMemberId)).toBe(5);
 
     await backend.run((ctx) => grantPanelMemberAccess(ctx, args));
     expect(await subjectAccessVersion(backend, fixture.reviewerSubjectId)).toBe(2);
-    expect(await sourceGrantCount(backend, fixture.eventId, review.panelMemberId)).toBe(4);
+    expect(await sourceGrantCount(backend, fixture.eventId, review.panelMemberId)).toBe(5);
   });
 
   test("enforces exact-scope ownership and bounded scoped reads", async () => {
@@ -336,6 +336,7 @@ async function seedWriteFixture(backend: BackendTest, now: number) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,

@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
@@ -12,6 +13,7 @@ import {
   saveAdmissionConfigurationDraft,
 } from "./lib/admissionPolicy";
 import { writeAuditEvent } from "./lib/audit";
+import { storedConfigurationResult } from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
@@ -22,6 +24,22 @@ import {
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
+
+const admissionDraftOperationResult = z
+  .object({
+    modelConfigVersionId: z.string().min(1).nullable(),
+    policyChecksum: z.string().min(1),
+    modelChecksum: z.string().min(1).nullable(),
+    changed: z.boolean(),
+  })
+  .strict();
+
+const admissionPublicationOperationResult = z
+  .object({
+    modelConfigVersionId: z.string().min(1).nullable(),
+    eventVersion: z.number().int().positive(),
+  })
+  .strict();
 
 const releaseView = v.object({
   policyId: v.id("admissionPolicyVersions"),
@@ -233,15 +251,24 @@ export const createDraft = mutation({
     });
     if (prior) {
       const policyVersionId = ctx.db.normalizeId("admissionPolicyVersions", prior.targetId);
-      const policy = policyVersionId ? await ctx.db.get(policyVersionId) : null;
-      if (!policy) throw new Error("The prior admission draft no longer resolves.");
-      const release = await loadAdmissionConfigurationVersion(ctx, policy);
+      if (!policyVersionId) throw new Error("The stored admission draft is invalid.");
+      const stored = storedConfigurationResult(
+        prior.resultJson,
+        "admission draft",
+        admissionDraftOperationResult,
+      );
+      const modelConfigVersionId = stored.modelConfigVersionId
+        ? ctx.db.normalizeId("admissionModelConfigVersions", stored.modelConfigVersionId)
+        : null;
+      if (stored.modelConfigVersionId && !modelConfigVersionId) {
+        throw new Error("The stored admission draft is invalid.");
+      }
       return {
-        policyVersionId: policy._id,
-        modelConfigVersionId: release.model?._id ?? null,
-        policyChecksum: policy.checksum,
-        modelChecksum: release.model?.checksum ?? null,
-        changed: false,
+        policyVersionId,
+        modelConfigVersionId,
+        policyChecksum: stored.policyChecksum,
+        modelChecksum: stored.modelChecksum,
+        changed: stored.changed,
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -276,6 +303,12 @@ export const createDraft = mutation({
       requestFingerprint,
       targetType: "admission_policy",
       targetId: result.policyVersionId,
+      resultJson: JSON.stringify({
+        modelConfigVersionId: result.modelConfigVersionId,
+        policyChecksum: result.policyChecksum,
+        modelChecksum: result.modelChecksum,
+        changed: result.changed,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -330,13 +363,24 @@ export const publish = mutation({
     });
     if (prior) {
       const policyVersionId = ctx.db.normalizeId("admissionPolicyVersions", prior.targetId);
-      const policy = policyVersionId ? await ctx.db.get(policyVersionId) : null;
-      if (!policy) throw new Error("The prior admission publication no longer resolves.");
-      const release = await loadAdmissionConfigurationVersion(ctx, policy);
+      if (!policyVersionId) {
+        throw new Error("The stored admission publication is invalid.");
+      }
+      const stored = storedConfigurationResult(
+        prior.resultJson,
+        "admission publication",
+        admissionPublicationOperationResult,
+      );
+      const modelConfigVersionId = stored.modelConfigVersionId
+        ? ctx.db.normalizeId("admissionModelConfigVersions", stored.modelConfigVersionId)
+        : null;
+      if (stored.modelConfigVersionId && !modelConfigVersionId) {
+        throw new Error("The stored admission publication is invalid.");
+      }
       return {
-        policyVersionId: policy._id,
-        modelConfigVersionId: release.model?._id ?? null,
-        eventVersion: event.version,
+        policyVersionId,
+        modelConfigVersionId,
+        eventVersion: stored.eventVersion,
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -371,6 +415,10 @@ export const publish = mutation({
       requestFingerprint,
       targetType: "admission_policy",
       targetId: result.policyVersionId,
+      resultJson: JSON.stringify({
+        modelConfigVersionId: result.modelConfigVersionId,
+        eventVersion: result.eventVersion,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

@@ -3,7 +3,12 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
-import { ensurePerson, requireVerifiedGoogleIdentity } from "./lib/identity";
+import {
+  currentAuthSessionFreshness,
+  ensurePerson,
+  requireVerifiedGoogleIdentity,
+  sensitiveCommandSessionMaxAgeMs,
+} from "./lib/identity";
 import {
   admissionModelConfigurationChecksum,
   admissionPolicyChecksum,
@@ -40,24 +45,7 @@ import { addEventSubjectSelfGrants, insertPermissionGrant } from "./lib/permissi
 import type { PermissionKey } from "./lib/permissionCatalog";
 import { normalizeEmail, normalizedText } from "./lib/strings";
 import { loadPublishedPhaseSchedule } from "./lib/phaseSchedule";
-import {
-  normalizeRequiredCoreTrackCount,
-  normalizeTrackCatalog,
-  trackCatalogChecksum,
-} from "./lib/trackCatalog";
 import { eventPhaseKey, eventStatus } from "./values";
-
-const publicTrack = v.object({
-  id: v.id("trackVersions"),
-  stableKey: v.string(),
-  slug: v.string(),
-  displayName: v.string(),
-  description: v.string(),
-  examples: v.array(v.string()),
-  displayOrder: v.number(),
-  type: v.union(v.literal("core"), v.literal("sponsor")),
-  eligibilityText: v.optional(v.string()),
-});
 
 const publicEventPhase = v.object({
   phaseKey: eventPhaseKey,
@@ -69,6 +57,7 @@ const publicEventPhase = v.object({
 });
 
 const publicShellState = v.object({
+  serverNow: v.number(),
   auth: v.object({
     googleConfigured: v.boolean(),
     localDevelopmentFixturesEnabled: v.boolean(),
@@ -110,6 +99,17 @@ function initialEventSlug() {
   return configured;
 }
 
+export const freshAuthenticationStatus = query({
+  args: {},
+  returns: v.object({ fresh: v.boolean() }),
+  handler: async (ctx) => ({
+    fresh: (await currentAuthSessionFreshness(
+      ctx,
+      sensitiveCommandSessionMaxAgeMs,
+    )).fresh,
+  }),
+});
+
 export const bootstrapEligibility = query({
   args: { eventSlug: v.string() },
   returns: v.object({
@@ -149,9 +149,9 @@ export const getPublicState = query({
         timezone: v.string(),
         status: eventStatus,
         registrationOpen: v.boolean(),
+        applicationsCloseAt: v.number(),
         teamMinSize: v.number(),
         teamMaxSize: v.number(),
-        tracks: v.array(publicTrack),
         phases: v.array(publicEventPhase),
       }),
     ),
@@ -169,23 +169,6 @@ export const getPublicState = query({
       };
     }
 
-    const catalogVersionId = event.publishedTrackCatalogId;
-    const tracks = catalogVersionId
-      ? await ctx.db
-          .query("trackVersions")
-          .withIndex("by_catalog_type_order", (index) =>
-            index.eq("catalogVersionId", catalogVersionId).eq("type", "core"),
-          )
-          .collect()
-      : [];
-    const sponsorTracks = catalogVersionId
-      ? await ctx.db
-          .query("trackVersions")
-          .withIndex("by_catalog_type_order", (index) =>
-            index.eq("catalogVersionId", catalogVersionId).eq("type", "sponsor"),
-          )
-          .collect()
-      : [];
     const [phaseSchedule, participantPolicy] = await Promise.all([
       loadPublishedPhaseSchedule(ctx, event),
       loadPublishedParticipantPolicy(ctx, event),
@@ -199,22 +182,11 @@ export const getPublicState = query({
         name: event.name,
         timezone: event.timezone,
         status: event.status,
-        registrationOpen: event.status === "registration_open",
+        registrationOpen:
+          event.status === "registration_open" && Date.now() < event.applicationsCloseAt,
+        applicationsCloseAt: event.applicationsCloseAt,
         teamMinSize: participantPolicy.normalized.teamMinimumSize,
         teamMaxSize: participantPolicy.normalized.teamMaximumSize,
-        tracks: [...tracks, ...sponsorTracks].map((track) => ({
-          id: track._id,
-          stableKey: track.stableKey,
-          slug: track.slug,
-          displayName: track.displayName,
-          description: track.description,
-          examples: track.examples,
-          displayOrder: track.displayOrder,
-          type: track.type,
-          ...(track.eligibilityText !== undefined
-            ? { eligibilityText: track.eligibilityText }
-            : {}),
-        })),
         phases: phaseSchedule
           ? phaseSchedule.windows.map((phase) => ({
               phaseKey: phase.phaseKey,
@@ -239,6 +211,7 @@ export const getPublicShellState = query({
       .withIndex("by_slug", (index) => index.eq("slug", args.eventSlug))
       .unique();
     return {
+      serverNow: Date.now(),
       auth: publicAuthState(),
       event: event
         ? {
@@ -253,22 +226,12 @@ export const getPublicShellState = query({
   },
 });
 
-const bootstrapTrack = v.object({
-  stableKey: v.string(),
-  slug: v.string(),
-  displayName: v.string(),
-  description: v.string(),
-  examples: v.array(v.string()),
-  displayOrder: v.number(),
-  type: v.union(v.literal("core"), v.literal("sponsor")),
-  eligibilityText: v.optional(v.string()),
-});
-
 export const bootstrapEvent = mutation({
   args: {
     eventSlug: v.string(),
     eventName: v.string(),
     timezone: v.string(),
+    applicationsCloseAt: v.number(),
     vitEmailDomains: v.array(v.string()),
     participantPolicy: participantPolicyInput,
     admissionPolicyVersion: v.string(),
@@ -295,10 +258,8 @@ export const bootstrapEvent = mutation({
       githubFreezeAt: v.optional(v.number()),
       figmaFreezeAt: v.optional(v.number()),
     }),
-    requiredCoreTrackCount: v.number(),
-    tracks: v.array(bootstrapTrack),
   },
-  returns: v.object({ eventId: v.id("events"), catalogVersionId: v.id("trackCatalogVersions") }),
+  returns: v.object({ eventId: v.id("events") }),
   handler: async (ctx, args) => {
     const { user, person } = await ensurePerson(ctx);
     if (!initialSupremeEmails().includes(normalizeEmail(user.email))) {
@@ -364,14 +325,20 @@ export const bootstrapEvent = mutation({
         : {}),
     });
 
-    const requiredCoreTrackCount = normalizeRequiredCoreTrackCount(
-      args.requiredCoreTrackCount,
-    );
-    const tracks = normalizeTrackCatalog(requiredCoreTrackCount, args.tracks);
     const intakePolicy = normalizeIntakePolicy(args.intakePolicy);
     const communicationsPolicy = normalizeCommunicationsPolicy(args.communicationsPolicy);
 
     const now = Date.now();
+    if (
+      !Number.isSafeInteger(args.applicationsCloseAt) ||
+      args.applicationsCloseAt <= now ||
+      args.applicationsCloseAt > communicationsPolicy.startsAt
+    ) {
+      throw new ConvexError({
+        code: "INVALID_APPLICATION_DEADLINE",
+        message: "The application deadline must be in the future and no later than the event start.",
+      });
+    }
     const admissionPolicyVersion = normalizedText(
       args.admissionPolicyVersion,
       "Admission policy version",
@@ -384,6 +351,7 @@ export const bootstrapEvent = mutation({
       timezone: args.timezone.trim(),
       status: "draft",
       vitEmailDomains: args.vitEmailDomains.map((domain) => domain.trim().toLowerCase()),
+      applicationsCloseAt: args.applicationsCloseAt,
       startsAt: communicationsPolicy.startsAt,
       endsAt: communicationsPolicy.endsAt,
       createdByPersonId: person._id,
@@ -391,25 +359,6 @@ export const bootstrapEvent = mutation({
       createdAt: now,
       updatedAt: now,
     });
-    const catalogVersionId = await ctx.db.insert("trackCatalogVersions", {
-      eventId,
-      version: 1,
-      status: "published",
-      requiredCoreTrackCount,
-      checksum: trackCatalogChecksum(requiredCoreTrackCount, tracks),
-      createdByPersonId: person._id,
-      createdAt: now,
-      publishedAt: now,
-    });
-    for (const track of tracks) {
-      await ctx.db.insert("trackVersions", {
-        eventId,
-        catalogVersionId,
-        ...track,
-        status: "published",
-        createdAt: now,
-      });
-    }
     const participantPolicyVersionId = await ctx.db.insert("participantPolicyVersions", {
       eventId,
       version: 1,
@@ -444,7 +393,6 @@ export const bootstrapEvent = mutation({
       },
     );
     await ctx.db.patch(eventId, {
-      publishedTrackCatalogId: catalogVersionId,
       publishedParticipantPolicyId: participantPolicyVersionId,
       publishedIntakePolicyId: intakePolicyVersionId,
       publishedCommunicationsPolicyId: communicationsPolicyVersionId,
@@ -504,7 +452,6 @@ export const bootstrapEvent = mutation({
     await ctx.db.insert("admissionCapacityBuckets", {
       eventId,
       admissionPolicyVersionId: admissionPolicyId,
-      scope: "overall",
       capacity: args.admissionParticipantCapacity,
       reserved: 0,
       version: 1,
@@ -751,25 +698,6 @@ export const bootstrapEvent = mutation({
       grantedByPersonId: person._id,
       reason: "Initial event configuration authority",
     });
-    const intakeConfigurationPermissions = [
-      "configuration.read",
-      "configuration.draft.create",
-      "configuration.validate",
-      "configuration.publish",
-    ] satisfies PermissionKey[];
-    for (const permissionKey of intakeConfigurationPermissions) {
-      await insertPermissionGrant(ctx, {
-        eventId,
-        personId: person._id,
-        eventAccessSubjectId: subjectId,
-        permissionKey,
-        scopeType: "event",
-        sourceType: "production_seed",
-        sourceId: bootstrapSource,
-        grantedByPersonId: person._id,
-        reason: "Initial intake-configuration authority",
-      });
-    }
     const phaseConfigurationPermissions = [
       "configuration.phase.read",
       "configuration.phase.draft.create",
@@ -1177,6 +1105,7 @@ export const bootstrapEvent = mutation({
       "application.assign",
       "application.profile_context.read",
       "application.ai_recommendation.read",
+      "application.ai_recommendation.run",
       "application.decide",
       "application.offer.manage",
     ] satisfies PermissionKey[];
@@ -1194,7 +1123,15 @@ export const bootstrapEvent = mutation({
       });
     }
 
+    await ctx.scheduler.runAt(
+      args.applicationsCloseAt,
+      internal.eventLifecycle.closeRegistrationAtDeadline,
+      {
+        eventId,
+        expectedApplicationsCloseAt: args.applicationsCloseAt,
+      },
+    );
     await ctx.scheduler.runAfter(0, internal.operationsHealth.refresh, {});
-    return { eventId, catalogVersionId };
+    return { eventId };
   },
 });

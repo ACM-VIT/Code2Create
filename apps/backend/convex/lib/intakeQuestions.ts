@@ -77,7 +77,6 @@ export async function loadActiveIntakeAnswers(
 export function intakeInputFingerprint(args: {
   draftId: Id<"projectDrafts">;
   policyChecksum: string;
-  trackCatalogChecksum: string;
   ordinal: number;
   answers: readonly Doc<"intakeAnswerVersions">[];
 }) {
@@ -85,7 +84,6 @@ export function intakeInputFingerprint(args: {
     JSON.stringify({
       draftId: args.draftId,
       policyChecksum: args.policyChecksum,
-      trackCatalogChecksum: args.trackCatalogChecksum,
       ordinal: args.ordinal,
       answers: args.answers
         .map((answer) => ({ id: answer._id, promptKey: answer.promptKey }))

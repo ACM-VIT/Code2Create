@@ -11,7 +11,6 @@ type ParticipantClass = "vit_student" | "external_participant";
 type AttendanceCohort =
   | { kind: "all_admitted" }
   | { kind: "participant_classes"; participantClasses: readonly ParticipantClass[] }
-  | { kind: "tracks"; trackVersionIds: readonly string[] }
   | { kind: "explicit"; membershipIds: readonly string[] };
 
 type AttendanceSessionLimitInput = {
@@ -103,7 +102,6 @@ function maximumPossibleApplicableSessionCount(
 ) {
   let universalCount = 0;
   const classCounts = new Map<ParticipantClass, number>();
-  const trackCounts = new Map<string, number>();
   const membershipCounts = new Map<string, number>();
 
   for (const session of sessions) {
@@ -112,8 +110,6 @@ function maximumPossibleApplicableSessionCount(
       universalCount += 1;
     } else if (cohort.kind === "participant_classes") {
       incrementEach(classCounts, cohort.participantClasses);
-    } else if (cohort.kind === "tracks") {
-      incrementEach(trackCounts, cohort.trackVersionIds);
     } else {
       incrementEach(membershipCounts, cohort.membershipIds);
     }
@@ -121,7 +117,6 @@ function maximumPossibleApplicableSessionCount(
 
   return universalCount +
     maximumCount(classCounts) +
-    maximumCount(trackCounts) +
     maximumCount(membershipCounts);
 }
 

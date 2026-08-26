@@ -1,14 +1,27 @@
+import type {
+  AttendanceSessionRequirement,
+  AttendanceSessionStatus,
+  AttendanceStationStatus,
+  EventStatus,
+  ParticipantClass,
+  ParticipantEligibilityStatus,
+  ReviewPanelStatus,
+  ReviewRoundStatus,
+  TeamStatus,
+  VenuePresenceState,
+} from "../values";
+
 export type EmergencyPackRosterRow = {
   participantReference: string;
   name: string;
   phone?: string;
   vitRegistrationNumber?: string;
-  participantClass: string;
-  eligibilityStatus: string;
+  participantClass: ParticipantClass;
+  eligibilityStatus: ParticipantEligibilityStatus;
   teamName?: string;
   teamCode?: string;
-  teamStatus?: string;
-  attendanceState: string;
+  teamStatus?: TeamStatus;
+  attendanceState: VenuePresenceState;
   attendanceZoneName?: string;
   attendanceUpdatedAt?: number;
   hallZoneName?: string;
@@ -21,7 +34,7 @@ export type EmergencyPackStation = {
   name: string;
   zoneId: string;
   zoneName: string;
-  status: string;
+  status: AttendanceStationStatus;
   configurationVersion: number;
   deviceName?: string;
 };
@@ -29,8 +42,8 @@ export type EmergencyPackStation = {
 export type EmergencyPackSession = {
   id: string;
   name: string;
-  status: string;
-  requirement: string;
+  status: AttendanceSessionStatus;
+  requirement: AttendanceSessionRequirement;
   zoneId: string;
   zoneName: string;
   startsAt: number;
@@ -49,7 +62,7 @@ export type EmergencyPackCriterion = {
 export type EmergencyPackPanel = {
   id: string;
   name: string;
-  status: string;
+  status: ReviewPanelStatus;
   version: number;
   coordinatorName: string;
   reviewerNames: string[];
@@ -58,7 +71,7 @@ export type EmergencyPackPanel = {
 export type EmergencyPackRound = {
   id: string;
   name: string;
-  status: string;
+  status: ReviewRoundStatus;
   startsAt: number;
   endsAt: number;
   version: number;
@@ -75,7 +88,7 @@ export type EmergencyPackSnapshot = {
     name: string;
     slug: string;
     timezone: string;
-    status: string;
+    status: EventStatus;
     venue?: string;
     startsAt?: number;
     endsAt?: number;

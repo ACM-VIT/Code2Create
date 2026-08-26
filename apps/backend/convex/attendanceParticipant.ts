@@ -13,9 +13,14 @@ import {
   requireEventSubject,
   requireMembership,
 } from "./lib/identity";
-import { requirePermission } from "./lib/permissions";
+import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { latestVenueCheckIn } from "./lib/venueCheckInLifecycle";
-import { sessionPresenceState, venuePresenceState } from "./values";
+import {
+  attendanceSessionRequirement,
+  attendanceSessionStatus,
+  sessionPresenceState,
+  venuePresenceState,
+} from "./values";
 
 type ParticipantPhysicalCredential =
   | {
@@ -36,6 +41,8 @@ export const mine = query({
   args: { eventSlug: v.string() },
   returns: v.object({
     available: v.boolean(),
+    canMintPortalQr: v.boolean(),
+    canReadResultHistory: v.boolean(),
     physicalCredential: v.union(
       v.object({
         kind: v.literal("vit_id_barcode"),
@@ -74,8 +81,8 @@ export const mine = query({
       v.object({
         id: v.id("attendanceSessions"),
         name: v.string(),
-        requirement: v.string(),
-        status: v.string(),
+        requirement: attendanceSessionRequirement,
+        status: attendanceSessionStatus,
         startsAt: v.number(),
         endsAt: v.number(),
         checkInOpensAt: v.number(),
@@ -85,15 +92,6 @@ export const mine = query({
         state: sessionPresenceState,
         late: v.boolean(),
         updatedAt: v.number(),
-      }),
-    ),
-    recentEvents: v.array(
-      v.object({
-        id: v.id("attendancePresenceEvents"),
-        outcome: v.string(),
-        reasonCode: v.string(),
-        transition: v.string(),
-        receivedAt: v.number(),
       }),
     ),
   }),
@@ -119,8 +117,9 @@ export const mine = query({
       venueCheckIn,
       venue,
       projections,
-      recentEvents,
       physicalCredential,
+      portalQrGrantIds,
+      resultHistoryGrantIds,
     ] = await Promise.all([
       latestVenueCheckIn(ctx, membership._id),
       ctx.db
@@ -139,12 +138,21 @@ export const mine = query({
             )
             .take(maximumAttendanceSessionsPerPlan + 1)
         : [],
-      ctx.db
-        .query("attendancePresenceEvents")
-        .withIndex("by_membership_time", (index) => index.eq("membershipId", membership._id))
-        .order("desc")
-        .take(5),
       participantPhysicalCredential(ctx, membership._id, membership.participantClass),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "attendance.portal_qr.mint",
+        scopeType: "self",
+        scopeId: membership._id,
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "attendance.remedy.self.read",
+        scopeType: "self",
+        scopeId: membership._id,
+      }),
     ]);
     if (projections.length > maximumAttendanceSessionsPerPlan) {
       throw new ConvexError({
@@ -191,6 +199,8 @@ export const mine = query({
           membership.onboardingStatus === "accepted" &&
           planIsPublished,
       ),
+      canMintPortalQr: portalQrGrantIds.length > 0,
+      canReadResultHistory: resultHistoryGrantIds.length > 0,
       physicalCredential,
       venueCheckIn: venueCheckIn
         ? {
@@ -203,14 +213,43 @@ export const mine = query({
         : null,
       venue: venue ? { state: venue.state, updatedAt: venue.updatedAt } : null,
       sessions,
-      recentEvents: recentEvents.map((presenceEvent) => ({
-        id: presenceEvent._id,
-        outcome: presenceEvent.outcome,
-        reasonCode: presenceEvent.reasonCode,
-        transition: presenceEvent.transition,
-        receivedAt: presenceEvent.receivedAt,
-      })),
     };
+  },
+});
+
+export const portalQrState = query({
+  args: {
+    eventSlug: v.string(),
+    tokenId: v.id("attendancePortalQrTokens"),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      state: v.union(v.literal("active"), v.literal("used"), v.literal("revoked")),
+      expiresAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const membership = await requireMembership(ctx, event._id, person._id);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "attendance.self.read",
+      scopeType: "self",
+      scopeId: membership._id,
+    });
+    const token = await ctx.db.get(args.tokenId);
+    if (
+      !token ||
+      token.eventId !== event._id ||
+      token.membershipId !== membership._id
+    ) {
+      return null;
+    }
+    return { state: token.state, expiresAt: token.expiresAt };
   },
 });
 

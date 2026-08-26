@@ -51,7 +51,7 @@ export function AutonomyPolicyFields({
     <>
       <PolicySection
         title="Operating mode"
-        description="Observe produces a durable run record. Recommend may additionally create typed proposals for an operator to decide."
+        description="Observe records what the agent finds. Recommend also lets it prepare actions for an operator to approve or reject."
       >
         <label className="intelligence-enable">
           <input
@@ -120,10 +120,10 @@ export function AutonomyPolicyFields({
 
       <PolicySection
         title="Evidence tools"
-        description="The agent can call only these server-owned redacted reads. This is an allowlist, not a prompt suggestion."
+        description="Choose exactly which event information the agent may read. Anything not selected stays unavailable."
       >
         <ChoiceSet
-          label="Readable event projections"
+          label="Event information the agent may read"
           options={readToolOptions}
           requiredValues={['operations_health']}
           values={policy.allowedReadTools}
@@ -138,7 +138,7 @@ export function AutonomyPolicyFields({
       {policy.mode === 'recommend' ? (
         <PolicySection
           title="Recommendation scope"
-          description="A recommendation records an exact versioned command for human review. The agent still cannot execute it."
+          description="Choose the kinds of action the agent may prepare for human review. The agent cannot execute them."
         >
           <ChoiceSet
             label="Allowed proposal kinds"
@@ -151,18 +151,18 @@ export function AutonomyPolicyFields({
 
       <PolicySection
         title="Authority boundary"
-        description="Reasoning, read traversal, tool use, investigator work, and proposal creation have no product quota. Technical requests still stream and paginate for reliability."
+        description="The agent may investigate as deeply as needed within the event information selected above. It cannot take consequential action."
       >
         <p className="notice">
           The agent can observe and propose. It cannot change access, identity, participant state,
           judging, scores, notifications, money, releases, or another materially consequential
-          state. Those actions remain human-confirmed, versioned commands.
+          state. A person must confirm those actions.
         </p>
       </PolicySection>
 
       <PolicySection
         title="Accountable owner"
-        description="Every claim rechecks that this active event account retains the permissions required by the selected mode."
+        description="This person is responsible for the agent. Their required event access is checked again for every run."
       >
         <label className="field">
           <span>Find an event account</span>

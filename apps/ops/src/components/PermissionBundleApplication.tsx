@@ -3,6 +3,7 @@ import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { useState, type FormEvent } from 'react'
 
+import { AccessManagementDisclosure } from './AccessManagementDisclosure'
 import { BundleBindingField } from './BundleBindingField'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -127,13 +128,11 @@ export function PermissionBundleApplication({
   }
 
   return (
-    <section className="permission-command bundle-application">
-      <div>
-        <h2>Add reusable access</h2>
-        <p className="muted">
-          Choose a published access set, then review the exact permissions before adding them.
-        </p>
-      </div>
+    <AccessManagementDisclosure
+      description="Apply a published access set after reviewing its exact permissions."
+      title="Add reusable access"
+    >
+      <div className="bundle-application">
       <form className="bundle-application-form" onSubmit={requestPreview}>
         <fieldset disabled={busy || applyPending} style={{ display: 'contents' }}>
         <label className="field">
@@ -224,6 +223,7 @@ export function PermissionBundleApplication({
       ) : null}
       {message ? <p className="notice" role="status">{message}</p> : null}
       {error ? <p className="notice error" role="alert">{error}</p> : null}
-    </section>
+      </div>
+    </AccessManagementDisclosure>
   )
 }

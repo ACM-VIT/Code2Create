@@ -6,7 +6,12 @@ import { advanceAccessVersion } from "./lib/accessVersion";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationVersion,
+} from "./lib/operations";
 import { appendReviewPanelVacancyReadFactById } from "./lib/operationsAutonomyReadFacts";
 import { loadPublishedParticipantPolicy } from "./lib/participantPolicy";
 import {
@@ -28,6 +33,7 @@ import {
   maximumReviewRoundsPerEvent,
 } from "./lib/reviewLimits";
 import { normalizedText } from "./lib/strings";
+import { normalizedE164Phone } from "./lib/outboundCalls";
 
 const anchorInput = v.object({
   zero: v.string(),
@@ -246,9 +252,10 @@ export const saveProfile = mutation({
     if (prior) {
       const profileId = ctx.db.normalizeId("reviewerProfiles", prior.targetId);
       if (!profileId) throw new Error("Prior reviewer profile result is invalid.");
-      const saved = await ctx.db.get(profileId);
-      if (!saved) throw new Error("Prior reviewer profile no longer resolves.");
-      return { profileId, version: saved.version };
+      return {
+        profileId,
+        version: storedOperationVersion(prior.resultJson, "reviewer-profile"),
+      };
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -286,14 +293,20 @@ export const saveProfile = mutation({
       });
     }
     const now = Date.now();
-    const contactPhone = args.contactPhone?.trim();
+    const contactPhoneInput = args.contactPhone?.trim();
+    const contactPhone = normalizedE164Phone(contactPhoneInput);
+    if (contactPhoneInput && contactPhone === null) {
+      throw new ConvexError({
+        code: "INVALID_CONTACT_PHONE",
+        message: "Enter the reviewer phone in international format, for example +919876543210.",
+      });
+    }
     const criterionKeys = normalizedList(args.criterionKeys, "Criterion key", 20).map((key) =>
       stableKey(key, "Criterion key"),
     );
     const fields = {
       eventId: event._id,
       personId: target._id,
-      ...(contactPhone ? { contactPhone: normalizedText(contactPhone, "Contact phone", 7, 30) } : {}),
       technicalDomains: normalizedList(args.technicalDomains, "Technical domain", 20),
       productDomains: normalizedList(args.productDomains, "Product domain", 20),
       languages: normalizedList(args.languages, "Language", 12),
@@ -304,10 +317,20 @@ export const saveProfile = mutation({
       version: currentVersion + 1,
       updatedAt: now,
     };
-    const profileId = current
-      ? current._id
-      : await ctx.db.insert("reviewerProfiles", { ...fields, createdAt: now });
-    if (current) await ctx.db.patch(current._id, fields);
+    let profileId: Id<"reviewerProfiles">;
+    if (current) {
+      profileId = current._id;
+      await ctx.db.patch(current._id, {
+        ...fields,
+        contactPhone: contactPhone ?? undefined,
+      });
+    } else {
+      profileId = await ctx.db.insert("reviewerProfiles", {
+        ...fields,
+        ...(contactPhone !== null ? { contactPhone } : {}),
+        createdAt: now,
+      });
+    }
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: actor._id,
@@ -316,6 +339,7 @@ export const saveProfile = mutation({
       requestFingerprint,
       targetType: "reviewer_profile",
       targetId: profileId,
+      resultJson: String(currentVersion + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -353,6 +377,7 @@ export const candidates = query({
       profile: v.union(
         v.null(),
         v.object({
+          contactPhone: v.optional(v.string()),
           technicalDomains: v.array(v.string()),
           productDomains: v.array(v.string()),
           languages: v.array(v.string()),
@@ -464,6 +489,9 @@ export const candidates = query({
           manageablePersonIds?.has(subject.personId) === true,
         profile: profile
           ? {
+              ...(profile.contactPhone !== undefined
+                ? { contactPhone: profile.contactPhone }
+                : {}),
               technicalDomains: profile.technicalDomains,
               productDomains: profile.productDomains,
               languages: profile.languages,
@@ -502,6 +530,7 @@ export const current = query({
         panelCount: v.number(),
         reviewerCount: v.number(),
         reserveCount: v.number(),
+        canReadBoard: v.boolean(),
       }),
     ),
   }),
@@ -521,10 +550,19 @@ export const current = query({
       .collect();
     const summaries = await Promise.all(
       rounds.map(async (round) => {
-        const panels = await ctx.db
-          .query("reviewPanels")
-          .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
-          .collect();
+        const [panels, roundReadGrantIds] = await Promise.all([
+          ctx.db
+            .query("reviewPanels")
+            .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
+            .collect(),
+          matchingPermissionGrantIds(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            permissionKey: "round.read",
+            scopeType: "round",
+            scopeId: round._id,
+          }),
+        ]);
         const [members, reserves] = await Promise.all([
           Promise.all(
             panels.map((panel) =>
@@ -556,6 +594,7 @@ export const current = query({
           panelCount: panels.filter((panel) => panel.status !== "closed").length,
           reviewerCount: new Set(members.flat().map((member) => member.personId)).size,
           reserveCount: reserves.filter((reserve) => reserve.status !== "removed").length,
+          canReadBoard: roundReadGrantIds.length > 0,
         };
       }),
     );
@@ -626,10 +665,11 @@ export const publishRound = mutation({
     });
     if (prior) {
       const roundId = ctx.db.normalizeId("reviewRounds", prior.targetId);
-      if (!roundId) throw new Error("Prior round result is invalid.");
-      const round = await ctx.db.get(roundId);
-      if (!round) throw new Error("Prior round result no longer resolves.");
-      return { roundId, rubricVersionId: round.rubricVersionId };
+      const rubricVersionId = prior.resultJson
+        ? ctx.db.normalizeId("reviewRubricVersions", prior.resultJson)
+        : null;
+      if (!roundId || !rubricVersionId) throw new Error("Prior round result is invalid.");
+      return { roundId, rubricVersionId };
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -1006,19 +1046,24 @@ export const publishRound = mutation({
         updatedAt: now,
       });
       let createdGrantCount = 0;
-      const deviceGrant = await insertPermissionGrant(ctx, {
-        eventId: event._id,
-        personId: reviewer.personId,
-        eventAccessSubjectId: reviewer.subjectId,
-        permissionKey: "reviewer.device.register",
-        scopeType: "self",
-        scopeId: reviewer.subjectId,
-        sourceType: "reserve_assignment",
-        sourceId: reserveId,
-        grantedByPersonId: actor._id,
-        reason: "Published reserve reviewer assignment",
-      });
-      if (deviceGrant.created) createdGrantCount += 1;
+      for (const permissionKey of [
+        "reviewer.device.register",
+        "communications.call_consent.manage",
+      ] as const) {
+        const result = await insertPermissionGrant(ctx, {
+          eventId: event._id,
+          personId: reviewer.personId,
+          eventAccessSubjectId: reviewer.subjectId,
+          permissionKey,
+          scopeType: "self",
+          scopeId: reviewer.subjectId,
+          sourceType: "reserve_assignment",
+          sourceId: reserveId,
+          grantedByPersonId: actor._id,
+          reason: "Published reserve reviewer assignment",
+        });
+        if (result.created) createdGrantCount += 1;
+      }
       for (const permissionKey of ["reviewer.clock_in", "round.read"] as const) {
         const result = await insertPermissionGrant(ctx, {
           eventId: event._id,
@@ -1046,6 +1091,7 @@ export const publishRound = mutation({
       requestFingerprint,
       targetType: "review_round",
       targetId: roundId,
+      resultJson: rubricVersionId,
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

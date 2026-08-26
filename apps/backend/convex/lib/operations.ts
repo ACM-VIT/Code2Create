@@ -1,6 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { ConvexError } from "convex/values";
+import type { ZodType } from "zod";
 
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -9,6 +10,30 @@ export type OperationFingerprintPart = string | number | boolean | null;
 
 export function operationFingerprint(parts: readonly OperationFingerprintPart[]) {
   return bytesToHex(sha256(utf8ToBytes(JSON.stringify(parts))));
+}
+
+export function storedOperationVersion(resultJson: string | undefined, label: string) {
+  const version = Number(resultJson);
+  if (!Number.isSafeInteger(version) || version < 1) {
+    throw new Error(`The stored ${label} version is invalid.`);
+  }
+  return version;
+}
+
+export function storedOperationResult<Result>(
+  resultJson: string | undefined,
+  label: string,
+  schema: ZodType<Result>,
+) {
+  let value: unknown;
+  try {
+    value = JSON.parse(resultJson ?? "");
+  } catch {
+    throw new Error(`The stored ${label} result is invalid.`);
+  }
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) throw new Error(`The stored ${label} result is invalid.`);
+  return parsed.data;
 }
 
 export async function findOperation(

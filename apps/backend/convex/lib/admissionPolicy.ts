@@ -144,7 +144,7 @@ export const defaultAdmissionCriteria: AdmissionCriterion[] = [
       postgraduateOrProfessional:
         "The proposal gives a concrete technical direction, acknowledges common alternatives, and states a defensible distinction.",
       mixedOrExternal:
-        "The core interaction and useful distinction are clear, without penalising the team for choosing a non-recommended track.",
+        "The core interaction and useful distinction are clear for the team’s stated context.",
     },
   },
 ];
@@ -664,11 +664,8 @@ export async function publishAdmissionConfiguration(
   const published = await loadPublishedAdmissionConfiguration(ctx, args.event);
   const oldCapacity = await ctx.db
     .query("admissionCapacityBuckets")
-    .withIndex("by_policy_scope_track", (index) =>
-      index
-        .eq("admissionPolicyVersionId", published.policy._id)
-        .eq("scope", "overall")
-        .eq("trackVersionId", undefined),
+    .withIndex("by_policy", (index) =>
+      index.eq("admissionPolicyVersionId", published.policy._id),
     )
     .unique();
   if (!oldCapacity || oldCapacity.reserved !== 0) {
@@ -683,7 +680,6 @@ export async function publishAdmissionConfiguration(
   await ctx.db.insert("admissionCapacityBuckets", {
     eventId: args.event._id,
     admissionPolicyVersionId: draft._id,
-    scope: "overall",
     capacity: draft.overallParticipantCapacity,
     reserved: 0,
     version: 1,

@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -13,6 +14,8 @@ import {
   findOperation,
   operationFingerprint,
   recordOperation,
+  storedOperationResult,
+  storedOperationVersion,
 } from "./lib/operations";
 import { appendSupportCaseReadFactById } from "./lib/operationsAutonomyReadFacts";
 import {
@@ -128,6 +131,14 @@ const createResult = v.object({
   publicCode: v.string(),
   version: v.number(),
 });
+
+const createOperationResult = z
+  .object({
+    id: z.string().min(1),
+    publicCode: z.string().min(1),
+    version: z.number().int().positive(),
+  })
+  .strict();
 
 const activeCaseStates = ["open", "investigating", "waiting"] as const;
 const supportSummaryLimit = 20;
@@ -723,13 +734,14 @@ export const mine = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    await requirePermission(ctx, {
+    const readGrantIds = await matchingPermissionGrantIds(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
       permissionKey: "support.case.read",
       scopeType: "self",
       scopeId: subject._id,
     });
+    if (readGrantIds.length === 0) return [];
     const replyGrants = await matchingPermissionGrantIds(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -765,13 +777,16 @@ export const mineSummary = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    await requirePermission(ctx, {
+    const readGrantIds = await matchingPermissionGrantIds(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
       permissionKey: "support.case.read",
       scopeType: "self",
       scopeId: subject._id,
     });
+    if (readGrantIds.length === 0) {
+      return { openCount: 0, countIsLowerBound: false };
+    }
     const activeCases = (
       await Promise.all(
         activeCaseStates.map((state) =>
@@ -797,6 +812,7 @@ export const mineSummary = query({
 export const staffList = query({
   args: { eventSlug: v.string(), state: staffStateFilter },
   returns: v.object({
+    serverNow: v.number(),
     currentPersonId: v.id("people"),
     canCreate: v.boolean(),
     totals: staffTotals,
@@ -891,6 +907,7 @@ export const staffList = query({
     const rows = ordered.slice(0, staffPageSize);
 
     return {
+      serverNow: Date.now(),
       currentPersonId: person._id,
       canCreate: createGrants.length > 0,
       totals,
@@ -987,22 +1004,16 @@ async function supportCaseDetail(
     scopeType: "support_case",
     scopeId: supportCase._id,
   });
-  if (!isReporter && staffReadGrants.length === 0) {
-    throw new ConvexError({
-      code: "ACCESS_DENIED",
-      message: "This account cannot read that support case.",
-    });
-  }
-  if (isReporter) {
-    await requirePermission(ctx, {
-      eventId: args.eventId,
-      eventAccessSubjectId: args.eventAccessSubjectId,
-      permissionKey: "support.case.read",
-      scopeType: "self",
-      scopeId: args.eventAccessSubjectId,
-    });
-  }
-  const [replyGrants, manageGrants] = await Promise.all([
+  const [reporterReadGrants, replyGrants, manageGrants] = await Promise.all([
+    isReporter
+      ? matchingPermissionGrantIds(ctx, {
+          eventId: args.eventId,
+          eventAccessSubjectId: args.eventAccessSubjectId,
+          permissionKey: "support.case.read",
+          scopeType: "self",
+          scopeId: args.eventAccessSubjectId,
+        })
+      : Promise.resolve([]),
     isReporter
       ? matchingPermissionGrantIds(ctx, {
           eventId: args.eventId,
@@ -1020,6 +1031,7 @@ async function supportCaseDetail(
       scopeId: supportCase._id,
     }),
   ]);
+  if (staffReadGrants.length === 0 && reporterReadGrants.length === 0) return null;
   const staffViewer = staffReadGrants.length > 0;
   const viewer: "reporter" | "staff" = staffViewer ? "staff" : "reporter";
   return {
@@ -1037,7 +1049,7 @@ async function supportCaseDetail(
 
 export const detail = query({
   args: { eventSlug: v.string(), supportCaseId: v.id("supportCases") },
-  returns: detailView,
+  returns: v.union(v.null(), detailView),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -1060,7 +1072,7 @@ export const detail = query({
 
 export const detailByPublicCode = query({
   args: { eventSlug: v.string(), publicCode: v.string() },
-  returns: detailView,
+  returns: v.union(v.null(), detailView),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -1126,17 +1138,19 @@ export const createSelf = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const supportCaseId = ctx.db.normalizeId("supportCases", prior.targetId);
-      const supportCase = supportCaseId
-        ? await ctx.db.get("supportCases", supportCaseId)
-        : null;
-      if (!supportCase || supportCase.eventId !== event._id) {
-        throw new Error("Prior support case creation no longer resolves.");
+      const result = storedOperationResult(
+        prior.resultJson,
+        "support case creation",
+        createOperationResult,
+      );
+      const supportCaseId = ctx.db.normalizeId("supportCases", result.id);
+      if (!supportCaseId || supportCaseId !== prior.targetId) {
+        throw new Error("The stored support case creation is invalid.");
       }
       return {
-        id: supportCase._id,
-        publicCode: supportCase.publicCode,
-        version: supportCase.version,
+        id: supportCaseId,
+        publicCode: result.publicCode,
+        version: result.version,
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -1173,6 +1187,7 @@ export const createSelf = mutation({
       requestFingerprint,
       targetType: "support_case",
       targetId: result.id,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1241,17 +1256,19 @@ export const createStaff = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const supportCaseId = ctx.db.normalizeId("supportCases", prior.targetId);
-      const supportCase = supportCaseId
-        ? await ctx.db.get("supportCases", supportCaseId)
-        : null;
-      if (!supportCase || supportCase.eventId !== event._id) {
-        throw new Error("Prior staff support case creation no longer resolves.");
+      const result = storedOperationResult(
+        prior.resultJson,
+        "staff support case creation",
+        createOperationResult,
+      );
+      const supportCaseId = ctx.db.normalizeId("supportCases", result.id);
+      if (!supportCaseId || supportCaseId !== prior.targetId) {
+        throw new Error("The stored staff support case creation is invalid.");
       }
       return {
-        id: supportCase._id,
-        publicCode: supportCase.publicCode,
-        version: supportCase.version,
+        id: supportCaseId,
+        publicCode: result.publicCode,
+        version: result.version,
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -1294,6 +1311,7 @@ export const createStaff = mutation({
       requestFingerprint,
       targetType: "support_case",
       targetId: result.id,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1349,13 +1367,11 @@ export const replySelf = mutation({
     });
     if (prior) {
       const supportCaseId = ctx.db.normalizeId("supportCases", prior.targetId);
-      const supportCase = supportCaseId
-        ? await ctx.db.get("supportCases", supportCaseId)
-        : null;
-      if (!supportCase || supportCase.eventId !== event._id) {
-        throw new Error("Prior support reply no longer resolves.");
-      }
-      return { id: supportCase._id, version: supportCase.version };
+      if (!supportCaseId) throw new Error("The stored support reply is invalid.");
+      return {
+        id: supportCaseId,
+        version: storedOperationVersion(prior.resultJson, "support-case"),
+      };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const grantIds = await requirePermission(ctx, {
@@ -1451,6 +1467,7 @@ export const replySelf = mutation({
       requestFingerprint,
       targetType: "support_case",
       targetId: supportCase._id,
+      resultJson: String(supportCase.version + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1528,13 +1545,11 @@ export const updateStaff = mutation({
     });
     if (prior) {
       const supportCaseId = ctx.db.normalizeId("supportCases", prior.targetId);
-      const supportCase = supportCaseId
-        ? await ctx.db.get("supportCases", supportCaseId)
-        : null;
-      if (!supportCase || supportCase.eventId !== event._id) {
-        throw new Error("Prior support update no longer resolves.");
-      }
-      return { id: supportCase._id, version: supportCase.version };
+      if (!supportCaseId) throw new Error("The stored support update is invalid.");
+      return {
+        id: supportCaseId,
+        version: storedOperationVersion(prior.resultJson, "support-case"),
+      };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const supportCase = await ctx.db.get("supportCases", args.supportCaseId);
@@ -1701,6 +1716,7 @@ export const updateStaff = mutation({
       requestFingerprint,
       targetType: "support_case",
       targetId: supportCase._id,
+      resultJson: String(supportCase.version + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

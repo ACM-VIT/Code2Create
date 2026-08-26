@@ -1,12 +1,12 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config'
 
-const updatesUrl = readUpdatesUrl()
+const deploymentEnvironment = readDeploymentEnvironment()
+const updatesUrl = readUpdatesUrl(deploymentEnvironment)
 const iosBundleIdentifier = readIosBundleIdentifier()
 const androidPackage = readAndroidPackage()
 const appBuild = readAppBuild()
 const iosTeamId = readIosTeamId()
 const androidGoogleServicesFile = readEnvironmentValue('C2C_ANDROID_GOOGLE_SERVICES_FILE')
-const deploymentEnvironment = readDeploymentEnvironment()
 const convexUrl = readApplicationUrl('EXPO_PUBLIC_CONVEX_URL', deploymentEnvironment)
 const convexSiteUrl = readApplicationUrl('EXPO_PUBLIC_CONVEX_SITE_URL', deploymentEnvironment)
 const eventSlug = readEventSlug()
@@ -68,12 +68,27 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     : {}),
 })
 
-function readUpdatesUrl() {
+function readUpdatesUrl(environment: 'development' | 'staging' | 'production' | null) {
   const value = readEnvironmentValue('C2C_UPDATES_URL')
   if (!value) return null
   const url = new URL(value)
-  if (url.protocol !== 'https:' || url.pathname !== '/manifest' || url.search || url.hash) {
-    throw new Error('C2C_UPDATES_URL must be an HTTPS URL ending at /manifest.')
+  const developmentHttp =
+    environment === 'development' &&
+    url.protocol === 'http:' &&
+    (url.hostname === 'localhost' ||
+      url.hostname === '127.0.0.1' ||
+      isPrivateLanHost(url.hostname))
+  if (
+    (!developmentHttp && url.protocol !== 'https:') ||
+    url.pathname !== '/manifest' ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      'C2C_UPDATES_URL must be HTTPS outside development and end at /manifest; development may use local HTTP.',
+    )
   }
   return url.href
 }

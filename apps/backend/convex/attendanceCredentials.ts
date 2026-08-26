@@ -628,8 +628,8 @@ export const beginVitBarcodeEnrollment = internalMutation({
     });
     if (prior) {
       const credentialId = ctx.db.normalizeId("attendanceCredentials", prior.targetId);
-      if (!credentialId || !(await ctx.db.get(credentialId))) {
-        throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
+      if (!credentialId) {
+        throw new Error("The stored VIT barcode enrolment result is invalid.");
       }
       return { credentialId, verificationRequired: true };
     }
@@ -983,8 +983,8 @@ export const beginVitBarcodeRebind = internalMutation({
         "attendanceCredentials",
         priorOperation.targetId,
       );
-      if (!credentialId || !(await ctx.db.get(credentialId))) {
-        throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
+      if (!credentialId) {
+        throw new Error("The stored VIT barcode replacement result is invalid.");
       }
       return { credentialId, verificationRequired: true };
     }
@@ -1549,13 +1549,12 @@ export const beginExternalBadgeIssue = internalMutation({
         "attendanceCredentials",
         priorOperation.targetId,
       );
-      const credential = credentialId ? await ctx.db.get(credentialId) : null;
-      if (!credentialId || !credential?.badgeReference) {
-        throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
+      if (!credentialId) {
+        throw new Error("The stored external badge issue result is invalid.");
       }
       return {
         credentialId,
-        badgeReference: credential.badgeReference,
+        badgeReference: args.badgeReference,
         verificationRequired: true,
       };
     }
@@ -1887,13 +1886,12 @@ export const beginExternalBadgeReplacement = internalMutation({
         "attendanceCredentials",
         priorOperation.targetId,
       );
-      const credential = credentialId ? await ctx.db.get(credentialId) : null;
-      if (!credentialId || !credential?.badgeReference) {
-        throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
+      if (!credentialId) {
+        throw new Error("The stored external badge replacement result is invalid.");
       }
       return {
         credentialId,
-        badgeReference: credential.badgeReference,
+        badgeReference: args.badgeReference,
         verificationRequired: true,
       };
     }

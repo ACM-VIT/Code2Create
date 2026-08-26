@@ -26,15 +26,19 @@ import {
   findOperation,
   operationFingerprint,
   recordOperation,
+  storedOperationVersion,
   type OperationFingerprintPart,
 } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
-import { rollCallPresenceState } from "./values";
+import {
+  attendanceSessionExpectation,
+  rollCallPresenceState,
+} from "./values";
 
 const rollCallKind = v.union(v.literal("incident"), v.literal("drill"));
 const rollCallState = v.union(v.literal("active"), v.literal("closed"));
-const closedRollCallState: "closed" = "closed";
+const closedRollCallState = "closed" as const;
 const rollCallCounts = v.object({
   expected: v.number(),
   notArrived: v.number(),
@@ -89,11 +93,11 @@ export const start = mutation({
     });
     if (prior) {
       const rollCallId = ctx.db.normalizeId("attendanceRollCalls", prior.targetId);
-      const rollCall = rollCallId ? await ctx.db.get(rollCallId) : null;
-      if (!rollCall || rollCall.eventId !== event._id) {
-        throw new Error("Prior roll-call start no longer resolves.");
-      }
-      return { rollCallId: rollCall._id, version: rollCall.version };
+      if (!rollCallId) throw new Error("The stored roll-call start is invalid.");
+      return {
+        rollCallId,
+        version: storedOperationVersion(prior.resultJson, "roll-call start"),
+      };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const session = await ctx.db.get(args.sessionId);
@@ -234,6 +238,7 @@ export const start = mutation({
       requestFingerprint,
       targetType: "attendance_roll_call",
       targetId: rollCallId,
+      resultJson: "1",
       createdAt: snapshotAt,
     });
     await writeAuditEvent(ctx, {
@@ -291,14 +296,11 @@ export const close = mutation({
     });
     if (prior) {
       const rollCallId = ctx.db.normalizeId("attendanceRollCalls", prior.targetId);
-      const rollCall = rollCallId ? await ctx.db.get(rollCallId) : null;
-      if (!rollCall || rollCall.eventId !== event._id || rollCall.state !== "closed") {
-        throw new Error("Prior roll-call close no longer resolves.");
-      }
+      if (!rollCallId) throw new Error("The stored roll-call close is invalid.");
       return {
-        rollCallId: rollCall._id,
+        rollCallId,
         state: closedRollCallState,
-        version: rollCall.version,
+        version: storedOperationVersion(prior.resultJson, "roll-call close"),
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -338,13 +340,14 @@ export const close = mutation({
       });
     }
     const now = Date.now();
+    const version = rollCall.version + 1;
     await ctx.db.patch(rollCall._id, {
       state: "closed",
       closedByPersonId: person._id,
       closedAt: now,
       closeReason: reason,
       finalCounts,
-      version: rollCall.version + 1,
+      version,
       updatedAt: now,
     });
     await recordOperation(ctx, {
@@ -355,6 +358,7 @@ export const close = mutation({
       requestFingerprint,
       targetType: "attendance_roll_call",
       targetId: rollCall._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -378,7 +382,7 @@ export const close = mutation({
     return {
       rollCallId: rollCall._id,
       state: closedRollCallState,
-      version: rollCall.version + 1,
+      version,
     };
   },
 });
@@ -472,7 +476,7 @@ const rosterItem = v.object({
   membershipId: v.id("eventMemberships"),
   displayName: v.string(),
   teamName: v.optional(v.string()),
-  expectation: v.string(),
+  expectation: attendanceSessionExpectation,
   state: rollCallPresenceState,
   updatedAt: v.optional(v.number()),
 });

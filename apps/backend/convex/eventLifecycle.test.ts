@@ -1,14 +1,31 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest, type TestConvex } from "convex-test";
-import { afterAll, describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test, vi } from "vitest";
 
-import { api, components } from "./_generated/api";
+import { api, components, internal } from "./_generated/api";
+import {
+  admissionPolicyChecksum,
+  admissionPolicyForConfiguration,
+  defaultAdmissionCriteria,
+  defaultAdmissionReasonCodes,
+  normalizeAdmissionConfiguration,
+} from "./lib/admissionPolicy.ts";
 import {
   eventLifecycleBlockers,
   eventLifecycleTargets,
   eventLifecycleTransitionAllowed,
   type EventLifecycleConfiguration,
 } from "./lib/eventLifecycle.ts";
+import {
+  defaultDeterministicIntakePolicy,
+  intakePolicyChecksum,
+  normalizeIntakePolicy,
+} from "./lib/intakePolicy.ts";
+import {
+  defaultParticipantPolicy,
+  normalizeParticipantPolicy,
+  participantPolicyChecksum,
+} from "./lib/participantPolicy.ts";
 import { permissionCatalog } from "./lib/permissionCatalog.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
 import schema from "./schema.ts";
@@ -50,7 +67,7 @@ const emptyConfiguration: EventLifecycleConfiguration = {
   hasPhaseSchedule: false,
   hasProjectCheckpointPlan: false,
   hasPublishedReviewRound: false,
-  hasTrackCatalog: false,
+  hasFutureApplicationDeadline: false,
 };
 
 describe("event lifecycle", () => {
@@ -70,14 +87,14 @@ describe("event lifecycle", () => {
   });
 
   test("names incomplete setup before applications open or the event starts", () => {
-    expect(eventLifecycleBlockers("draft", "registration_open", emptyConfiguration).map((item) => item.key)).toEqual([
+    expect(eventLifecycleBlockers("registration_open", emptyConfiguration).map((item) => item.key)).toEqual([
+      "future_application_deadline",
       "event_dates",
       "participant_policy",
-      "track_catalog",
       "intake_policy",
       "admission_policy",
     ]);
-    expect(eventLifecycleBlockers("registration_closed", "live", emptyConfiguration).map((item) => item.key)).toEqual([
+    expect(eventLifecycleBlockers("live", emptyConfiguration).map((item) => item.key)).toEqual([
       "event_dates",
       "communications_policy",
       "phase_schedule",
@@ -87,7 +104,7 @@ describe("event lifecycle", () => {
       "integration_policy",
       "review_round",
     ]);
-    expect(eventLifecycleBlockers("live", "complete", {
+    expect(eventLifecycleBlockers("complete", {
       ...emptyConfiguration,
       hasActiveAttendanceSession: true,
       hasActiveReviewRound: true,
@@ -192,7 +209,64 @@ describe("event lifecycle", () => {
     expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
     expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
   });
+
+  test("closes registration once when the configured deadline arrives", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedOperator(backend);
+    const deadline = await backend.run(async (ctx) => {
+      const event = await ctx.db.get(fixture.eventId);
+      if (!event) throw new Error("Lifecycle fixture event is missing.");
+      return event.applicationsCloseAt;
+    });
+
+    await backend.mutation(internal.eventLifecycle.closeRegistrationAtDeadline, {
+      eventId: fixture.eventId,
+      expectedApplicationsCloseAt: deadline,
+    });
+    expect(await lifecycleState(backend, fixture.eventId)).toEqual({
+      status: "registration_open",
+      version: 1,
+      deadlineAuditCount: 0,
+    });
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(deadline);
+    try {
+      const request = {
+        eventId: fixture.eventId,
+        expectedApplicationsCloseAt: deadline,
+      } as const;
+      await backend.mutation(internal.eventLifecycle.closeRegistrationAtDeadline, request);
+      await backend.mutation(internal.eventLifecycle.closeRegistrationAtDeadline, request);
+      expect(await lifecycleState(backend, fixture.eventId)).toEqual({
+        status: "registration_closed",
+        version: 2,
+        deadlineAuditCount: 1,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
+
+async function lifecycleState(backend: BackendTest, eventId: Awaited<ReturnType<typeof seedOperator>>["eventId"]) {
+  return backend.run(async (ctx) => {
+    const event = await ctx.db.get(eventId);
+    if (!event) throw new Error("Lifecycle fixture event is missing.");
+    const auditEvents = await ctx.db
+      .query("auditEvents")
+      .withIndex("by_event_time", (index) => index.eq("eventId", eventId))
+      .collect();
+    return {
+      status: event.status,
+      version: event.version,
+      deadlineAuditCount: auditEvents.filter(
+        (auditEvent) => auditEvent.action === "event_registration_closed_at_deadline",
+      ).length,
+    };
+  });
+}
 
 async function seedOperator(backend: BackendTest) {
   const now = Date.now();
@@ -215,12 +289,58 @@ async function seedOperator(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-      startsAt: now + 60_000,
-      endsAt: now + 120_000,
+      applicationsCloseAt: now + 86_400_000,
+      startsAt: now + 2 * 86_400_000,
+      endsAt: now + 2 * 86_400_000 + 60_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,
       updatedAt: now,
+    });
+    const participantPolicy = normalizeParticipantPolicy(defaultParticipantPolicy);
+    const participantPolicyId = await ctx.db.insert("participantPolicyVersions", {
+      eventId,
+      version: 1,
+      status: "published",
+      ...participantPolicy,
+      checksum: participantPolicyChecksum(participantPolicy),
+      createdByPersonId: personId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    const intakePolicy = normalizeIntakePolicy(defaultDeterministicIntakePolicy);
+    const intakePolicyId = await ctx.db.insert("intakePolicyVersions", {
+      eventId,
+      version: 1,
+      status: "published",
+      ...intakePolicy,
+      checksum: intakePolicyChecksum(intakePolicy),
+      createdByPersonId: personId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    const admissionConfiguration = normalizeAdmissionConfiguration({
+      version: "admission-v1",
+      minimumHumanReviews: 1,
+      overallParticipantCapacity: 100,
+      criteria: defaultAdmissionCriteria,
+      decisionReasonCodes: defaultAdmissionReasonCodes,
+      model: null,
+    });
+    const admissionPolicy = admissionPolicyForConfiguration(admissionConfiguration);
+    const admissionPolicyId = await ctx.db.insert("admissionPolicyVersions", {
+      eventId,
+      ...admissionPolicy,
+      status: "published",
+      checksum: admissionPolicyChecksum(admissionPolicy),
+      createdByPersonId: personId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    await ctx.db.patch(eventId, {
+      publishedParticipantPolicyId: participantPolicyId,
+      publishedIntakePolicyId: intakePolicyId,
+      publishedAdmissionPolicyId: admissionPolicyId,
     });
     const subjectId = await ctx.db.insert("eventAccessSubjects", {
       eventId,

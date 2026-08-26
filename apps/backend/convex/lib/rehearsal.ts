@@ -3,7 +3,7 @@ import type {
   RehearsalWorkstream,
 } from "../values";
 
-export const releaseRehearsalTemplateVersion = "code2create-7.0-release-4";
+export const releaseRehearsalTemplateVersion = "code2create-7.0-release-5";
 
 export type RehearsalTemplateScenario = {
   stableKey: string;
@@ -70,9 +70,9 @@ export const releaseRehearsalTemplate = [
   scenario(
     6,
     "reliability",
-    "Venue Wi-Fi drops at one review table",
-    "The reviewer app shows offline state, preserves the local draft, and other tables continue normally.",
-    "Switch the table to backup connectivity and reconcile pending writes before review completion.",
+    "Venue Wi-Fi drops during one active review",
+    "The reviewer app shows offline state, preserves the local draft, and other reviews continue normally.",
+    "Move that reviewer phone to backup connectivity and reconcile pending writes before review completion.",
   ),
   scenario(
     7,
@@ -84,16 +84,16 @@ export const releaseRehearsalTemplate = [
   scenario(
     8,
     "review_operations",
-    "Team arrives at the wrong review table",
+    "A panel scans the wrong team's review code",
     "The presented team code is rejected for the wrong panel and no presence or review state changes.",
-    "Route the team to its assigned table or perform an audited panel move before scanning again.",
+    "Use the hall map to reach the assigned team, or complete an audited panel assignment change before scanning again.",
   ),
   scenario(
     9,
     "review_operations",
     "Team review code is expired or belongs to another round",
     "The scan fails without confirming reviewer presence or starting a review.",
-    "Have the team mint the current short-lived code from its portal and rescan at the assigned table.",
+    "Have the team mint the current short-lived code from its portal and let the assigned panel rescan while standing with the team.",
   ),
   scenario(
     10,
@@ -183,14 +183,14 @@ export const releaseRehearsalTemplate = [
     22,
     "intake_admissions",
     "Late novelty and interpretation results follow participant edits",
-    "The old novelty result cannot attach after an idea change, and the stale interpretation cannot replace the team's current track or question.",
-    "Keep the current text and route; a later request must use the latest idea, track, and pinned configuration versions.",
+    "The old novelty result cannot attach after an idea change, and the stale interpretation cannot replace the team's current question.",
+    "Keep the current text and route; a later request must use the latest idea and pinned configuration versions.",
   ),
   scenario(
     23,
     "intake_admissions",
     "Model returns invalid or prompt-injected intake output",
-    "Schema and wording validation reject it without changing accepted answers or track selection.",
+    "Schema and wording validation reject it without changing accepted answers or the question sequence.",
     "Serve the pinned deterministic fallback and retain the provider failure only as bounded diagnostics.",
   ),
   scenario(
@@ -287,9 +287,9 @@ export const releaseRehearsalTemplate = [
   scenario(
     37,
     "intake_admissions",
-    "Team chooses against the AI track recommendation",
-    "The selected track remains valid and admission data contains no mismatch penalty or control.",
-    "Review the application on the published rubric only; correct any configuration that leaks recommendation mismatch.",
+    "Team revises a proposal after review work starts",
+    "The new immutable proposal version makes earlier AI and human review output stale before a decision can publish.",
+    "Route the current version for fresh review and keep the earlier work as audited history.",
   ),
   scenario(
     38,
@@ -426,34 +426,41 @@ export const releaseRehearsalTemplate = [
   ),
   scenario(
     57,
+    "reliability",
+    "Needs-attention command response is lost",
+    "Retrying the saved pickup or dismissal returns the first accepted version without another audit event or cross-row reuse.",
+    "Reconnect and retry the unchanged command; refresh before changing the row, version, action, reason, or operation ID.",
+  ),
+  scenario(
+    58,
     "support",
     "Concurrent support updates and reporter reply",
     "Each accepted version creates one ordered action, stale writes change nothing, and retries add no duplicate.",
     "Refresh the case version and resubmit the intended update with its unchanged operation payload.",
   ),
   scenario(
-    58,
+    59,
     "support",
     "Support case owner lacks case permission",
     "Assignment succeeds only as routing metadata and exposes no case or command to the ungranted owner.",
     "Grant exact-case read/manage separately, or assign a different operator who already has the required scope.",
   ),
   scenario(
-    59,
+    60,
     "attendance",
     "Venue check-in is reversed after a venue-entry scan",
     "The staffed-arrival record and team milestone change, while venue presence, session attendance, and their ledgers remain untouched.",
     "Correct presence separately only when its own evidence is wrong, then use a fresh portal QR at a venue-entry station to record the valid arrival again.",
   ),
   scenario(
-    60,
+    61,
     "attendance",
     "Credential setup is attempted without its claimed participant resolution",
     "The server rejects a missing, expired, mismatched, or reused credential slot; one valid begin and matching second scan stay bound to the same operator, phone, station, member, action, and pending credential.",
     "Ask the participant for a fresh portal QR, restart the intended credential workflow on the assigned phone, and do not reuse the abandoned pending setup.",
   ),
   scenario(
-    61,
+    62,
     "review_operations",
     "A review call races participant movement below the published minimum",
     "The ordinary call leaves the team queued and creates no review records; a valid fresh-authenticated exact-team exception creates one review and one immutable waiver, and start later accepts only current presence or that same review's waiver.",

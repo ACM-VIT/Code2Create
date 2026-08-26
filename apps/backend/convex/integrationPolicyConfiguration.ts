@@ -4,6 +4,12 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
+import {
+  configurationDraftResultJson,
+  configurationPublicationResultJson,
+  storedConfigurationDraftResult,
+  storedConfigurationPublicationResult,
+} from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
 import {
   integrationPolicyChecksum,
@@ -254,16 +260,15 @@ export const createDraft = mutation({
     if (prior) {
       const policyVersionId = ctx.db.normalizeId("integrationPolicyVersions", prior.targetId);
       if (!policyVersionId) throw new Error("The prior integration-policy draft is invalid.");
-      const priorPolicy = await ctx.db.get(policyVersionId);
-      if (!priorPolicy) throw new Error("The prior integration-policy draft no longer resolves.");
-      if (prior.resultJson !== "changed" && prior.resultJson !== "unchanged") {
-        throw new Error("The prior integration-policy draft result is invalid.");
-      }
+      const stored = storedConfigurationDraftResult(
+        prior.resultJson,
+        "integration-policy draft",
+      );
       return {
         policyVersionId,
-        policyVersion: priorPolicy.version,
-        checksum: priorPolicy.checksum,
-        changed: prior.resultJson === "changed",
+        policyVersion: stored.version,
+        checksum: stored.checksum,
+        changed: stored.changed,
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -298,7 +303,11 @@ export const createDraft = mutation({
       requestFingerprint,
       targetType: "integration_policy",
       targetId: result.policyVersionId,
-      resultJson: result.changed ? "changed" : "unchanged",
+      resultJson: configurationDraftResultJson({
+        version: result.policyVersion,
+        checksum: result.checksum,
+        changed: result.changed,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -363,12 +372,15 @@ export const publish = mutation({
       if (!policyVersionId) {
         throw new Error("The prior integration-policy publication is invalid.");
       }
-      const priorPolicy = await ctx.db.get(policyVersionId);
-      const eventVersion = Number(prior.resultJson);
-      if (!priorPolicy || !Number.isSafeInteger(eventVersion) || eventVersion < 1) {
-        throw new Error("The prior integration-policy publication no longer resolves.");
-      }
-      return { policyVersionId, policyVersion: priorPolicy.version, eventVersion };
+      const stored = storedConfigurationPublicationResult(
+        prior.resultJson,
+        "integration-policy publication",
+      );
+      return {
+        policyVersionId,
+        policyVersion: stored.version,
+        eventVersion: stored.eventVersion,
+      };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const grantIds = await requirePermission(ctx, {
@@ -401,7 +413,10 @@ export const publish = mutation({
       requestFingerprint,
       targetType: "integration_policy",
       targetId: result.policyVersionId,
-      resultJson: String(eventVersion),
+      resultJson: configurationPublicationResultJson({
+        version: result.policyVersion,
+        eventVersion,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

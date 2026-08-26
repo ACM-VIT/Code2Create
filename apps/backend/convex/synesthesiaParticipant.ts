@@ -40,6 +40,12 @@ const participantWindow = v.object({
   version: v.number(),
 });
 
+function storedCreationResult(resultJson: string | undefined, label: string) {
+  if (resultJson === "created") return true;
+  if (resultJson === "existing") return false;
+  throw new Error(`The stored ${label} result is invalid.`);
+}
+
 const participantRequest = v.object({
   id: v.id("songRequests"),
   title: v.string(),
@@ -344,11 +350,11 @@ export const requestTrack = mutation({
     });
     if (prior) {
       const requestId = ctx.db.normalizeId("songRequests", prior.targetId);
-      const request = requestId ? await ctx.db.get("songRequests", requestId) : null;
-      if (!request || request.eventId !== context.event._id) {
-        throw new Error("The prior song request no longer resolves.");
-      }
-      return { requestId: request._id, created: prior.resultJson === "created" };
+      if (!requestId) throw new Error("The prior song request result is invalid.");
+      return {
+        requestId,
+        created: storedCreationResult(prior.resultJson, "song request"),
+      };
     }
     const window = await participantWindowForWrite(
       ctx,
@@ -480,11 +486,11 @@ async function changeVote(
     commandName,
     requestFingerprint,
   });
+  if (prior) return { requestId: args.requestId };
   const request = await ctx.db.get("songRequests", args.requestId);
   if (!request || request.eventId !== context.event._id) {
     throw new ConvexError({ code: "REQUEST_NOT_FOUND", message: "Song request not found." });
   }
-  if (prior) return { requestId: request._id };
   const window = await participantWindowForWrite(ctx, context.event._id, request.windowId);
   if (!window.votingOpen || !requestAllowsVote(request.state)) {
     throw new ConvexError({
@@ -630,13 +636,11 @@ export const reportRequest = mutation({
     });
     if (prior) {
       const reportId = ctx.db.normalizeId("synesthesiaReports", prior.targetId);
-      const report = reportId
-        ? await ctx.db.get("synesthesiaReports", reportId)
-        : null;
-      if (!report || report.eventId !== context.event._id) {
-        throw new Error("The prior song report no longer resolves.");
-      }
-      return { reportId: report._id, created: prior.resultJson === "created" };
+      if (!reportId) throw new Error("The prior song report result is invalid.");
+      return {
+        reportId,
+        created: storedCreationResult(prior.resultJson, "song report"),
+      };
     }
     const request = await ctx.db.get("songRequests", args.requestId);
     if (

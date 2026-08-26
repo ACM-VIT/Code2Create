@@ -41,6 +41,7 @@ import {
 import { appendAttendanceStationReadFactById } from "./lib/operationsAutonomyReadFacts/attendanceOperations";
 import {
   localBrowserFixtureOrigins,
+  localBrowserReturnUrl,
   requireLocalDeployment,
 } from "./lib/localBrowserFixtures";
 import {
@@ -66,45 +67,6 @@ import {
   projectCheckpointPlanChecksum,
 } from "./lib/projectCheckpointPlan";
 import { fingerprintText } from "./lib/strings";
-import { normalizeTrackCatalog, trackCatalogChecksum } from "./lib/trackCatalog";
-
-const localTracks = [
-  {
-    stableKey: "open_innovation",
-    slug: "open-innovation",
-    displayName: "Open Innovation",
-    description: "Build useful technology for everyday problems and overlooked opportunities.",
-    examples: ["Civic tools", "Community platforms", "New digital services"],
-  },
-  {
-    stableKey: "health_wellbeing",
-    slug: "health-wellbeing",
-    displayName: "Health & Wellbeing",
-    description: "Improve physical, mental, or community wellbeing through thoughtful technology.",
-    examples: ["Care access", "Healthy routines", "Assistive experiences"],
-  },
-  {
-    stableKey: "future_learning",
-    slug: "future-learning",
-    displayName: "Future of Learning",
-    description: "Rethink how people learn, teach, practise, and collaborate.",
-    examples: ["Learning tools", "Peer education", "Creative practice"],
-  },
-  {
-    stableKey: "sustainable_systems",
-    slug: "sustainable-systems",
-    displayName: "Sustainable Systems",
-    description: "Design more resilient places, services, and ways to use resources.",
-    examples: ["Climate adaptation", "Waste reduction", "Resource visibility"],
-  },
-  {
-    stableKey: "ai_for_people",
-    slug: "ai-for-people",
-    displayName: "AI for People",
-    description: "Use intelligence responsibly to extend human capability and access.",
-    examples: ["Creative copilots", "Accessible AI", "Responsible automation"],
-  },
-] as const;
 
 const hour = 60 * 60 * 1_000;
 const localSeedDate = new Date();
@@ -128,7 +90,7 @@ const localPhases = [
   {
     phaseKey: "ideation",
     displayName: "Shape the idea",
-    description: "Choose the problem, user, track, and first version the team can finish here.",
+    description: "Choose the problem, user, and first version the team can finish here.",
     startsAt: localEventStartsAt + hour,
     endsAt: localEventStartsAt + 4 * hour,
   },
@@ -417,6 +379,21 @@ const localActors = {
 } as const;
 
 type LocalActorKey = keyof typeof localActors;
+type LocalParticipantActorKey = Exclude<LocalActorKey, "supreme">;
+
+const localParticipantFixtureTeams: Record<
+  LocalParticipantActorKey,
+  { publicCode: string; participantClass: "vit_student" | "external_participant" }
+> = {
+  vitParticipant: {
+    publicCode: "DEMOT001",
+    participantClass: "vit_student",
+  },
+  externalParticipant: {
+    publicCode: "DEMOT007",
+    participantClass: "external_participant",
+  },
+};
 
 type AuthUserDocument = {
   _id: string;
@@ -541,6 +518,14 @@ async function createLocalSession(
       verifiedEmail: fixture.email,
       displayName: fixture.name,
     });
+  } else {
+    await ctx.runMutation(internal.localDevelopment.ensureParticipantFixtureAccess, {
+      actor,
+      authUserId: user._id,
+      googleSubject: fixture.googleSubject,
+      verifiedEmail: fixture.email,
+      displayName: fixture.name,
+    });
   }
 
   const sessionToken = crypto.randomUUID();
@@ -584,10 +569,11 @@ async function createLocalBrowserUrl(
   ctx: ActionCtx,
   actor: LocalActorKey,
   origin: string,
+  returnPath: string,
   now: number,
 ) {
+  const url = localBrowserReturnUrl(origin, returnPath);
   const session = await createLocalSession(ctx, actor, now);
-  const url = new URL(origin);
   url.searchParams.set("ott", session.token);
   return { url: url.toString(), expiresAt: session.expiresAt };
 }
@@ -740,6 +726,11 @@ export const ensureSupremeAccess = internalMutation({
         scopeType: "self",
         scopeId: subject._id,
       },
+      {
+        permissionKey: "communications.call_consent.manage",
+        scopeType: "self",
+        scopeId: subject._id,
+      },
     ];
     for (const permissionKey of Object.keys(permissionCatalog)) {
       if (!isPermissionKey(permissionKey)) {
@@ -778,6 +769,124 @@ export const ensureSupremeAccess = internalMutation({
   },
 });
 
+export const ensureParticipantFixtureAccess = internalMutation({
+  args: {
+    actor: v.union(v.literal("vitParticipant"), v.literal("externalParticipant")),
+    authUserId: v.string(),
+    googleSubject: v.string(),
+    verifiedEmail: v.string(),
+    displayName: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    requireLocalDeployment();
+    const event = await ctx.db
+      .query("events")
+      .withIndex("by_slug", (index) => index.eq("slug", "code2create-7"))
+      .unique();
+    if (!event) {
+      throw new ConvexError({
+        code: "LOCAL_EVENT_REQUIRED",
+        message: "Seed the local event before creating participant fixtures.",
+      });
+    }
+
+    const fixture = localParticipantFixtureTeams[args.actor];
+    const team = await ctx.db
+      .query("teams")
+      .withIndex("by_event_code", (index) =>
+        index.eq("eventId", event._id).eq("publicCode", fixture.publicCode),
+      )
+      .unique();
+    if (!team) {
+      throw new ConvexError({
+        code: "LOCAL_DEMO_REQUIRED",
+        message: "Seed the local demonstration teams before creating participant fixtures.",
+      });
+    }
+    const lead = (await ctx.db
+      .query("teamMembers")
+      .withIndex("by_team_status", (index) =>
+        index.eq("teamId", team._id).eq("status", "active"),
+      )
+      .collect()).find((member) => member.role === "lead");
+    if (!lead) throw new Error("The local participant fixture team has no active lead.");
+    const membership = await ctx.db.get(lead.membershipId);
+    if (!membership || membership.participantClass !== fixture.participantClass) {
+      throw new Error("The local participant fixture has the wrong participant class.");
+    }
+    const person = await ctx.db.get(membership.personId);
+    if (!person || person.status !== "active") {
+      throw new Error("The local participant fixture person is not active.");
+    }
+    const subject = await ctx.db
+      .query("eventAccessSubjects")
+      .withIndex("by_event_person", (index) =>
+        index.eq("eventId", event._id).eq("personId", person._id),
+      )
+      .unique();
+    if (!subject || subject.status !== "active") {
+      throw new Error("The local participant fixture event account is not active.");
+    }
+
+    const [authUserOwner, googleSubjectOwner, emailOwner] = await Promise.all([
+      ctx.db
+        .query("people")
+        .withIndex("by_auth_user", (index) => index.eq("authUserId", args.authUserId))
+        .unique(),
+      ctx.db
+        .query("people")
+        .withIndex("by_google_subject", (index) =>
+          index.eq("googleSubject", args.googleSubject),
+        )
+        .unique(),
+      ctx.db
+        .query("people")
+        .withIndex("by_verified_email", (index) =>
+          index.eq("verifiedEmail", args.verifiedEmail),
+        )
+        .unique(),
+    ]);
+    for (const owner of [authUserOwner, googleSubjectOwner, emailOwner]) {
+      if (owner && owner._id !== person._id) {
+        throw new Error("A local participant fixture identity is already linked elsewhere.");
+      }
+    }
+
+    const now = Date.now();
+    const identityChanged =
+      person.authUserId !== args.authUserId ||
+      person.googleSubject !== args.googleSubject ||
+      person.verifiedEmail !== args.verifiedEmail;
+    await ctx.db.patch(person._id, {
+      authUserId: args.authUserId,
+      googleSubject: args.googleSubject,
+      verifiedEmail: args.verifiedEmail,
+      displayName: args.displayName,
+      updatedAt: now,
+    });
+    await ctx.db.patch(subject._id, {
+      emailNormalized: args.verifiedEmail,
+      displayName: args.displayName,
+      accessVersion: identityChanged ? subject.accessVersion + 1 : subject.accessVersion,
+      updatedAt: now,
+    });
+    const profile = await ctx.db
+      .query("participantProfiles")
+      .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
+      .unique();
+    if (!profile) throw new Error("The local participant fixture profile is missing.");
+    if (profile.fullName !== args.displayName) {
+      await ctx.db.patch(profile._id, {
+        fullName: args.displayName,
+        profileVersion: profile.profileVersion + 1,
+        updatedAt: now,
+      });
+    }
+    return null;
+  },
+});
+
 export const createBrowserSession = action({
   args: {
     confirmation: v.literal("create-code2create-local-browser-session"),
@@ -791,6 +900,7 @@ export const createBrowserSession = action({
       v.literal("operations"),
       v.literal("handbook"),
     ),
+    returnPath: v.string(),
   },
   returns: v.object({ url: v.string(), expiresAt: v.number() }),
   handler: async (ctx, args) => {
@@ -817,7 +927,7 @@ export const createBrowserSession = action({
       : args.surface === "operations"
         ? origins.operations
         : origins.handbook;
-    return createLocalBrowserUrl(ctx, args.actor, origin, Date.now());
+    return createLocalBrowserUrl(ctx, args.actor, origin, args.returnPath, Date.now());
   },
 });
 
@@ -843,7 +953,6 @@ export const seedEvent = mutation({
   args: { confirmation: v.literal("seed-code2create-local") },
   returns: v.object({
     eventId: v.id("events"),
-    catalogVersionId: v.id("trackCatalogVersions"),
     created: v.boolean(),
   }),
   handler: async (ctx) => {
@@ -854,7 +963,7 @@ export const seedEvent = mutation({
       .withIndex("by_slug", (index) => index.eq("slug", "code2create-7"))
       .unique();
     if (
-      existingEvent?.publishedTrackCatalogId &&
+      existingEvent &&
       existingEvent.publishedParticipantPolicyId &&
       existingEvent.publishedEventPhaseScheduleId &&
       existingEvent.publishedProjectCheckpointPlanId &&
@@ -875,7 +984,6 @@ export const seedEvent = mutation({
       await ctx.scheduler.runAfter(0, internal.operationsHealth.refresh, {});
       return {
         eventId: existingEvent._id,
-        catalogVersionId: existingEvent.publishedTrackCatalogId,
         created: false,
       };
     }
@@ -911,6 +1019,7 @@ export const seedEvent = mutation({
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
+      applicationsCloseAt: localEventStartsAt - 24 * hour,
       startsAt: localEventStartsAt,
       endsAt: localEventEndsAt,
       createdByPersonId: seedPerson._id,
@@ -930,35 +1039,6 @@ export const seedEvent = mutation({
       updatedAt: now,
     });
 
-    const localTrackCatalog = normalizeTrackCatalog(
-      localTracks.length,
-      localTracks.map((track, displayOrder) => ({
-        ...track,
-        examples: [...track.examples],
-        displayOrder,
-        type: "core" as const,
-      })),
-    );
-    const catalogVersionId = await ctx.db.insert("trackCatalogVersions", {
-      eventId,
-      version: 1,
-      status: "published",
-      requiredCoreTrackCount: localTrackCatalog.length,
-      checksum: trackCatalogChecksum(localTrackCatalog.length, localTrackCatalog),
-      createdByPersonId: seedPerson._id,
-      createdAt: now,
-      publishedAt: now,
-    });
-
-    for (const track of localTrackCatalog) {
-      await ctx.db.insert("trackVersions", {
-        eventId,
-        catalogVersionId,
-        ...track,
-        status: "published",
-        createdAt: now,
-      });
-    }
     const phases = normalizePhaseSchedule(localPhases);
     const phaseScheduleVersionId = await ctx.db.insert("eventPhaseScheduleVersions", {
       eventId,
@@ -1028,7 +1108,10 @@ export const seedEvent = mutation({
       distinctSimilarityBoundary: 0.08,
       commonSimilarityBoundary: 0.34,
     });
-    const noveltyEntries = normalizeNoveltyCorpusEntries(localNoveltyEntries);
+    const noveltyEntries = normalizeNoveltyCorpusEntries(
+      localNoveltyEntries,
+      localSeedDate.getUTCFullYear(),
+    );
     const noveltyCorpusVersionId = await ctx.db.insert("noveltyCorpusVersions", {
       eventId,
       version: 1,
@@ -1074,7 +1157,6 @@ export const seedEvent = mutation({
     await ctx.db.insert("admissionCapacityBuckets", {
       eventId,
       admissionPolicyVersionId,
-      scope: "overall",
       capacity: admissionPolicy.overallParticipantCapacity,
       reserved: 0,
       version: 1,
@@ -1277,7 +1359,6 @@ export const seedEvent = mutation({
       updatedAt: now,
     });
     await ctx.db.patch(eventId, {
-      publishedTrackCatalogId: catalogVersionId,
       publishedParticipantPolicyId: participantPolicyVersionId,
       publishedEventPhaseScheduleId: phaseScheduleVersionId,
       publishedProjectCheckpointPlanId: checkpointPlanVersionId,
@@ -1291,7 +1372,15 @@ export const seedEvent = mutation({
       updatedAt: now,
     });
 
+    await ctx.scheduler.runAt(
+      localEventStartsAt - 24 * hour,
+      internal.eventLifecycle.closeRegistrationAtDeadline,
+      {
+        eventId,
+        expectedApplicationsCloseAt: localEventStartsAt - 24 * hour,
+      },
+    );
     await ctx.scheduler.runAfter(0, internal.operationsHealth.refresh, {});
-    return { eventId, catalogVersionId, created: true };
+    return { eventId, created: true };
   },
 });

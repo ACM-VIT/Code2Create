@@ -1,6 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { ConvexError, v, type Infer } from "convex/values";
+import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -10,8 +11,18 @@ import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { teamRoundTableLabel } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
-import { requirePermission, revokeSourceGrants } from "./lib/permissions";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+  storedOperationVersion,
+} from "./lib/operations";
+import {
+  matchingPermissionGrantIds,
+  requirePermission,
+  revokeSourceGrants,
+} from "./lib/permissions";
 import { normalizeNativePushRegistration, pushTokenFingerprint } from "./lib/pushTokens";
 import { patchTeamRoundState } from "./lib/reviewQueueProjection";
 import { activeRoundPause } from "./lib/reviewRoundPauses";
@@ -29,10 +40,37 @@ import {
   requireCompleteAssignedRatings,
 } from "./lib/reviewScores";
 import { normalizedText } from "./lib/strings";
-import { requireProjectTrackSelection } from "./lib/trackCatalog";
 import { repositoryKind } from "./values";
 
 type ReadCtx = QueryCtx | MutationCtx;
+
+const reviewerConflictOperationResult = z
+  .object({
+    conflictId: z.string().min(1),
+    teamName: z.string(),
+  })
+  .strict();
+
+const reviewPresenceOperationResult = z
+  .object({
+    reviewSessionId: z.string().min(1),
+    teamName: z.string(),
+    roundName: z.string(),
+    tableLabel: z.string().optional(),
+    reviewerPresenceCount: z.number().int().nonnegative(),
+    reviewerCount: z.number().int().nonnegative(),
+    confirmedAt: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const scorecardSubmissionOperationResult = z
+  .object({
+    scorecardId: z.string().min(1),
+    scorecardVersionId: z.string().min(1),
+    submittedAt: z.number().int().nonnegative(),
+  })
+  .strict();
+
 type PanelContext = {
   membership: Doc<"reviewPanelMembers">;
   round: Doc<"reviewRounds">;
@@ -262,6 +300,64 @@ async function currentReviewContext(
   return { assignment, session, correctionScorecard };
 }
 
+async function firstReadablePanelContext(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  contexts: readonly PanelContext[],
+) {
+  const readable = await Promise.all(
+    contexts.map(async (context) => {
+      const grantIds = await matchingPermissionGrantIds(ctx, {
+        eventId,
+        eventAccessSubjectId,
+        permissionKey: "panel.read",
+        scopeType: "panel",
+        scopeId: context.panel._id,
+      });
+      return grantIds.length > 0 ? context : null;
+    }),
+  );
+  return readable.find((context): context is PanelContext => context !== null) ?? null;
+}
+
+async function firstReadableReserveContext(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  contexts: Awaited<ReturnType<typeof currentReserveContexts>>,
+) {
+  const readable = await Promise.all(
+    contexts.map(async (context) => {
+      const grantIds = await matchingPermissionGrantIds(ctx, {
+        eventId,
+        eventAccessSubjectId,
+        permissionKey: "round.read",
+        scopeType: "round",
+        scopeId: context.round._id,
+      });
+      return grantIds.length > 0 ? context : null;
+    }),
+  );
+  return readable.find((context) => context !== null) ?? null;
+}
+
+async function canReadReview(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  reviewSessionId: Id<"reviewSessions">,
+) {
+  const grantIds = await matchingPermissionGrantIds(ctx, {
+    eventId,
+    eventAccessSubjectId,
+    permissionKey: "review.read",
+    scopeType: "review",
+    scopeId: reviewSessionId,
+  });
+  return grantIds.length > 0;
+}
+
 export const registerDevice = mutation({
   args: {
     eventSlug: v.string(),
@@ -322,9 +418,10 @@ export const registerDevice = mutation({
     if (prior) {
       const deviceId = ctx.db.normalizeId("reviewerDevices", prior.targetId);
       if (!deviceId) throw new Error("Prior reviewer-device result is invalid.");
-      const saved = await ctx.db.get(deviceId);
-      if (!saved) throw new Error("Prior reviewer-device result no longer resolves.");
-      return { deviceId, version: saved.version };
+      return {
+        deviceId,
+        version: storedOperationVersion(prior.resultJson, "reviewer device"),
+      };
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -438,6 +535,7 @@ export const registerDevice = mutation({
       requestFingerprint,
       targetType: "reviewer_device",
       targetId: deviceId,
+      resultJson: String(args.expectedVersion + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -495,9 +593,10 @@ export const clockIn = mutation({
     if (prior) {
       const clockInId = ctx.db.normalizeId("reviewerClockIns", prior.targetId);
       if (!clockInId) throw new Error("Prior reviewer clock-in is invalid.");
-      const saved = await ctx.db.get(clockInId);
-      if (!saved) throw new Error("Prior reviewer clock-in no longer resolves.");
-      return { clockInId, version: saved.version };
+      return {
+        clockInId,
+        version: storedOperationVersion(prior.resultJson, "reviewer clock-in"),
+      };
     }
     const round = await ctx.db.get(args.roundId);
     if (
@@ -629,6 +728,7 @@ export const clockIn = mutation({
       requestFingerprint,
       targetType: "reviewer_clock_in",
       targetId: clockInId,
+      resultJson: String(args.expectedVersion + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -685,9 +785,11 @@ export const setAvailability = mutation({
     if (prior) {
       const clockInId = ctx.db.normalizeId("reviewerClockIns", prior.targetId);
       if (!clockInId) throw new Error("Prior reviewer availability result is invalid.");
-      const saved = await ctx.db.get(clockInId);
-      if (!saved) throw new Error("Prior reviewer availability no longer resolves.");
-      return { clockInId, status: saved.status, version: saved.version };
+      return {
+        clockInId,
+        status: args.status,
+        version: storedOperationVersion(prior.resultJson, "reviewer availability"),
+      };
     }
     const round = await ctx.db.get(args.roundId);
     if (!round || round.eventId !== event._id || !["published", "open", "closing"].includes(round.status)) {
@@ -783,6 +885,7 @@ export const setAvailability = mutation({
       requestFingerprint,
       targetType: "reviewer_clock_in",
       targetId: current._id,
+      resultJson: String(current.version + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -877,14 +980,6 @@ const reviewerProjectView = v.object({
       question: v.string(),
       answer: v.optional(v.string()),
       skipped: v.boolean(),
-    }),
-  ),
-  trackName: v.string(),
-  sponsorTracks: v.array(
-    v.object({
-      id: v.id("trackVersions"),
-      name: v.string(),
-      eligibilityText: v.string(),
     }),
   ),
   submittedAt: v.number(),
@@ -1053,7 +1148,7 @@ export const dutyStatus = query({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const installationId = args.installationId.trim().toLowerCase();
-    const [device, panelContexts, reserveContexts, reviewContext] = await Promise.all([
+    const [device, panelContexts, reserveContexts, candidateReviewContext] = await Promise.all([
       ctx.db
         .query("reviewerDevices")
         .withIndex("by_event_installation", (index) =>
@@ -1070,25 +1165,14 @@ export const dutyStatus = query({
         message: "This device registration is unavailable to the signed-in account.",
       });
     }
-    const panelContext = panelContexts[0] ?? null;
-    const reserveContext = reserveContexts[0] ?? null;
-    if (panelContext) {
-      await requirePermission(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "panel.read",
-        scopeType: "panel",
-        scopeId: panelContext.panel._id,
-      });
-    } else if (reserveContext) {
-      await requirePermission(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "round.read",
-        scopeType: "round",
-        scopeId: reserveContext.round._id,
-      });
-    }
+    const [panelContext, reserveContext, reviewContextReadable] = await Promise.all([
+      firstReadablePanelContext(ctx, event._id, subject._id, panelContexts),
+      firstReadableReserveContext(ctx, event._id, subject._id, reserveContexts),
+      candidateReviewContext
+        ? canReadReview(ctx, event._id, subject._id, candidateReviewContext.session._id)
+        : Promise.resolve(false),
+    ]);
+    const reviewContext = reviewContextReadable ? candidateReviewContext : null;
     const dutyRound = panelContext?.round ?? reserveContext?.round ?? null;
     const clockIn = dutyRound
       ? await ctx.db
@@ -1100,13 +1184,6 @@ export const dutyStatus = query({
       : null;
     let review = null;
     if (reviewContext) {
-      await requirePermission(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "review.read",
-        scopeType: "review",
-        scopeId: reviewContext.session._id,
-      });
       const [scorecard, presence] = await Promise.all([
         reviewContext.correctionScorecard ??
           ctx.db
@@ -1282,6 +1359,21 @@ export const now = query({
         message: "This device registration is unavailable to the signed-in account.",
       });
     }
+    const deviceView = device
+      ? {
+          id: device._id,
+          name: device.name,
+          appBuild: device.appBuild,
+          cameraReady: device.cameraReady,
+          notificationsReady: device.pushTokenStatus === "active",
+          pushTokenStatus: device.pushTokenStatus,
+          ...(device.pushToken !== undefined
+            ? { pushTokenFingerprint: pushTokenFingerprint(device.pushToken) }
+            : {}),
+          encryptedDraftReady: device.encryptedDraftReady,
+          version: device.version,
+        }
+      : null;
     const panelMemberships = await ctx.db
       .query("reviewPanelMembers")
       .withIndex("by_event_person_status", (index) =>
@@ -1312,16 +1404,14 @@ export const now = query({
       }
     }
     panelContexts.sort((left, right) => left.round.sequence - right.round.sequence);
-    const panelContext = panelContexts[0] ?? null;
+    const panelContext = await firstReadablePanelContext(
+      ctx,
+      event._id,
+      subject._id,
+      panelContexts,
+    );
     let panelView: PanelView | null = null;
     if (panelContext) {
-      await requirePermission(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "panel.read",
-        scopeType: "panel",
-        scopeId: panelContext.panel._id,
-      });
       const [clockIn, roundPause] = await Promise.all([
         ctx.db
           .query("reviewerClockIns")
@@ -1399,16 +1489,14 @@ export const now = query({
       }
     }
     reserveContexts.sort((left, right) => left.round.sequence - right.round.sequence);
-    const reserveContext = reserveContexts[0] ?? null;
+    const reserveContext = await firstReadableReserveContext(
+      ctx,
+      event._id,
+      subject._id,
+      reserveContexts,
+    );
     let reserveView: ReserveView | null = null;
     if (reserveContext && !panelContext) {
-      await requirePermission(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "round.read",
-        scopeType: "round",
-        scopeId: reserveContext.round._id,
-      });
       const [clockIn, roundPause] = await Promise.all([
         ctx.db
           .query("reviewerClockIns")
@@ -1497,36 +1585,18 @@ export const now = query({
         active = { assignment, session };
       }
     }
-    if (!active) {
+    const activeIsReadable = active
+      ? await canReadReview(ctx, event._id, subject._id, active.session._id)
+      : false;
+    if (!active || !activeIsReadable) {
       return {
         serverNow: Date.now(),
-        device: device
-          ? {
-              id: device._id,
-              name: device.name,
-              appBuild: device.appBuild,
-              cameraReady: device.cameraReady,
-              notificationsReady: device.pushTokenStatus === "active",
-              pushTokenStatus: device.pushTokenStatus,
-              ...(device.pushToken !== undefined
-                ? { pushTokenFingerprint: pushTokenFingerprint(device.pushToken) }
-                : {}),
-              encryptedDraftReady: device.encryptedDraftReady,
-              version: device.version,
-            }
-          : null,
+        device: deviceView,
         panel: panelView,
         reserve: reserveView,
         review: null,
       };
     }
-    await requirePermission(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "review.read",
-      scopeType: "review",
-      scopeId: active.session._id,
-    });
     const [team, round, panel, assignmentRows, presences] = await Promise.all([
       ctx.db.get(active.session.teamId),
       ctx.db.get(active.session.roundId),
@@ -1557,21 +1627,7 @@ export const now = query({
     const activeTableLabel = await teamRoundTableLabel(ctx, round._id, team._id);
     return {
       serverNow: Date.now(),
-      device: device
-        ? {
-            id: device._id,
-            name: device.name,
-            appBuild: device.appBuild,
-            cameraReady: device.cameraReady,
-            notificationsReady: device.pushTokenStatus === "active",
-            pushTokenStatus: device.pushTokenStatus,
-            ...(device.pushToken !== undefined
-              ? { pushTokenFingerprint: pushTokenFingerprint(device.pushToken) }
-              : {}),
-            encryptedDraftReady: device.encryptedDraftReady,
-            version: device.version,
-          }
-        : null,
+      device: deviceView,
       panel: panelView,
       reserve: reserveView,
       review: {
@@ -1672,10 +1728,6 @@ export const reviewWorkspaceData = internalQuery({
     ) {
       throw new Error("The pinned team checkpoint does not match the review workspace.");
     }
-    const { coreTrack: track, sponsorTracks } = await requireProjectTrackSelection(
-      ctx,
-      project,
-    );
     const githubEvidence = await Promise.all(
       evidence.githubEntries.map(async (entry) => {
         const snapshot = entry.snapshotId ? await ctx.db.get(entry.snapshotId) : null;
@@ -1808,12 +1860,6 @@ export const reviewWorkspaceData = internalQuery({
           question: response.question,
           ...(response.answer !== undefined ? { answer: response.answer } : {}),
           skipped: response.skipped,
-        })),
-        trackName: track.displayName,
-        sponsorTracks: sponsorTracks.map((sponsorTrack) => ({
-          id: sponsorTrack._id,
-          name: sponsorTrack.displayName,
-          eligibilityText: sponsorTrack.eligibilityText,
         })),
         submittedAt: project.submittedAt,
         latestCheckpoint: teamCheckpoint
@@ -2016,6 +2062,7 @@ export const confirmPresence = mutation({
     installationId: v.string(),
     reviewSessionId: v.id("reviewSessions"),
     payload: v.string(),
+    clientOperationId: v.string(),
   },
   returns: v.object({
     reviewSessionId: v.id("reviewSessions"),
@@ -2029,13 +2076,49 @@ export const confirmPresence = mutation({
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
-    const subject = await requireEventSubject(ctx, event._id, person._id);
     const payload = args.payload.trim();
     const isQrPayload = /^c2c-review-v1\.[a-f0-9]{64}$/.test(payload);
     const manualCode = payload.toUpperCase().replaceAll(/[^A-Z0-9]/g, "");
     if (!isQrPayload && !/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{12}$/.test(manualCode)) {
       throw new ConvexError({ code: "INVALID_TEAM_QR", message: "This is not a current Code2Create team code." });
     }
+    const requestFingerprint = operationFingerprint([
+      args.reviewSessionId,
+      args.installationId,
+    ]);
+    const prior = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "review.presence.confirm",
+      requestFingerprint,
+    });
+    if (prior) {
+      const result = storedOperationResult(
+        prior.resultJson,
+        "review presence confirmation",
+        reviewPresenceOperationResult,
+      );
+      const reviewSessionId = ctx.db.normalizeId(
+        "reviewSessions",
+        result.reviewSessionId,
+      );
+      if (!reviewSessionId || reviewSessionId !== prior.targetId) {
+        throw new Error("The stored review presence confirmation is invalid.");
+      }
+      return {
+        reviewSessionId,
+        teamName: result.teamName,
+        roundName: result.roundName,
+        ...(result.tableLabel !== undefined
+          ? { tableLabel: result.tableLabel }
+          : {}),
+        reviewerPresenceCount: result.reviewerPresenceCount,
+        reviewerCount: result.reviewerCount,
+        confirmedAt: result.confirmedAt,
+      };
+    }
+    const subject = await requireEventSubject(ctx, event._id, person._id);
     const token = isQrPayload
       ? await ctx.db
           .query("reviewTeamQrTokens")
@@ -2114,7 +2197,7 @@ export const confirmPresence = mutation({
         .withIndex("by_session_reviewer", (index) => index.eq("reviewSessionId", session._id))
         .collect();
       const confirmedTableLabel = await teamRoundTableLabel(ctx, round._id, team._id);
-      return {
+      const result = {
         reviewSessionId: session._id,
         teamName: team.name,
         roundName: round.name,
@@ -2123,6 +2206,18 @@ export const confirmPresence = mutation({
         reviewerCount: assignedRows.filter((row) => row.status === "assigned").length,
         confirmedAt: currentPresence.confirmedAt,
       };
+      await recordOperation(ctx, {
+        eventId: event._id,
+        actorPersonId: person._id,
+        clientOperationId: args.clientOperationId,
+        commandName: "review.presence.confirm",
+        requestFingerprint,
+        targetType: "review_session",
+        targetId: session._id,
+        resultJson: JSON.stringify(result),
+        createdAt: Date.now(),
+      });
+      return result;
     }
     const state = await ctx.db
       .query("teamRoundStates")
@@ -2173,7 +2268,7 @@ export const confirmPresence = mutation({
       }),
       reason: "Assigned reviewer scanned the current team QR",
     });
-    return {
+    const result = {
       reviewSessionId: session._id,
       teamName: team.name,
       roundName: round.name,
@@ -2182,6 +2277,18 @@ export const confirmPresence = mutation({
       reviewerCount: assignedRows.filter((row) => row.status === "assigned").length,
       confirmedAt: now,
     };
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "review.presence.confirm",
+      requestFingerprint,
+      targetType: "review_session",
+      targetId: session._id,
+      resultJson: JSON.stringify(result),
+      createdAt: now,
+    });
+    return result;
   },
 });
 
@@ -2211,13 +2318,16 @@ export const reportConflict = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const conflictId = ctx.db.normalizeId("reviewerConflicts", prior.targetId);
-      if (!conflictId) throw new Error("Prior conflict report is invalid.");
-      const conflict = await ctx.db.get(conflictId);
-      if (!conflict) throw new Error("Prior conflict report no longer resolves.");
-      const team = await ctx.db.get(conflict.teamId);
-      if (!team) throw new Error("Prior conflict team no longer resolves.");
-      return { conflictId, teamName: team.name };
+      const result = storedOperationResult(
+        prior.resultJson,
+        "reviewer conflict",
+        reviewerConflictOperationResult,
+      );
+      const conflictId = ctx.db.normalizeId("reviewerConflicts", result.conflictId);
+      if (!conflictId || conflictId !== prior.targetId) {
+        throw new Error("The stored reviewer-conflict result is invalid.");
+      }
+      return { conflictId, teamName: result.teamName };
     }
     const session = await ctx.db.get(args.reviewSessionId);
     if (!session || session.eventId !== event._id || session.status !== "awaiting_presence") {
@@ -2347,6 +2457,7 @@ export const reportConflict = mutation({
       updatedByPersonId: person._id,
       updatedAt: now,
     });
+    const result = { conflictId, teamName: team.name };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -2355,6 +2466,7 @@ export const reportConflict = mutation({
       requestFingerprint,
       targetType: "reviewer_conflict",
       targetId: conflictId,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -2379,7 +2491,7 @@ export const reportConflict = mutation({
       }),
       reason,
     });
-    return { conflictId, teamName: team.name };
+    return result;
   },
 });
 
@@ -2531,9 +2643,10 @@ export const saveDraft = mutation({
     if (prior) {
       const scorecardId = ctx.db.normalizeId("scorecards", prior.targetId);
       if (!scorecardId) throw new Error("Prior scorecard draft result is invalid.");
-      const saved = await ctx.db.get(scorecardId);
-      if (!saved) throw new Error("Prior scorecard draft no longer resolves.");
-      return { scorecardId, draftVersion: saved.draftVersion };
+      return {
+        scorecardId,
+        draftVersion: storedOperationVersion(prior.resultJson, "scorecard draft"),
+      };
     }
     const context = await scorecardWriteContext(ctx, {
       eventId: event._id,
@@ -2586,6 +2699,7 @@ export const saveDraft = mutation({
       requestFingerprint,
       targetType: "scorecard",
       targetId: context.scorecard._id,
+      resultJson: String(context.scorecard.draftVersion + 1),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -2645,14 +2759,23 @@ export const submitScorecard = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const scorecardVersionId = ctx.db.normalizeId("scorecardVersions", prior.targetId);
-      if (!scorecardVersionId) throw new Error("Prior scorecard submission is invalid.");
-      const submitted = await ctx.db.get(scorecardVersionId);
-      if (!submitted) throw new Error("Prior scorecard submission no longer resolves.");
+      const result = storedOperationResult(
+        prior.resultJson,
+        "scorecard submission",
+        scorecardSubmissionOperationResult,
+      );
+      const scorecardId = ctx.db.normalizeId("scorecards", result.scorecardId);
+      const scorecardVersionId = ctx.db.normalizeId(
+        "scorecardVersions",
+        result.scorecardVersionId,
+      );
+      if (!scorecardId || !scorecardVersionId || scorecardVersionId !== prior.targetId) {
+        throw new Error("The stored scorecard submission is invalid.");
+      }
       return {
-        scorecardId: submitted.scorecardId,
+        scorecardId,
         scorecardVersionId,
-        submittedAt: submitted.submittedAt,
+        submittedAt: result.submittedAt,
       };
     }
     const context = await scorecardWriteContext(ctx, {
@@ -2753,6 +2876,11 @@ export const submitScorecard = mutation({
       lastSeenAt: now,
       version: context.device.version + 1,
     });
+    const result = {
+      scorecardId: context.scorecard._id,
+      scorecardVersionId,
+      submittedAt: now,
+    };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -2761,6 +2889,7 @@ export const submitScorecard = mutation({
       requestFingerprint,
       targetType: "scorecard_version",
       targetId: scorecardVersionId,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -2795,6 +2924,6 @@ export const submitScorecard = mutation({
           ? "Reviewer submitted the authorised scorecard correction"
           : "Reviewer submitted their own complete scorecard",
     });
-    return { scorecardId: context.scorecard._id, scorecardVersionId, submittedAt: now };
+    return result;
   },
 });

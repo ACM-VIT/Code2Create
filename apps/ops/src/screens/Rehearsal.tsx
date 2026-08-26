@@ -15,6 +15,7 @@ import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
+import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
 
 type RehearsalList = FunctionReturnType<typeof api.rehearsals.list>
 type RehearsalRun = RehearsalList['runs'][number]
@@ -24,6 +25,10 @@ type RehearsalScenario = RehearsalDetail['scenarios'][number]
 type RehearsalScenarioId = RehearsalScenario['id']
 type AssignResult = FunctionReturnType<typeof api.rehearsals.assignWorkstreamOwner>
 type CreateResult = FunctionReturnType<typeof api.rehearsals.create>
+type RunControlResult =
+  | FunctionReturnType<typeof api.rehearsals.start>
+  | FunctionReturnType<typeof api.rehearsals.complete>
+  | FunctionReturnType<typeof api.rehearsals.cancel>
 
 const scenarioStateOrder: RehearsalScenarioState[] = [
   'failed',
@@ -45,6 +50,7 @@ type WorkstreamFilter = RehearsalWorkstream | 'all'
 
 export function Rehearsal() {
   const list = useQuery(api.rehearsals.list, { eventSlug })
+  const serverNow = useEstimatedServerNow(list?.serverNow)
   const [selectedId, setSelectedId] = useState<RehearsalRunId | null>(null)
   const runs = [...(list?.runs ?? [])].sort(
     (left, right) => runOrder[left.state] - runOrder[right.state] || right.createdAt - left.createdAt,
@@ -85,10 +91,16 @@ export function Rehearsal() {
         </section>
       )}
 
-      {list?.canCreate ? <CreateRun defaultOpen={runs.length === 0} onCreated={() => setSelectedId(null)} /> : null}
+      {list?.canCreate ? (
+        <CreateRun
+          defaultOpen={runs.length === 0}
+          serverNow={serverNow}
+          onCreated={() => setSelectedId(null)}
+        />
+      ) : null}
 
       {runs.length > 0 ? (
-        <div className="rehearsal-run-list" aria-label="Test runs">
+        <div className="rehearsal-run-list" role="group" aria-label="Test runs">
           {runs.map((run) => (
             <button
               aria-pressed={visibleSelectedId === run.id}
@@ -164,7 +176,15 @@ function RunLead({ run }: { run: RehearsalRun | undefined }) {
   )
 }
 
-function CreateRun({ defaultOpen, onCreated }: { defaultOpen: boolean; onCreated: () => void }) {
+function CreateRun({
+  defaultOpen,
+  serverNow,
+  onCreated,
+}: {
+  defaultOpen: boolean
+  serverNow: number
+  onCreated: () => void
+}) {
   const create = useMutation(api.rehearsals.create)
   const [name, setName] = useState('Full event test')
   const [scheduledFor, setScheduledFor] = useState('')
@@ -179,7 +199,7 @@ function CreateRun({ defaultOpen, onCreated }: { defaultOpen: boolean; onCreated
     event.preventDefault()
     if (busyRef.current || name.trim().length < 3 || reason.trim().length < 5) return
     const schedule = scheduledFor ? new Date(scheduledFor).getTime() : undefined
-    if (schedule !== undefined && (!Number.isFinite(schedule) || schedule <= Date.now())) {
+    if (schedule !== undefined && (!Number.isFinite(schedule) || schedule <= serverNow)) {
       setError('Choose a future rehearsal time or leave it blank.')
       return
     }
@@ -345,7 +365,7 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
         </div>
 
         <div className="rehearsal-scenario-workspace">
-          <div className="rehearsal-scenario-list" aria-label="Test checks">
+          <div className="rehearsal-scenario-list" role="group" aria-label="Test checks">
             {scenarios.map((scenario) => (
               <button
                 aria-pressed={visibleScenarioId === scenario.id}
@@ -414,21 +434,22 @@ function WorkstreamOwners({
       owner: detail.workstreamOwners.find((candidate) => candidate.workstream === workstream),
     }))
     .sort((left, right) => ownerRank(left.owner) - ownerRank(right.owner))
+  const statusCopy = missing > 0
+    ? `${missing} of ${detail.run.requiredWorkstreamCount} areas have no owner, so the run cannot start.`
+    : inactive.length > 0
+      ? `Every area has an owner, but ${inactive.length === 1 ? 'one has' : `${inactive.length} have`} inactive access.`
+      : `All ${detail.run.requiredWorkstreamCount} areas have an owner who can record results.`
 
   return (
-    <section className="rehearsal-section">
-      <div className="section-heading">
-        <div>
-          <h2>Owners</h2>
-          <p className="muted">
-            {missing > 0
-              ? `${missing} of ${detail.run.requiredWorkstreamCount} areas have no owner, so the run cannot start.`
-              : inactive.length > 0
-                ? `Every area has an owner, but ${inactive.length === 1 ? 'one has' : `${inactive.length} have`} inactive access and cannot record a result.`
-                : `All ${detail.run.requiredWorkstreamCount} areas have an owner who can record results.`}
-          </p>
-        </div>
-      </div>
+    <details className="workspace-disclosure rehearsal-owners">
+      <summary>
+        <span>
+          <strong>Owners</strong>
+          <small>{statusCopy}</small>
+        </span>
+        <span className="workspace-disclosure-toggle" aria-hidden="true" />
+      </summary>
+      <div className="workspace-disclosure-body">
       <div className="rehearsal-owner-list">
         {rows.map(({ owner, workstream }) => (
           <div className="rehearsal-owner-row" key={workstream}>
@@ -447,7 +468,8 @@ function WorkstreamOwners({
       {detail.run.canManage && (detail.run.state === 'draft' || detail.run.state === 'active') ? (
         <OwnerAssignment areas={areas} detail={detail} />
       ) : null}
-    </section>
+      </div>
+    </details>
   )
 }
 
@@ -573,7 +595,7 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const busyRef = useRef(false)
-  const operationAttempt = useMutationAttempt<unknown>()
+  const operationAttempt = useMutationAttempt<RunControlResult>()
   const [pendingKind, setPendingKind] = useState<RunOperationKind | null>(null)
   const operationPending = operationAttempt.hasPending('rehearsal-run-control')
 
@@ -591,7 +613,10 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
       </p>
     )
   }
-  if (!detail.run.canManage && !detail.run.canComplete) return null
+  const canControl = detail.run.state === 'draft'
+    ? detail.run.canManage
+    : detail.run.canManage || detail.run.canComplete
+  if (!canControl) return null
 
   const startReady =
     detail.run.state === 'draft' &&
@@ -663,22 +688,27 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
 
   const missingOwners = detail.run.requiredWorkstreamCount - detail.run.assignedWorkstreamCount
   const outstanding = detail.run.counts.total - detail.run.counts.passed
+  const controlSummary = detail.run.state === 'draft'
+    ? missingOwners > 0
+      ? `Blocked until ${missingOwners} ${missingOwners === 1 ? 'area has' : 'areas have'} an owner.`
+      : 'Ready to start once a run note is added.'
+    : completionReady
+      ? 'Every check passed. This run can be signed off.'
+      : `${outstanding} ${outstanding === 1 ? 'check still needs' : 'checks still need'} a passing result.`
 
   return (
-    <section className="rehearsal-section rehearsal-run-controls">
-      <div>
-        <h2>{detail.run.state === 'draft' ? 'Starting this run' : 'Signing this run off'}</h2>
-        <p className="muted">
-          {detail.run.state === 'draft'
-            ? 'Results can only be recorded while a run is under way.'
-            : 'A run is signed off only when every check has passed.'}
-        </p>
-      </div>
-      {detail.run.state === 'draft' && !startReady && detail.run.canManage ? (
+    <details className="workspace-disclosure rehearsal-controls">
+      <summary>
+        <span>
+          <strong>Run controls</strong>
+          <small>{controlSummary}</small>
+        </span>
+        <span className="workspace-disclosure-toggle" aria-hidden="true" />
+      </summary>
+      <div className="workspace-disclosure-body rehearsal-run-controls">
+      {detail.run.state === 'draft' && missingOwners > 0 ? (
         <p className="notice">
-          {missingOwners > 0
-            ? `This run cannot start: ${missingOwners} of its ${detail.run.requiredWorkstreamCount} areas have no owner.`
-            : 'Starting this run needs the rehearsal manage permission, which you do not have.'}
+          This run cannot start: {missingOwners} of its {detail.run.requiredWorkstreamCount} areas have no owner.
         </p>
       ) : null}
       {detail.run.state === 'active' && !completionReady && detail.run.canComplete ? (
@@ -689,7 +719,7 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
         </p>
       ) : null}
       <label className="field">
-        {detail.run.state === 'active' ? 'What this run showed' : 'Why this run is starting or ending'}
+        Run note
         <textarea
           maxLength={1000}
           disabled={operationPending}
@@ -715,7 +745,8 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
         ) : null}
       </div>
       {error ? <p className="notice error">{error}</p> : null}
-    </section>
+      </div>
+    </details>
   )
 }
 

@@ -41,23 +41,25 @@ export function EventLifecycleControl() {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const operationSlot = 'event-lifecycle-transition'
 
   const selectedTransition = lifecycle?.transitions.find(
     (transition) => transition.targetStatus === targetStatus,
   )
-  const operationPending = operationAttempt.hasPending('event-lifecycle-transition')
+  const operationPending = operationAttempt.hasPending(operationSlot)
 
   useEffect(() => {
-    if (targetStatus === null || selectedTransition !== undefined) return
+    if (operationPending || targetStatus === null || selectedTransition !== undefined) return
     setTargetStatus(null)
     setReason('')
     setError(null)
-  }, [selectedTransition, targetStatus])
+  }, [operationPending, selectedTransition, targetStatus])
 
   if (lifecycle === undefined) return <p className="muted">Loading event state…</p>
   const current = statusCopy[lifecycle.status]
 
   const selectTransition = (status: LifecycleStatus) => {
+    if (operationPending) return
     setTargetStatus(status)
     setReason('')
     setError(null)
@@ -71,20 +73,27 @@ export function EventLifecycleControl() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!selectedTransition || selectedTransition.blockers.length > 0) return
+    if (busy) return
+    if (!operationPending && (!selectedTransition || selectedTransition.blockers.length > 0)) return
     setBusy(true)
     setError(null)
     try {
-      await operationAttempt.run('event-lifecycle-transition', () => {
-        const args = {
-          eventSlug,
-          targetStatus: selectedTransition.targetStatus,
-          expectedEventVersion: lifecycle.eventVersion,
-          reason,
-          clientOperationId: crypto.randomUUID(),
-        }
-        return () => transitionEvent(args)
-      })
+      if (operationPending) {
+        await operationAttempt.retryPending(operationSlot)
+      } else if (selectedTransition) {
+        await operationAttempt.run(operationSlot, () => {
+          const args = {
+            eventSlug,
+            targetStatus: selectedTransition.targetStatus,
+            expectedEventVersion: lifecycle.eventVersion,
+            reason,
+            clientOperationId: crypto.randomUUID(),
+          }
+          return () => transitionEvent(args)
+        })
+      }
+      setTargetStatus(null)
+      setReason('')
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -109,6 +118,7 @@ export function EventLifecycleControl() {
                 : 'secondary'}
               key={transition.targetStatus}
               type="button"
+              disabled={operationPending}
               onClick={() => selectTransition(transition.targetStatus)}
             >
               {transitionLabel(lifecycle.status, transition.targetStatus)}
@@ -117,7 +127,15 @@ export function EventLifecycleControl() {
         </div>
       ) : null}
 
-      {selectedTransition ? (
+      {operationPending ? (
+        <form className="event-lifecycle-confirmation" onSubmit={submit}>
+          <strong>Finish the earlier event-state change</strong>
+          {error ? <p className="notice error" role="alert">{error}</p> : null}
+          <button className="primary" type="submit" disabled={busy}>
+            {busy ? 'Confirming…' : 'Confirm earlier change'}
+          </button>
+        </form>
+      ) : selectedTransition ? (
         selectedTransition.blockers.length > 0 ? (
           <div className="event-lifecycle-confirmation">
             <strong>Finish setup first</strong>
@@ -135,8 +153,7 @@ export function EventLifecycleControl() {
               <textarea
                 required
                 minLength={5}
-              maxLength={500}
-              disabled={operationPending}
+                maxLength={500}
                 value={reason}
                 onChange={(event) => setReason(event.currentTarget.value)}
               />
@@ -144,9 +161,9 @@ export function EventLifecycleControl() {
             {error ? <p className="notice error" role="alert">{error}</p> : null}
             <div className="button-row">
               <button className="primary" type="submit" disabled={busy || reason.trim().length < 5}>
-                {busy ? 'Saving…' : operationPending ? 'Confirm earlier transition' : 'Confirm'}
+                {busy ? 'Saving…' : 'Confirm'}
               </button>
-              <button className="text-button" type="button" disabled={busy || operationPending} onClick={cancel}>Cancel</button>
+              <button className="text-button" type="button" disabled={busy} onClick={cancel}>Cancel</button>
             </div>
           </form>
         )

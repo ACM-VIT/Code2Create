@@ -58,7 +58,6 @@ const supportCategories = [
   "identity",
   "team",
   "project_intake",
-  "track_configuration",
   "attendance_credential",
   "missing_scan",
   "scanner_device",
@@ -1079,6 +1078,7 @@ async function executeApprovedKind(
     itemId: args.itemId,
     expectedVersion: args.expectedItemVersion,
     reason: args.reason,
+    clientOperationId,
   });
   return { targetType: "operations_attention_item", targetId: args.itemId };
 }

@@ -1,20 +1,19 @@
 
 export const palette = {
   background: '#0A0A0B',
-  tile: '#2C2C2E',
-  strong: '#4A4A4D',
-  ghost: '#232325',
+  tile: '#1B1B1D',
+  strong: '#343437',
 
-  text: '#F2F2F4',
-  muted: '#8E8E93',
-  faint: '#636367',
+  text: '#ECECEE',
+  muted: '#A0A0A5',
+  faint: '#6D6D72',
 
-  judging: '#3ED88A',
-  door: '#4C9BFF',
-  hall: '#FF6B00',
-  setup: '#B79CFF',
-  pulse: '#FFD60A',
-  urgent: '#FF453A',
+  judging: '#8FB99F',
+  door: '#91AAC2',
+  hall: '#C29A78',
+  setup: '#AA9CBC',
+  pulse: '#C3B77C',
+  urgent: '#D78680',
 
   onJudging: '#04140C',
   onDoor: '#050D18',
@@ -34,14 +33,13 @@ export const space = {
 } as const
 
 export const radius = {
-  tile: 18,
-  control: 999,
+  tile: 10,
+  control: 10,
   pill: 999,
 } as const
 
 export const type = {
   value: { fontSize: 36, fontWeight: '500', letterSpacing: -0.8, lineHeight: 37 },
-  ghost: { fontSize: 250, fontWeight: '500', letterSpacing: -10, lineHeight: 230 },
   context: { fontSize: 15, fontWeight: '400' },
   summary: { fontSize: 17, fontWeight: '400' },
   tileLabel: { fontSize: 17, fontWeight: '400' },

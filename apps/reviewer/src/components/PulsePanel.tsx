@@ -1,6 +1,7 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
+import { randomUUID } from 'expo-crypto'
 import { useRef, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
@@ -18,6 +19,7 @@ import {
   Problem,
 } from '@/components/ui'
 import { describeError } from '@/lib/errors'
+import { useMutationAttempt } from '@/lib/mutation-attempt'
 import type { ReviewerRuntime } from '@/lib/runtime'
 import { duty, palette } from '@/theme'
 import { PulseSkeleton } from '@/components/skeletons'
@@ -79,7 +81,7 @@ export function PulsePanel({ canManage, runtime }: { canManage: boolean; runtime
             </Card>
           ))}
           {attention.summary.hasMore ? (
-            <Meta>{`Showing the ${attention.summary.limit} highest-priority items. More remain in the ledger.`}</Meta>
+            <Meta>{`Showing the ${attention.summary.limit} highest-priority items. More items remain.`}</Meta>
           ) : null}
         </Section>
       )}
@@ -127,11 +129,21 @@ function AttentionSheet({
 }) {
   const acknowledge = useMutation(api.operationsAttention.acknowledge)
   const dismiss = useMutation(api.operationsAttention.dismiss)
+  const acknowledgeAttempt = useMutationAttempt<
+    FunctionReturnType<typeof api.operationsAttention.acknowledge>
+  >()
+  const dismissAttempt = useMutationAttempt<
+    FunctionReturnType<typeof api.operationsAttention.dismiss>
+  >()
   const [dismissing, setDismissing] = useState(false)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const busyRef = useRef(false)
+  const acknowledgeSlot = row ? `attention-acknowledge:${row.id}` : 'attention-acknowledge'
+  const dismissSlot = row ? `attention-dismiss:${row.id}` : 'attention-dismiss'
+  const acknowledgePending = acknowledgeAttempt.hasPending(acknowledgeSlot)
+  const dismissPending = dismissAttempt.hasPending(dismissSlot)
 
   const close = () => {
     setDismissing(false)
@@ -146,7 +158,15 @@ function AttentionSheet({
     setBusy(true)
     setError(null)
     try {
-      await acknowledge({ eventSlug, itemId: row.id, expectedVersion: row.version })
+      await acknowledgeAttempt.run(acknowledgeSlot, () => {
+        const args = {
+          eventSlug,
+          itemId: row.id,
+          expectedVersion: row.version,
+          clientOperationId: randomUUID(),
+        }
+        return () => acknowledge(args)
+      })
       close()
     } catch (caught) {
       setError(describeError(caught, 'That could not be picked up.'))
@@ -163,11 +183,15 @@ function AttentionSheet({
     setBusy(true)
     setError(null)
     try {
-      await dismiss({
-        eventSlug,
-        itemId: row.id,
-        expectedVersion: row.version,
-        reason: normalizedReason,
+      await dismissAttempt.run(dismissSlot, () => {
+        const args = {
+          eventSlug,
+          itemId: row.id,
+          expectedVersion: row.version,
+          reason: normalizedReason,
+          clientOperationId: randomUUID(),
+        }
+        return () => dismiss(args)
       })
       close()
     } catch (caught) {
@@ -201,8 +225,8 @@ function AttentionSheet({
               />
               <Action
                 destructive
-                disabled={busy || reason.trim().length < 5}
-                label={busy ? 'Dismissing…' : 'Dismiss it'}
+                disabled={busy || (!dismissPending && reason.trim().length < 5)}
+                label={busy ? 'Dismissing…' : dismissPending ? 'Confirm dismissal' : 'Dismiss it'}
                 onPress={notAProblem}
               />
             </>
@@ -212,7 +236,7 @@ function AttentionSheet({
                 <Action
                   accent={duty.pulse.accent}
                   disabled={busy}
-                  label={busy ? 'Picking up…' : 'Pick it up'}
+                  label={busy ? 'Picking up…' : acknowledgePending ? 'Confirm pickup' : 'Pick it up'}
                   onPress={pickUp}
                 />
               ) : null}

@@ -4,6 +4,8 @@ import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
+import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -12,6 +14,9 @@ import { useOperationRunner } from '../lib/operations'
 type Configuration = FunctionReturnType<typeof api.participantPolicyConfiguration.current>
 type Policy = Configuration['publishedPolicy']['policy']
 type FieldMode = Policy['phoneField']
+type PolicyOperationResult =
+  | FunctionReturnType<typeof api.participantPolicyConfiguration.createDraft>
+  | FunctionReturnType<typeof api.participantPolicyConfiguration.publish>
 
 const fieldModes: { value: FieldMode; label: string }[] = [
   { value: 'not_collected', label: 'Do not collect' },
@@ -27,7 +32,7 @@ export function ParticipantPolicyConfiguration({
   const configuration = useQuery(api.participantPolicyConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.participantPolicyConfiguration.createDraft)
   const publish = useMutation(api.participantPolicyConfiguration.publish)
-  const operations = useOperationRunner()
+  const operations = useOperationRunner<PolicyOperationResult>()
   const validation = useQuery(
     api.participantPolicyConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPolicy
@@ -43,6 +48,20 @@ export function ParticipantPolicyConfiguration({
   const [error, setError] = useState<string | null>(null)
   const draftPending = operations.hasPending('participant-policy-draft')
   const publishPending = operations.hasPending('participant-policy-publish')
+  const pendingOperation = publishPending
+    ? {
+        slot: 'participant-policy-publish',
+        title: 'Finish publishing the participant rules',
+        action: 'Confirm earlier publication',
+      }
+    : draftPending
+      ? {
+          slot: 'participant-policy-draft',
+          title: 'Finish saving the participant rules draft',
+          action: 'Confirm earlier save',
+        }
+      : null
+  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!configuration) return
@@ -71,6 +90,7 @@ export function ParticipantPolicyConfiguration({
 
   const saveDraft = async (event: FormEvent) => {
     event.preventDefault()
+    if (busy || operationPending) return
     setBusy(true)
     setError(null)
     try {
@@ -93,7 +113,7 @@ export function ParticipantPolicyConfiguration({
 
   const publishDraft = async () => {
     const draft = configuration.draftPolicy
-    if (!draft || !validation?.valid) return
+    if (busy || operationPending || !draft || !validation?.valid) return
     setBusy(true)
     setError(null)
     try {
@@ -113,10 +133,24 @@ export function ParticipantPolicyConfiguration({
     }
   }
 
+  const confirmPendingOperation = async () => {
+    if (busy || pendingOperation === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      await operations.retryPending(pendingOperation.slot)
+      setPublishArmed(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <section className="track-config-shell intake-policy-shell">
+    <section className="configuration-shell intake-policy-shell">
       <ConfigurationTabs visibility={tabs} />
-      <header className="page-heading track-config-heading">
+      <header className="page-heading configuration-heading">
         <div>
           <h1>Participant form</h1>
           <p className="muted">Controls profile collection, team eligibility, consent text, and the final lock warning.</p>
@@ -129,7 +163,16 @@ export function ParticipantPolicyConfiguration({
         <div><dt>Mixed teams</dt><dd>{configuration.publishedPolicy.policy.mixedParticipantClassesAllowed ? 'Allowed' : 'Not allowed'}</dd></div>
       </dl>
 
-      {configuration.draftPolicy ? (
+      {pendingOperation ? (
+        <PendingOperationRecovery
+          action={pendingOperation.action}
+          busy={busy}
+          onConfirm={() => void confirmPendingOperation()}
+          title={pendingOperation.title}
+        />
+      ) : null}
+
+      {!operationPending && configuration.draftPolicy ? (
         <section className="catalog-review">
           <div className="section-heading">
             <div><p className="muted">Draft changes</p><h2>Before publishing</h2></div>
@@ -154,7 +197,7 @@ export function ParticipantPolicyConfiguration({
         </section>
       ) : null}
 
-      {configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
+      {!operationPending && configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish these participant rules?</h2>
           <p className="muted">Each participant must accept the updated rules.</p>
@@ -171,8 +214,13 @@ export function ParticipantPolicyConfiguration({
         </section>
       ) : null}
 
-      {configuration.canDraft ? (
-        <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
+      {!operationPending && configuration.canDraft ? (
+        <ConfigurationEditorDisclosure
+          defaultOpen={Boolean(configuration.draftPolicy)}
+          description="Team rules, profile fields, notices, and the final submission warning."
+          title={configuration.draftPolicy ? 'Continue participant-form draft' : 'Edit participant form'}
+        >
+        <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
           <fieldset disabled={draftPending} style={{ display: 'contents' }}>
           <PolicySection
             title="Team rules"
@@ -240,7 +288,7 @@ export function ParticipantPolicyConfiguration({
           </PolicySection>
 
           </fieldset>
-          <section className="track-save">
+          <section className="configuration-save">
             <label className="field">
               <span>Why this changed</span>
               <textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.currentTarget.value)} />
@@ -250,6 +298,7 @@ export function ParticipantPolicyConfiguration({
             </button>
           </section>
         </form>
+        </ConfigurationEditorDisclosure>
       ) : null}
 
       {error ? <p className="notice error" role="alert">{error}</p> : null}

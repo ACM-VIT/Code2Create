@@ -50,7 +50,7 @@ const workRequest = z.object({
 }).strict();
 
 const supportCategories = [
-  "identity", "team", "project_intake", "track_configuration",
+  "identity", "team", "project_intake",
   "attendance_credential", "missing_scan", "scanner_device", "table_location",
   "integration", "queue", "reviewer_device", "scorecard", "accessibility", "safety",
 ] as const;

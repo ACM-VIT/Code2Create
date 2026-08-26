@@ -100,6 +100,11 @@ export async function clearReviewerRegistration(
   return next
 }
 
+export async function clearReviewerDevice(eventSlug: string) {
+  await SecureStore.deleteItemAsync(storageKey(eventSlug))
+  notifyInstallationChanged(eventSlug)
+}
+
 async function saveReviewerDevice(eventSlug: string, record: ReviewerDeviceRecord) {
   await SecureStore.setItemAsync(storageKey(eventSlug), JSON.stringify(record))
   notifyInstallationChanged(eventSlug)

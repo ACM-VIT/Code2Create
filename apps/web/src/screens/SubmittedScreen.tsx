@@ -1,9 +1,9 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 
-import type { PublicState, SubmittedIntake } from '../types'
+import type { CurrentTeam, PublicState, SubmittedIntake } from '../types'
 import { AttendancePanel } from '../components/AttendancePanel'
 import { ReviewQueuePanel } from '../components/ReviewQueuePanel'
 import { ReleasedFeedbackPanel } from '../components/ReleasedFeedbackPanel'
@@ -15,44 +15,125 @@ import { useMutationAttempt } from '../lib/operations'
 
 type ParticipantDelivery = FunctionReturnType<typeof api.participantNotifications.mine>
 type ParticipantDeliveryState = NonNullable<ParticipantDelivery>['state']
+type ParticipantCapabilities = FunctionReturnType<typeof api.access.participantCapabilities>
+type ParticipantCommunications = NonNullable<FunctionReturnType<typeof api.participantCommunications.current>>
 type CurrentApplication = SubmittedIntake['application']
+type ApplicationState = CurrentApplication['state']
 type InformationRequest = NonNullable<CurrentApplication['informationRequest']>
 
 const deliveryStatusCopy: Record<ParticipantDeliveryState, string> = {
   pending: 'Email queued.',
   sending: 'Email is being sent.',
-  retry_wait: 'Email queued for another delivery attempt.',
-  sent: 'Email accepted by the mail provider.',
-  delivery_delayed: 'Email delivery is delayed.',
-  delivered: 'Email reached your mail server. This does not confirm it was read.',
-  bounced: 'Email could not be delivered. Your portal status above is authoritative.',
-  failed: 'Email delivery failed. Your portal status above is authoritative.',
-  suppressed: 'Email is disabled for this address. Your portal status above is authoritative.',
-  unknown: 'Email delivery could not be confirmed. Your portal status above is authoritative.',
-  superseded: 'A newer portal update replaced this email.',
+  retry_wait: 'We will try to send the email again.',
+  sent: 'Email sent.',
+  delivery_delayed: 'The email is taking longer than expected.',
+  delivered: 'Email delivered.',
+  bounced: 'The email could not be delivered. Check this page for the latest status.',
+  failed: 'The email could not be sent. Check this page for the latest status.',
+  suppressed: 'Email updates are turned off for this address. Check this page for the latest status.',
+  unknown: 'We could not confirm email delivery. Check this page for the latest status.',
+  superseded: 'A newer update replaced this email.',
+}
+
+const applicationCopy: Record<ApplicationState, {
+  heading: string
+  message: string
+  status: string
+}> = {
+  submitted: {
+    status: 'Application received',
+    heading: 'Submitted.',
+    message: 'We have your application. Your team is locked; the lead can revise the proposal until the deadline.',
+  },
+  under_review: {
+    status: 'Under review',
+    heading: 'Your application is being reviewed.',
+    message: 'Your team remains locked. We will post the decision here.',
+  },
+  needs_information: {
+    status: 'Your response is needed',
+    heading: 'A quick follow-up.',
+    message: 'Answer the questions below so the review can continue.',
+  },
+  accepted: {
+    status: 'Selected',
+    heading: 'You’re selected.',
+    message: 'Your team has been selected. Your offer will appear here.',
+  },
+  waitlisted: {
+    status: 'Waitlisted',
+    heading: 'You’re on the waitlist.',
+    message: 'Your application is still active. We will send an update if a place opens.',
+  },
+  declined: {
+    status: 'Decision published',
+    heading: 'Application update.',
+    message: 'Your team was not selected for this event. Thank you for sharing your idea.',
+  },
+  offer_sent: {
+    status: 'Selected',
+    heading: 'You’re selected.',
+    message: 'Your team’s places are held until the deadline below.',
+  },
+  confirmed: {
+    status: 'Confirmed',
+    heading: 'You’re confirmed.',
+    message: 'Your team has a place at Code2Create.',
+  },
+  offer_expired: {
+    status: 'Offer expired',
+    heading: 'The offer expired.',
+    message: 'The reserved places were released when the response deadline passed.',
+  },
+  withdrawn: {
+    status: 'Offer declined',
+    heading: 'The offer was declined.',
+    message: 'The team declined its offer, so the reserved places were released.',
+  },
 }
 
 export function SubmittedScreen({
+  capabilities,
   publicState,
+  team,
 }: {
+  capabilities: ParticipantCapabilities
   publicState: PublicState
+  team: CurrentTeam
 }) {
   const intake = useQuery(api.intake.submitted, { eventSlug })
   if (intake === undefined) return <p className="muted">Loading your application…</p>
-  if (intake === null) return null
-  return <SubmittedWorkspace publicState={publicState} intake={intake} />
+  if (intake === null) {
+    return <p className="notice notice-error" role="alert">Your application could not be opened. Refresh or ask an organizer for help.</p>
+  }
+  return (
+    <SubmittedWorkspace
+      capabilities={capabilities}
+      publicState={publicState}
+      intake={intake}
+      team={team}
+    />
+  )
 }
 
 function SubmittedWorkspace({
+  capabilities,
   publicState,
   intake,
+  team,
 }: {
+  capabilities: ParticipantCapabilities
   publicState: PublicState
   intake: SubmittedIntake
+  team: CurrentTeam
 }) {
   const application = intake.application
+  const copy = applicationCopy[application.state]
   const selected = ['accepted', 'offer_sent', 'confirmed'].includes(application.state)
-  const delivery = useQuery(api.participantNotifications.mine, { eventSlug })
+  const delivery = useQuery(
+    api.participantNotifications.mine,
+    capabilities?.notifications ? { eventSlug } : 'skip',
+  )
   const communications = useQuery(
     api.participantCommunications.current,
     selected ? { eventSlug } : 'skip',
@@ -65,32 +146,49 @@ function SubmittedWorkspace({
   const [confirmDecline, setConfirmDecline] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const event = publicState.event
-  const [phaseTime, setPhaseTime] = useState(Date.now)
+  const phaseClock = useRef({
+    serverNow: intake.serverNow,
+    clientNow: performance.now(),
+  })
+  const [phaseTime, setPhaseTime] = useState(intake.serverNow)
   const phases = event?.phases
   useEffect(() => {
-    const nextBoundary = phases
-      ?.flatMap((phase) => [phase.startsAt, phase.endsAt])
+    phaseClock.current = {
+      serverNow: intake.serverNow,
+      clientNow: performance.now(),
+    }
+    setPhaseTime(intake.serverNow)
+  }, [intake.serverNow])
+  useEffect(() => {
+    const nextBoundary = [
+      ...(phases?.flatMap((phase) => [phase.startsAt, phase.endsAt]) ?? []),
+      intake.applicationsCloseAt,
+    ]
       .filter((timestamp) => timestamp > phaseTime)
       .toSorted((left, right) => left - right)[0]
     if (nextBoundary === undefined) return
     const timer = window.setTimeout(
-      () => setPhaseTime(Date.now()),
+      () => {
+        const currentClientNow = performance.now()
+        setPhaseTime(
+          phaseClock.current.serverNow + currentClientNow - phaseClock.current.clientNow,
+        )
+      },
       Math.min(nextBoundary - phaseTime + 100, 2_147_000_000),
     )
     return () => window.clearTimeout(timer)
-  }, [phaseTime, phases])
-  if (!event) return null
+  }, [intake.applicationsCloseAt, phaseTime, phases])
+  if (!event) {
+    return <p className="notice notice-error" role="alert">Event details are unavailable right now.</p>
+  }
   const confirmed = application.state === 'confirmed'
-  const track = intake.project.coreTrack
-  const sponsorTracks = intake.project.sponsorTracks
   const currentPhase = event.phases.find(
     (phase) => phase.startsAt <= phaseTime && phaseTime < phase.endsAt,
   )
   const nextPhase = event.phases.find((phase) => phase.startsAt > phaseTime)
   const visiblePhase = currentPhase ?? nextPhase
-  const discordIsNextStep = communications?.nextSteps.some(
-    (step) => step.actionUrl === communications.discordUrl,
-  ) ?? false
+  const eventIsLive = confirmed && currentPhase !== undefined
+  const canEditProposal = intake.canEdit && phaseTime < intake.applicationsCloseAt
 
   const respond = async (response: 'confirm' | 'decline') => {
     const offer = application.currentOffer
@@ -122,22 +220,33 @@ function SubmittedWorkspace({
 
   return (
     <section className="intake-panel submitted-panel">
-      <p className="eyebrow">{applicationStateName(application.state)}</p>
-      <h1>{applicationHeading(application.state)}</h1>
-      <p className="lead">
-        {applicationMessage(application.state)}
-      </p>
-      <dl className="detail-list">
-        {track ? <div><dt>Track</dt><dd>{track.displayName}</dd></div> : null}
-        {sponsorTracks.length > 0 ? (
-          <div><dt>Sponsor tracks</dt><dd>{sponsorTracks.map((sponsorTrack) => sponsorTrack.displayName).join(', ')}</dd></div>
-        ) : null}
-        {communications ? <div><dt>Venue</dt><dd>{communications.venueName}</dd></div> : null}
-        {communications ? <div><dt>Starts</dt><dd>{formatEventTime(communications.startsAt, event.timezone)}</dd></div> : null}
-      </dl>
+      {eventIsLive ? (
+        <header className="participant-now">
+          <p className="eyebrow">Now</p>
+          <h1>{currentPhase.displayName}</h1>
+          <p className="lead">{currentPhase.description}</p>
+          <div className="participant-now-meta">
+            <span>Confirmed</span>
+            <time>Ends {formatEventTime(currentPhase.endsAt, event.timezone)}</time>
+          </div>
+        </header>
+      ) : (
+        <>
+          <p className="eyebrow">{copy.status}</p>
+          <h1>{copy.heading}</h1>
+          <p className="lead">{copy.message}</p>
+          {communications ? (
+            <dl className="detail-list">
+              <div><dt>Venue</dt><dd>{communications.venueName}</dd></div>
+              <div><dt>Starts</dt><dd>{formatEventTime(communications.startsAt, event.timezone)}</dd></div>
+            </dl>
+          ) : null}
+        </>
+      )}
       {application.state === 'needs_information' && application.informationRequest?.state === 'open' ? (
         <InformationResponsePanel
           application={application}
+          canRespond={intake.currentRole === 'lead' && team.canRespondToInformationRequest}
           currentRole={intake.currentRole}
           request={application.informationRequest}
         />
@@ -149,7 +258,7 @@ function SubmittedWorkspace({
             This offer covers your locked team. It expires on{' '}
             <strong>{formatEventTime(application.currentOffer.expiresAt, event.timezone)}</strong>.
           </p>
-          {intake.currentRole === 'lead' ? (
+          {intake.currentRole === 'lead' && team.canRespondToOffer ? (
             confirmDecline ? (
               <div className="offer-actions">
                 <p>Declining releases the whole team’s places. You cannot undo this in the portal.</p>
@@ -166,13 +275,15 @@ function SubmittedWorkspace({
                 <button type="button" className="text-button" disabled={busy !== null || responsePending} onClick={() => setConfirmDecline(true)}>Decline offer</button>
               </div>
             )
-          ) : (
+          ) : intake.currentRole !== 'lead' ? (
             <p className="fine-print">Your team lead must confirm for the team.</p>
+          ) : (
+            <p className="fine-print">Offer response is unavailable. Ask an organizer if this looks wrong.</p>
           )}
           {error ? <p className="notice error" role="alert">{error}</p> : null}
         </div>
       ) : null}
-      {selected && visiblePhase ? (
+      {selected && visiblePhase && !eventIsLive ? (
         <section className="event-phase-status">
           <p className="eyebrow">{currentPhase ? 'Current phase' : 'Next phase'}</p>
           <div>
@@ -187,53 +298,26 @@ function SubmittedWorkspace({
           <p>{visiblePhase.description}</p>
         </section>
       ) : null}
+      {eventIsLive ? (
+        <EventTools capabilities={capabilities} timezone={event.timezone} />
+      ) : null}
       {selected && communications ? (
-        <section className="accepted-next-steps">
-          <h2>{confirmed ? 'Event details' : 'Next steps'}</h2>
-          {communications.venueAddress ? (
-            <p>
-              {communications.venueAddress}
-              {communications.venueMapUrl ? (
-                <> · <a href={communications.venueMapUrl} target="_blank" rel="noreferrer">Map</a></>
-              ) : null}
-            </p>
-          ) : null}
-          <ol>
-            {communications.nextSteps.map((step) => (
-              <li key={step.stableKey}>
-                <strong>{step.title}</strong>
-                <span>{step.detail}</span>
-                {step.dueAt ? <time>By {formatEventTime(step.dueAt, event.timezone)}</time> : null}
-                {step.actionUrl ? (
-                  <a href={step.actionUrl}>
-                    {step.actionUrl === communications.discordUrl ? 'Open Discord' : 'Open'}
-                  </a>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-          {!discordIsNextStep ? (
-            <a className="primary link-button" href={communications.discordUrl} target="_blank" rel="noreferrer">
-              {communications.discordLabel}
-            </a>
-          ) : null}
-        </section>
+        <AcceptedTeamDetails
+          communications={communications}
+          compact={eventIsLive}
+          heading={confirmed ? 'Event details' : 'Next steps'}
+          timezone={event.timezone}
+        />
       ) : null}
-      {confirmed ? (
-        <div className="event-tools">
-          <AttendancePanel />
-          <ReviewQueuePanel />
-          <ProjectCheckpointsPanel timezone={event.timezone} />
-          <TeamLocationPanel />
-          <ReleasedFeedbackPanel />
-        </div>
+      {confirmed && !eventIsLive ? (
+        <EventTools capabilities={capabilities} timezone={event.timezone} />
       ) : null}
-      {intake.project.initialIdea ? (
-        <details className="submitted-summary">
-          <summary>Your project</summary>
-          <p>{intake.project.initialIdea}</p>
-        </details>
-      ) : null}
+      <ProposalSummary
+        application={application}
+        canEdit={canEditProposal}
+        intake={intake}
+        timezone={event.timezone}
+      />
       {delivery && deliveryNeedsAttention(delivery.state) ? (
         <p className="notice error" role="status">{deliveryStatusCopy[delivery.state]}</p>
       ) : null}
@@ -241,12 +325,302 @@ function SubmittedWorkspace({
   )
 }
 
+function EventTools({
+  capabilities,
+  timezone,
+}: {
+  capabilities: ParticipantCapabilities
+  timezone: string
+}) {
+  return (
+    <div className="event-tools">
+      {capabilities?.attendance ? <AttendancePanel /> : null}
+      {capabilities?.floor ? <TeamLocationPanel /> : null}
+      {capabilities?.projectCheckpoints ? (
+        <ProjectCheckpointsPanel timezone={timezone} />
+      ) : null}
+      {capabilities?.reviewQueue ? <ReviewQueuePanel /> : null}
+      {capabilities?.scoreFeedback ? <ReleasedFeedbackPanel /> : null}
+    </div>
+  )
+}
+
+function AcceptedTeamDetails({
+  communications,
+  compact,
+  heading,
+  timezone,
+}: {
+  communications: ParticipantCommunications
+  compact: boolean
+  heading: string
+  timezone: string
+}) {
+  const discordIsNextStep = communications.nextSteps.some(
+    (step) => step.actionUrl === communications.discordUrl,
+  )
+  const content = (
+    <>
+      {communications.venueAddress ? (
+        <p>
+          {communications.venueAddress}
+          {communications.venueMapUrl ? (
+            <> · <a href={communications.venueMapUrl} target="_blank" rel="noreferrer">Map</a></>
+          ) : null}
+        </p>
+      ) : null}
+      <ol>
+        {communications.nextSteps.map((step) => (
+          <li key={step.stableKey}>
+            <strong>{step.title}</strong>
+            <span>{step.detail}</span>
+            {step.dueAt ? <time>By {formatEventTime(step.dueAt, timezone)}</time> : null}
+            {step.actionUrl ? (
+              <a href={step.actionUrl} target="_blank" rel="noreferrer">
+                {step.actionUrl === communications.discordUrl ? 'Open Discord' : 'Open'}
+              </a>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+      {!discordIsNextStep ? (
+        <a className="primary link-button" href={communications.discordUrl} target="_blank" rel="noreferrer">
+          {communications.discordLabel}
+        </a>
+      ) : null}
+    </>
+  )
+
+  if (compact) {
+    return (
+      <details className="accepted-next-steps accepted-next-steps-compact">
+        <summary>
+          <span>{heading}</span>
+          <small>{communications.venueName} · arrival and Discord</small>
+        </summary>
+        <div className="accepted-next-steps-body">{content}</div>
+      </details>
+    )
+  }
+
+  return (
+    <section className="accepted-next-steps">
+      <h2>{heading}</h2>
+      {content}
+    </section>
+  )
+}
+
+function ProposalSummary({
+  application,
+  canEdit,
+  intake,
+  timezone,
+}: {
+  application: CurrentApplication
+  canEdit: boolean
+  intake: SubmittedIntake
+  timezone: string
+}) {
+  const reviseSubmission = useMutation(api.intake.reviseSubmission)
+  const revisionAttempt = useMutationAttempt<FunctionReturnType<typeof api.intake.reviseSubmission>>()
+  const pending = revisionAttempt.hasPending('proposal-revision')
+  const [editing, setEditing] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [draft, setDraft] = useState(() => proposalDraft(intake))
+  const [sourceProjectId, setSourceProjectId] = useState(intake.project.id)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (sourceProjectId === intake.project.id) return
+    setSourceProjectId(intake.project.id)
+    setDraft(proposalDraft(intake))
+    setEditing(false)
+    setExpanded(false)
+    setError(null)
+  }, [intake, sourceProjectId])
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      await revisionAttempt.run('proposal-revision', () => {
+        const args = {
+          eventSlug,
+          applicationId: application.id,
+          expectedApplicationVersion: application.version,
+          expectedApplicationContentVersion: application.contentVersion,
+          expectedProjectVersionId: intake.project.id,
+          expectedProjectVersion: intake.project.version,
+          initialIdea: draft.initialIdea,
+          responses: draft.responses.map((response) => ({
+            questionId: response.questionId,
+            ...(response.skipped ? {} : { answer: response.answer }),
+            skipped: response.skipped,
+          })),
+          clientOperationId: crypto.randomUUID(),
+        }
+        return () => reviseSubmission(args)
+      })
+      setEditing(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const ideaLength = draft.initialIdea.trim().length
+  const invalidResponse = draft.responses.some((response) => (
+    !response.skipped && (
+      response.answer.trim().length < intake.editRules.followUpAnswerMinLength ||
+      response.answer.trim().length > intake.editRules.followUpAnswerMaxLength
+    )
+  ))
+  const invalidIdea =
+    ideaLength < intake.editRules.initialIdeaMinLength ||
+    ideaLength > intake.editRules.initialIdeaMaxLength
+
+  return (
+    <section className="submitted-summary">
+      <div className="proposal-heading">
+        <div>
+          <h2>Your project</h2>
+          <p className="fine-print">
+            Edits close {formatEventTime(intake.applicationsCloseAt, timezone)}.
+          </p>
+        </div>
+        {canEdit ? (
+          <button
+            type="button"
+            className="text-button"
+            disabled={busy || pending}
+            onClick={() => {
+              setDraft(proposalDraft(intake))
+              if (!editing) setExpanded(true)
+              setEditing(!editing)
+              setError(null)
+            }}
+          >
+            {editing ? 'Cancel' : 'Edit proposal'}
+          </button>
+        ) : null}
+      </div>
+      {editing && canEdit ? (
+        <form className="proposal-editor" onSubmit={save}>
+          <label className="field">
+            <span>What do you want to build?</span>
+            <textarea
+              autoFocus
+              required
+              minLength={intake.editRules.initialIdeaMinLength}
+              maxLength={intake.editRules.initialIdeaMaxLength}
+              value={draft.initialIdea}
+              disabled={busy || pending}
+              onChange={(event) => setDraft((current) => ({
+                ...current,
+                initialIdea: event.currentTarget.value,
+              }))}
+            />
+          </label>
+          {intake.project.intakeResponses.map((response, index) => (
+            <div className="proposal-response" key={response.questionId}>
+              <label className="field">
+                <span>{response.question}</span>
+                <textarea
+                  required={!draft.responses[index]?.skipped}
+                  minLength={intake.editRules.followUpAnswerMinLength}
+                  maxLength={intake.editRules.followUpAnswerMaxLength}
+                  value={draft.responses[index]?.answer ?? ''}
+                  disabled={busy || pending || draft.responses[index]?.skipped}
+                  onChange={(event) => setDraft((current) => ({
+                    ...current,
+                    responses: current.responses.map((item, itemIndex) => (
+                      itemIndex === index
+                        ? { ...item, answer: event.currentTarget.value }
+                        : item
+                    )),
+                  }))}
+                />
+              </label>
+              <label className="proposal-skip">
+                <input
+                  type="checkbox"
+                  checked={draft.responses[index]?.skipped ?? false}
+                  disabled={busy || pending}
+                  onChange={(event) => setDraft((current) => ({
+                    ...current,
+                    responses: current.responses.map((item, itemIndex) => (
+                      itemIndex === index
+                        ? { ...item, skipped: event.currentTarget.checked }
+                        : item
+                    )),
+                  }))}
+                />
+                Skip this question
+              </label>
+            </div>
+          ))}
+          {error ? <p className="notice error" role="alert">{error}</p> : null}
+          <button
+            type="submit"
+            className="primary"
+            disabled={busy || invalidIdea || invalidResponse}
+          >
+            {busy ? 'Saving…' : pending ? 'Confirm earlier save' : 'Save proposal'}
+          </button>
+        </form>
+      ) : (
+        <div className="proposal-copy">
+          <p className="proposal-idea">{intake.project.initialIdea}</p>
+          {intake.project.intakeResponses.length > 0 ? (
+            <button
+              type="button"
+              className="text-button proposal-details-toggle"
+              aria-controls="proposal-responses"
+              aria-expanded={expanded}
+              onClick={() => setExpanded((current) => !current)}
+            >
+              {expanded ? 'Hide answers' : `View ${intake.project.intakeResponses.length} answers`}
+            </button>
+          ) : null}
+          {expanded ? (
+            <div className="proposal-responses" id="proposal-responses">
+              {intake.project.intakeResponses.map((response) => (
+                <div key={response.questionId}>
+                  <strong>{response.question}</strong>
+                  <p>{response.skipped ? 'Skipped' : response.answer}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function proposalDraft(intake: SubmittedIntake) {
+  return {
+    initialIdea: intake.project.initialIdea,
+    responses: intake.project.intakeResponses.map((response) => ({
+      questionId: response.questionId,
+      answer: response.answer ?? '',
+      skipped: response.skipped,
+    })),
+  }
+}
+
 function InformationResponsePanel({
   application,
+  canRespond,
   currentRole,
   request,
 }: {
   application: CurrentApplication
+  canRespond: boolean
   currentRole: SubmittedIntake['currentRole']
   request: InformationRequest
 }) {
@@ -301,8 +675,8 @@ function InformationResponsePanel({
   return (
     <section className="information-response">
       <h2>A quick follow-up</h2>
-      <p>Answer only these questions. Your team and track stay locked.</p>
-      {currentRole === 'lead' ? (
+      <p>Answer only these questions. Your team stays locked.</p>
+      {canRespond ? (
         <form onSubmit={submit}>
           {request.questions.map((question, index) => (
             <label className="field" key={question.questionKey}>
@@ -333,7 +707,11 @@ function InformationResponsePanel({
             {busy ? 'Submitting…' : responsePending ? 'Confirm earlier answers' : 'Submit answers'}
           </button>
         </form>
-      ) : <p className="fine-print">The locked team lead submits these answers for the team.</p>}
+      ) : currentRole !== 'lead' ? (
+        <p className="fine-print">The locked team lead submits these answers for the team.</p>
+      ) : (
+        <p className="fine-print">Response access is unavailable. Ask an organizer if this looks wrong.</p>
+      )}
     </section>
   )
 }
@@ -344,41 +722,6 @@ function formatEventTime(timestamp: number, timezone: string) {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(timestamp)
-}
-
-function applicationHeading(state: string) {
-  if (state === 'accepted' || state === 'offer_sent') return 'You’re selected.'
-  if (state === 'confirmed') return 'You’re confirmed.'
-  if (state === 'waitlisted') return 'You’re on the waitlist.'
-  if (state === 'declined') return 'Application update.'
-  if (state === 'offer_expired') return 'The offer expired.'
-  if (state === 'withdrawn') return 'The offer was declined.'
-  if (state === 'needs_information') return 'A quick follow-up.'
-  return 'Submitted.'
-}
-
-function applicationMessage(state: string) {
-  if (state === 'accepted') return 'Your team has been selected. Your offer will appear here.'
-  if (state === 'offer_sent') return 'Your team’s places are held until the deadline below.'
-  if (state === 'confirmed') return 'Your team has a place at Code2Create.'
-  if (state === 'submitted' || state === 'under_review') return 'We have your application. Your team and track are locked.'
-  if (state === 'needs_information') return 'Answer the questions below so the review can continue.'
-  if (state === 'offer_expired') return 'The reserved places were released when the response deadline passed.'
-  if (state === 'withdrawn') return 'The team declined its offer, so the reserved places were released.'
-  return 'This is the current application state.'
-}
-
-function applicationStateName(state: string) {
-  if (state === 'submitted') return 'Application received'
-  if (state === 'under_review') return 'Under review'
-  if (state === 'needs_information') return 'Your response is needed'
-  if (state === 'accepted' || state === 'offer_sent') return 'Selected'
-  if (state === 'confirmed') return 'Confirmed'
-  if (state === 'waitlisted') return 'Waitlisted'
-  if (state === 'declined') return 'Decision published'
-  if (state === 'offer_expired') return 'Offer expired'
-  if (state === 'withdrawn') return 'Offer declined'
-  return 'Application'
 }
 
 function deliveryNeedsAttention(state: ParticipantDeliveryState) {

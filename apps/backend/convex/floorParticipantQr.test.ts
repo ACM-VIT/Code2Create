@@ -13,6 +13,25 @@ const betterAuthModules = import.meta.glob(
 type BackendTest = TestConvex<typeof schema>;
 
 describe("participant floor QR", () => {
+  test("keeps hall location readable without exposing the separately scoped QR action", async () => {
+    const backend = seededBackend();
+    const fixture = await seedParticipant(backend, { grantMint: false });
+    const participant = asParticipant(backend, fixture);
+
+    await expect(
+      participant.query(api.floorParticipant.current, { eventSlug: fixture.eventSlug }),
+    ).resolves.toMatchObject({
+      teamId: fixture.teamId,
+      planName: "Main hall",
+      canMintQr: false,
+    });
+    await expect(
+      participant.mutation(api.floorParticipant.mintTeamQr, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).rejects.toThrow("does not have permission for that exact resource");
+  });
+
   test("supersedes the exact active token and advances from the latest owner version", async () => {
     const backend = seededBackend();
     const fixture = await seedParticipant(backend);
@@ -44,20 +63,36 @@ describe("participant floor QR", () => {
       });
     });
 
-    await expect(
-      participant.mutation(api.floorParticipant.mintTeamQr, {
-        eventSlug: fixture.eventSlug,
-      }),
-    ).resolves.toMatchObject({
+    const minted = await participant.mutation(api.floorParticipant.mintTeamQr, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(minted).toMatchObject({
       teamName: "QR Team",
       planName: "Main hall",
     });
+    expect(minted.serverNow).toBeLessThan(minted.expiresAt);
+    await expect(
+      participant.query(api.floorParticipant.teamQrState, {
+        eventSlug: fixture.eventSlug,
+        tokenId: minted.tokenId,
+      }),
+    ).resolves.toMatchObject({ state: "active" });
 
     const tokens = await teamTokens(backend, fixture.teamId);
     expect(tokens.map((token) => token.tokenVersion)).toEqual([41, 42, 43]);
     expect(tokens.filter((token) => token.state === "active")).toHaveLength(1);
     expect(tokens.find((token) => token.tokenVersion === 42)?.state).toBe("superseded");
     expect(tokens.find((token) => token.tokenVersion === 43)?.state).toBe("active");
+
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(minted.tokenId, { state: "used", usedAt: fixture.now });
+    });
+    await expect(
+      participant.query(api.floorParticipant.teamQrState, {
+        eventSlug: fixture.eventSlug,
+        tokenId: minted.tokenId,
+      }),
+    ).resolves.toMatchObject({ state: "used" });
   });
 
   test("refuses an existing duplicate-active invariant violation", async () => {
@@ -118,7 +153,10 @@ async function teamTokens(
   );
 }
 
-async function seedParticipant(backend: BackendTest) {
+async function seedParticipant(
+  backend: BackendTest,
+  { grantMint = true }: { grantMint?: boolean } = {},
+) {
   const now = Date.now();
   const eventSlug = `floor-qr-${crypto.randomUUID()}`;
   const email = `floor-qr-${crypto.randomUUID()}@example.test`;
@@ -140,6 +178,7 @@ async function seedParticipant(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       createdByPersonId: personId,
@@ -179,7 +218,6 @@ async function seedParticipant(backend: BackendTest) {
       activeVitMemberCount: 0,
       activeExternalMemberCount: 1,
       membershipLocked: true,
-      trackLocked: true,
       version: 1,
       createdAt: now,
       updatedAt: now,
@@ -208,6 +246,17 @@ async function seedParticipant(backend: BackendTest) {
     });
     await ctx.db.patch(eventId, { publishedFloorPlanVersionId: planVersionId });
     await insertPermissionGrant(ctx, {
+      eventId,
+      personId,
+      eventAccessSubjectId: subjectId,
+      permissionKey: "floor.team.read",
+      scopeType: "team",
+      scopeId: teamId,
+      sourceType: "team_membership",
+      sourceId: `${teamId}:${membershipId}:floor-read`,
+      reason: "Participant floor read test",
+    });
+    if (grantMint) await insertPermissionGrant(ctx, {
       eventId,
       personId,
       eventAccessSubjectId: subjectId,

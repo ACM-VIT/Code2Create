@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 4,
     borderRadius: 2,
-    backgroundColor: palette.ghost,
+    backgroundColor: palette.tile,
   },
   meterDone: { backgroundColor: palette.judging },
   rows: { marginTop: 18 },

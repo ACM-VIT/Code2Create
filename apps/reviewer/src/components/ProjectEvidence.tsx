@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useAction } from 'convex/react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 
@@ -45,12 +45,33 @@ type FigmaComparisonResult = NonNullable<FunctionReturnType<typeof api.reviewEvi
 type FigmaComparisonRow = FigmaComparisonResult['rows'][number]
 type OpenedFigmaPreview = FunctionReturnType<typeof api.reviewEvidenceActions.openFigmaPreview> & {
   factId: FigmaPreviewFact['id']
+  clientNow: number
 }
 type OpenedFigmaComparison = FunctionReturnType<typeof api.reviewEvidenceActions.openFigmaComparison> & {
   nodeId: string
+  clientNow: number
 }
 type TeamContext = ReviewWorkspace['teamContext']
 type PriorReview = TeamContext['priorReviews'][number]
+
+function linkRemainingMs(
+  link: { expiresAt: number; serverNow: number },
+  clientNow: number,
+) {
+  return Math.max(0, link.expiresAt - link.serverNow - (performance.now() - clientNow))
+}
+
+function comparisonRemainingMs(opened: OpenedFigmaComparison) {
+  const current = opened.current
+    ? linkRemainingMs(opened.current, opened.clientNow)
+    : undefined
+  const previous = opened.previous
+    ? linkRemainingMs(opened.previous, opened.clientNow)
+    : undefined
+  if (current === undefined) return previous ?? 0
+  if (previous === undefined) return current
+  return Math.min(current, previous)
+}
 
 export function ProjectEvidence({
   eventSlug,
@@ -64,13 +85,7 @@ export function ProjectEvidence({
     <View style={styles.section}>
       <View style={styles.head}>
         <Text style={styles.teamName}>{context.team.name}</Text>
-        <Text style={styles.trackLine}>
-          {review.project.trackName}
-          {review.project.sponsorTracks.length > 0
-            ? ` · ${review.project.sponsorTracks.map((sponsorTrack) => sponsorTrack.name).join(', ')}`
-            : ''}
-          {` · ${context.team.publicCode}`}
-        </Text>
+        <Text style={styles.trackLine}>{context.team.publicCode}</Text>
       </View>
 
       <View style={styles.ideaCard}>
@@ -366,6 +381,20 @@ function FigmaEvidenceCard({
   const [error, setError] = useState<string | null>(null)
   const requestSequence = useRef(0)
 
+  useEffect(() => {
+    if (!openedPreview) return
+    const remaining = linkRemainingMs(openedPreview, openedPreview.clientNow)
+    const timer = setTimeout(() => setOpenedPreview(null), remaining)
+    return () => clearTimeout(timer)
+  }, [openedPreview])
+
+  useEffect(() => {
+    if (!openedComparison) return
+    const remaining = comparisonRemainingMs(openedComparison)
+    const timer = setTimeout(() => setOpenedComparison(null), remaining)
+    return () => clearTimeout(timer)
+  }, [openedComparison])
+
   const inspect = async () => {
     if (busy || !file.snapshot?.preview) return
     const requestId = requestSequence.current + 1
@@ -389,7 +418,8 @@ function FigmaEvidenceCard({
           factId: first.id,
         })
         if (requestId !== requestSequence.current) return
-        setOpenedPreview({ ...opened, factId: first.id })
+        const clientNow = performance.now()
+        setOpenedPreview({ ...opened, factId: first.id, clientNow })
       }
     } catch (caught) {
       if (requestId === requestSequence.current) {
@@ -400,7 +430,7 @@ function FigmaEvidenceCard({
     }
   }
 
-  const selectPreview = async (fact: FigmaPreviewFact) => {
+  const selectPreview = async (fact: FigmaPreviewFact, clientNow: number) => {
     if (busy || fact.renderState !== 'available') return
     const requestId = requestSequence.current + 1
     requestSequence.current = requestId
@@ -416,7 +446,7 @@ function FigmaEvidenceCard({
         factId: fact.id,
       })
       if (requestId !== requestSequence.current) return
-      setOpenedPreview({ ...opened, factId: fact.id })
+      setOpenedPreview({ ...opened, factId: fact.id, clientNow })
     } catch (caught) {
       if (requestId === requestSequence.current) {
         setOpenedPreview(null)
@@ -528,7 +558,8 @@ function FigmaEvidenceCard({
         ...(previousFactId ? { previousFactId } : {}),
       })
       if (requestId !== requestSequence.current) return
-      setOpenedComparison({ ...result, nodeId: row.nodeId })
+      const clientNow = performance.now()
+      setOpenedComparison({ ...result, nodeId: row.nodeId, clientNow })
     } catch (caught) {
       if (requestId === requestSequence.current) {
         setOpenedComparison(null)
@@ -558,7 +589,7 @@ function FigmaEvidenceCard({
       {snapshot ? (
         <>
           <Text style={styles.fact}>
-            Version {shortId(snapshot.providerVersionId)} · {snapshot.completeness}
+            Figma version {shortId(snapshot.providerVersionId)} · {snapshot.completeness}
           </Text>
           <Text style={styles.meta}>
             {snapshot.pageCount} pages · {snapshot.frameCount} frames · {snapshot.nodeCount} nodes
@@ -570,7 +601,7 @@ function FigmaEvidenceCard({
             {snapshot.prototypeInteractionCount} prototype interactions · {snapshot.commentCount} comments · {snapshot.unresolvedCommentCount} open
           </Text>
           <Text style={styles.meta}>
-            Provider touched {formatMoment(snapshot.providerLastTouchedAt)} · captured {formatMoment(snapshot.capturedAt)}
+            Last changed {formatMoment(snapshot.providerLastTouchedAt)} · saved {formatMoment(snapshot.capturedAt)}
           </Text>
           {snapshot.preview ? (
             <Text style={styles.meta}>
@@ -655,7 +686,7 @@ function FigmaEvidenceCard({
                       setSelectedPageId(page.id)
                       setSelectedFactId(first?.id ?? null)
                       setOpenedPreview(null)
-                      if (first?.renderState === 'available') void selectPreview(first)
+                      if (first?.renderState === 'available') void selectPreview(first, performance.now())
                     }}
                     style={[styles.pageChip, page.id === selectedPageId ? styles.pageChipSelected : null]}
                   >
@@ -697,7 +728,7 @@ function FigmaEvidenceCard({
                       accessibilityRole="button"
                       disabled={busy !== null || fact.renderState !== 'available'}
                       key={fact.id}
-                      onPress={() => void selectPreview(fact)}
+                      onPress={() => void selectPreview(fact, performance.now())}
                       style={[styles.nodeRow, fact.id === selectedFactId ? styles.nodeRowSelected : null]}
                     >
                       <Text numberOfLines={1} style={styles.fileName}>{fact.nodeName}</Text>
@@ -755,7 +786,7 @@ function FigmaActivityPanel({ activity }: { activity: FigmaActivityResult }) {
         </Pressable>
       ) : null}
       {!activity.versionsComplete ? (
-        <Text style={styles.meta}>The provider history exceeded the bounded checkpoint capture.</Text>
+        <Text style={styles.meta}>Figma returned only part of the file history.</Text>
       ) : null}
 
       <View style={styles.browserHeading}>
@@ -780,7 +811,7 @@ function FigmaActivityPanel({ activity }: { activity: FigmaActivityResult }) {
         </Pressable>
       ) : null}
       {!activity.commentsComplete ? (
-        <Text style={styles.meta}>The comment history exceeded the bounded checkpoint capture.</Text>
+        <Text style={styles.meta}>Figma returned only part of the comment history.</Text>
       ) : null}
       <Text style={styles.guidance}>This is observed collaboration context, not authorship or effort scoring.</Text>
     </View>
@@ -843,7 +874,7 @@ function FigmaComparisonPanel({
         {visibleRows.length === 0 ? <Text style={styles.meta}>No changed frame was captured between these checkpoints.</Text> : null}
       </View>
       {(comparison.current.truncated || comparison.previous.truncated) && comparison.counts.uncertain > 0 ? (
-        <Text style={styles.meta}>Missing rows are not called added or removed when either bounded frame set was truncated.</Text>
+        <Text style={styles.meta}>Added and removed frames stay unconfirmed when either snapshot is incomplete.</Text>
       ) : null}
     </View>
   )
@@ -1195,8 +1226,6 @@ const styles = StyleSheet.create({
     color: palette.muted,
     fontSize: 13,
     fontWeight: '600',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
   },
   idea: { color: palette.text, fontSize: 17, lineHeight: 25 },
   question: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 8 },

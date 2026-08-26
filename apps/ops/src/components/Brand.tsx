@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 
-import blossomTree from '../assets/brand/blossom-tree.png'
 import {
   ACM_MARK_D,
   ACM_MARK_FILL,
@@ -62,11 +61,5 @@ export function AcmMark({ size = 44 }: { size?: number }) {
 }
 
 export function BrandBackdrop({ children }: { children: ReactNode }) {
-  return (
-    <div className="brand-backdrop">
-      <img alt="" aria-hidden className="brand-backdrop-tree" src={blossomTree} />
-      <div className="brand-backdrop-scrim" />
-      {children}
-    </div>
-  )
+  return <div className="brand-backdrop">{children}</div>
 }

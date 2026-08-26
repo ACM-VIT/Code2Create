@@ -9,10 +9,7 @@ import { query, type QueryCtx } from "./_generated/server";
 import { isConfiguredAttendanceStation } from "./lib/attendance";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
-import {
-  matchingPermissionGrantIds,
-  requirePermission,
-} from "./lib/permissions";
+import { matchingPermissionGrantIds } from "./lib/permissions";
 import {
   attendanceScannerCredentialKind,
   attendanceScanTransition,
@@ -87,13 +84,14 @@ async function authoriseScannerDevice(
   ) {
     return null;
   }
-  await requirePermission(ctx, {
+  const grantIds = await matchingPermissionGrantIds(ctx, {
     eventId: event._id,
     eventAccessSubjectId: subject._id,
     permissionKey: "attendance.station.read",
     scopeType: "station",
     scopeId: station._id,
   });
+  if (grantIds.length === 0) return null;
   return { event, device, station };
 }
 

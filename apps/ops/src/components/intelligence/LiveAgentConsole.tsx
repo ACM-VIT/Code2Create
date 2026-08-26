@@ -15,7 +15,7 @@ import {
   projectVisibleAgentTimeline,
   type SafeAgentTimelineItem,
 } from './liveAgentProjection'
-import { LoadingState, ShimmerText } from './LoadingState'
+import { LoadingState, StatusText } from './LoadingState'
 
 export type LiveAgentConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'offline'
 export type LiveAgentTerminalState = 'none' | 'completed' | 'failed' | 'aborted'
@@ -179,7 +179,7 @@ export function LiveAgentConsole({
           {onLoadOlder !== undefined && (historyCanLoadMore || historyLoading) ? (
             <div className="flex justify-center pb-1">
               {historyLoading ? (
-                <ShimmerText>Loading earlier activity</ShimmerText>
+                <StatusText>Loading earlier activity</StatusText>
               ) : (
                 <button
                   className="cursor-pointer border-0 bg-transparent p-0 text-[11.5px] text-ink-3 transition-colors duration-100 hover:text-ink"
@@ -256,13 +256,17 @@ export function LiveAgentConsole({
                 value={prompt}
               />
               <div className="flex items-center justify-between gap-2">
-                <small className="text-[11px] text-ink-3" id={promptHintId}>
+                <small
+                  aria-live="polite"
+                  className="text-[11px] text-ink-3"
+                  id={promptHintId}
+                >
                   {composerPendingConfirmation
-                    ? 'The previous send may have committed. Confirm it before starting another prompt.'
+                    ? 'Delivery was interrupted. Retry this same message; it cannot be sent twice.'
                     : 'Enter to send · Shift+Enter for a new line'}
                 </small>
                 <button
-                  aria-label={submitting ? 'Sending' : composerPendingConfirmation ? 'Confirm send' : 'Send'}
+                  aria-label={submitting ? 'Sending' : composerPendingConfirmation ? 'Retry same message' : 'Send'}
                   className="flex size-7 shrink-0 items-center justify-center rounded-[8px] border-0 bg-ink text-canvas transition-[background-color,color,transform] duration-200 enabled:cursor-pointer enabled:active:scale-[0.96] disabled:bg-line-strong disabled:text-ink-2"
                   disabled={!canSubmit}
                   type="submit"
@@ -275,7 +279,7 @@ export function LiveAgentConsole({
                 </button>
               </div>
             </div>
-            {submitFailed ? (
+            {submitFailed && !composerPendingConfirmation ? (
               <p className="notice error" role="alert">
                 The prompt was not sent. Your draft is still here; check the connection and try again.
               </p>
@@ -372,7 +376,7 @@ function ThinkingTrace({
           : 'text-[13px] font-medium whitespace-nowrap text-ink-2'}
         >
           {state === 'streaming'
-            ? <ShimmerText>Thinking</ShimmerText>
+            ? <StatusText>Thinking</StatusText>
             : 'Thought through the request'}
         </span>
         <Glyph

@@ -9,7 +9,7 @@ import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { teamRoundTableLabel } from "./lib/floor";
 import { findCurrentPerson, requireCurrentPerson, requireEventSubject, requireMembership } from "./lib/identity";
-import { requirePermission } from "./lib/permissions";
+import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { estimateQueueWindow } from "./lib/queueEstimate";
 import { participantQueuePosition } from "./lib/reviewQueueProjection";
 import {
@@ -18,8 +18,15 @@ import {
   maximumReviewSessionsPerTeamRound,
 } from "./lib/reviewLimits";
 import { activeRoundPause } from "./lib/reviewRoundPauses";
+import { reviewSessionStatus, teamRoundState } from "./values";
 
 type ReadCtx = QueryCtx | MutationCtx;
+type ParticipantQueueEstimate = {
+  earliestAt: number;
+  latestAt: number;
+  sampleSize: number;
+  basis: "configured" | "observed";
+};
 
 async function currentTeam(
   ctx: ReadCtx,
@@ -68,6 +75,7 @@ export const current = query({
     v.object({
       teamId: v.id("teams"),
       teamName: v.string(),
+      serverNow: v.number(),
       round: v.object({
         id: v.id("reviewRounds"),
         name: v.string(),
@@ -75,7 +83,7 @@ export const current = query({
         endsAt: v.number(),
         isPaused: v.boolean(),
       }),
-      state: v.string(),
+      state: teamRoundState,
       panel: v.union(
         v.null(),
         v.object({ id: v.id("reviewPanels"), name: v.string() }),
@@ -86,18 +94,17 @@ export const current = query({
       estimate: v.union(
         v.null(),
         v.object({
-          lowerMinutes: v.number(),
-          upperMinutes: v.number(),
+          earliestAt: v.number(),
+          latestAt: v.number(),
           basis: v.union(v.literal("configured"), v.literal("observed")),
           sampleSize: v.number(),
-          calculatedAt: v.number(),
         }),
       ),
       review: v.union(
         v.null(),
         v.object({
           id: v.id("reviewSessions"),
-          status: v.string(),
+          status: reviewSessionStatus,
           reviewerPresenceCount: v.number(),
           reviewerCount: v.number(),
           canShowTeamQr: v.boolean(),
@@ -126,6 +133,7 @@ export const current = query({
       scopeType: "team",
       scopeId: teamContext.team._id,
     });
+    const serverNow = Date.now();
     const rounds = await ctx.db
       .query("reviewRounds")
       .withIndex("by_event_status_start", (index) =>
@@ -165,22 +173,35 @@ export const current = query({
       throw new Error("A team exceeds the review-attempt limit for this round.");
     }
     const session = sessions.find((candidate) => isLiveReview(candidate.status)) ?? null;
-    const [assignments, presences] = session
-      ? await Promise.all([
-          ctx.db
-            .query("reviewAssignments")
-            .withIndex("by_session_person", (index) =>
-              index.eq("reviewSessionId", session._id),
-            )
-            .take(maximumReviewersPerPanel + 1),
-          ctx.db
-            .query("reviewPresence")
-            .withIndex("by_session_reviewer", (index) =>
-              index.eq("reviewSessionId", session._id),
-            )
-            .take(maximumReviewersPerPanel + 1),
-        ])
-      : [[], []];
+    let assignments: Doc<"reviewAssignments">[] = [];
+    let presences: Doc<"reviewPresence">[] = [];
+    let canMintTeamQr = false;
+    if (session) {
+      const [loadedAssignments, loadedPresences, teamQrGrantIds] = await Promise.all([
+        ctx.db
+          .query("reviewAssignments")
+          .withIndex("by_session_person", (index) =>
+            index.eq("reviewSessionId", session._id),
+          )
+          .take(maximumReviewersPerPanel + 1),
+        ctx.db
+          .query("reviewPresence")
+          .withIndex("by_session_reviewer", (index) =>
+            index.eq("reviewSessionId", session._id),
+          )
+          .take(maximumReviewersPerPanel + 1),
+        matchingPermissionGrantIds(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "review.team_qr.mint",
+          scopeType: "team",
+          scopeId: teamContext.team._id,
+        }),
+      ]);
+      assignments = loadedAssignments;
+      presences = loadedPresences;
+      canMintTeamQr = teamQrGrantIds.length > 0;
+    }
     if (
       assignments.length > maximumReviewersPerPanel ||
       presences.length > maximumReviewersPerPanel
@@ -188,14 +209,13 @@ export const current = query({
       throw new Error("A review exceeds the published reviewer limit.");
     }
     let teamsAhead: number | undefined;
-    let estimate: ReturnType<typeof estimateQueueWindow> | null = null;
+    let estimate: ParticipantQueueEstimate | null = null;
     if (selectedState?.state === "queued") {
       const panelId = selectedState.panelId;
       if (panelId === undefined) {
         throw new Error("A queued team must have a panel and queue time.");
       }
       teamsAhead = await participantQueuePosition(ctx, selectedState);
-      const now = Date.now();
       const [awaitingPresence, activeReview, overdueReview, completedReviews] =
         await Promise.all([
           ctx.db
@@ -225,10 +245,10 @@ export const current = query({
             .take(9),
         ]);
       const livePanelReview = activeReview ?? overdueReview ?? awaitingPresence;
-      estimate = roundPause
+      const estimatedWindow = roundPause
         ? null
         : estimateQueueWindow({
-            now,
+            now: serverNow,
             configuredDurationSeconds: selectedRound.reviewDurationSeconds,
             teamsAhead,
             ...(livePanelReview?.plannedEndAt !== undefined
@@ -236,7 +256,7 @@ export const current = query({
               : livePanelReview
                 ? {
                     activeReviewPlannedEndAt:
-                      now + selectedRound.reviewDurationSeconds * 1_000,
+                      serverNow + selectedRound.reviewDurationSeconds * 1_000,
                   }
                 : {}),
             completedDurationsSeconds: completedReviews.flatMap((review) =>
@@ -245,10 +265,19 @@ export const current = query({
                 : [],
             ),
           });
+      estimate = estimatedWindow
+        ? {
+            earliestAt: serverNow + estimatedWindow.lowerMinutes * 60_000,
+            latestAt: serverNow + estimatedWindow.upperMinutes * 60_000,
+            basis: estimatedWindow.basis,
+            sampleSize: estimatedWindow.sampleSize,
+          }
+        : null;
     }
     return {
       teamId: teamContext.team._id,
       teamName: teamContext.team.name,
+      serverNow,
       round: {
         id: selectedRound._id,
         name: selectedRound.name,
@@ -265,28 +294,71 @@ export const current = query({
         ? { tableLabel: selectedState.tableLabel }
         : {}),
       ...(teamsAhead !== undefined ? { teamsAhead } : {}),
-      estimate: estimate
-        ? { ...estimate, calculatedAt: Date.now() }
-        : null,
+      estimate,
       review: session
         ? {
             id: session._id,
             status: session.status,
             reviewerPresenceCount: presences.length,
             reviewerCount: assignments.filter((assignment) => assignment.status === "assigned").length,
-            canShowTeamQr: session.status === "awaiting_presence",
+            canShowTeamQr:
+              session.status === "awaiting_presence" && canMintTeamQr,
           }
         : null,
     };
   },
 });
 
+export const teamQrState = query({
+  args: {
+    eventSlug: v.string(),
+    tokenId: v.id("reviewTeamQrTokens"),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      state: v.union(
+        v.literal("active"),
+        v.literal("superseded"),
+        v.literal("expired"),
+      ),
+      expiresAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const membership = await requireMembership(ctx, event._id, person._id);
+    const teamContext = await currentTeam(ctx, event._id, membership._id);
+    if (!teamContext) return null;
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "queue.participant.read",
+      scopeType: "team",
+      scopeId: teamContext.team._id,
+    });
+    const token = await ctx.db.get(args.tokenId);
+    if (
+      !token ||
+      token.eventId !== event._id ||
+      token.teamId !== teamContext.team._id
+    ) {
+      return null;
+    }
+    return { state: token.state, expiresAt: token.expiresAt };
+  },
+});
+
 export const mintTeamQr = mutation({
   args: { eventSlug: v.string(), reviewSessionId: v.id("reviewSessions") },
   returns: v.object({
+    tokenId: v.id("reviewTeamQrTokens"),
     payload: v.string(),
     manualCode: v.string(),
     expiresAt: v.number(),
+    serverNow: v.number(),
     teamName: v.string(),
     roundName: v.string(),
     tableLabel: v.optional(v.string()),
@@ -382,9 +454,11 @@ export const mintTeamQr = mutation({
       reason: "Team member opened the current reviewer-presence QR",
     });
     return {
+      tokenId,
       payload,
       manualCode,
       expiresAt,
+      serverNow: now,
       teamName: teamContext.team.name,
       roundName: round.name,
       ...(qrTableLabel !== undefined ? { tableLabel: qrTableLabel } : {}),

@@ -4,6 +4,12 @@ import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
+import {
+  configurationDraftResultJson,
+  configurationPublicationResultJson,
+  storedConfigurationDraftResult,
+  storedConfigurationPublicationResult,
+} from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
@@ -218,13 +224,12 @@ export const createDraft = mutation({
         prior.targetId,
       );
       if (!scheduleVersionId) throw new Error("The prior phase-draft result is invalid.");
-      const schedule = await ctx.db.get(scheduleVersionId);
-      if (!schedule) throw new Error("The prior event-phase draft no longer resolves.");
+      const stored = storedConfigurationDraftResult(prior.resultJson, "phase-draft");
       return {
         scheduleVersionId,
-        scheduleVersion: schedule.version,
-        checksum: schedule.checksum,
-        changed: false,
+        scheduleVersion: stored.version,
+        checksum: stored.checksum,
+        changed: stored.changed,
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -259,6 +264,11 @@ export const createDraft = mutation({
       requestFingerprint,
       targetType: "event_phase_schedule",
       targetId: result.scheduleVersionId,
+      resultJson: configurationDraftResultJson({
+        version: result.scheduleVersion,
+        checksum: result.checksum,
+        changed: result.changed,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -317,12 +327,14 @@ export const publish = mutation({
         prior.targetId,
       );
       if (!scheduleVersionId) throw new Error("The prior phase-publication result is invalid.");
-      const schedule = await ctx.db.get(scheduleVersionId);
-      if (!schedule) throw new Error("The prior published phase schedule no longer resolves.");
+      const stored = storedConfigurationPublicationResult(
+        prior.resultJson,
+        "phase-publication",
+      );
       return {
         scheduleVersionId,
-        scheduleVersion: schedule.version,
-        eventVersion: event.version,
+        scheduleVersion: stored.version,
+        eventVersion: stored.eventVersion,
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -356,6 +368,10 @@ export const publish = mutation({
       requestFingerprint,
       targetType: "event_phase_schedule",
       targetId: result.scheduleVersionId,
+      resultJson: configurationPublicationResultJson({
+        version: result.scheduleVersion,
+        eventVersion: event.version + 1,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

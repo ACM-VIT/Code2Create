@@ -13,7 +13,7 @@ The dashboard is the work application for organizers. It must help each person a
 - Which scorecards or criteria are missing?
 - Which release-rehearsal scenarios have passed, failed, or remain blocked, and who owns each workstream?
 - Which exception needs a human decision now?
-- Which participant-intake, phase, and track configuration is currently published?
+- Which participant-intake and phase configuration is currently published?
 
 Charts are secondary. The product must lead with current work, not system terminology, internal states, or a list of every feature.
 
@@ -41,7 +41,7 @@ There is no generic shared “admin mode,” role bypass, or wildcard permission
 
 The shell shows only destinations that the current person can open. It groups them by the work they support:
 
-- **Now:** Overview and Help desk.
+- **Now:** Overview, Event monitor, Operations agent, and Help desk.
 - **Applications:** Review applications.
 - **Event day:** Check-in, Hall, and Music desk.
 - **Judging:** Review rounds, Results, Team updates, and Code and design.
@@ -51,7 +51,7 @@ These are participant-facing or operator-facing product names. Internal names su
 
 A permission can remove one item or a complete group. The shell must not show a disabled destination that the person can never use. A direct URL still performs the same server permission check.
 
-The event state also decides what leads. Showing all fourteen destinations in every state gives an operator no sense of what today's work is, so the shell names the current stage and lists only the destinations that stage uses. Everything the person may still open stays one click away behind a disclosure; permission, not stage, is what removes a destination entirely.
+The event state decides which destinations lead. The stage-specific work stays visible. Other permitted destinations remain under the closed **All workspaces** disclosure. It opens automatically while the current route belongs inside it. Permission, not stage, removes a destination.
 
 | Stage | What it is for | Leads with |
 | --- | --- | --- |
@@ -87,7 +87,11 @@ The deployed roster workspace accepts the exact `email,name,role` CSV shape. The
 
 The roster screen never assigns a panel, station, round, team, or other resource. Bundles that need such a binding are visibly unavailable and must be followed by the resource's own assignment flow. A claimed row is historical evidence, not an editable account form; later CSV uploads report it as already claimed and leave it unchanged.
 
-General direct-grant batch operations and a smoother in-place reauthentication prompt remain separate acceptance work. They must not appear in the catalog or UI as working controls before their protected commands ship. Constrained delegation is deployed. Grant and revoke ceilings are separate. Target-owned scopes require an exact person. Delegated grants are time-bounded. Administration keys cannot be delegated through the scoped path or bundles. A stale target access version loses atomically. The UI displays scheduled grant start times before activation. Exact start/end jobs and a bounded repair sweep materialize lifecycle state and refresh access versions. Versioned bundle drafting, publication, preview, exact-person application, roster application, and bounded migration are deployed. Current sensitive access commands enforce freshness server-side and direct an older session to sign out and sign in again.
+The direct permission editor can add or remove several exact grants in one change. Its batch form accepts two to twenty rows, one target, one reason, and one optional common expiry. Each add row has its own permission and exact resource scope. Each remove row names one current active or scheduled grant. The server checks every row, every delegated ceiling, the target's current access version, and the fresh-session boundary before it writes anything. It then writes the complete change or nothing, advances the target access version once, stores one idempotent operation result, and records one audit event that lists every affected grant. A stale version or one illegal row rejects the complete batch.
+
+Constrained delegation is deployed. Grant and revoke ceilings are separate, and the editor shows every exact ceiling when the same permission has several. One batch cannot mix unrestricted and delegated authority. Target-owned scopes require an exact person. Delegated grants are time-bounded. Administration keys cannot be delegated through the scoped path or bundles. The UI displays scheduled grant start times before activation. Exact start/end jobs and a bounded repair sweep materialize lifecycle state and refresh access versions. Versioned bundle drafting, publication, preview, exact-person application, roster application, and bounded migration are deployed.
+
+Sensitive web commands enforce freshness on the server. When the Google session is too old, the current page opens a small Google verification prompt. The prompt uses the hosted OAuth popup flow. After the popup closes, the dashboard waits until an authenticated Convex query confirms the new session is fresh. It then retries the same immutable command with the same operation ID once. Cancellation writes nothing and leaves the form on screen.
 
 The permission-bundle workspace can migrate one to five exact prior applications from a retired version to the current published version. It suggests compatible old resource bindings but requires an explicit choice for every unresolved destination binding. The preview lists adds, replacements, removals, grants already present from the destination source, and revoked exceptions that will stay off. Confirmation preserves the old application expiry within the event end, updates all selected people atomically, and supersedes only grants attributed to the selected source applications. Direct grants and other bundle sources remain independent.
 
@@ -97,25 +101,37 @@ The UI labels delegation separately from execution. Being allowed to grant an ac
 
 ### Event state
 
-**Event setup** starts with the current product state and the next legal action. The ordinary path is **Setup → Applications open → Applications closed → Event live → Event complete**. Applications may be reopened from **Applications closed** when organizers correct a timing or operational mistake. No other backward transition is available.
+**Event setup** starts with the current product state and next legal action. The ordinary path is **Setup → Applications open → Applications closed → Event live → Event complete**. Server time and the published application window drive the two application stages. A later deadline publication can return the stage to **Applications open**. No manual state action can accept a participant write outside the published window.
 
 Seeing this control requires event-scoped `event.lifecycle.read`. Changing it requires the independent `event.lifecycle.manage` grant, a Google session created within 15 minutes, the current event version, a reason, and an idempotent operation ID. The mutation writes one audit event. Two operators acting on the same event version cannot both win.
 
-Opening applications requires published event dates, participant policy, tracks, intake policy, and admission policy. Starting the event requires accepted-team details, event phases, team updates, check-in plan, hall plan, integration policy, and at least one published judging round. Finishing the event is blocked while an attendance session or judging round is active. The dashboard names these blockers next to the attempted transition instead of exposing internal IDs.
+Opening applications requires published event dates, authoritative application deadline, participant policy, intake policy, and admission policy. Starting the event requires accepted-team details, event phases, team updates, check-in plan, hall plan, integration policy, and at least one published judging round. Finishing the event is blocked while an attendance session or judging round is active. The dashboard names these blockers next to the attempted transition.
 
-Closing applications immediately stops participant profile, team, intake, track, and final-submission writes. Saved drafts remain readable, submitted applications remain available to admissions, and an idempotent retry of an already committed participant command still returns its first result. Reopening restores only unlocked application work. It never unlocks a submitted roster or track.
+At `applicationsCloseAt`, the server stops participant profile, team, intake, participant-initiated proposal-revision, and final-submission writes. Saved drafts remain readable. Submitted applications remain available to admissions. A locked lead can still answer a specific admission-information request after the deadline. An idempotent retry of a command that committed before the deadline returns its first result. Reopening applications requires publication of a later authoritative deadline. It does not unlock submitted membership.
 
 ### Overview
 
-The first route for a caller with event-scoped `operations.health.read` is **Overview**. It shows the event state, direct links to the common workspaces that the person can open, and a **Needs attention** list. If no signal needs action, it says **Nothing needs action**. It does not fill the page with empty cards or zero-value charts.
+The first route for a caller with event-scoped `operations.health.read` is **Overview**. It is a dispatch page, not a report. It contains only:
 
-It opens by saying where the event is and what stands between it and its next step. The lifecycle already computes what is missing before each transition and names it in plain words; the Overview shows that list, with each item linking to the screen that fixes it, rather than leaving an operator to infer readiness from a page of published-or-not settings.
+1. the event and current stage, when the caller can read lifecycle state;
+2. the next lifecycle action and at most three current blockers; and
+3. the three highest-priority named items the caller can work on now.
 
-**Needs attention now** leads, above the aggregate signals. Its rows are not counts. Each row names the thing that is stuck — a panel and its table, a team, a station — states what is wrong in the words an operator would use, and carries the route to the screen where it gets fixed. A severity and a count answer neither of this page's two questions.
+The system-health state is one compact link to **Event monitor**. The Overview does not show the complete attention ledger, system checks, charts, an operations brief, configuration status, or explanatory guide text. It shows **Nothing needs action** when the named list is empty.
+
+Each lifecycle blocker links to the workspace that resolves it only when the caller can open that workspace. A blocker stays readable as plain text when the caller has lifecycle read access but lacks the focused workspace permission. An unblocked transition links to Event setup only when that route is available.
+
+The **Now** rows are not counts. Each row names the blocked panel, team, reviewer, or station, states the problem, and links to the work screen. The footer shows how many other rows remain and opens **Event monitor**.
 
 A row exists only when the caller can open the workspace it links to, which follows from composing projections that already filter by grant. Holding the command as well is a second, finer distinction: a caller who may look but not act sees the row and an open link rather than the command verb.
 
-The current rows cover empty panel seats, overdue reviews, incomplete reviewer presence, teams below the round's participant minimum, held teams, expired calls, and long waits. The aggregate signals below catch classes of fault with no named subject — provider limits, webhook state, delivery ambiguity — and remain the input the operations brief reasons over. A signal whose subject a named row already reports concretely is omitted from the lower list, so one problem is never stated twice.
+Picking up or dismissing a row requires event-scoped `operations.attention.manage` and the same focused visibility grant that made the row readable. Both commands require the row's current version and an idempotent client operation ID. Dismissal also requires a reason. A retry after an uncertain response returns the first stored result and does not repeat the transition, read-fact update, or audit event. The web dashboard and reviewer app keep the original command available as **Confirm pickup** or **Confirm dismissal** until the response is definite or realtime state shows that the row changed.
+
+The current rows cover empty panel seats, overdue reviews, incomplete reviewer presence, teams below the round's participant minimum, held teams, expired calls, and long waits.
+
+### Event monitor
+
+**Event monitor** contains the 20 highest-priority permitted named-attention rows and the aggregate system checks. It states when more rows remain; the queue refills in realtime as current work clears. Named rows come first. Aggregate checks cover faults without one named subject, such as provider limits, webhook state, and delivery ambiguity. A system check is omitted when a named row already reports the same problem. The operations brief may use these aggregate signals, but it is not rendered on this page.
 
 The overview permission returns aggregate operational state only. It does not imply incident, participant, application, team, repository, Figma file, round, score, or music-detail access. A signal links to a focused workspace only when the person can open that workspace. The corrective command remains inside that focused workspace and performs its own permission check.
 
@@ -138,7 +154,7 @@ Health is based on current ownership, not an ever-growing error log. A manual pa
 
 ### Bounded operations brief
 
-The bounded operations brief remains a small section below event health, not a chat screen. It is requested explicitly by an operator. A caller with `operations.intelligence.read` sees the latest validated brief and its frozen source time. A caller with `operations.intelligence.generate` sees **Create brief** or **Refresh brief**. The two permissions are independent. A user allowed to create a brief but not read it can start the job and receives no result.
+The bounded operations brief lives in the **Summary** view of **Operations agent**. It is not part of Overview or Event monitor. It is requested explicitly by an operator. A caller with `operations.intelligence.read` sees the latest validated brief and its frozen source time. A caller with `operations.intelligence.generate` sees **Create brief** or **Refresh brief**. The two permissions are independent. A user allowed to create a brief but not read it can start the job and receives no result.
 
 One request freezes the current materialized redacted health snapshot in Convex before external work begins. A request is rejected while the snapshot is missing or stale; it never launches a private live recomputation. A signed, timestamp-bounded service request creates exactly one Flue Durable Object instance whose identity is the brief ID. A retry receives the existing-instance result instead of starting another model run. The Worker can call one tool: publish one bounded callback. It has no Convex session, database proxy, or domain command.
 
@@ -166,7 +182,7 @@ Opening a stream requires event-scoped `operations.intelligence.read`. Convex mi
 
 Copilot turns take a stable turn ID and enter only through `operationsIntelligenceActions.submitCopilotTurn`, which independently requires `operations.intelligence.generate`. A lost or ambiguous admission response keeps the same turn ID and message for a safe retry; only a validated conflict is definitive. Stream access does not imply generation, and generation does not imply stream access.
 
-The console may show visible user and assistant text plus fixed, sanitized tool and investigator lifecycle labels. Its five autonomous labels are **Plan operations review**, **Read approved event data**, **Investigate event area**, **Check evidence and conclusions**, and **Record recommendation proposal**. Autonomous labels come from the Worker's schema-validated `autonomy-lifecycle` data part; the private harness tool itself is never rendered. The console never renders hidden instructions, reasoning, other data/file parts, metadata, raw tool arguments or results, or provider error text. Recommendations appear as separate human-review cards with their exact arguments, target versions, reasons, and citations. Approval, rejection, and revision remain ordinary Convex commands that recheck the human's current exact grant and target version.
+The console may show visible user and assistant text plus fixed, sanitized tool and investigator lifecycle labels. Its five autonomous labels are **Plan operations review**, **Read approved event data**, **Investigate event area**, **Check evidence and conclusions**, and **Record recommendation proposal**. Autonomous labels come from the Worker's schema-validated `autonomy-lifecycle` data part; the private agent tool itself is never rendered. The console never renders hidden instructions, reasoning, other data/file parts, metadata, raw tool arguments or results, or provider error text. Recommendations appear as separate human-review cards with their exact arguments, target versions, reasons, and citations. Approval, rejection, and revision remain ordinary Convex commands that recheck the human's current exact grant and target version.
 
 ### Autonomous operations policy
 
@@ -221,7 +237,7 @@ The list row shows enough information to choose the next application. It does no
 
 Grouping only reads if the size of each group is visible. Every stage shows its count, an empty stage is visibly empty rather than merely unselected, and the workspace opens on the first stage that has anything in it. Filtering to one stage and defaulting to a stage that happens to be empty leaves an operator unable to tell whether nothing has been submitted or everything has already moved on.
 
-The application detail starts with the current state and the next action. It then shows the team, project, and track. The **Admission review** record contains the published policy guidance, structured AI recommendation, human reviews, and reviewer assignment. It is open while review work is active and collapsed after the application reaches a later stable state. This keeps the history available without making completed process detail compete with the current task.
+The application detail starts with the current state and next action. It then shows the locked member snapshot and current immutable proposal version. The **Admission review** record contains the published policy guidance, structured AI recommendation, human reviews, and reviewer assignments. It is open while review work is active and collapsed after the application reaches a stable state.
 
 The workspace also provides these authorized facts and controls when needed:
 
@@ -229,32 +245,35 @@ The workspace also provides these authorized facts and controls when needed:
 - missing application-review coverage;
 - reviewer workload;
 - eligibility blockers;
-- the locked team roster and lead, confirmed core track, selected sponsor tracks with their published requirements, submitted summary, and application completeness;
+- the locked team roster and lead, current immutable proposal version, prior proposal versions, and application completeness;
 - participant class and published year/study-band context only when the caller has the matching profile-data permission;
 - independent human recommendations after each reviewer submits;
 - the structured AI admission recommendation, its source coverage, limitations, policy/model versions, and stale/unavailable state;
 - accepted, waitlisted, declined, and information-requested counts;
 - the current information-request questions/state and every immutable prior response in application-content order;
-- application and reserved-capacity counts by confirmed core-track version when track quotas are enabled;
 - offered and confirmed participant counts against venue capacity;
 - expiring offers and waitlist promotions;
 - one verified-email destination and latest decision-delivery state for each locked team member covered by the caller's exact-person communications-read grants.
 
-Application dossier read, assigned-review read, human review write, review assignment, profile/year context, AI-recommendation read, human decision, information response, and offer management are separate permission boundaries. The deployed keys are `application.read`, `application.review.read`, `application.review`, `application.assign`, `application.profile_context.read`, `application.ai_recommendation.read`, `application.decide`, exact-team `application.information.respond`, and `application.offer.manage`. Every published decision keeps the application version, admission-policy and AI-policy versions, human reviewer recommendations, AI recommendation ID when visible to the actor, AI disposition `used | cleared | overridden | unavailable`, human reason, actor, permission grant, and time. The information-response permission is part of the current lead grant source and transfers atomically with leadership; it does not let a participant create, replace, or choose the questions. Planned manual AI-run and waitlist-promotion commands do not enter the permission catalog until their protected mutations and exact scope resolvers ship.
+Application dossier read, assigned-review read, human review write, review assignment, profile/year context, AI-recommendation read, failed-analysis retry, human decision, information response, and offer management are separate permission boundaries. The deployed keys are `application.read`, `application.review.read`, `application.review`, `application.assign`, `application.profile_context.read`, `application.ai_recommendation.read`, `application.ai_recommendation.run`, `application.decide`, exact-team `application.information.respond`, and `application.offer.manage`. Every published decision keeps the application version, admission-policy and AI-policy versions, human reviewer recommendations, AI recommendation ID when visible to the actor, AI disposition `used | cleared | overridden | unavailable`, human reason, actor, permission grant, and time. The information-response permission is part of the current lead grant source and transfers atomically with leadership; it does not let a participant create, replace, or choose the questions. Waitlist promotion remains unavailable until O-023 defines its ordering rule and a separately protected command ships.
 
 The review-routing block accepts one exact active event-account email. Assignment atomically creates the routing row and only the exact-application review read/write grants. The assignee's role is not checked. Active and completed work appears in the assignee's personal realtime queue. Canceling pending work requires current application and assignment versions plus a reason, changes only that routing row, and revokes only its source grants. Saving a current-content human review completes an active routing row; replacing the same review does not inflate the completed count. Independent direct grants remain valid without a routing record.
 
-The decision panel labels its actions **Accept**, **Waitlist**, **Decline**, and **Needs information**. **Needs information** opens one or two short question fields. The server cannot publish empty, duplicate, or overlong questions. An operator can copy the AI recommendation into the pending human choice. The operator can also clear/deselect the recommendation or choose another outcome. These UI actions do not publish a decision. An authorized human must confirm the decision. Core- and sponsor-track selections are visible human context. The admission-model request excludes these selections. A mismatch between the AI-recommended intake track and the team's confirmed track is hidden from admission criteria. The mismatch cannot lower the recommendation.
+The decision panel labels its actions **Accept**, **Waitlist**, **Decline**, and **Needs information**. **Needs information** opens one or two short question fields. The server rejects empty, duplicate, or overlong questions. An operator can copy the AI recommendation into the pending human choice. The operator can also clear the recommendation or choose another outcome. These UI actions do not publish a decision. An authorized human must confirm the decision for the current proposal version.
+
+While applications remain open, the page continues to accept assigned human reviews but shows **Waiting for the application deadline** instead of the decision form. The server rejects every decision command before `applicationsCloseAt`. At the deadline, the same realtime page exposes the form if review coverage and permission are complete.
+
+If the current AI analysis has a definite failed or stale state, the application detail shows **Run analysis again** only to a holder of `application.ai_recommendation.run`. The operator enters a short reason. The control is absent for pending, running, successful, disabled, superseded, or decided work. A run-only operator sees that a retry is available but does not receive the old analysis. A read-only operator can inspect the old analysis but cannot retry it. The new run appears through the existing realtime application subscription. The failed record remains in history, and human review never waits for the retry.
 
 After the locked lead responds, the same detail screen shows the cumulative question/answer snapshots in the Project section. Active reviewer assignments remain routed and point to the incremented content version. Old human reviews are visibly historical/superseded. Current completion returns to zero. Any fresh AI analysis can cite stable `requested_information_<request>_<answer>` sources. Operators never edit the participant's response in place.
 
-After a human **Accept**, the offer block is the only capacity-changing control. An exact-application offer manager enters the approved deadline and sends the offer; the server atomically reserves the submitted locked roster against overall and optional track capacity. The block then shows the live offer state, reserved count, and deadline. The same manager may revoke only an open offer with a reason. Confirmation and decline are not organizer impersonation controls: only the locked lead responds from the participant portal under exact-team `application.offer.respond`. Expiry is scheduled and version-checked. Confirmation keeps capacity reserved; decline, expiry, or revocation releases it once.
+After a human **Accept**, the offer block is the only capacity-changing control. An exact-application offer manager enters the approved deadline and sends the offer. The server atomically reserves the locked roster against overall capacity. The block then shows the live offer state, reserved count, and deadline. The same manager may revoke only an open offer with a reason. Only the locked lead responds from the participant portal under exact-team `application.offer.respond`. Expiry is scheduled and version-checked. Confirmation keeps capacity reserved. Decline, expiry, or revocation releases it once.
 
 Notifications are a separate disclosure below a published decision. When every permitted recipient record is healthy, the disclosure stays closed and summarizes the result, such as **2 of 2 delivered**. A delayed, bounced, failed, suppressed, or unknown result opens the disclosure and states the required action. Normal provider progress must not dominate the application page.
 
 `communications.delivery.read` at exact-person or event scope controls whether each recipient row is returned; application access alone does not expose an email address or delivery telemetry. A row shows the verified destination, destination status, latest append-only attempt, provider state, retry number, timestamps, and a non-sensitive error category. `communications.delivery.manage` is checked separately for that same person before controls appear or a command can run. A definitively failed latest attempt may be retried; an `unknown` outcome directs the operator to reconcile it in Cloudflare Email logs and has no retry control. Disabling an active destination suppresses pending/retry-wait work, while a request already in flight remains visibly capable of completing. Both commands require current versions, a reason, a Google session created within the last 15 minutes, an idempotent client operation ID, and an audit event.
 
-Membership, core track, and selected sponsor-track IDs are locked by final application submission. There is no ordinary submitted-track-change control. A separately scoped correction command shows the original locked snapshot and downstream review/capacity impact, requires a reason, invalidates stale AI/human review state, and returns the application to review rather than silently moving a reservation.
+Final submission locks membership. The current lead can revise submitted proposal content until `applicationsCloseAt`. Each revision creates an immutable version and invalidates stale AI and human review output. A separately scoped member-correction command shows the original locked snapshot and downstream impact. It requires a reason and returns the application to review.
 
 The venue judging rubric, score views, judging recommendations, rankings, and winner language do not appear in this workspace. The published admission rubric is year-adjusted and explicitly separate from hackathon judging.
 
@@ -262,21 +281,20 @@ The venue judging rubric, score views, judging recommendations, rankings, and wi
 
 The configuration area is permission-gated and stays out of live floor controls. Each resource has independent event-scoped read, complete-draft replacement, validation, and publication grants, so a person may prepare a version without being able to publish it.
 
-Before an event exists, the authenticated operations surface has one different state. An email listed in the deployment's `INITIAL_SUPREME_EMAILS` sees **Create the event** only for the slug pinned by `INITIAL_EVENT_SLUG`. The form asks only for the event window, venue, Discord invite, VIT email domain, team bounds, participant capacity, the required core-track count and starting core tracks, and the initial integration policy. The server creates the draft event, baseline participant/intake/admission/communications/integration policies, initial owner account, Supreme label, and explicit owner grants in one mutation. Another signed-in account sees no setup form. A competing creation has one winner. The new event remains in **Setup** and cannot accept participants until the lifecycle readiness checks pass and an authorized person opens applications.
+Before an event exists, the authenticated operations surface has one different state. An email listed in the deployment's `INITIAL_SUPREME_EMAILS` sees **Create the event** only for the slug pinned by `INITIAL_EVENT_SLUG`. The form asks only for the event window, venue, Discord invite, VIT email domain, team bounds, participant capacity, and initial integration policy. The server creates the draft event, baseline participant, intake, admission, communications, and integration policies, the initial owner account, the Supreme label, and explicit owner grants in one mutation. Another signed-in account sees no setup form. A competing creation has one winner. The new event remains in **Setup** until an authorized person passes readiness checks and opens applications.
 
-**Event setup** opens on a realtime overview, not an editor. It groups the settings by the participant journey and shows one row for each setting the current person can read. A row gives the current useful fact and state: published, unpublished, draft not published, locked for the application cycle, provider not connected, schedule needed, active, or off. It links to the focused editor. It does not show inaccessible settings, counts without meaning, generic setup advice, or disabled controls. The editor tabs use product names: Participant form, Tracks, Idea questions, Idea comparison, Admissions, Accepted teams, Schedule, Team updates, and Operations brief. Direct editor URLs enforce the same exact read grant as the overview.
+**Event setup** opens on a realtime overview. It groups settings by the participant journey and shows one row for each setting the caller can read. A row shows the current useful fact and state. It links to the focused editor. It does not show inaccessible settings. The editor tabs are Participant form, Idea questions, Idea comparison, Admissions, Accepted teams, Schedule, Team updates, and Operations brief. Direct editor URLs enforce the same read grant.
 
-The current release has nine editors:
+The current release has eight editors:
 
 1. **Participant policy:** class-aware profile fields, team bounds, mixed-team eligibility, participant notices, fresh-project acknowledgment, and final lock warning.
 2. **Admission policy:** year-adjusted criteria, minimum human reviews, human decision reasons, overall participant capacity, and optional paired model release.
-3. **Track catalog:** the explicitly configured number of core tracks, plus optional ordered sponsor tracks with participant-facing requirements.
-4. **Intake policy:** the fixed opening, help and answer limits, one-to-two-question contract, allowed purposes, two fallbacks, blocked wording, reviewed common-idea patterns, and deterministic or assisted model contract in one atomic version.
-5. **Novelty corpus:** participant-facing label, debounce/rate limits, calibrated cosine-similarity boundaries, fixed embedding contract, and a curated set of past-project summaries with safe themes/reflection prompts.
-6. **Event phases:** schedule-assigned `introduction`, `ideation`, `build`, `intermediate_update`, and `final_update` display definitions and windows.
-7. **Project checkpoints:** the separate ideation, intermediate-update, and final-update question definitions and grace periods.
-8. **Operations intelligence:** observe/recommend mode, selected health triggers, cadence, closed redacted-read and typed-proposal sets, accountable owner, effect boundary, and enabled state.
-9. **Accepted-team communications:** operational event window, venue, ordered next steps, Discord invite, and generic verified-email wording.
+3. **Intake policy:** the fixed opening, help and answer limits, one-to-two-question contract, allowed purposes, two fallbacks, blocked wording, reviewed common-idea patterns, and deterministic or assisted model contract in one atomic version.
+4. **Novelty corpus:** debounce and rate limits, a fixed embedding contract, and a curated set of non-identifying past-project summaries.
+5. **Event phases:** schedule-assigned `introduction`, `ideation`, `build`, `intermediate_update`, and `final_update` display definitions and windows.
+6. **Project checkpoints:** the separate ideation, intermediate-update, and final-update question definitions and grace periods.
+7. **Operations intelligence:** observe or recommend mode, selected health triggers, cadence, closed redacted-read and typed-proposal sets, accountable owner, effect boundary, and enabled state.
+8. **Accepted-team communications:** operational event window, venue, ordered next steps, Discord invite, and generic verified-email wording.
 
 The opening preview must show only **Hello.**, followed by **What is your project about?** and one text box. A preview that renders a long form, chat transcript, assistant persona, or PPT upload cannot publish.
 
@@ -289,11 +307,9 @@ The opening preview must show only **Hello.**, followed by **What is your projec
 - Session-pinned participant configuration updates only the default for later sessions and never migrates active participant drafts. The product has no bulk **Use latest** action or rollback that rewrites participant state.
 - Admission configuration is stricter: the first submitted application closes ordinary publication for the event so every application uses one rubric and capacity release.
 
-The implemented track slice uses independent event grants for read, complete-draft replacement, validation, and publication. The operations editor owns the required core-track count, supports ordered sponsor rows with required eligibility text, and shows the exact diff and count of active participant drafts pinned to the published version. Replacing a draft retires that draft and its rows; publication requires the exact current draft ID, checksum, event version, a recent Google session, and a reason. It atomically supersedes the old catalog and changes the event default without rewriting an active participant draft. Participant sponsor opt-in is stored against the same pin and propagated to the locked project, admission detail, active reviewer context, and immutable JSON round export.
-
 The intake editor uses `configuration.intake.read`, `.draft.create`, `.validate`, and `.publish`. It replaces the whole atomic policy, shows the fixed opening as read-only, and exposes only values the backend validates. Assisted mode records a pinned model ID, instruction/schema/redaction/question-policy/evaluation-suite versions, token bound, and timeout. The model call itself always uses `store: false`, no tools, and the server's non-negotiable safety suffix. Publishing a new policy leaves every active draft, question, answer, and in-flight interpretation pinned to the old version.
 
-The novelty editor uses four independent event grants: `configuration.novelty.read`, `.draft.create`, `.entries.write`, and `.publish`. Draft creation fixes `text-embedding-3-small` and native dimension `1,536`. Operators can change only the participant label, minimum idea length, debounce, per-team rate, and the two similarity boundaries. Entry replacement accepts one complete `5–200` JSON array. It normalizes and privacy-validates the array. It creates every embedding as one bounded provider operation. It commits the entire new entry set or none of it. A failed provider call leaves a retryable failed draft and never changes the published corpus.
+The novelty editor uses four independent event grants: `configuration.novelty.read`, `.draft.create`, `.entries.write`, and `.publish`. Draft creation fixes `text-embedding-3-small` and native dimension `1,536`. Operators can change only the minimum idea length, debounce, per-team rate, and score mapping. Entry replacement accepts one complete `5–200` JSON array. It normalizes and privacy-validates the array. It rejects a source year later than the current server year. It creates each embedding as one bounded provider operation. It commits all new entries or none. A failed provider call leaves a retryable failed draft and does not change the published corpus.
 
 The screen shows published/draft version, revision, entry count, provider readiness, import state, and checksum. The screen never shows participant preview requests or current-team idea text. Publication revalidates the exact entry projection/checksum, current draft revision, event version, recent Google session, and reason. It then atomically supersedes the old corpus and updates the event pointer. Existing project drafts stay pinned to the superseded corpus. No operator control migrates their signal. Changing the embedding model or width requires code review and a newly embedded corpus/index contract.
 
@@ -322,9 +338,7 @@ The operations-intelligence editor is implemented under independent `configurati
 
 A separate project-updates workspace requires event-wide `project.checkpoint.read`. It shows current state, saved answers, submission timing, and immutable submitted content in paginated team rows. The same key can instead be granted for one exact team. Neither read scope carries write, queue, review-start, score, or configuration authority. Participant writes continue to use exact-team `team.project.write`.
 
-The adaptive later-phase question policy, track/phase guidance, simulation, migration, and rollback editors remain later slices and are not implied by these screens.
-
-Track bindings can ask for domain evidence. They cannot edit rubric criteria/weights, decide admission, or grant an award. Track names and sponsor terms remain draft until the board approves them.
+The adaptive later-phase question policy, phase guidance, simulation, migration, and rollback editors remain later slices.
 
 ### Planned intake diagnostics
 
@@ -332,7 +346,7 @@ The later detailed intake-diagnostics workspace will show:
 
 - answer-save latency and save failures;
 - active/complete/abandoned sessions by checkpoint, generated-question purpose, and fallback key;
-- sessions by pinned catalog/flow/model version;
+- sessions by pinned flow and model version;
 - intake Workpool depth and oldest job;
 - model success, refusal, invalid-schema, question-policy rejection, timeout, rate-limit, stale-result, and deterministic-fallback rates;
 - median and tail latency and bounded token usage by configuration version;
@@ -342,18 +356,9 @@ Diagnostics never show participant answer text, generated brief text, contact in
 
 ## 5. Header
 
-Every screen shows:
+The shell shows the product name, current event stage, stage-specific navigation, account identity, and sign-out control. A page adds only the state needed for its job. Release IDs, policy versions, connection diagnostics, permission scopes, and aggregate exception counts belong in focused setup, monitoring, or recovery screens, not every header.
 
-- event and active round;
-- server time;
-- dashboard connection state;
-- production release ID;
-- published track-catalog and atomic intake-policy versions;
-- number of unresolved critical exceptions;
-- active incident banner;
-- signed-in role label and current page’s effective permission scope.
-
-If the live subscription is stale, command controls disable and the page shows the last server update time.
+An active incident banner appears only for a caller with `incident.read`. If a live subscription is stale, affected command controls disable and the page shows the last server update time.
 
 ## 6. Round control
 
@@ -366,7 +371,6 @@ A round-wide incident pause is a separate active/resolved record attached to an 
 The control page shows:
 
 - configured clock-in opening, reviewer report time, no-show grace, round start/end, and correction-request deadline;
-- table freeze;
 - panel-plan version;
 - rubric version;
 - timer policy;
@@ -376,7 +380,6 @@ The control page shows:
 Commands:
 
 - open check-in;
-- freeze tables;
 - publish panel plan;
 - open routing and queues;
 - pause or resume new review calls and starts through independently granted exact-round commands;
@@ -412,7 +415,7 @@ Summary cards show:
 - online, stale, offline, and replaying stations, including each reported pending count and oldest capture time;
 - accepted, duplicate, rejected, and pending throughput.
 
-The live participant table can be filtered by session, zone, team, track, participant class, state, or support flag. A row shows preferred name, VIT registration or external event-badge reference where permitted, team, current state, latest accepted server time, station, and coarse exception state. Raw VIT ID barcode values/fingerprints and sensitive reason detail never appear.
+The live participant table can be filtered by session, zone, team, participant class, state, or support flag. A row shows preferred name, VIT registration or external event-badge reference where permitted, team, current state, latest accepted server time, station, and coarse exception state. Raw VIT ID barcode values, fingerprints, and sensitive reason details never appear.
 
 The session panel shows:
 
@@ -596,16 +599,16 @@ Participant, reviewer, and operations screens read the same materialized status 
 
 The event list reads one indexed `githubTeamMetrics` row and one indexed `figmaTeamMetrics` row per visible team. Opening a team loads its ordered repositories and current Figma files, snapshots, and preview state through one exact-team query. Raw Figma artifact access remains a separate permissioned action inside that detail. This avoids repository/file/snapshot fan-out across the event board while preserving resource-level failures and partial coverage in drill-down.
 
-Reconciliation, full-checkpoint request, artifact read, reauthorization prompt, binding disablement, and shared-resource override use separate integration permission keys at event/team/integration scope. Artifact read creates a short-lived signed URL after an exact scope check; it never exposes the bucket key or provider token. Derived preview work is visible but does not replace or mutate the pinned raw snapshot. No command changes captured evidence for an active review or bypasses provider backoff. Every manual retry and binding replacement keeps its actor, permission grant, and reason.
+Reconciliation, full-checkpoint request, artifact read, reauthorization prompt, binding disablement, and shared-resource override use separate integration permission keys at event/team/integration scope. Artifact read creates a short-lived signed URL, then delivers it only after one transactional recheck confirms the exact permission, latest snapshot, artifact manifest, checksum, and unexpired link and records the access in the audit log. It never exposes the bucket key or provider token. Derived preview work is visible but does not replace or mutate the pinned raw snapshot. No command changes captured evidence for an active review or bypasses provider backoff. Every manual retry and binding replacement keeps its actor, permission grant, and reason.
 
 ## 13. Synesthesia console
 
-The Synesthesia route appears when the account has at least one Synesthesia grant. The screen still returns only the catalog, windows, requests, report text, and controls covered by the caller's exact grants.
+The Synesthesia route appears when the account has at least one Synesthesia grant. The screen still returns only the catalog, windows, requests, report counts, and controls covered by the caller's exact grants. It loads report reasons only after the operator opens one request's reports.
 
 The console has three plain sections:
 
 - **Ambience windows** creates and edits drafts, publishes non-overlapping policy, pauses/resumes playback, and closes a published window.
-- **Live queue** shows one selected readable window and its bounded request list. Each row exposes only the separately granted moderation, scheduling, playback, report, and requester-access commands.
+- **Live queue** shows one selected readable window and its bounded request list. Opening a reported request pages every open report for that request. Each row exposes only the separately granted moderation, scheduling, playback, report, and requester-access commands.
 - **Approved catalog** adds or corrects provider metadata and disables tracks without deleting historical request snapshots.
 
 Every write asks for an audit reason. Rejection and hiding also require participant-facing text. Internal notes and report reasons remain absent unless the caller holds the narrower read permission. The playback control records the operator's action in Convex after the same track is started or stopped in the licensed application; the dashboard never claims to control or stream provider audio.
@@ -646,7 +649,7 @@ A case contains:
 - optional owner, optimistic version, `open | investigating | waiting | resolved | closed` state, and timestamps;
 - an append-only timeline of opening, reporter reply, public note, internal note, state change, and owner change actions.
 
-Categories include identity, team, project intake, track/configuration, attendance credential, missing scan, scanner device, table, integration, queue, reviewer device, scorecard, accessibility, and safety.
+Categories include identity, team, proposal, configuration, attendance credential, missing scan, scanner device, table, integration, queue, reviewer device, scorecard, accessibility, and safety.
 
 Participant provisioning and approved roster claim create independently revocable self-scoped `support.case.create`, `support.case.read`, and `support.case.reply` grants. Those grants expose only cases reported by that same person. An exact-email access invitation still creates a grantless account; a grant administrator must explicitly add any support capability it needs. Staff list/detail access requires `support.case.read` for the exact `support_case` or event; updating requires the separate `support.case.manage` grant for that same case or event. Logging a walk-up issue for operations requires event-scoped `support.case.create`.
 
@@ -658,7 +661,7 @@ Every write uses one actor-scoped operation ID. Staff updates compare the case v
 
 ## 16. Rehearsal workspace
 
-The release owner creates one run from the server-owned 61-scenario template. Creation stores the exact template version and copies each scenario's stable key, workstream, expected state, and recovery action into the run. Later code changes cannot rewrite a run already in progress.
+The release owner creates one run from the server-owned 62-scenario template. Creation stores the exact template version and copies each scenario's stable key, workstream, expected state, and recovery action into the run. Later code changes cannot rewrite a run already in progress.
 
 The screen shows the run state, five outcome counts, every workstream assignment, a filtered scenario list, the selected scenario's expected and recovery text, and its append-only history. The workstreams are sign-in/access, intake/admissions, communications, attendance, hall operations, reviewer app, review operations, integrations, reliability, Synesthesia, and support.
 
@@ -668,7 +671,7 @@ Every workstream must have an active event account before a draft can start, and
 
 A scenario can move from pending to running or directly to passed, failed, or blocked. A running scenario can finish as passed, failed, or blocked. A terminal outcome cannot be overwritten: the operator records a reasoned rerun, which moves it back to running before another outcome. Every outcome compares the scenario version and writes the new state, result, append-only action, operation result, and audit event in one transaction.
 
-Final sign-off uses the separate `rehearsal.complete` permission and a recent Google session. The transaction reads every scenario and accepts only an active current-version run with all 61 in `passed`. This read set makes a concurrent rerun or outcome change conflict with sign-off. The completed summary, signer, time, and run version remain immutable.
+Final sign-off uses the separate `rehearsal.complete` permission and a recent Google session. The transaction reads every scenario and accepts only an active current-version run with all 62 in `passed`. This read set makes a concurrent rerun or outcome change conflict with sign-off. The completed summary, signer, time, and run version remain immutable.
 
 ## 17. Protected command rules
 
@@ -684,11 +687,11 @@ Final sign-off uses the separate `rehearsal.complete` permission and a recent Go
 | Read support desk | `support.case.read` | exact support case or explicit event scope; bounded indexed list and append-only timeline only |
 | Log a walk-up support case | event-scoped `support.case.create` | every linked context record is loaded and checked against the event; linking grants no read authority |
 | Update support case | `support.case.manage` | exact support case or explicit event scope, current version, valid transition, active event owner if changed, idempotent operation ID, and audit reason |
-| Create rehearsal run | event-scoped `rehearsal.manage` | server-owned current 61-scenario template, optional future schedule, idempotent operation ID, and audit reason |
+| Create rehearsal run | event-scoped `rehearsal.manage` | server-owned current 62-scenario template, optional future schedule, idempotent operation ID, and audit reason |
 | Assign rehearsal workstream owner | `rehearsal.manage` | exact run or event scope, current draft/active run version, active event account, known template workstream, idempotent operation ID, and reason; assignment grants no access |
 | Start or cancel rehearsal | `rehearsal.manage` | exact run or event scope, current run version, session created within 15 minutes, idempotent operation ID, and reason; start also requires every workstream owner active and no other active run |
 | Record rehearsal scenario outcome | `rehearsal.execute` | exact run or event scope, active run, current scenario version, valid transition, result/rerun note where required, and idempotent operation ID |
-| Sign off rehearsal | `rehearsal.complete` | exact active run or event scope, current run version, all 61 scenarios passed, session created within 15 minutes, completion summary, and idempotent operation ID |
+| Sign off rehearsal | `rehearsal.complete` | exact active run or event scope, current run version, all 62 scenarios passed, session created within 15 minutes, completion summary, and idempotent operation ID |
 | Read roster | `access.roster.read` | exact pending/history row or event scope; event-wide results are paginated and contain no raw Google subject, auth user ID, or grant contents |
 | Import roster | event-scoped `access.roster.import` plus exact readable/applicable selected bundles | exact CSV/event, no more than 200 rows/eight bundles, event-bounded validity, current published compatible versions, unchanged/claimed preservation, matching preview checksum, fresh session, idempotency key, and importer reason |
 | Claim roster row | matching verified Google identity; no permission grant | exact pending event/email/version, unexpired claim window, pinned bundle checksums; atomically links identity, role label, grant batches, and claimed row |
@@ -698,11 +701,13 @@ Final sign-off uses the separate `rehearsal.complete` permission and a recent Go
 | Migrate bundle-sourced grants | exact-bundle `access.permission_bundles.read` + exact-bundle and exact-person `access.permission_bundles.migrate` + exact-person `access.permissions.read` | one retired source version and one-to-five exact completed application batches; current published destination, explicit bindings, source expiry clamped to event end, full source/destination diff, preserved revocation exceptions, target access versions, preview checksum, fresh session, idempotency key, and reason; all selected targets commit or none do |
 | Grant one permission | `access.permissions.grant_any` or matching `access.permissions.grant_scoped` | exact target, catalog key, resource scope, constraints, validity, preview, fresh session, and reason |
 | Revoke permission grant(s) | `access.permissions.revoke_any` or matching `access.permissions.revoke_scoped` | exact target/grant scope, source impact, access version, fresh session, and reason |
-| Publish application decision | `application.decide` | exact application or explicit event scope; current locked project, admission policy, human review coverage, explicit outcome/reason, and AI used/cleared/overridden/unavailable disposition; this does not reserve capacity |
-| Send or revoke team offer | `application.offer.manage` | exact application or explicit event scope; accepted application, locked roster/track, current versions, approved future deadline, fresh session, overall/optional-track capacity, stable operation ID; revocation additionally requires a reason |
+| Submit and lock an application | `application.submit` | exact team only; current lead, accepted current participant policy, complete frozen roster profiles, current draft/team versions, explicit final confirmation, and stable operation ID |
+| Revise a submitted proposal | `application.submit` | exact locked team only; current lead, server time before `applicationsCloseAt`, current application/proposal versions, stale-output invalidation, and stable operation ID |
+| Publish application decision | `application.decide` | exact application or explicit event scope; current proposal version, admission policy, human review coverage, explicit outcome/reason, and AI used/cleared/overridden/unavailable disposition; this does not reserve capacity |
+| Send or revoke team offer | `application.offer.manage` | exact application or explicit event scope; accepted application, locked roster, current versions, approved future deadline, fresh session, overall capacity, stable operation ID; revocation also requires a reason |
 | Confirm or decline team offer | `application.offer.respond` | exact locked team only; current locked lead, current application/offer versions, stable operation ID, server-owned deadline; confirmation preserves capacity and decline releases it |
-| Generate/refresh AI admission recommendation | `admissions.ai_recommendation.run` | application scope; exact submitted version, published year-band/rubric and model policy, no decision side effect |
-| Correct locked team or core track | `admissions.application.correct_locked_snapshot` | application/team scope; impact preview, fresh session, reason, stale-analysis invalidation, and return to review |
+| Retry failed or stale AI admission analysis | `application.ai_recommendation.run` | exact application or explicit event scope; active human-review state, current terminal failed/stale recommendation, expected application version and recommendation ID, reason, stable operation ID, immutable prior record, and no decision side effect |
+| Correct locked team membership | `admissions.application.correct_locked_snapshot` | application/team scope; impact preview, fresh session, reason, stale-output invalidation, and return to review |
 | Read selected-team communications policy | `configuration.communications.read` | exact event; published version, current draft, checksum, and independent capability flags; no participant or delivery rows |
 | Create or replace selected-team communications draft | `configuration.communications.draft.create` | exact event; complete normalized venue/date/next-step/Discord/email policy, current event and draft versions, idempotent operation ID, and reason |
 | Validate selected-team communications draft | `configuration.communications.validate` | exact event and current draft; checksum and participant-visible diff only |
@@ -721,9 +726,8 @@ Final sign-off uses the separate `rehearsal.complete` permission and a recent Go
 | Acknowledge playback | `synesthesia.playback.acknowledge` | exact request; current version, published active/unpaused parent window, no other playing request, valid transition, idempotent operation ID, and reason |
 | Resolve song-request report | `synesthesia.report.resolve` | exact request/report; open report and current version, public resolution, optional internal resolution, idempotent operation ID, and reason |
 | Suspend or restore participant music access | `synesthesia.access.suspend` or `synesthesia.access.restore` | exact requester person, current music-access version, idempotent operation ID, and reason; event access/grants remain untouched |
-| Publish intake/track/model configuration | `configuration.publish` | configuration/event scope; validation/evaluation pass, fresh session, diff, and reason |
+| Publish intake or model configuration | `configuration.publish` | configuration/event scope; validation/evaluation pass, fresh session, diff, and reason |
 | Migrate active intake sessions | `configuration.active_session.migrate` | configuration/event scope; dry-run mapping, affected-session list, fresh session, and reason |
-| Promote waitlisted team | `admissions.waitlist.promote` | event/track scope; available confirmed-participant capacity |
 | Publish attendance plan | `attendance.plan.publish` | event scope; validation, impact preview, fresh session, and reason |
 | Open/extend/close/cancel attendance session | `attendance.session.manage` | exact attendance-session scope; current version and consequence preview |
 | Reconfigure active scan station | `attendance.station.manage` | exact station scope; registered device, affected queue, and reason |
@@ -768,7 +772,7 @@ Final sign-off uses the separate `rehearsal.complete` permission and a recent Go
 | Open score correction | `scorecard.correction.open` | scorecard/review scope; correction window and reason |
 | Void scorecard | `scorecard.void` | scorecard/review scope; evidence and replacement decision |
 | Start round close/export | `round.close` | exact round scope; current open version, fresh sign-in, reason, one explicit result/exclusion/withdrawal per team, and no active pause, live review, pending paper record, or correction |
-| Read/download round export | `round.export.read` | exact round scope; fresh sign-in for each 60-second signed download; audited file access |
+| Read/download round export | `round.export.read` | exact round scope; fresh sign-in for each 60-second signed download; final export-version, object-version, manifest, checksum, and expiry recheck; audited file access |
 | Retry failed round export | `round.export.retry` | exact round scope; current failed export and closing-round versions, fresh sign-in, and reason |
 | Verify export and close round | `round.export.verify` plus `round.export.read` | exact round scope; person different from starter, current uploaded export/round versions, both-file and count attestations, fresh sign-in, reason, and exact S3 version/checksum verification |
 | Reopen closed round | `round.reopen` | exact round scope; current verified export/round versions, no participant release or later active round, fresh sign-in, and reason; verified files are superseded, not deleted |
@@ -852,6 +856,7 @@ Manual incident records are reconciled after recovery under the reliability proc
 - Opening a print document is audited and does not activate manual mode; importing any used original still requires the matching approved incident and a different verifier.
 - A person with floor-summary or scan permission cannot read detailed attendance history or export attendance without the separate scoped grants.
 - Event-health read, brief read, and brief generation remain three independent permissions. A generator without brief read receives only the request receipt, and a brief reader gains no drill-down or corrective command.
+- Overview renders at most three named priorities and no system-check or brief section. Its remaining-work link opens Event monitor, where the bounded priority queue and aggregate checks remain available.
 - A repeated dispatch for one brief creates one durable agent instance; a late callback, retry, timeout, or competing callback produces one terminal stored result.
 - Every displayed priority cites only its frozen aggregate signal keys and preserves their highest severity, one cited owner, and one cited next action. A changed checksum, uncited key, invented owner/action, or repeated signal is rejected.
 - Autonomy-policy read, draft, validation, publication, and kill-switch commands fail independently. Two writers from the same observed draft state leave one current draft; publication supersedes policy/scheduler state atomically and aborts a claimed prior-policy run.
@@ -861,21 +866,24 @@ Manual incident records are reconciled after recovery under the reliability proc
 - Planner, investigator, and critic outputs reject unknown fields, duplicate or out-of-range references, unallowed reads/kinds, uncited claims, stale versions, prompt injection, invented identities or evidence, and incomplete-window claims.
 - The intelligence Worker cannot call a participant, application, attendance, queue, review, score, incident, access, or Synesthesia mutation. Acting on a recommendation still requires the normal human confirmation and exact scoped command permission.
 - The kill switch cancels the authoritative run/checkpoint and aborts the matching Durable Object/provider signal; a late read, proposal, or callback remains rejected.
-- A published catalog has its configured number of core tracks; optional sponsor entries do not replace a team's core track.
 - Every simulated intake path finishes when model output succeeds, times out, refuses, is invalid, or is disabled.
 - Every published intake-model policy generates no more than two introduction follow-ups, respects the separate bound for later phases, rejects unsafe or burdensome wording, and has a phase-appropriate deterministic fallback.
-- The complete track list follows the opening save without waiting for the model; at most one recommendation is highlighted and a different team choice has no negative admission effect.
 - Novelty configuration read, draft creation, entry replacement, and publication fail independently; no role label implies any of them.
 - Corpus import rejects duplicate keys, unsafe/private text, discouraging or decision language, wrong vector width, stale revision, and a competing import. A provider failure changes no published pointer.
 - Live novelty preview stores no second copy of participant text, reuses only the same team/corpus/input fingerprint, respects the published team rate, and cannot attach after the idea changes.
-- No novelty signal, nearest-project identity, similarity, or band enters application review, admissions, queue routing, reviewer context, judging, exports, or awards.
-- Final submission atomically starts the freeze for the previewed roster projection and core track, then materializes the immutable member snapshot in bounded resumable mutations before creating the application; a stale preview cannot start.
+- No novelty number, nearest-project identity, or similarity value enters application review, admissions, queue routing, reviewer context, judging, exports, or awards.
+- Final submission atomically freezes the previewed roster projection. Bounded resumable mutations materialize the immutable member snapshot before creating the application. A stale preview cannot start.
+- The current lead can revise submitted proposal content before `applicationsCloseAt`. Each revision creates an immutable version and invalidates stale human and AI outputs.
 - Publishing a new flow does not change an active session, and migration cannot run without an exact preview.
 - Intake diagnostics expose operational counts and versions without participant/model text.
 - `application.assign` for one application cannot route another application. A successful assignment creates only exact-application `application.review.read` and `application.review`; role, profile context, AI analysis, decision, offer, and judging access do not follow.
 - Canceling a pending assignment revokes only its source grants, rejects stale application/assignment versions, and cannot race a review submission. Independent manual grants survive.
 - `application.review.read` for one application cannot read another application or a peer recommendation before the caller submits a current-content review. Two simultaneous reviewers on unchanged content leave two completions rather than a lost increment.
+- Round-board access alone exposes no admissions record ID or link. A team row links to its application only when `application.read` or `application.review.read` covers that exact application.
+- Judging-setup access may list every published round, but it links into a live board only when `round.read` covers that exact round.
+- Lifecycle blockers remain visible to a lifecycle reader, but each becomes a setup link only when that account can open the matching workspace. A blocker never links into a route that will reject or redirect the operator.
 - Profile/year fields and band-specific policy guidance require `application.profile_context.read`; the AI record requires `application.ai_recommendation.read`. A decider without AI-read authority records it as unavailable to that decision instead of receiving hidden analysis.
+- `application.ai_recommendation.run` does not reveal an AI result. It can replace only the current definite failed or stale analysis during active human review. The retry checks current IDs and versions, keeps the prior row, and is idempotent and audited.
 - A published admission decision points to the reviewed project and admission-policy versions, human actor/reason, and whether a structured AI recommendation was used, cleared, overridden, or unavailable.
 - Publishing that decision atomically creates one generic verified-email delivery per locked team member, while provider sending remains asynchronous and cannot roll back portal state.
 - `communications.delivery.read` for one person exposes no other recipient. `communications.delivery.manage` without a matching read grant does not silently expand the delivery query, and neither permission follows from application access or role.
@@ -885,7 +893,7 @@ Manual incident records are reconciled after recovery under the reliability proc
 - Rehearsal ownership alone exposes no run. Read, manage, execute, and complete grants fail independently at exact-run and event scope.
 - A draft cannot start with an unassigned or inactive workstream owner, and two active runs cannot coexist for one event.
 - A terminal scenario outcome cannot be replaced without a reasoned rerun. Concurrent outcome writes accept one current scenario version, and an exact retry adds no duplicate history action.
-- Final sign-off fails until all 61 scenarios pass and conflicts with a concurrent rerun or outcome change.
+- Final sign-off fails until all 62 scenarios pass and conflicts with a concurrent rerun or outcome change.
 - A stale dashboard cannot overwrite a newer table or queue update.
 - An operator without `incident.read` sees no incident title or summary in the shell or round board.
 - A round pause and a concurrent call, start, close, resume, or linked-incident resolution cannot both cross the same version boundary.
@@ -900,10 +908,11 @@ Manual incident records are reconciled after recovery under the reliability proc
 - An override permission fails outside its exact scope or without its required fresh session and reason.
 - Synesthesia catalog read, window read/manage/publish, queue read, moderation, scheduling, playback, report read/resolve, and requester-access commands fail independently when their own grant is absent.
 - Two operators cannot start different requests in the same window; a stale request/window/report/access version changes nothing.
-- Queue read alone exposes no internal moderation note or report reason, and participant music suspension changes no event-account grant.
+- Queue read alone exposes no internal moderation note or report reason. Exact-request report read pages every open reason without loading report text into the live queue. Participant music suspension changes no event-account grant.
 - A role label with no grants opens no protected dashboard route.
 - Assigning, replacing, or clearing a role label changes no permission and retains the ended label as history.
 - An invite-only administrator can create and revoke exact-email invitations without reading the event account directory.
+- If an invited email is already linked, the control says so without exposing an account ID or an inaccessible account link.
 - Claiming an invitation exposes no operations route until a separate permission grant exists.
 - An invitation claim racing revocation or expiry has one atomic winner; retries return the original result.
 - Suspension blocks every protected call on the next server check while preserving the grant and role history; reactivation makes only still-active grants effective.

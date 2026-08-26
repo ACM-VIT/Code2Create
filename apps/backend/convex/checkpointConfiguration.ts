@@ -4,6 +4,12 @@ import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
+import {
+  configurationDraftResultJson,
+  configurationPublicationResultJson,
+  storedConfigurationDraftResult,
+  storedConfigurationPublicationResult,
+} from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
@@ -201,13 +207,15 @@ export const createDraft = mutation({
         prior.targetId,
       );
       if (!planVersionId) throw new Error("The prior checkpoint-draft result is invalid.");
-      const plan = await ctx.db.get(planVersionId);
-      if (!plan) throw new Error("The prior checkpoint draft no longer resolves.");
+      const stored = storedConfigurationDraftResult(
+        prior.resultJson,
+        "checkpoint-draft",
+      );
       return {
         planVersionId,
-        planVersion: plan.version,
-        checksum: plan.checksum,
-        changed: false,
+        planVersion: stored.version,
+        checksum: stored.checksum,
+        changed: stored.changed,
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -242,6 +250,11 @@ export const createDraft = mutation({
       requestFingerprint,
       targetType: "project_checkpoint_plan",
       targetId: result.planVersionId,
+      resultJson: configurationDraftResultJson({
+        version: result.planVersion,
+        checksum: result.checksum,
+        changed: result.changed,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -300,9 +313,15 @@ export const publish = mutation({
         prior.targetId,
       );
       if (!planVersionId) throw new Error("The prior checkpoint publication is invalid.");
-      const plan = await ctx.db.get(planVersionId);
-      if (!plan) throw new Error("The prior published checkpoint plan no longer resolves.");
-      return { planVersionId, planVersion: plan.version, eventVersion: event.version };
+      const stored = storedConfigurationPublicationResult(
+        prior.resultJson,
+        "checkpoint-publication",
+      );
+      return {
+        planVersionId,
+        planVersion: stored.version,
+        eventVersion: stored.eventVersion,
+      };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const grantIds = await requirePermission(ctx, {
@@ -335,6 +354,10 @@ export const publish = mutation({
       requestFingerprint,
       targetType: "project_checkpoint_plan",
       targetId: result.planVersionId,
+      resultJson: configurationPublicationResultJson({
+        version: result.planVersion,
+        eventVersion: event.version + 1,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

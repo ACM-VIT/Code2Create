@@ -15,7 +15,7 @@ const root = createRoot(rootElement)
 if (!clientConfiguration.convexUrl || !clientConfiguration.convexSiteUrl) {
   root.render(
     <main className="centered">
-      <p className="muted">Set VITE_CONVEX_URL and VITE_CONVEX_SITE_URL.</p>
+      <p className="muted">The handbook is unavailable. Check the event setup and try again.</p>
     </main>,
   )
 } else {

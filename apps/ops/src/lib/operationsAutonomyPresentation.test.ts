@@ -12,7 +12,7 @@ import {
 
 test('the run list distinguishes authoritative lifecycle states', () => {
   assert.equal(autonomyRunStateLabel('pending'), 'Queued')
-  assert.equal(autonomyRunStateLabel('leased'), 'Dispatching')
+  assert.equal(autonomyRunStateLabel('leased'), 'Starting')
   assert.equal(autonomyRunStateLabel('running'), 'Working')
   assert.equal(autonomyRunStateLabel('no_op'), 'No action')
   assert.equal(autonomyRunStateLabel('canceled'), 'Stopped')
@@ -36,10 +36,10 @@ test('the trace opens only for lifecycle states that prove Worker acceptance', (
 })
 
 test('operators see exact phases and effect-authority cancellation causes', () => {
-  assert.equal(autonomyRunPhaseLabel('planning'), 'Planning operations review')
-  assert.equal(autonomyRunPhaseLabel('investigating'), 'Investigating event area')
-  assert.equal(autonomyRunPhaseLabel('criticizing'), 'Checking evidence and conclusions')
-  assert.equal(autonomyRunPhaseLabel('continuing'), 'Continuing durable review work')
+  assert.equal(autonomyRunPhaseLabel('planning'), 'Planning what to check')
+  assert.equal(autonomyRunPhaseLabel('investigating'), 'Investigating a problem')
+  assert.equal(autonomyRunPhaseLabel('criticizing'), 'Testing the conclusion')
+  assert.equal(autonomyRunPhaseLabel('continuing'), 'Continuing the review')
   assert.equal(
     autonomyCancellationLabel('owner_revoked'),
     'The accountable owner no longer has the required authority.',

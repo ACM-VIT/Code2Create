@@ -67,6 +67,7 @@ const streamAccess = v.object({
   ticket: v.string(),
   issuedAt: v.number(),
   expiresAt: v.number(),
+  serverNow: v.number(),
   signature: v.string(),
 });
 
@@ -114,6 +115,7 @@ export async function signedStreamAccess(args: {
     ticket: encodeOperationsIntelligenceStreamTicket(args.ticket),
     issuedAt: args.ticket.issuedAt,
     expiresAt: args.ticket.expiresAt,
+    serverNow: Date.now(),
     signature,
   };
 }

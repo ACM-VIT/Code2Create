@@ -13,4 +13,8 @@ test('seeded operator opens the scoped operations workspace', async ({ page }) =
   await expect(page.getByRole('link', { name: 'Overview' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Test run' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Needs attention now' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'System checks' })).toBeVisible()
+  await expect(page.getByText('System health', { exact: true })).toBeVisible()
 })

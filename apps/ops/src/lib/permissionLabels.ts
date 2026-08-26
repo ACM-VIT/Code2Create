@@ -2,6 +2,27 @@ export function bindingName(value: string) {
   return value.replaceAll('_', ' ').replace(/^./, (character) => character.toUpperCase())
 }
 
+const grantSourceNames: Readonly<Record<string, string>> = {
+  production_seed: 'Initial event owner',
+  participant_membership: 'Participant account',
+  team_membership: 'Team membership',
+  team_lead: 'Team lead',
+  role_template: 'Role',
+  bundle: 'Reusable access',
+  application_assignment: 'Application assignment',
+  panel_assignment: 'Panel assignment',
+  reserve_assignment: 'Reserve assignment',
+  page_assignment: 'Reviewer page',
+  station_assignment: 'Check-in station',
+  event_subject: 'Event account',
+  manual: 'Added by hand',
+  delegated: 'Passed on by someone',
+}
+
+export function grantSourceName(value: string) {
+  return grantSourceNames[value] ?? bindingName(value)
+}
+
 export type PermissionArea =
   | 'applications'
   | 'attendance'
@@ -36,7 +57,9 @@ const exactPermissionNames: Readonly<Record<string, string>> = {
   'access.permissions.revoke_scoped': 'Let someone revoke one scoped permission',
   'application.assign': 'Assign application reviews',
   'application.ai_recommendation.read': 'View admission recommendation',
+  'application.ai_recommendation.run': 'Retry admission analysis',
   'application.profile_context.read': 'View application study context',
+  'communications.call_consent.manage': 'Manage own phone-call consent',
   'attendance.export.identifiable': 'Export named attendance records',
   'attendance.portal_qr.mint': 'Show own attendance QR',
   'event.lifecycle.manage': 'Change the event state',
@@ -245,7 +268,8 @@ export function readPermissionArea(value: string): PermissionArea {
 export function scopeName(value: string, permissionKey?: string) {
   if (value === 'event') return 'Entire event'
   if (value === 'self') {
-    return permissionKey === 'reviewer.device.register'
+    return permissionKey === 'reviewer.device.register' ||
+      permissionKey === 'communications.call_consent.manage'
       ? 'Own event account'
       : 'Own participant membership'
   }

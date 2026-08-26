@@ -184,6 +184,46 @@ describe("support projections", () => {
       "The exposed cable is still visible from the queue.",
     );
     expect(auditReasons).not.toContain("The cable cover has come loose again.");
+
+    const revokedReadCount = await backend.run(async (ctx) => {
+      const grants = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_subject_permission_status", (index) =>
+          index
+            .eq("eventAccessSubjectId", fixture.subjectId)
+            .eq("permissionKey", "support.case.read")
+            .eq("status", "active"),
+        )
+        .collect();
+      for (const grant of grants) {
+        await ctx.db.patch(grant._id, {
+          status: "revoked",
+          revokedAt: Date.now(),
+          revokedByPersonId: fixture.personId,
+          revokeReason: "Permission-revocation projection test",
+        });
+      }
+      return grants.length;
+    });
+    expect(revokedReadCount).toBeGreaterThan(0);
+    await expect(
+      operator.query(api.support.mine, { eventSlug: fixture.eventSlug }),
+    ).resolves.toEqual([]);
+    await expect(
+      operator.query(api.support.mineSummary, { eventSlug: fixture.eventSlug }),
+    ).resolves.toEqual({ openCount: 0, countIsLowerBound: false });
+    await expect(
+      operator.query(api.support.detail, {
+        eventSlug: fixture.eventSlug,
+        supportCaseId: created.id,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      operator.query(api.support.detailByPublicCode, {
+        eventSlug: fixture.eventSlug,
+        publicCode: created.publicCode,
+      }),
+    ).resolves.toBeNull();
   });
 
   test("event-wide lists read a bounded indexed page and keep exact totals", async () => {
@@ -260,6 +300,68 @@ describe("support projections", () => {
       operator.query(api.support.mineSummary, { eventSlug: fixture.eventSlug }),
     ).resolves.toEqual({ openCount: 20, countIsLowerBound: true });
   });
+
+  test("operation retries return the version produced by the original support change", async () => {
+    const backend = seededBackend();
+    const fixture = await seedOperator(backend);
+    const operator = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    const createOperationId = crypto.randomUUID();
+    const createArgs = {
+      eventSlug: fixture.eventSlug,
+      category: "queue" as const,
+      description: "The participant needs help finding the next event activity.",
+      clientOperationId: createOperationId,
+    };
+    const created = await operator.mutation(api.support.createStaff, createArgs);
+    const updateOperationId = crypto.randomUUID();
+    const updateArgs = {
+      eventSlug: fixture.eventSlug,
+      supportCaseId: created.id,
+      expectedVersion: created.version,
+      nextState: "investigating" as const,
+      clearOwner: false,
+      reason: "The event desk is checking the participant's schedule.",
+      clientOperationId: updateOperationId,
+    };
+    const updated = await operator.mutation(api.support.updateStaff, updateArgs);
+    const replyOperationId = crypto.randomUUID();
+    const replyArgs = {
+      eventSlug: fixture.eventSlug,
+      supportCaseId: created.id,
+      expectedVersion: updated.version,
+      message: "I am waiting beside the event desk now.",
+      clientOperationId: replyOperationId,
+    };
+    const replied = await operator.mutation(api.support.replySelf, replyArgs);
+    await operator.mutation(api.support.updateStaff, {
+      eventSlug: fixture.eventSlug,
+      supportCaseId: created.id,
+      expectedVersion: replied.version,
+      nextState: "resolved",
+      clearOwner: false,
+      reason: "The participant received the correct activity and location.",
+      clientOperationId: crypto.randomUUID(),
+    });
+
+    await expect(
+      operator.mutation(api.support.createStaff, createArgs),
+    ).resolves.toEqual(created);
+    await expect(
+      operator.mutation(api.support.updateStaff, updateArgs),
+    ).resolves.toEqual(updated);
+    await expect(
+      operator.mutation(api.support.replySelf, replyArgs),
+    ).resolves.toEqual(replied);
+    await expect(
+      operator.query(api.support.detail, {
+        eventSlug: fixture.eventSlug,
+        supportCaseId: created.id,
+      }),
+    ).resolves.toMatchObject({ supportCase: { version: 4 } });
+  });
 });
 
 function seededBackend() {
@@ -290,6 +392,7 @@ async function seedOperator(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       createdByPersonId: personId,

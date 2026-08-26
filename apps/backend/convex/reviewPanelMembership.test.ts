@@ -42,6 +42,52 @@ afterAll(() => {
 });
 
 describe("live panel membership", () => {
+  test("shows a setup-to-board link only for a round the operator can read", async () => {
+    const backend = seededBackend();
+    const fixture = await seedPanel(backend);
+    const operator = asOperator(backend, fixture);
+    await backend.run(async (ctx) => {
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.operatorPersonId,
+        eventAccessSubjectId: fixture.operatorSubjectId,
+        permissionKey: "review.configuration.read",
+        scopeType: "event",
+        sourceType: "manual",
+        sourceId: `${fixture.eventSlug}:review.configuration.read`,
+        grantedByPersonId: fixture.operatorPersonId,
+        reason: "Review setup link test",
+      });
+    });
+
+    const setupWithoutRoundAccess = await operator.query(api.reviewConfiguration.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(setupWithoutRoundAccess.rounds).toEqual([
+      expect.objectContaining({ id: fixture.roundId, canReadBoard: false }),
+    ]);
+
+    await backend.run(async (ctx) => {
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.operatorPersonId,
+        eventAccessSubjectId: fixture.operatorSubjectId,
+        permissionKey: "round.read",
+        scopeType: "round",
+        scopeId: fixture.roundId,
+        sourceType: "manual",
+        sourceId: `${fixture.eventSlug}:round.read`,
+        grantedByPersonId: fixture.operatorPersonId,
+        reason: "Review setup link test",
+      });
+    });
+
+    const setupWithRoundAccess = await operator.query(api.reviewConfiguration.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(setupWithRoundAccess.rounds[0]?.canReadBoard).toBe(true);
+  });
+
   test("moves the seat, its grants, and the reserve to the joining reviewer", async () => {
     const backend = seededBackend();
     const fixture = await seedPanel(backend);
@@ -101,7 +147,7 @@ describe("live panel membership", () => {
       return joining._id;
     });
     expect(await activeSourceGrantCount(backend, fixture.eventId, "panel_assignment", joiningMemberId))
-      .toBe(4);
+      .toBe(5);
   });
 
   test("refuses to change a panel while a review is live on it", async () => {
@@ -266,6 +312,7 @@ describe("live panel membership", () => {
     await expect(
       asOperator(backend, fixture).mutation(api.reviewer.confirmPresence, {
         eventSlug: fixture.eventSlug,
+        clientOperationId: "different-review-presence",
         installationId: crypto.randomUUID(),
         reviewSessionId: displayedSessionId,
         payload,
@@ -296,6 +343,7 @@ describe("live panel membership", () => {
         timezone: "Asia/Kolkata",
         status: "live",
         vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
         startsAt: now - 60_000,
         endsAt: now + 3_600_000,
         version: 1,
@@ -437,6 +485,108 @@ describe("live panel membership", () => {
     });
     await expect(
       operator.query(api.reviewSubstitutions.currentPage, { eventSlug: fixture.eventSlug }),
+    ).resolves.toBeNull();
+  });
+
+  test("keeps reviewer setup usable while revoked read grants hide assigned work", async () => {
+    const backend = seededBackend();
+    const fixture = await seedPanel(backend);
+    const reviewer = await prepareReviewerClockIn(backend, fixture);
+
+    await backend.run(async (ctx) => {
+      const grants = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_source", (index) =>
+          index
+            .eq("eventId", fixture.eventId)
+            .eq("sourceType", "panel_assignment")
+            .eq("sourceId", fixture.memberId)
+            .eq("status", "active"),
+        )
+        .collect();
+      const panelReadGrant = grants.find((grant) => grant.permissionKey === "panel.read");
+      if (!panelReadGrant) throw new Error("The panel-read fixture grant is missing.");
+      await ctx.db.patch(panelReadGrant._id, {
+        status: "revoked",
+        revokedAt: Date.now(),
+        revokedByPersonId: fixture.operatorPersonId,
+        revokeReason: "Reviewer projection boundary test",
+      });
+      const memberSubject = await ctx.db
+        .query("eventAccessSubjects")
+        .withIndex("by_event_person", (index) =>
+          index.eq("eventId", fixture.eventId).eq("personId", fixture.memberPersonId),
+        )
+        .unique();
+      if (!memberSubject) throw new Error("The panel member subject is missing.");
+      const pageChainId = await ctx.db.insert("reviewerPageChains", {
+        eventId: fixture.eventId,
+        roundId: fixture.roundId,
+        panelId: fixture.panelId,
+        missingPanelMemberId: fixture.memberId,
+        requiredCriterionIds: [],
+        reason: "Projection boundary vacancy",
+        responseWindowSeconds: 60,
+        state: "active",
+        currentRank: 1,
+        version: 1,
+        createdByPersonId: fixture.operatorPersonId,
+        pageGrantIds: [],
+        assignmentGrantIds: [],
+        resolvedScopeType: "panel",
+        resolvedScopeId: fixture.panelId,
+        createdAt: Date.now(),
+      });
+      await ctx.db.insert("reviewerPages", {
+        eventId: fixture.eventId,
+        roundId: fixture.roundId,
+        panelId: fixture.panelId,
+        pageChainId,
+        targetPersonId: fixture.memberPersonId,
+        targetEventAccessSubjectId: memberSubject._id,
+        reserveId: fixture.reserveId,
+        requiredCriterionIds: [],
+        rank: 1,
+        reason: "Projection boundary vacancy",
+        state: "sent",
+        expiresAt: Date.now() + 60_000,
+        version: 1,
+        createdAt: Date.now(),
+      });
+    });
+
+    await expect(
+      reviewer.identity.query(api.access.reviewerCapabilities, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({ reviews: true });
+    await expect(
+      reviewer.identity.query(api.reviewer.dutyStatus, {
+        eventSlug: fixture.eventSlug,
+        installationId: reviewer.installationId,
+      }),
+    ).resolves.toEqual({
+      deviceRegistered: true,
+      panelAssigned: false,
+      clockInStatus: null,
+      heartbeat: null,
+      review: null,
+    });
+    await expect(
+      reviewer.identity.query(api.reviewer.now, {
+        eventSlug: fixture.eventSlug,
+        installationId: reviewer.installationId,
+      }),
+    ).resolves.toMatchObject({
+      device: { name: "Availability test phone" },
+      panel: null,
+      reserve: null,
+      review: null,
+    });
+    await expect(
+      reviewer.identity.query(api.reviewSubstitutions.currentPage, {
+        eventSlug: fixture.eventSlug,
+      }),
     ).resolves.toBeNull();
   });
 
@@ -1040,6 +1190,7 @@ async function seedPanel(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,
@@ -1277,7 +1428,6 @@ async function seedLiveReview(backend: BackendTest, fixture: Fixture) {
       activeVitMemberCount: 0,
       activeExternalMemberCount: 0,
       membershipLocked: true,
-      trackLocked: true,
       version: 1,
       createdAt: now,
       updatedAt: now,
@@ -1345,29 +1495,6 @@ async function seedLiveReview(backend: BackendTest, fixture: Fixture) {
       createdAt: now,
       publishedAt: now,
     });
-    const catalogVersionId = await ctx.db.insert("trackCatalogVersions", {
-      eventId: fixture.eventId,
-      version: 1,
-      status: "published",
-      requiredCoreTrackCount: 1,
-      checksum: "fixture-track-catalog",
-      createdByPersonId: fixture.operatorPersonId,
-      createdAt: now,
-      publishedAt: now,
-    });
-    const trackVersionId = await ctx.db.insert("trackVersions", {
-      eventId: fixture.eventId,
-      catalogVersionId,
-      stableKey: "fixture-track",
-      slug: "fixture-track",
-      displayName: "Fixture track",
-      description: "Fixture track description.",
-      examples: [],
-      displayOrder: 0,
-      type: "core",
-      status: "published",
-      createdAt: now,
-    });
     const lockedRosterSnapshotId = await createTestSubmissionSnapshot(ctx, {
       eventId: fixture.eventId,
       teamId,
@@ -1375,7 +1502,6 @@ async function seedLiveReview(backend: BackendTest, fixture: Fixture) {
       intakePolicyVersionId,
       participantPolicyVersionId,
       admissionPolicyVersionId,
-      coreTrackVersionId: trackVersionId,
       submittedAt: now,
     });
     const projectVersionId = await ctx.db.insert("projectVersions", {
@@ -1385,8 +1511,6 @@ async function seedLiveReview(backend: BackendTest, fixture: Fixture) {
       initialIdea: "A fixture project idea.",
       intakePolicyVersionId,
       intakeResponses: [],
-      coreTrackVersionId: trackVersionId,
-      sponsorTrackVersionIds: [],
       lockedRosterSnapshotId,
       lockedMemberCount: 0,
       lockedLeadMembershipId: membershipId,
@@ -1399,8 +1523,6 @@ async function seedLiveReview(backend: BackendTest, fixture: Fixture) {
         participantPolicyVersionId,
         previewedDraftVersion: 1,
         previewedTeamVersion: 1,
-        previewedTrackVersionId: trackVersionId,
-        previewedSponsorTrackVersionIds: [],
         confirmedByMembershipId: membershipId,
         confirmedAt: now,
       },

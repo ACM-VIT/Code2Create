@@ -9,6 +9,7 @@ import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { sortAttentionItems } from "./lib/operationsAttention";
 import { appendOperationsAttentionReadFactById } from "./lib/operationsAutonomyReadFacts";
+import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import {
   assertPermissionKey,
   matchingPermissionGrantIds,
@@ -184,10 +185,21 @@ export const acknowledge = mutation({
     eventSlug: v.string(),
     itemId: v.id("operationsAttentionItems"),
     expectedVersion: v.number(),
+    clientOperationId: v.string(),
   },
   returns: v.object({ version: v.number() }),
   handler: async (ctx, args) => {
-    const { event, person, item, grantIds } = await requireOpenItem(ctx, args);
+    const actor = await requireAttentionActor(ctx, args.eventSlug);
+    const requestFingerprint = operationFingerprint([args.itemId, args.expectedVersion]);
+    const prior = await findOperation(ctx, {
+      eventId: actor.event._id,
+      actorPersonId: actor.person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "operations.attention.acknowledge",
+      requestFingerprint,
+    });
+    if (prior) return storedAttentionResult(prior.resultJson);
+    const { event, person, item, grantIds } = await requireOpenItem(ctx, args, actor);
     if (item.state !== "open") {
       throw new ConvexError({
         code: "ATTENTION_ITEM_CHANGED",
@@ -201,6 +213,17 @@ export const acknowledge = mutation({
       acknowledgedByPersonId: person._id,
       acknowledgedAt: now,
       version,
+    });
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "operations.attention.acknowledge",
+      requestFingerprint,
+      targetType: "operations_attention_item",
+      targetId: item._id,
+      resultJson: String(version),
+      createdAt: now,
     });
     await appendOperationsAttentionReadFactById(ctx, item._id, now);
     await writeAuditEvent(ctx, {
@@ -227,17 +250,32 @@ export const dismiss = mutation({
     itemId: v.id("operationsAttentionItems"),
     expectedVersion: v.number(),
     reason: v.string(),
+    clientOperationId: v.string(),
   },
   returns: v.object({ version: v.number() }),
   handler: async (ctx, args) => {
-    const { event, person, item, grantIds } = await requireOpenItem(ctx, args);
+    const actor = await requireAttentionActor(ctx, args.eventSlug);
+    const reason = normalizedText(args.reason, "Dismissal reason", 5, 500);
+    const requestFingerprint = operationFingerprint([
+      args.itemId,
+      args.expectedVersion,
+      reason,
+    ]);
+    const prior = await findOperation(ctx, {
+      eventId: actor.event._id,
+      actorPersonId: actor.person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "operations.attention.dismiss",
+      requestFingerprint,
+    });
+    if (prior) return storedAttentionResult(prior.resultJson);
+    const { event, person, item, grantIds } = await requireOpenItem(ctx, args, actor);
     if (item.state !== "open" && item.state !== "acknowledged") {
       throw new ConvexError({
         code: "ATTENTION_ITEM_CHANGED",
         message: "That item is no longer live.",
       });
     }
-    const reason = normalizedText(args.reason, "Dismissal reason", 5, 500);
     const now = Date.now();
     const version = item.version + 1;
     await ctx.db.patch(item._id, {
@@ -245,6 +283,17 @@ export const dismiss = mutation({
       dismissedByPersonId: person._id,
       dismissedAt: now,
       version,
+    });
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "operations.attention.dismiss",
+      requestFingerprint,
+      targetType: "operations_attention_item",
+      targetId: item._id,
+      resultJson: String(version),
+      createdAt: now,
     });
     await appendOperationsAttentionReadFactById(ctx, item._id, now);
     await writeAuditEvent(ctx, {
@@ -268,14 +317,12 @@ export const dismiss = mutation({
 async function requireOpenItem(
   ctx: MutationCtx,
   args: {
-    eventSlug: string;
     itemId: Id<"operationsAttentionItems">;
     expectedVersion: number;
   },
+  actor: Awaited<ReturnType<typeof requireAttentionActor>>,
 ) {
-  const event = await requireEventBySlug(ctx, args.eventSlug);
-  const { person } = await requireCurrentPerson(ctx);
-  const subject = await requireEventSubject(ctx, event._id, person._id);
+  const { event, person, subject } = actor;
   const grantIds = await requirePermission(ctx, {
     eventId: event._id,
     eventAccessSubjectId: subject._id,
@@ -303,4 +350,19 @@ async function requireOpenItem(
     });
   }
   return { event, person, item, grantIds };
+}
+
+async function requireAttentionActor(ctx: MutationCtx, eventSlug: string) {
+  const event = await requireEventBySlug(ctx, eventSlug);
+  const { person } = await requireCurrentPerson(ctx);
+  const subject = await requireEventSubject(ctx, event._id, person._id);
+  return { event, person, subject };
+}
+
+function storedAttentionResult(resultJson: string | undefined) {
+  const version = Number(resultJson);
+  if (!Number.isSafeInteger(version) || version < 1) {
+    throw new Error("The saved attention command result is invalid.");
+  }
+  return { version };
 }

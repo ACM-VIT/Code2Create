@@ -6,50 +6,13 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 
-type TrackDraft = {
-  name: string
-  description: string
-}
-
-type CoreTrack = {
-  stableKey: string
-  slug: string
-  displayName: string
-  description: string
-  examples: string[]
-  displayOrder: number
-  type: 'core'
-}
-
-const initialTracks: readonly TrackDraft[] = [
-  {
-    name: 'Open innovation',
-    description: 'Useful technology for everyday problems and overlooked opportunities.',
-  },
-  {
-    name: 'Health and wellbeing',
-    description: 'Thoughtful technology for physical, mental, or community wellbeing.',
-  },
-  {
-    name: 'Future of learning',
-    description: 'New ways for people to learn, teach, practise, and collaborate.',
-  },
-  {
-    name: 'Sustainable systems',
-    description: 'More resilient places, services, and ways to use resources.',
-  },
-  {
-    name: 'AI for people',
-    description: 'Responsible intelligence that extends human capability and access.',
-  },
-]
-
 export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthClient }) {
   const eligibility = useQuery(api.system.bootstrapEligibility, { eventSlug })
   const bootstrap = useMutation(api.system.bootstrapEvent)
   const [eventName, setEventName] = useState('Code2Create 7.0')
   const [startsAtLocal, setStartsAtLocal] = useState('')
   const [endsAtLocal, setEndsAtLocal] = useState('')
+  const [applicationsCloseAtLocal, setApplicationsCloseAtLocal] = useState('')
   const [venueName, setVenueName] = useState('VIT Chennai')
   const [venueAddress, setVenueAddress] = useState('')
   const [discordUrl, setDiscordUrl] = useState('')
@@ -64,7 +27,6 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
   const [maximumFigmaFiles, setMaximumFigmaFiles] = useState('10')
   const [githubFreezeAtLocal, setGithubFreezeAtLocal] = useState('')
   const [figmaFreezeAtLocal, setFigmaFreezeAtLocal] = useState('')
-  const [tracks, setTracks] = useState<TrackDraft[]>(() => initialTracks.map((track) => ({ ...track })))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -90,18 +52,19 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
     )
   }
 
-  const updateTrack = (index: number, key: keyof TrackDraft, value: string) => {
-    setTracks((current) => current.map((track, trackIndex) => (
-      trackIndex === index ? { ...track, [key]: value } : track
-    )))
-  }
-
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const startsAt = indiaDateTimeToTimestamp(startsAtLocal)
     const endsAt = indiaDateTimeToTimestamp(endsAtLocal)
-    if (startsAt === null || endsAt === null || endsAt <= startsAt) {
-      setError('Choose a valid event start and end time.')
+    const applicationsCloseAt = indiaDateTimeToTimestamp(applicationsCloseAtLocal)
+    if (
+      startsAt === null ||
+      endsAt === null ||
+      applicationsCloseAt === null ||
+      endsAt <= startsAt ||
+      applicationsCloseAt > startsAt
+    ) {
+      setError('Choose a valid application deadline, event start, and event end.')
       return
     }
     const githubFreezeAt = optionalIndiaDateTimeToTimestamp(githubFreezeAtLocal)
@@ -117,6 +80,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
         eventSlug,
         eventName,
         timezone: 'Asia/Kolkata',
+        applicationsCloseAt,
         vitEmailDomains: [vitEmailDomain],
         participantPolicy: {
           label: 'Participant policy · 1',
@@ -137,7 +101,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           freshProjectAttestation:
             "We will begin project-specific implementation and design after Code2Create's official start.",
           finalSubmissionWarning:
-            'Submitting locks this exact team, core track, and selected sponsor tracks. Review every item before you continue.',
+            'Submitting locks this exact team. You can revise the project answers until the application deadline.',
         },
         admissionPolicyVersion: 'admission-v1',
         admissionParticipantCapacity: Number(participantCapacity),
@@ -161,7 +125,6 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
             'event_goal',
             'tradeoff',
             'risk',
-            'track_fit',
           ],
           fallbackQuestions: [
             {
@@ -225,8 +188,6 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           ...(githubFreezeAt !== undefined ? { githubFreezeAt } : {}),
           ...(figmaFreezeAt !== undefined ? { figmaFreezeAt } : {}),
         },
-        requiredCoreTrackCount: tracks.length,
-        tracks: tracks.map(toCoreTrack),
       })
     } catch (caught) {
       setError(readableError(caught))
@@ -249,6 +210,10 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
               <label className="field span-two">
                 <span>Name</span>
                 <input required minLength={3} maxLength={80} value={eventName} onChange={(event) => setEventName(event.currentTarget.value)} />
+              </label>
+              <label className="field">
+                <span>Applications close · India time</span>
+                <input required type="datetime-local" value={applicationsCloseAtLocal} onChange={(event) => setApplicationsCloseAtLocal(event.currentTarget.value)} />
               </label>
               <label className="field">
                 <span>Starts · India time</span>
@@ -332,37 +297,6 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
             </div>
           </fieldset>
 
-          <fieldset>
-            <legend>{tracks.length} starting core track{tracks.length === 1 ? '' : 's'}</legend>
-            <div className="bootstrap-tracks">
-              {tracks.map((track, index) => (
-                <div className="bootstrap-track" key={index}>
-                  <label className="field">
-                    <span>Track {index + 1}</span>
-                    <input required minLength={2} maxLength={80} value={track.name} onChange={(event) => updateTrack(index, 'name', event.currentTarget.value)} />
-                  </label>
-                  <label className="field">
-                    <span>Description</span>
-                    <textarea required minLength={10} maxLength={500} value={track.description} onChange={(event) => updateTrack(index, 'description', event.currentTarget.value)} />
-                  </label>
-                  {tracks.length > 1 ? (
-                    <button className="text-button" type="button" onClick={() => setTracks((current) => current.filter((_, trackIndex) => trackIndex !== index))}>
-                      Remove track
-                    </button>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-            {tracks.length < 10 ? (
-              <button className="secondary" type="button" onClick={() => setTracks((current) => [
-                ...current,
-                { name: '', description: '' },
-              ])}>
-                Add core track
-              </button>
-            ) : null}
-          </fieldset>
-
           {error ? <p className="notice error" role="alert">{error}</p> : null}
           <div className="button-row">
             <button className="primary" type="submit" disabled={busy}>
@@ -376,26 +310,6 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
       </section>
     </main>
   )
-}
-
-function toCoreTrack(track: TrackDraft, index: number): CoreTrack {
-  const slugPart = track.name
-    .trim()
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 45)
-  return {
-    stableKey: `core_track_${index + 1}`,
-    slug: `track-${index + 1}-${slugPart || 'core'}`,
-    displayName: track.name,
-    description: track.description,
-    examples: [track.name],
-    displayOrder: index,
-    type: 'core',
-  }
 }
 
 function indiaDateTimeToTimestamp(value: string) {

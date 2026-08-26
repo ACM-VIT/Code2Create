@@ -1,11 +1,18 @@
 import { api } from '@code2create/backend/api'
+import { figmaFileSyncStateLabels } from '@code2create/domain'
 import { useAction, useMutation, useQuery } from 'convex/react'
+import type { FunctionReturnType } from 'convex/server'
 import { useState } from 'react'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
 import type { CurrentFigmaIntegration } from '../types'
 import { ErrorNotice } from './Form'
+
+type FigmaOperationResult =
+  | FunctionReturnType<typeof api.figmaActions.addFile>
+  | FunctionReturnType<typeof api.figmaIntegrations.refreshFile>
+  | FunctionReturnType<typeof api.figmaIntegrations.archiveFile>
 
 function captureTime(value: number) {
   return new Date(value).toLocaleString([], {
@@ -34,7 +41,7 @@ export function FigmaIntegrationPanel() {
   const [archiveReason, setArchiveReason] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const operations = useOperationRunner()
+  const operations = useOperationRunner<FigmaOperationResult>()
   const addPending = operations.hasPending('figma-file-add')
   const refreshPending = operations.hasPending('figma-file-refresh')
   const archivePending = operations.hasPending('figma-file-archive')
@@ -134,9 +141,7 @@ export function FigmaIntegrationPanel() {
     setBusy('figma-archive-recovery')
     setError(null)
     try {
-      await operations.run('figma-file-archive', () => () => {
-        throw new Error('There is no earlier Figma archive to confirm.')
-      })
+      await operations.retryPending('figma-file-archive')
       setArchiveId(null)
       setArchiveTargetId(null)
       setArchiveReason('')
@@ -151,9 +156,7 @@ export function FigmaIntegrationPanel() {
     setBusy('figma-refresh-recovery')
     setError(null)
     try {
-      await operations.run('figma-file-refresh', () => () => {
-        throw new Error('There is no earlier Figma refresh to confirm.')
-      })
+      await operations.retryPending('figma-file-refresh')
       setRefreshId(null)
     } catch (caught) {
       setError(readableError(caught))
@@ -166,9 +169,7 @@ export function FigmaIntegrationPanel() {
     setBusy('figma-add-recovery')
     setError(null)
     try {
-      await operations.run('figma-file-add', () => () => {
-        throw new Error('There is no earlier Figma file to confirm.')
-      })
+      await operations.retryPending('figma-file-add')
       setFileUrl('')
     } catch (caught) {
       setError(readableError(caught))
@@ -332,7 +333,9 @@ export function FigmaIntegrationPanel() {
                   <a href={file.url} target="_blank" rel="noreferrer">{file.name}</a>
                   <p>{file.editorType} · {file.role} access</p>
                 </div>
-                <span className={`status-dot ${file.syncState}`}>{file.syncState.replace('_', ' ')}</span>
+                <span className={`status-dot ${file.syncState}`}>
+                  {figmaFileSyncStateLabels[file.syncState]}
+                </span>
               </div>
               <dl className="repository-facts">
                 <div><dt>Pages</dt><dd>{file.metrics.pageCount}</dd></div>
@@ -341,7 +344,7 @@ export function FigmaIntegrationPanel() {
                 <div><dt>Comments</dt><dd>{file.metrics.commentCount}</dd></div>
               </dl>
               <p className="fine-print">
-                Checked {captureTime(file.lastMetadataCheckAt)} · full checkpoint {captureTime(file.lastFullCaptureAt)} · {file.webhookState === 'active' ? 'webhook and scheduled checks' : 'scheduled checks'}
+                Checked {captureTime(file.lastMetadataCheckAt)} · full snapshot {captureTime(file.lastFullCaptureAt)} · {file.webhookState === 'active' ? 'live and scheduled checks' : 'scheduled checks'}
               </p>
               {file.contentDirty ? (
                 <p className="fine-print">Figma has newer changes than the saved full checkpoint.</p>
@@ -352,13 +355,17 @@ export function FigmaIntegrationPanel() {
               {file.metadataRateLimitRetryAt ? (
                 <p className="fine-print quiet-danger">Metadata check limited. Next retry: {captureTime(file.metadataRateLimitRetryAt)}.</p>
               ) : file.metadataErrorCode ? (
-                <p className="fine-print quiet-danger">Metadata check: {file.metadataErrorCode.replaceAll('_', ' ')}</p>
+                <p className="fine-print quiet-danger">
+                  Figma could not check this file's latest details. Try again or reconnect Figma.
+                </p>
               ) : null}
               {file.metrics.completeness === 'partial' ? (
                 <p className="fine-print">Version history is partial; the portal does not present it as a complete count.</p>
               ) : null}
               {file.syncErrorCode ? (
-                <p className="fine-print quiet-danger">{file.syncErrorCode.replaceAll('_', ' ')}</p>
+                <p className="fine-print quiet-danger">
+                  Figma could not update the saved file evidence. Try again or ask support.
+                </p>
               ) : null}
               {integration.canManage ? (
                 <div className="repository-actions">

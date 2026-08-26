@@ -184,6 +184,8 @@ Permission keys are atomic. Examples include:
 - `review.scorecard.submit`
 - `review.participant_availability.waive`
 - `review.presence.waive`
+- `communications.call.dispatch`
+- `communications.call.read`
 - `round.close`
 - `round.export.read`
 - `round.export.verify`
@@ -195,6 +197,8 @@ There is no `admin`, `all`, or `*` permission checked by application functions. 
 ### Arbitrary per-user grants
 
 A person with event-scoped `access.permissions.grant_any` can grant any catalog permission to any event-linked person at any time, regardless of either person’s role. Event-scoped `access.permissions.revoke_any` independently allows revocation. Holding one never implies the other. The direct permission screen requires the actor to choose the permission, scope, optional expiry, constraints, and reason. Roster imports separately provide a shared start/end window for the grants they create.
+
+The same screen can add or remove several exact grants for one person. The command accepts one to twenty unique entries; the batch control uses it only when at least two entries are selected. All adds share one optional expiry and reason. All removes share one reason. The server resolves every resource and checks every grant or revoke ceiling before writing. One illegal entry, stale target version, old session, or mixed unrestricted/delegated authority rejects the complete change. A successful change advances the target's `accessVersion` once and stores one operation result and one audit record with the exact grant list. Direct batches create ordinary individually revocable grants. They do not create a permission-bundle application record.
 
 Each event-scoped `access.permissions.grant_scoped` row carries one non-administrative permission key, one exact legal resource scope, an exact active target person or the explicit `any_event_person` boundary, and a required expiry. The row's expiry is both the lifetime of the delegation and the latest expiry it may issue. `access.permissions.revoke_scoped` is a separate row with the same key/resource/target boundary and its own lifetime. Several rows are required for several keys or resources. Target-owned self, reviewer-page, and reviewer-owned scorecard scopes require one exact target; they cannot use `any_event_person`. A scoped grant delegator cannot act on themselves, cross events, omit or change the resource, act on an excluded target, issue a grant without an expiry, exceed the ceiling, or manufacture broader delegation.
 
@@ -242,7 +246,7 @@ Each permission definition states whether an ancestor grant can cover a child re
 
 ### Participant and team grants
 
-Participant provisioning materializes self-scoped permissions for the participant’s class-aware profile, attendance status, dynamic QR, finalized-result review status/request, and event configuration. Joining a team materializes team-scoped read permissions for its live roster, intake, brief, tracks, project material, integrations, table, staff-managed queue, review progress, and released feedback. Team-lead assignment adds only the lead’s team-management, accepted-transfer, final-preview, and final-submit permissions. Final submission revokes or state-blocks ordinary join/leave/remove/lead-transfer/core-track-edit grants; read, integration, and later-event grants remain usable. No participant or team-lead grant can place a team into a review round or panel queue.
+Participant provisioning materializes self-scoped permissions for the participant's profile, attendance status, dynamic QR, finalized-result review status and request, and event configuration. Joining a team materializes team-scoped read permissions for its roster, proposal, integrations, location, staff-managed queue, review progress, and released feedback. Team-lead assignment adds only team management, accepted transfer, exact-team `application.submit`, information response, and offer response. Final submission revokes or state-blocks ordinary join, leave, remove, and lead-transfer grants. It leaves proposal revision available to the current lead until `applicationsCloseAt`. No participant or team-lead grant can place a team into a review round or panel queue.
 
 Those grants never include another team’s private submission, unreleased judge identity, score, panel note, conflict, staff location, or another participant’s detailed presence history. Leaving or being removed from a team revokes the grants sourced from that team membership without touching unrelated manual grants.
 
@@ -250,13 +254,17 @@ Those grants never include another team’s private submission, unreleased judge
 
 `application.assign` routes one application to an exact active event account. The transaction creates a separate `admissionReviewAssignments` row and source-attributed exact-application `application.review.read` and `application.review` grants. It does not use the target's role. Canceling pending work revokes only those assignment-sourced grants; an independent manual grant remains active. Completion changes the routing row to `completed` and preserves its read/write grants so the reviewer can inspect the resulting record. A person who receives the same exact grants manually can review without an assignment.
 
-Assignment-scoped read exposes the confirmed project brief, approved source answers, fresh-project attestation, confirmed tracks, permitted team fields, and the caller's own recommendation. Peer recommendations remain hidden until that caller submits a current-version recommendation. `application.profile_context.read` separately exposes participant class, year/institution context, the deterministic experience band, and its band-specific policy guidance. `application.ai_recommendation.read` separately exposes the structured AI record. Neither permission follows from assignment.
+Assignment-scoped read exposes the current immutable proposal version, approved source answers, fresh-project attestation, permitted team fields, and the caller's own recommendation. Peer recommendations remain hidden until that caller submits a current-version recommendation. `application.profile_context.read` separately exposes participant class, year and institution context, the deterministic experience band, and its guidance. `application.ai_recommendation.read` separately exposes the structured AI record. Neither permission follows from assignment.
 
-The deployed admissions boundary now uses `application.read`, `application.review.read`, `application.review`, `application.assign`, `application.profile_context.read`, `application.ai_recommendation.read`, `application.decide`, and `application.offer.manage`, each at exact-application or explicit event scope. The locked lead’s `application.offer.respond` grant is exact-team only and cannot manage or send an offer. Reading analysis cannot publish a decision; publishing a decision does not reserve capacity; sending/revoking an offer cannot impersonate the team’s response; and none of these grants implies access to contact/eligibility evidence or judging data. Manual AI-run, information-request, and waitlist-promotion keys stay out of the code-owned catalog until their protected functions and exact scope resolvers ship.
+The deployed admissions boundary uses `application.read`, `application.review.read`, `application.review`, `application.assign`, `application.profile_context.read`, `application.ai_recommendation.read`, `application.ai_recommendation.run`, `application.decide`, and `application.offer.manage`. Each key accepts exact-application scope or an explicit event scope. The current lead separately receives exact-team `application.submit`, `application.information.respond`, and `application.offer.respond`.
+
+`application.ai_recommendation.read` reveals the structured result. It does not permit a retry. `application.ai_recommendation.run` permits a reasoned retry of the current analysis only while the application is in active human review and that analysis has a definite failed or stale terminal state. It does not reveal the result. The command checks the expected application version and current recommendation ID, keeps the old record, creates one new policy-pinned recommendation, and records the operation and audit event. A repeated operation returns the same new recommendation. Pending, running, successful, disabled, superseded, decided, and offer-stage records cannot be retried.
+
+Submitting cannot edit the roster. Answering an information request cannot send an offer. Responding to an offer cannot manage it. Reading or retrying analysis cannot publish a decision. Publishing a decision does not reserve capacity. Sending or revoking an offer cannot impersonate the team's response. None of these grants implies access to contact, eligibility, or judging data. Waitlist promotion stays out of the code-owned catalog until O-023 defines its ordering rule and the protected command ships.
 
 ### Judging grants
 
-A panel/review assignment materializes only the permissions needed for that judge and review: clock-in/page response where applicable, assigned project context, the frozen evidence checkpoint, released previous findings/commitments, presence, and the caller’s own scorecard. The permissions are scoped to the round, panel, review session, and person.
+A panel or review assignment materializes only the permissions needed for that judge and review: clock-in, page response, assigned proposal context, the frozen evidence checkpoint, released previous findings and commitments, presence, and the caller's own scorecard. The permissions are scoped to the round, panel, review session, and person. A synthesized fallback call inherits the exact `review.substitute.page` grants frozen on the page chain. It never uses the reviewer's page-response grant. Current reviewer call consent is also required. Consent never creates a permission.
 
 The ordinary assignment bundle does not include peer score values, unrelated teams, hidden participant data, staff audit history, or another judge’s scorecard. Although External Judge is the normal role label, the same exact grants can be issued manually to another role when required.
 
@@ -275,7 +283,7 @@ Operations screens are assembled from granular read permissions. `event.lifecycl
 - The Expo app registers one device record with platform, build number, camera capability, notification token, last-seen time, and revocation state.
 - Reviewer clock-in and attendance scanning reject a revoked device or an app below the configured minimum build.
 - A scanner must also have an active station assignment whose event, mode, zone, direction, and validity match the command.
-- Any later override, post-lock correction, migration, or raw export uses the same 15-minute fresh-session boundary unless the published security policy makes it stricter. An older session is sent through Google sign-in again.
+- Any later override, post-lock correction, migration, direct permission batch, or raw export uses the same 15-minute fresh-session boundary unless the published security policy makes it stricter. On the web, an older session opens the hosted Google verification popup on the current page. The client retries the exact operation ID only after Convex confirms the new session is fresh.
 
 The exact session settings live in security configuration and must be tested on real web and mobile builds.
 
@@ -315,6 +323,7 @@ Normal page views are not written to the audit log.
 - Self support read/reply cannot expose another reporter's case, and owning or linking a case cannot satisfy exact-case/event staff read or manage.
 - Any event-linked person can receive one manually scoped permission regardless of role and can use only that permission’s exact scope.
 - A pending invitation is visible only to its exact verified Google email, expires on server time, and can be revoked before claim.
+- Creating an invitation for an email that is already linked returns only that outcome. Invite authority does not expose an account ID, account link, or person details without a separate matching read grant.
 - A specifically invited account can receive a permission without a role label; the same Google identity has no event access before claiming the invitation, and claim itself grants nothing.
 - Concurrent invitation claim, revocation, and scheduled expiry produce one version-checked winner and cannot create two event subjects.
 - Suspending an account blocks its next protected read or write without deleting grants, roles, membership, or audit history.

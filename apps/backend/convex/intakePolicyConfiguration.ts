@@ -4,6 +4,12 @@ import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
+import {
+  configurationDraftResultJson,
+  configurationPublicationResultJson,
+  storedConfigurationDraftResult,
+  storedConfigurationPublicationResult,
+} from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
@@ -248,13 +254,15 @@ export const createDraft = mutation({
     if (prior) {
       const policyVersionId = ctx.db.normalizeId("intakePolicyVersions", prior.targetId);
       if (!policyVersionId) throw new Error("The prior intake-policy draft result is invalid.");
-      const policy = await ctx.db.get(policyVersionId);
-      if (!policy) throw new Error("The prior intake-policy draft no longer resolves.");
+      const stored = storedConfigurationDraftResult(
+        prior.resultJson,
+        "intake-policy draft",
+      );
       return {
         policyVersionId,
-        policyVersion: policy.version,
-        checksum: policy.checksum,
-        changed: false,
+        policyVersion: stored.version,
+        checksum: stored.checksum,
+        changed: stored.changed,
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -288,6 +296,11 @@ export const createDraft = mutation({
       requestFingerprint,
       targetType: "intake_policy",
       targetId: result.policyVersionId,
+      resultJson: configurationDraftResultJson({
+        version: result.policyVersion,
+        checksum: result.checksum,
+        changed: result.changed,
+      }),
       createdAt: Date.now(),
     });
     await writeAuditEvent(ctx, {
@@ -343,12 +356,14 @@ export const publish = mutation({
     if (prior) {
       const policyVersionId = ctx.db.normalizeId("intakePolicyVersions", prior.targetId);
       if (!policyVersionId) throw new Error("The prior intake-policy publication is invalid.");
-      const policy = await ctx.db.get(policyVersionId);
-      if (!policy) throw new Error("The prior published intake policy no longer resolves.");
+      const stored = storedConfigurationPublicationResult(
+        prior.resultJson,
+        "intake-policy publication",
+      );
       return {
         policyVersionId,
-        policyVersion: policy.version,
-        eventVersion: event.version,
+        policyVersion: stored.version,
+        eventVersion: stored.eventVersion,
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -381,6 +396,10 @@ export const publish = mutation({
       requestFingerprint,
       targetType: "intake_policy",
       targetId: result.policyVersionId,
+      resultJson: configurationPublicationResultJson({
+        version: result.policyVersion,
+        eventVersion: event.version + 1,
+      }),
       createdAt: Date.now(),
     });
     await writeAuditEvent(ctx, {
@@ -399,4 +418,3 @@ export const publish = mutation({
     return { ...result, eventVersion: event.version + 1 };
   },
 });
-

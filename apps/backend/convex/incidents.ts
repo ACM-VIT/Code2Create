@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
@@ -11,7 +12,12 @@ import {
   requireFreshAuthSession,
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationVersion,
+} from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
 import { appendIncidentReadFactById } from "./lib/operationsAutonomyReadFacts/incidentReadiness";
@@ -67,6 +73,21 @@ type ActiveIncidentView = {
 };
 
 const maximumActiveIncidentsPerEvent = 20;
+
+const manualApprovalOperationResult = z
+  .object({
+    version: z.number().int().positive(),
+    approvalCount: z.number().int().min(1).max(2),
+  })
+  .strict();
+
+function storedManualApprovalResult(resultJson: string | undefined) {
+  const parsed = resultJson
+    ? manualApprovalOperationResult.safeParse(JSON.parse(resultJson))
+    : null;
+  if (!parsed?.success) throw new Error("The stored manual-mode approval is invalid.");
+  return parsed.data;
+}
 
 async function visibleActiveIncidents(
   ctx: QueryCtx,
@@ -306,11 +327,11 @@ export const create = mutation({
     });
     if (prior) {
       const incidentId = ctx.db.normalizeId("incidents", prior.targetId);
-      const incident = incidentId ? await ctx.db.get(incidentId) : null;
-      if (!incident || incident.eventId !== event._id) {
-        throw new Error("Prior incident creation no longer resolves.");
-      }
-      return { id: incident._id, version: incident.version };
+      if (!incidentId) throw new Error("The stored incident creation is invalid.");
+      return {
+        id: incidentId,
+        version: storedOperationVersion(prior.resultJson, "incident"),
+      };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const grantIds = await requirePermission(ctx, {
@@ -362,6 +383,7 @@ export const create = mutation({
       requestFingerprint,
       targetType: "incident",
       targetId: incidentId,
+      resultJson: "1",
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -410,14 +432,10 @@ export const approveManualMode = mutation({
     });
     if (prior) {
       const incidentId = ctx.db.normalizeId("incidents", prior.targetId);
-      const incident = incidentId ? await ctx.db.get(incidentId) : null;
-      if (!incident || incident.eventId !== event._id) {
-        throw new Error("Prior manual-mode approval no longer resolves.");
-      }
+      if (!incidentId) throw new Error("The stored manual-mode approval is invalid.");
       return {
-        id: incident._id,
-        version: incident.version,
-        approvalCount: incident.manualModeApprovalCount,
+        id: incidentId,
+        ...storedManualApprovalResult(prior.resultJson),
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -487,6 +505,7 @@ export const approveManualMode = mutation({
       requestFingerprint,
       targetType: "incident",
       targetId: incident._id,
+      resultJson: JSON.stringify({ version, approvalCount }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -542,11 +561,11 @@ export const resolve = mutation({
     });
     if (prior) {
       const incidentId = ctx.db.normalizeId("incidents", prior.targetId);
-      const incident = incidentId ? await ctx.db.get(incidentId) : null;
-      if (!incident || incident.eventId !== event._id) {
-        throw new Error("Prior incident resolution no longer resolves.");
-      }
-      return { id: incident._id, version: incident.version };
+      if (!incidentId) throw new Error("The stored incident resolution is invalid.");
+      return {
+        id: incidentId,
+        version: storedOperationVersion(prior.resultJson, "incident"),
+      };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const incident = await ctx.db.get(args.incidentId);
@@ -631,6 +650,7 @@ export const resolve = mutation({
       requestFingerprint,
       targetType: "incident",
       targetId: incident._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

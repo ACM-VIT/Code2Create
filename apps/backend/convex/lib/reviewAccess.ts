@@ -27,13 +27,18 @@ export async function grantPanelMemberAccess(
     reason: args.reason,
   };
   let createdCount = 0;
-  const deviceGrant = await insertPermissionGrant(ctx, {
-    ...common,
-    permissionKey: "reviewer.device.register",
-    scopeType: "self",
-    scopeId: args.eventAccessSubjectId,
-  });
-  if (deviceGrant.created) createdCount += 1;
+  for (const permissionKey of [
+    "reviewer.device.register",
+    "communications.call_consent.manage",
+  ] as const) {
+    const result = await insertPermissionGrant(ctx, {
+      ...common,
+      permissionKey,
+      scopeType: "self",
+      scopeId: args.eventAccessSubjectId,
+    });
+    if (result.created) createdCount += 1;
+  }
   for (const permissionKey of ["reviewer.clock_in", "round.read"] as const) {
     const result = await insertPermissionGrant(ctx, {
       ...common,

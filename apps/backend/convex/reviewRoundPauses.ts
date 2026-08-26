@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import { mutation } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
@@ -9,7 +10,12 @@ import {
   requireFreshAuthSession,
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+} from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { activeRoundPause } from "./lib/reviewRoundPauses";
 import { normalizedText } from "./lib/strings";
@@ -19,6 +25,13 @@ const pauseResult = v.object({
   pauseVersion: v.number(),
   roundVersion: v.number(),
 });
+
+const pauseOperationResult = z
+  .object({
+    pauseVersion: z.number().int().positive(),
+    roundVersion: z.number().int().positive(),
+  })
+  .strict();
 
 export const pause = mutation({
   args: {
@@ -49,19 +62,14 @@ export const pause = mutation({
     });
     if (prior) {
       const pauseId = ctx.db.normalizeId("reviewRoundPauses", prior.targetId);
-      const savedPause = pauseId
-        ? await ctx.db.get("reviewRoundPauses", pauseId)
-        : null;
-      const savedRound = savedPause
-        ? await ctx.db.get("reviewRounds", savedPause.roundId)
-        : null;
-      if (!pauseId || !savedPause || !savedRound || savedPause.eventId !== event._id) {
-        throw new Error("Prior round pause no longer resolves.");
-      }
+      if (!pauseId) throw new Error("Prior round pause result is invalid.");
       return {
         pauseId,
-        pauseVersion: savedPause.version,
-        roundVersion: savedRound.version,
+        ...storedOperationResult(
+          prior.resultJson,
+          "round-pause",
+          pauseOperationResult,
+        ),
       };
     }
 
@@ -137,6 +145,7 @@ export const pause = mutation({
       requestFingerprint,
       targetType: "review_round_pause",
       targetId: pauseId,
+      resultJson: JSON.stringify({ pauseVersion: 1, roundVersion }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -194,19 +203,14 @@ export const resume = mutation({
     });
     if (prior) {
       const pauseId = ctx.db.normalizeId("reviewRoundPauses", prior.targetId);
-      const savedPause = pauseId
-        ? await ctx.db.get("reviewRoundPauses", pauseId)
-        : null;
-      const savedRound = savedPause
-        ? await ctx.db.get("reviewRounds", savedPause.roundId)
-        : null;
-      if (!pauseId || !savedPause || !savedRound || savedPause.eventId !== event._id) {
-        throw new Error("Prior round resume no longer resolves.");
-      }
+      if (!pauseId) throw new Error("Prior round resume result is invalid.");
       return {
         pauseId,
-        pauseVersion: savedPause.version,
-        roundVersion: savedRound.version,
+        ...storedOperationResult(
+          prior.resultJson,
+          "round-resume",
+          pauseOperationResult,
+        ),
       };
     }
 
@@ -263,6 +267,7 @@ export const resume = mutation({
       requestFingerprint,
       targetType: "review_round_pause",
       targetId: pause._id,
+      resultJson: JSON.stringify({ pauseVersion, roundVersion }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

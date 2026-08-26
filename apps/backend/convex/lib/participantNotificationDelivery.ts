@@ -7,15 +7,19 @@ import { appendParticipantDeliveryReadFactById } from "./operationsAutonomyReadF
 type AdmissionDecision = NonNullable<Doc<"applications">["humanDecision"]>;
 export type ParticipantNotificationTemplate =
   Doc<"participantNotificationDeliveries">["templateKey"];
+type ApplicationNotificationContext = Pick<
+  Doc<"participantNotificationDeliveries">,
+  "eventId" | "teamId" | "templateKey" | "applicationVersion"
+>;
 
 export function applicationMatchesNotification(
   application: Doc<"applications">,
-  delivery: Doc<"participantNotificationDeliveries">,
+  delivery: ApplicationNotificationContext,
 ): boolean {
   if (
     application.eventId !== delivery.eventId ||
     application.teamId !== delivery.teamId ||
-    application.version < delivery.applicationVersion
+    application.version !== delivery.applicationVersion
   ) {
     return false;
   }
@@ -26,25 +30,13 @@ export function applicationMatchesNotification(
     case "needs_information":
       return application.humanDecision === delivery.templateKey;
     case "offer":
-      return (
-        application.version === delivery.applicationVersion &&
-        application.state === "offer_sent"
-      );
+      return application.state === "offer_sent";
     case "offer_confirmed":
-      return (
-        application.version === delivery.applicationVersion &&
-        application.state === "confirmed"
-      );
+      return application.state === "confirmed";
     case "offer_declined":
-      return (
-        application.version === delivery.applicationVersion &&
-        application.state === "withdrawn"
-      );
+      return application.state === "withdrawn";
     case "offer_expired":
-      return (
-        application.version === delivery.applicationVersion &&
-        application.state === "offer_expired"
-      );
+      return application.state === "offer_expired";
   }
 }
 

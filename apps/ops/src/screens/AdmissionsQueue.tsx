@@ -28,7 +28,10 @@ export function AdmissionsQueue({
   canReadApplications: boolean
   canReadAssignments: boolean
 }) {
-  const [view, setView] = useState<QueueView>(canReadApplications ? 'all' : 'mine')
+  const [selectedView, setSelectedView] = useState<QueueView>(canReadApplications ? 'all' : 'mine')
+  const view = selectedView === 'all'
+    ? (canReadApplications ? 'all' : 'mine')
+    : (canReadAssignments ? 'mine' : 'all')
 
   return (
     <section className="queue-shell">
@@ -45,7 +48,7 @@ export function AdmissionsQueue({
             className={view === 'all' ? 'active' : ''}
             role="tab"
             type="button"
-            onClick={() => setView('all')}
+            onClick={() => setSelectedView('all')}
           >
             All applications
           </button>
@@ -54,7 +57,7 @@ export function AdmissionsQueue({
             className={view === 'mine' ? 'active' : ''}
             role="tab"
             type="button"
-            onClick={() => setView('mine')}
+            onClick={() => setSelectedView('mine')}
           >
             Assigned to me
           </button>
@@ -93,32 +96,23 @@ function ApplicationList() {
 
   return (
     <>
-      <nav className="stage-filter" aria-label="Application stage">
-        {stageOrder.map((candidate) => {
-          const count = countByState.get(candidate) ?? 0
-          return (
-            <button
-              aria-current={candidate === state}
-              className={candidate === state ? 'stage-chip active' : 'stage-chip'}
-              disabled={count === 0 && candidate !== state}
-              key={candidate}
-              type="button"
-              onClick={() => setState(candidate)}
-            >
-              {applicationStateLabels[candidate]}
-              <span>{count}</span>
-            </button>
-          )
-        })}
-      </nav>
+      <label className="filter queue-stage-filter">
+        <span>Status</span>
+        <select value={state} onChange={(event) => setState(parseQueueState(event.target.value))}>
+          {stageOrder.map((candidate) => (
+            <option key={candidate} value={candidate}>
+              {applicationStateLabels[candidate]} · {countByState.get(candidate) ?? 0}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="queue-list">
         {results.map((application) => (
           <Link className="queue-row" key={application.id} to={`/admissions/${application.id}`}>
             <div>
               <strong>{application.teamName}</strong>
               <span>
-                {application.trackName}
-                {application.experienceBand ? ` · ${experienceName(application.experienceBand)}` : ''}
+                {application.experienceBand ? experienceName(application.experienceBand) : 'Application'}
               </span>
             </div>
             <div className="queue-meta">
@@ -149,6 +143,10 @@ function ApplicationList() {
   )
 }
 
+function parseQueueState(value: string): QueueState {
+  return stageOrder.find((candidate) => candidate === value) ?? 'submitted'
+}
+
 function AssignmentList() {
   const [state, setState] = useState<AssignmentState>('active')
   const { results, status, loadMore } = usePaginatedQuery(
@@ -174,13 +172,12 @@ function AssignmentList() {
             <div>
               <strong>{assignment.teamName}</strong>
               <span>
-                {assignment.trackName}
-                {assignment.experienceBand ? ` · ${experienceName(assignment.experienceBand)}` : ''}
+                {assignment.experienceBand ? experienceName(assignment.experienceBand) : 'Application'}
               </span>
             </div>
             <div className="queue-meta">
               <span>{assignment.ownRecommendation ? `Your review: ${decisionName(assignment.ownRecommendation)}` : 'Review not submitted'}</span>
-              <span>{assignment.applicationState.replaceAll('_', ' ')}</span>
+              <span>{applicationStateLabels[assignment.applicationState]}</span>
             </div>
           </Link>
         ))}

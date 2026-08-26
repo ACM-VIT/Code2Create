@@ -22,11 +22,13 @@ pnpm --filter @code2create/reviewer exec expo run:android --no-bundler
 
 Copy `.env.example` to `.env.local` before the first local build. In local development, **Use local event operator** creates an ordinary Better Auth session for the seeded Supreme account and exercises the normal permission checks. The action is rejected outside the full localhost stack. Staging and production show only Google sign-in.
 
+The development client uses Metro, so it does not prove an over-the-air install even when the local Updates Worker is running. Use the signed staging build and staging Updates Worker for the device update rehearsal.
+
 ## Local signed builds
 
 No EAS account, project, build, or update service is used. Copy `.env.example` to both `.env.staging.local` and `.env.production.local`, then put only that environment's backend, identifiers, build number, APNs mode, Firebase file, signing values, and update URL in each file. Release commands never load the development `.env.local` or the other environment's file.
 
-Android builds require the release keystore values and the Firebase `google-services.json` path in `.env.local`. Staging produces a signed APK for the phone fleet; production produces the Play Store AAB.
+Android builds require the release keystore values and the Firebase `google-services.json` path in the selected `.env.staging.local` or `.env.production.local`. Staging produces a signed APK for the phone fleet; production produces the Play Store AAB.
 
 ```sh
 pnpm --filter @code2create/reviewer build:android:staging

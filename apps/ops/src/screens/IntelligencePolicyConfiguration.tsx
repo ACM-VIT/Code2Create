@@ -1,9 +1,12 @@
 import { api } from '@code2create/backend/api'
+import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import { type FormEvent, useDeferredValue, useEffect, useMemo, useState } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
 import { AutonomyPolicyFields } from '../components/intelligence'
+import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -13,6 +16,17 @@ import {
   cloneAutonomyPolicy,
   type AutonomyPolicy,
 } from '../lib/autonomyPolicy'
+
+type AutonomyPolicyOperationResult =
+  | FunctionReturnType<typeof api.operationsAutonomyPolicyConfiguration.createDraft>
+  | FunctionReturnType<typeof api.operationsAutonomyPolicyConfiguration.publish>
+  | FunctionReturnType<typeof api.operationsAutonomyPolicyConfiguration.disable>
+
+type PendingPolicyOperation = {
+  slot: string
+  title: string
+  action: string
+}
 
 export function IntelligencePolicyConfiguration({
   tabs,
@@ -33,7 +47,7 @@ export function IntelligencePolicyConfiguration({
   const createDraft = useMutation(api.operationsAutonomyPolicyConfiguration.createDraft)
   const publish = useMutation(api.operationsAutonomyPolicyConfiguration.publish)
   const disable = useMutation(api.operationsAutonomyPolicyConfiguration.disable)
-  const operations = useOperationRunner()
+  const operations = useOperationRunner<AutonomyPolicyOperationResult>()
   const validation = useQuery(
     api.operationsAutonomyPolicyConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPolicy
@@ -52,6 +66,14 @@ export function IntelligencePolicyConfiguration({
   const draftPending = operations.hasPending('autonomy-policy-draft')
   const publishPending = operations.hasPending('autonomy-policy-publish')
   const disablePending = operations.hasPending('autonomy-disable')
+  const pendingOperation: PendingPolicyOperation | null = disablePending
+    ? { slot: 'autonomy-disable', title: 'Finish stopping autonomy', action: 'Confirm earlier stop' }
+    : publishPending
+      ? { slot: 'autonomy-policy-publish', title: 'Finish publishing the policy', action: 'Confirm earlier publication' }
+      : draftPending
+        ? { slot: 'autonomy-policy-draft', title: 'Finish saving the policy draft', action: 'Confirm earlier save' }
+        : null
+  const operationPending = pendingOperation !== null
   const ownerOptions = useMemo(() => {
     if (!configuration) return ownerOptionsPage.results
     const byId = new Map(
@@ -122,6 +144,7 @@ export function IntelligencePolicyConfiguration({
 
   const saveDraft = async (event: FormEvent) => {
     event.preventDefault()
+    if (busy || operationPending) return
     setBusy(true)
     setError(null)
     try {
@@ -144,7 +167,7 @@ export function IntelligencePolicyConfiguration({
 
   const publishDraft = async () => {
     const draft = configuration.draftPolicy
-    if (!draft || !validation?.valid) return
+    if (busy || operationPending || !draft || !validation?.valid) return
     setBusy(true)
     setError(null)
     try {
@@ -165,7 +188,7 @@ export function IntelligencePolicyConfiguration({
   }
 
   const disableAutonomy = async () => {
-    if (configuration.scheduler.lifecycle.kind !== 'active') return
+    if (busy || operationPending || configuration.scheduler.lifecycle.kind !== 'active') return
     setBusy(true)
     setError(null)
     try {
@@ -182,18 +205,32 @@ export function IntelligencePolicyConfiguration({
     }
   }
 
+  const confirmPendingOperation = async () => {
+    if (busy || pendingOperation === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      await operations.retryPending(pendingOperation.slot)
+      setPublishArmed(false)
+      setDisableArmed(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const schedulerActive = configuration.scheduler.lifecycle.kind === 'active'
 
   return (
-    <section className="track-config-shell intake-policy-shell">
+    <section className="configuration-shell intake-policy-shell">
       <ConfigurationTabs visibility={tabs} />
-      <header className="page-heading track-config-heading">
+      <header className="page-heading configuration-heading">
         <div>
-          <p className="eyebrow">Event setup</p>
-          <h1>Autonomous operations</h1>
+          <h1>Operations agent</h1>
           <p className="muted">
-            Continuously inspect the live event. The agent may reason, read, investigate, and record
-            typed recommendations without a quota; it cannot execute a consequential event command.
+            Monitors the live event and prepares typed recommendations. It cannot run consequential
+            event commands.
           </p>
         </div>
       </header>
@@ -211,7 +248,16 @@ export function IntelligencePolicyConfiguration({
         <div><dt>Scheduled review</dt><dd>Every {configuration.publishedPolicy.policy.scheduleIntervalMinutes} min</dd></div>
       </dl>
 
-      {schedulerActive && configuration.canPublish ? (
+      {pendingOperation ? (
+        <PendingOperationRecovery
+          action={pendingOperation.action}
+          busy={busy}
+          onConfirm={() => void confirmPendingOperation()}
+          title={pendingOperation.title}
+        />
+      ) : null}
+
+      {!operationPending && schedulerActive && configuration.canPublish ? (
         <section className="catalog-review">
           <div className="section-heading">
             <div>
@@ -262,7 +308,7 @@ export function IntelligencePolicyConfiguration({
         </section>
       ) : null}
 
-      {configuration.draftPolicy ? (
+      {!operationPending && configuration.draftPolicy ? (
         <section className="catalog-review">
           <div className="section-heading">
             <div>
@@ -291,7 +337,7 @@ export function IntelligencePolicyConfiguration({
         </section>
       ) : null}
 
-      {configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
+      {!operationPending && configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish this autonomy policy?</h2>
           <p className="muted">
@@ -328,8 +374,13 @@ export function IntelligencePolicyConfiguration({
         </section>
       ) : null}
 
-      {configuration.canDraft ? (
-        <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
+      {!operationPending && configuration.canDraft ? (
+        <ConfigurationEditorDisclosure
+          defaultOpen={Boolean(configuration.draftPolicy)}
+          description="Autonomy mode, action boundaries, approvals, escalation, and the accountable owner."
+          title={configuration.draftPolicy ? 'Continue operations-agent draft' : 'Edit operations agent'}
+        >
+          <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
           <fieldset disabled={draftPending} style={{ display: 'contents' }}>
             <AutonomyPolicyFields
               policy={policy}
@@ -347,7 +398,7 @@ export function IntelligencePolicyConfiguration({
             />
           </fieldset>
 
-          <section className="track-save">
+          <section className="configuration-save">
             <label className="field">
               <span>Why this changed</span>
               <textarea
@@ -361,7 +412,8 @@ export function IntelligencePolicyConfiguration({
               {busy ? 'Saving…' : draftPending ? 'Confirm earlier draft' : configuration.draftPolicy ? 'Replace draft' : 'Save draft'}
             </button>
           </section>
-        </form>
+          </form>
+        </ConfigurationEditorDisclosure>
       ) : null}
 
       {error ? <p className="notice error" role="alert">{error}</p> : null}

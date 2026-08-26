@@ -16,7 +16,7 @@ import { Gate, GateAction, GateBoot } from './components/AuthGate'
 import { eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
 import { useOperationRunner } from './lib/operations'
-import { firstAvailablePath } from './lib/workspaceAccess'
+import { useEstimatedServerNow } from './lib/useEstimatedServerNow'
 import { InitialEventSetup } from './screens/InitialEventSetup'
 
 const AdmissionDetail = lazy(() =>
@@ -45,6 +45,9 @@ const IntegrationOverview = lazy(() =>
 )
 const HealthOverview = lazy(() =>
   import('./screens/HealthOverview').then((module) => ({ default: module.HealthOverview })),
+)
+const EventMonitor = lazy(() =>
+  import('./screens/EventMonitor').then((module) => ({ default: module.EventMonitor })),
 )
 const IntelligenceWorkspace = lazy(() =>
   import('./screens/IntelligenceWorkspace').then((module) => ({ default: module.IntelligenceWorkspace })),
@@ -92,9 +95,6 @@ const PermissionBundles = lazy(() =>
 const EmergencyPack = lazy(() =>
   import('./screens/EmergencyPack').then((module) => ({ default: module.EmergencyPack })),
 )
-const TrackConfiguration = lazy(() =>
-  import('./screens/TrackConfiguration').then((module) => ({ default: module.TrackConfiguration })),
-)
 const IntakePolicyConfiguration = lazy(() =>
   import('./screens/IntakePolicyConfiguration').then((module) => ({ default: module.IntakePolicyConfiguration })),
 )
@@ -125,6 +125,7 @@ const CheckpointConfiguration = lazy(() =>
 
 export default function App({ authClient }: { authClient: Code2CreateAuthClient }) {
   const publicState = useQuery(api.system.getPublicShellState, { eventSlug })
+  const serverNow = useEstimatedServerNow(publicState?.serverNow, 60_000)
   if (publicState === undefined) return <GateBoot status="Loading…" />
 
   return (
@@ -139,7 +140,13 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
       </Unauthenticated>
       <Authenticated>
         {publicState.event
-          ? <Operations authClient={authClient} eventStatus={publicState.event.status} />
+          ? (
+              <Operations
+                authClient={authClient}
+                eventStatus={publicState.event.status}
+                serverNow={serverNow}
+              />
+            )
           : <InitialEventSetup authClient={authClient} />}
       </Authenticated>
     </>
@@ -149,9 +156,11 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
 function Operations({
   authClient,
   eventStatus,
+  serverNow,
 }: {
   authClient: Code2CreateAuthClient
   eventStatus: EventStage
+  serverNow: number
 }) {
   const access = useQuery(api.access.operationsCapabilities, { eventSlug })
   const invitation = useQuery(api.accessInvitations.mine, { eventSlug })
@@ -172,7 +181,6 @@ function Operations({
   const capabilities = access
   const canViewAdmissions = capabilities.admissions
   const canViewEventLifecycle = capabilities.eventLifecycle
-  const canViewTrackConfiguration = capabilities.trackConfiguration
   const canViewPhaseConfiguration = capabilities.phaseConfiguration
   const canViewIntakeConfiguration = capabilities.intakeConfiguration
   const canViewNoveltyConfiguration = capabilities.noveltyConfiguration
@@ -200,6 +208,7 @@ function Operations({
   const canGenerateIntelligence = capabilities.intelligenceGenerate
   const canViewIntelligence = capabilities.intelligence
   const canManageAttention = capabilities.attentionManage
+  const canViewIncidents = capabilities.incidents
   const canViewSupport = capabilities.support
   const canViewRehearsal = capabilities.rehearsal
   const canReadEmergencyPack = capabilities.emergencyPackRead
@@ -209,7 +218,6 @@ function Operations({
   const canReadFloorLocations = capabilities.floorLocations
   const canReadFloorConfiguration = capabilities.floorConfiguration
   const configurationPath = canViewEventLifecycle ||
-    canViewTrackConfiguration ||
     canViewParticipantConfiguration ||
     canViewAdmissionConfiguration ||
     canViewIntakeConfiguration ||
@@ -226,7 +234,6 @@ function Operations({
   const configurationTabs: ConfigurationTabsVisibility = {
     showLifecycle: canViewEventLifecycle,
     showAttendance: canSetupAttendance,
-    showTracks: canViewTrackConfiguration,
     showIntake: canViewIntakeConfiguration,
     showNovelty: canViewNoveltyConfiguration,
     showParticipants: canViewParticipantConfiguration,
@@ -242,12 +249,28 @@ function Operations({
   const canPublishReviewConfiguration = capabilities.reviewConfigurationPublish
   const canReadReviewerProfiles = capabilities.reviewerProfilesRead
   const canOpenReviewSetup = canReadReviewConfiguration || canReadReviewerProfiles
+  const availableBlockerPaths = [
+    ...(configurationPath ? ['/configuration'] : []),
+    ...(canViewParticipantConfiguration ? ['/configuration/participants'] : []),
+    ...(canViewIntakeConfiguration ? ['/configuration/intake'] : []),
+    ...(canViewAdmissionConfiguration ? ['/configuration/admissions'] : []),
+    ...(canViewCommunicationsConfiguration ? ['/configuration/communications'] : []),
+    ...(canViewIntegrationConfiguration ? ['/configuration/integrations'] : []),
+    ...(canViewPhaseConfiguration ? ['/configuration/phases'] : []),
+    ...(canViewCheckpointConfiguration ? ['/configuration/checkpoints'] : []),
+    ...(canSetupAttendance ? ['/attendance-setup'] : []),
+    ...(canViewAttendance ? ['/attendance'] : []),
+    ...(canReadFloorConfiguration ? ['/floor-setup'] : []),
+    ...(canOpenReviewSetup ? ['/review-setup'] : []),
+    ...(canViewReviews ? ['/reviews'] : []),
+  ]
   const navigation: OperationsNavigationGroup[] = [
     {
       label: 'Now',
       items: [
         ...(canViewHealth ? [{ label: 'Overview', to: '/', icon: 'home' as const }] : []),
-        ...(canViewIntelligence ? [{ label: 'Intelligence', to: '/intelligence', icon: 'pulse' as const }] : []),
+        ...(canViewHealth ? [{ label: 'Event monitor', to: '/event-monitor', icon: 'alert' as const }] : []),
+        ...(canViewIntelligence ? [{ label: 'Operations agent', to: '/intelligence', icon: 'pulse' as const }] : []),
         ...(canViewSupport ? [{ label: 'Help desk', to: '/support', icon: 'lifebuoy' as const }] : []),
       ],
     },
@@ -314,15 +337,17 @@ function Operations({
     [canViewSynesthesia, '/synesthesia'],
   )
   if (!defaultPath) {
-    return <Centered>This account is active, but it has no operations workspace permissions.</Centered>
+    return <Centered>No operations tools have been assigned to this account.</Centered>
   }
   return (
     <OperationsLayout
       accountEmail={session?.user.email ?? ''}
       authClient={authClient}
+      homePath={defaultPath}
       identity={session?.user.name || session?.user.email || 'Signed in'}
       navigation={restGroups}
       nowItems={nowItems}
+      showIncidents={canViewIncidents}
       stageLabel={stage.label}
     >
       <Suspense fallback={<p className="muted" role="status">Loading workspace…</p>}>
@@ -332,9 +357,17 @@ function Operations({
             path="/"
             element={(
               <HealthOverview
+                availableBlockerPaths={availableBlockerPaths}
                 canManageAttention={canManageAttention}
+                canReadLifecycle={canViewEventLifecycle}
               />
             )}
+          />
+        ) : null}
+        {canViewHealth ? (
+          <Route
+            path="/event-monitor"
+            element={<EventMonitor canManageAttention={canManageAttention} />}
           />
         ) : null}
         {canViewIntelligence ? (
@@ -344,6 +377,7 @@ function Operations({
               <IntelligenceWorkspace
                 canGenerate={canGenerateIntelligence}
                 canRead={canReadIntelligence}
+                showBrief={canGenerateIntelligence || canReadIntelligence}
               />
             )}
           />
@@ -374,21 +408,11 @@ function Operations({
             )}
           />
         ) : null}
-        {canViewTrackConfiguration ? (
-          <Route
-            path="/configuration/tracks"
-            element={(
-              <Suspense fallback={<p className="muted">Loading tracks…</p>}>
-                <TrackConfiguration tabs={configurationTabs} />
-              </Suspense>
-            )}
-          />
-        ) : null}
         {canViewIntakeConfiguration ? (
           <Route
             path="/configuration/intake"
             element={(
-              <Suspense fallback={<p className="muted">Loading intake configuration…</p>}>
+              <Suspense fallback={<p className="muted">Loading idea questions…</p>}>
                 <IntakePolicyConfiguration tabs={configurationTabs} />
               </Suspense>
             )}
@@ -398,7 +422,7 @@ function Operations({
           <Route
             path="/configuration/novelty"
             element={(
-              <Suspense fallback={<p className="muted">Loading novelty configuration…</p>}>
+              <Suspense fallback={<p className="muted">Loading idea comparison…</p>}>
                 <NoveltyConfiguration tabs={configurationTabs} />
               </Suspense>
             )}
@@ -448,7 +472,7 @@ function Operations({
           <Route
             path="/configuration/intelligence"
             element={(
-              <Suspense fallback={<p className="muted">Loading intelligence configuration…</p>}>
+              <Suspense fallback={<p className="muted">Loading operations agent setup…</p>}>
                 <IntelligencePolicyConfiguration tabs={configurationTabs} />
               </Suspense>
             )}
@@ -458,7 +482,7 @@ function Operations({
           <Route
             path="/configuration/phases"
             element={(
-              <Suspense fallback={<p className="muted">Loading phase configuration…</p>}>
+              <Suspense fallback={<p className="muted">Loading event schedule…</p>}>
                 <PhaseConfiguration tabs={configurationTabs} />
               </Suspense>
             )}
@@ -468,7 +492,7 @@ function Operations({
           <Route
             path="/configuration/checkpoints"
             element={(
-              <Suspense fallback={<p className="muted">Loading checkpoint configuration…</p>}>
+              <Suspense fallback={<p className="muted">Loading team update prompts…</p>}>
                 <CheckpointConfiguration tabs={configurationTabs} />
               </Suspense>
             )}
@@ -485,6 +509,7 @@ function Operations({
               <FloorOverview
                 canReadConfiguration={canReadFloorConfiguration}
                 canReadLocations
+                tabs={null}
                 view="operations"
               />
             )}
@@ -497,6 +522,7 @@ function Operations({
               <FloorOverview
                 canReadConfiguration
                 canReadLocations={canReadFloorLocations}
+                tabs={configurationTabs}
                 view="configuration"
               />
             )}
@@ -517,7 +543,7 @@ function Operations({
           />
         ) : null}
         {canViewSynesthesia ? <Route path="/synesthesia" element={<Synesthesia />} /> : null}
-        {canSetupAttendance ? <Route path="/attendance-setup" element={<AttendanceSetup />} /> : null}
+        {canSetupAttendance ? <Route path="/attendance-setup" element={<AttendanceSetup tabs={configurationTabs} />} /> : null}
         {canViewReviews ? <Route path="/reviews" element={<ReviewOverview showSetup={canOpenReviewSetup} />} /> : null}
         {canViewReviews ? <Route path="/reviews/:roundId" element={<ReviewRoundBoard />} /> : null}
         {canViewScores ? <Route path="/scores" element={<ScoreOverview />} /> : null}
@@ -531,6 +557,7 @@ function Operations({
                 canPublish={canPublishReviewConfiguration}
                 canReadConfiguration={canReadReviewConfiguration}
                 canReadProfiles={canReadReviewerProfiles}
+                canReadRounds={canViewReviews}
               />
             )}
           />
@@ -546,6 +573,7 @@ function Operations({
                 canBrowsePeople={canBrowsePeople}
                 canReadPeople={canReadPeople}
                 canReadRoster={canReadRoster}
+                serverNow={serverNow}
               />
             )}
           />
@@ -565,7 +593,7 @@ function Operations({
             path="/access/roster"
             element={(
               <Suspense fallback={<p className="muted">Loading roster…</p>}>
-                <Roster />
+                <Roster canReadBundles={canReadBundles} />
               </Suspense>
             )}
           />
@@ -726,9 +754,9 @@ function SignIn({
     setError(null)
     try {
       const result = await authClient.signIn.social({ provider: 'google', callbackURL: window.location.href })
-      if (result.error) setError(result.error.message || 'Google sign-in could not be completed.')
-    } catch (caught) {
-      setError(readableError(caught))
+      if (result.error) setError('Google sign-in could not be completed. Try again.')
+    } catch {
+      setError('Google sign-in could not be completed. Try again.')
     } finally {
       setBusy(false)
     }
@@ -741,6 +769,7 @@ function SignIn({
         confirmation: 'create-code2create-local-browser-session',
         actor: 'supreme',
         surface: 'operations',
+        returnPath: `${window.location.pathname}${window.location.search}${window.location.hash}`,
       })
       window.location.assign(session.url)
     } catch (caught) {
@@ -767,7 +796,7 @@ function SignIn({
         />
       ) : null}
       {!googleConfigured && !localDevelopmentFixturesEnabled ? (
-        <p className="gate-error">Google sign-in is not configured in this environment.</p>
+        <p className="gate-error">Google sign-in is unavailable. Check the event’s authentication setup.</p>
       ) : null}
     </Gate>
   )
@@ -775,4 +804,10 @@ function SignIn({
 
 function Centered({ children }: { children: React.ReactNode }) {
   return <main className="centered"><p className="muted" role="status">{children}</p></main>
+}
+
+function firstAvailablePath(
+  ...options: readonly (readonly [enabled: boolean, path: string])[]
+) {
+  return options.find(([enabled]) => enabled)?.[1] ?? null
 }

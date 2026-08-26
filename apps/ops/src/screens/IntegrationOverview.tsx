@@ -10,7 +10,7 @@ import {
 } from '@code2create/domain'
 import { useAction, usePaginatedQuery, useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -21,6 +21,9 @@ import { LoadingLabel, SkeletonList } from '../components/Skeleton'
 type IntegrationTeam = FunctionReturnType<typeof api.integrationOperations.teams>['page'][number]
 type ProviderHealth = IntegrationTeam['github']['health']
 type IntegrationView = 'attention' | 'all'
+type CheckpointLink = FunctionReturnType<typeof api.figmaActions.openFullCheckpoint> & {
+  clientNow: number
+}
 
 function activityTime(value: number | undefined) {
   if (value === undefined) return null
@@ -78,8 +81,8 @@ function ProviderCount({
       title={`${name}: ${plural(count, unit, units)}, ${state.toLowerCase()}`}
     >
       <Icon name={icon} />
-      <span className="visually-hidden">{`${name}: ${plural(count, unit, units)}, ${state}. `}</span>
-      <span aria-hidden="true">{count}</span>
+      <span className="integration-provider-name">{name}</span>
+      <span aria-label={plural(count, unit, units)}>{count}</span>
     </span>
   )
 }
@@ -119,6 +122,7 @@ function teamNote(team: IntegrationTeam) {
 export function IntegrationOverview() {
   const [chosen, setView] = useState<IntegrationView | null>(null)
   const [expandedTeamId, setExpandedTeamId] = useState<IntegrationTeam['teamId'] | null>(null)
+  const [search, setSearch] = useState('')
   const { results, status, loadMore } = usePaginatedQuery(
     api.integrationOperations.teams,
     { eventSlug },
@@ -129,10 +133,13 @@ export function IntegrationOverview() {
     ? 0
     : summary.disconnectedCount + summary.attentionCount
   const view = chosen ?? (outstanding > 0 ? 'attention' : 'all')
+  const normalizedSearch = search.trim().toLocaleLowerCase()
   const visible = [...(view === 'attention'
     ? results.filter((team) => teamRank(team) < 2)
     : results
-  )].sort((left, right) => teamRank(left) - teamRank(right) || left.teamName.localeCompare(right.teamName))
+  )]
+    .filter((team) => normalizedSearch.length === 0 || team.teamName.toLocaleLowerCase().includes(normalizedSearch))
+    .sort((left, right) => teamRank(left) - teamRank(right) || left.teamName.localeCompare(right.teamName))
 
   return (
     <section className="integration-health-shell">
@@ -146,7 +153,9 @@ export function IntegrationOverview() {
               : summary.totalTeamCount === 0
                 ? 'No teams are available in this workspace.'
                 : summary.disconnectedCount > 0
-                  ? `${summary.disconnectedCount} of ${summary.totalTeamCount} teams have connected no code and no design. A reviewer opening those teams has nothing to look at.`
+                  ? summary.disconnectedCount === summary.totalTeamCount
+                    ? `None of the ${summary.totalTeamCount} teams have connected code or design yet. Reviewers have no project work to open.`
+                    : `${summary.disconnectedCount} of ${summary.totalTeamCount} teams have not connected code or design. Reviewers have no project work to open for those teams.`
                   : summary.attentionCount > 0
                     ? `Every team has connected something, but ${summary.attentionCount} ${summary.attentionCount === 1 ? 'connection is' : 'connections are'} not reading properly. Their recent work will look emptier than it is.`
                     : `All ${summary.totalTeamCount} teams have code or design connected and reading normally.`}
@@ -155,26 +164,47 @@ export function IntegrationOverview() {
       </div>
 
       {summary !== undefined && outstanding > 0 && outstanding < summary.totalTeamCount ? (
-        <div className="configuration-tabs" role="tablist" aria-label="Which teams to show">
-          <button
-            aria-selected={view === 'attention'}
-            className={view === 'attention' ? 'active' : ''}
-            role="tab"
-            type="button"
-            onClick={() => setView('attention')}
-          >
-            Needs a look · {outstanding}
-          </button>
-          <button
-            aria-selected={view === 'all'}
-            className={view === 'all' ? 'active' : ''}
-            role="tab"
-            type="button"
-            onClick={() => setView('all')}
-          >
-            Every team · {summary.totalTeamCount}
-          </button>
+        <div className="integration-toolbar">
+          <div className="configuration-tabs" role="tablist" aria-label="Which teams to show">
+            <button
+              aria-selected={view === 'attention'}
+              className={view === 'attention' ? 'active' : ''}
+              role="tab"
+              type="button"
+              onClick={() => setView('attention')}
+            >
+              Needs a look · {outstanding}
+            </button>
+            <button
+              aria-selected={view === 'all'}
+              className={view === 'all' ? 'active' : ''}
+              role="tab"
+              type="button"
+              onClick={() => setView('all')}
+            >
+              Every team · {summary.totalTeamCount}
+            </button>
+          </div>
+          <label className="compact-search">
+            <span className="visually-hidden">Find a team</span>
+            <input
+              type="search"
+              placeholder="Find a team"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
         </div>
+      ) : summary !== undefined && summary.totalTeamCount > 6 ? (
+        <label className="compact-search integration-search-only">
+          <span className="visually-hidden">Find a team</span>
+          <input
+            type="search"
+            placeholder="Find a team"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
       ) : null}
 
       {status === 'LoadingFirstPage' ? (
@@ -238,6 +268,8 @@ export function IntegrationOverview() {
             <p className="empty">
               {summary?.totalTeamCount === 0
                 ? 'No teams are available in this workspace.'
+                : normalizedSearch.length > 0
+                  ? `No team matches “${search.trim()}”.`
                 : view === 'attention'
                   ? 'No affected teams are in the rows loaded so far.'
                   : 'No team rows have been loaded.'}
@@ -260,9 +292,21 @@ function IntegrationDetails({ team }: { team: IntegrationTeam }) {
   const openFullCheckpoint = useAction(api.figmaActions.openFullCheckpoint)
   const [checkpointBusy, setCheckpointBusy] = useState<string | null>(null)
   const [checkpointError, setCheckpointError] = useState<string | null>(null)
-  const [checkpointLinks, setCheckpointLinks] = useState<
-    Record<string, { url: string; expiresAt: number; sha256: string; capturedAt: number }>
-  >({})
+  const [checkpointLinks, setCheckpointLinks] = useState<Record<string, CheckpointLink>>({})
+  const [checkpointClock, setCheckpointClock] = useState(() => performance.now())
+
+  useEffect(() => {
+    const nextExpiry = Object.values(checkpointLinks)
+      .map((link) => link.clientNow + link.expiresAt - link.serverNow)
+      .filter((expiresAt) => expiresAt > checkpointClock)
+      .toSorted((left, right) => left - right)[0]
+    if (nextExpiry === undefined) return
+    const timer = window.setTimeout(
+      () => setCheckpointClock(performance.now()),
+      Math.max(nextExpiry - performance.now(), 0) + 25,
+    )
+    return () => window.clearTimeout(timer)
+  }, [checkpointClock, checkpointLinks])
 
   if (details === undefined) {
     return (
@@ -313,6 +357,10 @@ function IntegrationDetails({ team }: { team: IntegrationTeam }) {
           <ul className="integration-file-list">
             {details.figmaFiles.map((file) => {
               const checkpoint = checkpointLinks[file.bindingId]
+              const activeCheckpoint = checkpoint &&
+                checkpoint.expiresAt > checkpoint.serverNow + checkpointClock - checkpoint.clientNow
+                ? checkpoint
+                : null
               return (
                 <li key={file.bindingId}>
                   <div>
@@ -330,10 +378,10 @@ function IntegrationDetails({ team }: { team: IntegrationTeam }) {
                     </small>
                   </div>
                   {details.canReadFigmaArtifacts && file.hasFullArtifact ? (
-                    checkpoint && checkpoint.expiresAt > Date.now() ? (
+                    activeCheckpoint ? (
                       <a
                         className="text-button"
-                        href={checkpoint.url}
+                        href={activeCheckpoint.url}
                         target="_blank"
                         rel="noreferrer"
                       >
@@ -349,10 +397,12 @@ function IntegrationDetails({ team }: { team: IntegrationTeam }) {
                           setCheckpointError(null)
                           void openFullCheckpoint({ eventSlug, bindingId: file.bindingId })
                             .then((result) => {
+                              const clientNow = performance.now()
                               setCheckpointLinks((current) => ({
                                 ...current,
-                                [file.bindingId]: result,
+                                [file.bindingId]: { ...result, clientNow },
                               }))
+                              setCheckpointClock(clientNow)
                             })
                             .catch((error: unknown) => setCheckpointError(readableError(error)))
                             .finally(() => setCheckpointBusy(null))

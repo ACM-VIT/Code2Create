@@ -21,7 +21,7 @@ export function AutonomyQueuedWorkList({ items }: { items: AutonomyQueuedWork[] 
           <div className="row-text">
             <strong>{triggerLabel(item.trigger)} queued</strong>
             <small>
-              Requested {formatDateTime(item.createdAt)} · source{' '}
+              Requested {formatDateTime(item.createdAt)} · event state{' '}
               {formatDateTime(item.sourceGeneratedAt)}
             </small>
             <small className="instance-id">{item.id}</small>
@@ -105,19 +105,18 @@ export function AutonomyRunInspection({ run }: { run: AutonomyRun }) {
           </div>
         </dl>
         <dl className="criteria-list">
-          <RunMetric label="Tool calls · reads and proposals" value={run.telemetry.toolCalls} />
-          <RunMetric label="Investigator delegations" value={run.telemetry.delegations} />
-          <RunMetric label="Read data traversed" value={formatBytes(run.telemetry.readBytes)} />
-          <RunMetric label="Recommendation proposals" value={run.telemetry.recommendations} />
+          <RunMetric label="Checks and proposals" value={run.telemetry.toolCalls} />
+          <RunMetric label="Focused investigations" value={run.telemetry.delegations} />
+          <RunMetric label="Evidence read" value={formatBytes(run.telemetry.readBytes)} />
+          <RunMetric label="Actions proposed" value={run.telemetry.recommendations} />
         </dl>
         <p className="notice">
-          These are audit counters, not ceilings. The agent may continue until it finishes, an
-          operator stops it, its authority is revoked, or the event leaves live operation.
+          These numbers show what happened; they do not limit a run. The agent continues until it
+          finishes, an organizer stops it, its access is removed, or the event ends.
         </p>
         {run.shutdownState === 'pending' ? (
           <p className="notice">
-            Effect authority is already revoked. The durable abort outbox will keep retrying until
-            the Worker records the abort request.
+            This run can no longer affect operations. Its stop confirmation is still pending.
           </p>
         ) : null}
         <p className="muted">
@@ -132,8 +131,8 @@ export function AutonomyRunInspection({ run }: { run: AutonomyRun }) {
             <strong>Live trace is not available for this run.</strong>
             <span>
               {autonomyRunIsActive(run.state)
-                ? 'The trace opens after the Worker accepts the immutable run.'
-                : 'The Worker did not create a replayable agent instance before this run ended.'}
+                ? 'Activity appears after the agent starts this review.'
+                : 'This run ended before the agent recorded any activity.'}
             </span>
           </div>
         </div>

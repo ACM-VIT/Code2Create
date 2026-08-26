@@ -223,8 +223,7 @@ async function requireNoPendingManualSheets(
   }
 }
 
-async function membershipMatchesCohort(
-  ctx: MutationCtx,
+function membershipMatchesCohort(
   membership: Doc<"eventMemberships">,
   session: Doc<"attendanceSessions">,
 ) {
@@ -236,28 +235,7 @@ async function membershipMatchesCohort(
       (participantClass) => participantClass === membership.participantClass,
     );
   }
-  if (cohort.kind === "explicit") {
-    return cohort.membershipIds.some((membershipId) => membershipId === membership._id);
-  }
-  const teamMember = await ctx.db
-    .query("teamMembers")
-    .withIndex("by_event_membership_status", (index) =>
-      index
-        .eq("eventId", membership.eventId)
-        .eq("membershipId", membership._id)
-        .eq("status", "active"),
-    )
-    .unique();
-  if (!teamMember) return false;
-  const team = await ctx.db.get(teamMember.teamId);
-  if (!team?.lockedProjectVersionId) return false;
-  const project = await ctx.db.get(team.lockedProjectVersionId);
-  return Boolean(
-    project &&
-      cohort.trackVersionIds.some((trackVersionId) =>
-        trackVersionId === project.coreTrackVersionId,
-      ),
-  );
+  return cohort.membershipIds.some((membershipId) => membershipId === membership._id);
 }
 
 export const prepare = mutation({
@@ -287,9 +265,7 @@ export const prepare = mutation({
     });
     if (prior) {
       const jobId = ctx.db.normalizeId("attendanceSessionJobs", prior.targetId);
-      if (!jobId || !(await ctx.db.get(jobId))) {
-        throw new Error("Prior attendance preparation no longer resolves.");
-      }
+      if (!jobId) throw new Error("Prior attendance preparation result is invalid.");
       return { jobId, sessionId: args.sessionId };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -396,7 +372,7 @@ export const buildExpectationBatch = internalMutation({
     let affectedCount = job.affectedCount;
     const now = Date.now();
     for (const membership of page.page) {
-      if (!(await membershipMatchesCohort(ctx, membership, session))) continue;
+      if (!membershipMatchesCohort(membership, session)) continue;
       const [existing, existingProjection] = await Promise.all([
         ctx.db
           .query("attendanceSessionParticipants")
@@ -766,9 +742,7 @@ export const close = mutation({
     });
     if (prior) {
       const jobId = ctx.db.normalizeId("attendanceSessionJobs", prior.targetId);
-      if (!jobId || !(await ctx.db.get(jobId))) {
-        throw new Error("Prior attendance finalization no longer resolves.");
-      }
+      if (!jobId) throw new Error("Prior attendance finalization result is invalid.");
       return { sessionId: args.sessionId, jobId };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -883,9 +857,7 @@ export const cancel = mutation({
     });
     if (prior) {
       const jobId = ctx.db.normalizeId("attendanceSessionJobs", prior.targetId);
-      if (!jobId || !(await ctx.db.get(jobId))) {
-        throw new Error("Prior attendance cancellation no longer resolves.");
-      }
+      if (!jobId) throw new Error("Prior attendance cancellation result is invalid.");
       return { sessionId: args.sessionId, jobId };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);

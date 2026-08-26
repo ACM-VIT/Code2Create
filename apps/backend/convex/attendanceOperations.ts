@@ -10,7 +10,23 @@ import { query } from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
-import { barcodeSymbology, sessionPresenceState } from "./values";
+import {
+  attendanceExpectationBuildState,
+  attendanceCorrectionKind,
+  attendancePresenceOutcome,
+  attendancePresenceSourceKind,
+  attendancePresenceTransition,
+  attendanceSessionExpectation,
+  attendanceSessionJobKind,
+  attendanceSessionJobStatus,
+  attendanceSessionKind,
+  attendanceSessionRequirement,
+  attendanceSessionResult,
+  attendanceSessionStatus,
+  attendanceStationStatus,
+  barcodeSymbology,
+  sessionPresenceState,
+} from "./values";
 
 const sessionCounters = v.object({
   expected: v.number(),
@@ -26,7 +42,7 @@ const sessionCounters = v.object({
 const stationView = v.object({
   id: v.id("attendanceStations"),
   name: v.string(),
-  status: v.string(),
+  status: attendanceStationStatus,
   configurationVersion: v.number(),
   zoneName: v.string(),
   canManage: v.boolean(),
@@ -45,16 +61,16 @@ const stationView = v.object({
 const sessionView = v.object({
   id: v.id("attendanceSessions"),
   name: v.string(),
-  kind: v.string(),
-  requirement: v.string(),
+  kind: attendanceSessionKind,
+  requirement: attendanceSessionRequirement,
   zoneName: v.string(),
-  status: v.string(),
+  status: attendanceSessionStatus,
   startsAt: v.number(),
   endsAt: v.number(),
   checkInOpensAt: v.number(),
   checkInClosesAt: v.number(),
   awayAlertAfterMinutes: v.optional(v.number()),
-  expectationBuildState: v.string(),
+  expectationBuildState: attendanceExpectationBuildState,
   expectationCount: v.number(),
   version: v.number(),
   openedAt: v.optional(v.number()),
@@ -63,8 +79,8 @@ const sessionView = v.object({
   job: v.union(
     v.null(),
     v.object({
-      kind: v.string(),
-      status: v.string(),
+      kind: attendanceSessionJobKind,
+      status: attendanceSessionJobStatus,
       scannedCount: v.number(),
       affectedCount: v.number(),
       failureCode: v.optional(v.string()),
@@ -221,6 +237,7 @@ function canVoidLastTransition(
 export const overview = query({
   args: { eventSlug: v.string() },
   returns: v.object({
+    serverNow: v.number(),
     timezone: v.string(),
     canConfigure: v.boolean(),
     canPublish: v.boolean(),
@@ -293,6 +310,7 @@ export const overview = query({
     const plan = planId ? await ctx.db.get(planId) : null;
     if (!plan || plan.eventId !== event._id || plan.status !== "published") {
       return {
+        serverNow: Date.now(),
         timezone: event.timezone,
         canConfigure: configurationGrants.length > 0,
         canPublish: publishGrants.length > 0,
@@ -561,6 +579,7 @@ export const overview = query({
       visibleStations.length > 0 ||
       sessions.length > 0;
     return {
+      serverNow: Date.now(),
       timezone: event.timezone,
       canConfigure: configurationGrants.length > 0,
       canPublish: publishGrants.length > 0,
@@ -584,9 +603,9 @@ const rosterItem = v.object({
   membershipId: v.id("eventMemberships"),
   displayName: v.string(),
   teamName: v.optional(v.string()),
-  expectation: v.string(),
+  expectation: attendanceSessionExpectation,
   state: sessionPresenceState,
-  result: v.optional(v.string()),
+  result: v.optional(attendanceSessionResult),
   late: v.boolean(),
   confirmedAt: v.optional(v.number()),
   presentDurationMs: v.optional(v.number()),
@@ -645,10 +664,7 @@ export const sessionRoster = query({
       reconciliationGrants.length === 0 &&
       remedyReadGrants.length === 0
     ) {
-      throw new ConvexError({
-        code: "ACCESS_DENIED",
-        message: "This account cannot read that attendance session.",
-      });
+      return { page: [], isDone: true, continueCursor: "" };
     }
     const requestedState = args.state;
     const page = requestedState
@@ -718,20 +734,11 @@ export const sessionRoster = query({
 
 const reconciliationEvent = v.object({
   id: v.id("attendancePresenceEvents"),
-  sourceKind: v.union(
-    v.literal("scanner"),
-    v.literal("staff_reconciliation"),
-    v.literal("manual_import"),
-  ),
-  transition: v.string(),
-  outcome: v.string(),
-  reasonCode: v.string(),
-  previousState: v.optional(v.string()),
-  nextState: v.optional(v.string()),
-  correctionKind: v.optional(v.string()),
-  linkedEventId: v.optional(v.id("attendancePresenceEvents")),
+  sourceKind: attendancePresenceSourceKind,
+  transition: attendancePresenceTransition,
+  outcome: attendancePresenceOutcome,
+  correctionKind: v.optional(attendanceCorrectionKind),
   effectiveAt: v.number(),
-  recordedAt: v.number(),
 });
 
 export const reconciliationPreview = query({
@@ -741,13 +748,11 @@ export const reconciliationPreview = query({
     membershipId: v.id("eventMemberships"),
   },
   returns: v.object({
-    serverTime: v.number(),
     participantVersion: v.number(),
     state: sessionPresenceState,
     currentInterval: v.union(
       v.null(),
       v.object({
-        id: v.id("attendancePresenceIntervals"),
         openedAt: v.number(),
       }),
     ),
@@ -819,32 +824,20 @@ export const reconciliationPreview = query({
       });
     }
     return {
-      serverTime: Date.now(),
       participantVersion: participant.version,
       state: participant.state,
       currentInterval: currentInterval
-        ? { id: currentInterval._id, openedAt: currentInterval.openedAt }
+        ? { openedAt: currentInterval.openedAt }
         : null,
       recentEvents: recentEvents.map((presenceEvent) => ({
         id: presenceEvent._id,
         sourceKind: presenceEvent.sourceKind,
         transition: presenceEvent.transition,
         outcome: presenceEvent.outcome,
-        reasonCode: presenceEvent.reasonCode,
-        ...(presenceEvent.previousState !== undefined
-          ? { previousState: presenceEvent.previousState }
-          : {}),
-        ...(presenceEvent.nextState !== undefined
-          ? { nextState: presenceEvent.nextState }
-          : {}),
         ...(presenceEvent.correctionKind !== undefined
           ? { correctionKind: presenceEvent.correctionKind }
           : {}),
-        ...(presenceEvent.linkedEventId !== undefined
-          ? { linkedEventId: presenceEvent.linkedEventId }
-          : {}),
         effectiveAt: presenceEvent.capturedAt,
-        recordedAt: presenceEvent.receivedAt,
       })),
     };
   },

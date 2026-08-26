@@ -7,10 +7,13 @@ import { Link } from 'react-router-dom'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
+import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
 
 type AttendanceOverviewData = FunctionReturnType<typeof api.attendanceOperations.overview>
 type AttendanceSessionData = AttendanceOverviewData['sessions'][number]
 type AttendanceStationData = AttendanceOverviewData['stations'][number]
+type AttendancePlanData = NonNullable<AttendanceOverviewData['publishedPlan']>
+type AttendanceJobData = NonNullable<AttendanceSessionData['job']>
 type SessionAction = {
   sessionId: AttendanceSessionData['id']
   command: 'extend' | 'close' | 'cancel'
@@ -27,6 +30,7 @@ type StationAction = {
 
 export function AttendanceOverview() {
   const overview = useQuery(api.attendanceOperations.overview, { eventSlug })
+  const estimatedServerNow = useEstimatedServerNow(overview?.serverNow)
   const prepare = useMutation(api.attendanceSessions.prepare)
   const open = useMutation(api.attendanceSessions.open)
   const extend = useMutation(api.attendanceSessions.extend)
@@ -61,6 +65,10 @@ export function AttendanceOverview() {
     : null
   const stationCommandPending = pendingStationSlot !== null && operations.hasPending(pendingStationSlot)
   const operationPending = sessionCommandPending || stationCommandPending
+  const sessionsNeedingPreparation = overview.sessions.filter(
+    (session) => session.status === 'scheduled' && session.expectationBuildState === 'not_started',
+  ).length
+  const openSessionCount = overview.sessions.filter((session) => session.status === 'open').length
 
   const runSessionCommand = async (
     session: AttendanceSessionData | undefined,
@@ -136,7 +144,9 @@ export function AttendanceOverview() {
   ) => {
     setSessionAction({ sessionId: session.id, command })
     setSessionReason(
-      command === 'close' && Date.now() >= session.endsAt ? 'Session ended as scheduled' : '',
+      command === 'close' && estimatedServerNow >= session.endsAt
+        ? 'Session ended as scheduled'
+        : '',
     )
     setExtensionMinutes('30')
   }
@@ -179,7 +189,7 @@ export function AttendanceOverview() {
     try {
       await operations.run(slot, (clientOperationId) => async () => {
         if (!station || station.id !== intent.stationId) {
-          throw new Error('The original scanner station is unavailable. Refresh its status before retrying.')
+          throw new Error('This scanner station is no longer available. Reload the page before trying again.')
         }
         const input = {
           eventSlug,
@@ -245,7 +255,7 @@ export function AttendanceOverview() {
           <p className="muted">
             {overview.canConfigure
               ? 'Create and rehearse a plan before opening participant check-in.'
-              : 'No attendance plan is visible to this permission scope.'}
+              : 'You do not have access to an attendance plan.'}
           </p>
         </div>
       ) : null}
@@ -259,7 +269,7 @@ export function AttendanceOverview() {
       ) : null}
 
       {overview.venueCheckIns ? (
-        <section className="session-card" aria-labelledby="venue-arrival-heading">
+        <section className="session-card venue-arrival-card" aria-labelledby="venue-arrival-heading">
           <div className="session-heading">
             <div>
               <h2 id="venue-arrival-heading">Venue arrival</h2>
@@ -337,7 +347,7 @@ export function AttendanceOverview() {
                       </label>
                       <p className="muted">
                         {action.command === 'disable'
-                          ? 'This immediately revokes the phone and its scanner grants.'
+                          ? 'This immediately disconnects the assigned phone.'
                           : 'A checked phone can be assigned after this station becomes available.'}
                       </p>
                       <div className="button-row">
@@ -380,23 +390,39 @@ export function AttendanceOverview() {
         (station) => station.id === pendingStationIntent.stationId,
       ) ? (
         <div className="notice" role="status">
-          <p>The scanner command has an unknown outcome and its station is no longer visible.</p>
+          <p>
+            We could not confirm whether the scanner change was saved. The station is no longer
+            in this list.
+          </p>
           <button
             className="secondary"
             type="button"
             disabled={busyStationId !== null}
             onClick={() => void runStationCommand(undefined, pendingStationIntent)}
           >
-            {busyStationId !== null ? 'Retrying…' : `Retry ${stationCommandName(pendingStationIntent.command)}`}
+            {busyStationId !== null ? 'Checking…' : 'Confirm scanner change'}
           </button>
         </div>
       ) : null}
 
-      <div className="session-list">
+      {overview.publishedPlan ? (
+        <div className="section-heading attendance-sessions-heading">
+          <h2>Hacking sessions</h2>
+          <span>
+            {openSessionCount > 0
+              ? `${openSessionCount} open now`
+              : sessionsNeedingPreparation > 0
+                ? `${sessionsNeedingPreparation} need preparation`
+                : `${overview.sessions.length} scheduled`}
+          </span>
+        </div>
+      ) : null}
+
+      <div className="session-list attendance-session-list">
         {overview.sessions.map((session) => {
           const busy = busySessionId === session.id
           const action = sessionAction?.sessionId === session.id ? sessionAction : null
-          const now = Date.now()
+          const now = estimatedServerNow
           const canOpen = now >= session.checkInOpensAt && now <= session.checkInClosesAt
           const extension = Number(extensionMinutes)
           const extensionValid = Number.isInteger(extension) && extension >= 1 && extension <= 1_440
@@ -406,7 +432,10 @@ export function AttendanceOverview() {
             session.status === 'ready' ||
             session.status === 'open'
           return (
-            <article className="session-card" key={session.id}>
+            <article
+              className={`session-card attendance-session-card ${session.expectationBuildState === 'complete' ? 'prepared' : 'unprepared'}`}
+              key={session.id}
+            >
               <div className="session-heading">
                 <div>
                   <div className="session-title-line">
@@ -442,16 +471,14 @@ export function AttendanceOverview() {
                 <dl className="attendance-counts">
                   <Count
                     label="Expected participants"
-                    value={session.expectationBuildState === 'not_started' ? 'Not prepared' : 'Preparing'}
+                    value={expectationBuildStateName(session.expectationBuildState)}
                   />
                 </dl>
               )}
 
               {session.job && session.job.status !== 'complete' ? (
-                <p className={session.job.status === 'failed' ? 'notice error' : 'notice'}>
-                  {session.job.status === 'failed'
-                    ? `Background work failed: ${session.job.failureCode ?? 'unknown reason'}.`
-                    : `${jobName(session.job.kind)} · ${session.job.scannedCount} checked`}
+                <p className={session.job.status === 'failed' || session.job.status === 'cancelled' ? 'notice error' : 'notice'}>
+                  {jobMessage(session.job)}
                 </p>
               ) : null}
 
@@ -512,14 +539,14 @@ export function AttendanceOverview() {
 
               {pendingSessionIntent?.sessionId === session.id && !action ? (
                 <div className="notice" role="status">
-                  <p>The {sessionCommandName(pendingSessionIntent.command)} command has an unknown outcome.</p>
+                  <p>We could not confirm whether this session change was saved.</p>
                   <button
                     className="secondary"
                     type="button"
                     disabled={busy}
                     onClick={() => void runSessionCommand(session, pendingSessionIntent)}
                   >
-                    {busy ? 'Retrying…' : `Retry ${sessionCommandName(pendingSessionIntent.command)}`}
+                    {busy ? 'Checking…' : 'Confirm session change'}
                   </button>
                 </div>
               ) : null}
@@ -586,19 +613,22 @@ export function AttendanceOverview() {
         (session) => session.id === pendingSessionIntent.sessionId,
       ) ? (
         <div className="notice" role="status">
-          <p>The session command has an unknown outcome and its session is no longer visible.</p>
+          <p>
+            We could not confirm whether the session change was saved. The session is no longer
+            in this list.
+          </p>
           <button
             className="secondary"
             type="button"
             disabled={busySessionId !== null}
             onClick={() => void runSessionCommand(undefined, pendingSessionIntent)}
           >
-            {busySessionId !== null ? 'Retrying…' : `Retry ${sessionCommandName(pendingSessionIntent.command)}`}
+            {busySessionId !== null ? 'Checking…' : 'Confirm session change'}
           </button>
         </div>
       ) : null}
       {overview.publishedPlan && overview.sessions.length === 0 ? (
-        <p className="empty">No sessions are visible to your permission scope.</p>
+        <p className="empty">No attendance sessions are available to this account.</p>
       ) : null}
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </section>
@@ -620,14 +650,59 @@ function formatWindow(startsAt: number, endsAt: number, timezone: string) {
   return `${formatter.format(startsAt)} – ${formatter.format(endsAt)}`
 }
 
-function statusName(value: string) {
-  const label = value.replaceAll('_', ' ')
-  return `${label.slice(0, 1).toUpperCase()}${label.slice(1)}`
+const sessionStatusLabels: Record<AttendanceSessionData['status'], string> = {
+  scheduled: 'Scheduled',
+  preparing: 'Preparing',
+  ready: 'Ready',
+  open: 'Open',
+  closing: 'Closing',
+  closed: 'Closed',
+  cancelled: 'Cancelled',
+}
+
+const expectationBuildStateLabels: Record<AttendanceSessionData['expectationBuildState'], string> = {
+  not_started: 'Not prepared',
+  running: 'Preparing',
+  complete: 'Prepared',
+  failed: 'Needs attention',
+  cancelled: 'Cancelled',
+}
+
+const jobKindLabels: Record<AttendanceJobData['kind'], string> = {
+  build_expectations: 'Preparing expected participants',
+  finalize_results: 'Finalising attendance',
+  cancel_results: 'Cancelling session',
+}
+
+const stationStatusLabels: Record<AttendanceStationData['status'], string> = {
+  inactive: 'Waiting for phone',
+  active: 'Active',
+  disabled: 'Disabled',
+}
+
+const symbologyLabels: Record<AttendancePlanData['barcodeSymbologies'][number], string> = {
+  aztec: 'Aztec',
+  ean13: 'EAN-13',
+  ean8: 'EAN-8',
+  qr: 'QR',
+  pdf417: 'PDF417',
+  upc_e: 'UPC-E',
+  datamatrix: 'Data Matrix',
+  code39: 'Code 39',
+  code93: 'Code 93',
+  itf14: 'ITF-14',
+  codabar: 'Codabar',
+  code128: 'Code 128',
+  upc_a: 'UPC-A',
 }
 
 function sessionStatusName(session: AttendanceSessionData) {
   if (session.status === 'closing' && session.job?.kind === 'cancel_results') return 'Cancelling'
-  return statusName(session.status)
+  return sessionStatusLabels[session.status]
+}
+
+function expectationBuildStateName(state: AttendanceSessionData['expectationBuildState']) {
+  return expectationBuildStateLabels[state]
 }
 
 function sessionActionPlaceholder(command: SessionAction['command']) {
@@ -668,34 +743,22 @@ function sessionCommandName(command: SessionCommand) {
   return 'close session'
 }
 
-function stationCommandName(command: StationAction['command']) {
-  return command === 'disable' ? 'disable scanner' : 'make scanner available'
+function symbologyName(value: AttendancePlanData['barcodeSymbologies'][number]) {
+  return symbologyLabels[value]
 }
 
-function symbologyName(value: string) {
-  if (value === 'code128') return 'Code 128'
-  if (value === 'code39') return 'Code 39'
-  if (value === 'code93') return 'Code 93'
-  if (value === 'ean13') return 'EAN-13'
-  if (value === 'ean8') return 'EAN-8'
-  if (value === 'itf14') return 'ITF-14'
-  if (value === 'pdf417') return 'PDF417'
-  if (value === 'upc_a') return 'UPC-A'
-  if (value === 'upc_e') return 'UPC-E'
-  if (value === 'datamatrix') return 'Data Matrix'
-  return value.charAt(0).toUpperCase() + value.slice(1)
+function jobMessage(job: AttendanceJobData) {
+  if (job.status === 'failed') {
+    return `${jobKindLabels[job.kind]} could not finish. This session needs attention before it can continue.`
+  }
+  if (job.status === 'cancelled') {
+    return `${jobKindLabels[job.kind]} stopped. This session needs attention before it can continue.`
+  }
+  return `${jobKindLabels[job.kind]} · ${job.scannedCount} checked`
 }
 
-function jobName(value: string) {
-  if (value === 'build_expectations') return 'Preparing expected participants'
-  if (value === 'cancel_results') return 'Cancelling session'
-  return 'Finalising results'
-}
-
-function stationStatusName(value: string) {
-  if (value === 'active') return 'Active'
-  if (value === 'disabled') return 'Disabled'
-  return 'Waiting for phone'
+function stationStatusName(value: AttendanceStationData['status']) {
+  return stationStatusLabels[value]
 }
 
 function stationDeviceSummary(station: AttendanceStationData) {

@@ -154,25 +154,21 @@ The explicit progress comparison joins the current review checkpoint to the late
 
 Attendance confirmations, present duration, temporary exits, missed scans, and excused absence are operations/safety records. They are not project progress evidence and never enter a criterion, reviewer context, score, tie-break, or award recommendation.
 
-A submitted sponsor-track selection is shown as project context with its published requirement. It does not change rubric weights, assign a sponsor award, prove eligibility, or recommend a score. A reviewer may inspect relevant evidence under an approved sponsor-award policy, but ordinary hackathon scoring remains the shared published rubric.
-
 The evidence context is immutable after the review starts. The app can show a later push, Figma refresh, or repository-set change as newer available evidence. Scoring remains tied to the recorded checkpoint-set ID. Only `review.evidence_context.replace` for that review can replace it, and the command must record a reason.
 
 Adding a separate weighted progress criterion is an open decision. The system does not create bonus points without that decision.
 
 ## 9. AI boundary
 
-The intake interpretation layer may identify covered purposes in team-written answers, generate one bounded follow-up question, and recommend one published core track.
+The intake interpretation layer may identify covered purposes in team-written answers and generate one bounded follow-up question.
 
 It must:
 
-- cite the exact active answer versions used for a question or track recommendation;
-- leave core-track choice, sponsor-track selection, freshness attestation, and every submitted answer to the participant;
+- cite the exact active answer versions used for a question;
+- leave the freshness attestation and every submitted answer to the participant;
 - avoid novelty verdicts and invented validation, users, progress, disclosures, or evidence;
 - avoid admission recommendations, rank, score, or winner language;
 - never replace reviewer access to original answers.
-
-A track-specific intake overlay can request relevant evidence. It does not alter rubric weights or scoring anchors unless the board separately publishes a new rubric version.
 
 A separate pre-event admission-analysis contract may read the redacted submitted application, deterministic year/study band, and published admission rubric and return a structured `accept | waitlist | decline | needs_information` recommendation. It receives no human admission recommendation, private reviewer note, judging rubric, peer score, scorecard, evaluation result, ranking, attendance history, or provider-activity count. Its result is visibly advisory, has no numeric score, and cannot call an admission or project mutation. A human with the exact permission publishes the application decision and records whether the AI record was used, cleared, or overridden.
 
@@ -223,12 +219,9 @@ The system can prepare a ranked view after Board approves:
 - round weights;
 - minimum eligibility;
 - tie-break order;
-- track and sponsor-award rules;
 - whether the final is cumulative or a clean slate.
 
 The ranking view always shows the underlying criterion totals and any missing/exception state. A board decision that departs from the configured ranking requires a recorded reason.
-
-Track participation does not guarantee a finalist place or prize.
 
 ## 13. Corrections and complaints
 
@@ -263,7 +256,7 @@ Private reviewer notes, conflict reports, other teams’ results, and staff audi
 Each round export contains:
 
 - event, closing-round, close-snapshot, fixed rubric, criterion, aggregation-formula, spread-threshold, panel, and panel-member versions;
-- every team’s adjudicated disposition, application context, submitted project version, and confirmed core track;
+- every team's adjudicated disposition, application context, and submitted proposal version;
 - the selected review session and frozen integration-evidence checkpoint for each result or approved exclusion;
 - assignments, reviewer identities, every scorecard record, every immutable scorecard version, and the exact versions used by the selected result;
 - saved and independently recomputed criterion inputs, means, weighted points, spread flags, total, and checksums;
@@ -286,8 +279,7 @@ JSON preserves the relationship and version history needed to audit or reproduce
 - A paper import creates ordinary immutable scorecard versions attributed to the signed reviewers, marks the review as a paper import, computes one result, and cannot race a digital draft, submit, review completion, incident resolution, or round close.
 - No AI function can call a score-write function.
 - An admission recommendation cannot appear in reviewer judging context, route a panel, set a score, or publish an admission decision.
-- A suggested track cannot appear as the participant's choice unless the participant selects it. Generated question text remains context; only the participant's answer is participant evidence.
-- Track-specific intake prompts cannot change the rubric version or criterion weights.
+- Generated question text remains context. Only the participant's answer is participant evidence.
 - Review 2 context contains the exact Review 1 commitments and checkpoint references.
 - Provider activity counts cannot write, prefill, weight, or recommend a criterion score.
 - Attendance state, duration, exit count, or exception cannot write, prefill, weight, or recommend a criterion score.

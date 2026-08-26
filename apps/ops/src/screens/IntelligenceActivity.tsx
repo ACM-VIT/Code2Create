@@ -100,7 +100,9 @@ export function IntelligenceActivity({ canGenerate }: { canGenerate: boolean }) 
           <div>
             <h2>Autonomous operations</h2>
             <p className="muted">
-              Policy {autonomy.policy.policyVersion} · {autonomy.policy.mode === 'recommend' ? 'observes and proposes' : 'observe only'}
+              {autonomy.policy.mode === 'recommend'
+                ? 'Observes the event and proposes actions for an organizer to decide'
+                : 'Observes the event without proposing actions'}
             </p>
           </div>
           <div className="row-controls">
@@ -146,7 +148,7 @@ export function IntelligenceActivity({ canGenerate }: { canGenerate: boolean }) 
             <div className="section-heading">
               <div>
                 <h3>Queued autonomous work</h3>
-                <p className="muted">Distinct signals, schedule slots, and manual requests wait here without being dropped.</p>
+                <p className="muted">New checks wait here and run in order.</p>
               </div>
               <span>{autonomy.scheduler.queuedWorkCount}</span>
             </div>

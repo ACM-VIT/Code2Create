@@ -88,7 +88,10 @@ export const overview = query({
         ),
       ),
     ]);
-    const visibleZones = zones.filter((_, index) => (grantsByZone[index]?.length ?? 0) > 0);
+    const canSeeAll = eventGrantIds.length > 0;
+    const visibleZones = canSeeAll
+      ? zones
+      : zones.filter((_, index) => (grantsByZone[index]?.length ?? 0) > 0);
     if (visibleZones.length === 0) {
       // Refuse access explicitly so a missing grant cannot look like an empty hall.
       throw new ConvexError({ code: "ACCESS_DENIED", message: "This account cannot read a floor-plan zone." });
@@ -112,7 +115,6 @@ export const overview = query({
     const teamById = new Map(teams.map((team) => [team._id, team]));
     const eligibleTeams = teams.filter((team) => teamCanBeMapped(team.status));
     const mappedTeamIds = new Set(locations.map((location) => location.teamId));
-    const canSeeAll = eventGrantIds.length > 0;
     return {
       plan: {
         id: plan._id,

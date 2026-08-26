@@ -11,7 +11,12 @@ import {
   requireFreshAuthSession,
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+} from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { requireAvailableStaffedVenueResolution } from "./lib/staffedParticipantResolution";
 import { normalizedText } from "./lib/strings";
@@ -369,19 +374,20 @@ function priorRecordedResult(
   ctx: MutationCtx,
   resultJson: string | undefined,
 ): RecordedResult {
-  const parsed = resultJson
-    ? storedRecordedResult.safeParse(JSON.parse(resultJson))
-    : null;
-  if (!parsed?.success) throw new Error("Stored venue check-in result is invalid.");
-  const checkInId = ctx.db.normalizeId("venueCheckIns", parsed.data.checkInId);
+  const stored = storedOperationResult(
+    resultJson,
+    "venue check-in",
+    storedRecordedResult,
+  );
+  const checkInId = ctx.db.normalizeId("venueCheckIns", stored.checkInId);
   if (!checkInId) throw new Error("Stored venue check-in ID is invalid.");
   return {
     checkInId,
     status: "checked_in",
-    checkedInAt: parsed.data.checkedInAt,
-    version: parsed.data.version,
-    identityCheckMethod: parsed.data.identityCheckMethod,
-    teamStatusChanged: parsed.data.teamStatusChanged,
+    checkedInAt: stored.checkedInAt,
+    version: stored.version,
+    identityCheckMethod: stored.identityCheckMethod,
+    teamStatusChanged: stored.teamStatusChanged,
   };
 }
 
@@ -389,17 +395,18 @@ function priorReversedResult(
   ctx: MutationCtx,
   resultJson: string | undefined,
 ): ReversedResult {
-  const parsed = resultJson
-    ? storedReversedResult.safeParse(JSON.parse(resultJson))
-    : null;
-  if (!parsed?.success) throw new Error("Stored venue check-in reversal result is invalid.");
-  const checkInId = ctx.db.normalizeId("venueCheckIns", parsed.data.checkInId);
+  const stored = storedOperationResult(
+    resultJson,
+    "venue check-in reversal",
+    storedReversedResult,
+  );
+  const checkInId = ctx.db.normalizeId("venueCheckIns", stored.checkInId);
   if (!checkInId) throw new Error("Stored venue check-in reversal ID is invalid.");
   return {
     checkInId,
     status: "reversed",
-    reversedAt: parsed.data.reversedAt,
-    version: parsed.data.version,
-    teamStatusChanged: parsed.data.teamStatusChanged,
+    reversedAt: stored.reversedAt,
+    version: stored.version,
+    teamStatusChanged: stored.teamStatusChanged,
   };
 }

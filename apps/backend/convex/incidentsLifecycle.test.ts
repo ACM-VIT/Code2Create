@@ -93,6 +93,32 @@ describe("incident summaries", () => {
       operator.query(api.incidents.activeSummary, { eventSlug: fixture.eventSlug }),
     ).rejects.toThrow("cannot have more than 20 active incidents");
   });
+
+  test("a retried incident creation returns its original version", async () => {
+    const backend = seededBackend();
+    const fixture = await seedOperator(backend);
+    const operator = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    const args = {
+      eventSlug: fixture.eventSlug,
+      title: "Review service latency",
+      summary: "Reviewer requests are timing out while the event remains live.",
+      severity: "major" as const,
+      affectedService: "review_backend" as const,
+      clientOperationId: crypto.randomUUID(),
+    };
+    const created = await operator.mutation(api.incidents.create, args);
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(created.id, { state: "monitoring", version: 2 });
+    });
+
+    await expect(operator.mutation(api.incidents.create, args)).resolves.toEqual(created);
+    await expect(
+      backend.run(async (ctx) => (await ctx.db.get(created.id))?.version),
+    ).resolves.toBe(2);
+  });
 });
 
 function seededBackend() {
@@ -123,6 +149,7 @@ async function seedOperator(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       createdByPersonId: personId,

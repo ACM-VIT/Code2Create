@@ -135,7 +135,14 @@ export function normalizeNoveltyPolicy(input: NoveltyPolicy): NoveltyPolicy {
 
 export function normalizeNoveltyCorpusEntries(
   entries: readonly NoveltyCorpusEntryInput[],
+  maximumSourceYear: number,
 ): NoveltyCorpusEntryInput[] {
+  const latestSourceYear = wholeNumber(
+    maximumSourceYear,
+    "Latest corpus source year",
+    2000,
+    2100,
+  );
   if (
     entries.length < minimumNoveltyCorpusEntries ||
     entries.length > maximumNoveltyCorpusEntries
@@ -151,7 +158,12 @@ export function normalizeNoveltyCorpusEntries(
         `Corpus entry ${index + 1} needs a lowercase source key using letters, numbers, dots, dashes, or underscores.`,
       );
     }
-    const sourceYear = wholeNumber(entry.sourceYear, `Corpus entry ${index + 1} year`, 2000, 2100);
+    const sourceYear = wholeNumber(
+      entry.sourceYear,
+      `Corpus entry ${index + 1} year`,
+      2000,
+      latestSourceYear,
+    );
     const themeLabel = normalizedText(
       entry.themeLabel,
       `Corpus entry ${index + 1} theme`,

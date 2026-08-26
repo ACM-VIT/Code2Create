@@ -14,10 +14,27 @@ import {
   requireFreshAuthSession,
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationVersion,
+} from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
 import { appendEmergencyPackReadFactById } from "./lib/operationsAutonomyReadFacts/incidentReadiness";
+import {
+  attendanceSessionRequirement,
+  attendanceSessionStatus,
+  attendanceStationStatus,
+  eventStatus,
+  participantClass,
+  participantEligibilityStatus,
+  reviewPanelStatus,
+  reviewRoundStatus,
+  teamStatus,
+  venuePresenceState,
+} from "./values";
 import { exportWorkpool } from "./workpools";
 
 const maximumRosterRows = 1_200;
@@ -37,12 +54,12 @@ const rosterRow = v.object({
   name: v.string(),
   phone: v.optional(v.string()),
   vitRegistrationNumber: v.optional(v.string()),
-  participantClass: v.string(),
-  eligibilityStatus: v.string(),
+  participantClass,
+  eligibilityStatus: participantEligibilityStatus,
   teamName: v.optional(v.string()),
   teamCode: v.optional(v.string()),
-  teamStatus: v.optional(v.string()),
-  attendanceState: v.string(),
+  teamStatus: v.optional(teamStatus),
+  attendanceState: venuePresenceState,
   attendanceZoneName: v.optional(v.string()),
   attendanceUpdatedAt: v.optional(v.number()),
   hallZoneName: v.optional(v.string()),
@@ -55,7 +72,7 @@ const stationSnapshot = v.object({
   name: v.string(),
   zoneId: v.string(),
   zoneName: v.string(),
-  status: v.string(),
+  status: attendanceStationStatus,
   configurationVersion: v.number(),
   deviceName: v.optional(v.string()),
 });
@@ -63,8 +80,8 @@ const stationSnapshot = v.object({
 const sessionSnapshot = v.object({
   id: v.string(),
   name: v.string(),
-  status: v.string(),
-  requirement: v.string(),
+  status: attendanceSessionStatus,
+  requirement: attendanceSessionRequirement,
   zoneId: v.string(),
   zoneName: v.string(),
   startsAt: v.number(),
@@ -83,7 +100,7 @@ const criterionSnapshot = v.object({
 const panelSnapshot = v.object({
   id: v.string(),
   name: v.string(),
-  status: v.string(),
+  status: reviewPanelStatus,
   version: v.number(),
   coordinatorName: v.string(),
   reviewerNames: v.array(v.string()),
@@ -92,7 +109,7 @@ const panelSnapshot = v.object({
 const roundSnapshot = v.object({
   id: v.string(),
   name: v.string(),
-  status: v.string(),
+  status: reviewRoundStatus,
   startsAt: v.number(),
   endsAt: v.number(),
   version: v.number(),
@@ -109,7 +126,7 @@ const snapshot = v.object({
     name: v.string(),
     slug: v.string(),
     timezone: v.string(),
-    status: v.string(),
+    status: eventStatus,
     venue: v.optional(v.string()),
     startsAt: v.optional(v.number()),
     endsAt: v.optional(v.number()),
@@ -153,7 +170,6 @@ const packView = v.object({
   byteCount: v.optional(v.number()),
   sha256: v.optional(v.string()),
   completedAt: v.optional(v.number()),
-  failureCode: v.optional(v.string()),
   version: v.number(),
 });
 
@@ -572,11 +588,11 @@ export const request = mutation({
     });
     if (prior) {
       const packId = ctx.db.normalizeId("emergencyPacks", prior.targetId);
-      const pack = packId ? await ctx.db.get(packId) : null;
-      if (!pack || pack.eventId !== event._id) {
-        throw new Error("Prior emergency-pack request no longer resolves.");
-      }
-      return { packId: pack._id, version: pack.version };
+      if (!packId) throw new Error("The stored emergency-pack request is invalid.");
+      return {
+        packId,
+        version: storedOperationVersion(prior.resultJson, "emergency pack"),
+      };
     }
     const requestedAt = Date.now();
     const expiresAt = requestedAt + packLifetimeMs;
@@ -629,6 +645,7 @@ export const request = mutation({
       requestFingerprint,
       targetType: "emergency_pack",
       targetId: packId,
+      resultJson: "1",
       createdAt: requestedAt,
     });
     await writeAuditEvent(ctx, {
@@ -653,7 +670,10 @@ export const request = mutation({
 
 export const list = query({
   args: { eventSlug: v.string() },
-  returns: v.array(packView),
+  returns: v.object({
+    serverNow: v.number(),
+    packs: v.array(packView),
+  }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -673,26 +693,28 @@ export const list = query({
       packs.map((pack) => ctx.db.get(pack.requestedByPersonId)),
     );
     const now = Date.now();
-    return packs.map((pack, index) => ({
-      id: pack._id,
-      requestedByName: requesters[index]?.displayName ?? "Unknown operator",
-      purpose: pack.purpose,
-      spareAttendanceSheetCount: pack.spareAttendanceSheetCount,
-      spareReviewSheetCount: pack.spareReviewSheetCount,
-      status: pack.expiresAt <= now ? expiredPackStatus : pack.status,
-      expiresAt: pack.expiresAt,
-      requestedAt: pack.requestedAt,
-      ...(pack.snapshotAt !== undefined ? { snapshotAt: pack.snapshotAt } : {}),
-      ...(pack.snapshotChecksum !== undefined
-        ? { snapshotChecksum: pack.snapshotChecksum }
-        : {}),
-      ...(pack.counts !== undefined ? { counts: pack.counts } : {}),
-      ...(pack.byteCount !== undefined ? { byteCount: pack.byteCount } : {}),
-      ...(pack.sha256 !== undefined ? { sha256: pack.sha256 } : {}),
-      ...(pack.completedAt !== undefined ? { completedAt: pack.completedAt } : {}),
-      ...(pack.failureCode !== undefined ? { failureCode: pack.failureCode } : {}),
-      version: pack.version,
-    }));
+    return {
+      serverNow: now,
+      packs: packs.map((pack, index) => ({
+        id: pack._id,
+        requestedByName: requesters[index]?.displayName ?? "Unknown operator",
+        purpose: pack.purpose,
+        spareAttendanceSheetCount: pack.spareAttendanceSheetCount,
+        spareReviewSheetCount: pack.spareReviewSheetCount,
+        status: pack.expiresAt <= now ? expiredPackStatus : pack.status,
+        expiresAt: pack.expiresAt,
+        requestedAt: pack.requestedAt,
+        ...(pack.snapshotAt !== undefined ? { snapshotAt: pack.snapshotAt } : {}),
+        ...(pack.snapshotChecksum !== undefined
+          ? { snapshotChecksum: pack.snapshotChecksum }
+          : {}),
+        ...(pack.counts !== undefined ? { counts: pack.counts } : {}),
+        ...(pack.byteCount !== undefined ? { byteCount: pack.byteCount } : {}),
+        ...(pack.sha256 !== undefined ? { sha256: pack.sha256 } : {}),
+        ...(pack.completedAt !== undefined ? { completedAt: pack.completedAt } : {}),
+        version: pack.version,
+      })),
+    };
   },
 });
 

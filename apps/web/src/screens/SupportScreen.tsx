@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { supportCaseCategoryLabels } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { useRef, useState } from 'react'
@@ -15,18 +16,17 @@ type CreateSelfResult = FunctionReturnType<typeof api.support.createSelf>
 type ReplySelfResult = FunctionReturnType<typeof api.support.replySelf>
 
 const categories = [
-  ['identity', 'Identity or sign-in'],
-  ['team', 'Team'],
-  ['project_intake', 'Idea submission'],
-  ['track_configuration', 'Track'],
-  ['attendance_credential', 'Check-in or ID'],
-  ['missing_scan', 'Check-in scan'],
-  ['table_location', 'Hall location'],
-  ['integration', 'GitHub or Figma'],
-  ['queue', 'Judging queue'],
-  ['accessibility', 'Accessibility'],
-  ['safety', 'Safety'],
-] as const satisfies readonly (readonly [SupportCategory, string])[]
+  'identity',
+  'team',
+  'project_intake',
+  'attendance_credential',
+  'missing_scan',
+  'table_location',
+  'integration',
+  'queue',
+  'accessibility',
+  'safety',
+] as const satisfies readonly SupportCategory[]
 
 export function SupportScreen({ canCreate }: { canCreate: boolean }) {
   const cases = useQuery(api.support.mine, { eventSlug })
@@ -89,7 +89,9 @@ export function SupportScreen({ canCreate }: { canCreate: boolean }) {
                 setCategory(parseCategory(event.target.value))
               }}
             >
-              {categories.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              {categories.map((value) => (
+                <option key={value} value={value}>{supportCaseCategoryLabels[value]}</option>
+              ))}
             </select>
           </label>
           <label className="field">
@@ -115,7 +117,7 @@ export function SupportScreen({ canCreate }: { canCreate: boolean }) {
       ) : null}
 
       <div className="support-workspace">
-        <div className="support-case-list" aria-label="Your help requests">
+        <div className="support-case-list" role="region" aria-label="Your help requests">
           {cases === undefined ? <p className="muted">Loading requests…</p> : null}
           {cases?.map((supportCase) => (
             <button
@@ -147,6 +149,7 @@ function SupportCaseDetail({ supportCaseId }: { supportCaseId: SupportCaseId }) 
   const replyPending = replyAttempt.hasPending('reply-to-support-case')
 
   if (detail === undefined) return <article className="support-case-detail"><p className="muted">Loading request…</p></article>
+  if (detail === null) return <article className="support-case-detail"><p className="muted">This request is no longer available.</p></article>
 
   const sendReply = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -219,11 +222,11 @@ function SupportCaseDetail({ supportCaseId }: { supportCaseId: SupportCaseId }) 
 }
 
 function parseCategory(value: string): SupportCategory {
-  return categories.find(([category]) => category === value)?.[0] ?? 'team'
+  return categories.find((category) => category === value) ?? 'team'
 }
 
 function categoryLabel(value: SupportCategory) {
-  return categories.find(([category]) => category === value)?.[1] ?? value.replaceAll('_', ' ')
+  return supportCaseCategoryLabels[value]
 }
 
 function stateLabel(value: string) {
@@ -234,7 +237,7 @@ function stateLabel(value: string) {
   return 'Open'
 }
 
-function actionText(action: FunctionReturnType<typeof api.support.detail>['actions'][number]) {
+function actionText(action: NonNullable<FunctionReturnType<typeof api.support.detail>>['actions'][number]) {
   if (action.kind === 'opened') return 'Request sent'
   if (action.kind === 'reporter_reply') return 'You replied'
   if (action.kind === 'public_note') return 'Support replied'

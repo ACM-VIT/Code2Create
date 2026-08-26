@@ -1,21 +1,23 @@
 :root {
-  font-family: "Avenir Next", Avenir, "Helvetica Neue", Arial, sans-serif;
-  color: #e7e4de;
-  background: #0a0a09;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: #ececee;
+  background: #0a0a0b;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --background: #0a0a09;
-  --surface: #10100f;
-  --surface-raised: #151513;
-  --text: #e7e4de;
-  --muted: #9d9991;
-  --faint: #68655f;
-  --border: #2b2a27;
-  --border-strong: #46433e;
-  --accent: #d3a0a7;
-  --accent-soft: #281e20;
-  --danger: #d58e8e;
+  --background: #0a0a0b;
+  --surface: #141416;
+  --surface-raised: #1b1b1d;
+  --text: #ececee;
+  --muted: #a0a0a5;
+  --faint: #6d6d72;
+  --border: #2c2c2f;
+  --border-strong: #444449;
+  --accent: #8fb99f;
+  --accent-soft: #18221c;
+  --danger: #c9827c;
+  --danger-border: #694643;
+  --warn: #baa571;
 }
 
 * {
@@ -67,13 +69,13 @@ p {
 h1,
 h2 {
   color: var(--text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: inherit;
   font-weight: 400;
 }
 
 h1 {
   margin-bottom: 16px;
-  font-size: clamp(2.25rem, 6vw, 4rem);
+  font-size: clamp(2rem, 5vw, 3.5rem);
   line-height: 1.02;
   letter-spacing: -0.045em;
 }
@@ -89,7 +91,7 @@ p {
 }
 
 ::selection {
-  color: #0a0a09;
+  color: var(--background);
   background: var(--accent);
 }
 
@@ -98,8 +100,8 @@ p {
 .feedback-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; }
 .feedback-heading strong { font-size: .92rem; }
 .feedback-heading span, .released-feedback-list small { color: var(--muted); font-size: .7rem; }
-.feedback-total { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 2rem; }
-.feedback-total span { color: var(--muted); font-family: "Avenir Next", Avenir, "Helvetica Neue", Arial, sans-serif; font-size: .8rem; }
+.feedback-total { margin: 0; font-size: 2rem; }
+.feedback-total span { color: var(--muted); font-size: .8rem; }
 .feedback-copy { display: grid; gap: 5px; }
 .feedback-copy span { color: var(--muted); font-size: .72rem; }
 .feedback-copy p { margin: 0; white-space: pre-wrap; }

@@ -41,7 +41,7 @@ afterAll(() => {
 });
 
 // The seed exceeds Vitest’s default five-second timeout.
-const seedTestTimeoutMs = 120_000;
+const seedTestTimeoutMs = 180_000;
 
 function seededBackend() {
   const backend = convexTest(schema, modules);
@@ -171,6 +171,64 @@ test("running the demo seed twice changes nothing", async () => {
   });
 
   expect(await countRows()).toEqual(before);
+}, seedTestTimeoutMs);
+
+test("running the demo seed restores fixture-owned team access", async () => {
+  const backend = seededBackend();
+  await seedBoth(backend);
+  const fixture = await backend.run(async (ctx) => {
+    const event = await ctx.db
+      .query("events")
+      .withIndex("by_slug", (index) => index.eq("slug", "code2create-7"))
+      .unique();
+    if (!event) throw new Error("The seeded event is missing.");
+    const team = await ctx.db
+      .query("teams")
+      .withIndex("by_event_code", (index) =>
+        index.eq("eventId", event._id).eq("publicCode", "DEMOT001"),
+      )
+      .unique();
+    if (!team) throw new Error("The participant browser fixture team is missing.");
+    const member = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_team_status", (index) =>
+        index.eq("teamId", team._id).eq("status", "active"),
+      )
+      .first();
+    if (!member) throw new Error("The participant browser fixture has no active member.");
+    const membership = await ctx.db.get(member.membershipId);
+    if (!membership) throw new Error("The participant browser fixture membership is missing.");
+    await revokeSourceGrants(ctx, {
+      eventId: event._id,
+      sourceType: "team_membership",
+      sourceId: member._id,
+      revokedByPersonId: membership.personId,
+      reason: "Exercise local fixture access reconciliation",
+    });
+    return {
+      eventAccessSubjectId: membership.eventAccessSubjectId,
+      teamId: team._id,
+    };
+  });
+
+  await backend.action(api.localDemoSeed.seedDemoState, {
+    confirmation: "seed-code2create-demo",
+  });
+
+  await backend.run(async (ctx) => {
+    const restored = await ctx.db
+      .query("permissionGrants")
+      .withIndex("by_subject_permission_status_scope", (index) =>
+        index
+          .eq("eventAccessSubjectId", fixture.eventAccessSubjectId)
+          .eq("permissionKey", "integration.read")
+          .eq("status", "active")
+          .eq("scopeType", "team")
+          .eq("scopeId", fixture.teamId),
+      )
+      .unique();
+    expect(restored?.sourceType).toBe("team_membership");
+  });
 }, seedTestTimeoutMs);
 
 test("applications sit across the stages the admissions workspace groups by", async () => {

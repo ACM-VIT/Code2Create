@@ -1,6 +1,7 @@
 import { api } from '@code2create/backend/api'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState } from 'react'
+import type { FunctionReturnType } from 'convex/server'
+import { useEffect, useState } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -21,52 +22,29 @@ export function OperationsBrief({
     canRead ? { eventSlug } : 'skip',
   )
   const requestBrief = useMutation(api.operationsIntelligence.request)
-  const operations = useOperationRunner()
-  const observedRequestRef = useRef<{
-    baselineBriefId: string | null
-  } | null>(null)
+  const operations = useOperationRunner<
+    FunctionReturnType<typeof api.operationsIntelligence.request>
+  >()
   const [requesting, setRequesting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [traceOpen, setTraceOpen] = useState(false)
-  useEffect(() => {
-    const observedRequest = observedRequestRef.current
-    if (
-      !observedRequest
-      || !brief
-      || brief.id === observedRequest.baselineBriefId
-    ) {
-      return
-    }
-    operations.confirmObservedSuccess('request')
-    observedRequestRef.current = null
-    setError(null)
-    setMessage('The earlier brief request was confirmed.')
-  }, [brief, operations])
-
   const generate = async () => {
     setRequesting(true)
     setError(null)
     setMessage(null)
     try {
-      await operations.run('request', (clientOperationId) => {
-        observedRequestRef.current = { baselineBriefId: brief?.id ?? null }
-        return () => requestBrief({ eventSlug, clientOperationId })
-      })
-      observedRequestRef.current = null
+      await operations.run(
+        'request',
+        (clientOperationId) => () => requestBrief({ eventSlug, clientOperationId }),
+      )
       setMessage(
         canRead
           ? 'The brief was requested.'
           : 'The brief was requested. Someone with read access can review it.',
       )
     } catch (caught) {
-      if (!operations.hasPending('request')) {
-        observedRequestRef.current = null
-        setError(null)
-        setMessage('The earlier brief request was confirmed.')
-      } else {
-        setError(readableError(caught))
-      }
+      setError(readableError(caught))
     } finally {
       setRequesting(false)
     }
@@ -94,16 +72,18 @@ export function OperationsBrief({
           <button
             type="button"
             className="secondary"
-            disabled={requesting || inProgress}
+            disabled={requesting || (inProgress && !requestPending)}
             onClick={() => void generate()}
           >
-            {requesting || inProgress
-              ? 'Preparing…'
+            {requesting
+              ? 'Confirming…'
               : requestPending
                 ? 'Confirm earlier request'
-                : brief
-                  ? 'Refresh'
-                  : 'Prepare brief'}
+                : inProgress
+                  ? 'Preparing…'
+                  : brief
+                    ? 'Refresh'
+                    : 'Prepare brief'}
           </button>
         ) : null}
       </div>

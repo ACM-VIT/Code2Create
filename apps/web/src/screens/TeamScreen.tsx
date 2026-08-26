@@ -22,6 +22,11 @@ export function TeamScreen({ embedded = false }: { embedded?: boolean }) {
   const joinPending = operations.hasPending('team-join')
   const operationPending = createPending || joinPending
 
+  const changeMode = (nextMode: 'choose' | 'create' | 'join') => {
+    setMode(nextMode)
+    setError(null)
+  }
+
   const create = async (event: FormEvent) => {
     event.preventDefault()
     setBusy(true)
@@ -69,11 +74,11 @@ export function TeamScreen({ embedded = false }: { embedded?: boolean }) {
         </p>
 
         {mode === 'choose' ? (
-          <div className="choice-stack" aria-label="Choose a team action">
-            <button type="button" className="choice" disabled={operationPending || busy} onClick={() => setMode('create')}>
+          <div className="choice-stack" role="group" aria-label="Choose a team action">
+            <button type="button" className="choice" disabled={operationPending || busy} onClick={() => changeMode('create')}>
               <span><strong>Create a team</strong><small>Start a new team as its lead</small></span>
             </button>
-            <button type="button" className="choice" disabled={operationPending || busy} onClick={() => setMode('join')}>
+            <button type="button" className="choice" disabled={operationPending || busy} onClick={() => changeMode('join')}>
               <span><strong>Join a team</strong><small>Use a code from your lead</small></span>
             </button>
           </div>
@@ -86,7 +91,7 @@ export function TeamScreen({ embedded = false }: { embedded?: boolean }) {
             </Field>
             <ErrorNotice message={error} />
             <div className="form-actions">
-              <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => setMode('choose')}>Back</button>
+              <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => changeMode('choose')}>Back</button>
               <button type="submit" className="primary" disabled={busy || joinPending || (!createPending && !name.trim())}>
                 {busy ? 'Creating…' : createPending ? 'Confirm earlier team' : 'Continue'}
               </button>
@@ -100,7 +105,7 @@ export function TeamScreen({ embedded = false }: { embedded?: boolean }) {
             </Field>
             <ErrorNotice message={error} />
             <div className="form-actions">
-              <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => setMode('choose')}>Back</button>
+              <button type="button" className="text-button" disabled={operationPending || busy} onClick={() => changeMode('choose')}>Back</button>
               <button type="submit" className="primary" disabled={busy || createPending || (!joinPending && code.trim().length < 7)}>
                 {busy ? 'Joining…' : joinPending ? 'Confirm earlier join' : 'Continue'}
               </button>

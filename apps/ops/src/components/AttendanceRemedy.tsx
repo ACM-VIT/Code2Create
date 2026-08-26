@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { attendanceHistoryEventLabel, attendanceSessionResultLabels } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { useState, type FormEvent } from 'react'
@@ -14,6 +15,13 @@ type AttendanceParticipant = AttendanceRoster['page'][number]
 type RemedyReview = FunctionReturnType<typeof api.attendanceRemedies.forParticipant>
 type ApprovalResult = 'attended' | 'absent' | 'partial' | 'excused' | 'needs_review'
 type DecisionKind = 'approve' | 'decline'
+type RemedyState = RemedyReview['cases'][number]['state']
+
+const remedyStateLabels: Record<RemedyState, string> = {
+  open: 'Open',
+  approved: 'Approved',
+  declined: 'Declined',
+}
 type MutationAttempt<Result> = {
   hasPending: (slot: string) => boolean
   run: (slot: string, createCommand: () => () => Promise<Result>) => Promise<Result>
@@ -345,7 +353,7 @@ function RemedyReviewBody({
           <ol>
             {review.recentEvents.map((presenceEvent) => (
               <li key={presenceEvent.id}>
-                <span>{eventName(presenceEvent.sourceKind, presenceEvent.transition, presenceEvent.outcome, presenceEvent.reasonCode)}</span>
+                <span>{attendanceHistoryEventLabel(presenceEvent)}</span>
                 <small>{dateTimeName(presenceEvent.effectiveAt)} · recorded {dateTimeName(presenceEvent.recordedAt)}</small>
               </li>
             ))}
@@ -389,14 +397,12 @@ function localDateTime(timestamp: number) {
   return new Date(localTimestamp).toISOString().slice(0, 16)
 }
 
-function resultName(value: string) {
-  if (value === 'not_expected') return 'Not expected'
-  if (value === 'needs_review') return 'Needs review'
-  return value.charAt(0).toUpperCase() + value.slice(1)
+function resultName(value: RemedyReview['result']) {
+  return attendanceSessionResultLabels[value]
 }
 
-function stateName(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1)
+function stateName(value: RemedyState) {
+  return remedyStateLabels[value]
 }
 
 function durationName(milliseconds: number) {
@@ -415,19 +421,4 @@ function dateTimeName(timestamp: number) {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(timestamp)
-}
-
-function eventName(
-  sourceKind: 'scanner' | 'staff_reconciliation' | 'manual_import',
-  transition: string,
-  outcome: string,
-  reasonCode: string,
-) {
-  const source = sourceKind === 'scanner'
-    ? 'Scanner'
-    : sourceKind === 'manual_import'
-      ? 'Paper import'
-      : 'Live correction'
-  const detail = outcome === 'reconciled' ? reasonCode : `${transition} · ${outcome}`
-  return `${source}: ${detail.replaceAll('_', ' ')}`
 }

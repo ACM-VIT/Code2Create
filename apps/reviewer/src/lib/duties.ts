@@ -4,10 +4,10 @@ import type { DutyKey } from '@/theme'
 
 export const dutyMeta: Record<Surface, { key: DutyKey; label: string; icon: DutyIconName }> = {
   reviews: { key: 'judging', label: 'Judging', icon: 'judging' },
-  attendance: { key: 'door', label: 'Door', icon: 'door' },
+  attendance: { key: 'door', label: 'Check-in', icon: 'door' },
   floor: { key: 'hall', label: 'Hall map', icon: 'hall' },
-  support: { key: 'help', label: 'Help', icon: 'help' },
-  operations: { key: 'pulse', label: 'Pulse', icon: 'pulse' },
+  support: { key: 'help', label: 'Help desk', icon: 'help' },
+  operations: { key: 'pulse', label: 'Event status', icon: 'pulse' },
   incidents: { key: 'incident', label: 'Incidents', icon: 'incident' },
 }
 

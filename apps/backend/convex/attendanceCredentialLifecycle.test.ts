@@ -269,6 +269,7 @@ async function seedCredentialFixture(backend: BackendTest, now: number) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60 * 60_000,
       endsAt: now + 60 * 60_000,
       version: 1,

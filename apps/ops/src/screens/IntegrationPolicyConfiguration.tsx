@@ -5,6 +5,8 @@ import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
+import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -12,6 +14,9 @@ import { useOperationRunner } from '../lib/operations'
 
 type Configuration = FunctionReturnType<typeof api.integrationPolicyConfiguration.current>
 type Policy = Configuration['publishedPolicy']['policy']
+type IntegrationPolicyOperationResult =
+  | FunctionReturnType<typeof api.integrationPolicyConfiguration.createDraft>
+  | FunctionReturnType<typeof api.integrationPolicyConfiguration.publish>
 type EditorPolicy = Omit<
   Policy,
   | 'maxActiveGitHubRepositoriesPerTeam'
@@ -33,7 +38,7 @@ export function IntegrationPolicyConfiguration({
   const configuration = useQuery(api.integrationPolicyConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.integrationPolicyConfiguration.createDraft)
   const publish = useMutation(api.integrationPolicyConfiguration.publish)
-  const operations = useOperationRunner()
+  const operations = useOperationRunner<IntegrationPolicyOperationResult>()
   const validation = useQuery(
     api.integrationPolicyConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPolicy
@@ -49,6 +54,20 @@ export function IntegrationPolicyConfiguration({
   const [error, setError] = useState<string | null>(null)
   const draftPending = operations.hasPending('integration-policy-draft')
   const publishPending = operations.hasPending('integration-policy-publish')
+  const pendingOperation = publishPending
+    ? {
+        slot: 'integration-policy-publish',
+        title: 'Finish publishing the code and design policy',
+        action: 'Confirm earlier publication',
+      }
+    : draftPending
+      ? {
+          slot: 'integration-policy-draft',
+          title: 'Finish saving the code and design policy draft',
+          action: 'Confirm earlier save',
+        }
+      : null
+  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!configuration) return
@@ -59,17 +78,6 @@ export function IntegrationPolicyConfiguration({
     setLoadedPolicy(sourceKey)
     setPublishArmed(false)
   }, [configuration, loadedPolicy])
-
-  useEffect(() => {
-    if (!configuration) return
-    const source = configuration.draftPolicy ?? configuration.publishedPolicy
-    if (draftPending && `${source.id}:${source.checksum}` !== loadedPolicy) {
-      operations.confirmObservedSuccess('integration-policy-draft')
-    }
-    if (publishPending && !configuration.draftPolicy) {
-      operations.confirmObservedSuccess('integration-policy-publish')
-    }
-  }, [configuration, draftPending, loadedPolicy, operations, publishPending])
 
   if (configuration === undefined || policy === null) {
     return (
@@ -88,6 +96,7 @@ export function IntegrationPolicyConfiguration({
 
   const saveDraft = async (event: FormEvent) => {
     event.preventDefault()
+    if (busy || operationPending) return
     setBusy(true)
     setError(null)
     try {
@@ -110,7 +119,7 @@ export function IntegrationPolicyConfiguration({
 
   const publishDraft = async () => {
     const draft = configuration.draftPolicy
-    if (!draft || !validation?.valid) return
+    if (busy || operationPending || !draft || !validation?.valid) return
     setBusy(true)
     setError(null)
     try {
@@ -130,11 +139,25 @@ export function IntegrationPolicyConfiguration({
     }
   }
 
+  const confirmPendingOperation = async () => {
+    if (busy || pendingOperation === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      await operations.retryPending(pendingOperation.slot)
+      setPublishArmed(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const published = configuration.publishedPolicy.policy
   return (
-    <section className="track-config-shell intake-policy-shell">
+    <section className="configuration-shell intake-policy-shell">
       <ConfigurationTabs visibility={tabs} />
-      <header className="page-heading track-config-heading">
+      <header className="page-heading configuration-heading">
         <div>
           <h1>Code and design policy</h1>
           <p className="muted">
@@ -163,7 +186,16 @@ export function IntegrationPolicyConfiguration({
         </div>
       </dl>
 
-      {configuration.draftPolicy ? (
+      {pendingOperation ? (
+        <PendingOperationRecovery
+          action={pendingOperation.action}
+          busy={busy}
+          onConfirm={() => void confirmPendingOperation()}
+          title={pendingOperation.title}
+        />
+      ) : null}
+
+      {!operationPending && configuration.draftPolicy ? (
         <section className="catalog-review">
           <div className="section-heading">
             <div>
@@ -199,12 +231,12 @@ export function IntegrationPolicyConfiguration({
         </section>
       ) : null}
 
-      {configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
+      {!operationPending && configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish this code and design policy?</h2>
           <p className="muted">
-            Limits and freezes take effect from committed server state. A changed GitHub topic queues
-            bounded rechecks for every active repository.
+            Limits and freezes take effect as soon as this is published. Changing the required
+            GitHub topic rechecks every active repository in the background.
           </p>
           <label className="field">
             <span>Why this changed</span>
@@ -240,8 +272,13 @@ export function IntegrationPolicyConfiguration({
         </section>
       ) : null}
 
-      {configuration.canDraft ? (
-        <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
+      {!operationPending && configuration.canDraft ? (
+        <ConfigurationEditorDisclosure
+          defaultOpen={Boolean(configuration.draftPolicy)}
+          description="Repository evidence, Figma files, per-team limits, and change-freeze times."
+          title={configuration.draftPolicy ? 'Continue code-and-design draft' : 'Edit code and design policy'}
+        >
+          <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
           <fieldset disabled={draftPending} style={{ display: 'contents' }}>
             <PolicySection
               title="GitHub evidence"
@@ -327,7 +364,7 @@ export function IntegrationPolicyConfiguration({
             </PolicySection>
           </fieldset>
 
-          <section className="track-save">
+          <section className="configuration-save">
             <label className="field">
               <span>Why this changed</span>
               <textarea
@@ -351,7 +388,8 @@ export function IntegrationPolicyConfiguration({
                     : 'Save draft'}
             </button>
           </section>
-        </form>
+          </form>
+        </ConfigurationEditorDisclosure>
       ) : (
         <p className="notice">You can view this policy but cannot create a draft.</p>
       )}

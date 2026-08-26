@@ -27,6 +27,7 @@ import {
   findOperation,
   operationFingerprint,
   recordOperation,
+  storedOperationResult,
 } from "./lib/operations";
 import {
   permissionCatalog,
@@ -72,6 +73,13 @@ const publishedOperationResult = z
     publishedVersionId: z.string(),
     publishedVersion: z.number().int().positive(),
     checksum: z.string(),
+  })
+  .strict();
+const bundleApplicationOperationResult = z
+  .object({
+    accessVersion: z.number().int().positive(),
+    grantCount: z.number().int().nonnegative(),
+    createdCount: z.number().int().nonnegative(),
   })
   .strict();
 
@@ -538,30 +546,29 @@ export const saveDraft = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const parsed = prior.resultJson
-        ? savedDraftOperationResult.safeParse(JSON.parse(prior.resultJson))
-        : null;
-      if (!parsed || !parsed.success) {
-        throw new Error("Prior permission bundle draft result is invalid.");
-      }
+      const stored = storedOperationResult(
+        prior.resultJson,
+        "permission bundle draft",
+        savedDraftOperationResult,
+      );
       const bundleId = ctx.db.normalizeId(
         "permissionBundles",
-        parsed.data.bundleId,
+        stored.bundleId,
       );
       const draftVersionId = ctx.db.normalizeId(
         "permissionBundleVersions",
-        parsed.data.draftVersionId,
+        stored.draftVersionId,
       );
       if (!bundleId || !draftVersionId) {
         throw new Error("Prior permission bundle draft IDs are invalid.");
       }
       return {
         bundleId,
-        bundleVersion: parsed.data.bundleVersion,
+        bundleVersion: stored.bundleVersion,
         draftVersionId,
-        draftVersion: parsed.data.draftVersion,
-        draftRevision: parsed.data.draftRevision,
-        checksum: parsed.data.checksum,
+        draftVersion: stored.draftVersion,
+        draftRevision: stored.draftRevision,
+        checksum: stored.checksum,
       };
     }
 
@@ -830,29 +837,28 @@ export const publish = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const parsed = prior.resultJson
-        ? publishedOperationResult.safeParse(JSON.parse(prior.resultJson))
-        : null;
-      if (!parsed || !parsed.success) {
-        throw new Error("Prior permission bundle publication result is invalid.");
-      }
+      const stored = storedOperationResult(
+        prior.resultJson,
+        "permission bundle publication",
+        publishedOperationResult,
+      );
       const bundleId = ctx.db.normalizeId(
         "permissionBundles",
-        parsed.data.bundleId,
+        stored.bundleId,
       );
       const publishedVersionId = ctx.db.normalizeId(
         "permissionBundleVersions",
-        parsed.data.publishedVersionId,
+        stored.publishedVersionId,
       );
       if (!bundleId || !publishedVersionId) {
         throw new Error("Prior permission bundle publication IDs are invalid.");
       }
       return {
         bundleId,
-        bundleVersion: parsed.data.bundleVersion,
+        bundleVersion: stored.bundleVersion,
         publishedVersionId,
-        publishedVersion: parsed.data.publishedVersion,
-        checksum: parsed.data.checksum,
+        publishedVersion: stored.publishedVersion,
+        checksum: stored.checksum,
       };
     }
 
@@ -1310,22 +1316,17 @@ export const apply = mutation({
     });
     if (prior) {
       const batchId = ctx.db.normalizeId("permissionGrantBatches", prior.targetId);
-      const batch = batchId
-        ? await ctx.db.get("permissionGrantBatches", batchId)
-        : null;
-      if (
-        !batch ||
-        batch.eventId !== event._id ||
-        batch.targetPersonId !== args.targetPersonId ||
-        batch.status !== "complete"
-      ) {
-        throw new Error("Prior permission bundle application no longer resolves.");
-      }
+      if (!batchId) throw new Error("Prior permission bundle application is invalid.");
+      const stored = storedOperationResult(
+        prior.resultJson,
+        "permission bundle application",
+        bundleApplicationOperationResult,
+      );
       return {
-        batchId: batch._id,
-        accessVersion: batch.resultAccessVersion,
-        grantCount: batch.resultGrantIds.length,
-        createdCount: batch.createdCount,
+        batchId,
+        accessVersion: stored.accessVersion,
+        grantCount: stored.grantCount,
+        createdCount: stored.createdCount,
       };
     }
 
@@ -1462,6 +1463,11 @@ export const apply = mutation({
       requestFingerprint,
       targetType: "permission_grant_batch",
       targetId: batchId,
+      resultJson: JSON.stringify({
+        accessVersion,
+        grantCount: resultGrantIds.length,
+        createdCount,
+      }),
       createdAt: now,
     });
     return {

@@ -5,6 +5,7 @@ import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
+import { attendanceExportExpiresAt } from "./lib/attendanceExportLifetime";
 import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
@@ -12,40 +13,28 @@ import {
   requireFreshAuthSession,
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationVersion,
+} from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
-import { attendanceExportField } from "./values";
+import {
+  attendanceExportField,
+  attendanceExportSnapshotRow,
+  type AttendanceExportSnapshotRow,
+} from "./values";
 import { exportWorkpool } from "./workpools";
 
 const maximumExportRows = 1_200;
-const minimumExportLifetimeMs = 15 * 60 * 1_000;
-const maximumExportLifetimeMs = 7 * 24 * 60 * 60 * 1_000;
 const exportIdValidator = v.id("attendanceExports");
 const skipGenerationKind = "skip" as const;
 const generateGenerationKind = "generate" as const;
 const expiredExportStatus = "expired" as const;
 
 type ExportField = Doc<"attendanceExports">["fields"][number];
-
-const snapshotRow = v.object({
-  participantReference: v.string(),
-  fullName: v.string(),
-  email: v.string(),
-  participantClass: v.string(),
-  institution: v.string(),
-  yearOfStudy: v.string(),
-  vitRegistrationNumber: v.string(),
-  expectation: v.string(),
-  state: v.string(),
-  result: v.string(),
-  confirmedAt: v.optional(v.number()),
-  presentDurationMs: v.optional(v.number()),
-  late: v.boolean(),
-  sessionName: v.string(),
-  sessionStartsAt: v.number(),
-  sessionEndsAt: v.number(),
-});
 
 const exportView = v.object({
   id: v.id("attendanceExports"),
@@ -82,19 +71,6 @@ function validateFields(fields: ExportField[]) {
   }
 }
 
-function validateExpiry(expiresAt: number, now: number) {
-  if (
-    !Number.isSafeInteger(expiresAt) ||
-    expiresAt < now + minimumExportLifetimeMs ||
-    expiresAt > now + maximumExportLifetimeMs
-  ) {
-    throw new ConvexError({
-      code: "INVALID_EXPORT_EXPIRY",
-      message: "Choose an export lifetime between 15 minutes and seven days.",
-    });
-  }
-}
-
 export const generationFinished = exportWorkpool.defineOnComplete<
   DataModel,
   typeof exportIdValidator
@@ -121,7 +97,13 @@ export const request = mutation({
     expectedSessionVersion: v.number(),
     purpose: v.string(),
     fields: v.array(attendanceExportField),
-    expiresAt: v.number(),
+    lifetime: v.union(
+      v.literal("fifteen_minutes"),
+      v.literal("one_hour"),
+      v.literal("one_day"),
+      v.literal("three_days"),
+      v.literal("seven_days"),
+    ),
     clientOperationId: v.string(),
   },
   returns: v.object({ exportId: v.id("attendanceExports"), version: v.number() }),
@@ -135,7 +117,7 @@ export const request = mutation({
       args.expectedSessionVersion,
       purpose,
       ...args.fields,
-      args.expiresAt,
+      args.lifetime,
     ]);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const session = await ctx.db.get(args.sessionId);
@@ -162,14 +144,14 @@ export const request = mutation({
     });
     if (prior) {
       const exportId = ctx.db.normalizeId("attendanceExports", prior.targetId);
-      const exportRecord = exportId ? await ctx.db.get(exportId) : null;
-      if (!exportRecord || exportRecord.eventId !== event._id) {
-        throw new Error("Prior attendance export no longer resolves.");
-      }
-      return { exportId: exportRecord._id, version: exportRecord.version };
+      if (!exportId) throw new Error("The stored attendance export is invalid.");
+      return {
+        exportId,
+        version: storedOperationVersion(prior.resultJson, "attendance export"),
+      };
     }
     const requestedAt = Date.now();
-    validateExpiry(args.expiresAt, requestedAt);
+    const expiresAt = attendanceExportExpiresAt(args.lifetime, requestedAt);
     if (session.version !== args.expectedSessionVersion) {
       throw new ConvexError({
         code: "SESSION_CHANGED",
@@ -196,7 +178,7 @@ export const request = mutation({
       purpose,
       fields: args.fields,
       status: "pending",
-      expiresAt: args.expiresAt,
+      expiresAt,
       requestedAt,
       version: 1,
     });
@@ -219,6 +201,7 @@ export const request = mutation({
       requestFingerprint,
       targetType: "attendance_export",
       targetId: exportId,
+      resultJson: "1",
       createdAt: requestedAt,
     });
     await writeAuditEvent(ctx, {
@@ -234,7 +217,7 @@ export const request = mutation({
       nextSummary: JSON.stringify({
         sessionVersion: session.version,
         fields: args.fields,
-        expiresAt: args.expiresAt,
+        expiresAt,
       }),
       reason: purpose,
     });
@@ -302,7 +285,7 @@ export const generationContext = internalQuery({
       exportId: v.id("attendanceExports"),
       fields: v.array(attendanceExportField),
       snapshotAt: v.number(),
-      rows: v.array(snapshotRow),
+      rows: v.array(attendanceExportSnapshotRow),
     }),
   ),
   handler: async (ctx, args) => {
@@ -345,25 +328,9 @@ export const generationContext = internalQuery({
       "vit_registration_number",
     ]);
     const needsPerson = includesAny(exportRecord.fields, ["full_name", "email"]);
-    const needsMembership = needsProfile || needsPerson || exportRecord.fields.includes("participant_class");
-    const rows: Array<{
-      participantReference: string;
-      fullName: string;
-      email: string;
-      participantClass: string;
-      institution: string;
-      yearOfStudy: string;
-      vitRegistrationNumber: string;
-      expectation: string;
-      state: string;
-      result: string;
-      confirmedAt?: number;
-      presentDurationMs?: number;
-      late: boolean;
-      sessionName: string;
-      sessionStartsAt: number;
-      sessionEndsAt: number;
-    }> = [];
+    const needsMembership =
+      needsProfile || needsPerson || exportRecord.fields.includes("participant_class");
+    const rows: AttendanceExportSnapshotRow[] = [];
     const batchSize = 100;
     for (let offset = 0; offset < participants.length; offset += batchSize) {
       const batch = participants.slice(offset, offset + batchSize);
@@ -389,27 +356,55 @@ export const generationContext = internalQuery({
           if (needsPerson && !participantPerson) {
             throw new Error("Attendance export identity no longer resolves.");
           }
+          const fullName = profile?.fullName ?? participantPerson?.displayName;
           return {
-            participantReference: participant.membershipId,
-            fullName: profile?.fullName ?? participantPerson?.displayName ?? "",
-            email: participantPerson?.verifiedEmail ?? "",
-            participantClass: membership?.participantClass ?? "",
-            institution: profile?.institution ?? "",
-            yearOfStudy: profile?.yearOfStudy ?? "",
-            vitRegistrationNumber: profile?.vitRegistrationNumber ?? "",
-            expectation: participant.expectation,
-            state: participant.state,
-            result: participant.result ?? "",
-            ...(participant.confirmedAt !== undefined
+            ...(exportRecord.fields.includes("participant_reference")
+              ? { participantReference: participant.membershipId }
+              : {}),
+            ...(exportRecord.fields.includes("full_name") && fullName !== undefined
+              ? { fullName }
+              : {}),
+            ...(exportRecord.fields.includes("email") && participantPerson
+              ? { email: participantPerson.verifiedEmail }
+              : {}),
+            ...(exportRecord.fields.includes("participant_class") && membership
+              ? { participantClass: membership.participantClass }
+              : {}),
+            ...(exportRecord.fields.includes("institution") && profile
+              ? { institution: profile.institution }
+              : {}),
+            ...(exportRecord.fields.includes("year_of_study") && profile
+              ? { yearOfStudy: profile.yearOfStudy }
+              : {}),
+            ...(exportRecord.fields.includes("vit_registration_number") &&
+            profile?.vitRegistrationNumber !== undefined
+              ? { vitRegistrationNumber: profile.vitRegistrationNumber }
+              : {}),
+            ...(exportRecord.fields.includes("expectation")
+              ? { expectation: participant.expectation }
+              : {}),
+            ...(exportRecord.fields.includes("state") ? { state: participant.state } : {}),
+            ...(exportRecord.fields.includes("result") && participant.result !== undefined
+              ? { result: participant.result }
+              : {}),
+            ...(exportRecord.fields.includes("confirmed_at") &&
+            participant.confirmedAt !== undefined
               ? { confirmedAt: participant.confirmedAt }
               : {}),
-            ...(participant.presentDurationMs !== undefined
+            ...(exportRecord.fields.includes("present_duration_minutes") &&
+            participant.presentDurationMs !== undefined
               ? { presentDurationMs: participant.presentDurationMs }
               : {}),
-            late: participant.late,
-            sessionName: session.name,
-            sessionStartsAt: session.startsAt,
-            sessionEndsAt: session.endsAt,
+            ...(exportRecord.fields.includes("late") ? { late: participant.late } : {}),
+            ...(exportRecord.fields.includes("session_name")
+              ? { sessionName: session.name }
+              : {}),
+            ...(exportRecord.fields.includes("session_starts_at")
+              ? { sessionStartsAt: session.startsAt }
+              : {}),
+            ...(exportRecord.fields.includes("session_ends_at")
+              ? { sessionEndsAt: session.endsAt }
+              : {}),
           };
         }),
       );

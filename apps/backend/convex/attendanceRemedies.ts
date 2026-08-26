@@ -3,6 +3,7 @@ import {
   paginationResultValidator,
 } from "convex/server";
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -17,18 +18,24 @@ import {
   requireMembership,
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
-import { requirePermission } from "./lib/permissions";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+  storedOperationVersion,
+} from "./lib/operations";
+import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedLongText, normalizedText } from "./lib/strings";
+import {
+  attendanceCorrectionKind,
+  attendancePresenceOutcome,
+  attendancePresenceSourceKind,
+  attendancePresenceTransition,
+  attendanceSessionResult,
+} from "./values";
 
-const finalAttendanceResult = v.union(
-  v.literal("attended"),
-  v.literal("absent"),
-  v.literal("partial"),
-  v.literal("excused"),
-  v.literal("not_expected"),
-  v.literal("needs_review"),
-);
+const finalAttendanceResult = attendanceSessionResult;
 
 const approvedAttendanceResult = v.union(
   v.literal("attended"),
@@ -57,6 +64,15 @@ const remedyResolution = v.union(
     participantNote: v.string(),
   }),
 );
+
+const remedyDecisionOperationResult = z
+  .object({
+    caseId: z.string().min(1),
+    state: z.enum(["approved", "declined"]),
+    version: z.number().int().positive(),
+    participantVersion: z.number().int().positive(),
+  })
+  .strict();
 
 type ReadCtx = QueryCtx | MutationCtx;
 
@@ -268,13 +284,22 @@ export const mine = query({
       scopeType: "self",
       scopeId: membership._id,
     });
-    const participantPage = await ctx.db
-      .query("attendanceSessionParticipants")
-      .withIndex("by_membership_completed", (index) =>
-        index.eq("membershipId", membership._id).gt("completedAt", 0),
-      )
-      .order("desc")
-      .paginate(args.paginationOpts);
+    const [participantPage, openGrantIds] = await Promise.all([
+      ctx.db
+        .query("attendanceSessionParticipants")
+        .withIndex("by_membership_completed", (index) =>
+          index.eq("membershipId", membership._id).gt("completedAt", 0),
+        )
+        .order("desc")
+        .paginate(args.paginationOpts),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "attendance.remedy.self.open",
+        scopeType: "self",
+        scopeId: membership._id,
+      }),
+    ]);
     const sessions = [];
     for (const participant of participantPage.page) {
       const session = await ctx.db.get(participant.sessionId);
@@ -333,7 +358,9 @@ export const mine = query({
             }
           : null,
         canRequest:
-          participant.expectation !== "not_expected" && latestCase?.state !== "open",
+          openGrantIds.length > 0 &&
+          participant.expectation !== "not_expected" &&
+          latestCase?.state !== "open",
       });
     }
     return { ...participantPage, page: sessions };
@@ -376,11 +403,11 @@ export const openMine = mutation({
     });
     if (prior) {
       const caseId = ctx.db.normalizeId("attendanceResultRemedyCases", prior.targetId);
-      const remedy = caseId ? await ctx.db.get(caseId) : null;
-      if (!remedy || remedy.eventId !== event._id || remedy.membershipId !== membership._id) {
-        throw new Error("Prior attendance remedy request no longer resolves.");
-      }
-      return { caseId: remedy._id, version: remedy.version };
+      if (!caseId) throw new Error("The stored attendance remedy request is invalid.");
+      return {
+        caseId,
+        version: storedOperationVersion(prior.resultJson, "attendance remedy request"),
+      };
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -409,6 +436,7 @@ export const openMine = mutation({
       requestFingerprint,
       targetType: "attendance_result_remedy",
       targetId: opened.caseId,
+      resultJson: "1",
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -469,11 +497,11 @@ export const open = mutation({
     });
     if (prior) {
       const caseId = ctx.db.normalizeId("attendanceResultRemedyCases", prior.targetId);
-      const remedy = caseId ? await ctx.db.get(caseId) : null;
-      if (!remedy || remedy.eventId !== event._id) {
-        throw new Error("Prior attendance remedy case no longer resolves.");
-      }
-      return { caseId: remedy._id, version: remedy.version };
+      if (!caseId) throw new Error("The stored attendance remedy case is invalid.");
+      return {
+        caseId,
+        version: storedOperationVersion(prior.resultJson, "attendance remedy case"),
+      };
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -503,6 +531,7 @@ export const open = mutation({
       requestFingerprint,
       targetType: "attendance_result_remedy",
       targetId: opened.caseId,
+      resultJson: "1",
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -560,14 +589,10 @@ export const forParticipant = query({
     recentEvents: v.array(
       v.object({
         id: v.id("attendancePresenceEvents"),
-        sourceKind: v.union(
-          v.literal("scanner"),
-          v.literal("staff_reconciliation"),
-          v.literal("manual_import"),
-        ),
-        transition: v.string(),
-        outcome: v.string(),
-        reasonCode: v.string(),
+        sourceKind: attendancePresenceSourceKind,
+        transition: attendancePresenceTransition,
+        outcome: attendancePresenceOutcome,
+        correctionKind: v.optional(attendanceCorrectionKind),
         effectiveAt: v.number(),
         recordedAt: v.number(),
       }),
@@ -650,7 +675,9 @@ export const forParticipant = query({
         sourceKind: presenceEvent.sourceKind,
         transition: presenceEvent.transition,
         outcome: presenceEvent.outcome,
-        reasonCode: presenceEvent.reasonCode,
+        ...(presenceEvent.correctionKind !== undefined
+          ? { correctionKind: presenceEvent.correctionKind }
+          : {}),
         effectiveAt: presenceEvent.capturedAt,
         recordedAt: presenceEvent.receivedAt,
       })),
@@ -783,22 +810,20 @@ export const decide = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const caseId = ctx.db.normalizeId("attendanceResultRemedyCases", prior.targetId);
-      const remedy = caseId ? await ctx.db.get(caseId) : null;
-      const participant = remedy ? await ctx.db.get(remedy.sessionParticipantId) : null;
-      if (
-        !remedy ||
-        remedy.eventId !== event._id ||
-        (remedy.state !== "approved" && remedy.state !== "declined") ||
-        !participant
-      ) {
-        throw new Error("Prior attendance remedy decision no longer resolves.");
+      const result = storedOperationResult(
+        prior.resultJson,
+        "attendance remedy decision",
+        remedyDecisionOperationResult,
+      );
+      const caseId = ctx.db.normalizeId("attendanceResultRemedyCases", result.caseId);
+      if (!caseId || caseId !== prior.targetId) {
+        throw new Error("The stored attendance remedy decision is invalid.");
       }
       return {
-        caseId: remedy._id,
-        state: remedy.state,
-        version: remedy.version,
-        participantVersion: participant.version,
+        caseId,
+        state: result.state,
+        version: result.version,
+        participantVersion: result.participantVersion,
       };
     }
     const remedy = await ctx.db.get(args.caseId);
@@ -910,6 +935,12 @@ export const decide = mutation({
         updatedAt: now,
       });
     }
+    const result = {
+      caseId: remedy._id,
+      state,
+      version: remedy.version + 1,
+      participantVersion,
+    };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -918,6 +949,7 @@ export const decide = mutation({
       requestFingerprint,
       targetType: "attendance_result_remedy",
       targetId: remedy._id,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -947,11 +979,6 @@ export const decide = mutation({
       }),
       reason,
     });
-    return {
-      caseId: remedy._id,
-      state,
-      version: remedy.version + 1,
-      participantVersion,
-    };
+    return result;
   },
 });

@@ -20,7 +20,7 @@ const deliveryStateLabel: Record<DeliveryState, string> = {
   retry_wait: 'Waiting to retry',
   sent: 'Sent',
   delivery_delayed: 'Delayed',
-  delivered: 'Mail server delivered',
+  delivered: 'Delivered to mail server',
   bounced: 'Bounced',
   failed: 'Failed',
   suppressed: 'Suppressed',
@@ -94,13 +94,13 @@ function deliverySentence(
   const missing = new Set([...unreachable, ...stuck]).size
   if (missing === 0) {
     return deliveredCount === recipients.length
-      ? `Everyone on ${teamName} has the decision.`
-      : `${deliveredCount} of ${recipients.length} on ${teamName} are confirmed to have the decision. The rest are still in the mail queue.`
+      ? `The decision email reached every ${teamName} member's mail server. This does not confirm that anyone read it.`
+      : `${deliveredCount} of ${recipients.length} decision emails for ${teamName} reached a recipient mail server. The rest are still processing.`
   }
   if (missing === recipients.length) {
-    return `Nobody on ${teamName} has the decision yet. Tell the team another way.`
+    return `No decision email for ${teamName} has a confirmed mail-server delivery. Use another contact route.`
   }
-  return `${missing} of ${recipients.length} on ${teamName} do not have the decision yet.`
+  return `${missing} of ${recipients.length} decision emails for ${teamName} need another contact route.`
 }
 
 function deliveryNeedsAttention(state: DeliveryState) {
@@ -177,11 +177,8 @@ function DeliveryRow({ recipient }: { recipient: DeliveryRecipient }) {
           {destination ? ` · email ${destination.status === 'active' ? 'enabled' : 'disabled'}` : ''}
           {delivery?.updatedAt ? ` · ${new Date(delivery.updatedAt).toLocaleString()}` : ''}
         </small>
-        {delivery?.providerErrorCode ? (
-          <small>{delivery.providerErrorCode.replaceAll('_', ' ')}</small>
-        ) : null}
-        {delivery?.state === 'unknown' ? (
-          <small>Check the Cloudflare Email logs before sending again.</small>
+        {delivery && deliveryNeedsAttention(delivery.state) ? (
+          <small>{deliveryIssueMessage(delivery.state)}</small>
         ) : null}
       </div>
       {canRetry || canDisable ? (
@@ -238,4 +235,12 @@ function DeliveryRow({ recipient }: { recipient: DeliveryRecipient }) {
       ) : null}
     </div>
   )
+}
+
+function deliveryIssueMessage(state: DeliveryState) {
+  if (state === 'bounced') return "The recipient's mail server rejected this email."
+  if (state === 'suppressed') return 'Email to this address has been stopped.'
+  if (state === 'delivery_delayed') return 'Cloudflare has delayed this delivery.'
+  if (state === 'unknown') return 'Check the Cloudflare Email logs before sending again.'
+  return 'Cloudflare could not send this email. Check the Email logs before retrying.'
 }

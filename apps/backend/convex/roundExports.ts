@@ -2,6 +2,7 @@ import {
   paginationOptsValidator,
 } from "convex/server";
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
@@ -25,13 +26,15 @@ import {
   findOperation,
   operationFingerprint,
   recordOperation,
+  storedOperationResult,
+  storedOperationVersion,
 } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { activeRoundPause } from "./lib/reviewRoundPauses";
 import { roundExportCsvRow } from "./lib/roundExportFormat";
 import { normalizedText } from "./lib/strings";
 import { appendRoundExportJobReadFactById } from "./lib/operationsAutonomyReadFacts/roundExportJobs";
-import { requireProjectTrackSelection } from "./lib/trackCatalog";
+import { reviewRoundStatus } from "./values";
 import { exportWorkpool } from "./workpools";
 
 const exportFormatVersion = 1;
@@ -78,7 +81,7 @@ const exportWorkspace = v.object({
   round: v.object({
     id: v.id("reviewRounds"),
     name: v.string(),
-    status: v.string(),
+    status: reviewRoundStatus,
     version: v.number(),
   }),
   activeExport: v.union(
@@ -86,14 +89,13 @@ const exportWorkspace = v.object({
     v.object({
       id: v.id("roundExports"),
       revision: v.number(),
-      state: v.string(),
+      state: activeExportState,
       version: v.number(),
       requestedByName: v.string(),
       requestedAt: v.number(),
       uploadedAt: v.optional(v.number()),
       verifiedByName: v.optional(v.string()),
       verifiedAt: v.optional(v.number()),
-      failureCode: v.optional(v.string()),
       counts: exportCounts,
       files: v.optional(
         v.object({
@@ -121,6 +123,30 @@ type StartResult = {
   exportVersion: number;
   state: ActiveExportState;
 };
+
+const roundCloseStartOperationResult = z
+  .object({
+    roundExportId: z.string().min(1),
+    closeSnapshotId: z.string().min(1),
+    roundVersion: z.number().int().positive(),
+    exportVersion: z.number().int().positive(),
+    state: z.literal("generating"),
+  })
+  .strict();
+
+const roundExportRetryOperationResult = z
+  .object({
+    exportVersion: z.number().int().positive(),
+    state: z.literal("generating"),
+  })
+  .strict();
+
+const roundExportVerificationOperationResult = z
+  .object({
+    roundId: z.string().min(1),
+    closedAt: z.number().int().nonnegative(),
+  })
+  .strict();
 
 function unresolvedCorrection(state: Doc<"scorecardCorrectionCases">["state"]) {
   return state === "requested" || state === "open";
@@ -265,14 +291,13 @@ export const workspace = query({
     let activeExport: {
       id: Id<"roundExports">;
       revision: number;
-      state: string;
+      state: ActiveExportState;
       version: number;
       requestedByName: string;
       requestedAt: number;
       uploadedAt?: number;
       verifiedByName?: string;
       verifiedAt?: number;
-      failureCode?: string;
       counts: Doc<"roundExports">["counts"];
       files?: {
         json: { byteCount: number; sha256: string };
@@ -300,9 +325,6 @@ export const workspace = query({
         ...(verifier ? { verifiedByName: verifier.displayName } : {}),
         ...(exportRecord.verifiedAt !== undefined
           ? { verifiedAt: exportRecord.verifiedAt }
-          : {}),
-        ...(exportRecord.failureCode !== undefined
-          ? { failureCode: exportRecord.failureCode }
           : {}),
         counts: exportRecord.counts,
         ...(readGrants.length > 0 && exportRecord.files
@@ -396,18 +418,25 @@ export const start = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const roundExportId = ctx.db.normalizeId("roundExports", prior.targetId);
-      const exportRecord = roundExportId ? await ctx.db.get(roundExportId) : null;
-      const round = exportRecord ? await ctx.db.get(exportRecord.roundId) : null;
-      if (!exportRecord || !round || exportRecord.state === "superseded") {
-        throw new Error("Prior round-close export no longer resolves.");
+      const result = storedOperationResult(
+        prior.resultJson,
+        "round-close start",
+        roundCloseStartOperationResult,
+      );
+      const roundExportId = ctx.db.normalizeId("roundExports", result.roundExportId);
+      const closeSnapshotId = ctx.db.normalizeId(
+        "roundCloseSnapshots",
+        result.closeSnapshotId,
+      );
+      if (!roundExportId || !closeSnapshotId || roundExportId !== prior.targetId) {
+        throw new Error("The stored round-close start is invalid.");
       }
       return {
-        roundExportId: exportRecord._id,
-        closeSnapshotId: exportRecord.closeSnapshotId,
-        roundVersion: round.version,
-        exportVersion: exportRecord.version,
-        state: exportRecord.state,
+        roundExportId,
+        closeSnapshotId,
+        roundVersion: result.roundVersion,
+        exportVersion: result.exportVersion,
+        state: result.state,
       };
     }
     const round = await requireRound(ctx, event._id, args.roundId);
@@ -713,6 +742,13 @@ export const start = mutation({
         version: closingRoundVersion,
       }),
     ]);
+    const result: StartResult = {
+      roundExportId,
+      closeSnapshotId,
+      roundVersion: closingRoundVersion,
+      exportVersion: 1,
+      state: "generating",
+    };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -721,6 +757,7 @@ export const start = mutation({
       requestFingerprint,
       targetType: "round_export",
       targetId: roundExportId,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -743,13 +780,7 @@ export const start = mutation({
       }),
       reason,
     });
-    return {
-      roundExportId,
-      closeSnapshotId,
-      roundVersion: closingRoundVersion,
-      exportVersion: 1,
-      state: "generating",
-    };
+    return result;
   },
 });
 
@@ -937,15 +968,10 @@ async function teamExportContext(
       ? team.lockedProjectVersionId
       : (await ctx.db.get(entry.payload.reviewSessionId))?.projectVersionId;
   const projectVersion = projectVersionId ? await ctx.db.get(projectVersionId) : null;
-  const trackSelection = projectVersion
-    ? await requireProjectTrackSelection(ctx, projectVersion)
-    : null;
-  const coreTrack = trackSelection?.coreTrack ?? null;
   if (
     projectVersion &&
     (projectVersion.eventId !== entry.eventId ||
-      projectVersion.teamId !== team._id ||
-      !coreTrack)
+      projectVersion.teamId !== team._id)
   ) {
     throw new Error("A close entry references an invalid submitted project version.");
   }
@@ -967,25 +993,6 @@ async function teamExportContext(
         }
       : null,
     projectVersion,
-    coreTrack: coreTrack
-      ? {
-          id: coreTrack._id,
-          stableKey: coreTrack.stableKey,
-          slug: coreTrack.slug,
-          displayName: coreTrack.displayName,
-          type: coreTrack.type,
-          status: coreTrack.status,
-        }
-      : null,
-    sponsorTracks: trackSelection?.sponsorTracks.map((sponsorTrack) => ({
-      id: sponsorTrack._id,
-      stableKey: sponsorTrack.stableKey,
-      slug: sponsorTrack.slug,
-      displayName: sponsorTrack.displayName,
-      type: sponsorTrack.type,
-      status: sponsorTrack.status,
-      eligibilityText: sponsorTrack.eligibilityText,
-    })) ?? [],
   };
   if (entry.payload.kind === "withdrawn") {
     return {
@@ -1586,11 +1593,12 @@ export const retry = mutation({
     });
     if (prior) {
       const roundExportId = ctx.db.normalizeId("roundExports", prior.targetId);
-      const saved = roundExportId ? await ctx.db.get(roundExportId) : null;
-      if (!saved || saved.state === "superseded") {
-        throw new Error("Prior round-export retry no longer resolves.");
-      }
-      return { exportVersion: saved.version, state: requireActiveExportState(saved.state) };
+      if (!roundExportId) throw new Error("The stored round-export retry is invalid.");
+      return storedOperationResult(
+        prior.resultJson,
+        "round-export retry",
+        roundExportRetryOperationResult,
+      );
     }
     const exportRecord = await ctx.db.get(args.roundExportId);
     if (!exportRecord || exportRecord.eventId !== event._id) {
@@ -1649,6 +1657,7 @@ export const retry = mutation({
       requestFingerprint,
       targetType: "round_export",
       targetId: exportRecord._id,
+      resultJson: JSON.stringify({ exportVersion: nextVersion, state: "generating" }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1679,7 +1688,11 @@ export const downloadContext = internalQuery({
     roundExportId: v.id("roundExports"),
     kind: v.union(v.literal("json"), v.literal("csv")),
   },
-  returns: v.object({ files: storedFiles, kind: v.union(v.literal("json"), v.literal("csv")) }),
+  returns: v.object({
+    files: storedFiles,
+    kind: v.union(v.literal("json"), v.literal("csv")),
+    version: v.number(),
+  }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -1708,7 +1721,7 @@ export const downloadContext = internalQuery({
         message: "This round export is not ready to download.",
       });
     }
-    return { files: exportRecord.files, kind: args.kind };
+    return { files: exportRecord.files, kind: args.kind, version: exportRecord.version };
   },
 });
 
@@ -1717,8 +1730,13 @@ export const recordDownload = internalMutation({
     eventSlug: v.string(),
     roundExportId: v.id("roundExports"),
     kind: v.union(v.literal("json"), v.literal("csv")),
+    expectedVersion: v.number(),
+    expectedStorageRegion: v.string(),
+    expectedStorageBucket: v.string(),
+    expectedFile: storedFile,
+    signedUrlExpiresAt: v.number(),
   },
-  returns: v.null(),
+  returns: v.object({ serverNow: v.number() }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -1744,6 +1762,32 @@ export const recordDownload = internalMutation({
         message: "This round export is not ready to download.",
       });
     }
+    const file = exportRecord.files[args.kind];
+    if (
+      exportRecord.version !== args.expectedVersion ||
+      exportRecord.files.storageRegion !== args.expectedStorageRegion ||
+      exportRecord.files.storageBucket !== args.expectedStorageBucket ||
+      file.objectKey !== args.expectedFile.objectKey ||
+      file.objectVersionId !== args.expectedFile.objectVersionId ||
+      file.byteCount !== args.expectedFile.byteCount ||
+      file.sha256 !== args.expectedFile.sha256
+    ) {
+      throw new ConvexError({
+        code: "ROUND_EXPORT_CHANGED",
+        message: "This round export changed while the download was prepared. Try again.",
+      });
+    }
+    const serverNow = Date.now();
+    if (
+      !Number.isSafeInteger(args.signedUrlExpiresAt) ||
+      args.signedUrlExpiresAt <= serverNow ||
+      args.signedUrlExpiresAt > serverNow + 60_000
+    ) {
+      throw new ConvexError({
+        code: "ROUND_EXPORT_LINK_EXPIRED",
+        message: "The round export link expired while it was prepared. Try again.",
+      });
+    }
     await writeAuditEvent(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1756,11 +1800,12 @@ export const recordDownload = internalMutation({
       targetId: exportRecord._id,
       nextSummary: JSON.stringify({
         kind: args.kind,
-        sha256: exportRecord.files[args.kind].sha256,
+        sha256: file.sha256,
+        signedUrlExpiresAt: args.signedUrlExpiresAt,
       }),
       reason: "Protected round export download",
     });
-    return null;
+    return { serverNow };
   },
 });
 
@@ -1815,13 +1860,14 @@ export const verificationContext = internalQuery({
       requestFingerprint,
     });
     if (prior) {
-      const roundExportId = ctx.db.normalizeId("roundExports", prior.targetId);
-      const exportRecord = roundExportId ? await ctx.db.get(roundExportId) : null;
-      const round = exportRecord ? await ctx.db.get(exportRecord.roundId) : null;
-      if (!exportRecord || exportRecord.state !== "verified" || !round?.closedAt) {
-        throw new Error("Prior round-export verification no longer resolves.");
-      }
-      return { kind: alreadyVerifiedKind, roundId: round._id, closedAt: round.closedAt };
+      const result = storedOperationResult(
+        prior.resultJson,
+        "round-export verification",
+        roundExportVerificationOperationResult,
+      );
+      const roundId = ctx.db.normalizeId("reviewRounds", result.roundId);
+      if (!roundId) throw new Error("The stored round-export verification is invalid.");
+      return { kind: alreadyVerifiedKind, roundId, closedAt: result.closedAt };
     }
     const exportRecord = await ctx.db.get(args.roundExportId);
     if (!exportRecord || exportRecord.eventId !== event._id) {
@@ -1903,13 +1949,14 @@ export const completeVerification = internalMutation({
       requestFingerprint,
     });
     if (prior) {
-      const roundExportId = ctx.db.normalizeId("roundExports", prior.targetId);
-      const exportRecord = roundExportId ? await ctx.db.get(roundExportId) : null;
-      const round = exportRecord ? await ctx.db.get(exportRecord.roundId) : null;
-      if (!exportRecord || exportRecord.state !== "verified" || !round?.closedAt) {
-        throw new Error("Prior round-export verification no longer resolves.");
-      }
-      return { roundId: round._id, closedAt: round.closedAt };
+      const result = storedOperationResult(
+        prior.resultJson,
+        "round-export verification",
+        roundExportVerificationOperationResult,
+      );
+      const roundId = ctx.db.normalizeId("reviewRounds", result.roundId);
+      if (!roundId) throw new Error("The stored round-export verification is invalid.");
+      return { roundId, closedAt: result.closedAt };
     }
     const exportRecord = await ctx.db.get(args.roundExportId);
     if (!exportRecord || exportRecord.eventId !== event._id) {
@@ -1971,6 +2018,7 @@ export const completeVerification = internalMutation({
       }),
     ]);
     await appendRoundExportJobReadFactById(ctx, exportRecord._id, now);
+    const result = { roundId: round._id, closedAt: now };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1979,6 +2027,7 @@ export const completeVerification = internalMutation({
       requestFingerprint,
       targetType: "round_export",
       targetId: exportRecord._id,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -2007,7 +2056,7 @@ export const completeVerification = internalMutation({
       }),
       reason,
     });
-    return { roundId: round._id, closedAt: now };
+    return result;
   },
 });
 
@@ -2043,11 +2092,11 @@ export const reopen = mutation({
     });
     if (prior) {
       const roundId = ctx.db.normalizeId("reviewRounds", prior.targetId);
-      const saved = roundId ? await ctx.db.get(roundId) : null;
-      if (!saved || saved.status !== "open") {
-        throw new Error("Prior round reopen no longer resolves.");
-      }
-      return { roundId: saved._id, roundVersion: saved.version };
+      if (!roundId) throw new Error("The stored round reopen is invalid.");
+      return {
+        roundId,
+        roundVersion: storedOperationVersion(prior.resultJson, "round reopen"),
+      };
     }
     const round = await requireRound(ctx, event._id, args.roundId);
     const exportRecord = await ctx.db.get(args.roundExportId);
@@ -2131,6 +2180,7 @@ export const reopen = mutation({
       requestFingerprint,
       targetType: "review_round",
       targetId: round._id,
+      resultJson: String(nextRoundVersion),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

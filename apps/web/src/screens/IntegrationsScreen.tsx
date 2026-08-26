@@ -1,6 +1,13 @@
-import { repositoryKinds, type RepositoryKind } from '@code2create/domain'
+import {
+  githubRepositorySyncStateLabels,
+  githubRepositoryTopicStateLabels,
+  repositoryKindLabels,
+  repositoryKinds,
+  type RepositoryKind,
+} from '@code2create/domain'
 import { api } from '@code2create/backend/api'
 import { useAction, useMutation, useQuery } from 'convex/react'
+import type { FunctionReturnType } from 'convex/server'
 import { useMemo, useRef, useState } from 'react'
 import { FigmaIntegrationPanel } from '../components/FigmaIntegrationPanel'
 import { ErrorNotice } from '../components/Form'
@@ -19,21 +26,6 @@ type AvailableRepositoryPage = {
   nextPage?: number
 }
 
-const repositoryKindLabels: Record<RepositoryKind, string> = {
-  full_product: 'Full product',
-  frontend: 'Frontend',
-  backend_api: 'Backend or API',
-  mobile_app: 'Mobile app',
-  desktop_app: 'Desktop app',
-  ai_ml: 'AI or ML',
-  data_pipeline: 'Data pipeline',
-  hardware_firmware: 'Hardware or firmware',
-  infrastructure: 'Infrastructure',
-  library_sdk: 'Library or SDK',
-  docs_research: 'Docs or research',
-  other: 'Other',
-}
-
 function repositoryKindFromValue(value: string) {
   return repositoryKinds.find((kind) => kind === value)
 }
@@ -46,6 +38,18 @@ type RepositoryDraft = {
   purpose: string
   trackedBranch: string
   rootPath: string
+}
+
+type GitHubOperationResult =
+  | FunctionReturnType<typeof api.githubActions.addRepository>
+  | FunctionReturnType<typeof api.githubIntegrations.refreshRepository>
+  | FunctionReturnType<typeof api.githubIntegrations.reorderRepositories>
+  | FunctionReturnType<typeof api.githubIntegrations.archiveRepository>
+
+type PendingGitHubOperation = {
+  kind: 'add' | 'refresh' | 'reorder' | 'archive'
+  slot: string
+  action: string
 }
 
 export function IntegrationsScreen() {
@@ -69,7 +73,8 @@ export function IntegrationsScreen() {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const repositoryRequest = useRef(0)
-  const operations = useOperationRunner()
+  const commandInFlight = useRef(false)
+  const operations = useOperationRunner<GitHubOperationResult>()
   const connectedRepositoryIds = useMemo(
     () => new Set(integration?.repositories.map((repository) => repository.repositoryId) ?? []),
     [integration?.repositories],
@@ -83,6 +88,8 @@ export function IntegrationsScreen() {
   }
 
   const connect = async () => {
+    if (commandInFlight.current) return
+    commandInFlight.current = true
     setBusy('connect')
     setError(null)
     try {
@@ -90,6 +97,7 @@ export function IntegrationsScreen() {
       window.location.assign(result.installUrl)
     } catch (caught) {
       setError(readableError(caught))
+      commandInFlight.current = false
       setBusy(null)
     }
   }
@@ -148,7 +156,8 @@ export function IntegrationsScreen() {
   }
 
   const saveRepository = async () => {
-    if (!draft) return
+    if (!draft || commandInFlight.current) return
+    commandInFlight.current = true
     setBusy('add-repository')
     setError(null)
     try {
@@ -169,11 +178,14 @@ export function IntegrationsScreen() {
     } catch (caught) {
       setError(readableError(caught))
     } finally {
+      commandInFlight.current = false
       setBusy(null)
     }
   }
 
   const refresh = async (repository: CurrentGitHubIntegration['repositories'][number]) => {
+    if (commandInFlight.current) return
+    commandInFlight.current = true
     setBusy(repository.id)
     setError(null)
     try {
@@ -187,11 +199,14 @@ export function IntegrationsScreen() {
     } catch (caught) {
       setError(readableError(caught))
     } finally {
+      commandInFlight.current = false
       setBusy(null)
     }
   }
 
   const archive = async (repository: CurrentGitHubIntegration['repositories'][number]) => {
+    if (commandInFlight.current) return
+    commandInFlight.current = true
     setBusy(repository.id)
     setError(null)
     try {
@@ -207,16 +222,19 @@ export function IntegrationsScreen() {
     } catch (caught) {
       setError(readableError(caught))
     } finally {
+      commandInFlight.current = false
       setBusy(null)
     }
   }
 
   const moveRepository = async (index: number, direction: -1 | 1) => {
+    if (commandInFlight.current) return
     const targetIndex = index + direction
     const ordered = [...integration.repositories]
     const repository = ordered[index]
     const target = ordered[targetIndex]
     if (!repository || !target) return
+    commandInFlight.current = true
     ordered[index] = target
     ordered[targetIndex] = repository
     setBusy('repository-order')
@@ -233,8 +251,46 @@ export function IntegrationsScreen() {
     } catch (caught) {
       setError(readableError(caught))
     } finally {
+      commandInFlight.current = false
       setBusy(null)
     }
+  }
+
+  const pendingOperation: PendingGitHubOperation | null = operations.hasPending(
+    'github-repository-add',
+  )
+    ? { kind: 'add', slot: 'github-repository-add', action: 'Confirm repository' }
+    : operations.hasPending('github-repository-refresh')
+      ? { kind: 'refresh', slot: 'github-repository-refresh', action: 'Confirm refresh' }
+      : operations.hasPending('github-repositories-reorder')
+        ? { kind: 'reorder', slot: 'github-repositories-reorder', action: 'Confirm order' }
+        : operations.hasPending('github-repository-archive')
+          ? { kind: 'archive', slot: 'github-repository-archive', action: 'Confirm removal' }
+          : null
+
+  const clearPendingOperation = (operation: PendingGitHubOperation) => {
+    if (operation.kind === 'add') setDraft(null)
+    if (operation.kind === 'archive') {
+      setArchiveId(null)
+      setArchiveReason('')
+    }
+  }
+
+  const confirmPendingOperation = (operation: PendingGitHubOperation) => {
+    if (commandInFlight.current) return
+    commandInFlight.current = true
+    setBusy(operation.slot)
+    setError(null)
+    void operations.retryPending(operation.slot)
+      .then(() => clearPendingOperation(operation))
+      .catch((caught: unknown) => {
+        if (!operations.hasPending(operation.slot)) clearPendingOperation(operation)
+        setError(readableError(caught))
+      })
+      .finally(() => {
+        commandInFlight.current = false
+        setBusy(null)
+      })
   }
 
   const teamAccepted = ['admitted', 'confirmed', 'checked_in', 'active', 'completed'].includes(
@@ -247,10 +303,29 @@ export function IntegrationsScreen() {
 
   return (
     <section className="integration-shell">
+      {pendingOperation ? (
+        <div className="repository-form">
+          <p className="eyebrow">Build</p>
+          <h1>{busy !== null ? 'Saving the repository change…' : 'Confirm the last repository change.'}</h1>
+          <p className="muted">
+            {busy !== null ? 'Keep this page open.' : 'The response was interrupted. Confirm it before continuing.'}
+          </p>
+          <ErrorNotice message={error} />
+          <button
+            type="button"
+            className="primary"
+            disabled={busy !== null}
+            onClick={() => confirmPendingOperation(pendingOperation)}
+          >
+            {busy !== null ? 'Saving…' : pendingOperation.action}
+          </button>
+        </div>
+      ) : (
+        <>
       <div className="section-heading">
         <div>
           <p className="eyebrow">Your build</p>
-          <h1>Code and design</h1>
+          <h1>Build</h1>
           <p className="lead">Connect the code and design files your team is building during the event.</p>
         </div>
         {integration.canManage && teamAccepted && integration.policy && integration.githubConfigured ? (
@@ -330,7 +405,7 @@ export function IntegrationsScreen() {
           ) : null}
           {!integration.summary.commitIdentityComplete ? (
             <p className="fine-print">
-              Unique commit coverage is partial because at least one comparison exceeded the bounded response or tracks only a project folder.
+              Some repository history could not be compared completely, so these totals may count a shared commit more than once.
             </p>
           ) : null}
         </div>
@@ -479,11 +554,20 @@ export function IntegrationsScreen() {
                   <a href={repository.url} target="_blank" rel="noreferrer">{repository.fullName}</a>
                   <p>{repositoryKindLabels[repository.kind]} · {repository.purpose}</p>
                 </div>
-                <span className={`status-dot ${repository.syncState}`}>{repository.syncState}</span>
+                <span className={`status-dot ${repository.syncState}`}>
+                  {githubRepositorySyncStateLabels[repository.syncState]}
+                </span>
               </div>
               <dl className="repository-facts">
                 <div><dt>Branch</dt><dd>{repository.trackedBranch}{repository.rootPath ? ` / ${repository.rootPath}` : ''}</dd></div>
-                <div><dt>Topic</dt><dd>{repository.topicState === 'present' ? 'Ready' : `Add ${repository.requiredTopic}`}</dd></div>
+                <div>
+                  <dt>Topic</dt>
+                  <dd>
+                    {repository.topicState === 'missing'
+                      ? `Add ${repository.requiredTopic}`
+                      : githubRepositoryTopicStateLabels[repository.topicState]}
+                  </dd>
+                </div>
                 <div><dt>Commits</dt><dd>{repository.metrics.commitCount}</dd></div>
                 <div><dt>Changed files</dt><dd>{repository.metrics.changedFiles}</dd></div>
               </dl>
@@ -491,9 +575,11 @@ export function IntegrationsScreen() {
                 <p className="fine-print">Add <code>{repository.requiredTopic}</code> in GitHub, then refresh here.</p>
               ) : null}
               {repository.metrics.completeness === 'partial' ? (
-                <p className="fine-print">Some provider results are partial. Counts remain context, not judging evidence.</p>
+                <p className="fine-print">GitHub returned only part of this repository's history. These counts are context, not judging evidence.</p>
               ) : null}
-              {repository.syncErrorCode ? <p className="fine-print quiet-danger">{repository.syncErrorCode.replaceAll('_', ' ')}</p> : null}
+              {repository.syncErrorCode ? (
+                <p className="fine-print quiet-danger">GitHub could not update this repository. Try again or ask support.</p>
+              ) : null}
               {integration.canManage ? (
                 <div className="repository-actions">
                   <button
@@ -537,6 +623,8 @@ export function IntegrationsScreen() {
         )}
       </div>
       <ErrorNotice message={error} />
+        </>
+      )}
       <FigmaIntegrationPanel />
     </section>
   )

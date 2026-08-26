@@ -5,7 +5,12 @@ import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationVersion,
+} from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
 import {
@@ -95,6 +100,7 @@ export const overview = query({
   args: { eventSlug: v.string() },
   returns: v.object({
     eventName: v.string(),
+    serverNow: v.number(),
     canReadCatalog: v.boolean(),
     canManageCatalog: v.boolean(),
     canCreateWindow: v.boolean(),
@@ -162,11 +168,16 @@ export const overview = query({
     ]);
     return {
       eventName: event.name,
+      serverNow: Date.now(),
       canReadCatalog: catalogRead.eventWide,
       canManageCatalog: catalogManage.eventWide,
       canCreateWindow: windowManage.eventWide,
       windows: windows
-        .filter((window) => scopeAllows(windowRead, window._id))
+        .filter(
+          (window) =>
+            scopeAllows(windowRead, window._id) ||
+            scopeAllows(queueRead, window._id),
+        )
         .map((window) => ({
           id: window._id,
           name: window.name,
@@ -292,13 +303,11 @@ export const addCatalogTrack = mutation({
     });
     if (prior) {
       const trackId = ctx.db.normalizeId("synesthesiaCatalogTracks", prior.targetId);
-      const track = trackId
-        ? await ctx.db.get("synesthesiaCatalogTracks", trackId)
-        : null;
-      if (!track || track.eventId !== event._id) {
-        throw new Error("The prior catalog track no longer resolves.");
-      }
-      return { trackId: track._id, version: track.version };
+      if (!trackId) throw new Error("The stored catalog-track result is invalid.");
+      return {
+        trackId,
+        version: storedOperationVersion(prior.resultJson, "catalog-track"),
+      };
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -362,6 +371,7 @@ export const addCatalogTrack = mutation({
       requestFingerprint,
       targetType: "synesthesia_catalog_track",
       targetId: trackId,
+      resultJson: "1",
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -418,7 +428,12 @@ export const updateCatalogTrack = mutation({
     if (!track || track.eventId !== event._id) {
       throw new ConvexError({ code: "TRACK_NOT_FOUND", message: "Catalog track not found." });
     }
-    if (prior) return { trackId: track._id, version: track.version };
+    if (prior) {
+      return {
+        trackId: track._id,
+        version: storedOperationVersion(prior.resultJson, "catalog-track"),
+      };
+    }
     if (track.version !== args.expectedVersion) {
       throw new ConvexError({
         code: "CATALOG_TRACK_CHANGED",
@@ -448,6 +463,7 @@ export const updateCatalogTrack = mutation({
       requestFingerprint,
       targetType: "synesthesia_catalog_track",
       targetId: track._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -497,13 +513,11 @@ export const createWindow = mutation({
     });
     if (prior) {
       const windowId = ctx.db.normalizeId("synesthesiaWindows", prior.targetId);
-      const window = windowId
-        ? await ctx.db.get("synesthesiaWindows", windowId)
-        : null;
-      if (!window || window.eventId !== event._id) {
-        throw new Error("The prior Synesthesia window no longer resolves.");
-      }
-      return { windowId: window._id, version: window.version };
+      if (!windowId) throw new Error("The stored Synesthesia-window result is invalid.");
+      return {
+        windowId,
+        version: storedOperationVersion(prior.resultJson, "Synesthesia-window"),
+      };
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -542,6 +556,7 @@ export const createWindow = mutation({
       requestFingerprint,
       targetType: "synesthesia_window",
       targetId: windowId,
+      resultJson: "1",
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -591,7 +606,12 @@ export const updateWindow = mutation({
     if (!window || window.eventId !== event._id) {
       throw new ConvexError({ code: "WINDOW_NOT_FOUND", message: "Window not found." });
     }
-    if (prior) return { windowId: window._id, version: window.version };
+    if (prior) {
+      return {
+        windowId: window._id,
+        version: storedOperationVersion(prior.resultJson, "Synesthesia-window"),
+      };
+    }
     if (window.status !== "draft") {
       throw new ConvexError({
         code: "WINDOW_IMMUTABLE",
@@ -629,6 +649,7 @@ export const updateWindow = mutation({
       requestFingerprint,
       targetType: "synesthesia_window",
       targetId: window._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -683,7 +704,12 @@ export const publishWindow = mutation({
     if (!window || window.eventId !== event._id) {
       throw new ConvexError({ code: "WINDOW_NOT_FOUND", message: "Window not found." });
     }
-    if (prior) return { windowId: window._id, version: window.version };
+    if (prior) {
+      return {
+        windowId: window._id,
+        version: storedOperationVersion(prior.resultJson, "Synesthesia-window"),
+      };
+    }
     if (window.status !== "draft" || window.version !== args.expectedVersion) {
       throw new ConvexError({
         code: "WINDOW_CHANGED",
@@ -751,6 +777,7 @@ export const publishWindow = mutation({
       requestFingerprint,
       targetType: "synesthesia_window",
       targetId: window._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -799,7 +826,12 @@ export const closeWindow = mutation({
     if (!window || window.eventId !== event._id) {
       throw new ConvexError({ code: "WINDOW_NOT_FOUND", message: "Window not found." });
     }
-    if (prior) return { windowId: window._id, version: window.version };
+    if (prior) {
+      return {
+        windowId: window._id,
+        version: storedOperationVersion(prior.resultJson, "Synesthesia-window"),
+      };
+    }
     if (window.status !== "published" || window.version !== args.expectedVersion) {
       throw new ConvexError({
         code: "WINDOW_CHANGED",
@@ -849,6 +881,7 @@ export const closeWindow = mutation({
       requestFingerprint,
       targetType: "synesthesia_window",
       targetId: window._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -899,7 +932,12 @@ export const setPlaybackPause = mutation({
     if (!window || window.eventId !== event._id) {
       throw new ConvexError({ code: "WINDOW_NOT_FOUND", message: "Window not found." });
     }
-    if (prior) return { windowId: window._id, version: window.version };
+    if (prior) {
+      return {
+        windowId: window._id,
+        version: storedOperationVersion(prior.resultJson, "Synesthesia-window"),
+      };
+    }
     if (window.status !== "published" || window.version !== args.expectedVersion) {
       throw new ConvexError({
         code: "WINDOW_CHANGED",
@@ -951,6 +989,7 @@ export const setPlaybackPause = mutation({
       requestFingerprint,
       targetType: "synesthesia_window",
       targetId: window._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

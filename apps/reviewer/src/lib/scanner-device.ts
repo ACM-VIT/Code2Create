@@ -4,16 +4,18 @@ import { z } from 'zod'
 
 import { notifyInstallationChanged } from './installation-state'
 
-const scannerDeviceSchema = z.object({
-  version: z.literal(1),
-  installationId: z.uuid(),
-  deviceSecret: z.string().regex(/^[a-f0-9]{64}$/u),
-  registrationOperationId: z.uuid(),
-  stationStableKey: z.string().min(1).max(100),
-  deviceName: z.string().min(2).max(80),
-  platform: z.enum(['android', 'ios']),
-  lastIssuedSequence: z.number().int().nonnegative(),
-})
+const scannerDeviceSchema = z
+  .object({
+    version: z.literal(1),
+    installationId: z.uuid(),
+    deviceSecret: z.string().regex(/^[a-f0-9]{64}$/u),
+    registrationOperationId: z.uuid(),
+    stationStableKey: z.string().min(1).max(100),
+    deviceName: z.string().min(2).max(80),
+    platform: z.enum(['android', 'ios']),
+    lastIssuedSequence: z.number().int().nonnegative(),
+  })
+  .strict()
 
 export type ScannerDeviceRecord = z.infer<typeof scannerDeviceSchema>
 export type ScannerPlatform = ScannerDeviceRecord['platform']
@@ -29,11 +31,21 @@ function bytesToHex(bytes: Uint8Array) {
 export async function loadScannerDevice(eventSlug: string) {
   const stored = await SecureStore.getItemAsync(storageKey(eventSlug))
   if (!stored) return null
-  const parsed = scannerDeviceSchema.safeParse(JSON.parse(stored))
+  let decoded: unknown
+  try {
+    decoded = JSON.parse(stored)
+  } catch {
+    throw invalidScannerSetupError()
+  }
+  const parsed = scannerDeviceSchema.safeParse(decoded)
   if (!parsed.success) {
-    throw new Error('The scanner setup stored on this phone is invalid. Ask operations to reprovision it.')
+    throw invalidScannerSetupError()
   }
   return parsed.data
+}
+
+function invalidScannerSetupError() {
+  return new Error('The scanner setup stored on this phone is invalid. Ask operations to reprovision it.')
 }
 
 export async function createScannerDevice(args: {

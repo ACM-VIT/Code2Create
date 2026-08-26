@@ -45,13 +45,15 @@ A client may show an optimistic control for a low-risk action such as a Synesthe
 - staff queue placement;
 - table or panel assignment;
 - reviewer presence;
-- fresh-project attestation, confirmed core/sponsor-track set, and project submission;
+- fresh-project attestation, membership lock, and proposal submission or revision;
 - review start or extension;
 - scorecard submission;
 - correction;
 - round close or reopen.
 
 Each high-impact write includes a stable client operation ID. If the response is lost, the client asks the server whether the server accepted that operation. The client does this check before it creates another operation.
+
+While a command is uncertain, the client shows only the retry for that command. A live state change does not enable the opposite command until the first receipt resolves.
 
 A write that edits an existing object includes the expected version. A stale write returns a conflict and the current state.
 
@@ -68,20 +70,25 @@ The mobile app keeps one encrypted local draft for the active review.
 
 If the phone fails, operations first tries to recover the active draft on that phone. If recovery fails, the reviewer moves to a spare device. The reviewer re-enters the scorecard from memory or notes under an incident record. The backend never invents a missing score.
 
-## 5. Push failure
+## 5. Reviewer page delivery failure
 
-APNs or FCM wakes a reviewer. Push does not hold event state.
+APNs or FCM wakes a reviewer. Push does not hold event state. The system sends push before it starts phone escalation.
 
 For each critical page, the system records:
 
 - page creation;
 - push request and provider message identifier when one is returned;
+- call-consent version and current consent state;
+- outbound-call purpose, script version, dispatch, and provider call identifier;
+- provider call events and terminal category;
 - app opened time, when known;
 - reviewer acceptance/decline;
 - expiry;
 - fallback owner.
 
-If the reviewer does not acknowledge before the page deadline, the dashboard pages the next candidate. The dashboard tells operations to call or send a runner. Provider acceptance does not prove device delivery. Provider acceptance never suppresses this fallback.
+If the reviewer does not acknowledge by the first 30-second repage, the reusable outbound-calling service can place one synthesized call. It can call at once when push has no usable address. The service requires current consent and the page chain's exact `review.substitute.page` grant. It uses the published reviewer-page script. It does not disclose project, score, or participant data. An in-app acknowledgement prevents any later claim. A call already claimed may still proceed, but provider acceptance never becomes reviewer acknowledgement.
+
+If the reviewer does not acknowledge before the page deadline, the dashboard pages the next candidate and tells operations to send a runner. A push or call provider acceptance never suppresses this fallback.
 
 ## 6. Device and application failure
 
@@ -126,15 +133,16 @@ On restart, the app restores the current session. The app fetches `reviewer.now`
 | Google/Better Auth | New sign-ins or fresh-session checks fail. | Existing valid sessions continue. Support moves signed-in staff or reviewer work to prepared devices where allowed. |
 | Convex | Core reads or writes fail. | Pause authoritative attendance acceptance and new reviews. Scanner events remain visibly pending within limits. Current reviewer drafts stay local. Start the incident procedure. |
 | OpenAI embeddings or Convex vector search | A live novelty preview is slow, rate-limited, invalid, stale, or unavailable. | Keep the idea editable and submittable. Show a quiet unavailable state. Never reuse or attach a result if its team, corpus, or normalized input fingerprint changed. |
-| OpenAI intake | Interpretation is slow, refused, invalid, rate-limited, or unavailable. | Keep the committed answer. Show all tracks immediately. Follow the published deterministic question edge. Allow brief confirmation and submission without model output. |
+| OpenAI intake | Interpretation is slow, refused, invalid, rate-limited, or unavailable. | Keep the committed answer. Follow the published deterministic question edge. Allow proposal confirmation and submission without model output. |
 | OpenAI admissions | Structured analysis is slow, stale, refused, invalid, rate-limited, or unavailable. | Mark the recommendation unavailable or stale. Continue the complete human review and decision path. Never reuse output for a different application version. |
 | Cloudflare intelligence Worker or Workers AI | Signed dispatch fails, the agent does not publish, the callback is invalid, or work exceeds ten minutes. | Mark that brief failed. Retain the ordinary realtime health view. Let every operational workflow continue. Never infer or execute a corrective command. |
-| APNs or FCM | Background pages may not arrive or a native token may expire. | Invalidate only the rejected token. Retain the in-app assignment. Use the dashboard, call, and runner fallback. |
+| APNs or FCM | Background pages may not arrive or a native token may expire. | Invalidate only the rejected token. Retain the in-app page. Use consented call escalation and the runner fallback. |
+| Outbound call provider | A call is rejected, delayed, duplicated, or has an ambiguous result. | Keep the in-app page authoritative. Deduplicate provider events. Do not redial an unknown result without the configured rule. Use the next candidate or runner fallback. |
 | Cloudflare Email Service | A decision-delivery request is delayed, rejected, ambiguous, bounced, or suppressed. The Queue relay is unavailable. | Keep the portal authoritative. Expose transport state only under exact-person communications permission. Never retry an unknown outcome blindly. Retain Queue events through the configured DLQ. Use the approved Email Routing support alias. |
 | GitHub | Push delivery or one repository reconciliation fails. | Keep every other repository current. Retain the failed repository's last verified checkpoint. Show partial completeness. Accept live or manual evidence. |
 | Synesthesia or licensed playback application | Requests, queue state, or operator playback is unavailable. | Stop promising or accepting music actions. Keep the licensed application's manual controls with the named operator. Leave every core event flow running. |
 | Figma | Metadata, full content, comments, or previews cannot refresh. | Keep the committed raw checkpoint. Show render state, counts, and each freshness time. Obey the provider retry time. Accept live or manual evidence. |
-| Cloudflare web delivery | The participant or operations shell fails. The optional handbook integration can also fail. Dynamic attendance QR presentation may fail. | Enrolled VIT ID barcodes, issued external badge QR, and the Expo app can continue if Convex is healthy. Operations uses its prepared incident pack and alternate connectivity. The canonical handbook mirror remains independent. |
+| Cloudflare web delivery | The participant, operations, or handbook frontend fails. Dynamic attendance QR presentation may also fail. | Enrolled VIT ID barcodes, issued external badge QR codes, and the Expo app can continue if Convex is healthy. Operations uses its prepared incident pack and alternate connectivity. The repository Markdown remains the handbook source of truth. |
 | Private S3 | A new emergency pack, protected export, or evidence preview cannot be stored or opened. | Keep current live Convex state authoritative. Do not claim that the artifact is ready. Use only an already printed, unexpired pack under incident policy. Escalate storage recovery. |
 | Sentry | Crash reports are delayed. | Event functions continue. Use Convex and operations logs. |
 
@@ -190,6 +198,8 @@ Use a review sheet only for a review that reached `active | overdue` before serv
 - reason normal service was unavailable.
 
 Attendance and review sheets have separate access boundaries. An attendance verifier needs `attendance.manual_sheet.verify` and `attendance.manual_sheet.source.read` for the exact attendance session. A review verifier needs `review.manual_record.verify` and `review.manual_record.source.read` for the exact review. Each verifier needs a Google session created within the last 15 minutes. The verifier must differ from the entrant. Before import, the verifier must attest that the numbered original is filed.
+
+The entrant hashes and validates the JPEG before storage. A retry checks the operation ID and stable source manifest before another upload. Concurrent copies of the same operation converge on the first committed storage object and delete the extra object. A different checksum, byte count, normalized file name, target, or expected draft version is not accepted as the completed upload.
 
 An accepted import creates append-only `manual_import` presence events with sheet and line provenance. The import uses the same session-transition and projection logic as an online scan. A paper time that is not later than current evidence creates a linked `needs_review` event. The newer projection remains unchanged. The session cannot begin closing while a linked sheet is still draft or submitted. The incident cannot resolve during that time. The transaction rejects duplicate active serials, reused source files, repeat line imports, stale sheet or session versions, and concurrent verification.
 
@@ -292,8 +302,8 @@ Each alert must identify an owner and the next action. A metric that no person w
 
 Audit these actions:
 
-- person lookup/export where policy requires it; role and roster changes; bundle publication/application/migration; and every permission grant, delegation, expiry, and revocation with the exact authorizing grant;
-- final application/member/core/sponsor-track lock and exceptional locked-snapshot correction;
+- person lookup/export where policy requires it; role and roster changes; bundle publication/application/migration; and every permission grant, delegation, expiry, and revocation with the exact authorizing grant; one direct batch audit must enumerate every affected grant and the target access-version change;
+- final application member lock, proposal revisions, stale-output invalidation, and exceptional member-snapshot correction;
 - application-review assignment/cancellation/completion with source-grant IDs and application versions, AI admission recommendation generation/version/disposition, published human admission decision, offer, expiry, and waitlist promotion;
 - communications-policy draft replacement/publication with exact version/checksum and participant-notification retry/destination disablement with the delivery's pinned policy version;
 - event/rubric/panel-plan publication;
@@ -303,7 +313,8 @@ Audit these actions:
 - emergency roll-call start or close with snapshot, final counts, and checksum;
 - identifiable attendance-export request or download with purpose, fields, expiry, row count, and checksum;
 - emergency-pack request or print-open with purpose, expiry, counts, and both checksums;
-- track-catalog, atomic intake-policy, novelty-corpus draft/import/publication, event-phase, checkpoint-plan, and admission-model-config publication;
+- atomic intake-policy, novelty-corpus draft/import/publication, event-phase, checkpoint-plan, and admission-model-config publication;
+- reviewer call-consent changes, page push attempts, call attempts, provider events, acknowledgement, cancellation, and escalation;
 - after-freeze table changes;
 - support-case creation, reporter reply, public/internal note, state transition, and owner change with the authorizing grants and case version;
 - manual routing or queue priority;
@@ -355,12 +366,13 @@ Scheduled and signal-triggered autonomy runs are domain history, not human audit
 - Do not put project text, scores, phone numbers, or provider tokens in push payloads or error logs.
 - Do not put attendance bearer values, hashes, exact movement history, or sensitive exception reasons in logs, crash reports, analytics, push payloads, or ordinary exports.
 - Do not put support descriptions, replies, internal notes, reporter contact, or linked-record identifiers in Sentry, analytics, push payloads, or aggregate health signals. Reporter queries exclude internal actions.
-- Do not put intake answer text, novelty input/fingerprint/vector/similarity/theme/prompt, generated brief text, admission recommendation explanations, OpenAI request content, or system instructions in job metadata, Sentry, or operational metrics.
+- Do not put proposal text, novelty input, fingerprint, vector, or similarity, generated brief text, admission recommendation explanations, OpenAI request content, or system instructions in job metadata, Sentry, or operational metrics.
 - Treat every Flue initial-data snapshot and durable agent message as stored service data. Send only the purpose-built aggregate health projection. Keep traces content-free. Never log the snapshot, prompt, model output, callback body, signature, or HMAC secret.
 - Treat autonomous-run source snapshots and Flue history as the same restricted intelligence retention class. Metrics may use state, age, area/severity counts, policy/model/agent versions, cumulative activity counters, phase, and terminal category, but not the frozen snapshot, raw read results, prompt, reasoning, tool arguments/results, or private model prose.
 - Intake requests send only project text and published routing definitions required for interpretation; they exclude identity, contact, auth, admission, provider-credential, reviewer, and score data.
-- Novelty-preview requests send only the normalized idea to `text-embedding-3-small`. A deterministic sensitive-pattern check suppresses the call when it detects contact, registration, URL-credential, or secret material. The request ledger stores only the character count, corpus/team/person references, and an input fingerprint. Participant queries expose only the approved corpus label/count, score band, theme, and reflection prompt. They do not expose the fingerprint, vector, raw nearest summary, source key, similarity, or provider request ID.
-- Admission-analysis requests send only redacted submitted project answers, deterministic experience band, and the published admission rubric. They exclude identity/contact/institution-prestige data, core- and sponsor-track choices, intake-recommendation mismatch, human review/decision state, capacity, attendance, integrations, and judging data.
+- Novelty-preview requests send only the normalized idea to `text-embedding-3-small`. A deterministic sensitive-pattern check suppresses the call when it detects contact, registration, URL-credential, or secret material. The request ledger stores only the character count, corpus/team/person references, and an input fingerprint. Participant queries expose only the current whole-number score and comparison state. They do not expose the fingerprint, vector, raw nearest summary, source key, similarity, or provider request ID.
+- Admission-analysis requests send only redacted submitted proposal answers, deterministic experience band, and the published admission rubric. They exclude identity, contact, institution-prestige data, human review or decision state, capacity, attendance, integrations, and judging data.
+- Outbound call requests contain only the destination, approved purpose, script version, bounded page facts, locale, consent proof, and idempotency key. Logs and provider metadata do not contain proposal, participant, reviewer-note, or score data.
 - Set OpenAI Responses requests to `store: false`. Disclose the effective abuse-monitoring and data-retention policy. The embeddings endpoint has no `store` request field. Disclose its effective account-level data controls separately. Do not describe either path as Zero Data Retention unless that control is approved and enabled.
 - Redact auth headers and cookies before Sentry or structured logging.
 - Store compressed Figma files, previews, and temporary GitHub source blobs in the private artifact bucket. Reviewers receive short-lived URLs only after assignment and snapshot checks.
@@ -375,10 +387,10 @@ Scheduled and signal-triggered autonomy runs are domain history, not human audit
 
 ## 14. Launch gates
 
-The release rehearsal is one stored run. It is not a checklist copied into chat or a spreadsheet. The server-owned template creates all 61 scenarios with their expected state and recovery action. Named workstream owners cover the run before it starts. Operators record each attempt and rerun against the current scenario version. After all scenarios pass, the final signer uses a separate permission. A completed run preserves its template version, action history, owners, signer, summary, and timestamps.
+The release rehearsal is one stored run. It is not a checklist copied into chat or a spreadsheet. The server-owned template creates all 62 scenarios with their expected state and recovery action. Named workstream owners cover the run before it starts. Operators record each attempt and rerun against the current scenario version. After all scenarios pass, the final signer uses a separate permission. A completed run preserves its template version, action history, owners, signer, summary, and timestamps.
 
 - Venue network and backup connectivity tested at every review and attendance station under session-opening load.
-- All reviewer/scanner devices pass sign-in, station assignment, push where required, camera, secure storage, minimum-build, battery, and pending-replay checks.
+- All reviewer and scanner devices pass sign-in, station assignment, push, call-consent, camera, secure-storage, minimum-build, battery, and pending-replay checks.
 - Representative current VIT IDs from applicable campuses/batches and the scanner fleet pass barcode-symbology detection, repeated-scan, duplicate, rebinding, wrong-session, conflicting-use, glare/wear, and offline-replay tests; portal QR remains a complete fallback.
 - Two full-population hacking-session transitions are rehearsed with multiple entry, exit, and roving stations, including temporary exits and an emergency roll call whose sharded live counts converge and freeze correctly at close.
 - Duplicate-submit, stale-write, lost-response, and app-restart tests pass.
@@ -386,8 +398,9 @@ The release rehearsal is one stored run. It is not a checklist copied into chat 
 - Convex backup download and staging restore are proven.
 - Multiple GitHub installations, repository kinds, add/archive/reorder, full-set reorder races, topic present/missing, duplicate/out-of-order push, fork overlap, partial access loss, and stale per-repository reconciliation are tested. The GitHub team projection is also checked after connection, add, archive, sync start/success/failure, and webhook transitions; exact SHA overlap is deduplicated, while a comparison beyond the bounded commit page or a project-root binding remains visibly partial.
 - Figma PKCE, passcode webhook, view-only fallback, metadata/content divergence, exact-version render selection, null/invalid/oversized render handling, lease expiry, stale completion, rate-limit backoff, reauthorization, and raw/preview artifact access are tested. The Figma team projection is checked after connection, file, metadata, full-sync, preview, and webhook transitions; a 30-team integration board reads one provider summary per team and performs no file/snapshot/preview fan-out until one team is expanded.
-- Intake tests cover publication, one-to-two-question bounds, wording policy, supportive common-idea handling, source attribution, and prompt injection. They also cover pre-submit track changes, stale model output, timeout, refusal, invalid output, disabled-model fallback, and no-model submission. Track-catalog tests race two draft writers and reject publication of a replaced draft. They keep an active participant draft on a superseded catalog. They settle an interpretation that started before publication against the same pinned catalog. They reject duplicate or wrong-catalog sponsor selections and preserve published order.
-- Final preview/member/core/sponsor-track locking races, structured year-adjusted admission analysis, human use/clear/override, provider failure, and the prohibition on model-authored decisions/judging output are tested.
+- Intake tests cover publication, one-to-two-question bounds, wording policy, supportive common-idea handling, source attribution, prompt injection, stale output, timeout, refusal, invalid output, disabled-model fallback, and no-model submission.
+- Final preview and membership-lock races are tested. Proposal revision tests cover the deadline, immutable versions, assignment rebinding, and stale human and AI output. Admission tests cover human use, clear, override, provider failure, and the prohibition on model-authored decisions or judging output.
+- Reviewer paging tests cover push-first order, consent grant and revocation, call delay, acknowledgement races, duplicate and out-of-order provider callbacks, retry rules, script version, audit, next-candidate fallback, and runner fallback.
 - Operations-intelligence signature-context separation, body/time bounds, create-only dispatch retry, strict output parsing, source citation/checksum validation, first-settlement race, timeout, permission revocation, provider failure, and absence of every domain command are rehearsed against the staging Worker.
 - Autonomy policy read/draft/validate/publish/disable separation, competing drafts/publications, duplicate due evaluation, canonical signal/schedule deduplication, distinct-work retention during a claimed run, durable continuation, authority revocation, kill-switch abort, and disabled-policy behavior are rehearsed against staging Convex.
 - Every allowed read tool has complete, empty, owner-boundary, maximum-window, overflow, redaction-canary, and injected-text fixtures. Planner/investigator/critic evaluations assert source attribution, counter-hypothesis handling, explicit uncertainty, stable target versions, policy allowlists, and rejection of unsupported or incomplete-window claims.
@@ -399,7 +412,7 @@ The release rehearsal is one stored run. It is not a checklist copied into chat 
 - Operations can pause calls and starts against an active incident. Operations can observe the generic pause on participant and reviewer clients, finish an active review, and resume through a separate exact-round grant. Operations can page a substitute, move a table, handle a wrong QR, and start a round export. Operations can recover one failed generation, have a different person verify and close it, and reopen and re-close to a higher preserved revision in the rehearsal.
 - Attendance operations can redirect an offline station, enroll or rebind a VIT ID, and replace a lost external badge. They can handle a forgotten or unreadable card through QR and reconcile a missed exit. They can extend or cancel a session, review a finalized-result dispute without rewriting scan history, and produce a zone roll call.
 - A review call and start both react to the current transactionally maintained team-presence row; an ordinary below-minimum command changes nothing, while one freshly authenticated exact-team/review waiver survives only for its review and races safely with movement, start, and another waiver attempt. Event-scale review-board reads do not fan out through every member's venue row.
-- The production-shaped release run contains all 61 required scenarios, every workstream has an active accountable owner, every failure or block has a recorded recovery/rerun, and a separately authorized current-session signer completes it only after all 61 pass.
+- The production-shaped release run contains all 62 required scenarios, every workstream has an active accountable owner, every failure or block has a recorded recovery/rerun, and a separately authorized current-session signer completes it only after all 62 pass.
 - No known path can edit another reviewer’s submitted score, authorize from a role label, or grant itself a permission outside an already-held delegation ceiling.
 
 ## References

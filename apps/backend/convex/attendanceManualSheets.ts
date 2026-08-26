@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -21,6 +22,8 @@ import {
   findOperation,
   operationFingerprint,
   recordOperation,
+  storedOperationResult,
+  storedOperationVersion,
   type OperationFingerprintPart,
 } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
@@ -33,6 +36,33 @@ const allowedSourceContentType = "image/jpeg";
 const readyUploadKind: "ready" = "ready";
 const completeUploadKind: "complete" = "complete";
 const rejectedSheetStatus: "rejected" = "rejected";
+
+function sourceUploadFingerprint(args: {
+  sheetId: Id<"attendanceManualSheets">;
+  expectedSheetVersion: number;
+  fileName: string;
+  sourceSha256: string;
+  sourceByteCount: number;
+}) {
+  return operationFingerprint([
+    args.sheetId,
+    args.expectedSheetVersion,
+    args.fileName,
+    allowedSourceContentType,
+    args.sourceSha256,
+    args.sourceByteCount,
+  ]);
+}
+
+function validatedSourceSha256(value: string) {
+  if (!/^[a-f0-9]{64}$/.test(value)) {
+    throw new ConvexError({
+      code: "SOURCE_DIGEST_INVALID",
+      message: "The paper source checksum is invalid.",
+    });
+  }
+  return value;
+}
 
 const draftEntry = v.object({
   lineNumber: v.number(),
@@ -63,6 +93,31 @@ const importSummary = v.object({
   rejected: v.number(),
   needsReview: v.number(),
 });
+
+const storedImportSummary = z
+  .object({
+    accepted: z.number().int().nonnegative(),
+    duplicate: z.number().int().nonnegative(),
+    rejected: z.number().int().nonnegative(),
+    needsReview: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const manualSheetVerificationOperationResult = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("rejected"),
+      version: z.number().int().positive(),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.enum(["imported", "needs_review"]),
+      version: z.number().int().positive(),
+      importSummary: storedImportSummary,
+    })
+    .strict(),
+]);
 
 const sheetView = v.object({
   id: v.id("attendanceManualSheets"),
@@ -396,11 +451,11 @@ export const createDraft = mutation({
     });
     if (prior) {
       const sheetId = ctx.db.normalizeId("attendanceManualSheets", prior.targetId);
-      const sheet = sheetId ? await ctx.db.get(sheetId) : null;
-      if (!sheet || sheet.eventId !== event._id) {
-        throw new Error("Prior manual-sheet draft no longer resolves.");
-      }
-      return { id: sheet._id, version: sheet.version };
+      if (!sheetId) throw new Error("Prior manual-sheet draft result is invalid.");
+      return {
+        id: sheetId,
+        version: storedOperationVersion(prior.resultJson, "manual-sheet draft"),
+      };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const [incident, session, station] = await Promise.all([
@@ -556,6 +611,7 @@ export const createDraft = mutation({
       requestFingerprint,
       targetType: "attendance_manual_sheet",
       targetId: sheetId,
+      resultJson: "1",
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -587,6 +643,10 @@ export const sourceUploadContext = internalQuery({
     eventSlug: v.string(),
     sheetId: v.id("attendanceManualSheets"),
     expectedSheetVersion: v.number(),
+    fileName: v.string(),
+    sourceSha256: v.string(),
+    sourceByteCount: v.number(),
+    clientOperationId: v.string(),
   },
   returns: v.union(
     v.object({ kind: v.literal("ready") }),
@@ -614,8 +674,54 @@ export const sourceUploadContext = internalQuery({
         message: "Only the person who entered this draft may attach its source image.",
       });
     }
+    const fileName = normalizedText(args.fileName, "Source file name", 1, 120);
+    const sourceSha256 = validatedSourceSha256(args.sourceSha256);
+    if (
+      !Number.isSafeInteger(args.sourceByteCount) ||
+      args.sourceByteCount < 1 ||
+      args.sourceByteCount > maximumSourceBytes
+    ) {
+      throw new ConvexError({
+        code: "SOURCE_SIZE_INVALID",
+        message: "The compressed source image must be smaller than 900 KB.",
+      });
+    }
+    const requestFingerprint = sourceUploadFingerprint({
+      sheetId: args.sheetId,
+      expectedSheetVersion: args.expectedSheetVersion,
+      fileName,
+      sourceSha256,
+      sourceByteCount: args.sourceByteCount,
+    });
+    const prior = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "attendance.manual_sheet.submit",
+      requestFingerprint,
+    });
+    if (prior) {
+      const priorSheetId = ctx.db.normalizeId("attendanceManualSheets", prior.targetId);
+      if (!priorSheetId || priorSheetId !== sheet._id) {
+        throw new Error("Prior paper-sheet submission result is invalid.");
+      }
+      return {
+        kind: completeUploadKind,
+        version: storedOperationVersion(prior.resultJson, "paper-sheet submission"),
+      };
+    }
     if (sheet.status === "submitted" && sheet.sourceStorageId !== undefined) {
-      return { kind: completeUploadKind, version: sheet.version };
+      if (
+        sheet.sourceFileName === fileName &&
+        sheet.sourceSha256 === sourceSha256 &&
+        sheet.sourceByteCount === args.sourceByteCount
+      ) {
+        return { kind: completeUploadKind, version: sheet.version };
+      }
+      throw new ConvexError({
+        code: "SHEET_CHANGED",
+        message: "This paper sheet already has a different source image.",
+      });
     }
     if (sheet.version !== args.expectedSheetVersion) {
       throw new ConvexError({ code: "SHEET_CHANGED", message: "The paper sheet changed. Refresh and try again." });
@@ -653,6 +759,8 @@ export const attachSource = internalMutation({
     storageId: v.id("_storage"),
     fileName: v.string(),
     contentType: v.string(),
+    sourceSha256: v.string(),
+    sourceByteCount: v.number(),
     clientOperationId: v.string(),
   },
   returns: v.object({
@@ -670,27 +778,14 @@ export const attachSource = internalMutation({
         message: "The paper source must be a compressed JPEG image.",
       });
     }
-    const metadata = await ctx.db.system.get("_storage", args.storageId);
-    if (
-      !metadata ||
-      metadata.contentType !== allowedSourceContentType ||
-      metadata.size < 1 ||
-      metadata.size > maximumSourceBytes
-    ) {
-      throw new ConvexError({
-        code: "SOURCE_FILE_INVALID",
-        message: "The source image is missing, too large, or not a JPEG.",
-      });
-    }
-    const requestFingerprint = operationFingerprint([
-      args.sheetId,
-      args.expectedSheetVersion,
-      args.storageId,
+    const sourceSha256 = validatedSourceSha256(args.sourceSha256);
+    const requestFingerprint = sourceUploadFingerprint({
+      sheetId: args.sheetId,
+      expectedSheetVersion: args.expectedSheetVersion,
       fileName,
-      args.contentType,
-      metadata.sha256,
-      metadata.size,
-    ]);
+      sourceSha256,
+      sourceByteCount: args.sourceByteCount,
+    });
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -701,10 +796,28 @@ export const attachSource = internalMutation({
     if (prior) {
       const sheetId = ctx.db.normalizeId("attendanceManualSheets", prior.targetId);
       const sheet = sheetId ? await ctx.db.get(sheetId) : null;
-      if (!sheet || !sheet.sourceStorageId || sheet.eventId !== event._id) {
-        throw new Error("Prior paper-sheet submission no longer resolves.");
+      if (!sheet || sheet.eventId !== event._id || !sheet.sourceStorageId) {
+        throw new Error("Prior paper-sheet submission result is invalid.");
       }
-      return { id: sheet._id, version: sheet.version, storageId: sheet.sourceStorageId };
+      return {
+        id: sheet._id,
+        version: storedOperationVersion(prior.resultJson, "paper-sheet submission"),
+        storageId: sheet.sourceStorageId,
+      };
+    }
+    const metadata = await ctx.db.system.get("_storage", args.storageId);
+    if (
+      !metadata ||
+      metadata.contentType !== allowedSourceContentType ||
+      metadata.size < 1 ||
+      metadata.size > maximumSourceBytes ||
+      metadata.size !== args.sourceByteCount ||
+      metadata.sha256 !== sourceSha256
+    ) {
+      throw new ConvexError({
+        code: "SOURCE_FILE_INVALID",
+        message: "The source image is missing, too large, or not a JPEG.",
+      });
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const sheet = await ctx.db.get(args.sheetId);
@@ -771,6 +884,7 @@ export const attachSource = internalMutation({
       requestFingerprint,
       targetType: "attendance_manual_sheet",
       targetId: sheet._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -823,11 +937,11 @@ export const cancelDraft = mutation({
     });
     if (prior) {
       const sheetId = ctx.db.normalizeId("attendanceManualSheets", prior.targetId);
-      const sheet = sheetId ? await ctx.db.get(sheetId) : null;
-      if (!sheet || sheet.eventId !== event._id) {
-        throw new Error("Prior manual-sheet cancellation no longer resolves.");
-      }
-      return { id: sheet._id, version: sheet.version };
+      if (!sheetId) throw new Error("Prior manual-sheet cancellation result is invalid.");
+      return {
+        id: sheetId,
+        version: storedOperationVersion(prior.resultJson, "manual-sheet cancellation"),
+      };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const sheet = await ctx.db.get(args.sheetId);
@@ -869,6 +983,7 @@ export const cancelDraft = mutation({
       requestFingerprint,
       targetType: "attendance_manual_sheet",
       targetId: sheet._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1041,21 +1156,14 @@ export const verify = mutation({
     });
     if (prior) {
       const sheetId = ctx.db.normalizeId("attendanceManualSheets", prior.targetId);
-      const sheet = sheetId ? await ctx.db.get(sheetId) : null;
-      if (
-        !sheet ||
-        sheet.eventId !== event._id ||
-        (sheet.status !== "imported" &&
-          sheet.status !== "needs_review" &&
-          sheet.status !== "rejected")
-      ) {
-        throw new Error("Prior manual-sheet verification no longer resolves.");
-      }
+      if (!sheetId) throw new Error("Prior manual-sheet verification result is invalid.");
       return {
-        id: sheet._id,
-        version: sheet.version,
-        status: sheet.status,
-        ...(sheet.importSummary !== undefined ? { importSummary: sheet.importSummary } : {}),
+        id: sheetId,
+        ...storedOperationResult(
+          prior.resultJson,
+          "manual-sheet verification",
+          manualSheetVerificationOperationResult,
+        ),
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -1137,6 +1245,7 @@ export const verify = mutation({
         requestFingerprint,
         targetType: "attendance_manual_sheet",
         targetId: sheet._id,
+        resultJson: JSON.stringify({ status: "rejected", version }),
         createdAt: now,
       });
       await writeAuditEvent(ctx, {
@@ -1314,6 +1423,7 @@ export const verify = mutation({
       requestFingerprint,
       targetType: "attendance_manual_sheet",
       targetId: sheet._id,
+      resultJson: JSON.stringify({ status, version, importSummary: summary }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

@@ -14,9 +14,15 @@ import {
 import {
   addEventSubjectSelfGrants,
   insertPermissionGrant,
+  matchingPermissionGrantIds,
   requirePermission,
 } from "./lib/permissions";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationVersion,
+} from "./lib/operations";
 import {
   isProfileCompleteForPolicy,
   loadPublishedParticipantPolicy,
@@ -27,7 +33,12 @@ import {
   normalizedText,
   optionalNormalizedText,
 } from "./lib/strings";
-import { participantClass, studyYear } from "./values";
+import {
+  participantClass,
+  participantEligibilityStatus,
+  participantOnboardingStatus,
+  studyYear,
+} from "./values";
 
 const profileView = v.object({
   id: v.id("participantProfiles"),
@@ -69,8 +80,8 @@ export const me = query({
         v.object({
           id: v.id("eventMemberships"),
           participantClass,
-          eligibilityStatus: v.string(),
-          onboardingStatus: v.string(),
+          eligibilityStatus: participantEligibilityStatus,
+          onboardingStatus: participantOnboardingStatus,
         }),
       ),
       profile: v.union(v.null(), profileView),
@@ -88,17 +99,19 @@ export const me = query({
         index.eq("eventId", event._id).eq("personId", person._id),
       )
       .unique();
+    let canReadProfile = false;
     if (membership) {
       const subject = await requireEventSubject(ctx, event._id, person._id);
-      await requirePermission(ctx, {
+      const grantIds = await matchingPermissionGrantIds(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "participant.profile.read",
         scopeType: "self",
         scopeId: membership._id,
       });
+      canReadProfile = grantIds.length > 0;
     }
-    const profile = membership
+    const profile = membership && canReadProfile
       ? await ctx.db
           .query("participantProfiles")
           .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
@@ -520,11 +533,11 @@ export const saveProfile = mutation({
     });
     if (prior) {
       const profileId = ctx.db.normalizeId("participantProfiles", prior.targetId);
-      const profileVersion = Number(prior.resultJson);
-      if (!profileId || !Number.isSafeInteger(profileVersion) || profileVersion < 1) {
-        throw new Error("The prior participant-profile result is invalid.");
-      }
-      return { profileId, profileVersion };
+      if (!profileId) throw new Error("The stored participant profile is invalid.");
+      return {
+        profileId,
+        profileVersion: storedOperationVersion(prior.resultJson, "participant profile"),
+      };
     }
     requireRegistrationOpen(event);
     const subject = await requireEventSubject(ctx, event._id, person._id);

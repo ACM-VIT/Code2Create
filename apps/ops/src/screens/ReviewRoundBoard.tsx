@@ -1,7 +1,13 @@
 import { api } from '@code2create/backend/api'
 import {
   reviewRoundStatusLabels,
+  reviewRoundReserveStatusLabels,
   reviewSessionStatusLabels,
+  reviewerClockInStatusLabels,
+  reviewerPageChainStateLabels,
+  reviewerPageStateLabels,
+  reviewerPushDeliveryStateLabels,
+  outboundCallDeliveryStateLabels,
   teamRoundStateOperatorLabels,
 } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
@@ -27,9 +33,25 @@ type SubstituteMember = SubstitutionPanel['activeMembers'][number]
 type Reserve = Substitutions['reserves'][number]
 type ActiveIncident = FunctionReturnType<typeof api.incidents.active>[number]
 type Command = 'queue' | 'call' | 'start' | 'complete'
+type TeamView = 'desk' | 'in_motion' | 'done' | 'all'
+type RoundPauseResult =
+  | FunctionReturnType<typeof api.reviewRoundPauses.pause>
+  | FunctionReturnType<typeof api.reviewRoundPauses.resume>
+type TeamReviewCommandResult =
+  | FunctionReturnType<typeof api.reviewOperations.queueTeam>
+  | FunctionReturnType<typeof api.reviewOperations.callTeam>
+  | FunctionReturnType<typeof api.reviewOperations.startReview>
+  | FunctionReturnType<typeof api.reviewOperations.completeReview>
+type TeamExceptionResult =
+  | FunctionReturnType<typeof api.reviewExceptions.holdTeam>
+  | FunctionReturnType<typeof api.reviewExceptions.resumeTeam>
+  | FunctionReturnType<typeof api.reviewExceptions.moveQueuedTeam>
+  | FunctionReturnType<typeof api.reviewExceptions.recordCallAttempt>
+  | FunctionReturnType<typeof api.reviewExceptions.markMissed>
 
 export function ReviewRoundBoard() {
   const { roundId } = useParams<{ roundId: string }>()
+  const [teamView, setTeamView] = useState<TeamView>('desk')
   const overview = useQuery(api.reviewOperations.overview, { eventSlug })
   const visibleRound = overview?.rounds.find((round) => round.id === roundId)
   const board = useQuery(
@@ -74,7 +96,7 @@ export function ReviewRoundBoard() {
     )
   }
   if (!visibleRound) {
-    return <p className="notice error">This round is not visible to your permission scope.</p>
+    return <p className="notice error">You do not have access to this review round.</p>
   }
   if (!board || !staffing || !substitutions || !incidents) return <p className="muted">Loading round board…</p>
   const boardTeams = teams.results
@@ -87,6 +109,16 @@ export function ReviewRoundBoard() {
   const reviewIncidents = incidents.filter(
     (incident) => incident.affectedService === 'review_backend',
   )
+  const deskTeams = boardTeams.filter((team) => teamViewForState(team.state) === 'desk')
+  const movingTeams = boardTeams.filter((team) => teamViewForState(team.state) === 'in_motion')
+  const doneTeams = boardTeams.filter((team) => teamViewForState(team.state) === 'done')
+  const visibleTeams = teamView === 'desk'
+    ? deskTeams
+    : teamView === 'in_motion'
+      ? movingTeams
+      : teamView === 'done'
+        ? doneTeams
+        : boardTeams
 
   return (
     <section className="review-shell">
@@ -136,21 +168,59 @@ export function ReviewRoundBoard() {
             {substitutions.reserves.map((reserve) => (
               <div key={reserve.reserveId}>
                 <strong>{reserve.displayName}</strong>
-                <span>{stateName(reserve.status)} · {stateName(staffing.reserves.find((candidate) => candidate.personId === reserve.personId)?.clockInStatus ?? 'not_clocked_in')} · {reserve.pageCount} pages</span>
+                <span>{reviewRoundReserveStatusLabels[reserve.status]} · {reviewerClockInStatusLabels[staffing.reserves.find((candidate) => candidate.personId === reserve.personId)?.clockInStatus ?? 'not_clocked_in']} · {reserve.pageCount} pages</span>
               </div>
             ))}
           </div>
         </section>
       ) : null}
 
-      <div className="review-team-list">
-        {[...boardTeams].sort(byDeskUrgency).map((team) => (
+      <section className="review-team-workspace">
+        <div className="section-heading review-team-workspace-heading">
+          <div>
+            <h2>Teams</h2>
+            <p className="muted">Open the queue state that needs work now.</p>
+          </div>
+          <div className="configuration-tabs review-team-tabs" role="group" aria-label="Team queue view">
+            <button
+              aria-pressed={teamView === 'desk'}
+              className={teamView === 'desk' ? 'active' : ''}
+              type="button"
+              onClick={() => setTeamView('desk')}
+            >Desk · {deskTeams.length}</button>
+            <button
+              aria-pressed={teamView === 'in_motion'}
+              className={teamView === 'in_motion' ? 'active' : ''}
+              type="button"
+              onClick={() => setTeamView('in_motion')}
+            >In motion · {movingTeams.length}</button>
+            <button
+              aria-pressed={teamView === 'done'}
+              className={teamView === 'done' ? 'active' : ''}
+              type="button"
+              onClick={() => setTeamView('done')}
+            >Done · {doneTeams.length}</button>
+            <button
+              aria-pressed={teamView === 'all'}
+              className={teamView === 'all' ? 'active' : ''}
+              type="button"
+              onClick={() => setTeamView('all')}
+            >All · {boardTeams.length}</button>
+          </div>
+        </div>
+        <div className="review-team-list">
+        {[...visibleTeams].sort(byDeskUrgency).map((team) => (
           <TeamRow board={board} key={team.stateId ?? team.teamId} team={team} />
         ))}
-      </div>
-      {boardTeams.length === 0 ? (
-        <p className="empty">No team is eligible for this round yet.</p>
-      ) : null}
+        </div>
+        {visibleTeams.length === 0 ? (
+          <p className="empty">
+            {boardTeams.length === 0
+              ? 'No team is eligible for this round yet.'
+              : 'No team is in this queue state.'}
+          </p>
+        ) : null}
+      </section>
       {teams.status !== 'Exhausted' ? (
         <button
           className="secondary"
@@ -168,6 +238,12 @@ export function ReviewRoundBoard() {
       </details>
     </section>
   )
+}
+
+function teamViewForState(state: Team['state']): Exclude<TeamView, 'all'> {
+  if (state === 'unassigned' || state === 'held' || state === 'missed') return 'desk'
+  if (state === 'completed' || state === 'withdrawn') return 'done'
+  return 'in_motion'
 }
 
 const deskOrder: Record<Team['state'], number> = {
@@ -346,15 +422,33 @@ function RoundPauseControl({ round, incidents }: { round: Board['round']; incide
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const operationAttempt = useMutationAttempt<unknown>()
-  const pausePending = operationAttempt.hasPending(`round-pause:${round.id}`)
-  const resumePending = operationAttempt.hasPending(`round-resume:${round.id}`)
+  const operationAttempt = useMutationAttempt<RoundPauseResult>()
+  const pauseSlot = `round-pause:${round.id}`
+  const resumeSlot = `round-resume:${round.id}`
+  const pausePending = operationAttempt.hasPending(pauseSlot)
+  const resumePending = operationAttempt.hasPending(resumeSlot)
   const commandPending = pausePending || resumePending
 
   const open = (nextMode: 'pause' | 'resume') => {
+    if (commandPending) return
     setMode(nextMode)
     setReason('')
     setError(null)
+  }
+
+  const retryPendingCommand = async (slot: string) => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await operationAttempt.retryPending(slot)
+      setMode(null)
+      setReason('')
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
   }
 
   const submit = async (event: FormEvent) => {
@@ -369,7 +463,7 @@ function RoundPauseControl({ round, incidents }: { round: Board['round']; incide
           setError('Choose an active review incident.')
           return
         }
-        await operationAttempt.run(`round-pause:${round.id}`, () => {
+        await operationAttempt.run(pauseSlot, () => {
           const args = {
             eventSlug,
             roundId: round.id,
@@ -382,7 +476,7 @@ function RoundPauseControl({ round, incidents }: { round: Board['round']; incide
         })
       } else if (mode === 'resume' && round.pause) {
         const pause = round.pause
-        await operationAttempt.run(`round-resume:${round.id}`, () => {
+        await operationAttempt.run(resumeSlot, () => {
           const args = {
             eventSlug,
             pauseId: pause.id,
@@ -414,10 +508,19 @@ function RoundPauseControl({ round, incidents }: { round: Board['round']; incide
           </span>
           <small>Reviews already underway can still save and finish.</small>
         </div>
-        {round.pause.canResume && mode !== 'resume' ? (
+        {pausePending ? (
+          <button
+            className="secondary"
+            disabled={busy}
+            type="button"
+            onClick={() => void retryPendingCommand(pauseSlot)}
+          >
+            {busy ? 'Confirming…' : 'Confirm earlier pause'}
+          </button>
+        ) : round.pause.canResume && mode !== 'resume' ? (
           <button className="secondary" type="button" onClick={() => open('resume')}>Resume new reviews</button>
         ) : null}
-        {round.pause.canResume && mode === 'resume' ? (
+        {!pausePending && round.pause.canResume && mode === 'resume' ? (
           <form className="round-pause-form" onSubmit={submit}>
             <label className="field">
               <span>Why it is safe to resume</span>
@@ -432,7 +535,24 @@ function RoundPauseControl({ round, incidents }: { round: Board['round']; incide
             {error ? <p className="notice error" role="alert">{error}</p> : null}
           </form>
         ) : null}
+        {mode !== 'resume' && error ? <p className="notice error" role="alert">{error}</p> : null}
       </section>
+    )
+  }
+
+  if (resumePending) {
+    return (
+      <>
+        <button
+          className="text-button round-pause-open"
+          disabled={busy}
+          type="button"
+          onClick={() => void retryPendingCommand(resumeSlot)}
+        >
+          {busy ? 'Confirming…' : 'Confirm earlier resume'}
+        </button>
+        {error ? <p className="notice error" role="alert">{error}</p> : null}
+      </>
     )
   }
 
@@ -440,9 +560,12 @@ function RoundPauseControl({ round, incidents }: { round: Board['round']; incide
 
   if (mode !== 'pause') {
     return (
-      <button className="text-button round-pause-open" type="button" onClick={() => open('pause')}>
-        Pause new review calls and starts
-      </button>
+      <>
+        <button className="text-button round-pause-open" type="button" onClick={() => open('pause')}>
+          Pause new review calls and starts
+        </button>
+        {error ? <p className="notice error" role="alert">{error}</p> : null}
+      </>
     )
   }
 
@@ -587,15 +710,18 @@ function SubstitutionControl({ panel, serverNow }: { panel: SubstitutionPanel; s
       ) : null}
       {panel.pageChain ? (
         <p className="muted exception-policy">
-          Page chain {stateName(panel.pageChain.state)} · attempt {panel.pageChain.currentRank}
+          {reviewerPageChainStateLabels[panel.pageChain.state]} · attempt {panel.pageChain.currentRank}
           {panel.pageChain.currentPage
-            ? ` · ${panel.pageChain.currentPage.targetName} ${stateName(panel.pageChain.currentPage.state)} until ${formatMoment(panel.pageChain.currentPage.expiresAt)}`
+            ? ` · ${panel.pageChain.currentPage.targetName} ${reviewerPageStateLabels[panel.pageChain.currentPage.state]} until ${formatMoment(panel.pageChain.currentPage.expiresAt)}`
             : ''}
           {panel.pageChain.currentPage?.push
-            ? ` · ${pushStateName(panel.pageChain.currentPage.push.state)}${panel.pageChain.currentPage.push.providerErrorCode ? ` (${stateName(panel.pageChain.currentPage.push.providerErrorCode)})` : ''}`
+            ? ` · ${reviewerPushDeliveryStateLabels[panel.pageChain.currentPage.push.state]}`
             : panel.pageChain.currentPage
               ? ' · push unavailable'
               : ''}
+          {panel.pageChain.currentPage?.call
+            ? ` · ${outboundCallDeliveryStateLabels[panel.pageChain.currentPage.call.state]}`
+            : ''}
           {panel.pageChain.currentPage && panel.pageChain.currentPage.expiresAt <= serverNow ? ' · expiry processing' : ''}
         </p>
       ) : null}
@@ -610,7 +736,7 @@ function SubstitutionControl({ panel, serverNow }: { panel: SubstitutionPanel; s
             <span>Substitution reason</span>
             <textarea disabled={operationPending} value={reason} onChange={(event) => { setReason(event.target.value); setError(null) }} />
           </label>
-          <p className="muted">The server pages one present, qualified reserve at a time using the published response window.</p>
+          <p className="muted">The server notifies one present, qualified reserve at a time. An unanswered push escalates to their verified phone number.</p>
           <div className="button-row">
             <button className="primary" disabled={busy || reason.trim().length < 5} type="button" onClick={() => void submit()}>
               {busy ? 'Paging…' : operationPending ? 'Confirm earlier page chain' : 'Start page chain'}
@@ -751,7 +877,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
   const [error, setError] = useState<string | null>(null)
   const [availabilityOverrideReason, setAvailabilityOverrideReason] = useState('')
   const [availabilityOverrideConfirmed, setAvailabilityOverrideConfirmed] = useState(false)
-  const operationAttempt = useMutationAttempt<unknown>()
+  const operationAttempt = useMutationAttempt<TeamReviewCommandResult>()
   const queueSlot = `review-queue:${team.teamId}`
   const callSlot = `review-call:${team.teamId}`
   const startSlot = `review-start:${team.review?.id ?? team.teamId}`
@@ -878,7 +1004,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
     review?.status === 'awaiting_presence' && !allReviewersPresent
       ? `Waiting for reviewers to scan in · ${review.reviewerPresenceCount} of ${review.reviewerCount} done`
       : review?.status === 'awaiting_presence' && !participantAvailabilityReady
-        ? 'Waiting for the team to regroup at the table'
+        ? 'Waiting for the team to regroup'
         : (review?.status === 'active' || review?.status === 'overdue') && !allScorecardsSubmitted
           ? `Waiting for scorecards · ${review.submittedScorecardCount} of ${review.reviewerCount} submitted`
           : (review?.status === 'active' || review?.status === 'overdue') &&
@@ -892,8 +1018,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
         <div>
           <strong>{team.teamName}</strong>
           <span>
-            {team.trackName}
-            {team.tableLabel ? ` · ${team.tableLabel}` : ''}
+            {team.tableLabel ?? 'Location not mapped'}
           </span>
         </div>
         <div className="review-team-meta">
@@ -1109,7 +1234,7 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const stateId = team.stateId
-  const operationAttempt = useMutationAttempt<unknown>()
+  const operationAttempt = useMutationAttempt<TeamExceptionResult>()
   const moveTargets = board.panels.filter(
     (panel) =>
       panel.id !== team.panelId &&
@@ -1321,7 +1446,7 @@ function PresenceWaiver({ review }: { review: NonNullable<Team['review']> }) {
     <details className="team-exceptions">
       <summary>Start without every reviewer</summary>
       <div className="exception-form destructive-command">
-        <p className="muted">Use only after staff physically confirm the named reviewer at this table.</p>
+        <p className="muted">Use only after staff physically confirm the named reviewer is with this team.</p>
         {missing.map((reviewer) => (
           <label className="check-filter" key={reviewer.personId}>
             <input
@@ -1455,19 +1580,6 @@ function commandLabel(command: ExceptionCommand) {
 
 function formatMoment(value: number) {
   return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' }).format(value)
-}
-
-function stateName(value: string) {
-  return value.replaceAll('_', ' ')
-}
-
-function pushStateName(value: string) {
-  if (value === 'provider_accepted') return 'push accepted by APNs/FCM'
-  if (value === 'unavailable') return 'push unavailable'
-  if (value === 'retry_wait') return 'push retry waiting'
-  if (value === 'failed') return 'push failed'
-  if (value === 'superseded') return 'push no longer needed'
-  return `push ${stateName(value)}`
 }
 
 function formatWindow(startsAt: number, endsAt: number) {

@@ -10,6 +10,14 @@ import { LoadingLabel, SkeletonCard } from './Skeleton'
 
 type Workspace = FunctionReturnType<typeof api.roundExports.workspace>
 type RoundId = Workspace['round']['id']
+type ActiveExport = NonNullable<Workspace['activeExport']>
+
+const exportStateLabels: Record<ActiveExport['state'], string> = {
+  generating: 'Preparing files',
+  uploaded: 'Ready to verify',
+  verified: 'Verified',
+  failed: 'Could not prepare files',
+}
 
 export function RoundExportControl({ roundId }: { roundId: RoundId }) {
   const workspace = useQuery(api.roundExports.workspace, { eventSlug, roundId })
@@ -31,7 +39,7 @@ export function RoundExportControl({ roundId }: { roundId: RoundId }) {
           <h2>Round export</h2>
           <p className="muted">The round closes after a different person opens and verifies both files.</p>
         </div>
-        {activeExport ? <span className="state-label">{stateName(activeExport.state)}</span> : null}
+        {activeExport ? <span className="state-label">{exportStateLabels[activeExport.state]}</span> : null}
       </div>
 
       {activeExport ? <ExportSummary activeExport={activeExport} /> : null}
@@ -104,7 +112,6 @@ function ExportSummary({ activeExport }: { activeExport: NonNullable<Workspace['
         <Summary label="Corrections" value={activeExport.counts.correctionCase} />
         <Summary label="Paper records" value={activeExport.counts.manualReviewRecord} />
       </dl>
-      {activeExport.failureCode ? <p className="notice error">{stateName(activeExport.failureCode)}</p> : null}
     </>
   )
 }
@@ -395,10 +402,6 @@ function ReopenRound({
 
 function Summary({ label, value }: { label: string; value: number }) {
   return <div><dt>{label}</dt><dd>{value}</dd></div>
-}
-
-function stateName(value: string) {
-  return value.replaceAll('_', ' ')
 }
 
 function formatTime(value: number) {

@@ -32,7 +32,7 @@ import {
 interface RequestContext {
   store: UpdateStore
   channel: UpdateChannel
-  adminToken: string
+  adminToken?: string
 }
 
 class HttpError extends Error {
@@ -365,8 +365,10 @@ function parseJson(body: string): unknown {
   }
 }
 
-async function requireAdmin(request: Request, adminToken: string) {
-  if (adminToken.length < 32) throw new HttpError(503, 'Publishing is not configured.')
+async function requireAdmin(request: Request, adminToken?: string) {
+  if (!adminToken || adminToken.length < 32) {
+    throw new HttpError(503, 'Publishing is not configured.')
+  }
   const provided = request.headers.get('authorization') ?? ''
   const expected = `Bearer ${adminToken}`
   if (!(await constantTimeEqual(provided, expected))) throw new HttpError(401, 'Unauthorized.')

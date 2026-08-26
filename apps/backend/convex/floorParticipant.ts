@@ -19,8 +19,8 @@ import {
   requireEventSubject,
   requireMembership,
 } from "./lib/identity";
-import { requirePermission } from "./lib/permissions";
-import { floorActiveMappingState, floorArea } from "./values";
+import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
+import { floorActiveMappingState, floorArea, floorTeamQrTokenState } from "./values";
 
 export const current = query({
   args: { eventSlug: v.string() },
@@ -75,12 +75,19 @@ export const current = query({
     if (described && described.zone.eventId !== event._id) {
       throw new Error("The active team location is incomplete.");
     }
+    const mintGrantIds = await matchingPermissionGrantIds(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "floor.team_qr.mint",
+      scopeType: "team",
+      scopeId: teamContext.team._id,
+    });
     return {
       teamId: teamContext.team._id,
       teamName: teamContext.team.name,
       planName: plan.name,
       mappingState: plan.mappingState,
-      canMintQr: true,
+      canMintQr: mintGrantIds.length > 0,
       location:
         location && described
           ? {
@@ -97,12 +104,52 @@ export const current = query({
   },
 });
 
+export const teamQrState = query({
+  args: {
+    eventSlug: v.string(),
+    tokenId: v.id("floorTeamQrTokens"),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      state: floorTeamQrTokenState,
+      expiresAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const membership = await requireMembership(ctx, event._id, person._id);
+    const teamContext = await currentTeamForMembership(ctx, event._id, membership._id);
+    if (!teamContext) return null;
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "floor.team.read",
+      scopeType: "team",
+      scopeId: teamContext.team._id,
+    });
+    const token = await ctx.db.get(args.tokenId);
+    if (
+      !token ||
+      token.eventId !== event._id ||
+      token.teamId !== teamContext.team._id
+    ) {
+      return null;
+    }
+    return { state: token.state, expiresAt: token.expiresAt };
+  },
+});
+
 export const mintTeamQr = mutation({
   args: { eventSlug: v.string() },
   returns: v.object({
+    tokenId: v.id("floorTeamQrTokens"),
     payload: v.string(),
     manualCode: v.string(),
     expiresAt: v.number(),
+    serverNow: v.number(),
     teamName: v.string(),
     planName: v.string(),
   }),
@@ -115,7 +162,7 @@ export const mintTeamQr = mutation({
     if (!teamContext || !teamCanBeMapped(teamContext.team.status) || !plan || plan.mappingState === "setup") {
       throw new ConvexError({
         code: "FLOOR_QR_UNAVAILABLE",
-        message: "A hall-location code is available only to an accepted team during floor mapping.",
+        message: "A hall-location code is available only to a confirmed team during floor mapping.",
       });
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -182,6 +229,14 @@ export const mintTeamQr = mutation({
       nextSummary: JSON.stringify({ planVersionId: plan._id, tokenVersion, expiresAt }),
       reason: "Team member opened the current hall-location QR",
     });
-    return { payload, manualCode, expiresAt, teamName: teamContext.team.name, planName: plan.name };
+    return {
+      tokenId,
+      payload,
+      manualCode,
+      expiresAt,
+      serverNow: now,
+      teamName: teamContext.team.name,
+      planName: plan.name,
+    };
   },
 });

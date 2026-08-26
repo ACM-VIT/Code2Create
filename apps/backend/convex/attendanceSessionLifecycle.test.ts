@@ -239,6 +239,7 @@ async function seedCancellationFixture(
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: timing.openedAt - 30 * 60_000,
       endsAt: timing.now + 60 * 60_000,
       version: 1,

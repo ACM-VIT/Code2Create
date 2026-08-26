@@ -3,6 +3,7 @@ import {
   paginationResultValidator,
 } from "convex/server";
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -14,9 +15,15 @@ import {
   requireEventSubject,
   requireMembership,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+  storedOperationVersion,
+} from "./lib/operations";
 import { loadPublishedPhaseSchedule } from "./lib/phaseSchedule";
-import { requirePermission } from "./lib/permissions";
+import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import {
   loadPublishedProjectCheckpointPlan,
   projectCheckpointKeys,
@@ -64,6 +71,14 @@ const submissionView = v.object({
   timing: v.union(v.literal("on_time"), v.literal("late")),
   submittedAt: v.number(),
 });
+
+const checkpointSubmissionOperationResult = z
+  .object({
+    submissionId: z.string().min(1),
+    timing: z.enum(["on_time", "late"]),
+    submittedAt: z.number().int().nonnegative(),
+  })
+  .strict();
 
 const checkpointView = v.object({
   checkpointKey: projectCheckpointKey,
@@ -160,7 +175,7 @@ async function currentTeamForRead(ctx: QueryCtx, eventSlug: string) {
     scopeType: "team",
     scopeId: team._id,
   });
-  return { event, team };
+  return { event, subject, team };
 }
 
 async function currentTeamForWrite(ctx: MutationCtx, eventSlug: string) {
@@ -308,10 +323,17 @@ export const mine = query({
     checkpoints: v.array(checkpointView),
   }),
   handler: async (ctx, args) => {
-    const { event, team } = await currentTeamForRead(ctx, args.eventSlug);
-    const [publishedPlan, publishedSchedule] = await Promise.all([
+    const { event, subject, team } = await currentTeamForRead(ctx, args.eventSlug);
+    const [publishedPlan, publishedSchedule, writeGrantIds] = await Promise.all([
       loadPublishedProjectCheckpointPlan(ctx, event),
       loadPublishedPhaseSchedule(ctx, event),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "team.project.write",
+        scopeType: "team",
+        scopeId: team._id,
+      }),
     ]);
     const now = Date.now();
     if (!publishedPlan || !publishedSchedule) {
@@ -350,7 +372,9 @@ export const mine = query({
         dueAt: window.endsAt,
         closesAt,
         availability,
-        canEdit: availability === "open" || availability === "late",
+        canEdit:
+          writeGrantIds.length > 0 &&
+          (availability === "open" || availability === "late"),
         draft: draft ? checkpointDraftView(draft) : null,
         submission: submission ? checkpointSubmissionView(submission) : null,
       });
@@ -435,9 +459,8 @@ async function replayDraftOperation(
   if (!operation) return null;
   const draftId = ctx.db.normalizeId("teamCheckpointDrafts", operation.targetId);
   if (!draftId) throw new Error("The prior checkpoint-draft result is invalid.");
-  const draft = await ctx.db.get(draftId);
-  if (!draft) throw new Error("The prior checkpoint draft no longer resolves.");
-  return draft;
+  const draftVersion = storedOperationVersion(operation.resultJson, "checkpoint-draft");
+  return { draftId, draftVersion };
 }
 
 async function recordDraftOperation(
@@ -449,6 +472,7 @@ async function recordDraftOperation(
     commandName: string;
     requestFingerprint: string;
     draftId: Id<"teamCheckpointDrafts">;
+    draftVersion: number;
     createdAt: number;
   },
 ) {
@@ -460,6 +484,7 @@ async function recordDraftOperation(
     requestFingerprint: args.requestFingerprint,
     targetType: "team_checkpoint_draft",
     targetId: args.draftId,
+    resultJson: String(args.draftVersion),
     createdAt: args.createdAt,
   });
 }
@@ -501,7 +526,7 @@ export const saveUpdate = mutation({
       commandName: "project.checkpoint.update.save",
       requestFingerprint,
     });
-    if (prior) return { draftId: prior._id, draftVersion: prior.version };
+    if (prior) return prior;
     const draft = await existingDraft(ctx, team._id, args.checkpointKey);
     requireDraftVersion(draft?.version ?? 0, args.expectedDraftVersion);
     if (draft?.submissionId || draft?.stage === "submitted") {
@@ -560,6 +585,7 @@ export const saveUpdate = mutation({
       commandName: "project.checkpoint.update.save",
       requestFingerprint,
       draftId,
+      draftVersion,
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -607,7 +633,7 @@ export const saveFollowUp = mutation({
       commandName: "project.checkpoint.follow_up.save",
       requestFingerprint,
     });
-    if (prior) return { draftId: prior._id, draftVersion: prior.version };
+    if (prior) return prior;
     const draft = await existingDraft(ctx, team._id, args.checkpointKey);
     if (!draft?.updateText) {
       throw new ConvexError({
@@ -651,6 +677,7 @@ export const saveFollowUp = mutation({
       commandName: "project.checkpoint.follow_up.save",
       requestFingerprint,
       draftId: draft._id,
+      draftVersion,
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -700,17 +727,22 @@ export const submit = mutation({
       requestFingerprint,
     });
     if (priorOperation) {
+      const result = storedOperationResult(
+        priorOperation.resultJson,
+        "checkpoint submission",
+        checkpointSubmissionOperationResult,
+      );
       const submissionId = ctx.db.normalizeId(
         "teamCheckpointSubmissions",
-        priorOperation.targetId,
+        result.submissionId,
       );
-      if (!submissionId) throw new Error("The prior checkpoint submission is invalid.");
-      const submission = await ctx.db.get(submissionId);
-      if (!submission) throw new Error("The prior checkpoint submission no longer resolves.");
+      if (!submissionId || submissionId !== priorOperation.targetId) {
+        throw new Error("The stored checkpoint submission is invalid.");
+      }
       return {
         submissionId,
-        timing: submission.timing,
-        submittedAt: submission.submittedAt,
+        timing: result.timing,
+        submittedAt: result.submittedAt,
       };
     }
     const [draft, existing] = await Promise.all([
@@ -782,6 +814,7 @@ export const submit = mutation({
       lastEditedByMembershipId: membership._id,
       updatedAt: now,
     });
+    const result = { submissionId, timing, submittedAt: now };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -790,6 +823,7 @@ export const submit = mutation({
       requestFingerprint,
       targetType: "team_checkpoint_submission",
       targetId: submissionId,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -810,7 +844,7 @@ export const submit = mutation({
       }),
       reason: "Team explicitly submitted its project checkpoint",
     });
-    return { submissionId, timing, submittedAt: now };
+    return result;
   },
 });
 

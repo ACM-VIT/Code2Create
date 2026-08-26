@@ -49,6 +49,7 @@ export type OperationsIntelligenceStreamAccess = {
   ticket: string;
   issuedAt: number;
   expiresAt: number;
+  serverNow: number;
   signature: string;
 };
 

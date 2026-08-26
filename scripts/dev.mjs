@@ -3,17 +3,67 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 const workspace = new URL('..', import.meta.url)
 const children = new Set()
+const usesProcessGroups = process.platform !== 'win32'
 let stopping = false
 
-function start(args) {
+const localSurfaces = [
+  { label: 'Participant portal', healthUrl: 'http://localhost:5180/', displayUrl: 'http://localhost:5180' },
+  { label: 'Operations dashboard', healthUrl: 'http://localhost:5181/', displayUrl: 'http://localhost:5181' },
+  { label: 'Handbook', healthUrl: 'http://localhost:5182/', displayUrl: 'http://localhost:5182' },
+  { label: 'Reviewer Metro', healthUrl: 'http://localhost:8082/status', displayUrl: 'http://localhost:8082' },
+  { label: 'Intelligence Worker', healthUrl: 'http://localhost:8791/health', displayUrl: 'http://localhost:8791/health' },
+  { label: 'Updates Worker', healthUrl: 'http://localhost:8792/health', displayUrl: 'http://localhost:8792/health' },
+  { label: 'Email Worker', healthUrl: 'http://localhost:8793/health', displayUrl: 'http://localhost:8793/health' },
+  { label: 'Voice Worker', healthUrl: 'http://localhost:8794/health', displayUrl: 'http://localhost:8794/health' },
+]
+
+function start(args, onOutput) {
+  const capturesOutput = onOutput !== undefined
   const child = spawn('pnpm', args, {
     cwd: workspace,
     env: process.env,
-    stdio: 'inherit',
+    stdio: capturesOutput ? ['inherit', 'pipe', 'pipe'] : 'inherit',
+    detached: usesProcessGroups,
   })
+  if (capturesOutput) {
+    child.stdout.on('data', (chunk) => {
+      process.stdout.write(chunk)
+      onOutput(chunk.toString())
+    })
+    child.stderr.on('data', (chunk) => {
+      process.stderr.write(chunk)
+      onOutput(chunk.toString())
+    })
+  }
   children.add(child)
   child.once('exit', () => children.delete(child))
   return child
+}
+
+function startBackend() {
+  let markListenerReady = () => {}
+  const listenerReady = new Promise((resolve) => {
+    markListenerReady = resolve
+  })
+  let markPushReady = () => {}
+  const pushReady = new Promise((resolve) => {
+    markPushReady = resolve
+  })
+  let outputTail = ''
+  let listenerWasReady = false
+  let pushWasReady = false
+  const child = start(['dev:backend'], (output) => {
+    outputTail = `${outputTail}${output}`.slice(-4_096)
+    if (!listenerWasReady && outputTail.includes('http://127.0.0.1:3210')) {
+      listenerWasReady = true
+      markListenerReady()
+    }
+    if (!pushWasReady && outputTail.includes('Convex functions ready!')) {
+      pushWasReady = true
+      markPushReady()
+    }
+  })
+  return { child, listenerReady, pushReady }
 }
 
 function waitForExit(child) {
@@ -23,23 +73,61 @@ function waitForExit(child) {
   })
 }
 
-async function waitForBackend(backendExit) {
-  const ready = (async () => {
-    for (let attempt = 0; attempt < 120; attempt += 1) {
-      try {
-        const response = await fetch('http://127.0.0.1:3210/version')
-        if (response.ok) return
-      } catch {
-        // The local backend has not opened its port yet.
-      }
-      await delay(250)
-    }
-    throw new Error('The local Convex backend did not become ready on port 3210.')
-  })()
-  const result = await Promise.race([
-    ready.then(() => ({ ready: true })),
+async function waitForBackend(backendExit, pushReady) {
+  const pushResult = await Promise.race([
+    pushReady.then(() => ({ ready: true })),
     backendExit.then((exit) => ({ ready: false, exit })),
   ])
+  if (!pushResult.ready) {
+    throw new Error(
+      `The backend stopped before its first function push completed (${pushResult.exit.signal ?? `exit ${pushResult.exit.code}`}).`,
+    )
+  }
+
+  const controller = new AbortController()
+  const ready = (async () => {
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      if (controller.signal.aborted) return
+      try {
+        const response = await fetch('http://127.0.0.1:3210/api/query', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Convex-Client': 'code2create-local-readiness',
+          },
+          body: JSON.stringify({
+            path: 'system:getPublicShellState',
+            format: 'convex_encoded_json',
+            args: [{ eventSlug: 'code2create-7' }],
+          }),
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(1_000)]),
+        })
+        if (response.ok) {
+          const result = await response.json()
+          if (result?.status === 'success') return
+        }
+      } catch {
+        // The local backend or its first function push is still starting.
+      }
+      if (controller.signal.aborted) return
+      try {
+        await delay(250, undefined, { signal: controller.signal })
+      } catch (error) {
+        if (controller.signal.aborted) return
+        throw error
+      }
+    }
+    throw new Error('The local Convex functions did not become ready on port 3210.')
+  })()
+  let result
+  try {
+    result = await Promise.race([
+      ready.then(() => ({ ready: true })),
+      backendExit.then((exit) => ({ ready: false, exit })),
+    ])
+  } finally {
+    controller.abort()
+  }
   if (!result.ready) {
     throw new Error(
       `The backend stopped before it was ready (${result.exit.signal ?? `exit ${result.exit.code}`}).`,
@@ -47,29 +135,102 @@ async function waitForBackend(backendExit) {
   }
 }
 
-async function runPreparation() {
-  const child = start(['dev:prepare'])
+async function waitForBackendListener(backendExit, listenerReady) {
+  const result = await Promise.race([
+    listenerReady.then(() => ({ ready: true })),
+    backendExit.then((exit) => ({ ready: false, exit })),
+  ])
+  if (!result.ready) {
+    throw new Error(
+      `The backend stopped before its local API was listening (${result.exit.signal ?? `exit ${result.exit.code}`}).`,
+    )
+  }
+}
+
+async function waitForSurface(surface, signal) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    if (signal.aborted) return
+    try {
+      const response = await fetch(surface.healthUrl, {
+        signal: AbortSignal.any([signal, AbortSignal.timeout(1_000)]),
+      })
+      if (response.ok) return
+    } catch {
+      // This surface is still starting.
+    }
+    if (signal.aborted) return
+    try {
+      await delay(500, undefined, { signal })
+    } catch (error) {
+      if (signal.aborted) return
+      throw error
+    }
+  }
+  throw new Error(`${surface.label} did not become ready at ${surface.displayUrl}.`)
+}
+
+async function waitForApplications(applicationsExit) {
+  const controller = new AbortController()
+  const readiness = Promise.all(
+    localSurfaces.map((surface) => waitForSurface(surface, controller.signal)),
+  )
+  let result
+  try {
+    result = await Promise.race([
+      readiness.then(() => ({ ready: true })),
+      applicationsExit.then((exit) => ({ ready: false, exit })),
+    ])
+  } finally {
+    controller.abort()
+  }
+  if (!result.ready) {
+    throw new Error(
+      `The application group stopped before every surface was ready (${result.exit.signal ?? `exit ${result.exit.code}`}).`,
+    )
+  }
+  process.stdout.write(
+    `\nLocal stack ready\n${localSurfaces.map((surface) => `  ${surface.label}: ${surface.displayUrl}`).join('\n')}\n\n`,
+  )
+}
+
+async function runPreparation(mode) {
+  const child = start(['exec', 'node', 'scripts/prepare-local-development.mjs', mode])
   const { code, signal } = await waitForExit(child)
   if (code !== 0) {
-    throw new Error(`Local preparation failed (${signal ?? `exit ${code}`}).`)
+    throw new Error(`Local ${mode} preparation failed (${signal ?? `exit ${code}`}).`)
   }
 }
 
 function stop(signal = 'SIGTERM') {
   if (stopping) return
   stopping = true
-  for (const child of children) child.kill(signal)
+  for (const child of children) {
+    if (child.exitCode !== null || child.signalCode !== null) continue
+    if (usesProcessGroups && child.pid !== undefined) {
+      try {
+        process.kill(-child.pid, signal)
+      } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
+          throw error
+        }
+      }
+    } else {
+      child.kill(signal)
+    }
+  }
 }
 
-for (const signal of ['SIGINT', 'SIGTERM']) {
+for (const signal of ['SIGHUP', 'SIGINT', 'SIGTERM']) {
   process.on(signal, () => stop(signal))
 }
 
 try {
-  const backend = start(['dev:backend'])
+  const { child: backend, listenerReady, pushReady } = startBackend()
   const backendExit = waitForExit(backend)
-  await waitForBackend(backendExit)
-  await runPreparation()
+  await waitForBackendListener(backendExit, listenerReady)
+  await runPreparation('environment')
+  await waitForBackend(backendExit, pushReady)
+  await runPreparation('seed')
 
   const applications = start([
     '--parallel',
@@ -90,12 +251,16 @@ try {
     '@code2create/updates',
     '--filter',
     '@code2create/email',
+    '--filter',
+    '@code2create/voice',
     'run',
     'dev',
   ])
+  const applicationsExit = waitForExit(applications)
+  await waitForApplications(applicationsExit)
   const stopped = await Promise.race([
     backendExit.then((exit) => ({ application: 'backend', ...exit })),
-    waitForExit(applications).then((exit) => ({ application: 'application', ...exit })),
+    applicationsExit.then((exit) => ({ application: 'application', ...exit })),
   ])
   const unexpected = !stopping
   stop()

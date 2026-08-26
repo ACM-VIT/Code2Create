@@ -52,7 +52,7 @@ export function OperationsCopilotConsole({
     if (pendingTurn === undefined || !canRead) return
     const submissionId = observedSubmissionId(stream.messages, pendingTurn.turnId)
     if (submissionId === undefined) return
-    operations.confirmObservedSuccess('copilot-turn')
+    operations.confirmExactObservation('copilot-turn')
     setActiveSubmissionId(submissionId)
     clearPendingTurn()
     setComposerResetKey((key) => key + 1)

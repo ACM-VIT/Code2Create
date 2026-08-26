@@ -21,8 +21,8 @@ export type TeamRoundState =
 export const teamRoundStateOperatorLabels: Record<TeamRoundState, string> = {
   unassigned: "Waiting for the desk",
   queued: "In queue",
-  called: "Called to the table",
-  at_table: "At the table",
+  called: "Panel on the way",
+  at_table: "Panel with team",
   in_review: "In review",
   completed: "Review complete",
   held: "On hold",
@@ -33,8 +33,8 @@ export const teamRoundStateOperatorLabels: Record<TeamRoundState, string> = {
 export const teamRoundStateParticipantLabels: Record<TeamRoundState, string> = {
   unassigned: "Waiting for the review desk",
   queued: "In queue",
-  called: "Go to your table",
-  at_table: "At the table",
+  called: "Reviewers on the way",
+  at_table: "Reviewers arrived",
   in_review: "Review in progress",
   completed: "Complete",
   held: "On hold",
@@ -65,6 +65,110 @@ export const reviewRoundStatusLabels: Record<ReviewRoundStatus, string> = {
   open: "Open",
   closing: "Closing",
   closed: "Closed",
+};
+
+export type ReviewerClockInViewStatus =
+  | "not_clocked_in"
+  | "present"
+  | "temporarily_unavailable"
+  | "clocked_out"
+  | "no_show";
+
+export const reviewerClockInStatusLabels: Record<ReviewerClockInViewStatus, string> = {
+  not_clocked_in: "Not clocked in",
+  present: "Present",
+  temporarily_unavailable: "Temporarily unavailable",
+  clocked_out: "Clocked out",
+  no_show: "Marked no-show",
+};
+
+export type ReviewRoundReserveStatus = "available" | "paged" | "assigned" | "removed";
+
+export const reviewRoundReserveStatusLabels: Record<ReviewRoundReserveStatus, string> = {
+  available: "Available",
+  paged: "Page sent",
+  assigned: "Assigned",
+  removed: "Removed",
+};
+
+export type ReviewerPageChainState = "active" | "filled" | "exhausted" | "cancelled";
+
+export const reviewerPageChainStateLabels: Record<ReviewerPageChainState, string> = {
+  active: "Paging reserves",
+  filled: "Seat filled",
+  exhausted: "No compatible reserve answered",
+  cancelled: "Cancelled",
+};
+
+export type ReviewerPageState =
+  | "sent"
+  | "opened"
+  | "accepted"
+  | "declined"
+  | "expired"
+  | "cancelled";
+
+export const reviewerPageStateLabels: Record<ReviewerPageState, string> = {
+  sent: "sent",
+  opened: "opened",
+  accepted: "accepted",
+  declined: "declined",
+  expired: "expired",
+  cancelled: "cancelled",
+};
+
+export type ReviewerPushDeliveryState =
+  | "unavailable"
+  | "pending"
+  | "sending"
+  | "retry_wait"
+  | "provider_accepted"
+  | "failed"
+  | "superseded";
+
+export const reviewerPushDeliveryStateLabels: Record<ReviewerPushDeliveryState, string> = {
+  unavailable: "Notification unavailable",
+  pending: "Notification queued",
+  sending: "Sending notification",
+  retry_wait: "Notification waiting to retry",
+  provider_accepted: "Notification accepted for delivery",
+  failed: "Notification failed",
+  superseded: "Notification no longer needed",
+};
+
+type OutboundCallDeliveryState =
+  | "unavailable"
+  | "pending"
+  | "sending"
+  | "retry_wait"
+  | "provider_accepted"
+  | "queued"
+  | "initiated"
+  | "ringing"
+  | "answered"
+  | "completed"
+  | "busy"
+  | "no_answer"
+  | "cancelled"
+  | "failed"
+  | "ambiguous";
+
+export const outboundCallDeliveryStateLabels: Record<OutboundCallDeliveryState, string> = {
+  unavailable: "Phone call unavailable",
+  pending: "Phone call queued",
+  sending: "Starting phone call",
+  retry_wait: "Phone call waiting to retry",
+  provider_accepted: "Phone call accepted",
+  queued: "Phone call queued",
+  initiated: "Phone call started",
+  ringing: "Phone ringing",
+  answered: "Phone call answered",
+  completed: "Phone call completed",
+  busy: "Phone was busy",
+  no_answer: "Phone was not answered",
+  cancelled: "Phone call cancelled",
+  failed: "Phone call failed",
+  ambiguous: "Phone call outcome unknown",
 };
 
 export type ScorecardStatus = "draft" | "submitted" | "correction_open" | "void";
@@ -149,11 +253,11 @@ export type AdmissionExperienceBand =
   | "mixed_or_external";
 
 export const admissionExperienceBandLabels: Record<AdmissionExperienceBand, string> = {
-  first_year: "Judge as a first-year team",
-  early_year: "Judge as an early-year team",
-  later_year: "Judge as a later-year team",
-  postgraduate_or_professional: "Judge as a postgraduate or professional team",
-  mixed_or_external: "Judge as a mixed or external team",
+  first_year: "Review as a first-year team",
+  early_year: "Review as an early-year team",
+  later_year: "Review as a later-year team",
+  postgraduate_or_professional: "Review as a postgraduate or professional team",
+  mixed_or_external: "Review as a mixed or external team",
 };
 
 export type AdmissionOfferState =
@@ -285,6 +389,23 @@ export const sessionPresenceStateLabels: Record<SessionPresenceState, string> = 
   needs_review: "Needs a decision",
 };
 
+export type AttendanceSessionResult =
+  | "attended"
+  | "absent"
+  | "partial"
+  | "excused"
+  | "not_expected"
+  | "needs_review";
+
+export const attendanceSessionResultLabels: Record<AttendanceSessionResult, string> = {
+  attended: "Attended",
+  absent: "Absent",
+  partial: "Partially attended",
+  excused: "Excused",
+  not_expected: "Not expected",
+  needs_review: "Needs review",
+};
+
 export type VenuePresenceState =
   | "not_arrived"
   | "inside"
@@ -300,15 +421,100 @@ export const venuePresenceStateLabels: Record<VenuePresenceState, string> = {
   unknown: "Unknown",
 };
 
-/** Organisational role labels; confirm the SC and JC expansions with the committee. */
+export type RollCallPresenceState =
+  | "not_arrived"
+  | "inside"
+  | "temporarily_out"
+  | "departed"
+  | "elsewhere"
+  | "unknown";
+
+export const rollCallPresenceStateLabels: Record<RollCallPresenceState, string> = {
+  not_arrived: "Not arrived",
+  inside: "Inside",
+  temporarily_out: "Temporarily out",
+  departed: "Departed",
+  elsewhere: "Elsewhere",
+  unknown: "Unknown",
+};
+
+export type AttendancePresenceSourceKind =
+  | "scanner"
+  | "staff_reconciliation"
+  | "manual_import";
+
+export type AttendancePresenceTransition =
+  | "venue_entry"
+  | "venue_exit"
+  | "session_confirm"
+  | "zone_entry"
+  | "zone_exit"
+  | "manual_reconcile";
+
+export type AttendancePresenceOutcome =
+  | "accepted"
+  | "duplicate"
+  | "rejected"
+  | "needs_review"
+  | "reconciled";
+
+export type AttendanceCorrectionKind =
+  | "presence_confirmed"
+  | "temporary_exit"
+  | "marked_needs_review"
+  | "voided_transition";
+
+export const attendancePresenceSourceLabels: Record<AttendancePresenceSourceKind, string> = {
+  scanner: "Scanner",
+  staff_reconciliation: "Correction",
+  manual_import: "Paper import",
+};
+
+export const attendancePresenceTransitionLabels: Record<AttendancePresenceTransition, string> = {
+  venue_entry: "Arrived",
+  venue_exit: "Left",
+  session_confirm: "Session check-in",
+  zone_entry: "Returned",
+  zone_exit: "Temporary exit",
+  manual_reconcile: "Correction",
+};
+
+export const attendancePresenceOutcomeLabels: Record<AttendancePresenceOutcome, string> = {
+  accepted: "Recorded",
+  duplicate: "Already recorded",
+  rejected: "Not recorded",
+  needs_review: "Needs review",
+  reconciled: "Corrected",
+};
+
+export const attendanceCorrectionKindLabels: Record<AttendanceCorrectionKind, string> = {
+  presence_confirmed: "Presence recorded",
+  temporary_exit: "Temporary exit recorded",
+  marked_needs_review: "Marked for review",
+  voided_transition: "Latest scan voided",
+};
+
+export function attendanceHistoryEventLabel(event: {
+  sourceKind: AttendancePresenceSourceKind;
+  transition: AttendancePresenceTransition;
+  outcome: AttendancePresenceOutcome;
+  correctionKind?: AttendanceCorrectionKind;
+}) {
+  const detail = event.correctionKind
+    ? attendanceCorrectionKindLabels[event.correctionKind]
+    : `${attendancePresenceTransitionLabels[event.transition]} · ${attendancePresenceOutcomeLabels[event.outcome]}`;
+  return `${attendancePresenceSourceLabels[event.sourceKind]}: ${detail}`;
+}
+
+/** Organisational labels only. Authorization always comes from exact grants. */
 export type EventRole = "supreme" | "board" | "sc" | "jc" | "external_judge";
 
 export const eventRoleLabels: Record<EventRole, string> = {
   supreme: "Supreme",
   board: "Board",
-  sc: "Senior Core",
-  jc: "Junior Core",
-  external_judge: "External judge",
+  sc: "SC",
+  jc: "JC",
+  external_judge: "External Judge",
 };
 
 export type SynesthesiaWindowStatus = "draft" | "published" | "closed";
@@ -473,7 +679,7 @@ export function floorAreaAt(x: number, y: number): FloorArea {
   return west ? "west" : east ? "east" : "centre";
 }
 
-export const floorAreas: readonly FloorArea[] = [
+export const floorAreas = [
   "north_west",
   "north",
   "north_east",
@@ -483,7 +689,7 @@ export const floorAreas: readonly FloorArea[] = [
   "south_west",
   "south",
   "south_east",
-];
+] as const satisfies readonly FloorArea[];
 
 export type ReviewEvaluationState = "complete" | "void";
 
@@ -582,6 +788,21 @@ export const githubRepositoryCoverageLabels: Record<GithubRepositoryCoverage, st
   unknown: "Changes not counted yet",
 };
 
+export type FigmaFileSyncState =
+  | "pending"
+  | "running"
+  | "ready"
+  | "rate_limited"
+  | "error";
+
+export const figmaFileSyncStateLabels: Record<FigmaFileSyncState, string> = {
+  pending: "Waiting to read",
+  running: "Reading now",
+  ready: "Up to date",
+  rate_limited: "Paused by Figma's rate limit",
+  error: "Could not be read",
+};
+
 export type FigmaPreviewState =
   | "pending"
   | "running"
@@ -618,7 +839,6 @@ export type SupportCaseCategory =
   | "identity"
   | "team"
   | "project_intake"
-  | "track_configuration"
   | "attendance_credential"
   | "missing_scan"
   | "scanner_device"
@@ -635,7 +855,6 @@ export const supportCaseCategoryLabels: Record<SupportCaseCategory, string> = {
   identity: "Identity or sign-in",
   team: "Team",
   project_intake: "Idea submission",
-  track_configuration: "Track",
   attendance_credential: "Check-in or ID",
   missing_scan: "Check-in scan",
   scanner_device: "Scanner device",
@@ -652,7 +871,6 @@ export const supportCaseCategoryOrder: readonly SupportCaseCategory[] = [
   "identity",
   "team",
   "project_intake",
-  "track_configuration",
   "attendance_credential",
   "missing_scan",
   "scanner_device",

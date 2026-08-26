@@ -2,11 +2,13 @@ import { api } from '@code2create/backend/api'
 import { usePaginatedQuery, useQuery } from 'convex/react'
 import { lazy, Suspense, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import type { FunctionReturnType } from 'convex/server'
 
 import { AttendanceRemedy } from '../components/AttendanceRemedy'
 import { AttendanceReconciliation } from '../components/AttendanceReconciliation'
 import { AttendanceRollCall } from '../components/AttendanceRollCall'
 import { eventSlug } from '../lib/config'
+import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
 
 const AttendanceExport = lazy(() => import('../components/AttendanceExport'))
 const AttendanceManualRecovery = lazy(() => import('../components/AttendanceManualRecovery'))
@@ -20,10 +22,39 @@ type PresenceFilter =
   | 'excused'
   | 'needs_review'
 
+type AttendanceRosterItem = FunctionReturnType<typeof api.attendanceOperations.sessionRoster>['page'][number]
+
+const presenceStateLabels: Record<AttendanceRosterItem['state'], string> = {
+  not_expected: 'Not expected',
+  confirmation_due: 'Waiting',
+  present: 'Present',
+  temporarily_out: 'Temporarily out',
+  complete: 'Complete',
+  excused: 'Excused',
+  needs_review: 'Needs review',
+}
+
+const expectationLabels: Record<AttendanceRosterItem['expectation'], string> = {
+  required: 'Required',
+  optional: 'Optional',
+  not_expected: 'Not expected',
+  excused: 'Excused',
+}
+
+const resultLabels: Record<NonNullable<AttendanceRosterItem['result']>, string> = {
+  attended: 'Attended',
+  absent: 'Absent',
+  partial: 'Partial attendance',
+  excused: 'Excused',
+  not_expected: 'Not expected',
+  needs_review: 'Needs review',
+}
+
 export function AttendanceSession() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const [filter, setFilter] = useState<PresenceFilter>('all')
   const overview = useQuery(api.attendanceOperations.overview, { eventSlug })
+  const serverNow = useEstimatedServerNow(overview?.serverNow)
   const session = overview?.sessions.find((candidate) => candidate.id === sessionId)
   const roster = usePaginatedQuery(
     api.attendanceOperations.sessionRoster,
@@ -41,7 +72,7 @@ export function AttendanceSession() {
   if (overview === undefined || (session?.canReadRoster && roster.status === 'LoadingFirstPage')) {
     return <p className="muted">Loading session…</p>
   }
-  if (!session) return <p className="notice error">This session is not visible to your permission scope.</p>
+  if (!session) return <p className="notice error">You do not have access to this session.</p>
 
   return (
     <section className="attendance-shell">
@@ -50,7 +81,7 @@ export function AttendanceSession() {
         <div>
           <p className="eyebrow">{session.zoneName}</p>
           <h1>{session.name}</h1>
-          <p className="muted">Accepted scanner and paper state, closed-session review, and emergency accounting from one backend.</p>
+          <p className="muted">See who is present, resolve attendance exceptions, or account for people during an emergency.</p>
         </div>
         {session.canReadRoster ? (
           <label className="filter">
@@ -78,7 +109,7 @@ export function AttendanceSession() {
 
       {session.canReadManualSheets ? (
         <Suspense fallback={<p className="muted">Loading paper recovery…</p>}>
-          <AttendanceManualRecovery session={session} />
+          <AttendanceManualRecovery session={session} serverNow={serverNow} />
         </Suspense>
       ) : null}
 
@@ -86,7 +117,7 @@ export function AttendanceSession() {
         <>
           <div className="roster-list">
             {roster.results.map((participant) => (
-              <article className="roster-entry" key={`${participant.membershipId}-${participant.version}`}>
+              <article className="roster-entry" key={participant.membershipId}>
                 <div className="roster-row">
                   <div>
                     <strong>{participant.displayName}</strong>
@@ -99,10 +130,14 @@ export function AttendanceSession() {
                         ? durationName(participant.presentDurationMs)
                         : participant.late
                           ? 'Late confirmation'
-                          : participant.expectation.replaceAll('_', ' ')}
+                          : expectationLabels[participant.expectation]}
                     </span>
                     {session.canReconcile ? (
-                      <AttendanceReconciliation session={session} participant={participant} />
+                      <AttendanceReconciliation
+                        session={session}
+                        participant={participant}
+                        serverNow={serverNow}
+                      />
                     ) : null}
                     {session.canReadRemedies ? (
                       <AttendanceRemedy session={session} participant={participant} />
@@ -134,17 +169,12 @@ function parseFilter(value: string): PresenceFilter {
   return 'all'
 }
 
-function stateName(value: string) {
-  if (value === 'confirmation_due') return 'Waiting'
-  if (value === 'temporarily_out') return 'Temporarily out'
-  if (value === 'needs_review') return 'Needs review'
-  return value.charAt(0).toUpperCase() + value.slice(1)
+function stateName(value: AttendanceRosterItem['state']) {
+  return presenceStateLabels[value]
 }
 
-function resultName(value: string) {
-  if (value === 'not_expected') return 'Not expected'
-  if (value === 'needs_review') return 'Needs review'
-  return value.charAt(0).toUpperCase() + value.slice(1)
+function resultName(value: NonNullable<AttendanceRosterItem['result']>) {
+  return resultLabels[value]
 }
 
 function durationName(milliseconds: number) {

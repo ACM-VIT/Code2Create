@@ -25,6 +25,7 @@ import {
   findOperation,
   operationFingerprint,
   recordOperation,
+  storedOperationResult,
 } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import {
@@ -35,12 +36,12 @@ import {
 const invitationEmail = z.email().max(254);
 const minimumInvitationLifetimeMs = 5 * 60 * 1_000;
 const maximumInvitationLifetimeMs = 30 * 24 * 60 * 60 * 1_000;
-const invitedOutcome: "invited" = "invited";
-const alreadyPendingOutcome: "already_pending" = "already_pending";
-const alreadyLinkedOutcome: "already_linked" = "already_linked";
-const claimedOutcome: "claimed" = "claimed";
-const alreadyClaimedOutcome: "already_claimed" = "already_claimed";
-const revokedStatus: "revoked" = "revoked";
+const invitedOutcome = "invited" as const;
+const alreadyPendingOutcome = "already_pending" as const;
+const alreadyLinkedOutcome = "already_linked" as const;
+const claimedOutcome = "claimed" as const;
+const alreadyClaimedOutcome = "already_claimed" as const;
+const revokedStatus = "revoked" as const;
 
 const invitationListItem = v.object({
   id: v.id("eventAccessInvitations"),
@@ -64,9 +65,32 @@ const inviteResult = v.union(
   }),
   v.object({
     outcome: v.literal("already_linked"),
-    personId: v.id("people"),
   }),
 );
+
+const invitationOperationResult = z.discriminatedUnion("outcome", [
+  z
+    .object({
+      outcome: z.literal("invited"),
+      invitationId: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      outcome: z.literal("already_pending"),
+      invitationId: z.string().min(1),
+    })
+    .strict(),
+  z.object({ outcome: z.literal("already_linked") }).strict(),
+]);
+
+const invitationClaimOperationResult = z
+  .object({
+    outcome: z.enum(["claimed", "already_claimed"]),
+    personId: z.string().min(1),
+    eventAccessSubjectId: z.string().min(1),
+  })
+  .strict();
 
 function exactInvitationEmail(value: string) {
   const email = normalizeEmail(value);
@@ -213,32 +237,24 @@ export const create = mutation({
       requestFingerprint,
     });
     if (prior) {
+      const result = storedOperationResult(
+        prior.resultJson,
+        "access invitation",
+        invitationOperationResult,
+      );
+      if (result.outcome === "already_linked") {
+        const linkedSubjectId = ctx.db.normalizeId("eventAccessSubjects", prior.targetId);
+        if (!linkedSubjectId) throw new Error("The stored linked-account result is invalid.");
+        return { outcome: alreadyLinkedOutcome };
+      }
       const invitationId = ctx.db.normalizeId(
         "eventAccessInvitations",
-        prior.targetId,
+        result.invitationId,
       );
-      if (invitationId) {
-        const invitation = await ctx.db.get(invitationId);
-        if (!invitation) throw new Error("Prior invitation result no longer resolves.");
-        return {
-          outcome:
-            invitation.creationOperationId === operationId
-              ? invitedOutcome
-              : alreadyPendingOutcome,
-          invitationId,
-        };
+      if (!invitationId || invitationId !== prior.targetId) {
+        throw new Error("The stored invitation result is invalid.");
       }
-      const linkedSubjectId = ctx.db.normalizeId(
-        "eventAccessSubjects",
-        prior.targetId,
-      );
-      const linkedSubject = linkedSubjectId
-        ? await ctx.db.get(linkedSubjectId)
-        : null;
-      if (!linkedSubject || linkedSubject.eventId !== event._id) {
-        throw new Error("Prior linked-account result no longer resolves.");
-      }
-      return { outcome: alreadyLinkedOutcome, personId: linkedSubject.personId };
+      return { outcome: result.outcome, invitationId };
     }
     const authorizingGrantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -261,6 +277,7 @@ export const create = mutation({
           message: "That event account exists but is not active. Use the separate reactivation workflow.",
         });
       }
+      const result = { outcome: alreadyLinkedOutcome };
       await recordOperation(ctx, {
         eventId: event._id,
         actorPersonId: person._id,
@@ -269,9 +286,10 @@ export const create = mutation({
         requestFingerprint,
         targetType: "event_access_subject",
         targetId: linkedSubject._id,
+        resultJson: JSON.stringify(result),
         createdAt: now,
       });
-      return { outcome: alreadyLinkedOutcome, personId: linkedSubject.personId };
+      return result;
     }
 
     const existing = await ctx.db
@@ -284,6 +302,10 @@ export const create = mutation({
       )
       .unique();
     if (existing && existing.validUntil > now) {
+      const result = {
+        outcome: alreadyPendingOutcome,
+        invitationId: existing._id,
+      };
       await recordOperation(ctx, {
         eventId: event._id,
         actorPersonId: person._id,
@@ -292,9 +314,10 @@ export const create = mutation({
         requestFingerprint,
         targetType: "event_access_invitation",
         targetId: existing._id,
+        resultJson: JSON.stringify(result),
         createdAt: now,
       });
-      return { outcome: alreadyPendingOutcome, invitationId: existing._id };
+      return result;
     }
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -330,6 +353,7 @@ export const create = mutation({
       nextSummary: JSON.stringify({ email, validUntil, status: "pending" }),
       reason,
     });
+    const result = { outcome: invitedOutcome, invitationId };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -338,9 +362,10 @@ export const create = mutation({
       requestFingerprint,
       targetType: "event_access_invitation",
       targetId: invitationId,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
-    return { outcome: invitedOutcome, invitationId };
+    return result;
   },
 });
 
@@ -377,15 +402,28 @@ export const claim = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const subjectId = ctx.db.normalizeId("eventAccessSubjects", prior.targetId);
-      const subject = subjectId ? await ctx.db.get(subjectId) : null;
-      if (!subject || subject.eventId !== event._id || subject.personId !== person._id) {
-        throw new Error("Prior invitation claim no longer resolves.");
+      const result = storedOperationResult(
+        prior.resultJson,
+        "invitation claim",
+        invitationClaimOperationResult,
+      );
+      const personId = ctx.db.normalizeId("people", result.personId);
+      const eventAccessSubjectId = ctx.db.normalizeId(
+        "eventAccessSubjects",
+        result.eventAccessSubjectId,
+      );
+      if (
+        !personId ||
+        !eventAccessSubjectId ||
+        personId !== person._id ||
+        eventAccessSubjectId !== prior.targetId
+      ) {
+        throw new Error("The stored invitation claim is invalid.");
       }
       return {
-        outcome: claimedOutcome,
-        personId: person._id,
-        eventAccessSubjectId: subject._id,
+        outcome: result.outcome,
+        personId,
+        eventAccessSubjectId,
       };
     }
 
@@ -407,6 +445,11 @@ export const claim = mutation({
       invitation.claimedByPersonId === person._id &&
       invitation.claimedEventAccessSubjectId !== undefined
     ) {
+      const result = {
+        outcome: alreadyClaimedOutcome,
+        personId: person._id,
+        eventAccessSubjectId: invitation.claimedEventAccessSubjectId,
+      };
       await recordOperation(ctx, {
         eventId: event._id,
         actorPersonId: person._id,
@@ -415,13 +458,10 @@ export const claim = mutation({
         requestFingerprint,
         targetType: "event_access_subject",
         targetId: invitation.claimedEventAccessSubjectId,
+        resultJson: JSON.stringify(result),
         createdAt: Date.now(),
       });
-      return {
-        outcome: alreadyClaimedOutcome,
-        personId: person._id,
-        eventAccessSubjectId: invitation.claimedEventAccessSubjectId,
-      };
+      return result;
     }
     if (invitation.status !== "pending") {
       throw new ConvexError({
@@ -503,6 +543,11 @@ export const claim = mutation({
       claimOperationId: operationId,
       claimedAt: now,
     });
+    const result = {
+      outcome: claimedOutcome,
+      personId: person._id,
+      eventAccessSubjectId: subject._id,
+    };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -511,6 +556,7 @@ export const claim = mutation({
       requestFingerprint,
       targetType: "event_access_subject",
       targetId: subject._id,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await ctx.db.insert("auditEvents", {
@@ -532,11 +578,7 @@ export const claim = mutation({
       reason: "Exact-email invitation claimed by the authenticated Google account.",
       serverTime: now,
     });
-    return {
-      outcome: claimedOutcome,
-      personId: person._id,
-      eventAccessSubjectId: subject._id,
-    };
+    return result;
   },
 });
 
@@ -581,10 +623,6 @@ export const revoke = mutation({
         prior.targetId,
       );
       if (!invitationId) throw new Error("Prior invitation revocation is invalid.");
-      const invitation = await ctx.db.get(invitationId);
-      if (!invitation || invitation.status !== "revoked") {
-        throw new Error("Prior invitation revocation no longer resolves.");
-      }
       return { invitationId, status: revokedStatus };
     }
     const authorizingGrantIds = await requirePermission(ctx, {

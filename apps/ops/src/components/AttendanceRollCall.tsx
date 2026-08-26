@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { rollCallPresenceStateLabels } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import { useState, type FormEvent } from 'react'
@@ -191,7 +192,7 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
                   {roster.results.map((participant) => (
                     <div key={participant.membershipId}>
                       <span><strong>{participant.displayName}</strong>{participant.teamName ? ` · ${participant.teamName}` : ''}</span>
-                      <span>{presenceName(participant.state)} · {participant.updatedAt ? timeName(participant.updatedAt) : 'No venue scan'}</span>
+                      <span>{rollCallPresenceStateLabels[participant.state]} · {participant.updatedAt ? timeName(participant.updatedAt) : 'No venue scan'}</span>
                     </div>
                   ))}
                 </div>
@@ -253,13 +254,6 @@ function kindName(value: RollCallKind) {
 
 function stateName(value: 'active' | 'closed') {
   return value === 'active' ? 'Active' : 'Closed'
-}
-
-function presenceName(value: string) {
-  if (value === 'not_arrived') return 'Not arrived'
-  if (value === 'temporarily_out') return 'Temporarily out'
-  if (value === 'elsewhere') return 'Elsewhere'
-  return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
 function dateTimeName(timestamp: number) {

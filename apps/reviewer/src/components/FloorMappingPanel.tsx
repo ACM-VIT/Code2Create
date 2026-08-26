@@ -34,6 +34,7 @@ import {
   usePersistentClientOperations,
 } from '@/lib/client-operation-intents'
 import type { ReviewerRuntime } from '@/lib/runtime'
+import { useEstimatedServerNow } from '@/lib/use-estimated-server-now'
 import { palette, radius } from '@/theme'
 import { HallSkeleton } from '@/components/skeletons'
 
@@ -44,6 +45,7 @@ const floorOperationSlots = ['floor.claim', 'floor.assign'] as const
 export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const eventSlug = runtime.configuration.eventSlug
   const floor = useQuery(api.floorMapping.available, { eventSlug })
+  const estimatedServerNow = useEstimatedServerNow(floor?.serverNow, 60_000)
   const claimTeamQr = useMutation(api.floorMapping.claimTeamQr)
   const assignClaim = useMutation(api.floorMapping.assignClaim)
   const [permission, requestPermission] = useCameraPermissions()
@@ -194,7 +196,7 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
     try {
       const request = {
         eventSlug,
-        claimId: recoveredAssignment.claimId as FloorClaim['id'],
+        claimId: recoveredAssignment.claimId,
         x: recoveredAssignment.x,
         y: recoveredAssignment.y,
         expectedClaimVersion: recoveredAssignment.expectedClaimVersion,
@@ -442,7 +444,7 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
           <Row
             detail={`${floorAreaLabels[placement.area]}${
               floor.zones.length > 1 ? ` of ${placement.zoneName}` : ''
-            } · ${placedAgo(placement.mappedAt)}`}
+            } · ${placedAgo(placement.mappedAt, estimatedServerNow)}`}
             key={placement.teamId}
             label={placement.teamName}
           />
@@ -530,7 +532,7 @@ function HallCanvas({
         >
           {stage ? (
             <View pointerEvents="none" style={[styles.stage, { height: `${stageDepth}%` }]}>
-              <Text style={styles.stageText}>STAGE</Text>
+              <Text style={styles.stageText}>Stage</Text>
             </View>
           ) : null}
 
@@ -606,11 +608,11 @@ function errorMessage(caught: unknown, fallback: string) {
   return describeError(caught, fallback)
 }
 
-function placedAgo(timestamp: number) {
-  const minutes = Math.round((Date.now() - timestamp) / 60_000)
+function placedAgo(timestamp: number, now: number) {
+  const minutes = Math.floor(Math.max(0, now - timestamp) / 60_000)
   if (minutes < 1) return 'just now'
   if (minutes < 60) return `${minutes}m ago`
-  return `${Math.round(minutes / 60)}h ago`
+  return `${Math.floor(minutes / 60)}h ago`
 }
 
 const canvasInset = 12
@@ -624,15 +626,15 @@ const floorAreaRows = [
 ] as const satisfies readonly (readonly FloorArea[])[]
 
 const floorAreaCellLabels: Record<FloorArea, string> = {
-  north_west: 'NORTH\nWEST',
-  north: 'NORTH',
-  north_east: 'NORTH\nEAST',
-  west: 'WEST',
-  centre: 'MIDDLE',
-  east: 'EAST',
-  south_west: 'SOUTH\nWEST',
-  south: 'SOUTH',
-  south_east: 'SOUTH\nEAST',
+  north_west: 'North\nwest',
+  north: 'North',
+  north_east: 'North\neast',
+  west: 'West',
+  centre: 'Middle',
+  east: 'East',
+  south_west: 'South\nwest',
+  south: 'South',
+  south_east: 'South\neast',
 }
 
 const styles = StyleSheet.create({
@@ -682,7 +684,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: palette.strong,
   },
-  stageText: { color: palette.text, fontSize: 12, fontWeight: '700', letterSpacing: 3 },
+  stageText: { color: palette.text, fontSize: 12, fontWeight: '600' },
   grid: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, flexDirection: 'column' },
   gridRow: { flex: 1, flexDirection: 'row' },
   gridCell: {
@@ -693,12 +695,11 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: palette.background,
   },
-  gridCellLit: { backgroundColor: 'rgba(255,107,0,0.14)', borderColor: palette.hall },
+  gridCellLit: { backgroundColor: 'rgba(194,154,120,0.14)', borderColor: palette.hall },
   gridCellText: {
     color: palette.muted,
     fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 1.2,
+    fontWeight: '600',
     lineHeight: 16,
     textAlign: 'center',
   },

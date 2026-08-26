@@ -22,7 +22,7 @@ initializeBrowserObservability({
 if (!clientConfiguration.convexUrl || !clientConfiguration.convexSiteUrl) {
   root.render(
     <ClientErrorBoundary>
-      <main className="centered"><p className="muted">Set VITE_CONVEX_URL and VITE_CONVEX_SITE_URL.</p></main>
+      <main className="centered"><p className="muted">Operations is unavailable. Check the event setup and try again.</p></main>
     </ClientErrorBoundary>,
   )
 } else {

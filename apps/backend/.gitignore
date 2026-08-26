@@ -4,5 +4,6 @@
 # The local backend keeps its database here. It is a symlink to the
 # internal disk: SQLite on a removable volume corrupts when the volume drops.
 .convex
+function_spec_*.json
 .agents
 .claude

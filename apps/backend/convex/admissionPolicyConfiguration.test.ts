@@ -133,9 +133,7 @@ describe("admission policy configuration", () => {
       const oldPolicy = await ctx.db.get(fixture.policyId);
       const buckets = await ctx.db
         .query("admissionCapacityBuckets")
-        .withIndex("by_event_scope", (index) =>
-          index.eq("eventId", event._id).eq("scope", "overall"),
-        )
+        .withIndex("by_event", (index) => index.eq("eventId", event._id))
         .collect();
       return {
         version: release.configuration.version,
@@ -322,6 +320,7 @@ async function seedFixture(backend: BackendTest, slug: string): Promise<Fixture>
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,
@@ -354,7 +353,6 @@ async function seedFixture(backend: BackendTest, slug: string): Promise<Fixture>
     await ctx.db.insert("admissionCapacityBuckets", {
       eventId,
       admissionPolicyVersionId: policyId,
-      scope: "overall",
       capacity: 1_000,
       reserved: 0,
       version: 1,
@@ -409,7 +407,6 @@ async function insertSubmittedApplication(
       activeVitMemberCount: 0,
     activeExternalMemberCount: 1,
     membershipLocked: true,
-    trackLocked: true,
     version: 1,
     createdAt: fixture.now,
     updatedAt: fixture.now,
@@ -422,29 +419,6 @@ async function insertSubmittedApplication(
     status: "active",
     joinedAt: fixture.now,
     source: "created",
-  });
-  const catalogId = await ctx.db.insert("trackCatalogVersions", {
-    eventId: fixture.event._id,
-    version: 1,
-    status: "published",
-    requiredCoreTrackCount: 1,
-    checksum: "admission-policy-test-catalog",
-    createdByPersonId: fixture.personId,
-    createdAt: fixture.now,
-    publishedAt: fixture.now,
-  });
-  const trackId = await ctx.db.insert("trackVersions", {
-    eventId: fixture.event._id,
-    catalogVersionId: catalogId,
-    stableKey: "test",
-    slug: "test",
-    displayName: "Test",
-    description: "Test admission policy publication freeze.",
-    examples: [],
-    displayOrder: 0,
-    type: "core",
-    status: "published",
-    createdAt: fixture.now,
   });
   const intakePolicy = normalizeIntakePolicy(defaultDeterministicIntakePolicy);
   const intakePolicyId = await ctx.db.insert("intakePolicyVersions", {
@@ -464,7 +438,6 @@ async function insertSubmittedApplication(
     intakePolicyVersionId: intakePolicyId,
     participantPolicyVersionId: fixture.participantPolicyId,
     admissionPolicyVersionId: fixture.policyId,
-    coreTrackVersionId: trackId,
     submittedAt: fixture.now,
   });
   const projectId = await ctx.db.insert("projectVersions", {
@@ -474,8 +447,6 @@ async function insertSubmittedApplication(
     initialIdea: "A submitted project freezes the admission policy.",
     intakePolicyVersionId: intakePolicyId,
     intakeResponses: [],
-    coreTrackVersionId: trackId,
-    sponsorTrackVersionIds: [],
     lockedRosterSnapshotId,
     lockedMemberCount: 1,
     lockedLeadMembershipId: membershipId,
@@ -488,8 +459,6 @@ async function insertSubmittedApplication(
       participantPolicyVersionId: fixture.participantPolicyId,
       previewedDraftVersion: 1,
       previewedTeamVersion: 1,
-      previewedTrackVersionId: trackId,
-      previewedSponsorTrackVersionIds: [],
       confirmedByMembershipId: membershipId,
       confirmedAt: fixture.now,
     },

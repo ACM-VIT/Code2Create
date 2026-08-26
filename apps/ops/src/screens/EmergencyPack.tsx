@@ -2,14 +2,15 @@ import { api } from '@code2create/backend/api'
 import { emergencyPackStatusLabels, type EmergencyPackStatus } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useAction, useMutation, useQuery } from 'convex/react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
+import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
 
-type EmergencyPack = FunctionReturnType<typeof api.emergencyPacks.list>[number]
+type EmergencyPack = FunctionReturnType<typeof api.emergencyPacks.list>['packs'][number]
 type EmergencyPackId = EmergencyPack['id']
 
 const packOrder: Record<EmergencyPackStatus, number> = {
@@ -28,7 +29,9 @@ export function EmergencyPack({
   canPrepare: boolean
   canPrint: boolean
 }) {
-  const packs = useQuery(api.emergencyPacks.list, canRead ? { eventSlug } : 'skip')
+  const result = useQuery(api.emergencyPacks.list, canRead ? { eventSlug } : 'skip')
+  const now = useEstimatedServerNow(result?.serverNow, 30_000)
+  const packs = result?.packs
   const requestPack = useMutation(api.emergencyPacks.request)
   const openPack = useAction(api.emergencyPackActions.print)
   const requestAttempt = useMutationAttempt<FunctionReturnType<typeof api.emergencyPacks.request>>()
@@ -39,13 +42,7 @@ export function EmergencyPack({
   const [openingPackId, setOpeningPackId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
-  const [now, setNow] = useState(Date.now)
   const requestPending = requestAttempt.hasPending('emergency-pack-request')
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000)
-    return () => window.clearInterval(timer)
-  }, [])
 
   const changeRequest = () => {
     setError(null)
@@ -113,13 +110,6 @@ export function EmergencyPack({
         </div>
       </header>
 
-      <div className="emergency-pack-warning">
-        <strong>This pack is a backup, not a mode switch.</strong>
-        <p>
-          The incident lead decides when to use it. Completed sheets still have to be entered and checked.
-        </p>
-      </div>
-
       {canRead && packsByUse === null ? (
         <>
           <LoadingLabel>Checking whether a paper backup is ready</LoadingLabel>
@@ -133,16 +123,22 @@ export function EmergencyPack({
             canRead={canRead}
             usable={usable.map((entry) => entry.pack)}
           />
+          <p className="emergency-pack-boundary">
+            The incident lead decides when to use a paper backup. Completed sheets must still be entered and checked.
+          </p>
         </section>
       )}
 
-      <section className="emergency-pack-history">
+      <section
+        className="emergency-pack-history"
+        hidden={!canRead || packsByUse === null || packsByUse.length === 0}
+      >
         <h2>Prepared backups</h2>
         <p className="section-note">
           A printable snapshot of the roster, stations, panels and blank sheets. It expires four hours later.
         </p>
         {!canRead ? (
-          <p className="muted">This account cannot view prepared backups.</p>
+          <p className="muted">Prepared backups are not available to this account.</p>
         ) : packsByUse === null ? (
           <>
             <LoadingLabel>Loading prepared backups</LoadingLabel>
@@ -154,7 +150,7 @@ export function EmergencyPack({
             <span>
               {canPrepare
                 ? 'Prepare one at the start of each shift.'
-                : 'Preparing one needs the recovery permission, which you do not have.'}
+                : 'An organizer with recovery access must prepare one.'}
             </span>
           </div>
         ) : (
@@ -206,7 +202,7 @@ export function EmergencyPack({
                 ) : null}
                 {status === 'ready' && !canPrint ? (
                   <p className="notice">
-                    Opening this needs the recovery print permission, which you do not have.
+                    You can view this backup, but you cannot open the printable file.
                   </p>
                 ) : null}
                 {status === 'pending' ? (
@@ -217,7 +213,7 @@ export function EmergencyPack({
                 ) : null}
                 {status === 'failed' ? (
                   <p className="notice error">
-                    This backup could not be built{pack.failureCode ? ` (${pack.failureCode})` : ''}. Prepare another one.
+                    This backup could not be built. Prepare another one.
                   </p>
                 ) : null}
               </li>
@@ -234,6 +230,7 @@ export function EmergencyPack({
             void prepare()
           }}
         >
+          <h2>Prepare a backup</h2>
           <p>Preparing takes a fresh snapshot and builds a new printable backup.</p>
           <label className="field">
             <span>What this backup is for</span>
@@ -304,9 +301,7 @@ export function EmergencyPack({
           {requestPending ? <p className="muted">Confirm the earlier backup request before changing it.</p> : null}
         </form>
       ) : (
-        <p className="muted">
-          Preparing a backup needs the recovery permission, which you do not have.
-        </p>
+        <p className="muted">This account cannot prepare backups.</p>
       )}
 
       {error ? <p className="notice error" role="alert">{error}</p> : null}

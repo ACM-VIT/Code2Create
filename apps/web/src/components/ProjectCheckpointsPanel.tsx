@@ -10,11 +10,24 @@ import { useMutationAttempt } from '../lib/operations'
 type CheckpointState = FunctionReturnType<typeof api.projectCheckpoints.mine>
 type Checkpoint = CheckpointState['checkpoints'][number]
 
+type DraftSnapshot = {
+  version: number
+  updateText: string
+  followUpAnswer: string
+}
+
 export function ProjectCheckpointsPanel({ timezone }: { timezone: string }) {
   const state = useQuery(api.projectCheckpoints.mine, { eventSlug })
 
   if (state === undefined) return null
   if (!state.configured) return null
+
+  const actionableIndex = state.checkpoints.findIndex((checkpoint) => (
+    checkpoint.canEdit || checkpoint.availability === 'open' || checkpoint.availability === 'late'
+  ))
+  const primaryIndex = actionableIndex >= 0 ? actionableIndex : 0
+  const primaryCheckpoint = state.checkpoints[primaryIndex]
+  const otherCheckpoints = state.checkpoints.filter((_, index) => index !== primaryIndex)
 
   return (
     <section className="checkpoint-panel">
@@ -28,14 +41,30 @@ export function ProjectCheckpointsPanel({ timezone }: { timezone: string }) {
         Share one update when it opens so your team has a clear build record.
       </p>
       <div className="checkpoint-list">
-        {state.checkpoints.map((checkpoint) => (
+        {primaryCheckpoint ? (
           <CheckpointCard
-            checkpoint={checkpoint}
-            key={checkpoint.checkpointKey}
+            checkpoint={primaryCheckpoint}
             timezone={timezone}
           />
-        ))}
+        ) : null}
       </div>
+      {otherCheckpoints.length > 0 ? (
+        <details className="checkpoint-other-updates">
+          <summary>
+            <span>Earlier and upcoming updates</span>
+            <small>{otherCheckpoints.length}</small>
+          </summary>
+          <div className="checkpoint-list">
+            {otherCheckpoints.map((checkpoint) => (
+              <CheckpointCard
+                checkpoint={checkpoint}
+                key={checkpoint.checkpointKey}
+                timezone={timezone}
+              />
+            ))}
+          </div>
+        </details>
+      ) : null}
     </section>
   )
 }
@@ -48,7 +77,7 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
   const [followUpAnswer, setFollowUpAnswer] = useState(
     checkpoint.draft?.followUpAnswer ?? '',
   )
-  const [loadedVersion, setLoadedVersion] = useState(checkpoint.draft?.version ?? 0)
+  const [loadedDraft, setLoadedDraft] = useState<DraftSnapshot>(() => draftSnapshot(checkpoint))
   const [reviewing, setReviewing] = useState(false)
   const [busy, setBusy] = useState<'update' | 'follow_up' | 'submit' | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -58,23 +87,43 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
   const updatePending = updateAttempt.hasPending('checkpoint-update')
   const followUpPending = followUpAttempt.hasPending('checkpoint-follow-up')
   const submitPending = submitAttempt.hasPending('checkpoint-submit')
+  const operationPending = updatePending || followUpPending || submitPending
+  const serverDraft = draftSnapshot(checkpoint)
+  const updateDirty = updateText !== loadedDraft.updateText
+  const followUpDirty = followUpAnswer !== loadedDraft.followUpAnswer
+  const localDraftDirty = updateDirty || followUpDirty
+  const remoteDraftChanged = serverDraft.version > loadedDraft.version
+  const awaitingLiveDraft = serverDraft.version < loadedDraft.version
 
   useEffect(() => {
-    const version = checkpoint.draft?.version ?? 0
-    if (version === loadedVersion) return
-    setUpdateText(checkpoint.draft?.updateText ?? '')
-    setFollowUpAnswer(checkpoint.draft?.followUpAnswer ?? '')
-    setLoadedVersion(version)
+    if (!remoteDraftChanged || localDraftDirty || busy !== null || operationPending) return
+    setUpdateText(serverDraft.updateText)
+    setFollowUpAnswer(serverDraft.followUpAnswer)
+    setLoadedDraft(serverDraft)
     setReviewing(false)
-  }, [checkpoint.draft, loadedVersion])
+  }, [busy, localDraftDirty, operationPending, remoteDraftChanged, serverDraft])
+
+  const loadTeamDraft = () => {
+    setUpdateText(serverDraft.updateText)
+    setFollowUpAnswer(serverDraft.followUpAnswer)
+    setLoadedDraft(serverDraft)
+    setReviewing(false)
+    setError(null)
+  }
+
+  const keepLocalDraft = () => {
+    setLoadedDraft(serverDraft)
+    setReviewing(false)
+    setError(null)
+  }
 
   const saveFirstAnswer = async (event: FormEvent) => {
     event.preventDefault()
-    const expectedVersion = checkpoint.draft?.version ?? 0
+    const expectedVersion = loadedDraft.version
     setBusy('update')
     setError(null)
     try {
-      await updateAttempt.run('checkpoint-update', () => {
+      const result = await updateAttempt.run('checkpoint-update', () => {
         const args = {
           eventSlug,
           checkpointKey: checkpoint.checkpointKey,
@@ -84,6 +133,15 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
         }
         return () => saveUpdate(args)
       })
+      const savedUpdateText = normalizeDraftText(updateText)
+      const updateChanged = savedUpdateText !== loadedDraft.updateText
+      setUpdateText(savedUpdateText)
+      setLoadedDraft({
+        version: result.draftVersion,
+        updateText: savedUpdateText,
+        followUpAnswer: updateChanged ? '' : loadedDraft.followUpAnswer,
+      })
+      setReviewing(false)
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -98,16 +156,24 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
     setBusy('follow_up')
     setError(null)
     try {
-      await followUpAttempt.run('checkpoint-follow-up', () => {
+      const result = await followUpAttempt.run('checkpoint-follow-up', () => {
         const args = {
           eventSlug,
           checkpointKey: checkpoint.checkpointKey,
           answer: followUpAnswer,
-          expectedDraftVersion: draft.version,
+          expectedDraftVersion: loadedDraft.version,
           clientOperationId: crypto.randomUUID(),
         }
         return () => saveFollowUp(args)
       })
+      const savedFollowUpAnswer = normalizeDraftText(followUpAnswer)
+      setFollowUpAnswer(savedFollowUpAnswer)
+      setLoadedDraft({
+        ...loadedDraft,
+        version: result.draftVersion,
+        followUpAnswer: savedFollowUpAnswer,
+      })
+      setReviewing(false)
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -125,7 +191,7 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
         const args = {
           eventSlug,
           checkpointKey: checkpoint.checkpointKey,
-          expectedDraftVersion: draft.version,
+          expectedDraftVersion: loadedDraft.version,
           clientOperationId: crypto.randomUUID(),
         }
         return () => submit(args)
@@ -153,13 +219,37 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
       </header>
       <p className="fine-print">{checkpointWindow(checkpoint, timezone)}</p>
 
+      {remoteDraftChanged && localDraftDirty ? (
+        <div className="notice">
+          <p>A teammate changed this update. Your unsaved text is still here.</p>
+          <div className="button-row">
+            <button
+              className="secondary compact"
+              disabled={busy !== null || operationPending}
+              type="button"
+              onClick={loadTeamDraft}
+            >
+              Use team version
+            </button>
+            <button
+              className="primary compact"
+              disabled={busy !== null || operationPending}
+              type="button"
+              onClick={keepLocalDraft}
+            >
+              Keep my draft
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {checkpoint.submission ? (
         <div className="checkpoint-submission">
           <p>{checkpoint.submission.updateText}</p>
           <p className="muted">{checkpoint.followUpQuestion}</p>
           <p>{checkpoint.submission.followUpAnswer}</p>
           <p className="fine-print">
-            Submitted {formatTime(checkpoint.submission.submittedAt, timezone)} · {checkpoint.submission.timing.replace('_', ' ')}
+            Submitted {formatTime(checkpoint.submission.submittedAt, timezone)} · {submissionTimingLabel(checkpoint.submission.timing)}
           </p>
         </div>
       ) : checkpoint.canEdit ? (
@@ -171,17 +261,29 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
                 minLength={10}
                 maxLength={4000}
                 required
-                disabled={updatePending}
+                disabled={busy !== null || operationPending || remoteDraftChanged || awaitingLiveDraft}
                 value={updateText}
-                onChange={(event) => setUpdateText(event.target.value)}
+                onChange={(event) => {
+                  setUpdateText(event.currentTarget.value)
+                  setReviewing(false)
+                }}
               />
             </label>
-            <button className="secondary" disabled={busy !== null} type="submit">
+            <button
+              className="secondary"
+              disabled={
+                busy !== null ||
+                followUpPending ||
+                submitPending ||
+                (!updatePending && (remoteDraftChanged || awaitingLiveDraft))
+              }
+              type="submit"
+            >
               {busy === 'update' ? 'Saving…' : updatePending ? 'Confirm earlier save' : checkpoint.draft?.updateText ? 'Save changes' : 'Continue'}
             </button>
           </form>
 
-          {checkpoint.draft?.updateText ? (
+          {checkpoint.draft?.updateText && !updateDirty ? (
             <form className="checkpoint-form" onSubmit={saveSecondAnswer}>
               <label className="field">
                 <span>{checkpoint.followUpQuestion}</span>
@@ -189,34 +291,56 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
                   minLength={2}
                   maxLength={2000}
                   required
-                  disabled={followUpPending}
+                  disabled={busy !== null || operationPending || remoteDraftChanged || awaitingLiveDraft}
                   value={followUpAnswer}
-                  onChange={(event) => setFollowUpAnswer(event.target.value)}
+                  onChange={(event) => {
+                    setFollowUpAnswer(event.currentTarget.value)
+                    setReviewing(false)
+                  }}
                 />
               </label>
-              <button className="secondary" disabled={busy !== null} type="submit">
+              <button
+                className="secondary"
+                disabled={
+                  busy !== null ||
+                  updatePending ||
+                  submitPending ||
+                  (!followUpPending && (remoteDraftChanged || awaitingLiveDraft))
+                }
+                type="submit"
+              >
                 {busy === 'follow_up' ? 'Saving…' : followUpPending ? 'Confirm earlier save' : checkpoint.draft.followUpAnswer ? 'Save changes' : 'Save answer'}
               </button>
             </form>
           ) : null}
 
-          {checkpoint.draft?.followUpAnswer ? (
+          {checkpoint.draft?.followUpAnswer && !updateDirty && !followUpDirty ? (
             reviewing ? (
               <div className="checkpoint-confirmation">
                 <p>
                   This freezes the update above for the event record. It does not affect judging scores.
                 </p>
                 <div className="offer-actions">
-                  <button className="secondary" disabled={busy !== null || submitPending} type="button" onClick={() => setReviewing(false)}>
+                  <button className="secondary" disabled={busy !== null || operationPending || remoteDraftChanged || awaitingLiveDraft} type="button" onClick={() => setReviewing(false)}>
                     Keep editing
                   </button>
-                  <button className="primary" disabled={busy !== null} type="button" onClick={() => void submitUpdate()}>
+                  <button
+                    className="primary"
+                    disabled={
+                      busy !== null ||
+                      updatePending ||
+                      followUpPending ||
+                      (!submitPending && (remoteDraftChanged || awaitingLiveDraft))
+                    }
+                    type="button"
+                    onClick={() => void submitUpdate()}
+                  >
                     {busy === 'submit' ? 'Submitting…' : submitPending ? 'Confirm earlier submission' : 'Confirm submission'}
                   </button>
                 </div>
               </div>
             ) : (
-              <button className="primary" disabled={busy !== null} type="button" onClick={() => setReviewing(true)}>
+              <button className="primary" disabled={busy !== null || operationPending || remoteDraftChanged || awaitingLiveDraft} type="button" onClick={() => setReviewing(true)}>
                 Submit update
               </button>
             )
@@ -240,6 +364,22 @@ function availabilityLabel(availability: Checkpoint['availability']) {
   return 'Submitted'
 }
 
+function draftSnapshot(checkpoint: Checkpoint): DraftSnapshot {
+  return {
+    version: checkpoint.draft?.version ?? 0,
+    updateText: checkpoint.draft?.updateText ?? '',
+    followUpAnswer: checkpoint.draft?.followUpAnswer ?? '',
+  }
+}
+
+function normalizeDraftText(value: string) {
+  return value.trim().replace(/\r\n/g, '\n')
+}
+
+function submissionTimingLabel(timing: NonNullable<Checkpoint['submission']>['timing']) {
+  return timing === 'on_time' ? 'On time' : 'After the due time'
+}
+
 function checkpointWindow(checkpoint: Checkpoint, timezone: string) {
   if (checkpoint.availability === 'upcoming') {
     return `Opens ${formatTime(checkpoint.opensAt, timezone)}`
@@ -254,6 +394,12 @@ function checkpointWindow(checkpoint: Checkpoint, timezone: string) {
 }
 
 function unavailableMessage(checkpoint: Checkpoint) {
+  if (
+    !checkpoint.canEdit &&
+    (checkpoint.availability === 'open' || checkpoint.availability === 'late')
+  ) {
+    return 'This update is read-only for your account.'
+  }
   if (checkpoint.availability === 'awaiting_confirmation') {
     return 'This opens after your team confirms its event place.'
   }

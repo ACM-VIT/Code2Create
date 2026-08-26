@@ -237,11 +237,8 @@ export const request = mutation({
     });
     if (prior) {
       const briefId = ctx.db.normalizeId("operationsIntelligenceBriefs", prior.targetId);
-      const brief = briefId ? await ctx.db.get(briefId) : null;
-      if (!brief || brief.eventId !== event._id) {
-        throw new Error("The prior operations-intelligence request no longer resolves.");
-      }
-      return { briefId: brief._id };
+      if (!briefId) throw new Error("The prior operations-intelligence result is invalid.");
+      return { briefId };
     }
     const latestBrief = await ctx.db
       .query("operationsIntelligenceBriefs")

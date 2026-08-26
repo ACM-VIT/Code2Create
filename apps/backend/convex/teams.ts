@@ -17,7 +17,12 @@ import {
   requireEventSubject,
   requireMembership,
 } from "./lib/identity";
-import { insertPermissionGrant, requirePermission, revokeSourceGrants } from "./lib/permissions";
+import {
+  insertPermissionGrant,
+  matchingPermissionGrantIds,
+  requirePermission,
+  revokeSourceGrants,
+} from "./lib/permissions";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits";
 import {
@@ -30,13 +35,15 @@ import {
   teamContainsParticipantClass,
   teamRosterCounts,
 } from "./lib/teamRoster";
+import { memberRole, participantClass, teamStatus } from "./values";
 
-const acceptedTransferState: "accepted" = "accepted";
-const declinedTransferState: "declined" = "declined";
+const acceptedTransferState = "accepted" as const;
+const declinedTransferState = "declined" as const;
 const teamMemberPermissionKeys = [
   "team.read",
   "team.leave",
   "team.project.write",
+  "integration.read",
   "project.checkpoint.read",
   "team.lead.accept",
   "floor.team.read",
@@ -48,6 +55,7 @@ const teamMemberPermissionKeys = [
 const teamLeadPermissionKeys = [
   "team.members.manage",
   "team.lead.transfer",
+  "application.submit",
   "application.information.respond",
   "application.offer.respond",
   "integration.github.manage",
@@ -58,16 +66,23 @@ const teamView = v.object({
   id: v.id("teams"),
   name: v.string(),
   publicCode: v.string(),
-  status: v.string(),
+  status: teamStatus,
   membershipLocked: v.boolean(),
-  trackLocked: v.boolean(),
   teamMinimumSize: v.number(),
   teamMaximumSize: v.number(),
   mixedParticipantClassesAllowed: v.boolean(),
   activeMemberCount: v.number(),
   version: v.number(),
   currentMembershipId: v.id("eventMemberships"),
-  currentRole: v.union(v.literal("lead"), v.literal("member")),
+  currentRole: memberRole,
+  canLeave: v.boolean(),
+  canManageMembers: v.boolean(),
+  canTransferLeadership: v.boolean(),
+  canRespondToLeadershipTransfer: v.boolean(),
+  canWriteProject: v.boolean(),
+  canSubmitApplication: v.boolean(),
+  canRespondToInformationRequest: v.boolean(),
+  canRespondToOffer: v.boolean(),
   pendingLeadershipTransfer: v.union(
     v.null(),
     v.object({
@@ -108,24 +123,94 @@ export const current = query({
       throw new Error("The active team membership belongs to an invalid event team.");
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    await requirePermission(ctx, {
+    const readGrantIds = await matchingPermissionGrantIds(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
       permissionKey: "team.read",
       scopeType: "team",
       scopeId: team._id,
     });
-    const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
+    if (readGrantIds.length === 0) return null;
+    const [
+      participantPolicy,
+      pendingTransfers,
+      leaveGrantIds,
+      manageMemberGrantIds,
+      transferLeadershipGrantIds,
+      acceptLeadershipGrantIds,
+      projectWriteGrantIds,
+      applicationSubmitGrantIds,
+      informationResponseGrantIds,
+      offerResponseGrantIds,
+    ] = await Promise.all([
+      loadPublishedParticipantPolicy(ctx, event),
+      ctx.db
+        .query("teamLeadershipTransfers")
+        .withIndex("by_team_state", (index) =>
+          index.eq("teamId", team._id).eq("state", "pending"),
+        )
+        .take(2),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "team.leave",
+        scopeType: "team",
+        scopeId: team._id,
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "team.members.manage",
+        scopeType: "team",
+        scopeId: team._id,
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "team.lead.transfer",
+        scopeType: "team",
+        scopeId: team._id,
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "team.lead.accept",
+        scopeType: "team",
+        scopeId: team._id,
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "team.project.write",
+        scopeType: "team",
+        scopeId: team._id,
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "application.submit",
+        scopeType: "team",
+        scopeId: team._id,
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "application.information.respond",
+        scopeType: "team",
+        scopeId: team._id,
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "application.offer.respond",
+        scopeType: "team",
+        scopeId: team._id,
+      }),
+    ]);
     const rosterCounts = teamRosterCounts(team);
     if (rosterCounts.activeMemberCount > participantPolicy.normalized.teamMaximumSize) {
       throw new Error("A team exceeds the published participant-policy maximum size.");
     }
-    const pendingTransfers = await ctx.db
-      .query("teamLeadershipTransfers")
-      .withIndex("by_team_state", (index) =>
-        index.eq("teamId", team._id).eq("state", "pending"),
-      )
-      .take(2);
     if (pendingTransfers.length > 1) {
       throw new Error("A team has more than one pending leadership transfer.");
     }
@@ -142,7 +227,6 @@ export const current = query({
       publicCode: team.publicCode,
       status: team.status,
       membershipLocked: team.membershipLocked,
-      trackLocked: team.trackLocked,
       teamMinimumSize: participantPolicy.normalized.teamMinimumSize,
       teamMaximumSize: participantPolicy.normalized.teamMaximumSize,
       mixedParticipantClassesAllowed:
@@ -151,6 +235,14 @@ export const current = query({
       version: team.version,
       currentMembershipId: membership._id,
       currentRole: currentMember.role,
+      canLeave: leaveGrantIds.length > 0,
+      canManageMembers: manageMemberGrantIds.length > 0,
+      canTransferLeadership: transferLeadershipGrantIds.length > 0,
+      canRespondToLeadershipTransfer: acceptLeadershipGrantIds.length > 0,
+      canWriteProject: projectWriteGrantIds.length > 0,
+      canSubmitApplication: applicationSubmitGrantIds.length > 0,
+      canRespondToInformationRequest: informationResponseGrantIds.length > 0,
+      canRespondToOffer: offerResponseGrantIds.length > 0,
       pendingLeadershipTransfer: pendingLeadershipTransfer
         ? {
             id: pendingLeadershipTransfer._id,
@@ -166,10 +258,10 @@ export const current = query({
 const teamMemberView = v.object({
   teamMemberId: v.id("teamMembers"),
   membershipId: v.id("eventMemberships"),
-  role: v.union(v.literal("lead"), v.literal("member")),
+  role: memberRole,
   displayName: v.string(),
   institution: v.optional(v.string()),
-  participantClass: v.string(),
+  participantClass,
 });
 
 export const members = query({
@@ -209,13 +301,16 @@ export const members = query({
       throw new Error("The active team membership belongs to an invalid event team.");
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    await requirePermission(ctx, {
+    const readGrantIds = await matchingPermissionGrantIds(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
       permissionKey: "team.read",
       scopeType: "team",
       scopeId: team._id,
     });
+    if (readGrantIds.length === 0) {
+      return { page: [], isDone: true, continueCursor: "" };
+    }
     const page = await ctx.db
       .query("teamMembers")
       .withIndex("by_team_status", (index) =>
@@ -499,7 +594,6 @@ export const create = mutation({
       activeVitMemberCount,
       activeExternalMemberCount,
       membershipLocked: false,
-      trackLocked: false,
       version: 1,
       createdAt: now,
       updatedAt: now,

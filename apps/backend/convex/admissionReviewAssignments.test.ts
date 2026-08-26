@@ -42,6 +42,10 @@ describe("admission review assignments", () => {
       scopes: ["application"],
       eventWide: true,
     });
+    expect(permissionCatalog["application.ai_recommendation.run"]).toEqual({
+      scopes: ["application"],
+      eventWide: true,
+    });
   });
 
   test("assigning one active event account creates only exact review access", async () => {
@@ -231,6 +235,27 @@ describe("admission review assignments", () => {
     });
   });
 
+  test.each([
+    "accepted",
+    "offer_sent",
+    "confirmed",
+    "waitlisted",
+    "declined",
+    "offer_expired",
+    "withdrawn",
+  ] as const)("rejects ordinary review writes after the application becomes %s", async (state) => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedAssignmentFixture(backend);
+    await backend.run((ctx) => ctx.db.patch(fixture.applicationId, { state }));
+
+    await expect(saveFixtureReview(
+      backend,
+      fixture,
+      fixture.reviewerPersonId,
+      "accept",
+    )).rejects.toThrow("This application no longer accepts ordinary reviews.");
+  });
+
   test("two stale managers cannot both cross one application version", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedAssignmentFixture(backend);
@@ -373,6 +398,7 @@ async function seedAssignmentFixture(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "registration_closed",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       version: 1,
       createdAt: now,
       updatedAt: now,
@@ -428,7 +454,6 @@ async function seedAssignmentFixture(backend: BackendTest) {
       activeVitMemberCount: 0,
       activeExternalMemberCount: 1,
       membershipLocked: true,
-      trackLocked: true,
       version: 1,
       createdAt: now,
       updatedAt: now,
@@ -467,29 +492,6 @@ async function seedAssignmentFixture(backend: BackendTest) {
       createdAt: now,
       publishedAt: now,
     });
-    const catalogId = await ctx.db.insert("trackCatalogVersions", {
-      eventId,
-      version: 1,
-      status: "published",
-      requiredCoreTrackCount: 1,
-      checksum: "track-checksum",
-      createdByPersonId: managerPersonId,
-      createdAt: now,
-      publishedAt: now,
-    });
-    const trackId = await ctx.db.insert("trackVersions", {
-      eventId,
-      catalogVersionId: catalogId,
-      stableKey: "fixture",
-      slug: "fixture",
-      displayName: "Fixture track",
-      description: "Fixture track",
-      examples: [],
-      displayOrder: 1,
-      type: "core",
-      status: "published",
-      createdAt: now,
-    });
     const policyId = await ctx.db.insert("admissionPolicyVersions", {
       eventId,
       version: "admission-v1",
@@ -517,7 +519,6 @@ async function seedAssignmentFixture(backend: BackendTest) {
       intakePolicyVersionId: intakePolicyId,
       participantPolicyVersionId: participantPolicyId,
       admissionPolicyVersionId: policyId,
-      coreTrackVersionId: trackId,
       submittedAt: now,
     });
     const projectId = await ctx.db.insert("projectVersions", {
@@ -527,8 +528,6 @@ async function seedAssignmentFixture(backend: BackendTest) {
       initialIdea: "A fixture project.",
       intakePolicyVersionId: intakePolicyId,
       intakeResponses: [],
-      coreTrackVersionId: trackId,
-      sponsorTrackVersionIds: [],
       lockedRosterSnapshotId,
       lockedMemberCount: 1,
       lockedLeadMembershipId: membershipId,
@@ -541,8 +540,6 @@ async function seedAssignmentFixture(backend: BackendTest) {
         participantPolicyVersionId: participantPolicyId,
         previewedDraftVersion: 1,
         previewedTeamVersion: 1,
-        previewedTrackVersionId: trackId,
-        previewedSponsorTrackVersionIds: [],
         confirmedByMembershipId: membershipId,
         confirmedAt: now,
       },

@@ -1,3 +1,7 @@
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 import { ConvexError, v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
@@ -6,7 +10,12 @@ import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationVersion,
+} from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText, optionalNormalizedText } from "./lib/strings";
 import {
@@ -53,8 +62,6 @@ const queueRequestView = v.object({
   requesterAccessVersion: v.number(),
   version: v.number(),
   createdAt: v.number(),
-  openReports: v.array(reportView),
-  reportsTruncated: v.boolean(),
   canModerate: v.boolean(),
   canSchedule: v.boolean(),
   canAcknowledgePlayback: v.boolean(),
@@ -117,7 +124,6 @@ export const queue = query({
     );
     const [
       requests,
-      openReports,
       moderate,
       schedule,
       playback,
@@ -130,12 +136,6 @@ export const queue = query({
         .query("songRequests")
         .withIndex("by_window_created", (index) => index.eq("windowId", window._id))
         .take(maximumRequestsPerWindow + 1),
-      ctx.db
-        .query("synesthesiaReports")
-        .withIndex("by_window_state_created", (index) =>
-          index.eq("windowId", window._id).eq("state", "open"),
-        )
-        .take(maximumRequestsPerWindow),
       activeGrantScopes(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
@@ -195,12 +195,6 @@ export const queue = query({
     const accessByMembership = new Map(
       accessStates.map((entry) => [entry.membershipId, entry.state]),
     );
-    const reportsByRequest = new Map<Id<"songRequests">, typeof openReports>();
-    for (const report of openReports) {
-      const current = reportsByRequest.get(report.requestId) ?? [];
-      current.push(report);
-      reportsByRequest.set(report.requestId, current);
-    }
     return {
       window: {
         id: window._id,
@@ -218,7 +212,6 @@ export const queue = query({
         const canModerate = scopeAllows(moderate, request._id);
         const canReadReports = scopeAllows(reportRead, request._id);
         const accessState = accessByMembership.get(request.requestedByMembershipId);
-        const requestReports = reportsByRequest.get(request._id) ?? [];
         return {
           id: request._id,
           title: request.title,
@@ -244,16 +237,6 @@ export const queue = query({
           requesterAccessVersion: accessState?.version ?? 0,
           version: request.version,
           createdAt: request.createdAt,
-          openReports: canReadReports
-            ? requestReports.map((report) => ({
-                id: report._id,
-                reason: report.reason,
-                version: report.version,
-                createdAt: report.createdAt,
-              }))
-            : [],
-          reportsTruncated:
-            canReadReports && requestReports.length < request.openReportCount,
           canModerate,
           canSchedule: scopeAllows(schedule, request._id),
           canAcknowledgePlayback: scopeAllows(playback, request._id),
@@ -268,6 +251,60 @@ export const queue = query({
         };
       }),
       truncated: requests.length > maximumRequestsPerWindow,
+    };
+  },
+});
+
+const maximumReportPageSize = 50;
+
+export const reports = query({
+  args: {
+    eventSlug: v.string(),
+    requestId: v.id("songRequests"),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: paginationResultValidator(reportView),
+  handler: async (ctx, args) => {
+    if (
+      !Number.isSafeInteger(args.paginationOpts.numItems) ||
+      args.paginationOpts.numItems < 1 ||
+      args.paginationOpts.numItems > maximumReportPageSize
+    ) {
+      throw new ConvexError({
+        code: "INVALID_PAGE_SIZE",
+        message: `Load between 1 and ${maximumReportPageSize} reports at a time.`,
+      });
+    }
+    const { event, subject } = await staffContext(ctx, args.eventSlug);
+    const request = await ctx.db.get("songRequests", args.requestId);
+    if (!request || request.eventId !== event._id) {
+      throw new ConvexError({
+        code: "REQUEST_NOT_FOUND",
+        message: "Request not found.",
+      });
+    }
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "synesthesia.report.read",
+      scopeType: "song_request",
+      scopeId: request._id,
+    });
+    const page = await ctx.db
+      .query("synesthesiaReports")
+      .withIndex("by_request_state_created", (index) =>
+        index.eq("requestId", request._id).eq("state", "open"),
+      )
+      .order("asc")
+      .paginate(args.paginationOpts);
+    return {
+      ...page,
+      page: page.page.map((report) => ({
+        id: report._id,
+        reason: report.reason,
+        version: report.version,
+        createdAt: report.createdAt,
+      })),
     };
   },
 });
@@ -345,11 +382,20 @@ export const moderateRequest = mutation({
       commandName: "synesthesia.request.moderate",
       requestFingerprint,
     });
+    if (prior) {
+      const requestId = ctx.db.normalizeId("songRequests", prior.targetId);
+      if (!requestId || requestId !== args.requestId) {
+        throw new Error("The stored song-request moderation is invalid.");
+      }
+      return {
+        requestId,
+        version: storedOperationVersion(prior.resultJson, "song request"),
+      };
+    }
     const request = await ctx.db.get("songRequests", args.requestId);
     if (!request || request.eventId !== event._id) {
       throw new ConvexError({ code: "REQUEST_NOT_FOUND", message: "Song request not found." });
     }
-    if (prior) return { requestId: request._id, version: request.version };
     if (request.version !== args.expectedVersion) {
       throw new ConvexError({
         code: "REQUEST_CHANGED",
@@ -403,6 +449,7 @@ export const moderateRequest = mutation({
       requestFingerprint,
       targetType: "song_request",
       targetId: request._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -451,11 +498,20 @@ export const scheduleRequest = mutation({
       commandName: "synesthesia.queue.schedule",
       requestFingerprint,
     });
+    if (prior) {
+      const requestId = ctx.db.normalizeId("songRequests", prior.targetId);
+      if (!requestId || requestId !== args.requestId) {
+        throw new Error("The stored song-request schedule is invalid.");
+      }
+      return {
+        requestId,
+        version: storedOperationVersion(prior.resultJson, "song request"),
+      };
+    }
     const request = await ctx.db.get("songRequests", args.requestId);
     if (!request || request.eventId !== event._id) {
       throw new ConvexError({ code: "REQUEST_NOT_FOUND", message: "Song request not found." });
     }
-    if (prior) return { requestId: request._id, version: request.version };
     if (
       request.version !== args.expectedVersion ||
       (request.state !== "approved" && request.state !== "queued")
@@ -509,6 +565,7 @@ export const scheduleRequest = mutation({
       requestFingerprint,
       targetType: "song_request",
       targetId: request._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -564,11 +621,20 @@ export const acknowledgePlayback = mutation({
       commandName: "synesthesia.playback.acknowledge",
       requestFingerprint,
     });
+    if (prior) {
+      const requestId = ctx.db.normalizeId("songRequests", prior.targetId);
+      if (!requestId || requestId !== args.requestId) {
+        throw new Error("The stored playback acknowledgement is invalid.");
+      }
+      return {
+        requestId,
+        version: storedOperationVersion(prior.resultJson, "song request"),
+      };
+    }
     const request = await ctx.db.get("songRequests", args.requestId);
     if (!request || request.eventId !== event._id) {
       throw new ConvexError({ code: "REQUEST_NOT_FOUND", message: "Song request not found." });
     }
-    if (prior) return { requestId: request._id, version: request.version };
     if (request.version !== args.expectedVersion) {
       throw new ConvexError({
         code: "REQUEST_CHANGED",
@@ -656,6 +722,7 @@ export const acknowledgePlayback = mutation({
       requestFingerprint,
       targetType: "song_request",
       targetId: request._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -717,11 +784,20 @@ export const resolveReport = mutation({
       commandName: "synesthesia.report.resolve",
       requestFingerprint,
     });
+    if (prior) {
+      const reportId = ctx.db.normalizeId("synesthesiaReports", prior.targetId);
+      if (!reportId || reportId !== args.reportId) {
+        throw new Error("The stored Synesthesia report resolution is invalid.");
+      }
+      return {
+        reportId,
+        version: storedOperationVersion(prior.resultJson, "Synesthesia report"),
+      };
+    }
     const report = await ctx.db.get("synesthesiaReports", args.reportId);
     if (!report || report.eventId !== event._id) {
       throw new ConvexError({ code: "REPORT_NOT_FOUND", message: "Report not found." });
     }
-    if (prior) return { reportId: report._id, version: report.version };
     if (report.state !== "open" || report.version !== args.expectedVersion) {
       throw new ConvexError({
         code: "REPORT_CHANGED",
@@ -765,6 +841,7 @@ export const resolveReport = mutation({
       requestFingerprint,
       targetType: "synesthesia_report",
       targetId: report._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -815,6 +892,14 @@ export const setRequesterAccess = mutation({
       commandName: permissionKey,
       requestFingerprint,
     });
+    if (prior) {
+      const membershipId = ctx.db.normalizeId("eventMemberships", prior.targetId);
+      if (!membershipId) throw new Error("The stored Synesthesia access change is invalid.");
+      return {
+        membershipId,
+        version: storedOperationVersion(prior.resultJson, "Synesthesia access"),
+      };
+    }
     const request = await ctx.db.get("songRequests", args.requestId);
     if (!request || request.eventId !== event._id) {
       throw new ConvexError({ code: "REQUEST_NOT_FOUND", message: "Song request not found." });
@@ -831,9 +916,6 @@ export const setRequesterAccess = mutation({
       .query("synesthesiaAccessStates")
       .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
       .unique();
-    if (prior) {
-      return { membershipId: membership._id, version: existing?.version ?? 0 };
-    }
     const currentVersion = existing?.version ?? 0;
     const currentState = existing?.state ?? "active";
     if (currentVersion !== args.expectedAccessVersion) {
@@ -888,6 +970,7 @@ export const setRequesterAccess = mutation({
       requestFingerprint,
       targetType: "participant_membership",
       targetId: membership._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

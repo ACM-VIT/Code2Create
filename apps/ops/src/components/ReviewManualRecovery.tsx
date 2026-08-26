@@ -7,6 +7,7 @@ import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
 import { compressPaperImage } from '../lib/paperImage'
+import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
 
 type Workspace = FunctionReturnType<typeof api.manualReviewRecords.workspace>
 type Review = Workspace['reviews'][number]
@@ -18,6 +19,14 @@ type IncidentData = FunctionReturnType<typeof api.incidents.forService>
 type Incident = IncidentData['incidents'][number]
 type IncidentSeverity = FunctionArgs<typeof api.incidents.create>['severity']
 type VerificationKind = 'import' | 'reject'
+
+const manualRecordStatusLabels: Record<ManualRecord['status'], string> = {
+  draft: 'Draft',
+  submitted: 'Awaiting verifier',
+  imported: 'Imported',
+  rejected: 'Rejected',
+  cancelled: 'Cancelled',
+}
 
 type DraftRating = {
   criterionId: CriterionId
@@ -40,6 +49,7 @@ export function ReviewManualRecovery({ roundId }: { roundId: RoundId }) {
     affectedService: 'review_backend',
   })
   const workspace = useQuery(api.manualReviewRecords.workspace, { eventSlug, roundId })
+  const serverNow = useEstimatedServerNow(workspace?.serverNow)
 
   if (incidents === undefined || workspace === undefined) {
     return <p className="muted manual-recovery-loading">Loading paper review recovery…</p>
@@ -62,7 +72,11 @@ export function ReviewManualRecovery({ roundId }: { roundId: RoundId }) {
       <ReviewIncidentArea data={incidents} />
 
       {workspace.reviews.some((review) => review.canEnter && isLiveReview(review.status)) ? (
-        <DraftReviewForm incidents={incidents.incidents} reviews={workspace.reviews} />
+        <DraftReviewForm
+          incidents={incidents.incidents}
+          reviews={workspace.reviews}
+          serverNow={serverNow}
+        />
       ) : null}
 
       <div className="manual-sheet-list">
@@ -270,7 +284,15 @@ function ResolveIncident({ incident }: { incident: Incident }) {
   )
 }
 
-function DraftReviewForm({ incidents, reviews }: { incidents: Incident[]; reviews: Review[] }) {
+function DraftReviewForm({
+  incidents,
+  reviews,
+  serverNow,
+}: {
+  incidents: Incident[]
+  reviews: Review[]
+  serverNow: number
+}) {
   const createDraft = useMutation(api.manualReviewRecords.createDraft)
   const eligibleReviews = reviews.filter((review) => review.canEnter && isLiveReview(review.status))
   const approvedIncidents = incidents.filter(
@@ -281,7 +303,7 @@ function DraftReviewForm({ incidents, reviews }: { incidents: Incident[]; review
   const [incidentId, setIncidentId] = useState('')
   const [serial, setSerial] = useState('')
   const [startedAt, setStartedAt] = useState('')
-  const [endedAt, setEndedAt] = useState(localDateTime(Date.now()))
+  const [endedAt, setEndedAt] = useState(localDateTime(serverNow))
   const [unavailableReason, setUnavailableReason] = useState('')
   const [sharedFindings, setSharedFindings] = useState('')
   const [sharedCommitments, setSharedCommitments] = useState('')
@@ -301,7 +323,7 @@ function DraftReviewForm({ incidents, reviews }: { incidents: Incident[]; review
     const next = eligibleReviews.find((candidate) => candidate.id === value)
     setReviewId(next?.id ?? '')
     setStartedAt(next?.startedAt ? localDateTime(next.startedAt) : '')
-    setEndedAt(localDateTime(Date.now()))
+    setEndedAt(localDateTime(serverNow))
     setEntries(next ? createDraftScorecards(next) : [])
   }
 
@@ -803,8 +825,7 @@ function incidentState(incident: Incident) {
 }
 
 function recordStatus(status: ManualRecord['status']) {
-  if (status === 'submitted') return 'Awaiting verifier'
-  return status.charAt(0).toUpperCase() + status.slice(1)
+  return manualRecordStatusLabels[status]
 }
 
 function formatTime(value: number) {

@@ -1,8 +1,10 @@
 import { api } from '@code2create/backend/api'
+import { eventRoleLabels } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation } from 'convex/react'
 import { useState, type FormEvent } from 'react'
 
+import { AccessManagementDisclosure } from './AccessManagementDisclosure'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
@@ -10,13 +12,7 @@ import { useOperationRunner } from '../lib/operations'
 type AccessDetail = NonNullable<FunctionReturnType<typeof api.access.detail>>
 type EventRole = Exclude<AccessDetail['person']['role'], undefined>
 
-const roleOptions: Array<{ value: EventRole; label: string }> = [
-  { value: 'supreme', label: 'Supreme' },
-  { value: 'board', label: 'Board' },
-  { value: 'sc', label: 'SC' },
-  { value: 'jc', label: 'JC' },
-  { value: 'external_judge', label: 'External judge' },
-]
+const roleOptions: readonly EventRole[] = ['supreme', 'board', 'sc', 'jc', 'external_judge']
 
 export function AccessRoleLabel({
   personId,
@@ -40,8 +36,8 @@ export function AccessRoleLabel({
       setSelectedRole('')
       return
     }
-    const option = roleOptions.find((candidate) => candidate.value === value)
-    if (option) setSelectedRole(option.value)
+    const role = roleOptions.find((candidate) => candidate === value)
+    if (role) setSelectedRole(role)
   }
 
   const submit = async (event: FormEvent) => {
@@ -68,20 +64,17 @@ export function AccessRoleLabel({
   }
 
   return (
-    <section className="permission-command role-command">
-      <div>
-        <h2>Role</h2>
-        <p className="muted">
-          Groups this person in the app. Permissions are still granted separately.
-        </p>
-      </div>
+    <AccessManagementDisclosure
+      description={`Currently ${currentRole ? eventRoleLabels[currentRole] : 'no role label'}. This changes grouping, not permissions.`}
+      title="Change role label"
+    >
       <form className="role-form" onSubmit={submit}>
         <label className="field">
           <span>Role label</span>
           <select disabled={busy || rolePending} value={selectedRole} onChange={(event) => selectRole(event.target.value)}>
             <option value="">No role label</option>
-            {roleOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
+            {roleOptions.map((role) => (
+              <option key={role} value={role}>{eventRoleLabels[role]}</option>
             ))}
           </select>
         </label>
@@ -103,6 +96,6 @@ export function AccessRoleLabel({
         </div>
       </form>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
-    </section>
+    </AccessManagementDisclosure>
   )
 }

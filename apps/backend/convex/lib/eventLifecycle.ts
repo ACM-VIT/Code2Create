@@ -16,7 +16,7 @@ export type EventLifecycleConfiguration = {
   hasPhaseSchedule: boolean;
   hasProjectCheckpointPlan: boolean;
   hasPublishedReviewRound: boolean;
-  hasTrackCatalog: boolean;
+  hasFutureApplicationDeadline: boolean;
 };
 
 export type EventLifecycleRequirementKey =
@@ -27,13 +27,13 @@ export type EventLifecycleRequirementKey =
   | "checkpoint_plan"
   | "communications_policy"
   | "event_dates"
+  | "future_application_deadline"
   | "floor_plan"
   | "intake_policy"
   | "integration_policy"
   | "participant_policy"
   | "phase_schedule"
-  | "review_round"
-  | "track_catalog";
+  | "review_round";
 
 export type EventLifecycleBlocker = {
   key: EventLifecycleRequirementKey;
@@ -50,13 +50,13 @@ const configurationKeyByRequirement: Readonly<
   checkpoint_plan: "hasProjectCheckpointPlan",
   communications_policy: "hasCommunicationsPolicy",
   event_dates: "hasEventDates",
+  future_application_deadline: "hasFutureApplicationDeadline",
   floor_plan: "hasFloorPlan",
   intake_policy: "hasIntakePolicy",
   integration_policy: "hasIntegrationPolicy",
   participant_policy: "hasParticipantPolicy",
   phase_schedule: "hasPhaseSchedule",
   review_round: "hasPublishedReviewRound",
-  track_catalog: "hasTrackCatalog",
 };
 
 const transitions: Readonly<Record<EventLifecycleStatus, readonly EventLifecycleStatus[]>> = {
@@ -68,9 +68,9 @@ const transitions: Readonly<Record<EventLifecycleStatus, readonly EventLifecycle
 };
 
 const applicationRequirements: readonly EventLifecycleBlocker[] = [
+  { key: "future_application_deadline", label: "The application deadline has passed" },
   { key: "event_dates", label: "Event dates" },
   { key: "participant_policy", label: "Participant form" },
-  { key: "track_catalog", label: "Tracks" },
   { key: "intake_policy", label: "Idea questions" },
   { key: "admission_policy", label: "Admissions policy" },
 ];
@@ -103,11 +103,10 @@ export function eventLifecycleTransitionAllowed(
 }
 
 export function eventLifecycleBlockers(
-  current: EventLifecycleStatus,
   target: EventLifecycleStatus,
   configuration: EventLifecycleConfiguration,
 ) {
-  if (current === "draft" && target === "registration_open") {
+  if (target === "registration_open") {
     return applicationRequirements.filter(
       (requirement) => !configuration[configurationKeyByRequirement[requirement.key]],
     );

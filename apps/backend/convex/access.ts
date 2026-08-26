@@ -3,6 +3,7 @@ import {
   paginationResultValidator,
 } from "convex/server";
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -42,23 +43,40 @@ import {
   hasAnyActivePermissionGrant,
   hasAnyScheduledPermissionGrant,
   insertPermissionGrant,
+  insertPermissionGrantGroup,
   assertPermissionKey,
   matchingPermissionGrantIds,
   requirePermission,
+  type PermissionGrantPlan,
 } from "./lib/permissions";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+  storedOperationVersion,
+} from "./lib/operations";
 import { normalizeEmail, normalizedText } from "./lib/strings";
-import { eventRole, scopeType } from "./values";
+import {
+  eventRole,
+  permissionGrantSourceType,
+  permissionGrantStatus,
+  scopeType,
+} from "./values";
 
-const revokedStatus: "revoked" = "revoked";
-const permissionGrantStatus = v.union(
-  v.literal("scheduled"),
-  v.literal("active"),
-  v.literal("revoked"),
-  v.literal("expired"),
-  v.literal("superseded"),
-);
+const revokedStatus = "revoked" as const;
 const maximumAccessGrantPageSize = 50;
+const maximumDirectGrantBatchSize = 20;
+const directGrantBatchResult = z.object({
+  grantIds: z.array(z.string()).min(1).max(maximumDirectGrantBatchSize),
+  createdCount: z.number().int().min(0).max(maximumDirectGrantBatchSize),
+  accessVersion: z.number().int().min(1),
+});
+const directRevokeBatchResult = z.object({
+  grantIds: z.array(z.string()).min(1).max(maximumDirectGrantBatchSize),
+  revokedCount: z.number().int().min(1).max(maximumDirectGrantBatchSize),
+  accessVersion: z.number().int().min(1),
+});
 const accessSubjectStatus = v.union(
   v.literal("active"),
   v.literal("suspended"),
@@ -86,6 +104,18 @@ function unhandledScope(scope: never): never {
 }
 
 const participantCapabilitiesView = v.object({
+  profileRead: v.boolean(),
+  profileWrite: v.boolean(),
+  teamJoin: v.boolean(),
+  hasTeamMembership: v.boolean(),
+  teamRead: v.boolean(),
+  integrations: v.boolean(),
+  notifications: v.boolean(),
+  attendance: v.boolean(),
+  floor: v.boolean(),
+  projectCheckpoints: v.boolean(),
+  reviewQueue: v.boolean(),
+  scoreFeedback: v.boolean(),
   supportRead: v.boolean(),
   supportCreate: v.boolean(),
 });
@@ -124,9 +154,9 @@ const operationsCapabilitiesView = v.object({
   emergencyPackPrint: v.boolean(),
   health: v.boolean(),
   attentionManage: v.boolean(),
+  incidents: v.boolean(),
   support: v.boolean(),
   eventLifecycle: v.boolean(),
-  trackConfiguration: v.boolean(),
   phaseConfiguration: v.boolean(),
   intakeConfiguration: v.boolean(),
   noveltyConfiguration: v.boolean(),
@@ -220,14 +250,161 @@ async function resolveParticipantCapabilities(
   args: {
     eventId: Id<"events">;
     eventAccessSubjectId: Id<"eventAccessSubjects">;
+    personId: Id<"people">;
   },
 ) {
   const { selfOrEvent } = capabilityReader(ctx, args);
-  const [supportRead, supportCreate] = await Promise.all([
+  const membership = await ctx.db
+    .query("eventMemberships")
+    .withIndex("by_event_person", (index) =>
+      index.eq("eventId", args.eventId).eq("personId", args.personId),
+    )
+    .unique();
+  const teamMember = membership
+    ? await ctx.db
+        .query("teamMembers")
+        .withIndex("by_event_membership_status", (index) =>
+          index
+            .eq("eventId", args.eventId)
+            .eq("membershipId", membership._id)
+            .eq("status", "active"),
+        )
+        .unique()
+    : null;
+  const teamId = teamMember?.teamId;
+  const [
+    supportRead,
+    supportCreate,
+    profileReadGrantIds,
+    profileWriteGrantIds,
+    teamJoinGrantIds,
+    teamReadGrantIds,
+    integrationGrantIds,
+    notificationGrantIds,
+    attendanceGrantIds,
+    floorGrantIds,
+    projectCheckpointGrantIds,
+    reviewQueueGrantIds,
+    scoreFeedbackGrantIds,
+  ] = await Promise.all([
     selfOrEvent("support.case.read"),
     selfOrEvent("support.case.create"),
+    membership
+      ? matchingPermissionGrantIds(ctx, {
+          eventId: args.eventId,
+          eventAccessSubjectId: args.eventAccessSubjectId,
+          permissionKey: "participant.profile.read",
+          scopeType: "self",
+          scopeId: membership._id,
+        })
+      : Promise.resolve([]),
+    membership
+      ? matchingPermissionGrantIds(ctx, {
+          eventId: args.eventId,
+          eventAccessSubjectId: args.eventAccessSubjectId,
+          permissionKey: "participant.profile.write",
+          scopeType: "self",
+          scopeId: membership._id,
+        })
+      : Promise.resolve([]),
+    membership
+      ? matchingPermissionGrantIds(ctx, {
+          eventId: args.eventId,
+          eventAccessSubjectId: args.eventAccessSubjectId,
+          permissionKey: "team.join",
+          scopeType: "self",
+          scopeId: membership._id,
+        })
+      : Promise.resolve([]),
+    teamId
+      ? matchingPermissionGrantIds(ctx, {
+          eventId: args.eventId,
+          eventAccessSubjectId: args.eventAccessSubjectId,
+          permissionKey: "team.read",
+          scopeType: "team",
+          scopeId: teamId,
+        })
+      : Promise.resolve([]),
+    teamId
+      ? matchingPermissionGrantIds(ctx, {
+          eventId: args.eventId,
+          eventAccessSubjectId: args.eventAccessSubjectId,
+          permissionKey: "integration.read",
+          scopeType: "team",
+          scopeId: teamId,
+        })
+      : Promise.resolve([]),
+    membership
+      ? matchingPermissionGrantIds(ctx, {
+          eventId: args.eventId,
+          eventAccessSubjectId: args.eventAccessSubjectId,
+          permissionKey: "communications.delivery.self.read",
+          scopeType: "self",
+          scopeId: membership._id,
+        })
+      : Promise.resolve([]),
+    membership
+      ? matchingPermissionGrantIds(ctx, {
+          eventId: args.eventId,
+          eventAccessSubjectId: args.eventAccessSubjectId,
+          permissionKey: "attendance.self.read",
+          scopeType: "self",
+          scopeId: membership._id,
+        })
+      : Promise.resolve([]),
+    teamId
+      ? matchingPermissionGrantIds(ctx, {
+          eventId: args.eventId,
+          eventAccessSubjectId: args.eventAccessSubjectId,
+          permissionKey: "floor.team.read",
+          scopeType: "team",
+          scopeId: teamId,
+        })
+      : Promise.resolve([]),
+    teamId
+      ? matchingPermissionGrantIds(ctx, {
+          eventId: args.eventId,
+          eventAccessSubjectId: args.eventAccessSubjectId,
+          permissionKey: "project.checkpoint.read",
+          scopeType: "team",
+          scopeId: teamId,
+        })
+      : Promise.resolve([]),
+    teamId
+      ? matchingPermissionGrantIds(ctx, {
+          eventId: args.eventId,
+          eventAccessSubjectId: args.eventAccessSubjectId,
+          permissionKey: "queue.participant.read",
+          scopeType: "team",
+          scopeId: teamId,
+        })
+      : Promise.resolve([]),
+    teamId
+      ? matchingPermissionGrantIds(ctx, {
+          eventId: args.eventId,
+          eventAccessSubjectId: args.eventAccessSubjectId,
+          permissionKey: "score.feedback.read",
+          scopeType: "team",
+          scopeId: teamId,
+        })
+      : Promise.resolve([]),
   ]);
-  return { supportRead, supportCreate };
+  return {
+    profileRead: profileReadGrantIds.length > 0,
+    profileWrite: profileWriteGrantIds.length > 0,
+    teamJoin: teamJoinGrantIds.length > 0,
+    hasTeamMembership: teamId !== undefined,
+    teamRead: teamReadGrantIds.length > 0,
+    integrations: integrationGrantIds.length > 0,
+    notifications: notificationGrantIds.length > 0,
+    attendance: attendanceGrantIds.length > 0,
+    floor: floorGrantIds.length > 0,
+    projectCheckpoints: projectCheckpointGrantIds.length > 0,
+    reviewQueue: reviewQueueGrantIds.length > 0,
+    scoreFeedback: scoreFeedbackGrantIds.length > 0,
+    supportRead,
+    supportCreate,
+  };
 }
 
 async function resolveReviewerCapabilities(
@@ -248,7 +425,13 @@ async function resolveReviewerCapabilities(
     supportCreate,
     attentionManage,
   ] = await Promise.all([
-    anyOf(["reviewer.device.register", "reviewer.clock_in", "panel.read", "review.read"]),
+    anyOf([
+      "reviewer.device.register",
+      "communications.call_consent.manage",
+      "reviewer.clock_in",
+      "panel.read",
+      "review.read",
+    ]),
     anyOf(["attendance.station.manage", "attendance.station.read", "attendance.scan.execute"]),
     anyOf(["floor.location.map", "floor.location.override"]),
     selfOrEvent("support.case.read"),
@@ -288,9 +471,9 @@ async function resolveOperationsCapabilities(
     reviews,
     scores,
     synesthesiaCatalogRead,
-    synesthesiaCatalogManage,
     synesthesiaWindowRead,
     synesthesiaWindowManage,
+    synesthesiaQueueRead,
     rehearsal,
     floorConfiguration,
     floorLocations,
@@ -301,11 +484,10 @@ async function resolveOperationsCapabilities(
     emergencyPackPrint,
     health,
     attentionManage,
+    incidents,
     supportCreateEvent,
     supportReadStaff,
-    supportManageStaff,
     eventLifecycle,
-    trackConfiguration,
     phaseConfiguration,
     intakeConfiguration,
     noveltyConfiguration,
@@ -333,9 +515,9 @@ async function resolveOperationsCapabilities(
     any("round.read"),
     any("score.completeness.read"),
     event("synesthesia.catalog.read"),
-    event("synesthesia.catalog.manage"),
     any("synesthesia.window.read"),
     event("synesthesia.window.manage"),
+    any("synesthesia.queue.read"),
     any("rehearsal.read"),
     anyOf(floorConfigurationPermissions),
     any("floor.location.read"),
@@ -346,11 +528,10 @@ async function resolveOperationsCapabilities(
     event("emergency_pack.print"),
     event("operations.health.read"),
     event("operations.attention.manage"),
+    any("incident.read"),
     event("support.case.create"),
     at("support.case.read", ["event", "support_case"]),
-    at("support.case.manage", ["event", "support_case"]),
     event("event.lifecycle.read"),
-    event("configuration.read"),
     event("configuration.phase.read"),
     event("configuration.intake.read"),
     event("configuration.novelty.read"),
@@ -382,9 +563,9 @@ async function resolveOperationsCapabilities(
     scores,
     synesthesia:
       synesthesiaCatalogRead ||
-      synesthesiaCatalogManage ||
       synesthesiaWindowRead ||
-      synesthesiaWindowManage,
+      synesthesiaWindowManage ||
+      synesthesiaQueueRead,
     rehearsal,
     floorConfiguration,
     floorLocations,
@@ -397,9 +578,9 @@ async function resolveOperationsCapabilities(
     emergencyPackPrint,
     health,
     attentionManage,
-    support: supportCreateEvent || supportReadStaff || supportManageStaff,
+    incidents,
+    support: supportCreateEvent || supportReadStaff,
     eventLifecycle,
-    trackConfiguration,
     phaseConfiguration,
     intakeConfiguration,
     noveltyConfiguration,
@@ -431,7 +612,11 @@ async function currentCapabilitySubject(ctx: QueryCtx, eventSlug: string) {
     )
     .unique();
   if (!subject || subject.status !== "active") return null;
-  return { eventId: event._id, eventAccessSubjectId: subject._id };
+  return {
+    eventId: event._id,
+    eventAccessSubjectId: subject._id,
+    personId: person._id,
+  };
 }
 
 export const participantCapabilities = query({
@@ -594,8 +779,8 @@ const grantView = v.object({
   scopeLabel: v.string(),
   validFrom: v.number(),
   validUntil: v.optional(v.number()),
-  status: v.string(),
-  sourceType: v.string(),
+  status: permissionGrantStatus,
+  sourceType: permissionGrantSourceType,
   reason: v.string(),
   createdAt: v.number(),
   activatedAt: v.optional(v.number()),
@@ -1866,6 +2051,24 @@ async function validatePermissionDelegation(
   };
 }
 
+function storedGrantIds(
+  ctx: MutationCtx,
+  values: readonly string[],
+  label: string,
+) {
+  return values.map((value) => {
+    const grantId = ctx.db.normalizeId("permissionGrants", value);
+    if (!grantId) throw new Error(`The stored ${label} result is invalid.`);
+    return grantId;
+  });
+}
+
+const directGrantInput = v.object({
+  permissionKey: v.string(),
+  scopeType,
+  scopeId: v.optional(v.string()),
+});
+
 export const grant = mutation({
   args: {
     eventSlug: v.string(),
@@ -1911,11 +2114,10 @@ export const grant = mutation({
     if (prior) {
       const grantId = ctx.db.normalizeId("permissionGrants", prior.targetId);
       if (!grantId) throw new Error("Prior grant result is invalid.");
-      const grant = await ctx.db.get(grantId);
-      if (!grant) throw new Error("Prior grant result no longer resolves.");
-      const targetSubject = await ctx.db.get(grant.eventAccessSubjectId);
-      if (!targetSubject) throw new Error("Prior grant subject is missing.");
-      return { grantId, accessVersion: targetSubject.accessVersion };
+      return {
+        grantId,
+        accessVersion: storedOperationVersion(prior.resultJson, "permission grant"),
+      };
     }
     const targetSubject = await requireEventSubject(ctx, event._id, args.targetPersonId);
     requireAccessVersion(targetSubject, args.expectedAccessVersion);
@@ -2019,6 +2221,7 @@ export const grant = mutation({
       requestFingerprint,
       targetType: "permission_grant",
       targetId: grantId,
+      resultJson: String(accessVersion),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -2046,6 +2249,252 @@ export const grant = mutation({
     return { grantId, accessVersion };
   },
 });
+
+export const grantBatch = mutation({
+  args: {
+    eventSlug: v.string(),
+    targetPersonId: v.id("people"),
+    grants: v.array(directGrantInput),
+    validUntil: v.optional(v.number()),
+    expectedAccessVersion: v.number(),
+    reason: v.string(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({
+    grantIds: v.array(v.id("permissionGrants")),
+    createdCount: v.number(),
+    accessVersion: v.number(),
+  }),
+  handler: grantPermissionBatch,
+});
+
+type DirectGrantBatchArgs = {
+  eventSlug: string;
+  targetPersonId: Id<"people">;
+  grants: ReadonlyArray<{
+    permissionKey: string;
+    scopeType: PermissionScopeType;
+    scopeId?: string;
+  }>;
+  validUntil?: number;
+  expectedAccessVersion: number;
+  reason: string;
+  clientOperationId: string;
+};
+
+function normalizeDirectGrantBatch(grants: DirectGrantBatchArgs["grants"]) {
+  if (grants.length === 0 || grants.length > maximumDirectGrantBatchSize) {
+    throw new ConvexError({
+      code: "INVALID_GRANT_BATCH",
+      message: `Choose 1–${maximumDirectGrantBatchSize} permissions.`,
+    });
+  }
+  const exactScopes = new Set<string>();
+  return grants.map((input) => {
+    const permissionKey = assertPermissionKey(input.permissionKey);
+    if (isScopedPermissionAuthority(permissionKey)) {
+      throw new ConvexError({
+        code: "INVALID_GRANT_BATCH",
+        message: "Scoped permission delegation must be configured one at a time.",
+      });
+    }
+    const definition = permissionCatalog[permissionKey];
+    if (input.scopeType === "event") {
+      if (!definition.eventWide || input.scopeId !== undefined) {
+        throw new ConvexError({
+          code: "INVALID_SCOPE",
+          message: `Event scope is not valid for ${permissionKey}.`,
+        });
+      }
+    } else if (!definition.scopes.some((scope) => scope === input.scopeType)) {
+      throw new ConvexError({
+        code: "INVALID_SCOPE",
+        message: `That scope is not valid for ${permissionKey}.`,
+      });
+    }
+    const normalized = {
+      permissionKey,
+      scopeType: input.scopeType,
+      ...(input.scopeId !== undefined ? { scopeId: input.scopeId } : {}),
+    };
+    const exactScope = JSON.stringify([
+      permissionKey,
+      input.scopeType,
+      input.scopeType === "event" ? null : input.scopeId ?? null,
+    ]);
+    if (exactScopes.has(exactScope)) {
+      throw new ConvexError({
+        code: "INVALID_GRANT_BATCH",
+        message: "The batch repeats one exact permission scope.",
+      });
+    }
+    exactScopes.add(exactScope);
+    return normalized;
+  });
+}
+
+async function grantPermissionBatch(ctx: MutationCtx, args: DirectGrantBatchArgs) {
+  const normalized = normalizeDirectGrantBatch(args.grants);
+  const reason = normalizedText(args.reason, "Reason", 5, 300);
+  const requestFingerprint = operationFingerprint([
+    args.targetPersonId,
+    args.expectedAccessVersion,
+    args.validUntil ?? null,
+    reason,
+    ...normalized.flatMap((item) => [
+      item.permissionKey,
+      item.scopeType,
+      item.scopeType === "event" ? null : item.scopeId ?? null,
+    ]),
+  ]);
+  const event = await requireEventBySlug(ctx, args.eventSlug);
+  const { person } = await requireCurrentPerson(ctx);
+  const actorSubject = await requireEventSubject(ctx, event._id, person._id);
+  const prior = await findOperation(ctx, {
+    eventId: event._id,
+    actorPersonId: person._id,
+    clientOperationId: args.clientOperationId,
+    commandName: "access.grant_batch",
+    requestFingerprint,
+  });
+  if (prior) {
+    const stored = storedOperationResult(
+      prior.resultJson,
+      "permission grant batch",
+      directGrantBatchResult,
+    );
+    return {
+      grantIds: storedGrantIds(ctx, stored.grantIds, "permission grant batch"),
+      createdCount: stored.createdCount,
+      accessVersion: stored.accessVersion,
+    };
+  }
+  const targetSubject = await requireEventSubject(
+    ctx,
+    event._id,
+    args.targetPersonId,
+  );
+  requireAccessVersion(targetSubject, args.expectedAccessVersion);
+  const now = Date.now();
+  if (args.validUntil !== undefined && args.validUntil <= now) {
+    throw new ConvexError({
+      code: "INVALID_EXPIRY",
+      message: "Grant expiry must be in the future.",
+    });
+  }
+  if (
+    args.validUntil !== undefined &&
+    event.endsAt !== undefined &&
+    args.validUntil > event.endsAt
+  ) {
+    throw new ConvexError({
+      code: "INVALID_EXPIRY",
+      message: "Grant expiry cannot extend beyond the event.",
+    });
+  }
+  const plans: PermissionGrantPlan[] = [];
+  const authorizingGrantIds = new Set<Id<"permissionGrants">>();
+  let authorityPermissionKey:
+    | "access.permissions.grant_any"
+    | "access.permissions.grant_scoped"
+    | null = null;
+  for (const item of normalized) {
+    const validatedScope = await validateScope(
+      ctx,
+      event._id,
+      args.targetPersonId,
+      item.permissionKey,
+      item.scopeType,
+      item.scopeId,
+    );
+    const authority = await requireGrantAuthority(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: actorSubject._id,
+      actorPersonId: person._id,
+      action: {
+        permissionKey: item.permissionKey,
+        ...validatedScope,
+        targetPersonId: args.targetPersonId,
+        ...(args.validUntil !== undefined ? { validUntil: args.validUntil } : {}),
+      },
+    });
+    if (
+      authority.permissionKey !== "access.permissions.grant_any" &&
+      authority.permissionKey !== "access.permissions.grant_scoped"
+    ) {
+      throw new Error("Permission grant authority resolved to the wrong action.");
+    }
+    if (
+      authorityPermissionKey !== null &&
+      authorityPermissionKey !== authority.permissionKey
+    ) {
+      throw new Error("One grant batch cannot mix unrestricted and delegated authority.");
+    }
+    authorityPermissionKey = authority.permissionKey;
+    for (const grantId of authority.grantIds) authorizingGrantIds.add(grantId);
+    plans.push({ permissionKey: item.permissionKey, ...validatedScope });
+  }
+  if (authorityPermissionKey === null) {
+    throw new Error("Permission grant authority was not resolved.");
+  }
+  await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
+  const group = await insertPermissionGrantGroup(ctx, {
+    eventId: event._id,
+    personId: args.targetPersonId,
+    eventAccessSubjectId: targetSubject._id,
+    sourceType:
+      authorityPermissionKey === "access.permissions.grant_scoped"
+        ? "delegated"
+        : "manual",
+    sourceId: `access.grant_batch:${args.clientOperationId}`,
+    grantedByPersonId: person._id,
+    reason,
+    ...(args.validUntil !== undefined ? { validUntil: args.validUntil } : {}),
+    grants: plans,
+  });
+  const accessVersion = group.createdCount > 0
+    ? targetSubject.accessVersion + 1
+    : targetSubject.accessVersion;
+  if (group.createdCount > 0) {
+    await ctx.db.patch(targetSubject._id, { accessVersion, updatedAt: now });
+  }
+  const result = {
+    grantIds: group.results.map((entry) => entry.grantId),
+    createdCount: group.createdCount,
+    accessVersion,
+  };
+  await recordOperation(ctx, {
+    eventId: event._id,
+    actorPersonId: person._id,
+    clientOperationId: args.clientOperationId,
+    commandName: "access.grant_batch",
+    requestFingerprint,
+    targetType: "event_access_subject",
+    targetId: targetSubject._id,
+    resultJson: JSON.stringify(result),
+    createdAt: now,
+  });
+  await writeAuditEvent(ctx, {
+    eventId: event._id,
+    actorPersonId: person._id,
+    permissionKey: authorityPermissionKey,
+    grantIds: [...authorizingGrantIds],
+    scopeType: "person",
+    scopeId: args.targetPersonId,
+    action: "access.permission_grant_batch",
+    targetType: "event_access_subject",
+    targetId: targetSubject._id,
+    nextSummary: JSON.stringify({
+      targetPersonId: args.targetPersonId,
+      grants: plans,
+      validUntil: args.validUntil ?? null,
+      createdCount: group.createdCount,
+      accessVersion,
+    }),
+    reason,
+  });
+  return result;
+}
 
 export const revoke = mutation({
   args: {
@@ -2080,16 +2529,10 @@ export const revoke = mutation({
     if (prior) {
       const priorGrantId = ctx.db.normalizeId("permissionGrants", prior.targetId);
       if (!priorGrantId) throw new Error("Prior revoke result is invalid.");
-      const priorGrant = await ctx.db.get(priorGrantId);
-      if (!priorGrant || priorGrant.status !== "revoked") {
-        throw new Error("Prior revoke result no longer resolves.");
-      }
-      const priorSubject = await ctx.db.get(priorGrant.eventAccessSubjectId);
-      if (!priorSubject) throw new Error("Prior revoke subject is missing.");
       return {
         grantId: priorGrantId,
         status: revokedStatus,
-        accessVersion: priorSubject.accessVersion,
+        accessVersion: storedOperationVersion(prior.resultJson, "permission revoke"),
       };
     }
     const grant = await ctx.db.get(args.grantId);
@@ -2156,8 +2599,190 @@ export const revoke = mutation({
       requestFingerprint,
       targetType: "permission_grant",
       targetId: grant._id,
+      resultJson: String(accessVersion),
       createdAt: now,
     });
     return { grantId: grant._id, status: revokedStatus, accessVersion };
+  },
+});
+
+export const revokeBatch = mutation({
+  args: {
+    eventSlug: v.string(),
+    targetPersonId: v.id("people"),
+    grantIds: v.array(v.id("permissionGrants")),
+    expectedAccessVersion: v.number(),
+    reason: v.string(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({
+    grantIds: v.array(v.id("permissionGrants")),
+    revokedCount: v.number(),
+    accessVersion: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    if (
+      args.grantIds.length === 0 ||
+      args.grantIds.length > maximumDirectGrantBatchSize
+    ) {
+      throw new ConvexError({
+        code: "INVALID_REVOKE_BATCH",
+        message: `Choose 1–${maximumDirectGrantBatchSize} permission grants.`,
+      });
+    }
+    const uniqueGrantIds = new Set(args.grantIds);
+    if (uniqueGrantIds.size !== args.grantIds.length) {
+      throw new ConvexError({
+        code: "INVALID_REVOKE_BATCH",
+        message: "The batch repeats one permission grant.",
+      });
+    }
+    const reason = normalizedText(args.reason, "Reason", 5, 300);
+    const requestFingerprint = operationFingerprint([
+      args.targetPersonId,
+      args.expectedAccessVersion,
+      reason,
+      ...args.grantIds,
+    ]);
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const actorSubject = await requireEventSubject(ctx, event._id, person._id);
+    const prior = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "access.revoke_batch",
+      requestFingerprint,
+    });
+    if (prior) {
+      const stored = storedOperationResult(
+        prior.resultJson,
+        "permission revoke batch",
+        directRevokeBatchResult,
+      );
+      return {
+        grantIds: storedGrantIds(ctx, stored.grantIds, "permission revoke batch"),
+        revokedCount: stored.revokedCount,
+        accessVersion: stored.accessVersion,
+      };
+    }
+    const targetSubject = await requireEventSubject(
+      ctx,
+      event._id,
+      args.targetPersonId,
+    );
+    requireAccessVersion(targetSubject, args.expectedAccessVersion);
+    const rows = await Promise.all(args.grantIds.map((grantId) => ctx.db.get(grantId)));
+    const grants = rows.map((grant) => {
+      if (
+        !grant ||
+        grant.eventId !== event._id ||
+        grant.personId !== args.targetPersonId ||
+        grant.eventAccessSubjectId !== targetSubject._id
+      ) {
+        throw new ConvexError({
+          code: "GRANT_NOT_FOUND",
+          message: "Every selected grant must belong to this event account.",
+        });
+      }
+      if (grant.status !== "active" && grant.status !== "scheduled") {
+        throw new ConvexError({
+          code: "GRANT_NOT_ACTIVE",
+          message: "Every selected grant must still be active or scheduled.",
+        });
+      }
+      return grant;
+    });
+    const authorizingGrantIds = new Set<Id<"permissionGrants">>();
+    let authorityPermissionKey:
+      | "access.permissions.revoke_any"
+      | "access.permissions.revoke_scoped"
+      | null = null;
+    for (const grant of grants) {
+      const permissionKey = assertPermissionKey(grant.permissionKey);
+      const authority = await requireRevokeAuthority(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: actorSubject._id,
+        action: {
+          permissionKey,
+          scopeType: grant.scopeType,
+          ...(grant.scopeId !== undefined ? { scopeId: grant.scopeId } : {}),
+          targetPersonId: args.targetPersonId,
+        },
+      });
+      if (
+        authority.permissionKey !== "access.permissions.revoke_any" &&
+        authority.permissionKey !== "access.permissions.revoke_scoped"
+      ) {
+        throw new Error("Permission revoke authority resolved to the wrong action.");
+      }
+      if (
+        authorityPermissionKey !== null &&
+        authorityPermissionKey !== authority.permissionKey
+      ) {
+        throw new Error("One revoke batch cannot mix unrestricted and delegated authority.");
+      }
+      authorityPermissionKey = authority.permissionKey;
+      for (const grantId of authority.grantIds) authorizingGrantIds.add(grantId);
+    }
+    if (authorityPermissionKey === null) {
+      throw new Error("Permission revoke authority was not resolved.");
+    }
+    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
+    const now = Date.now();
+    for (const grant of grants) {
+      await ctx.db.patch(grant._id, {
+        status: "revoked",
+        revokedAt: now,
+        revokedByPersonId: person._id,
+        revokeReason: reason,
+      });
+    }
+    const accessVersion = targetSubject.accessVersion + 1;
+    await ctx.db.patch(targetSubject._id, { accessVersion, updatedAt: now });
+    const result = {
+      grantIds: grants.map((grant) => grant._id),
+      revokedCount: grants.length,
+      accessVersion,
+    };
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "access.revoke_batch",
+      requestFingerprint,
+      targetType: "event_access_subject",
+      targetId: targetSubject._id,
+      resultJson: JSON.stringify(result),
+      createdAt: now,
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: authorityPermissionKey,
+      grantIds: [...authorizingGrantIds],
+      scopeType: "person",
+      scopeId: args.targetPersonId,
+      action: "access.permission_revoke_batch",
+      targetType: "event_access_subject",
+      targetId: targetSubject._id,
+      previousSummary: JSON.stringify({
+        targetPersonId: args.targetPersonId,
+        grants: grants.map((grant) => ({
+          grantId: grant._id,
+          permissionKey: grant.permissionKey,
+          scopeType: grant.scopeType,
+          scopeId: grant.scopeId ?? null,
+        })),
+        accessVersion: targetSubject.accessVersion,
+      }),
+      nextSummary: JSON.stringify({
+        status: "revoked",
+        revokedCount: grants.length,
+        accessVersion,
+      }),
+      reason,
+    });
+    return result;
   },
 });

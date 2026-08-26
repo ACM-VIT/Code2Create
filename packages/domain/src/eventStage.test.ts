@@ -60,32 +60,34 @@ test("the live event leads with the floor, not with configuration", () => {
   assert.ok(!live.includes("/access"));
 });
 
-test("every blocker that setup can fix knows which screen fixes it", () => {
-  const fixableKeys = [
+test("every lifecycle blocker knows which product screen resolves it", () => {
+  const blockerKeys = [
+    "active_attendance_session",
+    "active_review_round",
     "event_dates",
+    "future_application_deadline",
     "participant_policy",
-    "track_catalog",
     "intake_policy",
     "admission_policy",
     "communications_policy",
+    "integration_policy",
     "phase_schedule",
     "checkpoint_plan",
     "attendance_plan",
     "floor_plan",
     "review_round",
   ];
-  for (const key of fixableKeys) {
+  for (const key of blockerKeys) {
     assert.ok(eventBlockerPaths[key], `${key} has no route`);
     assert.match(eventBlockerPaths[key] ?? "", /^\//);
   }
 });
 
-test("blockers that mean work is still running are not treated as setup", () => {
-  for (const key of activeWorkBlockerKeys) {
-    assert.equal(
-      eventBlockerPaths[key],
-      undefined,
-      `${key} is work in progress, not a setting to publish`,
-    );
-  }
+test("active work blockers open their live control rooms", () => {
+  assert.deepEqual(activeWorkBlockerKeys, [
+    "active_attendance_session",
+    "active_review_round",
+  ]);
+  assert.equal(eventBlockerPaths.active_attendance_session, "/attendance");
+  assert.equal(eventBlockerPaths.active_review_round, "/reviews");
 });

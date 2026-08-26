@@ -15,25 +15,28 @@ The platform must correct these problems.
 
 `README.md` and `specs/*.md` are the sole source of truth for this handbook. The canonical read-only mirror is [code2create-specs.theg1239.chatgpt.site](https://code2create-specs.theg1239.chatgpt.site). It uses a simple password for planning access.
 
-The optional [Cloudflare staging handbook](https://code2create-handbook-staging.acmvit.workers.dev) tests Google identity and the exact event-scoped `handbook.read` grant. Its public browser assets do not contain the Markdown. It is not a source of truth, participant portal, operations dashboard, second required reader, or required production surface.
-
 ## Local full-flow testing
 
 Run `pnpm dev` from the repository root. It starts the local Convex deployment, enables the localhost-only identity and email fixtures, seeds the Code2Create 7.0 event, and starts every application.
+
+The command prints the local address list only after every surface answers its readiness route. If one surface never becomes ready, the command names it and stops the complete stack. `Ctrl-C`, terminal close, and normal startup failure terminate the child process groups, so an old Vite, Convex, Expo, or Wrangler process does not keep a port occupied.
+
+The local test accounts need no Google credentials or manually generated auth secret. To exercise real Google OAuth locally, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `apps/backend/.env.local`; the exact redirect URI is `http://localhost:3211/api/auth/callback/google`.
 
 | Surface | Local address | Test entry |
 | --- | --- | --- |
 | Participant portal | `http://localhost:5180` | Select VIT Student or External participant, then use **Use local test account**. |
 | Operations dashboard | `http://localhost:5181` | Use **Use local Supreme account**. |
 | Handbook renderer | `http://localhost:5182` | Use **Use local Supreme account**. |
-| Reviewer app | `http://localhost:8082` | Run a local native build, then use **Use local event operator**. |
+| Reviewer app | `http://localhost:8082` | Run a local native build, then use **Use local event operator**. The Judging screen offers local-only controls for joining the demo panel and starting a demo review after phone setup. |
 | Intelligence Worker | `http://localhost:8791` | `GET /health` |
 | Expo Updates Worker | `http://localhost:8792` | `GET /health` |
 | Email Worker | `http://localhost:8793` | `GET /health` |
+| Voice Worker | `http://localhost:8794` | `GET /health` |
 
-The local identities create ordinary Better Auth sessions and use the normal Convex permission and workflow boundaries. The reviewer fixture is available only inside the locally compiled native app; it does not create a browser replacement for camera, push, encrypted storage, or offline behavior. Local email follows the normal delivery state machine with a localhost-only synthetic provider event. None of these fixtures can run outside the full localhost stack. Real deployments still require Google OAuth and Cloudflare Email configuration.
+The local identities create ordinary Better Auth sessions and use the normal Convex permission and workflow boundaries. Browser test-account sign-in returns to the exact local path, including participant team-join links. The reviewer fixture is available only inside the locally compiled native app; it does not create a browser replacement for camera, push, encrypted storage, or offline behavior. Local email follows the normal delivery state machine with a localhost-only synthetic provider event. None of these fixtures can run outside the full localhost stack. Real deployments still require Google OAuth and Cloudflare Email configuration.
 
-On an empty staging or production deployment, the operations surface becomes the first-run setup after Google sign-in. Only an email listed in `INITIAL_SUPREME_EMAILS` can create the event slug pinned by `INITIAL_EVENT_SLUG`. The owner enters the event window, venue, Discord invite, VIT email domain, team bounds, participant capacity, and starting core tracks. One Convex mutation creates the draft event, its safe baseline policies, the owner's event account and role label, and the owner's exact scoped grants. Applications remain closed until an authorized organizer opens them from Event setup.
+On an empty staging or production deployment, the operations surface becomes the first-run setup after Google sign-in. Only an email listed in `INITIAL_SUPREME_EMAILS` can create the event slug pinned by `INITIAL_EVENT_SLUG`. The owner enters the application deadline, event window, venue, Discord invite, VIT email domain, team bounds, and participant capacity. One Convex mutation creates the draft event, its safe baseline policies, the owner's event account and role label, and the owner's exact scoped grants. Applications remain closed until an authorized organizer opens them from Event setup.
 
 Local briefs, copilot turns, and autonomous runs use the normal signed Convex-to-Flue boundaries. The local Worker uses the configured remote Workers AI binding; it does not replace model work with a browser fixture. Autonomous runs still use the durable semantic inbox, paginated redacted reads, human-only proposal approval, and Worker admission fence used outside development.
 
@@ -83,6 +86,8 @@ Pass the returned cursor as `"cursor":"..."` on the next call. After the write p
 - An unrestricted grant administrator can give any permission to any event-linked user. This includes a specifically invited user who has no role.
 - A restricted administrator can act only within one permission key, resource, target boundary, and expiry limit.
 - Grant and revoke are separate permissions and delegations.
+- The permission editor can add or remove several exact grants for one person as one atomic, audited change. It never leaves a partial batch.
+- A sensitive web action with an old session asks for Google verification on the same page and retries the same idempotent command only after the backend sees a fresh session.
 
 ### Product surfaces
 
@@ -90,7 +95,6 @@ Pass the returned cursor as `"cursor":"..."` on the next call. After the write p
 - Reviewers use a dedicated Expo app on Android or iOS.
 - Staff use a web operations dashboard.
 - The participant portal, operations dashboard, and event app use the same Google identity system and Convex deployment.
-- The optional Cloudflare handbook integration uses that identity system and deployment only to test protected handbook access.
 
 ### Attendance and venue operations
 
@@ -126,14 +130,13 @@ Pass the returned cursor as `"cursor":"..."` on the next call. After the write p
 - The flow asks one or two short generated follow-up questions. It shows one question at a time.
 - The flow does not require a form, voice interaction, chat interaction, or PPT.
 - While the team writes its first description, a debounced novelty counter compares the text with a versioned, curated corpus of past Code2Create projects.
-- The counter returns one directional `0–100` signal, the closest approved theme, and one supportive reflection question.
+- The counter shows one directional `0–100` number above the text box. It does not disclose earlier project text or add another task.
 - The system does not submit the novelty signal with the application. Admissions and judging cannot use it.
-- When the team commits the first description, the portal immediately shows the complete track list.
-- The OpenAI layer can highlight one published track and give a short reason.
 - The OpenAI layer can ask a supportive differentiation question.
-- The team can select any track. A different selection cannot cause an admission penalty.
-- Final submission has a review screen. It shows the full team, confirmed core track, optional sponsor tracks, and project summary.
-- One server transaction submits the application and locks the reviewed team and track set.
+- Final submission has a review screen. It shows the full team and current project summary.
+- One server transaction submits the application and locks the reviewed team membership.
+- The team lead can revise the project description and guided answers until the configured application deadline.
+- Each edit creates an immutable content version and makes review work for the prior version stale.
 
 ### Admissions and accepted teams
 
@@ -141,6 +144,7 @@ Pass the returned cursor as `"cursor":"..."` on the next call. After the write p
 - Publication pairs the rubric atomically with one exact AI model release or explicit human-only mode.
 - The first submitted application freezes that release for the event.
 - Configured AI analysis can produce a structured and explainable admission recommendation.
+- Reading that recommendation and retrying a failed analysis are separate permissions. A retry keeps the failed record, creates one new policy-pinned run, and changes no human decision.
 - Only an authorized human can accept, waitlist, decline, or request more information.
 - An admission recommendation cannot become a judging score or judging advice.
 - Human acceptance selects the locked team. It does not check the team into the event.
@@ -152,13 +156,8 @@ Pass the returned cursor as `"cursor":"..."` on the next call. After the write p
 - An accepted team sees a focused next-steps page. It shows status, venue and date, deadlines, locked team and project summary, and the Discord community link.
 - A configured notification route reports important changes. Participants do not need to keep the portal open.
 
-### Tracks, evidence, and recovery
+### Integrations, evidence, and recovery
 
-- Operations publishes the required number of core tracks with each catalog; the initial setup starts with five editable rows.
-- Core-track definitions, prompt bindings, and sponsor tracks are versioned event configuration. They are not hard-coded problem statements.
-- A team can select zero or more sponsor tracks from its pinned catalog.
-- The team must read each published sponsor requirement before selection.
-- The submitted project keeps the exact sponsor-track set. Sponsor selection does not change admissions or judging.
 - The system can structure or summarize project material. It cannot generate, change, or recommend a judging score.
 - A team can connect several GitHub repositories. The team declares the kind and purpose of each repository.
 - A team can connect several Figma files when needed.
@@ -194,7 +193,7 @@ The repository contains working slices for these participant and project functio
 
 - Google identity, participant provisioning, profile onboarding, team onboarding, sequential project intake, and final lock.
 - A version-pinned live novelty signal. It uses native 1,536-dimension OpenAI embeddings and a separately permissioned corpus editor.
-- Immutable participant-pinned track catalogs and race-safe sponsor-track selection.
+- Immutable proposal versions that the team lead can revise until the application deadline.
 - An atomic participant-pinned intake policy, deterministic fallback, and separate operations editor.
 - Admissions review and decision.
 - Capacity-backed accepted-team offer send, confirm, decline, expiry, and revocation.
@@ -220,9 +219,9 @@ The repository contains working slices for these attendance and venue functions:
 
 The repository contains working slices for these review and operations functions:
 
-- A permission-aware operations home organized around current work: Overview, Applications, Event day, Judging, and Manage. Application detail leads with the next human action and keeps completed process detail available without making it the page hierarchy.
+- A permission-aware operations home whose Overview shows only the event's next step and three current priorities. Event monitor holds the full attention ledger and system checks; Operations agent holds activity, questions, and generated summaries. Application detail leads with the next human action and keeps completed process detail available without making it the page hierarchy.
 - A first-run event screen that replaces the empty-deployment dead end. It admits only the configured initial owner and creates one coherent draft baseline before the normal permissioned dashboard appears.
-- A realtime Event setup home that shows the participant form, tracks, idea questions, idea comparison, admissions, accepted-team details, schedule, team updates, and operations brief as one short status list. Each row reports the actual published, draft, missing, locked, or active state and opens only when the organizer has the matching read grant.
+- A realtime Event setup home that shows the participant form, idea questions, idea comparison, admissions, accepted-team details, schedule, team updates, and operations brief as one short status list. Each row reports the actual published, draft, missing, locked, or active state and opens only when the organizer has the matching read grant.
 - A participant lifecycle home that leads with the team's current outcome or action. Locked team/project detail stays available in compact disclosures, and optional event tools stay absent until they contain useful information.
 - Incident-linked, round-wide review pause or resume with scoped staff banners and participant or reviewer state.
 - Versioned Convex backup export and staging-only restore verification.
@@ -232,7 +231,7 @@ The repository contains working slices for these review and operations functions
 - Version-pinned private Figma frame previews, layer and property browsing, bounded named-version and comment capture, and comparison with an earlier judging checkpoint.
 - Lazy exact-team integration detail on the operations board.
 - Staff-managed review queues with transactional team-availability projections, scoped exceptions, and substitutions.
-- Reviewer push paging and pinned review evidence.
+- Reviewer push paging, synthesized phone-call escalation, and pinned review evidence.
 - Scorecard correction, void, and release governance.
 - Two-person verified private round exports and controlled reopen.
 - Expiring exact-email event invitations.
@@ -245,7 +244,7 @@ The repository contains working slices for these review and operations functions
 - An event-scoped realtime operations-health overview.
 - An operator-requested operations brief from a separate signed Flue and Cloudflare Worker. The Worker uses a frozen, redacted health snapshot.
 - An event-scoped autonomous operations agent that exhaustively traverses its published redacted read allowlist, delegates focused investigations, and records typed recommendations for human review.
-- An auditable 61-scenario release-rehearsal workspace with exact-run permissions and final sign-off.
+- An auditable 62-scenario release-rehearsal workspace with exact-run permissions and final sign-off.
 - A protected, manually triggered staging release-verification workflow. It verifies the two controlled browser accounts against staging Convex before Playwright starts, then checks public/authenticated participant and operations surfaces plus read-only synthetic OpenAI, GitHub, Figma, and intelligence paths.
 - An optional protected-handbook integration test generated from the repository Markdown.
 - The first operator-controlled Synesthesia release with live participant requests, votes, reports, scoped moderation, queue scheduling, access suspension, and playback acknowledgment.
@@ -260,9 +259,9 @@ Phase-bound project checkpoints form a separate immutable layer. Operations publ
 
 ### Release status
 
-GitHub Actions scans changed history for secrets. It installs the frozen pnpm lockfile, lints, type-checks, tests, and builds all three Vite apps. It also builds the update and intelligence Workers, checks the Expo configuration, and exports both mobile JavaScript bundles.
+GitHub Actions scans changed history for secrets. It installs the frozen pnpm lockfile, lints, type-checks, tests, and builds the Vite apps and Cloudflare Workers. It also checks the Expo configuration and exports both mobile JavaScript bundles.
 
-A separate protected workflow builds the three web surfaces and intelligence Worker. Wrangler deploys each surface to its own staging or production Cloudflare Worker.
+A separate protected workflow builds the participant and operations surfaces plus the service Workers. Wrangler deploys each surface to its own staging or production Cloudflare Worker. The canonical handbook mirror is published separately from repository Markdown to ChatGPT Sites.
 
 Gradle and Xcode build signed Android APK/AAB and iOS IPA files on a controlled local machine. The release machine exports and signs JavaScript updates. A separate Cloudflare Worker and environment-specific R2 bucket serve those updates.
 
@@ -275,7 +274,6 @@ The isolated staging Convex deployment and intelligence Worker are deployed. The
 ### Staging deployment snapshot · 8 August 2026
 
 - The staging Convex backend is deployed at `patient-dove-650.eu-west-1.convex.cloud`.
-- The optional protected-handbook integration is deployed at [code2create-handbook-staging.acmvit.workers.dev](https://code2create-handbook-staging.acmvit.workers.dev). Release `handbook-staging-2026-08-08-code-split` is live. Its deep-link fallback returns HTTP 200.
 - The staging intelligence Worker and self-hosted Expo Updates Worker/R2 service are deployed.
 - The participant and operations staging Workers are not deployed. Their release scripts correctly stop until `VITE_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, and `SENTRY_AUTH_TOKEN` are supplied together.
 - The Cloudflare staging email Queue and dead-letter Queue exist. The email Worker, Event Subscription, sending identity, support alias, and forwarding destination remain closed until O-034 selects the event-owned domain and addresses.
@@ -288,7 +286,7 @@ The remaining launch work is:
 - Back up the update private key.
 - Produce signed builds and test them on the proposed phones.
 - Supply the staging Sentry release values, deploy the participant and operations Workers, and test both against staging Convex.
-- Bind approved custom domains for all three web surfaces, then repeat the release for production.
+- Bind approved custom domains for the participant and operations surfaces, then repeat the release for production.
 - Complete a permissioned staging intelligence run through Workers AI and the signed callback.
 - Configure the controlled browser accounts, protected browser states, and synthetic provider fixtures, then run and approve the checked-in staging release-verification workflow.
 - Run and approve backup and restore against production-shaped staging.
@@ -303,7 +301,7 @@ The deployed permission catalog contains only working permissions and scope reso
 
 | Part | Choice | Reason |
 | --- | --- | --- |
-| Participant and operations web; optional handbook integration | Separate Vite, React, and React Router single-page apps | Each app can deploy independently. The optional handbook app tests typed authentication and `handbook.read` against the shared backend. |
+| Participant and operations web | Separate Vite, React, and React Router single-page apps | Each product surface deploys independently and uses the same backend. |
 | Reviewer mobile | Expo, React Native, and Expo Router | The app needs a native camera, notifications, secure session storage, and controlled builds. |
 | Authentication | Better Auth with Google only | The Convex-maintained adapter runs on Convex and supports the browser apps and Expo. |
 | Live backend | Convex | Convex provides transactions, reactive queries, HTTP endpoints, scheduled work, and small live records. |
@@ -314,7 +312,7 @@ The deployed permission catalog contains only working permissions and scope reso
 | External job control | `@convex-dev/workpool` | The workpool bounds intake, GitHub, Figma, push, and export work. External work cannot block review traffic. |
 | Large artifacts | Private S3 in `ap-south-1` | S3 stores compressed Figma checkpoints and previews, short-lived GitHub blob cache, protected exports, expiring emergency packs, and backups outside one-megabyte live records. |
 | Participant email | Cloudflare Email Sending, Email Routing, Event Subscriptions, and Queues | Cloudflare sends transactional mail and routes approved inbound addresses. A Queue Worker sends signed lifecycle events to Convex. Ambiguous sends are never retried automatically. |
-| Reviewer paging | Native APNs and FCM tokens through `expo-notifications` | A direct push wakes the reviewer. The in-app assignment and operations fallback remain authoritative. |
+| Reviewer paging | Native APNs/FCM plus an event-owned Twilio and Sarvam voice Worker | Push is the first alert. A consented synthesized call can escalate a missed page. Convex remains authoritative and the same typed call service can later deliver explicitly permitted participant operations calls. |
 | Event scanning | Capability-gated modes in the signed Expo build | Provisioned staff phones scan VIT ID barcodes, attendance QR codes, review-presence QR codes, and hall-location QR codes. Each mode uses a separate server command. |
 | Web hosting | Cloudflare Workers static assets through the official Vite plugin | Cloudflare serves each SPA with an explicit deep-link fallback. The web host has no application backend. |
 | Mobile delivery | Local Gradle or Xcode builds and a signed Cloudflare Worker/R2 Expo Updates service | Controlled release machines keep build credentials and the update private key. Staging and production remain separate. |
@@ -327,11 +325,10 @@ The platform does not use Clerk. It does not have a second application database,
 
 | Surface | Main jobs |
 | --- | --- |
-| Participant portal | Sign-in, profile, live team area, sequential project intake, core-track choice, optional sponsor-track choice, final lock confirmation, admission result, team-lead offer response, next steps, shared phase updates, GitHub and Figma connection, attendance status and QR, team-owned hall-location QR and recorded place in the hall, staff-managed queue status, support cases, review progress, and Synesthesia |
+| Participant portal | Sign-in, profile, live team area, sequential project intake, live novelty number, final confirmation, proposal edits until the deadline, admission result, team-lead offer response, next steps, shared phase updates, GitHub and Figma connection, attendance status and QR, team-owned hall-location QR and recorded place in the hall, staff-managed queue status, support cases, review progress, and Synesthesia |
 | Event mobile app | Reviewer workflow, self-service support cases, and separate capability-gated camera modes for attendance, review presence, and hall-location mapping |
 | Operations dashboard | Event lifecycle, event health, autonomous agent runs and recommendations, manual briefs, copilot, configuration, support, project updates, release rehearsal, exact-person access, permissions, attendance, roll call, emergency packs, hall mapping, Synesthesia, rounds, rosters, panels, queues, substitutes, reviews, score completeness, exceptions, and audit |
 | Canonical handbook mirror | Read-only Markdown navigation at [code2create-specs.theg1239.chatgpt.site](https://code2create-specs.theg1239.chatgpt.site), protected by a simple planning password. Repository Markdown remains authoritative. |
-| Optional handbook integration | Google sign-in, exact `handbook.read` enforcement, Markdown navigation, and server-side search for staging tests. No public bundle contains the documents. |
 
 ## System boundary
 
@@ -363,7 +360,7 @@ An open policy must exist in versioned event configuration or remain blocked. Cl
 | --- | --- |
 | Product brief | Event problem, scope, users, and outcomes |
 | Identity and access | Google sign-in, VIT classification, rosters, role defaults, atomic permissions, and sessions |
-| Participant portal | Registration, teams, fresh-project attestation, sequential intake, tracks, application, admission, integrations, and staff-managed queue status |
+| Participant portal | Registration, teams, fresh-project attestation, sequential intake, application revisions, admission, integrations, and staff-managed queue status |
 | Attendance and presence | Hacking sessions, VIT ID barcodes, external and fallback QR, temporary exits, realtime presence, scanner recovery, and privacy |
 | Panels and queues | Reviewer staffing, routing, presence, timers, and substitutions |
 | Reviewer app | Native workflow, score drafts, push, and short connection loss |
@@ -388,7 +385,7 @@ An open policy must exist in versioned event configuration or remain blocked. Cl
 - Reviewer and staff rosters.
 - Data retention, provider-evidence retention, artifact access, and participant feedback.
 - Attendance schedule, required or optional rules, grace and duration policy, tracked zones, VIT ID barcode format and enrollment, external badge format, excused absence, and presence-data retention.
-- Final core-track names and definitions, sponsor tracks, awards, event checkpoints, and allowed pre-start setup.
+- Awards, event checkpoints, and allowed pre-start setup.
 - OpenAI intake consent, effective data controls, and interpretation retention.
 - Published year-of-study bands for mixed-year, postgraduate, professional, and external teams.
 - Human admissions rubric and disclosure text.

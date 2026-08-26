@@ -14,8 +14,8 @@ export async function requireEventBySlug(ctx: QueryCtx | MutationCtx, eventSlug:
   return event;
 }
 
-export function requireRegistrationOpen(event: Doc<"events">) {
-  if (event.status !== "registration_open") {
+export function requireRegistrationOpen(event: Doc<"events">, now = Date.now()) {
+  if (event.status !== "registration_open" || now >= event.applicationsCloseAt) {
     throw new ConvexError({
       code: "APPLICATIONS_CLOSED",
       message: "Applications are closed. Your saved work is still available to read.",

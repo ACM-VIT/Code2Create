@@ -1,18 +1,28 @@
 import { api } from '@code2create/backend/api'
+import { teamRoundStateParticipantLabels, type TeamRoundState } from '@code2create/domain'
+import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { QRCodeSVG } from 'qrcode.react'
 import { useEffect, useRef, useState } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
-import { countdownName } from '../lib/time'
+import { countdownName, queueWaitName } from '../lib/time'
 
 type TeamQr = {
+  tokenId: FunctionReturnType<typeof api.participantReview.mintTeamQr>['tokenId']
   reviewSessionId: string
   payload: string
   manualCode: string
   expiresAt: number
+  serverNow: number
+  clientNow: number
   tableLabel?: string
+}
+
+type ServerClock = {
+  serverNow: number
+  clientNow: number
 }
 
 export function ReviewQueuePanel() {
@@ -20,15 +30,39 @@ export function ReviewQueuePanel() {
   const mintTeamQr = useMutation(api.participantReview.mintTeamQr)
   const mintingRef = useRef(false)
   const [teamQr, setTeamQr] = useState<TeamQr | null>(null)
-  const [now, setNow] = useState(Date.now())
+  const [now, setNow] = useState(() => performance.now())
+  const [serverClock, setServerClock] = useState<ServerClock | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const teamQrState = useQuery(
+    api.participantReview.teamQrState,
+    teamQr ? { eventSlug, tokenId: teamQr.tokenId } : 'skip',
+  )
+  const queueServerNow = queue?.serverNow
+
+  useEffect(() => {
+    if (queueServerNow === undefined) return
+    const clientNow = performance.now()
+    setServerClock({ serverNow: queueServerNow, clientNow })
+    setNow(clientNow)
+  }, [queueServerNow])
 
   useEffect(() => {
     if (!teamQr) return
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000)
+    const timer = window.setInterval(() => {
+      const nextNow = performance.now()
+      setNow(nextNow)
+      const nextServerNow = teamQr.serverNow + nextNow - teamQr.clientNow
+      if (nextServerNow >= teamQr.expiresAt) window.clearInterval(timer)
+    }, 1_000)
     return () => window.clearInterval(timer)
   }, [teamQr])
+
+  useEffect(() => {
+    if (!queue?.estimate) return
+    const timer = window.setInterval(() => setNow(performance.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [queue?.estimate])
 
   const showTeamQr = async () => {
     if (!queue?.review?.canShowTeamQr || mintingRef.current) return
@@ -40,14 +74,18 @@ export function ReviewQueuePanel() {
         eventSlug,
         reviewSessionId: queue.review.id,
       })
+      const clientNow = performance.now()
       setTeamQr({
+        tokenId: minted.tokenId,
         reviewSessionId: queue.review.id,
         payload: minted.payload,
         manualCode: minted.manualCode,
         expiresAt: minted.expiresAt,
+        serverNow: minted.serverNow,
+        clientNow,
         ...(minted.tableLabel !== undefined ? { tableLabel: minted.tableLabel } : {}),
       })
-      setNow(Date.now())
+      setNow(clientNow)
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -61,13 +99,22 @@ export function ReviewQueuePanel() {
   }
   if (!queue) return null
 
-  const secondsLeft = teamQr ? Math.max(0, Math.ceil((teamQr.expiresAt - now) / 1_000)) : 0
+  const currentServerNow = serverClock?.serverNow === queue.serverNow
+    ? serverClock.serverNow + now - serverClock.clientNow
+    : queue.serverNow
+  const qrServerNow = teamQr ? teamQr.serverNow + now - teamQr.clientNow : 0
+  const secondsLeft = teamQr
+    ? Math.max(0, Math.ceil((teamQr.expiresAt - qrServerNow) / 1_000))
+    : 0
+  const tokenIsActive = teamQrState === undefined || teamQrState?.state === 'active'
   const currentQr = teamQr &&
+    tokenIsActive &&
     secondsLeft > 0 &&
     queue.review?.canShowTeamQr &&
     teamQr.reviewSessionId === queue.review.id
     ? teamQr
     : null
+  const waitEstimate = queue.estimate ? queueWaitName(queue.estimate, currentServerNow) : null
 
   return (
     <section className="attendance-panel" aria-labelledby="review-queue-heading">
@@ -86,11 +133,11 @@ export function ReviewQueuePanel() {
       <dl className="detail-list compact-details">
         <div>
           <dt>Status</dt>
-          <dd>{queueStateName(queue.state)}</dd>
+          <dd>{teamRoundStateParticipantLabels[queue.state]}</dd>
         </div>
         {queue.tableLabel ? (
           <div>
-            <dt>Your table</dt>
+            <dt>Team location</dt>
             <dd>{queue.tableLabel}</dd>
           </div>
         ) : null}
@@ -100,12 +147,10 @@ export function ReviewQueuePanel() {
             <dd>{queue.panel.name}</dd>
           </div>
         ) : null}
-        {queue.estimate ? (
+        {waitEstimate ? (
           <div>
             <dt>Estimated wait</dt>
-            <dd>{queue.estimate.lowerMinutes === 0
-              ? `Within ${queue.estimate.upperMinutes} min`
-              : `About ${queue.estimate.lowerMinutes}–${queue.estimate.upperMinutes} min`}</dd>
+            <dd>{waitEstimate}</dd>
           </div>
         ) : queue.state === 'queued' && queue.round.isPaused ? (
           <div>
@@ -135,7 +180,7 @@ export function ReviewQueuePanel() {
             />
           </div>
           <p className="inline-status">
-            {currentQr.tableLabel ? `${currentQr.tableLabel} · ` : ''}expires in {countdownName(secondsLeft)} · show this to each reviewer at your table.
+            {currentQr.tableLabel ? `${currentQr.tableLabel} · ` : ''}expires in {countdownName(secondsLeft)} · show this to each reviewer when they arrive.
           </p>
           <p className="manual-code" aria-label={`Fallback code ${currentQr.manualCode}`}>
             {currentQr.manualCode}
@@ -156,20 +201,7 @@ export function ReviewQueuePanel() {
   )
 }
 
-function queueStateName(state: string) {
-  if (state === 'unassigned') return 'Waiting for the review desk'
-  if (state === 'queued') return 'In queue'
-  if (state === 'called') return 'Go to your table'
-  if (state === 'at_table') return 'At the table'
-  if (state === 'in_review') return 'Review in progress'
-  if (state === 'completed') return 'Complete'
-  if (state === 'held') return 'On hold'
-  if (state === 'missed') return 'Missed call'
-  if (state === 'withdrawn') return 'Withdrawn'
-  return 'Waiting for an update'
-}
-
-function queueStateCopy(state: string, teamsAhead?: number) {
+function queueStateCopy(state: TeamRoundState, teamsAhead?: number) {
   if (state === 'unassigned') return 'The review desk will place your team into a panel queue. This page updates automatically.'
   if (state === 'queued') {
     if (teamsAhead === 0) return 'You are next at this panel. Keep the team nearby.'
@@ -177,11 +209,11 @@ function queueStateCopy(state: string, teamsAhead?: number) {
     if (teamsAhead !== undefined) return `${teamsAhead} teams are ahead of you. Keep the team nearby.`
     return 'Keep the team nearby. This page updates when your panel calls you.'
   }
-  if (state === 'called') return 'Bring the whole team to the table shown below, then open the team code.'
-  if (state === 'at_table') return 'Keep the team code open until every reviewer has confirmed their place.'
+  if (state === 'called') return 'Stay with your team at the location shown below. Reviewers are on their way; open the team code.'
+  if (state === 'at_table') return 'Keep the team code open until every reviewer has checked in.'
   if (state === 'in_review') return 'Your review is underway.'
   if (state === 'completed') return 'This review round is complete.'
   if (state === 'held') return 'Staff paused this queue entry and will update you.'
   if (state === 'missed') return 'Speak to the review desk when your team is together.'
-  return 'The review desk will update this state.'
+  return 'Your team is no longer in this review round.'
 }

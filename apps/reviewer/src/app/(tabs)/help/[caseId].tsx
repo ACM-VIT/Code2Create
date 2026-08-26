@@ -28,6 +28,7 @@ export default function SupportCaseRoute() {
       {!supportCode ? (
         <Meta>That case link is invalid.</Meta>
       ) : null}
+      {supportCode && detail === null ? <Meta>This case is no longer available.</Meta> : null}
       {detail ? (
         <SupportCaseDetail
           detail={detail}

@@ -20,6 +20,27 @@ export function createOperationRunner<Result = unknown>() {
     for (const listener of listeners) listener()
   }
 
+  const execute = async (slot: string, attempt: PendingCommand<Result>) => {
+    if (running.has(slot)) throw new Error('This command is already in progress.')
+    running.add(slot)
+    try {
+      const result = await attempt.execute()
+      if (pending.get(slot) === attempt) {
+        pending.delete(slot)
+        changed()
+      }
+      return result
+    } catch (caught) {
+      if (caught instanceof ConvexError && pending.get(slot) === attempt) {
+        pending.delete(slot)
+        changed()
+      }
+      throw caught
+    } finally {
+      running.delete(slot)
+    }
+  }
+
   return {
     subscribe(listener: () => void) {
       listeners.add(listener)
@@ -33,7 +54,7 @@ export function createOperationRunner<Result = unknown>() {
     hasPending(slot: string) {
       return pending.has(slot)
     },
-    confirmObservedSuccess(slot: string) {
+    confirmExactObservation(slot: string) {
       if (!pending.delete(slot)) return
       changed()
     },
@@ -41,30 +62,18 @@ export function createOperationRunner<Result = unknown>() {
       slot: string,
       createCommand: (clientOperationId: string) => () => Promise<Result>,
     ): Promise<Result> {
-      if (running.has(slot)) throw new Error('This command is already in progress.')
       const existing = pending.get(slot)
       const attempt = existing ?? newCommand(slot, createCommand)
       if (!existing) {
         pending.set(slot, attempt)
         changed()
       }
-      running.add(slot)
-      try {
-        const result = await attempt.execute()
-        if (pending.get(slot) === attempt) {
-          pending.delete(slot)
-          changed()
-        }
-        return result
-      } catch (caught) {
-        if (caught instanceof ConvexError && pending.get(slot) === attempt) {
-          pending.delete(slot)
-          changed()
-        }
-        throw caught
-      } finally {
-        running.delete(slot)
-      }
+      return execute(slot, attempt)
+    },
+    async retryPending(slot: string): Promise<Result> {
+      const attempt = pending.get(slot)
+      if (!attempt) throw new Error('This command no longer needs confirmation.')
+      return execute(slot, attempt)
     },
   }
 }

@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router'
+import { Redirect, useLocalSearchParams } from 'expo-router'
 
 import { DutyScreen } from '@/components/DutyScreen'
 import { FloorMappingPanel } from '@/components/FloorMappingPanel'
@@ -16,7 +16,7 @@ export default function DutyRoute() {
   const held = surfaces.find((candidate) => candidate === surface)
 
   if (!held) {
-    return <DutyScreen title="Not yours">{null}</DutyScreen>
+    return <Redirect href="/" />
   }
 
   return (

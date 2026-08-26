@@ -53,12 +53,15 @@ export const eventStageGuidance: Record<EventStage, EventStageGuidance> = {
 
 /** Maps lifecycle blockers to the screen where they can be resolved. */
 export const eventBlockerPaths: Record<string, string> = {
+  active_attendance_session: "/attendance",
+  active_review_round: "/reviews",
   event_dates: "/configuration",
+  future_application_deadline: "/configuration",
   participant_policy: "/configuration/participants",
-  track_catalog: "/configuration/tracks",
   intake_policy: "/configuration/intake",
   admission_policy: "/configuration/admissions",
   communications_policy: "/configuration/communications",
+  integration_policy: "/configuration/integrations",
   phase_schedule: "/configuration/phases",
   checkpoint_plan: "/configuration/checkpoints",
   attendance_plan: "/attendance-setup",

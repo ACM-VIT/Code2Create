@@ -41,6 +41,7 @@ describe("event bootstrap", () => {
       eventSlug: "code2create-7",
       eventName: "Code2Create 7.0",
       timezone: "Asia/Kolkata",
+      applicationsCloseAt: startsAt - 24 * 60 * 60 * 1_000,
       vitEmailDomains: ["vitstudent.ac.in"],
       participantPolicy: defaultParticipantPolicy,
       admissionPolicyVersion: "admission-v1",
@@ -70,8 +71,6 @@ describe("event bootstrap", () => {
         maxActiveGitHubRepositoriesPerTeam: 10,
         maxActiveFigmaFilesPerTeam: 10,
       },
-      requiredCoreTrackCount: 5,
-      tracks: trackInputs(),
     });
 
     const [handbookAccess, operationsAccess] = await Promise.all([
@@ -83,6 +82,7 @@ describe("event bootstrap", () => {
       eventLifecycle: true,
       accessPeople: true,
       health: true,
+      incidents: true,
       reviews: true,
     });
     expect(operationsAccess).not.toHaveProperty("grants");
@@ -95,7 +95,6 @@ describe("event bootstrap", () => {
       name: "Code2Create 7.0",
       status: "draft",
     });
-    expect(shellState.event).not.toHaveProperty("tracks");
     expect(shellState.event).not.toHaveProperty("phases");
     const ownerPersonId = await backend.run(async (ctx) => {
       const person = await ctx.db
@@ -133,7 +132,7 @@ describe("event bootstrap", () => {
         status: "draft",
         startsAt,
         endsAt,
-        publishedTrackCatalogId: created.catalogVersionId,
+        applicationsCloseAt: startsAt - 24 * 60 * 60 * 1_000,
       });
       expect(event?.publishedParticipantPolicyId).toBeDefined();
       expect(event?.publishedIntakePolicyId).toBeDefined();
@@ -203,6 +202,7 @@ describe("event bootstrap", () => {
       eventSlug: "code2create-7",
       eventName: "Code2Create 7.0",
       timezone: "Asia/Kolkata",
+      applicationsCloseAt: startsAt - 24 * 60 * 60 * 1_000,
       vitEmailDomains: ["vitstudent.ac.in"],
       participantPolicy: defaultParticipantPolicy,
       admissionPolicyVersion: "admission-v1",
@@ -231,8 +231,6 @@ describe("event bootstrap", () => {
         maxActiveGitHubRepositoriesPerTeam: 10,
         maxActiveFigmaFilesPerTeam: 10,
       },
-      requiredCoreTrackCount: 5,
-      tracks: trackInputs(),
     })).rejects.toThrow("already has an event");
   });
 
@@ -275,6 +273,7 @@ describe("event bootstrap", () => {
         eventSlug: "attacker-event",
         eventName: "Attacker event",
         timezone: "Asia/Kolkata",
+        applicationsCloseAt: Date.UTC(2027, 6, 17, 3, 30),
         vitEmailDomains: ["vitstudent.ac.in"],
         participantPolicy: defaultParticipantPolicy,
         admissionPolicyVersion: "admission-v1",
@@ -298,33 +297,10 @@ describe("event bootstrap", () => {
           maxActiveGitHubRepositoriesPerTeam: 10,
           maxActiveFigmaFilesPerTeam: 10,
         },
-        requiredCoreTrackCount: 5,
-        tracks: trackInputs(),
       }),
     ).rejects.toThrow("not configured to create that event");
   });
 });
-
-function trackInputs() {
-  return [
-    ["open_innovation", "open-innovation", "Open innovation"],
-    ["health_wellbeing", "health-wellbeing", "Health and wellbeing"],
-    ["future_learning", "future-learning", "Future of learning"],
-    ["sustainable_systems", "sustainable-systems", "Sustainable systems"],
-    ["ai_for_people", "ai-for-people", "AI for people"],
-  ].map(([stableKey, slug, displayName], displayOrder) => {
-    if (!stableKey || !slug || !displayName) throw new Error("The track fixture is incomplete.");
-    return {
-      stableKey,
-      slug,
-      displayName,
-      description: `${displayName} projects that solve a clear problem during the event.`,
-      examples: [displayName],
-      displayOrder,
-      type: "core" as const,
-    };
-  });
-}
 
 async function createGoogleIdentity(backend: BackendTest, email: string) {
   const now = Date.UTC(2027, 5, 1, 9, 0);

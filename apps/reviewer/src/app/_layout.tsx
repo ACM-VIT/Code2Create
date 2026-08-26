@@ -2,7 +2,8 @@ import * as Sentry from '@sentry/react-native'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { StrictMode } from 'react'
-import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { StyleSheet, Text } from 'react-native'
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 
 import { ReviewerAuthProvider } from '@/components/ReviewerAuthProvider'
 import { ReviewerSessionProvider } from '@/components/ReviewerSession'
@@ -62,9 +63,32 @@ function ConfigurationNeeded() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false }} />
+      <SafeAreaView style={styles.configuration}>
+        <Text style={styles.configurationTitle}>Reviewer app unavailable</Text>
+        <Text style={styles.configurationMessage}>Ask an organizer to check the event app setup.</Text>
+      </SafeAreaView>
     </SafeAreaProvider>
   )
 }
+
+const styles = StyleSheet.create({
+  configuration: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: palette.background,
+    gap: 8,
+  },
+  configurationTitle: {
+    color: palette.text,
+    fontSize: 24,
+    fontWeight: '600',
+  },
+  configurationMessage: {
+    color: palette.muted,
+    fontSize: 16,
+    lineHeight: 22,
+  },
+})
 
 export default observabilityEnabled ? Sentry.wrap(RootLayout) : RootLayout

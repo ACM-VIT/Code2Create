@@ -4,6 +4,8 @@ import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
+import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -15,6 +17,9 @@ type Criterion = AdmissionConfiguration['criteria'][number]
 type ReasonCode = AdmissionConfiguration['decisionReasonCodes'][number]
 type AdmissionDecision = ReasonCode['allowedDecisions'][number]
 type ModelConfiguration = NonNullable<AdmissionConfiguration['model']>
+type AdmissionPolicyOperationResult =
+  | FunctionReturnType<typeof api.admissionPolicyConfiguration.createDraft>
+  | FunctionReturnType<typeof api.admissionPolicyConfiguration.publish>
 
 const decisions: { value: AdmissionDecision; label: string }[] = [
   { value: 'accept', label: 'Accept' },
@@ -48,7 +53,7 @@ export function AdmissionPolicyConfiguration({
   )
   const createDraft = useMutation(api.admissionPolicyConfiguration.createDraft)
   const publish = useMutation(api.admissionPolicyConfiguration.publish)
-  const operations = useOperationRunner()
+  const operations = useOperationRunner<AdmissionPolicyOperationResult>()
   const [configuration, setConfiguration] = useState<AdmissionConfiguration | null>(null)
   const [loadedRelease, setLoadedRelease] = useState('')
   const [draftReason, setDraftReason] = useState('')
@@ -58,6 +63,20 @@ export function AdmissionPolicyConfiguration({
   const [error, setError] = useState<string | null>(null)
   const draftPending = operations.hasPending('admission-policy-draft')
   const publishPending = operations.hasPending('admission-policy-publish')
+  const pendingOperation = publishPending
+    ? {
+        slot: 'admission-policy-publish',
+        title: 'Finish publishing the admission policy',
+        action: 'Confirm earlier publication',
+      }
+    : draftPending
+      ? {
+          slot: 'admission-policy-draft',
+          title: 'Finish saving the admission policy draft',
+          action: 'Confirm earlier save',
+        }
+      : null
+  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!current) return
@@ -99,6 +118,7 @@ export function AdmissionPolicyConfiguration({
 
   const saveDraft = async (event: FormEvent) => {
     event.preventDefault()
+    if (busy || operationPending) return
     setBusy(true)
     setError(null)
     try {
@@ -121,7 +141,7 @@ export function AdmissionPolicyConfiguration({
 
   const publishDraft = async () => {
     const draft = current.draftRelease
-    if (!draft || !validation?.valid || current.publicationLocked) return
+    if (busy || operationPending || !draft || !validation?.valid || current.publicationLocked) return
     setBusy(true)
     setError(null)
     try {
@@ -143,10 +163,26 @@ export function AdmissionPolicyConfiguration({
     }
   }
 
+  const confirmPendingOperation = async () => {
+    if (busy || pendingOperation === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      await operations.retryPending(pendingOperation.slot)
+      setPublishArmed(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const publishedConfiguration = current.publishedRelease.configuration
+
   return (
-    <section className="track-config-shell intake-policy-shell">
+    <section className="configuration-shell intake-policy-shell">
       <ConfigurationTabs visibility={tabs} />
-      <header className="page-heading track-config-heading">
+      <header className="page-heading configuration-heading">
         <div>
           <h1>Admission policy</h1>
           <p className="muted">Set how applications are reviewed before submissions open.</p>
@@ -155,16 +191,48 @@ export function AdmissionPolicyConfiguration({
 
       <dl className="catalog-summary admission-summary">
         <div><dt>Status</dt><dd>Published</dd></div>
-        <div><dt>Reviews per application</dt><dd>{current.publishedRelease.configuration.minimumHumanReviews}</dd></div>
-        <div><dt>Participant places</dt><dd>{current.publishedRelease.configuration.overallParticipantCapacity}</dd></div>
-        <div><dt>AI recommendation</dt><dd>{current.publishedRelease.configuration.model ? 'On' : 'Off'}</dd></div>
+        <div><dt>Reviews per application</dt><dd>{publishedConfiguration.minimumHumanReviews}</dd></div>
+        <div><dt>Participant places</dt><dd>{publishedConfiguration.overallParticipantCapacity}</dd></div>
+        <div><dt>AI recommendation</dt><dd>{publishedConfiguration.model ? 'On' : 'Off'}</dd></div>
       </dl>
 
       {current.publicationLocked ? (
-        <p className="notice">Applications have opened. This policy is locked.</p>
+        <section className="configuration-locked">
+          <header>
+            <div>
+              <span>Current policy</span>
+              <h2>{publishedConfiguration.version}</h2>
+            </div>
+            <span className="state-label">Locked</span>
+          </header>
+          <dl>
+            <div>
+              <dt>Application expectations</dt>
+              <dd>{publishedConfiguration.criteria.map((criterion) => criterion.label).join(' · ')}</dd>
+            </div>
+            <div>
+              <dt>Experience policy</dt>
+              <dd>Five published year and study-context bands</dd>
+            </div>
+            <div>
+              <dt>Decision reasons</dt>
+              <dd>{publishedConfiguration.decisionReasonCodes.length} published reasons</dd>
+            </div>
+          </dl>
+          <p>Applications have opened, so this release cannot change during the cycle.</p>
+        </section>
       ) : null}
 
-      {current.draftRelease ? (
+      {pendingOperation ? (
+        <PendingOperationRecovery
+          action={pendingOperation.action}
+          busy={busy}
+          onConfirm={() => void confirmPendingOperation()}
+          title={pendingOperation.title}
+        />
+      ) : null}
+
+      {!operationPending && current.draftRelease ? (
         <section className="catalog-review">
           <div className="section-heading">
             <div><p className="muted">Draft changes</p><h2>Before publishing</h2></div>
@@ -189,7 +257,7 @@ export function AdmissionPolicyConfiguration({
         </section>
       ) : null}
 
-      {current.draftRelease && current.canPublish && validation?.valid && publishArmed && !current.publicationLocked ? (
+      {!operationPending && current.draftRelease && current.canPublish && validation?.valid && publishArmed && !current.publicationLocked ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish this admission policy?</h2>
           <p className="muted">The first application will lock these rules.</p>
@@ -206,8 +274,13 @@ export function AdmissionPolicyConfiguration({
         </section>
       ) : null}
 
-      {current.canDraft && !current.publicationLocked ? (
-        <form className="track-editor intake-policy-editor" onSubmit={saveDraft}>
+      {!operationPending && current.canDraft && !current.publicationLocked ? (
+        <ConfigurationEditorDisclosure
+          defaultOpen={Boolean(current.draftRelease)}
+          description="Capacity, experience-adjusted expectations, decision reasons, and optional AI analysis."
+          title={current.draftRelease ? 'Continue admission-policy draft' : 'Edit admission policy'}
+        >
+        <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
           <fieldset disabled={draftPending} style={{ display: 'contents' }}>
           <PolicySection title="Basics" description="These limits apply to the whole admissions round.">
             <div className="intake-policy-grid">
@@ -324,7 +397,7 @@ export function AdmissionPolicyConfiguration({
           </PolicySection>
 
           </fieldset>
-          <section className="track-save">
+          <section className="configuration-save">
             <label className="field">
               <span>Why this changed</span>
               <textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.currentTarget.value)} />
@@ -334,6 +407,7 @@ export function AdmissionPolicyConfiguration({
             </button>
           </section>
         </form>
+        </ConfigurationEditorDisclosure>
       ) : null}
 
       {error ? <p className="notice error" role="alert">{error}</p> : null}

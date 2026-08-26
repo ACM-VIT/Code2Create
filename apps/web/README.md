@@ -1,32 +1,30 @@
-# React + TypeScript + Vite
+# Code2Create participant portal
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The participant-facing Vite application for profile setup, teams, project intake, admission status, event check-ins, queues, integrations, and support.
 
-Currently, two official plugins are available:
+## Development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Run the complete local product from the repository root:
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+pnpm dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The tracked `.env.development` connects this app to the local Convex deployment. To run only this client against an already-running backend:
+
+```sh
+pnpm --filter @code2create/web dev
+```
+
+## Checks
+
+```sh
+pnpm --filter @code2create/web lint
+pnpm --filter @code2create/web typecheck
+pnpm --filter @code2create/web test
+pnpm --filter @code2create/web build
+```
+
+## Deployment
+
+The protected `Deploy web surfaces` workflow builds and deploys the participant portal, operations dashboard, handbook, and intelligence Worker from one commit. `.env.example` documents the release variables; local development does not use that template.

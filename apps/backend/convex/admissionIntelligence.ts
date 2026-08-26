@@ -362,7 +362,7 @@ function validateModelOutput(output: ModelOutput, context: RecommendationContext
   ) {
     return null;
   }
-  const blocked = /\b(score|scored|points?|ranking|winner|judging|judge score|track mismatch|prestige)\b/iu;
+  const blocked = /\b(score|scored|points?|ranking|winner|judging|judge score|prestige)\b/iu;
   if (
     [...output.strengths, ...output.concerns, ...output.proposedQuestions, ...output.limitations].some(
       (text) => blocked.test(text),
@@ -386,7 +386,7 @@ export const generate = internalAction({
   args: { recommendationId: v.id("admissionAIRecommendations") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const context = await ctx.runMutation(
+    const context: RecommendationContext | null = await ctx.runMutation(
       internal.admissionIntelligence.beginRecommendation,
       args,
     );
@@ -425,7 +425,7 @@ export const generate = internalAction({
         store: false,
         max_output_tokens: context.maxOutputTokens,
         instructions:
-          "You produce a structured recommendation for initial hackathon admission review, never a final decision and never a hackathon judging assessment. Apply only the supplied year-adjusted policy guidance. First-year expectations are intentionally welcoming. Use only the supplied project answers. Do not infer from names, institution, prestige, identity, track choice, capacity, prior outcomes, or human reviews. Do not use numeric scores, rankings, judging language, or penalise a team for choosing a different track. Every criterion assessment must cite an available source reference. Human reviewers retain accept, waitlist, decline, and needs-information authority.",
+          "You produce a structured recommendation for initial hackathon admission review, never a final decision and never a hackathon judging assessment. Apply only the supplied year-adjusted policy guidance. First-year expectations are intentionally welcoming. Use only the supplied project answers. Do not infer from names, institution, prestige, identity, capacity, novelty, prior outcomes, or human reviews. Do not use numeric scores, rankings, or judging language. Every criterion assessment must cite an available source reference. Human reviewers retain accept, waitlist, decline, and needs-information authority.",
         input: JSON.stringify({
           experienceBand: context.experienceBand,
           criteria: context.criteria,

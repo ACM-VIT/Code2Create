@@ -36,11 +36,11 @@ Create a separate OpenAI API project and restricted service key for development,
 
 The participant novelty signal uses `POST /v1/embeddings` with `text-embedding-3-small`, `encoding_format: float`, and no `dimensions` override. The contract is exactly one finite 1,536-value vector per input. Corpus import may send one bounded ordered batch; participant preview sends one normalized idea. The endpoint returns one JSON result rather than a partial-vector stream, so the browser debounces requests and displays only the newest complete response.
 
-The production corpus contains 5–200 privacy-reviewed past-project summaries, broad participant-safe theme labels, and supportive reflection questions. Operations imports a complete draft under `configuration.novelty.entries.write`; every vector must validate before one transaction replaces the set. A separate fresh-authenticated publication moves the event pointer. Development uses synthetic entries, staging uses an approved non-production corpus, and production uses the reviewed event corpus. No environment shares a key or corpus ID.
+The production corpus contains 5 to 200 privacy-reviewed, non-identifying past-project summaries. Operations imports a complete draft under `configuration.novelty.entries.write`. Every vector must validate before one transaction replaces the set. A separate fresh-authenticated publication moves the event pointer. Development uses synthetic entries. Staging uses an approved non-production corpus. Production uses the reviewed event corpus. Environments do not share a key or corpus ID.
 
-Before participant provider work, the backend rejects input containing common contact, registration-number, URL-credential, or secret patterns. It stores only the input fingerprint, character count, team/person/corpus references, terminal category, and bounded result metadata. The participant sees the score/band, corpus label/count, and approved nearest theme/reflection prompt, never the nearest summary, source key, similarity, vector, fingerprint, or provider request ID. Provider failure returns unavailable and cannot block the intake route.
+Before participant provider work, the backend rejects input that contains common contact, registration-number, URL-credential, or secret patterns. It stores only the input fingerprint, character count, team, person and corpus references, terminal category, and bounded result metadata. The participant sees only one whole-number result above the idea text box. The participant never sees a band, theme, prompt, summary, source key, similarity, vector, fingerprint, or provider request ID. Provider failure returns **Unavailable** and cannot block the proposal route.
 
-Corpus policy release tests exact native width, complete ordered batches, duplicate/unsafe entries, similarity boundaries, score bands, exact permissions, atomic replacement, stale publication, and a participant request racing newer text, submission, and corpus publication. The release record names the corpus version/checksum, model, fixed width, thresholds, entry count, privacy approval, and aggregate provider latency/error results.
+Corpus policy release tests exact native width, complete ordered batches, duplicate or unsafe entries, score mapping, exact permissions, atomic replacement, stale publication, and a participant request racing newer text, submission, revision, and corpus publication. The release record names the corpus version and checksum, model, fixed width, score mapping, entry count, privacy approval, and aggregate provider latency and error results.
 
 ### Intake interpretation
 
@@ -58,12 +58,11 @@ The request includes only:
 - the redacted active question/answer history needed to avoid repetition;
 - opaque source answer-version IDs;
 - the published question-purpose policy;
-- published core-track definitions from the draft's pinned catalog;
 - prior generated-question wording, the target ordinal, question length limit, and reviewed common-idea patterns.
 
 It excludes application-owned names, email, phone, registration number, Google claims, team invitations, auth/session data, admission state, GitHub/Figma credentials, reviewer context, and all score data. Before the request, a versioned deterministic filter replaces common contact, registration-number, URL-credential, and secret-token patterns inside participant free text. The original answer remains only in the project record; redacted request text is not copied into job or error logs.
 
-The output can contain at most one published core-track recommendation, covered purpose keys, an optional abstract common-idea-pattern key, and one free-text `nextQuestion`. After schema parsing, application code rejects these conditions:
+The output can contain covered purpose keys, an optional abstract common-idea-pattern key, and one free-text `nextQuestion`. After schema parsing, application code rejects these conditions:
 
 - unknown or unpublished keys;
 - stale answer references;
@@ -75,13 +74,13 @@ The output can contain at most one published core-track recommendation, covered 
 - prohibited wording; or
 - text beyond the pinned limit.
 
-The result cannot call a Convex function. An internal mutation writes a current valid result as an `intakeInterpretation`. It writes the question as a separate immutable `intakeGeneratedQuestion`. Both records use the exact input and policy versions. The full track list appears immediately after the opening save and never waits for this result.
+The result cannot call a Convex function. An internal mutation writes a current valid result as an `intakeInterpretation`. It writes the question as a separate immutable `intakeGeneratedQuestion`. Both records use the exact input and policy versions.
 
 ### Prompt-injection and failure handling
 
 The system instruction states that participant text is untrusted project material and cannot modify the schema, question policy, allowed IDs, or product rules. Delimiter text alone is not treated as security. The actual boundary is no tools, a closed output schema, server-side key and question-text validation, immutable version checks, and no authoritative write path.
 
-Each answer-set, pinned-policy, pinned-catalog, and ordinal tuple has one deduplicated interpretation. The intake Workpool has independent concurrency. It disables Workpool retry for the provider action, and the OpenAI client uses the pinned timeout with `maxRetries: 0`.
+Each answer-set, pinned-policy, and ordinal tuple has one deduplicated interpretation. The intake Workpool has independent concurrency. It disables Workpool retry for the provider action. The OpenAI client uses the pinned timeout with `maxRetries: 0`.
 
 The pinned intake policy supplies one deterministic fallback for each possible ordinal. Timeout, refusal, incomplete output, invalid schema, question-policy rejection, rate limit, or service outage records a non-sensitive failure category and writes that fallback. Raw answers and submission remain available.
 
@@ -93,7 +92,6 @@ A model configuration cannot move to `published` until its evaluation suite pass
 - descriptions that already answer several fields;
 - vague, multilingual, typo-heavy, and code-mixed answers;
 - ideas across every configured event phase;
-- core-track ambiguity and sponsor eligibility;
 - prompt-injection attempts and fake IDs;
 - claims without evidence;
 - potential repeated, compound, overlong, overly technical, market-proof, scoring, novelty, and “why should you win?” questions;
@@ -103,21 +101,21 @@ A model configuration cannot move to `published` until its evaluation suite pass
 - redaction fixtures for email, phone, registration number, URL credentials, and common secret formats;
 - refusal, truncation, invalid output, timeout, and late-result fixtures.
 
-Assertions cover schema validity, source attribution, published track/pattern IDs, question relevance, easy-answer rate, length, and one-question form. They also cover duplicate/prohibited-topic/PII rates, the one-to-two introduction bound, no invented evidence, no authoritative selection, no negative effect from choosing another track, and deterministic fallback. Model or prompt changes publish a new immutable version. They do not rewrite active sessions.
+Assertions cover schema validity, source attribution, published pattern IDs, question relevance, easy-answer rate, length, and one-question form. They also cover duplicate, prohibited-topic and personal-data rates, the one-to-two introduction bound, no invented evidence, no authoritative selection, and deterministic fallback. Model or prompt changes publish a new immutable version. They do not rewrite active sessions.
 
 The release suite uses a held-out set separate from prompt examples. Human reviewers label each question against short binary criteria: relevant to the team's text, answerable now without research, one idea, plain language, non-judgmental, and non-repetitive. Candidate and current configurations are compared on the same cases. The publication record stores thresholds and aggregate results. Opted-in production feedback adds new edge cases to a later suite; participant text does not enter an evaluation dataset by default.
 
 ### Data controls
 
-Production sends `store: false` and does not use OpenAI Conversations or background responses. This avoids the Responses API's ordinary stored application state, but it is not the same as Zero Data Retention. By default, API abuse-monitoring logs may contain prompts and responses for up to 30 days. Before registration opens, the event privacy owner must approve the disclosed use and effective retention controls, and decide whether to seek Modified Abuse Monitoring or Zero Data Retention.
+Production sends `store: false` and does not use OpenAI Conversations or background responses. This avoids the Responses API's ordinary stored application state, but it is not the same as Zero Data Retention. By default, API abuse-monitoring logs may contain prompts and responses for up to 30 days. Before `applicationsOpenAt`, the event privacy owner must approve the disclosed use and effective retention controls. The owner must also decide whether to seek Modified Abuse Monitoring or Zero Data Retention.
 
 ### Admission recommendation contract
 
 Before applications open, operations publishes the complete human rubric together with either one exact model configuration or explicit human-only mode. The pair has one lifecycle: matching draft, validation, publication, supersession, and checksum checks. Publication also creates the policy's empty overall capacity bucket and moves both event pointers in the same Convex mutation. The first application closes later drafts and publication; a submission/publication race resolves to one policy through Convex transaction conflicts.
 
-When enabled, admission analysis uses that policy's own model ID, prompt/JSON Schema/evaluation-suite release labels, deduplication key, and `admission_ai` Workpool. It runs only after final submission has atomically locked the project version, active member set, core track, selected sponsor-track set, and admission-policy ID. There is no model fallback to a different policy release.
+When enabled, admission analysis uses that policy's own model ID, prompt, JSON Schema, evaluation-suite labels, deduplication key, and `admission_ai` Workpool. It runs only after final submission has locked the active member set and created an immutable proposal version. There is no model fallback to a different policy release.
 
-The request includes the redacted submitted initial idea and follow-up answers. It includes the participant-visible follow-up questions, cumulative organizer-requested information questions and locked-lead answers, deterministic experience-band key, and published year-adjusted admission criteria. Requested-information entries receive stable source references in request/answer order. Every criterion can therefore cite the exact participant evidence. The request excludes names, contact/registration data, institution prestige signals, core- and sponsor-track choices, raw eligibility evidence, and freshness metadata. It also excludes the intake track recommendation or whether the team followed it. It excludes human review/decision state, capacity, attendance, GitHub/Figma activity, judging rubrics, scores, and rankings.
+The request includes the redacted current proposal, follow-up answers, participant-visible questions, cumulative organizer questions and lead answers, deterministic experience-band key, and published admission criteria. Requested-information entries receive stable source references in request and answer order. The request excludes names, contact and registration data, institution-prestige signals, raw eligibility evidence, human review and decision state, capacity, attendance, GitHub and Figma activity, judging rubrics, scores, and rankings.
 
 The strict output contains:
 
@@ -126,7 +124,11 @@ The strict output contains:
 - concise strengths, concerns, and no more than two suggested information questions;
 - confidence/limitations and the exact policy/schema version echoed from allowed IDs.
 
-Application validation rejects numeric pseudo-scores, judging/winner language, unsupported facts, institution/prestige reasoning, track-recommendation mismatch, unknown criteria/sources, overlong explanations, stale versions, and any attempt to encode an action. Valid output is an immutable advisory record. The only decision command requires a human permission, explicit Accept/Waitlist/Decline/Needs information choice, and an audited `used | cleared | overridden | stale | unavailable` disposition. Refusal, timeout, invalid output, or a disabled provider leaves the human workflow fully usable.
+Application validation rejects numeric pseudo-scores, judging or winner language, unsupported facts, institution or prestige reasoning, unknown criteria or sources, overlong explanations, stale versions, and any attempt to encode an action. Valid output is an immutable advisory record. The decision command requires a human permission, an explicit outcome, and an audited `used | cleared | overridden | stale | unavailable` disposition. Refusal, timeout, invalid output, or a disabled provider leaves the human workflow usable.
+
+The current lead can revise submitted proposal content before `applicationsCloseAt`. A revision creates a new immutable proposal version. It invalidates earlier human reviews and AI recommendations. It queues fresh optional analysis. A provider result for an older proposal version settles as stale.
+
+An authorized operator can retry the current `refused`, `invalid`, `timed_out`, `rate_limited`, `failed`, or `stale` record while the application remains in active human review. This requires `application.ai_recommendation.run`, the current application version and recommendation ID, a reason, and a stable operation ID. It creates a new Workpool item against the application's pinned policy/model. It does not reuse or edit the failed row. A duplicate operation returns the same new row. Pending, running, successful, disabled, superseded, decided, and offer-stage work cannot retry. `application.ai_recommendation.read` remains a separate permission.
 
 ## 3. Durable intelligence Worker
 
@@ -140,7 +142,7 @@ An autonomous run may use as many model turns, investigator delegations, redacte
 
 The autonomy allowlist is the complete evidence scope, not a menu the model may prune. Its shared closed registry covers operations health and attention, review rounds and exceptions, attendance counts and operations, floor progress, support load, intake jobs, admission jobs, participant deliveries, integration jobs, round exports, Synesthesia operations, and incident readiness. Trusted orchestration refreshes operations health first and traverses every authorized read to `isDone`, rejecting snapshot drift and cursor cycles. Unbounded actionable Convex sources append complete redacted temporal facts in their owning mutations. Each semantic inbox item freezes the high-watermark vector for all allowed fact sources; the full vector is source provenance, and the coordinates for currently qualifying policy areas distinguish signal episodes even when their aggregate health fields stay equal. The eventual run and each traversal use that exact frozen vector. Keyset pages return only versions effective at the frozen sequence, while bounded aggregate sources are captured once as immutable traversal JSON. Page-local evidence becomes individually bounded artifacts. Compact digests are navigation indexes over a lossless append-only finding and candidate catalog; fixed-size durable reduction passes page through the entire catalog without placing an unbounded event in one prompt or discarding facts between prompts. Derived records name one to four exact parents, so a durable support traversal can recover their complete source-leaf closure. The Worker uploads those canonical leaves in separately signed pages of at most four; Convex grounds every leaf against its completed read receipt, extends an ordered hash chain, and accepts a proposal only after the set is sealed. A repeated still-open effect appends the later run's sealed observation to the one human decision instead of discarding either run's evidence.
 
-The autonomous agent has no generic mutation tool and no unattended execution mode. It may create only one of the closed typed recommendation records permitted by its published policy. Holding a team, paging a reviewer, opening a support case, dismissing attention, access/identity changes, participant changes, judging, scores, notifications, money, releases, and every other materially consequential effect still run only through the normal human-confirmed permissioned mutation with exact current versions. The kill switch, policy replacement, owner revocation, or event leaving live operation transactionally cancels the authoritative run and schedules an idempotent abort of its exact Durable Object/provider signal. Admission and continuation requests expire after 30 seconds. A longer Convex outbound-attempt marker keeps the public abort state honest during ordinary ambiguity, while a durable Worker-side run fence is the owning invariant that prevents a delayed initial or continuation request from creating a submission after cancellation—even when the Flue instance did not exist when abort arrived.
+The autonomous agent has no generic mutation tool and no unattended execution mode. It can create only a typed recommendation that the published policy permits. Consequential effects still use a human-confirmed permissioned mutation with current versions. The kill switch, policy replacement, owner revocation, or event-state change cancels the authoritative run and schedules an idempotent abort. Admission and continuation requests expire after 30 seconds. A durable Worker run fence prevents delayed work from creating a submission after cancellation, including when no Flue instance existed at abort time.
 
 All service requests use a strict closed schema, bounded body, canonical JSON, a millisecond timestamp within five minutes, and route-specific HMAC context. Ingress, callback/recommendation delivery, redacted reads/work authorization, and browser streams use independent environment-specific secrets of at least 32 UTF-8 bytes. Neither side logs a signed body, signature, provider body, prompt, or raw model/tool content. Cloudflare tracing keeps content capture disabled. A privacy patch to the pinned Flue runtime makes malformed Workers AI stream errors content-free and lets the private router project a bounded native history before serialization; the frozen install verifies that patch.
 
@@ -320,7 +322,7 @@ One Figma authorization may support more than one team connection if that Figma 
 8. A holder of `integration.figma.manage` for the exact team confirms the file.
 9. The backend commits the full content, version history, comments, selected render candidates, and raw-artifact manifest as one baseline snapshot.
 10. A separate leased render job asks Figma for the selected nodes at that exact snapshot version and copies successful PNGs to private storage. Render failure does not discard the raw baseline.
-11. It attempts one file-context `FILE_UPDATE` webhook when the authorizer has **Can edit** access and the plan has capacity.
+11. The file commit queues one leased file-context `FILE_UPDATE` setup when the authorizer has **Can edit** access and the plan has capacity. Setup creates the webhook as `PAUSED`, stores its ID and passcode digest, and then activates it. A lost worker resumes that exact webhook instead of creating a second active webhook.
 
 The public production OAuth App must complete Figma review before participant onboarding. Access tokens are refreshed before expiry through `/v1/oauth/token`; the legacy refresh endpoint is not used.
 
@@ -371,9 +373,9 @@ The image endpoint renders one batch against the snapshot's exact `version` valu
 
 The worker requests half-scale PNGs, downloads at most four concurrently, accepts no file over 8 MiB or preview set over 64 MiB, validates the PNG dimensions, and writes each successful render under a content-addressed private S3 key. It accepts only credential-free HTTPS URLs on Figma's exact `s3-alpha-sig.figma.com` render host, disables redirects, and aborts a download after 30 seconds. An unexpected host or later provider-host change fails closed as an unavailable render until the allowlist is deliberately updated. Figma's temporary URL is never stored or returned to a client. A leased job has an expiry recovery path, honors `Retry-After`, and reaches `ready`, `partial`, `rate_limited`, or `failed` without changing the raw snapshot. Individual null, oversized, invalid, download-failed, or upload-failed renders remain visible as unavailable frame facts.
 
-An assigned reviewer loads the normalized page/frame index through the fixed review checkpoint and opens one successful preview through a fresh one-minute signed URL. The request rechecks the review assignment, exact `review.evidence.read` grant, checkpoint set, file binding, snapshot, preview set, frame fact, provider version, and private manifest. The same fixed-checkpoint boundary can read the gzip artifact server-side, verify both byte counts, SHA-256, and its internal provider version, then return one 60-child layer page with bounded layout, style, component, text, flow, and interaction facts. It can also return the stored version/comment facts without a live provider call.
+An assigned reviewer loads the normalized page/frame index through the fixed review checkpoint and opens one successful preview through a fresh one-minute signed URL. After signing, a final mutation repeats the assignment and exact `review.evidence.read` check, then matches the checkpoint, binding, snapshot, preview set, frame fact, provider version, byte count, dimensions, checksum, private location, and remaining expiry before it audits and releases the URL. A protected raw-checkpoint URL applies the equivalent final check to the pinned snapshot and complete raw manifest. The same fixed-checkpoint boundary can read the gzip artifact server-side, verify both byte counts, SHA-256, and its internal provider version, then return one 60-child layer page with bounded layout, style, component, text, flow, and interaction facts. It can also return the stored version/comment facts without a live provider call.
 
-For Review 2 and later, the current evidence set stores the latest lower-round-sequence evidence-set ID for that team. The reviewer comparison finds the same Figma binding in those two sets and joins their stored frame facts by node ID. It never uses the file snapshot's adjacent-provider-snapshot link, which may point to an incidental webhook or manual refresh rather than the previous judging context. Same semantic hash is unchanged; a different hash is changed. A node on only one side is added or removed only when the opposite selection is complete, otherwise it is uncertain. Side-by-side images are signed for one minute from the exact stored facts; the comparison makes no Figma request.
+For Review 2 and later, the current evidence set stores the latest lower-round-sequence evidence-set ID for that team. The reviewer comparison finds the same Figma binding in those two sets and joins their stored frame facts by node ID. It never uses the file snapshot's adjacent-provider-snapshot link, which may point to an incidental webhook or manual refresh rather than the previous judging context. Same semantic hash is unchanged; a different hash is changed. A node on only one side is added or removed only when the opposite selection is complete, otherwise it is uncertain. Side-by-side images are signed for one minute from the exact stored facts; one final transaction revalidates and audits both sides together before either URL is delivered. The comparison makes no Figma request.
 
 These paths do not spend another rate-limited Figma request. Bucket names, object keys, Figma credentials, temporary provider URLs, and unbounded raw nodes never enter the ordinary reviewer response; an explicitly requested protected raw download remains available.
 
@@ -426,7 +428,7 @@ The VIT domain list comes from event configuration after VIT IT confirms it.
 
 ### Participant status notifications
 
-The current official outbound transport is Cloudflare Email Sending to each locked team member's Google-verified email. Cloudflare Email Routing owns the approved inbound support alias. It forwards through the event-owned email Worker to one verified operations mailbox. Board must approve the production sending domain/address, support alias and forwarding destination, final wording, reply-to, retention, and support policy before decisions are released. The separately permissioned communications editor publishes one immutable generic subject/introduction. The same publication contains the accepted-team venue, next steps, and Discord. The admission-decision mutation resolves that published policy. In the same transaction, it creates or refreshes the exact verified-email destination and inserts one pending delivery per locked member/application version. Each delivery stores the exact policy version. A manual retry preserves the version. The mutation then schedules a short claimed action. Messages are generic text. They contain no decision, private project/eligibility detail, track, venue, or Discord link. They point only to the authenticated participant portal. Inbound messages do not become commands or application evidence.
+The current official outbound transport is Cloudflare Email Sending to each locked team member's Google-verified email. Cloudflare Email Routing owns the approved inbound support alias. It forwards through the event-owned email Worker to one verified operations mailbox. Board must approve the production sending domain and address, support alias and destination, wording, reply-to, retention, and support policy before decisions are released. The communications editor publishes one immutable generic subject and introduction. The same publication contains the accepted-team venue, next steps, and Discord. The admission-decision mutation resolves that policy. In the same transaction, it refreshes the verified-email destination and inserts one pending delivery per locked member and application version. Messages contain no decision, private proposal or eligibility detail, venue, or Discord link. They point only to the authenticated participant portal. Inbound messages do not become commands or application evidence.
 
 The delivery record distinguishes pending, sending, retry-wait, provider-accepted, delayed, delivered, bounced, failed, suppressed, unknown, and superseded states. A valid Cloudflare response must return one message ID. It must return exactly one delivered/queued/permanent-bounce outcome for the intended recipient. A structured error that proves non-acceptance can use the bounded automatic retry schedule. Cloudflare documents no send idempotency key. Therefore, a lost response, invalid or contradictory success, recipient mismatch, or expired claim becomes `unknown` immediately. The system never retries this outcome automatically.
 
@@ -465,6 +467,27 @@ Do not include team project text, score, phone number, or private reason.
 - Keep reviewer acknowledgment separate from provider delivery.
 
 The 90-second page deadline is based on the page record, not a provider outcome. Provider acceptance does not prove the device displayed the message.
+
+### Reviewer phone escalation
+
+The reviewer-page flow sends push first. If push has no usable device address, the backend can call immediately. Otherwise, the first unanswered repage after 30 seconds can ask the event-owned voice service to place one synthesized phone call.
+
+The call claim requires:
+
+- the current active page;
+- server time before page expiry;
+- current reviewer consent for purpose `reviewer_substitute_page`;
+- the page chain's exact, still-current `review.substitute.page` grant IDs;
+- the current consented E.164 destination;
+- the published script and locale;
+- no accepted or declined page acknowledgement; and
+- a stable delivery ID.
+
+The backend resolves purpose, consent, locale, script policy, source state, and permission before dispatch. The voice service receives only the stable delivery ID, destination, bounded synthesized script, and signed callback URL. It receives no proposal, participant, score, reviewer note, consent record, grant, or private incident text.
+
+The backend stores call dispatch, claim, provider acceptance, queue, ring, answer, completion, definite failure, cancellation, and ambiguous state. It deduplicates signed provider events and rejects an event ID reused with different content. A push or call provider acceptance does not acknowledge the page. An in-app acknowledgement prevents a later claim. A claim that already committed can still produce a call, but it never changes the in-app response.
+
+The voice service is reusable. Its contract includes a closed purpose key, consent policy, script version, audience type, permission rule, retention rule, and callback schema. A later participant operational-call release must add a separate purpose and policy. Reviewer consent does not authorize participant calls.
 
 ## 8. VIT ID barcode and QR scanner release
 
@@ -543,13 +566,13 @@ backups/{eventSlug}/staging-before-restore/{timestamp}-{digest}.zip
 backups/{eventSlug}/rehearsals/{timestamp}-{digest}.result.json
 ```
 
-Only files present for that provider are written. Figma JSON and previews follow the approved evidence-retention period. GitHub blob cache uses a short lifecycle tied to the review window. Attendance-export lifecycle follows the separately approved O-032 period; application access expires at the record's earlier server deadline. Emergency-pack application access ends four hours after request; its object lifecycle follows the approved incident-artifact period and does not make an expired pack printable again. A reviewer receives a short-lived signed object URL only after the backend verifies the assigned review and exact snapshot. An operator can open the same artifact only with `integration.artifact.read` for that exact team/integration; ordinary `integration.read` is insufficient. An attendance export instead requires `attendance.export.identifiable` for its exact session, requester ownership, fresh authentication, record/checksum revalidation, and an audited signed URL bounded to the earlier of 60 seconds or export expiry. An emergency pack uses separate event-scoped prepare/read/print grants, exact S3 object-version and checksum checks, fresh authentication for preparation and every print open, and a signed URL bounded to the earlier of 60 seconds or pack expiry.
+Only files present for that provider are written. Figma JSON and previews follow the approved evidence-retention period. GitHub blob cache uses a short lifecycle tied to the review window. Attendance-export lifecycle follows the separately approved O-032 period; application access expires at the record's earlier server deadline. Emergency-pack application access ends four hours after request; its object lifecycle follows the approved incident-artifact period and does not make an expired pack printable again. A reviewer receives a short-lived signed object URL only after the backend verifies the assigned review and exact snapshot. An operator can open the same artifact only with `integration.artifact.read` for that exact team/integration; ordinary `integration.read` is insufficient. The operator URL is delivered only after a final audited mutation rechecks the exact current grant, latest snapshot, artifact manifest, checksum, and expiry. An attendance export instead requires `attendance.export.identifiable` for its exact session, requester ownership, fresh authentication, record/checksum revalidation, and an audited signed URL bounded to the earlier of 60 seconds or export expiry. An emergency pack uses separate event-scoped prepare/read/print grants, exact S3 object-version and checksum checks, fresh authentication for preparation and every print open, and a signed URL bounded to the earlier of 60 seconds or pack expiry.
 
 Round export payload:
 
 ```text
 round.json       event/round/rubric/panel metadata plus one nested adjudicated team entry
-                 containing project/track, evidence, assignments, all scorecard versions,
+                 containing proposal, evidence, assignments, all scorecard versions,
                  evaluation, correction cases, and paper-review records
 scorecards.csv   active result-rating rows plus explicit exclusion/withdrawal markers
 ```
@@ -575,6 +598,7 @@ If VIT policy requires another provider/region, replace this decision before pro
 | GitHub | dev App | staging App/test repos | production App/team repos |
 | Figma | dev OAuth/webhook/test files | staging OAuth/webhook/test files | approved production OAuth App and webhook endpoint |
 | Push | test devices | reviewer training devices | registered event devices |
+| Outbound calls | local signed callback fixtures and test destinations | staging voice Worker/provider account, consent fixtures, approved synthesized reviewer script, and test phones | event-owned voice service, approved provider account and reviewer script, consented destinations, consent records, rate limits, audit, and runner fallback |
 | Participant email | local normalized-event fixtures and test forwarding target | staging Cloudflare sending domain/identity, Event Subscription Queue/DLQ, email Worker/HMAC pair, Email Routing alias, and test recipients | verified Cloudflare production sending domain/identity, least-privilege send token, generic approved text, production Queue/DLQ and Worker, approved Email Routing alias/forward target, bounce/support procedure, and smoke-test recipient |
 | Synesthesia | synthetic catalog and operator | approved staging catalog, scoped test operators, and licensed test account | frozen event catalog, named scoped operators/moderators, and approved licensed venue account |
 | S3 | local/test bucket | staging integration/export prefixes | production integration/export prefixes |
@@ -591,17 +615,17 @@ The complete pull-request gate must run:
 2. formatting, lint, and TypeScript;
 3. domain/unit tests;
 4. Convex schema/function tests;
-5. production builds for the participant and operations Vite applications plus the intelligence and update Workers;
-6. a staging build for the optional handbook integration when Google identity or `handbook.read` changes;
+5. production builds for the participant, operations, and handbook Vite applications plus the intelligence, update, email, and voice Workers;
+6. a staging handbook build when Google identity or `handbook.read` changes;
 7. intelligence protocol/permission/race tests and a strict Wrangler dry-run with the Workers AI and Durable Object bindings;
 8. Expo export/config validation plus update-Worker dry-run build and protocol/concurrency tests;
 9. Playwright against an isolated seeded deployment;
-10. OpenAI embedding-width/corpus/race fixtures, Responses contracts/fallbacks, Workers AI/Flue contracts, and provider webhook fixtures;
+10. OpenAI embedding-width, corpus, race, Responses, and fallback fixtures; Workers AI and Flue contracts; email, call, GitHub, and Figma webhook fixtures;
 11. secret scan.
 
-The checked-in `Product checks` workflow covers a pinned TruffleHog scan of changed history and a frozen pnpm install. It covers repository lint and type-check, existing domain/Convex/intelligence/update-protocol tests, the deterministic offline autonomy boundary evaluation, production builds for the two required Vite applications, the optional handbook integration build, and both Workers. It also covers public Expo config resolution and iOS/Android JavaScript bundle export with non-secret fixture configuration. The intelligence build validates its Cloudflare/Flue shape. The protected deployment workflow performs the environment-specific strict Wrangler deploy. The TruffleHog version is pinned by commit. It fails on verified, unknown, or unverified findings and scanner errors. The complete current Git history passed the same CLI before the gate was added. CI has no mobile/update private key.
+The checked-in `Product checks` workflow uses a pinned TruffleHog scan and a frozen pnpm install. It runs repository lint, type checks, domain and Convex tests, service protocol tests, autonomy-boundary evaluation, all Vite builds, and all Worker builds. It also validates public Expo configuration and exports the iOS and Android JavaScript bundles with non-secret fixtures. The protected deployment workflow performs environment-specific strict Wrangler deploys. CI has no mobile or update-signing key.
 
-The manually triggered `Staging release verification` workflow is also checked in. Before it opens a browser, an internal read-only Convex query verifies the exact staging event, Google configuration, current participant-policy acceptance, eligible participant membership, usable team, exact participant profile/team grants, and the operations account's event-scoped health and rehearsal grants. The query refuses a Convex deployment that does not set `C2C_DEPLOYMENT_ENVIRONMENT=staging`. A role does not satisfy a missing grant. Playwright then checks anonymous and authenticated participant/operations surfaces with protected storage states. A parallel read-only job uses only controlled synthetic fixtures to verify native-width OpenAI embeddings, one GitHub App repository/topic, one Figma file, and the intelligence Worker health route. Neither job prints a cookie, token, participant project, or provider body. The first controlled staging run, broader multi-client flow coverage, signed native artifacts, physical-device camera checks, and production-shaped provider/rate-limit rehearsals remain release blockers.
+The manually triggered `Staging release verification` workflow is also checked in. Before it opens a browser, an internal read-only Convex query verifies the exact staging event, Google configuration, published participant and communications policies, a current operations-health snapshot, one eligible participant with a complete accepted-team home, that participant's exact profile/team/integration read grants, and the operations account's event-scoped health and rehearsal grants. The query refuses a Convex deployment that does not set `C2C_DEPLOYMENT_ENVIRONMENT=staging`. A role does not satisfy a missing grant. Playwright then checks anonymous and authenticated participant/operations surfaces with protected storage states. A parallel read-only job uses only controlled synthetic fixtures to verify native-width OpenAI embeddings, one GitHub App repository/topic, one Figma file, and the intelligence Worker health route. Neither job prints a cookie, token, participant project, or provider body. The first controlled staging run, broader multi-client flow coverage, signed native artifacts, physical-device camera checks, and production-shaped provider/rate-limit rehearsals remain release blockers.
 
 The staging GitHub provider fixture receives `RELEASE_GITHUB_REQUIRED_TOPIC` from the protected environment and must match the staging event's published integration topic. The check does not embed an event-specific topic in release code.
 
@@ -694,7 +718,7 @@ Do not change native dependencies, auth callback shape, rubric calculation, or d
 - Every self-hosted update matches the installed application-version runtime. Changing a native dependency or native configuration requires a new locally signed build and fleet rollout before dependent backend behavior is enabled.
 - Event/rubric/panel configuration remains immutable and versioned; a code deploy never rewrites an active round’s meaning.
 - Attendance plans, sessions, expectation snapshots, station assignments, and credential versions remain historical facts; a new release cannot reinterpret an open session.
-- Track catalogs, novelty corpora/vector widths, intake shells, question policies, fallback prompts, model instructions, and output schemas remain immutable versions; active sessions do not silently change versions.
+- Novelty corpora and vector widths, intake shells, question policies, fallback prompts, model instructions, and output schemas remain immutable versions. Active sessions do not silently change versions.
 - A published Synesthesia window is immutable. Live operation uses only pause/resume, request state changes, or close; changing policy requires another non-overlapping draft and explicit publication.
 
 ## 14. Rollback
@@ -759,15 +783,15 @@ Intelligence HMAC rotation uses the autonomy kill switch, pauses manual generati
 - Production auth callbacks accept only production origins/schemes.
 - The first intake frame is **Hello.**, followed by **What is your project about?**, with one text box and no form, chat, or PPT UI.
 - Every introduction asks one or two follow-ups: generated questions on the assisted path and published fallbacks in deterministic mode or when model work fails. Later checkpoints use their own published fixed-question plan.
-- The complete track list is usable immediately after the opening save; at most one source-linked recommendation may appear later, and choosing another track cannot enter admission analysis as a negative feature.
 - Novelty uses one immutable reviewed corpus, native 1,536-value `text-embedding-3-small` output, and a corpus-filtered vector index. The participant sees only the newest complete result; provider failure, sensitive input, duplicate requests, and stale completion leave submission usable and add nothing to application or judging evidence.
 - OpenAI Responses requests set `store: false`, expose no tools, exclude identity/judging fields, and accept only the strict versioned output schema. The embeddings endpoint has no `store` parameter.
 - A timeout, refusal, invalid output, quota error, or disabled model still lets a team finish and submit; a late result cannot replace the visible question.
 - A generated question is short, single-purpose, easy to answer, source/configuration-linked, validated before display, and never treated as a participant answer.
-- Event phase is server-assigned; the AI-recommended track, participant-chosen track, and freshness attestation remain separate fields. The submitted summary uses participant-written answers, not generated prose.
-- Final submission requires a current explicit preview of the team, project, core track, and sponsor-track set, then atomically writes the immutable application and member/track lock.
+- Event phase is server-assigned. The freshness attestation remains a separate participant fact. The submitted proposal uses participant-written answers, not generated prose.
+- Final submission requires a current explicit preview of the team and proposal. It atomically writes the application and membership lock. The lead can append immutable proposal versions before `applicationsCloseAt`.
 - Admission configuration publishes one human policy, optional exact model child, and empty capacity bucket atomically. The first validating/finalizing submission attempt freezes the release; every completed application pins the same event policy, and human-only mode requires no placeholder model.
 - Admission analysis applies the published deterministic experience band, returns a source-linked non-numeric structure, excludes identity/capacity/human-review/judging inputs, and cannot publish a decision. Human review works when it fails.
+- A holder of `application.ai_recommendation.run` can retry only the current failed or stale analysis during active review. The command keeps the old result, checks current application/recommendation versions, records a reason and audit event, and creates no duplicate on replay. Reading the result still needs `application.ai_recommendation.read`.
 - The intelligence Worker exposes `/health`, strict signed brief/copilot/autonomy ingress and abort/continuation routes, and read-only ticketed sanitized history. It has no Convex credential, raw Flue history route, generic tool, or event command tool.
 - Ingress, callback/recommendation, read/work authorization, and browser streams use different environment-specific HMAC contexts and secrets. Wrong content type, oversize body, stale timestamp, invalid signature, unknown field, expired ticket, disallowed SSE, or crossed staging/production URL is rejected before protected content or settlement.
 - One brief ID creates one durable agent instance. A dispatch retry, callback retry, timeout, and competing settlement converge on one frozen source and one terminal Convex row.
@@ -780,6 +804,7 @@ Intelligence HMAC rotation uses the autonomy kill switch, pauses manual generati
 - Workers AI/Flue failure leaves the ordinary event-health query and every participant, admission, attendance, queue, review, score, access, incident, and Synesthesia command available.
 - GitHub App permission screen contains no write/admin permission.
 - A team can add repositories from different App installations and give each a required kind, purpose, branch/root, and order.
+- Retrying one repository or Figma-file add with the same operation ID and participant input returns the original binding before provider I/O. A newer repository head, Figma version, or published integration policy cannot turn that retry into a different request or create another baseline artifact.
 - Repository reordering checks the complete current binding set and all row versions; duplicate, missing, stale, and competing orders change nothing.
 - The portal verifies the current published topic on every active repository, beginning with canonical `code2create-7-0`; a missing topic does not cause an Administration permission request.
 - Operations can independently read, draft, validate, and publish the integration policy. Stale event versions, stale draft IDs/checksums, reused operation IDs with different input, and cap reductions below active binding counts change nothing.
@@ -790,6 +815,7 @@ Intelligence HMAC rotation uses the autonomy kill switch, pauses manual generati
 - A reviewer can switch through every repository in the fixed checkpoint set and browse it at the exact captured SHA without exposing an installation token.
 - Adding, archiving, reordering, reclassifying, or refreshing a repository cannot change an existing review checkpoint set.
 - Figma OAuth requests the documented read scopes and creates a file webhook only when access and plan capacity allow it.
+- A committed Figma file queues webhook setup transactionally. A worker loss before creation, after paused-webhook attachment, or during activation resumes through one leased setup path; concurrent recovery cannot create two active webhooks, and a dedicated bounded sweep retries a stranded pending/error setup.
 - The OAuth grant includes `file_metadata:read`; existing development or staging authorizers reconnect once after this scope is introduced.
 - A captured Figma checkpoint commits the raw full-file manifest and bounded render candidates before preview I/O begins; the raw document does not enter a Convex document.
 - The image request names the exact captured provider version, successful PNGs are copied to private storage, and null/invalid/oversized/provider-limited results leave explicit partial or failure state without changing raw evidence.

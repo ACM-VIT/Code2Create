@@ -186,6 +186,61 @@ describe("communications policy lifecycle", () => {
     expect(delivery?.nextAttemptAt).toBeUndefined();
   });
 
+  test("supersedes a queued notice when the application advances", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, "advanced-application");
+    const deliveryId = await queueAcceptedNotification(backend, fixture);
+    await backend.run((ctx) =>
+      ctx.db.patch(fixture.applicationId, {
+        state: "offer_sent",
+        version: 3,
+      }),
+    );
+
+    const claim = await backend.mutation(internal.participantNotificationState.claimDelivery, {
+      deliveryId,
+      attemptId: "must-not-send-stale-acceptance",
+    });
+    const delivery = await backend.run((ctx) => ctx.db.get(deliveryId));
+
+    expect(claim).toBeNull();
+    expect(delivery).toMatchObject({
+      state: "superseded",
+      attemptCount: 0,
+      providerErrorCode: "application_state_changed",
+    });
+  });
+
+  test("drops a stale roster batch before it creates delivery rows", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, "stale-roster-batch");
+    await backend.run((ctx) =>
+      ctx.db.patch(fixture.applicationId, {
+        state: "offer_sent",
+        humanDecision: "accept",
+        version: 3,
+      }),
+    );
+
+    await backend.mutation(internal.participantNotifications.enqueueRosterBatch, {
+      eventId: fixture.event._id,
+      applicationId: fixture.applicationId,
+      teamId: fixture.teamId,
+      lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
+      lockedMemberCount: 1,
+      communicationsPolicyVersionId: fixture.communicationsPolicyId,
+      templateKey: "accept",
+      applicationVersion: 2,
+      cursor: null,
+      processedMemberCount: 0,
+    });
+
+    const deliveries = await backend.run((ctx) =>
+      ctx.db.query("participantNotificationDeliveries").collect(),
+    );
+    expect(deliveries).toEqual([]);
+  });
+
   test("settles an expired Cloudflare send lease as unknown without reclaiming it", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "expired-send");
@@ -341,6 +396,7 @@ async function seedFixture(backend: BackendTest, slug: string) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt,
       endsAt,
       createdByPersonId: personId,
@@ -405,7 +461,6 @@ async function seedFixture(backend: BackendTest, slug: string) {
       activeVitMemberCount: 0,
       activeExternalMemberCount: 1,
       membershipLocked: true,
-      trackLocked: true,
       version: 1,
       createdAt: now,
       updatedAt: now,
@@ -418,29 +473,6 @@ async function seedFixture(backend: BackendTest, slug: string) {
       status: "active",
       joinedAt: now,
       source: "created",
-    });
-    const catalogId = await ctx.db.insert("trackCatalogVersions", {
-      eventId,
-      version: 1,
-      status: "published",
-      requiredCoreTrackCount: 1,
-      checksum: "communications-track-catalog",
-      createdByPersonId: personId,
-      createdAt: now,
-      publishedAt: now,
-    });
-    const trackId = await ctx.db.insert("trackVersions", {
-      eventId,
-      catalogVersionId: catalogId,
-      stableKey: "open_innovation",
-      slug: "open-innovation",
-      displayName: "Open innovation",
-      description: "A practical event-sized project.",
-      examples: [],
-      displayOrder: 0,
-      type: "core",
-      status: "published",
-      createdAt: now,
     });
     const intakePolicyId = await ctx.db.insert("intakePolicyVersions", {
       eventId,
@@ -473,7 +505,6 @@ async function seedFixture(backend: BackendTest, slug: string) {
       intakePolicyVersionId: intakePolicyId,
       participantPolicyVersionId: participantPolicyId,
       admissionPolicyVersionId: admissionPolicyId,
-      coreTrackVersionId: trackId,
       submittedAt: now,
     });
     const projectId = await ctx.db.insert("projectVersions", {
@@ -483,8 +514,6 @@ async function seedFixture(backend: BackendTest, slug: string) {
       initialIdea: "A practical event communications project.",
       intakePolicyVersionId: intakePolicyId,
       intakeResponses: [],
-      coreTrackVersionId: trackId,
-      sponsorTrackVersionIds: [],
       lockedRosterSnapshotId,
       lockedMemberCount: 1,
       lockedLeadMembershipId: membershipId,
@@ -497,8 +526,6 @@ async function seedFixture(backend: BackendTest, slug: string) {
         participantPolicyVersionId: participantPolicyId,
         previewedDraftVersion: 1,
         previewedTeamVersion: 1,
-        previewedTrackVersionId: trackId,
-        previewedSponsorTrackVersionIds: [],
         confirmedByMembershipId: membershipId,
         confirmedAt: now,
       },

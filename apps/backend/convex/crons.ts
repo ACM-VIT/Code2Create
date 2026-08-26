@@ -5,6 +5,13 @@ import { internal } from "./_generated/api";
 const crons = cronJobs();
 
 crons.interval(
+  "recover Figma webhook setup",
+  { seconds: 15 },
+  internal.figmaIntegrations.dispatchWebhookSetups,
+  {},
+);
+
+crons.interval(
   "dispatch Figma metadata checks",
   { seconds: 15 },
   internal.figmaIntegrations.dispatchMetadataChecks,

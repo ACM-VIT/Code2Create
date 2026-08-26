@@ -3,6 +3,10 @@ import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
+import {
+  configurationPublicationResultJson,
+  storedConfigurationPublicationResult,
+} from "./lib/configurationOperationResult";
 import { attendancePlanChecksum } from "./lib/attendancePlan";
 import {
   maximumAttendanceSessionsPerPlan,
@@ -35,10 +39,6 @@ const cohort = v.union(
   v.object({
     kind: v.literal("participant_classes"),
     participantClasses: v.array(participantClass),
-  }),
-  v.object({
-    kind: v.literal("tracks"),
-    trackVersionIds: v.array(v.id("trackVersions")),
   }),
   v.object({
     kind: v.literal("explicit"),
@@ -418,11 +418,15 @@ export const createDraft = mutation({
     if (prior) {
       const planVersionId = ctx.db.normalizeId("attendancePlanVersions", prior.targetId);
       if (!planVersionId) throw new Error("Prior attendance-plan result is invalid.");
-      const plan = await ctx.db.get(planVersionId);
-      if (!plan) throw new Error("Prior attendance-plan result no longer resolves.");
-      const currentEvent = await ctx.db.get(event._id);
-      if (!currentEvent) throw new Error("Event no longer resolves.");
-      return { planVersionId, version: plan.version, eventVersion: currentEvent.version };
+      const stored = storedConfigurationPublicationResult(
+        prior.resultJson,
+        "attendance-plan draft",
+      );
+      return {
+        planVersionId,
+        version: stored.version,
+        eventVersion: stored.eventVersion,
+      };
     }
     requireVersion(event.version, args.expectedEventVersion);
     const grantIds = await requirePermission(ctx, {
@@ -541,12 +545,6 @@ export const createDraft = mutation({
         throw new ConvexError({ code: "EMPTY_COHORT", message: "Participant-class cohort cannot be empty." });
       }
       if (
-        session.expectedCohort.kind === "tracks" &&
-        session.expectedCohort.trackVersionIds.length === 0
-      ) {
-        throw new ConvexError({ code: "EMPTY_COHORT", message: "Track cohort cannot be empty." });
-      }
-      if (
         session.expectedCohort.kind === "explicit" &&
         session.expectedCohort.membershipIds.length === 0
       ) {
@@ -576,14 +574,6 @@ export const createDraft = mutation({
     }
 
     for (const session of sessions) {
-      if (session.expectedCohort.kind === "tracks") {
-        for (const trackId of session.expectedCohort.trackVersionIds) {
-          const track = await ctx.db.get(trackId);
-          if (!track || track.eventId !== event._id) {
-            throw new ConvexError({ code: "FOREIGN_COHORT", message: "A cohort track is outside this event." });
-          }
-        }
-      }
       if (session.expectedCohort.kind === "explicit") {
         for (const membershipId of session.expectedCohort.membershipIds) {
           const membership = await ctx.db.get(membershipId);
@@ -706,6 +696,7 @@ export const createDraft = mutation({
       requestFingerprint,
       targetType: "attendance_plan",
       targetId: planVersionId,
+      resultJson: configurationPublicationResultJson({ version, eventVersion }),
       createdAt: now,
     });
     const reason = normalizedText(args.reason, "Reason", 5, 300);
@@ -757,10 +748,15 @@ export const publish = mutation({
     if (prior) {
       const planVersionId = ctx.db.normalizeId("attendancePlanVersions", prior.targetId);
       if (!planVersionId) throw new Error("Prior attendance-plan result is invalid.");
-      const plan = await ctx.db.get(planVersionId);
-      const currentEvent = await ctx.db.get(event._id);
-      if (!plan || !currentEvent) throw new Error("Prior attendance-plan result no longer resolves.");
-      return { planVersionId, version: plan.version, eventVersion: currentEvent.version };
+      const stored = storedConfigurationPublicationResult(
+        prior.resultJson,
+        "attendance-plan publication",
+      );
+      return {
+        planVersionId,
+        version: stored.version,
+        eventVersion: stored.eventVersion,
+      };
     }
     requireVersion(event.version, args.expectedEventVersion);
     const plan = await ctx.db.get(args.planVersionId);
@@ -847,6 +843,10 @@ export const publish = mutation({
       requestFingerprint,
       targetType: "attendance_plan",
       targetId: plan._id,
+      resultJson: configurationPublicationResultJson({
+        version: plan.version,
+        eventVersion,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

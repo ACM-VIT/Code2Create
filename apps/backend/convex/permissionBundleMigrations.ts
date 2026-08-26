@@ -30,6 +30,7 @@ import {
   findOperation,
   operationFingerprint,
   recordOperation,
+  storedOperationResult,
   type OperationFingerprintPart,
 } from "./lib/operations";
 import type { PermissionKey } from "./lib/permissionCatalog";
@@ -1239,22 +1240,21 @@ export const confirm = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const parsed = prior.resultJson
-        ? storedMigrationResult.safeParse(JSON.parse(prior.resultJson))
-        : null;
-      if (!parsed || !parsed.success) {
-        throw new Error("Prior permission bundle migration result is invalid.");
-      }
-      const bundleId = ctx.db.normalizeId("permissionBundles", parsed.data.bundleId);
+      const stored = storedOperationResult(
+        prior.resultJson,
+        "permission bundle migration",
+        storedMigrationResult,
+      );
+      const bundleId = ctx.db.normalizeId("permissionBundles", stored.bundleId);
       const sourceBundleVersionId = ctx.db.normalizeId(
         "permissionBundleVersions",
-        parsed.data.sourceBundleVersionId,
+        stored.sourceBundleVersionId,
       );
       const destinationBundleVersionId = ctx.db.normalizeId(
         "permissionBundleVersions",
-        parsed.data.destinationBundleVersionId,
+        stored.destinationBundleVersionId,
       );
-      const batchIds = parsed.data.batchIds.map((id) =>
+      const batchIds = stored.batchIds.map((id) =>
         ctx.db.normalizeId("permissionGrantBatches", id),
       );
       if (
@@ -1274,11 +1274,11 @@ export const confirm = mutation({
         sourceBundleVersionId,
         destinationBundleVersionId,
         batchIds: resolvedBatchIds,
-        targetCount: parsed.data.targetCount,
-        createdCount: parsed.data.createdCount,
-        reusedCount: parsed.data.reusedCount,
-        supersededCount: parsed.data.supersededCount,
-        preservedCount: parsed.data.preservedCount,
+        targetCount: stored.targetCount,
+        createdCount: stored.createdCount,
+        reusedCount: stored.reusedCount,
+        supersededCount: stored.supersededCount,
+        preservedCount: stored.preservedCount,
       };
     }
     const prepared = await prepareMigration(ctx, {

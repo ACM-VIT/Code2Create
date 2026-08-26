@@ -37,7 +37,7 @@ An event publishes an immutable attendance-plan version before participant check
 - session kinds and participant-facing names;
 - scheduled start and end;
 - check-in opening, grace, and late-arrival windows;
-- expected cohort, such as all admitted participants, selected tracks, volunteers, finalists, or an explicit list;
+- expected cohort, such as all admitted participants, volunteers, finalists, or an explicit list;
 - required, optional, or information-only status;
 - tracked zones and valid scan stations;
 - allowed methods by participant class: VIT ID barcode, external event-badge QR, portal QR, staffed confirmation, or manual exception;
@@ -388,7 +388,7 @@ The attendance board shows:
 - zone occupancy against a configured safe capacity;
 - last server update and connection state.
 
-Filters include session, zone, team, track, participant class, state, and support flag. Staff can search by preferred name, badge reference, registration number where authorized, or team.
+Filters include session, zone, team, participant class, state, and support flag. Staff can search by preferred name, badge reference, registration number where authorized, or team.
 
 Protected actions include:
 
@@ -417,7 +417,7 @@ The command initializes a fixed set of sharded counters. It does not copy one th
 
 `attendance.roll_call.read` shows exact-session counts and a paginated expected-cohort roster. The independent `attendance.roll_call.close` grant permits close. Close requires a fresh sign-in and reason and freezes the final counts. Later scans continue ordinary attendance and do not change the closed record.
 
-An identifiable export requires `attendance.export.identifiable` for the exact prepared session. An explicit event-wide grant can satisfy this scope. The operator selects columns from a fixed allowlist, gives a purpose, and sets an expiry from 15 minutes through seven days.
+An identifiable export requires `attendance.export.identifiable` for the exact prepared session. An explicit event-wide grant can satisfy this scope. The operator selects columns from a fixed allowlist, gives a purpose, and chooses a lifetime from 15 minutes through seven days. The request sends that duration, and the mutation derives the absolute expiry from server time.
 
 The request requires the current session version. It also requires a Google session created within 15 minutes and an idempotent operation ID. One consistent Convex query captures at most 1,200 cohort rows. A bounded export worker creates a CSV that is safe from formula injection. It stores the file in private KMS-backed S3.
 
@@ -466,7 +466,7 @@ Import requires the original-paper filing attestation. It creates append-only `m
 - Exact movement events and identifiable exports use a shorter approved retention period than event membership.
 - Raw VIT ID barcode values, barcode fingerprints, QR values, hashes, and bearer values never appear in logs, exports, analytics, or support screens.
 - Accessibility desks, manual confirmation, excused attendance, and authorized companions are first-class paths.
-- Attendance cannot modify a judging score, model prompt, track, GitHub/Figma statistic, or admission recommendation.
+- Attendance cannot modify a judging score, model prompt, proposal, GitHub or Figma statistic, or admission recommendation.
 - No participant is automatically disqualified from a missed scan, long break, unknown state, or device failure. Any consequence follows an approved policy and human review.
 
 ## 14. Acceptance checks

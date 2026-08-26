@@ -13,6 +13,7 @@ import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton
 import { SynesthesiaRequestCard } from '../components/SynesthesiaRequestCard'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
 import { useOperationRunner } from '../lib/operations'
 
 type Overview = FunctionReturnType<typeof api.synesthesiaConfiguration.overview>
@@ -116,8 +117,8 @@ function integerFromValue(value: string) {
   return Number.isSafeInteger(number) ? number : null
 }
 
-function initialWindowValues(): WindowValues {
-  const startsAt = Math.ceil(Date.now() / 300_000) * 300_000
+function initialWindowValues(serverNow: number): WindowValues {
+  const startsAt = Math.ceil(serverNow / 300_000) * 300_000
   return {
     name: '',
     kind: 'working_session',
@@ -222,6 +223,7 @@ function playbackBlocker(queue: QueueResult) {
 
 export function Synesthesia() {
   const overview = useQuery(api.synesthesiaConfiguration.overview, { eventSlug })
+  const serverNow = useEstimatedServerNow(overview?.serverNow)
   const catalog = useQuery(
     api.synesthesiaConfiguration.catalog,
     overview?.canReadCatalog ? { eventSlug } : 'skip',
@@ -326,7 +328,7 @@ export function Synesthesia() {
         )}
       </section>
 
-      <WindowSection overview={overview} />
+      <WindowSection overview={overview} serverNow={serverNow} />
 
       <section className="synesthesia-section" aria-labelledby="synesthesia-queue-title">
         <div className="section-heading">
@@ -388,7 +390,7 @@ export function Synesthesia() {
                   )
                   const deferredUntilLater = request.queueMode === 'deferred'
                     && request.scheduledFor !== undefined
-                    && request.scheduledFor > Date.now()
+                    && request.scheduledFor > serverNow
                   return (
                     <SynesthesiaRequestCard
                       request={request}
@@ -441,7 +443,13 @@ export function Synesthesia() {
   )
 }
 
-function WindowSection({ overview }: { overview: Overview }) {
+function WindowSection({
+  overview,
+  serverNow,
+}: {
+  overview: Overview
+  serverNow: number
+}) {
   const createWindow = useMutation(api.synesthesiaConfiguration.createWindow)
   const updateWindow = useMutation(api.synesthesiaConfiguration.updateWindow)
   const publishWindow = useMutation(api.synesthesiaConfiguration.publishWindow)
@@ -571,7 +579,7 @@ function WindowSection({ overview }: { overview: Overview }) {
           <h2 id="synesthesia-windows-title">Ambience windows</h2>
         </div>
         {overview.canCreateWindow && editor === null ? (
-          <button type="button" className="secondary" disabled={operationPending || busy} onClick={() => setEditor({ mode: 'create', values: initialWindowValues() })}>
+          <button type="button" className="secondary" disabled={operationPending || busy} onClick={() => setEditor({ mode: 'create', values: initialWindowValues(serverNow) })}>
             New window
           </button>
         ) : null}

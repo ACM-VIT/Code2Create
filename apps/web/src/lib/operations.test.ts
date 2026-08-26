@@ -23,11 +23,19 @@ test('an ambiguous failure retries the exact command and operation id', async ()
 
   await assert.rejects(send, /offline/)
   version = 8
-  await send()
+  await runner.retryPending('submit')
   assert.deepEqual(calls, [
     { version: 7, id: calls[0]?.id ?? '' },
     { version: 7, id: calls[0]?.id ?? '' },
   ])
+})
+
+test('retry requires an ambiguous command that is still pending', async () => {
+  const runner = createOperationRunner()
+  await assert.rejects(
+    () => runner.retryPending('missing'),
+    /no longer needs confirmation/,
+  )
 })
 
 test('slots run independently while a duplicate submit is blocked', async () => {
@@ -59,20 +67,14 @@ test('pending-state subscribers see an uncertain command become locked and then 
   assert.deepEqual(snapshots, [1, 2])
 })
 
-test('an authoritative observed result can settle an ambiguous command', async () => {
+test('an exact authoritative outcome can settle an ambiguous command', async () => {
   const runner = createOperationRunner()
-  let operationId = ''
-  await assert.rejects(() => runner.run('brief', (id) => async () => {
-    operationId = id
+  await assert.rejects(() => runner.run('lead-transfer', () => async () => {
     throw new Error('response lost')
   }), /response lost/)
 
-  runner.confirmObservedSuccess('brief')
-  assert.equal(runner.hasPending('brief'), false)
-
-  let nextOperationId = ''
-  await runner.run('brief', (id) => async () => { nextOperationId = id })
-  assert.notEqual(nextOperationId, operationId)
+  runner.confirmExactObservation('lead-transfer')
+  assert.equal(runner.hasPending('lead-transfer'), false)
 })
 
 test('only a real ConvexError proves a command was rejected', async () => {

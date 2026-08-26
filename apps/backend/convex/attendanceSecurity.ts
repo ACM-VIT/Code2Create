@@ -316,17 +316,8 @@ export const registerDevice = internalMutation({
         "attendanceDeviceInstallations",
         prior.targetId,
       );
-      if (!deviceInstallationId) throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
-      const device = await ctx.db.get(deviceInstallationId);
-      if (!device) throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
-      const assignedStations = await ctx.db
-        .query("attendanceStations")
-        .withIndex("by_device_status", (index) =>
-          index.eq("deviceInstallationId", deviceInstallationId),
-        )
-        .collect();
-      if (!assignedStations.some((assignedStation) => assignedStation._id === args.stationId)) {
-        throw new ConvexError({ code: "OPERATION_ID_REUSED", message: "Operation ID was reused for another station." });
+      if (!deviceInstallationId) {
+        throw new Error("The stored attendance-device result is invalid.");
       }
       return { deviceInstallationId, stationId: args.stationId };
     }

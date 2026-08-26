@@ -71,7 +71,7 @@ function runMeta(run: BriefRun) {
     'Requested by an operator',
     `Requested ${formatDateTime(run.requestedAt)}`,
   ]
-  if (run.workerAcceptedAt !== undefined) parts.push(`Accepted ${formatTime(run.workerAcceptedAt)}`)
+  if (run.workerAcceptedAt !== undefined) parts.push(`Started ${formatTime(run.workerAcceptedAt)}`)
   if (run.completedAt !== undefined) parts.push(`Finished ${formatTime(run.completedAt)}`)
   if (run.failureCode !== undefined) parts.push(failureLabel(run.failureCode))
   if (run.model !== undefined) parts.push(run.model)
@@ -80,7 +80,7 @@ function runMeta(run: BriefRun) {
 
 function runStateLabel(state: BriefRun['state']) {
   if (state === 'pending') return 'Queued'
-  if (state === 'dispatching') return 'Dispatching'
+  if (state === 'dispatching') return 'Starting'
   if (state === 'accepted') return 'Running'
   if (state === 'succeeded') return 'Done'
   return 'Failed'
@@ -99,10 +99,10 @@ function runGlyphTone(run: BriefRun) {
 }
 
 function failureLabel(code: NonNullable<BriefRun['failureCode']>) {
-  if (code === 'dispatch_failed') return 'The dispatch failed'
-  if (code === 'agent_timed_out') return 'The agent timed out'
-  if (code === 'model_did_not_publish') return 'The model did not publish'
-  return 'The callback was rejected'
+  if (code === 'dispatch_failed') return 'The agent could not start'
+  if (code === 'agent_timed_out') return 'The agent took too long'
+  if (code === 'model_did_not_publish') return 'The agent finished without a brief'
+  return 'The agent response could not be saved'
 }
 
 function formatTime(value: number) {

@@ -2,10 +2,11 @@ import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type FormEvent } from 'react'
-
-import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
 import { Link } from 'react-router-dom'
 
+import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
+import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonLine, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -14,6 +15,9 @@ import { useOperationRunner } from '../lib/operations'
 type Configuration = FunctionReturnType<typeof api.checkpointConfiguration.current>
 type Plan = NonNullable<Configuration['publishedPlan']>
 type Definition = Plan['definitions'][number]
+type CheckpointOperationResult =
+  | FunctionReturnType<typeof api.checkpointConfiguration.createDraft>
+  | FunctionReturnType<typeof api.checkpointConfiguration.publish>
 
 type EditorDefinition = {
   checkpointKey: Definition['checkpointKey']
@@ -23,6 +27,14 @@ type EditorDefinition = {
   followUpQuestion: string
   graceMinutes: number
 }
+
+const phaseLabels = {
+  introduction: 'Introduction',
+  ideation: 'Ideation',
+  build: 'Build',
+  intermediate_update: 'Intermediate update',
+  final_update: 'Final update',
+} satisfies Record<Definition['phaseKey'], string>
 
 const defaults = [
   {
@@ -59,7 +71,7 @@ export function CheckpointConfiguration({
   const configuration = useQuery(api.checkpointConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.checkpointConfiguration.createDraft)
   const publish = useMutation(api.checkpointConfiguration.publish)
-  const operations = useOperationRunner()
+  const operations = useOperationRunner<CheckpointOperationResult>()
   const validation = useQuery(
     api.checkpointConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPlan
@@ -75,6 +87,20 @@ export function CheckpointConfiguration({
   const [error, setError] = useState<string | null>(null)
   const draftPending = operations.hasPending('checkpoint-draft')
   const publishPending = operations.hasPending('checkpoint-publish')
+  const pendingOperation = publishPending
+    ? {
+        slot: 'checkpoint-publish',
+        title: 'Finish publishing the team update prompts',
+        action: 'Confirm earlier publication',
+      }
+    : draftPending
+      ? {
+          slot: 'checkpoint-draft',
+          title: 'Finish saving the team update prompts draft',
+          action: 'Confirm earlier save',
+        }
+      : null
+  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!configuration) return
@@ -117,6 +143,7 @@ export function CheckpointConfiguration({
 
   const saveDraft = async (event: FormEvent) => {
     event.preventDefault()
+    if (busy || operationPending) return
     setBusy(true)
     setError(null)
     try {
@@ -137,7 +164,7 @@ export function CheckpointConfiguration({
 
   const publishDraft = async () => {
     const draft = configuration.draftPlan
-    if (!draft || !validation?.valid) return
+    if (busy || operationPending || !draft || !validation?.valid) return
     setBusy(true)
     setError(null)
     try {
@@ -157,37 +184,94 @@ export function CheckpointConfiguration({
     }
   }
 
+  const confirmPendingOperation = async () => {
+    if (busy || pendingOperation === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      await operations.retryPending(pendingOperation.slot)
+      setPublishArmed(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <section className="track-config-shell">
+    <section className="configuration-shell">
       <ConfigurationTabs visibility={tabs} />
-      <header className="page-heading track-config-heading">
+      <header className="page-heading configuration-heading">
         <div>
           <p className="eyebrow">Participant flow</p>
-          <h1>Team update prompts</h1>
-          <p className="muted">Three short team updates. Timing comes from the published phases.</p>
+          <h1>Team updates</h1>
+          <p className="muted">Choose the short questions teams answer as the hack moves forward.</p>
         </div>
       </header>
 
-      <dl className="catalog-summary phase-summary">
-        <div><dt>Status</dt><dd>{configuration.publishedPlan ? 'Ready' : 'Not published'}</dd></div>
-        <div><dt>Event schedule</dt><dd>{configuration.hasPublishedPhaseSchedule ? 'Ready' : 'Missing'}</dd></div>
-        <div><dt>Updates</dt><dd>3</dd></div>
-      </dl>
+      <div className="checkpoint-status-line">
+        <span data-ready={Boolean(configuration.publishedPlan && configuration.hasPublishedPhaseSchedule)}>
+          {configuration.publishedPlan && configuration.hasPublishedPhaseSchedule ? 'Live' : 'Needs setup'}
+        </span>
+        <p>
+          {configuration.publishedPlan
+            ? 'Three updates follow the event schedule.'
+            : 'Publish these questions before teams can use them.'}
+        </p>
+      </div>
+
+      {!configuration.hasPublishedPhaseSchedule ? (
+        <p className="notice checkpoint-schedule-notice">
+          Team updates need a published event schedule.{' '}
+          {tabs.showPhases ? <Link to="/configuration/phases">Set the schedule</Link> : 'Ask the schedule owner to publish it.'}
+        </p>
+      ) : null}
+
+      {pendingOperation ? (
+        <PendingOperationRecovery
+          action={pendingOperation.action}
+          busy={busy}
+          onConfirm={() => void confirmPendingOperation()}
+          title={pendingOperation.title}
+        />
+      ) : null}
 
       {configuration.publishedPlan ? (
-        <ol className="published-phase-list">
-          {configuration.publishedPlan.definitions.map((definition) => (
-            <li key={definition.checkpointKey}>
-              <div><strong>{definition.displayName}</strong><span>{definition.prompt}</span></div>
-              <span>{definition.graceMinutes} min grace</span>
-            </li>
-          ))}
-        </ol>
+        <section className="checkpoint-plan">
+          <header>
+            <div>
+              <h2>What teams see</h2>
+              <p>Each update opens with its phase and closes shortly after that phase ends.</p>
+            </div>
+          </header>
+          <ol>
+            {configuration.publishedPlan.definitions.map((definition, index) => (
+              <li key={definition.checkpointKey}>
+                <div className="checkpoint-plan-step" aria-hidden="true">{index + 1}</div>
+                <div className="checkpoint-plan-copy">
+                  <span>{phaseLabels[definition.phaseKey]} phase</span>
+                  <h3>{definition.displayName}</h3>
+                  <div className="checkpoint-question-preview">
+                    <p>{definition.prompt}</p>
+                    <small>Then: {definition.followUpQuestion}</small>
+                  </div>
+                </div>
+                <div className="checkpoint-plan-window">
+                  <strong>Open during {phaseLabels[definition.phaseKey].toLocaleLowerCase('en-IN')}</strong>
+                  <span>{checkpointCloseCopy(definition.graceMinutes)}</span>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
       ) : (
-        <p className="notice">No checkpoint plan is participant-visible yet.</p>
+        <div className="health-empty checkpoint-empty">
+          <strong>No team updates are live yet.</strong>
+          <span>Create the three questions below, then publish them.</span>
+        </div>
       )}
 
-      {configuration.draftPlan ? (
+      {!operationPending && configuration.draftPlan ? (
         <section className="catalog-review">
           <div className="section-heading">
             <div>
@@ -204,7 +288,7 @@ export function CheckpointConfiguration({
           {validation && !validation.valid ? (
             <ul className="issue-list">{validation.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
           ) : null}
-          {validation?.valid ? <p className="notice">The checkpoint plan is valid.</p> : null}
+          {validation?.valid ? <p className="notice">This draft is ready to publish.</p> : null}
           {publishArmed ? (
             <div className="publish-confirmation">
               <p>Teams already writing keep their current questions.</p>
@@ -215,7 +299,11 @@ export function CheckpointConfiguration({
               {configuration.hasPublishedPhaseSchedule ? null : (
                 <p className="notice">
                   The schedule has to be published first.{' '}
-                  <Link to="/configuration/phases">Publish the schedule</Link>.
+                  {tabs.showPhases ? (
+                    <><Link to="/configuration/phases">Publish the schedule</Link>.</>
+                  ) : (
+                    'Ask someone with event schedule access to publish it.'
+                  )}
                 </p>
               )}
               <div className="offer-actions">
@@ -231,44 +319,53 @@ export function CheckpointConfiguration({
         </section>
       ) : null}
 
-      {configuration.canDraft ? (
-        <form className="phase-editor" onSubmit={saveDraft}>
+      {!operationPending && configuration.canDraft ? (
+        <ConfigurationEditorDisclosure
+          defaultOpen={Boolean(configuration.draftPlan)}
+          description="The three moments when teams explain what changed, what works, and what comes next."
+          title={configuration.draftPlan ? 'Continue team-update draft' : 'Edit team updates'}
+        >
+          <form className="phase-editor" onSubmit={saveDraft}>
           <fieldset disabled={draftPending} style={{ display: 'contents' }}>
-          <div className="track-editor-heading">
+          <div className="configuration-editor-heading">
             <div>
               <p className="eyebrow">{configuration.draftPlan ? 'Replace current draft' : 'Create a draft'}</p>
-              <h2>Questions</h2>
+              <h2>Participant questions</h2>
             </div>
           </div>
           <div className="phase-card-list">
-            {definitions.map((definition) => (
-              <article className="phase-card" key={definition.checkpointKey}>
-                <header>
-                  <strong>{definition.displayName}</strong>
+            {definitions.map((definition, index) => (
+              <article className="phase-card checkpoint-editor-card" key={definition.checkpointKey}>
+                <header className="checkpoint-editor-card-heading">
+                  <span>{index + 1}</span>
+                  <div>
+                    <small>{phaseLabels[definition.phaseKey]} phase</small>
+                    <strong>{definition.displayName}</strong>
+                  </div>
                 </header>
                 <div className="phase-field-grid">
                   <label className="field">
-                    <span>Name</span>
+                    <span>Name teams see</span>
                     <input required value={definition.displayName} onChange={(event) => updateDefinition(definition.checkpointKey, { displayName: event.target.value })} />
                   </label>
                   <label className="field">
-                    <span>Grace after phase end · minutes</span>
+                    <span>Keep open after phase ends · minutes</span>
                     <input min={0} max={1440} required type="number" value={definition.graceMinutes} onChange={(event) => updateDefinition(definition.checkpointKey, { graceMinutes: event.target.valueAsNumber })} />
                   </label>
                 </div>
                 <label className="field">
-                  <span>First question</span>
+                  <span>Main question</span>
                   <textarea required value={definition.prompt} onChange={(event) => updateDefinition(definition.checkpointKey, { prompt: event.target.value })} />
                 </label>
                 <label className="field">
-                  <span>Short reflection</span>
+                  <span>Follow-up question</span>
                   <textarea required value={definition.followUpQuestion} onChange={(event) => updateDefinition(definition.checkpointKey, { followUpQuestion: event.target.value })} />
                 </label>
               </article>
             ))}
           </div>
           </fieldset>
-          <section className="track-save">
+          <section className="configuration-save">
             <label className="field">
               <span>Why this changed</span>
               <textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} />
@@ -282,10 +379,21 @@ export function CheckpointConfiguration({
               {busy ? 'Saving…' : draftPending ? 'Confirm earlier draft' : configuration.draftPlan ? 'Replace draft' : 'Save draft'}
             </button>
           </section>
-        </form>
+          </form>
+        </ConfigurationEditorDisclosure>
       ) : null}
 
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </section>
   )
+}
+
+function checkpointCloseCopy(graceMinutes: number) {
+  if (graceMinutes === 0) return 'Closes when the phase ends'
+  if (graceMinutes < 60) return `Closes ${graceMinutes} minutes after the phase ends`
+  if (graceMinutes % 60 === 0) {
+    const hours = graceMinutes / 60
+    return `Closes ${hours} ${hours === 1 ? 'hour' : 'hours'} after the phase ends`
+  }
+  return `Closes ${graceMinutes} minutes after the phase ends`
 }

@@ -6,9 +6,7 @@
 | --- | --- |
 | Language | TypeScript |
 | Workspace | pnpm workspaces |
-| Participant and operations web | Vite, React, and React Router SPAs |
-| Canonical handbook mirror | Minimal password-gated ChatGPT Sites reader generated from repository Markdown |
-| Optional handbook integration | Vite, React, and React Router SPA with Google identity and `handbook.read` |
+| Participant, operations, and handbook web | Separate Vite, React, and React Router SPAs |
 | Reviewer/event-operations mobile | Expo, React Native, Expo Router |
 | Authentication | Better Auth, Google provider only |
 | Better Auth database/host | Convex component via `@convex-dev/better-auth` |
@@ -23,6 +21,7 @@
 | Participant status email | Cloudflare Email Sending REST API, lifecycle Event Subscription to Queues, a small HMAC bridge Worker, and Cloudflare Email Routing for the approved inbound support alias; generic text links back to authenticated portal state |
 | Mobile camera | `expo-camera` for VIT ID barcodes, external badges, attendance portal QR, review-presence QR, and hall-location QR; explicit app modes keep each purpose on its own permission and server command |
 | Mobile notifications | Native tokens through `expo-notifications`; direct Firebase Cloud Messaging and Apple Push Notification service sends |
+| Outbound calls | Reusable event-owned voice service with synthesized scripts, push-first escalation, consent, scoped permissions, provider callbacks, and audit |
 | Mobile protected storage | `expo-secure-store`; SQLCipher-backed `expo-sqlite` for one active draft |
 | Web hosting | Cloudflare Workers static assets through `@cloudflare/vite-plugin` |
 | Mobile build/release | Local Expo prebuild plus signed Gradle/Xcode artifacts; event-owned Expo Updates Worker and private R2 buckets |
@@ -37,15 +36,14 @@ The repository locks all dependency versions. The team upgrades them only after 
 
 The event needs two client platforms and one shared live state.
 
-- Two small Vite SPAs keep participant and operations delivery separate. All authoritative reads and writes remain in Convex.
-- The canonical handbook mirror reads the repository Markdown. The optional handbook SPA tests Google identity and `handbook.read` without becoming a required production surface.
+- Separate Vite SPAs keep participant, operations, and handbook delivery separate. All authoritative product reads and writes remain in Convex.
 - Expo provides the native reviewer features requested in the planning discussion.
 - Better Auth runs on Convex, so authentication does not add a hosted auth vendor or second auth database.
 - Convex supplies transactions and reactive queries. A custom REST database and WebSocket service would repeat these functions.
 - Workpool limits heavy external jobs and their retries. Participant email uses a small persistent delivery state machine and short claim lease. It retries only after explicit provider non-acceptance. One email API request does not need a pool abstraction.
 - Convex stores small live projections. Compressed Figma files, captured previews, protected exports, expiring emergency packs, and downloaded backups belong in private object storage rather than one-megabyte Convex documents.
 - Backup and restore run from a separate operator environment. Production export, staging import, and recovery S3 use different credentials. A browser, mobile client, or Convex function cannot start a destructive restore.
-- APNs and FCM alert a reviewer. The assignment remains in Convex. Provider acceptance is not reviewer acknowledgment.
+- APNs and FCM alert a reviewer first. The event-owned voice service can place a consented synthesized call after the configured delay. The page remains in Convex. Provider acceptance is not reviewer acknowledgment.
 - The update Worker stores no event state. It serves signed release metadata and immutable assets while Convex remains the application backend.
 - Flue gives a separate Cloudflare Worker durable state for each job. It receives a frozen projection and returns a signed result. It is not an event backend or authorization service.
 - pnpm workspaces support the eight apps and three focused shared packages. Add a build-orchestration framework only if measured CI time requires it.
@@ -66,7 +64,7 @@ Cloudflare-hosted Vite SPAs <----> Convex <--> bounded external Workpools
     |                              |
     +---- participant              +---- Expo event app
           operations                    camera / SecureStore / bounded local recovery
-          optional protected handbook       ^
+          protected handbook                ^
                                             |
 Cloudflare update Worker <--> private R2 ---+
 
@@ -75,6 +73,7 @@ Convex <-- signed validated callback -- Flue intelligence Worker
 Flue intelligence Worker --> Cloudflare Workers AI
 
 Convex scheduled action --> APNs / FCM --> reviewer device
+Convex scheduled action --> voice Worker/provider --> reviewer phone
 Convex scheduled action --> Cloudflare Email Sending --> participant verified email
 Cloudflare Email Event Subscription --> Queue --> email Worker --> signed Convex delivery event
 Inbound support alias --> Cloudflare Email Routing --> email Worker --> verified operations mailbox
@@ -92,11 +91,12 @@ The participant portal, operations dashboard, and reviewer app do not copy live 
 apps/
   web/                    Vite participant portal
   ops/                    Vite permission-gated operations dashboard
-  handbook/               optional Vite permission-gated Markdown integration
+  handbook/               Vite permission-gated Markdown application
   reviewer/               Expo reviewer application
   updates/                Expo Updates protocol Worker and local signed publisher
   intelligence/           Flue/Vite Cloudflare Worker for bounded durable intelligence jobs
   email/                  Cloudflare Email Queue bridge and inbound Email Routing forwarder
+  voice/                  reusable synthesized outbound-call service
   backend/
     convex/               auth, schema, functions, HTTP routes, schedules, workpools, and generated API types
     scripts/recovery/     typed backup export and staging-only restore rehearsal commands
@@ -270,9 +270,9 @@ General event support uses a separate small case and action model. It does not o
 
 Create, reply, and update mutations resolve the stable actor operation before writing. Reply and staff update also check the case version. They append each visible or internal action with the case change in one transaction. The system loads owner and context IDs inside the event. These IDs do not authorize or change linked records.
 
-Release rehearsal uses one small run, scenario, and action model. Create copies the complete server-owned 61-scenario template in one draft transaction. Manage, execute, and complete use separate exact-`rehearsal_run` or event grants. Workstream owners are active event people used only for routing. Ownership gives no access.
+Release rehearsal uses one small run, scenario, and action model. Create copies the complete server-owned 62-scenario template in one draft transaction. Manage, execute, and complete use separate exact-`rehearsal_run` or event grants. Workstream owners are active event people used only for routing. Ownership gives no access.
 
-A scenario update checks the scenario version and appends the action in one mutation. Final completion reads all 61 current scenario rows before it changes the active run. A concurrent rerun or result change therefore conflicts. The signer cannot approve stale counts.
+A scenario update checks the scenario version and appends the action in one mutation. Final completion reads all 62 current scenario rows before it changes the active run. A concurrent rerun or result change therefore conflicts. The signer cannot approve stale counts.
 
 Roll-call start uses the prepared session's frozen cohort. At about 1,000 participants, one indexed transaction reads the cohort and current venue projections. It stores compact snapshot counts and a checksum. It initializes at most 32 fixed counter shards and does not write a duplicate participant row. An accepted venue scan also moves the expected participant's active roll-call shard before commit. Start and scan or close and scan use normal Convex conflict detection. The dashboard subscribes to the small shard set and paginated cohort roster.
 
@@ -346,7 +346,7 @@ The Worker validates the event schema and domain. It discards subject, raw SMTP 
 
 The same Worker handles only the exact normalized `EMAIL_ROUTING_ADDRESS` alias, even if a broader Cloudflare routing rule is configured accidentally. It forwards matching messages to the verified `EMAIL_ROUTING_FORWARD_TO` mailbox. It rejects every other recipient and does not convert inbound mail into application data or commands.
 
-One `admissions.decide` transaction writes the human decision, participant-facing state, and verified-email destination. It also writes one pending delivery for each member of the locked submitted roster. The delivery contains a generic text-template key and `/` portal path. It does not copy the decision, project text, track, or Discord destination. The transaction schedules `participantEmail.deliver`. It does not call Cloudflare inside the mutation.
+One `admissions.decide` transaction writes the human decision, participant-facing state, and verified-email destination. It also writes one pending delivery for each member of the locked submitted roster. The delivery contains a generic text-template key and `/` portal path. It does not copy the decision, proposal text, novelty number, or Discord destination. The transaction schedules `participantEmail.deliver`. It does not call Cloudflare inside the mutation.
 
 The action claims a pending or due-retry delivery for 30 seconds. Before a Cloudflare call, it rechecks the application decision, active destination, recipient identity, and current Google-verified email. Each call has exactly one recipient.
 
@@ -401,18 +401,18 @@ Convex remains the only authority and queue owner. Flue holds recoverable cognit
 
 ### Live novelty preview
 
-The novelty preview is a drafting aid beside the initial idea text box. It does not share a contract, queue, or record with intake interpretation or admission analysis.
+The novelty preview is a drafting aid above the initial idea text box. It shows only one whole-number result. It does not share a contract, queue, or record with intake interpretation or admission analysis.
 
 The request path is:
 
 1. The browser waits for the published debounce interval after the minimum idea length, increments a local request sequence, and calls `novelty.preview` with the exact published or draft-pinned corpus ID.
-2. `novelty.beginPreview` resolves the active person, team, exact `team.project.write` grant, unlocked draft, pinned corpus, and intake text limits. It suppresses sensitive-looking text before creating a request row.
+2. `novelty.beginPreview` resolves the active person, team, exact proposal-write grant, current editable draft, pinned corpus, intake text limits, and `applicationsCloseAt`. It suppresses sensitive-looking text before creating a request row.
 3. A repeated client request ID returns its settled result or fails if it was reused for different text. A recent successful team/corpus/input fingerprint returns from the 30-minute cache. New work is limited by the corpus's per-team minute budget.
 4. The action calls `POST /v1/embeddings` with `text-embedding-3-small`, `encoding_format: float`, and no `dimensions` override. It accepts exactly one finite 1,536-value vector.
-5. Convex searches `noveltyCorpusEntries.by_corpus_embedding` with the pinned corpus ID as a vector-index filter. Only the nearest approved theme and reflection prompt may reach the participant; no past-project summary or vector does.
-6. `novelty.finishPreview` settles the request once. It attaches the signal to the shared draft only when the team remains unlocked and the saved idea fingerprint and corpus pin still match. The browser also ignores a response whose local sequence is no longer newest.
+5. Convex searches `noveltyCorpusEntries.by_corpus_embedding` with the pinned corpus ID as a vector-index filter. The server converts the nearest similarity to the published whole-number result. No corpus label, theme, prompt, summary, or vector reaches the participant.
+6. `novelty.finishPreview` settles the request once. It attaches the signal to the current draft only when the saved idea fingerprint and corpus pin still match. The browser also ignores a response whose local sequence is no longer newest.
 
-The embeddings endpoint returns one JSON response and has no partial-vector stream. The UI may show a comparing state while the request runs, but it never draws intermediate scores from an incomplete vector. Provider absence, invalid width, timeout, rate limit, empty index, or stale completion returns an unavailable signal and leaves save, track selection, follow-ups, and submission unchanged.
+The embeddings endpoint returns one JSON response and has no partial-vector stream. The UI can show **Comparing** while the request runs. It never draws an intermediate score from an incomplete vector. Provider absence, invalid width, timeout, rate limit, empty index, or stale completion returns **Unavailable**. It does not block save, follow-up, revision, or submission.
 
 Corpus import is a separate operations flow. A holder of the exact event permissions can create one complete draft, replace its 5–200 curated entries, and publish the exact ready revision/checksum. Entry embeddings are generated before the import transaction; the transaction replaces the set only after every vector and entry validates. Publication pins future project drafts and never moves an active draft to a new corpus.
 
@@ -422,14 +422,14 @@ The model is a stateless interpreter behind the participant screen. It is not a 
 
 The write path is:
 
-1. `intake.saveInitialIdea` commits the participant's verbatim answer version, pins the current intake policy and track catalog on the draft, and exposes the complete track list immediately.
-2. The mutation enqueues one bounded Workpool action. Its begin mutation computes a fingerprint from the draft ID, pinned policy/catalog checksums, target ordinal, and exact active answer-version IDs. An existing interpretation for that fingerprint wins.
+1. `intake.saveInitialIdea` commits the participant's verbatim answer version and pins the current intake policy on the draft.
+2. The mutation enqueues one bounded Workpool action. Its begin mutation computes a fingerprint from the draft ID, pinned policy checksum, target ordinal, and exact active answer-version IDs. An existing interpretation for that fingerprint wins.
 3. The action calls `POST /v1/responses` only when the pinned policy is assisted and an API key is present. Deterministic mode or a missing key writes the published fallback without a provider request.
 4. The request uses `store: false`, no tools, no web access, and strict JSON Schema through `text.format`.
 5. An internal mutation validates every returned key plus the generated question's purpose, length, single-question form, wording policy, source IDs, freshness, and ordinal against the pinned configuration.
-6. If still current, the mutation stores the interpretation and one immutable question. Invalid or failed output writes the same ordinal's published fallback. A late completion cannot replace a current question. The participant separately chooses a track, answers or skips the question, accepts the freshness attestation, and confirms the final summary.
+6. If still current, the mutation stores the interpretation and one immutable question. Invalid or failed output writes the same ordinal's published fallback. A late completion cannot replace a current question. The participant answers or skips the question, accepts the freshness attestation, and confirms the final summary.
 
-The schema returns at most one recommended published core-track stable key with a reason and source IDs, covered purpose keys, an optional matched abstract idea-pattern key, an optional generated `nextQuestion { text, purposeKey, answerLength, sourceAnswerVersionIds }`, and `stopReason`. Structured Outputs constrains the shape and closed enums; question text still requires application validation. Unknown IDs, unavailable tracks, stale sources, oversized, compound, repeated, or prohibited questions, and any question beyond ordinal two make the output unusable.
+The schema returns covered purpose keys, an optional matched abstract idea-pattern key, an optional generated `nextQuestion { text, purposeKey, answerLength, sourceAnswerVersionIds }`, and `stopReason`. Structured Outputs constrains the shape and closed enums. The application still validates question text. Unknown IDs, stale sources, oversized, compound, repeated, or prohibited questions, and any question beyond ordinal two make the output unusable.
 
 Every atomic `intakePolicyVersion` freezes:
 
@@ -441,7 +441,7 @@ Every atomic `intakePolicyVersion` freezes:
 - instruction, redaction, question-policy, schema, and evaluation-suite version labels;
 - publication actor, time, and checksum.
 
-A new model, instruction, or question policy is evaluated on staged synthetic and adversarial answers before publication. The release evidence measures relevance, ease of answering, duplication, compound questions, prohibited or personal-data topics, source attribution, track fit, length, early stop, and fallback behavior. The stored evaluation-suite version is a reference, not proof that the backend ran the suite. Active drafts remain pinned; ordinary publication has no migration path.
+A new model, instruction, or question policy is evaluated on staged synthetic and adversarial answers before publication. The release evidence measures relevance, ease of answering, duplication, compound questions, prohibited or personal-data topics, source attribution, length, early stop, and fallback behavior. The stored evaluation-suite version is a reference. Active drafts remain pinned. Ordinary publication has no migration path.
 
 The provider call uses the pinned timeout and no SDK retries. A refusal, invalid schema, timeout, rate limit, missing key, or outage leaves the raw answer intact and writes the published fallback. A settled or stale interpretation cannot replace the question currently visible.
 
@@ -453,16 +453,20 @@ API data is not used for model training. However, the policy does not describe `
 
 ### Admission analysis
 
-Admission analysis is a second stateless contract and queue, not another mode of the intake prompt. Final project submission first commits an immutable application with its locked member set and track. A deduplicated `admission_ai` job may then read:
+Admission analysis is a second stateless contract and queue. Final submission commits an application with a locked member set and immutable proposal version. A deduplicated `admission_ai` job can then read:
 
 - the redacted submitted brief and source-linked answers;
-- completeness/freshness-attestation facts and the confirmed published track;
+- completeness and freshness-attestation facts;
 - a deterministic team experience-band key derived under the published policy;
 - the published year-adjusted admission criteria and closed output enums.
 
-It excludes names, email, phone, registration number, institution prestige signals, raw eligibility evidence, intake track recommendation/mismatch, human recommendations, decision state, capacity, attendance, integration activity, reviewer/judging records, and scores. The result contains a non-numeric `accept | waitlist | decline | needs_information` recommendation, criterion assessments with source references, concise strengths/concerns, no more than two proposed information questions, confidence/limitations, and exact application/policy/model versions.
+It excludes names, email, phone, registration number, institution prestige signals, raw eligibility evidence, human recommendations, decision state, capacity, attendance, integration activity, reviewer or judging records, and scores. The result contains a non-numeric `accept | waitlist | decline | needs_information` recommendation, criterion assessments with source references, concise strengths and concerns, no more than two proposed information questions, confidence and limitations, and exact proposal, policy, and model versions.
+
+The current lead can revise submitted proposal content before `applicationsCloseAt`. The revision transaction creates a new immutable proposal version, moves the application's current pointer, invalidates old human and AI outputs, and queues new optional analysis. A settlement for an older proposal version remains stale.
 
 An internal completion mutation accepts the result only while every input/version still matches. It stores an immutable advisory record and updates the authorized admissions projection; it cannot call decision, offer, queue, or judging functions. Invalid output, refusal, timeout, or provider disablement records an unavailable state and leaves the human review path unchanged. The decision mutation requires an explicit human choice and records whether the AI record was used, cleared, overridden, stale, or unavailable.
+
+A manual retry is a separate Convex mutation, not a provider fallback. It requires `application.ai_recommendation.run` for the exact application or event. The application must still be in active human review, and its current recommendation must have a definite failed or stale terminal state. The mutation compares the application version and recommendation ID, reloads the pinned published policy, model, and current proposal version, inserts one new recommendation, advances the application pointer and version, and writes the idempotency receipt and audit event in one transaction. The prior recommendation remains immutable. The run permission does not load its contents. A separate `application.ai_recommendation.read` grant controls that data.
 
 ## 12. Live updates
 
@@ -472,8 +476,8 @@ Examples:
 
 - A novelty completion settles one request and may update the current draft signal in the same transaction. Only the newest matching idea/corpus can attach; a later response for older text remains request history and changes no participant state.
 - `reviewOperations.queueTeam` atomically creates or updates the team/round row as queued, changes participant status, panel work, and operations counts, and requires `queue.manage` for that exact panel.
-- `projects.submitFinal` creates the immutable application and locks the previewed member set and core track together; every open team/intake view receives the same committed state.
-- `intakeConfiguration.publish` supersedes one exact catalog and moves the event's new-draft pointer in one transaction. Participant drafts already carrying the prior catalog ID keep reading its published track rows, while the operations catalog summary and editor update immediately.
+- `projects.submitFinal` creates the application and locks the previewed member set. Every open team and intake view receives the same committed state.
+- `projects.reviseSubmitted` appends one immutable proposal version before `applicationsCloseAt`, invalidates stale review and AI output, and updates every authorized application view.
 - `checkpointConfiguration.publish` supersedes one exact checkpoint plan and moves only the event default. `projectCheckpoints.saveUpdate` and `.saveFollowUp` update one optimistic shared team draft; `.submit` freezes one immutable submission. Team members and authorized operations readers converge on the same row, while no checkpoint command writes queue, review, or score state.
 - Starting a review captures the latest already-submitted team checkpoint ID in the same evidence transaction that fixes GitHub/Figma snapshots. Reviewer context and the verified round export resolve that ID rather than querying whichever update is newest later.
 - `admissions.decide` changes participant admission state and confirmed-capacity views, creates one delivery record per locked member, and unlocks selected-team next steps in the same transaction. Cloudflare email processing happens later and never substitutes for the authoritative portal state.
@@ -524,13 +528,13 @@ Full Figma JSON, captured previews, protected attendance/round exports, and emer
 
 ### Web
 
-Cloudflare deploys `apps/web` and `apps/ops` as separate required Workers static-asset applications. It can deploy `apps/handbook` as an optional integration test. All three use the official Vite plugin and `single-page-application` not-found handling. Wrangler environments resolve to `code2create-participant-staging` and `code2create-operations-staging` for rehearsal. The optional integration resolves to `code2create-handbook-staging`. Participant and operations use the corresponding unsuffixed Workers for production. The handbook integration has no required production deployment.
+Cloudflare deploys `apps/web`, `apps/ops`, and `apps/handbook` as separate Workers static-asset applications. All three use the official Vite plugin and `single-page-application` not-found handling. Wrangler environments use staging names for rehearsal and unsuffixed names for production. The handbook renders the repository Markdown and does not become a separate source of truth.
 
 `apps/intelligence` is another Vite-built Worker, not a static user surface. Its HTTP shell delegates signed autonomy admission, continuation, and abort to `src/routes/autonomyRoutes.ts`; separate `src/lib/autonomy*.ts` modules own fencing, transport, exhaustive traversal, orchestration, investigation, reduction, evidence, finalization, and artifact persistence. Wrangler creates the Flue Durable Object namespaces, the run-keyed autonomy admission-fence namespace, and the Workers AI binding under `code2create-intelligence-staging` or `code2create-intelligence`. The staging Worker points only to staging Convex endpoints and uses staging-only HMAC secrets. It exposes `/health`; signed service ingress for briefs, copilot turns, autonomy admission, continuation, and abort; and capability-protected sanitized history/long-poll routes. It never exposes the raw Flue agent router, a browser mutation or attachment route, prompts, reasoning, metadata, or tool arguments/results.
 
-The manual GitHub release workflow selects the protected `staging` or `production` GitHub Environment. It validates HTTPS backend URLs, event slug, release ID, Sentry upload configuration, and Cloudflare credentials without printing values. It builds the participant and operations surfaces and the intelligence Worker before the first deployment. A staging run can also build the optional handbook integration. It then runs strict Wrangler deployments.
+The manual GitHub release workflow selects the protected `staging` or `production` GitHub Environment. It validates HTTPS backend URLs, event slug, release ID, Sentry upload configuration, and Cloudflare credentials without printing values. It builds the participant, operations, and handbook frontends and the intelligence Worker before the first deployment. It then runs strict Wrangler deployments.
 
-Preview and staging builds use only non-production Convex deployments. Before authentication approval, operators enter the participant and operations production domains as exact Better Auth origins and Google return paths. If they test the optional handbook integration, they also enter its staging origin and return path. Final routes remain blocked until their required domains are supplied.
+Preview and staging builds use only non-production Convex deployments. Before authentication approval, operators enter each frontend domain as an exact Better Auth origin and Google return path. Final routes remain blocked until all required domains are supplied.
 
 ### Backend
 
@@ -556,11 +560,12 @@ Before a binary for a new runtime reaches a phone, release operations publishes 
 
 | Store | Secrets |
 | --- | --- |
-| Convex environment | Better Auth secret, Google secret, OpenAI API key, GitHub App private key/webhook secret, Figma client secret, token-encryption key, attendance-key wrapping key, Firebase service account, APNs private key/key ID/team ID/topic, Cloudflare Email account ID/send token/from/reply-to and email-event HMAC secret, S3 restricted credential, intelligence Worker URL, and four separate intelligence HMAC secrets for ingress, callback/recommendation delivery, read/work authorization, and browser stream capabilities |
+| Convex environment | Better Auth secret, Google secret, OpenAI API key, GitHub App private key and webhook secret, Figma client secret, token-encryption key, attendance-key wrapping key, Firebase service account, APNs private key and identifiers, Cloudflare Email settings and event HMAC, voice Worker URL and callback HMAC, S3 restricted credential, intelligence Worker URL, and separate intelligence HMAC secrets |
 | Cloudflare build environment | Public Convex query/auth URLs, event slug, Sentry DSN; no provider private key or handbook Markdown |
 | Update Worker environment | Environment-specific admin token; the private R2 bucket is a binding and the update signing key is absent |
 | Intelligence Worker environment | Workers AI binding, autonomy admission-fence namespace, exact Ops origin, exact Convex brief/autonomy callback, read, work-authorization, recommendation, and recommendation-evidence URLs, plus four HMAC secrets for ingress, callback/recommendation delivery, read/work authorization, and browser stream capabilities; no Convex service credential or event provider secret |
 | Email Worker environment | Exact Convex email-event callback URL, sending domain, verified Email Routing forward destination, and email-event HMAC secret; no Convex service credential or Cloudflare Email Sending API token |
+| Voice Worker environment | Public Worker origin, approved Twilio credential and sending number, Sarvam synthesis key, request HMAC, and callback HMAC; no Convex service credential, broad event credential, purpose decision, or proposal data |
 | Controlled mobile release machine | Update private key and publisher token, Android keystore/passwords, Firebase `google-services.json`, Apple signing/provisioning keychain, public backend/auth/update URLs, app identifiers, Sentry upload token |
 | GitHub Actions | Cloudflare and Convex deploy credentials scoped by protected environment; no mobile or update-signing key |
 
@@ -575,11 +580,13 @@ Figma OAuth grants are encrypted once per Figma App/user and referenced by team-
 - Every protected function declares its catalogued permission key and scope resolver; compound flows call narrower helpers or require each additional key explicitly. CI fails on an unguarded public function, unknown key, illegal scope type, or wildcard.
 - Permission bundles and role templates authorize nothing directly; only their materialized grants do.
 - Grant and revoke are different permissions and commands. Each enforces its own delegation ceiling, exact resource and target-person scope, validity, source provenance, fresh authentication, reason, idempotency, and access-version check.
+- A direct permission batch validates every selected row before writing. It changes one event access subject, cannot mix unrestricted and delegated authority, advances `accessVersion` once, and records one complete operation result and audit event. Individual grant rows remain the authorization source of truth.
+- A stale sensitive web session enters the Better Auth OAuth popup flow on the current page. The popup and bearer plugins are paired. The dashboard resumes only after an authenticated Convex query sees a session within the fresh-authentication window, then retries the same operation ID once.
 - A camera-decoded VIT ID barcode value is sent only to the authorized attendance command, converted into an event-scoped keyed fingerprint, and discarded. Raw values never become account identity, records, logs, or exports.
 - External-badge QR bearers contain no identity. A public action validates the exact 32-byte base64url shape, derives an event HMAC and short reference, and passes only those values into transactional mutations; tables, audit, logs, exports, and UI never receive the bearer. Short-lived portal QR tokens resolve the already-authenticated event member.
 - Station mode, direction, zone, and attendance session are server-owned configuration. A card, badge, or participant cannot select the transition.
 - Provider callbacks use exact allowlisted URLs and validated state.
-- Participant answers are untrusted model input; both OpenAI contracts have no tools, credentials, score data, or write capability. Admission analysis additionally excludes human recommendations, capacity, intake track-recommendation mismatch, and judging context.
+- Participant answers are untrusted model input. Both OpenAI contracts have no tools, credentials, score data, or write capability. Admission analysis also excludes human recommendations, capacity, and judging context.
 - Novelty input is checked for common contact, registration-number, and secret patterns before provider work. Preview rows retain only the input fingerprint and character count; vectors remain on curated corpus entries, and the novelty signal is not copied into an application, admission input, review evidence, or score.
 - Intelligence dispatch, callback, read, and stream capabilities use context-separated HMAC keys of at least 32 UTF-8 bytes, bounded raw bodies, closed schemas, and fixed replay or expiry windows. Convex accepts the intelligence Worker location only as one canonical origin: HTTPS outside loopback development, with no credentials, trailing slash, path, query, or fragment. Brief callbacks must match the frozen source checksum. The Worker has no broad Convex credential and its model tools can only perform the named redacted reads or publish a human-controlled recommendation or brief.
 - Automatic autonomy requires the event's current published autonomy policy, active scheduler state, accountable-owner grants, and live event. Health materialization transactionally appends each changed qualifying signal episode to the semantic inbox; the internal scheduler adds every due schedule slot and fairly claims only an authorized inbox head. Runs use renewable infrastructure leases and idempotent operation receipts without cognitive quotas. The Worker cannot create or edit policy state and can publish only typed human-approval recommendations.
@@ -595,7 +602,7 @@ Figma OAuth grants are encrypted once per Figma App/user and referenced by team-
 - Sentry receives web/mobile exceptions, release ID, environment, route/screen, and non-sensitive event identifiers.
 - Convex logs function errors, external-job attempts, and scheduled-work failures.
 - Intake diagnostics show model latency, timeout/refusal/schema-failure/question-policy-rejection/fallback rates, token usage, skips by purpose or fallback key, and config version without logging answer or generated-question text.
-- Novelty diagnostics show request state, latency, failure category, pinned corpus version, and bounded aggregate volume without logging idea text, fingerprints, vectors, nearest themes, reflection prompts, or participant scores.
+- Novelty diagnostics show request state, latency, failure category, pinned corpus version, and bounded aggregate volume. They do not log idea text, fingerprints, vectors, similarities, or participant scores.
 - Admission diagnostics show job state, latency, invalid/stale/unavailable rates, policy/model version, and human used/cleared/overridden disposition without logging application text or recommendation explanations.
 - Integration diagnostics show Workpool backlog, provider rate-limit windows, webhook age, metadata age, full-snapshot age, and incomplete/truncated results.
 - Attendance diagnostics show scan latency/outcome, station heartbeat, pending replay age, credential anomalies, projection/counter consistency, and zone/session exception counts without logging bearer values.
@@ -612,9 +619,9 @@ Business history stays in domain records and audit events. Sentry is not the jud
 ## 19. Architecture acceptance
 
 - Google sign-in works on the participant and operations Vite origins and a signed Expo build through the same Better Auth instance.
-- When the optional handbook integration is deployed, Google sign-in works on its staging origin through the same Better Auth instance.
+- Google sign-in works on the handbook Vite origin through the same Better Auth instance.
 - The canonical handbook mirror renders the repository Markdown and does not become a separate source of truth.
-- The optional handbook integration's public Cloudflare bundle contains no Markdown. A signed-in account without `handbook.read` cannot list, search, or fetch a document.
+- The handbook's public Cloudflare bundle contains no protected Markdown. A signed-in account without `handbook.read` cannot list, search, or fetch a protected document.
 - No Clerk package, environment, issuer, or user ID appears in the product repository.
 - An auth session alone cannot read event data without an active application grant.
 - A role label alone cannot read event data; a person of any role can use a manually granted permission only inside its exact scope and validity.
@@ -647,13 +654,13 @@ Business history stays in domain records and audit events. Sentry is not the jud
 - An answer is durable before model work begins; OpenAI failure follows the configured fallback path and cannot block submission.
 - A novelty preview uses the native 1,536-value `text-embedding-3-small` output and a corpus-filtered vector search. A stale response cannot attach to newer text, a duplicate request cannot create a second row, sensitive-looking input creates no request, and every failure leaves intake usable.
 - A successful introduction contains one or two follow-ups; each is short, single-purpose, immutable, and tied to the source/configuration versions that produced it.
-- Track selection is usable immediately after the opening answer; at most one AI recommendation may appear later, and the participant's different choice has no adverse admission effect.
-- Model output cannot call a mutation, select a phase or track, accept the freshness attestation, change a participant answer, publish a brief, or reach judging data.
-- Final submission starts with one optimistic transaction over the previewed draft, authoritative roster counts, lead, and track. That transaction locks the team and creates a durable attempt; bounded idempotent mutations then materialize the immutable member snapshot and finalize the project/application. A concurrent pre-lock change forces a new preview, while a failed materialization unlocks the team and preserves a bounded failure reason for the portal.
+- Model output cannot call a mutation, select a phase, accept the freshness attestation, change a participant answer, publish a proposal, or reach judging data.
+- Final submission starts with one optimistic transaction over the previewed draft, authoritative roster counts, and lead. That transaction locks membership and creates a durable attempt. Bounded idempotent mutations then materialize the immutable member snapshot and finalize the application. A concurrent pre-lock change forces a new preview. A failed materialization unlocks membership and preserves a bounded failure reason.
+- The current lead can revise proposal content before the server deadline. Each revision appends an immutable version and invalidates stale human and AI outputs.
 - Admission analysis is versioned, structured, non-numeric, and optional to human review. It cannot publish or order a decision, and its output never reaches judging context.
 - A published human decision and its per-member delivery records commit without waiting for Cloudflare. Generic email contains no decision/project content, only explicit non-acceptance is retried, ambiguous/expired requests become `unknown`, signed duplicate/out-of-order lifecycle events converge, and delivered never means read.
 - Participant delivery detail and controls resolve exact-person communications grants independently. A manual retry requires the latest definite failure, current delivery/destination/application/email context, fresh auth, reason, and operation ID; `unknown` cannot be resent through that path.
-- Every submitted follow-up preserves its immutable question and participant answer snapshot; model track recommendations remain separate from the chosen track.
+- Every submitted follow-up preserves its immutable question and participant answer snapshot.
 - A burst of provider events stays inside configured Workpool concurrency and does not starve review writes.
 - One team can add repositories from several GitHub App installations, classify and reorder them, and freeze all of them in one review checkpoint set.
 - Team integration access follows the team binding even when the Figma authorizer changes.

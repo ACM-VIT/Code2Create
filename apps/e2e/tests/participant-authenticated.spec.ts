@@ -11,4 +11,10 @@ test('seeded participant opens the real portal session', async ({ page }) => {
   await expect(surface).toHaveAttribute('data-account-email', environment.participantAccountEmail)
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'You’re confirmed.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Event details' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Code and design' })).toBeVisible()
+  await expect(
+    page.locator('a[href*="discord.gg"], a[href*="discord.com/invite/"]').first(),
+  ).toBeVisible()
 })

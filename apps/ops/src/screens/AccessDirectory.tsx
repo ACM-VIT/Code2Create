@@ -1,4 +1,6 @@
 import { api } from '@code2create/backend/api'
+import { eventRoleLabels } from '@code2create/domain'
+import type { FunctionReturnType } from 'convex/server'
 import { usePaginatedQuery, useQuery } from 'convex/react'
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
@@ -6,18 +8,28 @@ import { Link } from 'react-router-dom'
 import { AccessInvitations } from '../components/AccessInvitations'
 import { eventSlug } from '../lib/config'
 
+type DirectoryPerson = FunctionReturnType<typeof api.access.directory>['page'][number]
+
+const accessSubjectStatusLabels: Record<DirectoryPerson['status'], string> = {
+  active: 'Active',
+  suspended: 'Suspended',
+  closed: 'Closed',
+}
+
 export function AccessDirectory({
   canBrowsePeople,
   canReadPeople,
   canInvite,
   canReadBundles,
   canReadRoster,
+  serverNow,
 }: {
   canBrowsePeople: boolean
   canReadPeople: boolean
   canInvite: boolean
   canReadBundles: boolean
   canReadRoster: boolean
+  serverNow: number
 }) {
   const directory = usePaginatedQuery(
     api.access.directory,
@@ -26,6 +38,7 @@ export function AccessDirectory({
   )
   const [email, setEmail] = useState('')
   const [searchedEmail, setSearchedEmail] = useState<string | null>(null)
+  const [showInvitations, setShowInvitations] = useState(false)
   const match = useQuery(
     api.access.findByEmail,
     canReadPeople && searchedEmail ? { eventSlug, email: searchedEmail } : 'skip',
@@ -46,6 +59,16 @@ export function AccessDirectory({
           <p className="muted">Invite staff, find participants, and control exactly what each person can do.</p>
         </div>
         <div className="button-row">
+          {canInvite ? (
+            <button
+              aria-expanded={showInvitations}
+              className={showInvitations ? 'secondary active' : 'secondary'}
+              type="button"
+              onClick={() => setShowInvitations((current) => !current)}
+            >
+              {showInvitations ? 'Close invitations' : 'Invite someone'}
+            </button>
+          ) : null}
           {canReadRoster ? (
             <Link className="secondary compact-link" to="/access/roster">Event team</Link>
           ) : null}
@@ -55,7 +78,7 @@ export function AccessDirectory({
         </div>
       </header>
 
-      {canInvite ? <AccessInvitations canReadPeople={canReadPeople} /> : null}
+      {canInvite && showInvitations ? <AccessInvitations serverNow={serverNow} /> : null}
 
       {canReadPeople ? (
         <>
@@ -110,14 +133,7 @@ export function AccessDirectory({
 function PersonRow({
   person,
 }: {
-  person: {
-    personId: string
-    displayName: string
-    email: string
-    status: 'active' | 'suspended' | 'closed'
-    isParticipant: boolean
-    role?: string
-  }
+  person: DirectoryPerson
 }) {
   return (
     <Link className="access-row" to={`/access/${person.personId}`}>
@@ -126,24 +142,11 @@ function PersonRow({
         <span>{person.email}</span>
       </div>
       <div className="access-row-meta">
-        <span>{statusName(person.status)}</span>
-        {person.role ? <span>{roleName(person.role)}</span> : null}
+        <span>{accessSubjectStatusLabels[person.status]}</span>
+        {person.role ? <span>{eventRoleLabels[person.role]}</span> : null}
         {person.isParticipant ? <span>Participant</span> : null}
         {!person.role && !person.isParticipant ? <span>No role assigned</span> : null}
       </div>
     </Link>
   )
-}
-
-function roleName(value: string) {
-  if (value === 'external_judge') return 'External judge'
-  if (value === 'sc') return 'SC'
-  if (value === 'jc') return 'JC'
-  return value.charAt(0).toUpperCase() + value.slice(1)
-}
-
-function statusName(value: 'active' | 'suspended' | 'closed') {
-  if (value === 'active') return 'Active'
-  if (value === 'suspended') return 'Suspended'
-  return 'Closed'
 }

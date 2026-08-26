@@ -3,6 +3,7 @@ import type { FunctionReturnType } from 'convex/server'
 import { useMutation } from 'convex/react'
 import { useState, type FormEvent } from 'react'
 
+import { AccessManagementDisclosure } from './AccessManagementDisclosure'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
@@ -60,15 +61,13 @@ export function AccessSubjectStatus({
   }
 
   return (
-    <section className={`permission-command subject-status-command${isSuspending ? ' danger-zone' : ''}`}>
-      <div>
-        <h2>{isSuspending ? 'Suspend event account' : 'Reactivate event account'}</h2>
-        <p className="muted">
-          {isSuspending
-            ? `This immediately blocks all ${effectiveGrantCount} current permission${effectiveGrantCount === 1 ? '' : 's'}. Their access history remains available.`
-            : `This restores ${effectiveGrantCount} current permission${effectiveGrantCount === 1 ? '' : 's'}. Removed or expired permissions stay unavailable.`}
-        </p>
-      </div>
+    <AccessManagementDisclosure
+      description={isSuspending
+        ? `Immediately block ${effectiveGrantCount} current permission${effectiveGrantCount === 1 ? '' : 's'}.`
+        : `Restore ${effectiveGrantCount} current permission${effectiveGrantCount === 1 ? '' : 's'}.`}
+      title={isSuspending ? 'Suspend event account' : 'Reactivate event account'}
+      tone={isSuspending ? 'danger' : 'default'}
+    >
       <form className="role-form" onSubmit={submit}>
         <label className="field">
           <span>{isSuspending ? 'Why access is being suspended' : 'Why access is being restored'}</span>
@@ -86,6 +85,6 @@ export function AccessSubjectStatus({
         </div>
       </form>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
-    </section>
+    </AccessManagementDisclosure>
   )
 }

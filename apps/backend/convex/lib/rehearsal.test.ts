@@ -9,10 +9,10 @@ import {
 } from "./rehearsal.ts";
 
 test("release rehearsal template contains the complete ordered scenario set", () => {
-  assert.equal(releaseRehearsalTemplate.length, 61);
+  assert.equal(releaseRehearsalTemplate.length, 62);
   assert.deepEqual(
     releaseRehearsalTemplate.map((scenario) => scenario.sequence),
-    Array.from({ length: 61 }, (_, index) => index + 1),
+    Array.from({ length: 62 }, (_, index) => index + 1),
   );
   assert.equal(
     new Set(releaseRehearsalTemplate.map((scenario) => scenario.stableKey)).size,

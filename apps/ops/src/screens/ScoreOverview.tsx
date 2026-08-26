@@ -1,10 +1,21 @@
 import { api } from '@code2create/backend/api'
 import { reviewRoundStatusLabels } from '@code2create/domain'
+import type { FunctionReturnType } from 'convex/server'
 import { useQuery } from 'convex/react'
 import { Link } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
 import { LoadingLabel, SkeletonList } from '../components/Skeleton'
+
+type Round = FunctionReturnType<typeof api.scoreGovernance.rounds>[number]
+
+const exportStateLabels: Record<NonNullable<Round['exportState']>, string> = {
+  generating: 'Preparing files',
+  uploaded: 'Ready to verify',
+  verified: 'Verified',
+  failed: 'Could not prepare files',
+  superseded: 'Replaced by a newer export',
+}
 
 export function ScoreOverview() {
   const rounds = useQuery(api.scoreGovernance.rounds, { eventSlug })
@@ -24,7 +35,7 @@ export function ScoreOverview() {
         <div>
           <p className="eyebrow">After judging</p>
           <h1>Results</h1>
-          <p className="muted">Open a round to inspect completeness. Numeric values stay hidden until requested.</p>
+          <p className="muted">Open a round to finish missing work, close judging, or publish participant feedback.</p>
         </div>
       </header>
 
@@ -44,15 +55,14 @@ export function ScoreOverview() {
             <dl className="score-summary-grid">
               <Summary
                 label="Round export"
-                value={round.exportState ? stateName(round.exportState) : 'Not started'}
+                value={round.exportState ? exportStateLabels[round.exportState] : 'Not started'}
               />
-              <Summary label="Numeric values" value={round.canReadValues ? 'Available' : 'Hidden'} />
+              <Summary label="Scores" value={round.canReadValues ? 'Visible' : 'Hidden'} />
               <Summary label="Participant feedback" value={round.releasedAt ? 'Released' : 'Not released'} />
             </dl>
-            <p className="panel-strip">
-              <span>{round.canReadValues ? 'Scores visible' : 'Progress only'}</span>
-              {round.releasedAt ? <span>Released {formatTime(round.releasedAt)}</span> : null}
-            </p>
+            {round.releasedAt ? (
+              <p className="panel-strip"><span>Released {formatTime(round.releasedAt)}</span></p>
+            ) : null}
           </article>
         ))}
       </div>
@@ -69,10 +79,6 @@ export function ScoreOverview() {
 
 function Summary({ label, value }: { label: string; value: number | string }) {
   return <div><dt>{label}</dt><dd>{value}</dd></div>
-}
-
-function stateName(value: string) {
-  return value.replaceAll('_', ' ')
 }
 
 function formatWindow(startsAt: number, endsAt: number) {

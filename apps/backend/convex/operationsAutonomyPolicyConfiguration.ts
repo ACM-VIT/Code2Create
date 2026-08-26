@@ -3,6 +3,12 @@ import { ConvexError, v } from "convex/values";
 
 import { mutation, query, type QueryCtx } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
+import {
+  configurationDraftResultJson,
+  configurationPublicationResultJson,
+  storedConfigurationDraftResult,
+  storedConfigurationPublicationResult,
+} from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
@@ -10,7 +16,12 @@ import {
   requireFreshAuthSession,
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationVersion,
+} from "./lib/operations";
 import {
   normalizeOperationsAutonomyPolicy,
   operationsAutonomyPolicyChecksum,
@@ -338,15 +349,18 @@ export const createDraft = mutation({
     });
     if (prior) {
       const id = ctx.db.normalizeId("operationsAutonomyPolicyVersions", prior.targetId);
-      const row = id ? await ctx.db.get(id) : null;
-      if (!row || (prior.resultJson !== "changed" && prior.resultJson !== "unchanged")) {
+      if (!id) {
         throw new Error("The prior autonomy-policy draft result is invalid.");
       }
+      const stored = storedConfigurationDraftResult(
+        prior.resultJson,
+        "autonomy-policy draft",
+      );
       return {
-        policyVersionId: row._id,
-        policyVersion: row.version,
-        checksum: row.checksum,
-        changed: prior.resultJson === "changed",
+        policyVersionId: id,
+        policyVersion: stored.version,
+        checksum: stored.checksum,
+        changed: stored.changed,
       };
     }
     if (event.version !== args.expectedEventVersion) {
@@ -373,7 +387,11 @@ export const createDraft = mutation({
       requestFingerprint,
       targetType: "operations_autonomy_policy",
       targetId: result.policyVersionId,
-      resultJson: result.changed ? "changed" : "unchanged",
+      resultJson: configurationDraftResultJson({
+        version: result.policyVersion,
+        checksum: result.checksum,
+        changed: result.changed,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -441,12 +459,18 @@ export const publish = mutation({
     });
     if (prior) {
       const id = ctx.db.normalizeId("operationsAutonomyPolicyVersions", prior.targetId);
-      const row = id ? await ctx.db.get(id) : null;
-      const eventVersion = Number(prior.resultJson);
-      if (!row || !Number.isSafeInteger(eventVersion) || eventVersion < 1) {
+      if (!id) {
         throw new Error("The prior autonomy-policy publication result is invalid.");
       }
-      return { policyVersionId: row._id, policyVersion: row.version, eventVersion };
+      const stored = storedConfigurationPublicationResult(
+        prior.resultJson,
+        "autonomy-policy publication",
+      );
+      return {
+        policyVersionId: id,
+        policyVersion: stored.version,
+        eventVersion: stored.eventVersion,
+      };
     }
     if (event.version !== args.expectedEventVersion) {
       throw new ConvexError({
@@ -477,7 +501,10 @@ export const publish = mutation({
       requestFingerprint,
       targetType: "operations_autonomy_policy",
       targetId: result.policyVersionId,
-      resultJson: String(eventVersion),
+      resultJson: configurationPublicationResultJson({
+        version: result.policyVersion,
+        eventVersion,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -545,12 +572,13 @@ export const disable = mutation({
     });
     if (prior) {
       const priorStateId = ctx.db.normalizeId("operationsAutonomyStates", prior.targetId);
-      const priorState = priorStateId ? await ctx.db.get(priorStateId) : null;
-      const priorVersion = Number(prior.resultJson);
-      if (!priorState || !Number.isSafeInteger(priorVersion) || priorVersion < 1) {
+      if (!priorStateId) {
         throw new Error("The prior autonomy disable result is invalid.");
       }
-      return { state: "disabled" as const, version: priorVersion };
+      return {
+        state: "disabled" as const,
+        version: storedOperationVersion(prior.resultJson, "autonomy-disable"),
+      };
     }
     const policy = await ctx.db
       .query("operationsAutonomyPolicyVersions")

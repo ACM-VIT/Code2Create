@@ -29,6 +29,19 @@ const createdAt = '2026-08-07T00:00:00.000Z'
 const signature = 'sig="dGVzdC1zaWduYXR1cmU=", keyid="main"'
 
 describe('Expo Updates protocol service', () => {
+  test('reports when publishing is not configured', async () => {
+    const response = await handleUpdateRequest(
+      new Request(`${origin}/admin/current`),
+      {
+        store: new MemoryUpdateStore(),
+        channel: 'staging',
+      },
+    )
+
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: 'Publishing is not configured.' })
+  })
+
   test('publishes an immutable signed manifest and returns no-update to the current client', async () => {
     const store = new MemoryUpdateStore()
     const health = await request(store, '/health')

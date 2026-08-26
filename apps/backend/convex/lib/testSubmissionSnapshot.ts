@@ -11,31 +11,25 @@ export async function createTestSubmissionSnapshot(
     intakePolicyVersionId: Id<"intakePolicyVersions">;
     participantPolicyVersionId: Id<"participantPolicyVersions">;
     admissionPolicyVersionId: Id<"admissionPolicyVersions">;
-    coreTrackVersionId: Id<"trackVersions">;
     submittedAt: number;
   },
 ) {
-  const [team, coreTrack, existingDraft] = await Promise.all([
+  const [team, existingDraft] = await Promise.all([
     ctx.db.get(args.teamId),
-    ctx.db.get(args.coreTrackVersionId),
     ctx.db
       .query("projectDrafts")
       .withIndex("by_team", (index) => index.eq("teamId", args.teamId))
       .unique(),
   ]);
-  if (!team || !coreTrack || coreTrack.eventId !== args.eventId) {
+  if (!team) {
     throw new Error("The test submission context is incomplete.");
   }
   const draftId = existingDraft?._id ?? await ctx.db.insert("projectDrafts", {
     eventId: args.eventId,
     teamId: team._id,
-    trackCatalogVersionId: coreTrack.catalogVersionId,
     intakePolicyVersionId: args.intakePolicyVersionId,
     stage: "submitted",
     initialIdea: "Fixture submitted project.",
-    chosenCoreTrackVersionId: coreTrack._id,
-    chosenSponsorTrackVersionIds: [],
-    recommendationState: "not_requested",
     freshnessAttestedByMembershipId: team.leadMembershipId,
     freshnessAttestedAt: args.submittedAt,
     version: 1,
@@ -60,8 +54,6 @@ export async function createTestSubmissionSnapshot(
     sourceDraftVersion: existingDraft?.version ?? 1,
     participantPolicyVersionId: args.participantPolicyVersionId,
     admissionPolicyVersionId: args.admissionPolicyVersionId,
-    expectedCoreTrackVersionId: coreTrack._id,
-    expectedSponsorTrackVersionIds: [],
     processedMemberCount: args.teamMemberIds.length,
     processedVitMemberCount: 0,
     processedExternalMemberCount: 0,

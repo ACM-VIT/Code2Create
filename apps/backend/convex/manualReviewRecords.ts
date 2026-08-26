@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -16,6 +17,8 @@ import {
   findOperation,
   operationFingerprint,
   recordOperation,
+  storedOperationResult,
+  storedOperationVersion,
 } from "./lib/operations";
 import {
   boundedActivePermissionGrants,
@@ -36,6 +39,41 @@ const readyUploadKind: "ready" = "ready";
 const completeUploadKind: "complete" = "complete";
 const rejectedRecordStatus: "rejected" = "rejected";
 const importedRecordStatus: "imported" = "imported";
+
+function sourceUploadFingerprint(args: {
+  recordId: Id<"manualReviewRecords">;
+  expectedRecordVersion: number;
+  fileName: string;
+  sourceSha256: string;
+  sourceByteCount: number;
+}) {
+  return operationFingerprint([
+    args.recordId,
+    args.expectedRecordVersion,
+    args.fileName,
+    sourceContentType,
+    args.sourceSha256,
+    args.sourceByteCount,
+  ]);
+}
+
+function validatedSourceSha256(value: string) {
+  if (!/^[a-f0-9]{64}$/.test(value)) {
+    throw new ConvexError({
+      code: "SOURCE_DIGEST_INVALID",
+      message: "The paper source checksum is invalid.",
+    });
+  }
+  return value;
+}
+
+const manualReviewVerificationOperationResult = z
+  .object({
+    version: z.number().int().positive(),
+    status: z.enum(["imported", "rejected"]),
+    evaluationId: z.string().min(1).optional(),
+  })
+  .strict();
 
 type ReadCtx = QueryCtx | MutationCtx;
 type ManualReviewPermission =
@@ -211,7 +249,10 @@ async function requireReviewPermission(
 
 export const workspace = query({
   args: { eventSlug: v.string(), roundId: v.id("reviewRounds") },
-  returns: v.object({ reviews: v.array(reviewView) }),
+  returns: v.object({
+    serverNow: v.number(),
+    reviews: v.array(reviewView),
+  }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -375,7 +416,7 @@ export const workspace = query({
         records: recordViews,
       });
     }
-    return { reviews };
+    return { serverNow: Date.now(), reviews };
   },
 });
 
@@ -430,11 +471,11 @@ export const createDraft = mutation({
     });
     if (prior) {
       const recordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId);
-      const record = recordId ? await ctx.db.get(recordId) : null;
-      if (!record || record.eventId !== event._id) {
-        throw new Error("Prior paper-review draft no longer resolves.");
-      }
-      return { id: record._id, version: record.version };
+      if (!recordId) throw new Error("The stored paper-review draft is invalid.");
+      return {
+        id: recordId,
+        version: storedOperationVersion(prior.resultJson, "paper-review draft"),
+      };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const [incident, session] = await Promise.all([
@@ -679,6 +720,7 @@ export const createDraft = mutation({
       requestFingerprint,
       targetType: "manual_review_record",
       targetId: recordId,
+      resultJson: "1",
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -710,6 +752,10 @@ export const sourceUploadContext = internalQuery({
     eventSlug: v.string(),
     recordId: v.id("manualReviewRecords"),
     expectedRecordVersion: v.number(),
+    fileName: v.string(),
+    sourceSha256: v.string(),
+    sourceByteCount: v.number(),
+    clientOperationId: v.string(),
   },
   returns: v.union(
     v.object({ kind: v.literal("ready") }),
@@ -736,8 +782,54 @@ export const sourceUploadContext = internalQuery({
         message: "Only the person who entered this record may attach its source image.",
       });
     }
+    const fileName = normalizedText(args.fileName, "Source file name", 1, 120);
+    const sourceSha256 = validatedSourceSha256(args.sourceSha256);
+    if (
+      !Number.isSafeInteger(args.sourceByteCount) ||
+      args.sourceByteCount < 1 ||
+      args.sourceByteCount > maximumSourceBytes
+    ) {
+      throw new ConvexError({
+        code: "SOURCE_SIZE_INVALID",
+        message: "The compressed source image must be smaller than 900 KB.",
+      });
+    }
+    const requestFingerprint = sourceUploadFingerprint({
+      recordId: args.recordId,
+      expectedRecordVersion: args.expectedRecordVersion,
+      fileName,
+      sourceSha256,
+      sourceByteCount: args.sourceByteCount,
+    });
+    const prior = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "review.manual_record.submit",
+      requestFingerprint,
+    });
+    if (prior) {
+      const priorRecordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId);
+      if (!priorRecordId || priorRecordId !== record._id) {
+        throw new Error("The stored paper-review submission is invalid.");
+      }
+      return {
+        kind: completeUploadKind,
+        version: storedOperationVersion(prior.resultJson, "paper-review submission"),
+      };
+    }
     if (record.status === "submitted" && record.sourceStorageId !== undefined) {
-      return { kind: completeUploadKind, version: record.version };
+      if (
+        record.sourceFileName === fileName &&
+        record.sourceSha256 === sourceSha256 &&
+        record.sourceByteCount === args.sourceByteCount
+      ) {
+        return { kind: completeUploadKind, version: record.version };
+      }
+      throw new ConvexError({
+        code: "PAPER_REVIEW_CHANGED",
+        message: "This paper review already has a different source image.",
+      });
     }
     if (record.version !== args.expectedRecordVersion || record.status !== "draft") {
       throw new ConvexError({
@@ -786,6 +878,8 @@ export const attachSource = internalMutation({
     storageId: v.id("_storage"),
     fileName: v.string(),
     contentType: v.string(),
+    sourceSha256: v.string(),
+    sourceByteCount: v.number(),
     clientOperationId: v.string(),
   },
   returns: v.object({
@@ -803,26 +897,14 @@ export const attachSource = internalMutation({
         message: "The paper source must be a compressed JPEG image.",
       });
     }
-    const metadata = await ctx.db.system.get("_storage", args.storageId);
-    if (
-      !metadata ||
-      metadata.contentType !== sourceContentType ||
-      metadata.size < 1 ||
-      metadata.size > maximumSourceBytes
-    ) {
-      throw new ConvexError({
-        code: "SOURCE_FILE_INVALID",
-        message: "The source image is missing, too large, or not a JPEG.",
-      });
-    }
-    const requestFingerprint = operationFingerprint([
-      args.recordId,
-      args.expectedRecordVersion,
-      args.storageId,
+    const sourceSha256 = validatedSourceSha256(args.sourceSha256);
+    const requestFingerprint = sourceUploadFingerprint({
+      recordId: args.recordId,
+      expectedRecordVersion: args.expectedRecordVersion,
       fileName,
-      metadata.sha256,
-      metadata.size,
-    ]);
+      sourceSha256,
+      sourceByteCount: args.sourceByteCount,
+    });
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -833,10 +915,28 @@ export const attachSource = internalMutation({
     if (prior) {
       const recordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId);
       const record = recordId ? await ctx.db.get(recordId) : null;
-      if (!record || !record.sourceStorageId || record.eventId !== event._id) {
-        throw new Error("Prior paper-review submission no longer resolves.");
+      if (!record || record.eventId !== event._id || !record.sourceStorageId) {
+        throw new Error("The stored paper-review submission is invalid.");
       }
-      return { id: record._id, version: record.version, storageId: record.sourceStorageId };
+      return {
+        id: record._id,
+        version: storedOperationVersion(prior.resultJson, "paper-review submission"),
+        storageId: record.sourceStorageId,
+      };
+    }
+    const metadata = await ctx.db.system.get("_storage", args.storageId);
+    if (
+      !metadata ||
+      metadata.contentType !== sourceContentType ||
+      metadata.size < 1 ||
+      metadata.size > maximumSourceBytes ||
+      metadata.size !== args.sourceByteCount ||
+      metadata.sha256 !== sourceSha256
+    ) {
+      throw new ConvexError({
+        code: "SOURCE_FILE_INVALID",
+        message: "The source image is missing, too large, or not a JPEG.",
+      });
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const record = await ctx.db.get(args.recordId);
@@ -920,6 +1020,7 @@ export const attachSource = internalMutation({
       requestFingerprint,
       targetType: "manual_review_record",
       targetId: record._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -972,11 +1073,11 @@ export const cancelDraft = mutation({
     });
     if (prior) {
       const recordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId);
-      const record = recordId ? await ctx.db.get(recordId) : null;
-      if (!record || record.eventId !== event._id) {
-        throw new Error("Prior paper-review cancellation no longer resolves.");
-      }
-      return { id: record._id, version: record.version };
+      if (!recordId) throw new Error("The stored paper-review cancellation is invalid.");
+      return {
+        id: recordId,
+        version: storedOperationVersion(prior.resultJson, "paper-review cancellation"),
+      };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const record = await ctx.db.get(args.recordId);
@@ -1016,6 +1117,7 @@ export const cancelDraft = mutation({
       requestFingerprint,
       targetType: "manual_review_record",
       targetId: record._id,
+      resultJson: String(version),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1128,20 +1230,23 @@ export const verify = mutation({
       requestFingerprint,
     });
     if (prior) {
+      const result = storedOperationResult(
+        prior.resultJson,
+        "paper-review verification",
+        manualReviewVerificationOperationResult,
+      );
       const recordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId);
-      const record = recordId ? await ctx.db.get(recordId) : null;
-      if (
-        !record ||
-        record.eventId !== event._id ||
-        (record.status !== "imported" && record.status !== "rejected")
-      ) {
-        throw new Error("Prior paper-review verification no longer resolves.");
+      const evaluationId = result.evaluationId
+        ? ctx.db.normalizeId("reviewEvaluations", result.evaluationId)
+        : undefined;
+      if (!recordId || (result.evaluationId && !evaluationId)) {
+        throw new Error("The stored paper-review verification is invalid.");
       }
       return {
-        id: record._id,
-        version: record.version,
-        status: record.status,
-        ...(record.evaluationId !== undefined ? { evaluationId: record.evaluationId } : {}),
+        id: recordId,
+        version: result.version,
+        status: result.status,
+        ...(evaluationId ? { evaluationId } : {}),
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -1212,6 +1317,7 @@ export const verify = mutation({
         version,
         updatedAt: now,
       });
+      const result = { version, status: rejectedRecordStatus };
       await recordOperation(ctx, {
         eventId: event._id,
         actorPersonId: person._id,
@@ -1220,6 +1326,7 @@ export const verify = mutation({
         requestFingerprint,
         targetType: "manual_review_record",
         targetId: record._id,
+        resultJson: JSON.stringify(result),
         createdAt: now,
       });
       await writeAuditEvent(ctx, {
@@ -1236,7 +1343,7 @@ export const verify = mutation({
         nextSummary: JSON.stringify({ status: "rejected", version }),
         reason,
       });
-      return { id: record._id, version, status: rejectedRecordStatus };
+      return { id: record._id, ...result };
     }
     if (!args.decision.originalFiled) {
       throw new ConvexError({
@@ -1453,6 +1560,11 @@ export const verify = mutation({
       version,
       updatedAt: now,
     });
+    const result = {
+      version,
+      status: importedRecordStatus,
+      evaluationId,
+    };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1461,6 +1573,7 @@ export const verify = mutation({
       requestFingerprint,
       targetType: "manual_review_record",
       targetId: record._id,
+      resultJson: JSON.stringify(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1490,6 +1603,6 @@ export const verify = mutation({
       }),
       reason,
     });
-    return { id: record._id, version, status: importedRecordStatus, evaluationId };
+    return { id: record._id, ...result };
   },
 });

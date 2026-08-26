@@ -3,6 +3,8 @@ import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { api, components } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { floorDigest } from "./lib/floor";
 import { insertPermissionGrant } from "./lib/permissions";
 import schema from "./schema";
 
@@ -58,6 +60,60 @@ describe("floor mapping summary", () => {
     });
     expect(result).not.toHaveProperty("hall");
   });
+
+  test("replays the original scan and assignment receipts", async () => {
+    const backend = seededBackend();
+    const fixture = await seedMapper(backend);
+    const mapper = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    const claimArgs = {
+      eventSlug: fixture.eventSlug,
+      destinationZoneId: fixture.visibleZoneId,
+      credential: fixture.credential,
+      clientOperationId: crypto.randomUUID(),
+    };
+
+    const firstClaim = await mapper.mutation(api.floorMapping.claimTeamQr, claimArgs);
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.visibleTeamId, { name: "Team renamed before placement" });
+      await ctx.db.patch(fixture.visibleZoneId, { name: "Zone renamed before placement" });
+    });
+    await expect(
+      mapper.mutation(api.floorMapping.claimTeamQr, claimArgs),
+    ).resolves.toEqual(firstClaim);
+
+    const assignmentArgs = {
+      eventSlug: fixture.eventSlug,
+      claimId: firstClaim.id,
+      x: 75,
+      y: 75,
+      expectedClaimVersion: firstClaim.version,
+      clientOperationId: crypto.randomUUID(),
+    };
+    const firstAssignment = await mapper.mutation(
+      api.floorMapping.assignClaim,
+      assignmentArgs,
+    );
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.visibleTeamId, { name: "Team renamed after placement" });
+      await ctx.db.patch(fixture.visibleZoneId, { name: "Zone renamed after placement" });
+    });
+    await expect(
+      mapper.mutation(api.floorMapping.assignClaim, assignmentArgs),
+    ).resolves.toEqual(firstAssignment);
+
+    const rows = await backend.run(async (ctx) => ({
+      claims: await ctx.db.query("floorMappingClaims").collect(),
+      locations: await ctx.db
+        .query("teamFloorLocations")
+        .withIndex("by_team_state", (index) => index.eq("teamId", fixture.visibleTeamId))
+        .collect(),
+    }));
+    expect(rows.claims).toHaveLength(1);
+    expect(rows.locations).toHaveLength(2);
+  });
 });
 
 function seededBackend(transactionLimits?: { documentsRead: number }) {
@@ -92,6 +148,7 @@ async function seedMapper(backend: BackendTest, hiddenTeamCount = 1) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       createdByPersonId: personId,
@@ -181,6 +238,7 @@ async function seedMapper(backend: BackendTest, hiddenTeamCount = 1) {
       visibleZoneId,
       ...Array.from({ length: hiddenTeamCount }, () => hiddenZoneId),
     ];
+    const teamIds: Id<"teams">[] = [];
     for (const [index, zoneId] of zoneIds.entries()) {
       const teamId = await ctx.db.insert("teams", {
         eventId,
@@ -192,11 +250,11 @@ async function seedMapper(backend: BackendTest, hiddenTeamCount = 1) {
         activeVitMemberCount: 0,
         activeExternalMemberCount: 1,
         membershipLocked: true,
-        trackLocked: true,
         version: 1,
         createdAt: now,
         updatedAt: now,
       });
+      teamIds.push(teamId);
       await ctx.db.insert("teamFloorLocations", {
         eventId,
         planVersionId,
@@ -212,6 +270,21 @@ async function seedMapper(backend: BackendTest, hiddenTeamCount = 1) {
         mappedAt: now,
       });
     }
+    const visibleTeamId = teamIds[0];
+    if (!visibleTeamId) throw new Error("The visible floor team was not created.");
+    const credential = `c2c-floor-v1.${"a".repeat(64)}`;
+    await ctx.db.insert("floorTeamQrTokens", {
+      eventId,
+      planVersionId,
+      teamId: visibleTeamId,
+      tokenDigest: floorDigest(credential),
+      manualCodeDigest: floorDigest("FLOORCODE1"),
+      tokenVersion: 1,
+      state: "active",
+      expiresAt: now + 5 * 60_000,
+      issuedByMembershipId: membershipId,
+      issuedAt: now,
+    });
     await insertPermissionGrant(ctx, {
       eventId,
       personId,
@@ -224,7 +297,7 @@ async function seedMapper(backend: BackendTest, hiddenTeamCount = 1) {
       grantedByPersonId: personId,
       reason: "Floor summary test",
     });
-    return { eventId };
+    return { eventId, visibleZoneId, visibleTeamId, credential };
   });
   return { ...identity, eventSlug, authUserId, authSessionId };
 }

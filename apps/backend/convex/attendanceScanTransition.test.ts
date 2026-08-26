@@ -2,7 +2,7 @@ import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/compon
 import { convexTest, type TestConvex } from "convex-test";
 import { afterAll, describe, expect, test } from "vitest";
 
-import { components, internal } from "./_generated/api";
+import { api, components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { insertPermissionGrant } from "./lib/permissions.ts";
 import {
@@ -268,7 +268,7 @@ describe("attendance scan direction", () => {
         clientOperationId: "scan-same-id",
         deviceSequence: 1,
       }),
-    ).rejects.toThrow("Operation ID was reused.");
+    ).rejects.toThrow("That operation ID was already used for another command.");
   });
 
   test("an exit scanned in zone B decrements the participant's prior zone A", async () => {
@@ -385,6 +385,56 @@ describe("attendance scan direction", () => {
         .collect(),
     );
     expect(saved).toHaveLength(1);
+  });
+
+  test("keeps scan duty visible while revoked station read hides the phone assignment", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    const operator = asOperator(backend, fixture);
+    const installationId = `fixture-device-${fixture.now}`;
+
+    await expect(
+      operator.query(api.attendanceScanner.current, {
+        eventSlug: fixture.eventSlug,
+        installationId,
+      }),
+    ).resolves.toMatchObject({ station: { id: fixture.stationId } });
+
+    await backend.run(async (ctx) => {
+      const grant = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_event_permission_status", (index) =>
+          index
+            .eq("eventId", fixture.eventId)
+            .eq("permissionKey", "attendance.station.read")
+            .eq("status", "active"),
+        )
+        .unique();
+      if (!grant) throw new Error("The station-read fixture grant is missing.");
+      await ctx.db.patch(grant._id, {
+        status: "revoked",
+        revokedAt: Date.now(),
+        revokedByPersonId: fixture.operatorPersonId,
+        revokeReason: "Scanner projection boundary test",
+      });
+    });
+
+    await expect(
+      operator.query(api.access.reviewerCapabilities, { eventSlug: fixture.eventSlug }),
+    ).resolves.toMatchObject({ attendance: true });
+    await expect(
+      operator.query(api.attendanceScanner.current, {
+        eventSlug: fixture.eventSlug,
+        installationId,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      operator.query(api.attendanceScanner.history, {
+        eventSlug: fixture.eventSlug,
+        installationId,
+        paginationOpts: { numItems: 25, cursor: null },
+      }),
+    ).resolves.toEqual({ page: [], isDone: true, continueCursor: "" });
   });
 });
 
@@ -526,6 +576,7 @@ async function seedScannerFixture(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,
@@ -625,7 +676,6 @@ async function seedScannerFixture(backend: BackendTest) {
       activeVitMemberCount: 1,
       activeExternalMemberCount: 0,
       membershipLocked: true,
-      trackLocked: true,
       version: 1,
       createdAt: now,
       updatedAt: now,

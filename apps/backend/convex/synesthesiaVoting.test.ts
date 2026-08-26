@@ -93,6 +93,78 @@ describe("Synesthesia vote ownership", () => {
     });
   });
 
+  test("pages every open report behind exact request access", async () => {
+    const backend = seededBackend();
+    const fixture = await seedVotingFixture(backend);
+    await backend.run(async (ctx) => {
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.first.personId,
+        eventAccessSubjectId: fixture.first.subjectId,
+        permissionKey: "synesthesia.report.read",
+        scopeType: "song_request",
+        scopeId: fixture.requestId,
+        sourceType: "manual",
+        sourceId: `${fixture.requestId}:report-read`,
+        grantedByPersonId: fixture.first.personId,
+        reason: "Synesthesia report paging test",
+      });
+      const reports = [
+        {
+          reporterMembershipId: fixture.first.membershipId,
+          reporterPersonId: fixture.first.personId,
+          reason: "First report",
+        },
+        {
+          reporterMembershipId: fixture.second.membershipId,
+          reporterPersonId: fixture.second.personId,
+          reason: "Second report",
+        },
+      ];
+      for (const [index, report] of reports.entries()) {
+        await ctx.db.insert("synesthesiaReports", {
+          eventId: fixture.eventId,
+          windowId: fixture.windowId,
+          requestId: fixture.requestId,
+          ...report,
+          state: "open",
+          version: 1,
+          createdAt: fixture.now + index + 1,
+          updatedAt: fixture.now + index + 1,
+        });
+      }
+      const request = await ctx.db.get("songRequests", fixture.requestId);
+      if (!request) throw new Error("The song request is missing.");
+      await ctx.db.patch(request._id, { openReportCount: reports.length });
+    });
+
+    const operator = asAccount(backend, fixture.first);
+    const firstPage = await operator.query(api.synesthesiaOperations.reports, {
+      eventSlug: fixture.eventSlug,
+      requestId: fixture.requestId,
+      paginationOpts: { cursor: null, numItems: 1 },
+    });
+    expect(firstPage.page.map((report) => report.reason)).toEqual(["First report"]);
+    expect(firstPage.isDone).toBe(false);
+
+    const secondPage = await operator.query(api.synesthesiaOperations.reports, {
+      eventSlug: fixture.eventSlug,
+      requestId: fixture.requestId,
+      paginationOpts: { cursor: firstPage.continueCursor, numItems: 1 },
+    });
+    expect(secondPage.page.map((report) => report.reason)).toEqual(["Second report"]);
+    expect(secondPage.isDone).toBe(true);
+
+    await expect(asAccount(backend, fixture.second).query(
+      api.synesthesiaOperations.reports,
+      {
+        eventSlug: fixture.eventSlug,
+        requestId: fixture.requestId,
+        paginationOpts: { cursor: null, numItems: 1 },
+      },
+    )).rejects.toThrow();
+  });
+
   test("returns a compact count payload for a full configured window", async () => {
     const backend = seededBackend();
     const fixture = await seedVotingFixture(backend);
@@ -157,6 +229,7 @@ async function seedVotingFixture(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,
@@ -316,7 +389,6 @@ async function linkParticipant(
     activeVitMemberCount: 1,
     activeExternalMemberCount: 0,
     membershipLocked: true,
-    trackLocked: true,
     version: 1,
     createdAt: now,
     updatedAt: now,

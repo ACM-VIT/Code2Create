@@ -4,6 +4,26 @@ export const participantClass = v.union(
   v.literal("vit_student"),
   v.literal("external_participant"),
 );
+export type ParticipantClass = Infer<typeof participantClass>;
+
+export const participantEligibilityStatus = v.union(
+  v.literal("pending"),
+  v.literal("eligible"),
+  v.literal("rejected"),
+  v.literal("suspended"),
+);
+export type ParticipantEligibilityStatus = Infer<typeof participantEligibilityStatus>;
+
+export const participantOnboardingStatus = v.union(
+  v.literal("profile_required"),
+  v.literal("team_required"),
+  v.literal("project_required"),
+  v.literal("ready_to_submit"),
+  v.literal("submitted"),
+  v.literal("selected"),
+  v.literal("offer_pending"),
+  v.literal("accepted"),
+);
 
 export const studyYear = v.union(
   v.literal("first"),
@@ -50,7 +70,6 @@ export const intakeQuestionPurpose = v.union(
   v.literal("event_goal"),
   v.literal("tradeoff"),
   v.literal("risk"),
-  v.literal("track_fit"),
 );
 
 export type IntakeQuestionPurpose = Infer<typeof intakeQuestionPurpose>;
@@ -133,7 +152,6 @@ export const supportCaseCategory = v.union(
   v.literal("identity"),
   v.literal("team"),
   v.literal("project_intake"),
-  v.literal("track_configuration"),
   v.literal("attendance_credential"),
   v.literal("missing_scan"),
   v.literal("scanner_device"),
@@ -220,6 +238,31 @@ export const songQueueMode = v.union(
   v.literal("deferred"),
 );
 
+export const permissionGrantStatus = v.union(
+  v.literal("scheduled"),
+  v.literal("active"),
+  v.literal("revoked"),
+  v.literal("expired"),
+  v.literal("superseded"),
+);
+
+export const permissionGrantSourceType = v.union(
+  v.literal("production_seed"),
+  v.literal("participant_membership"),
+  v.literal("team_membership"),
+  v.literal("team_lead"),
+  v.literal("role_template"),
+  v.literal("bundle"),
+  v.literal("application_assignment"),
+  v.literal("panel_assignment"),
+  v.literal("reserve_assignment"),
+  v.literal("page_assignment"),
+  v.literal("station_assignment"),
+  v.literal("event_subject"),
+  v.literal("manual"),
+  v.literal("delegated"),
+);
+
 export const permissionBundleScopeSource = v.union(
   v.literal("event"),
   v.literal("target"),
@@ -245,6 +288,14 @@ export const teamStatus = v.union(
   v.literal("completed"),
   v.literal("withdrawn"),
   v.literal("disqualified"),
+);
+export type TeamStatus = Infer<typeof teamStatus>;
+
+export const projectDraftStage = v.union(
+  v.literal("opening"),
+  v.literal("follow_up"),
+  v.literal("review"),
+  v.literal("submitted"),
 );
 
 export const reviewEvaluationState = v.union(v.literal("complete"), v.literal("void"));
@@ -408,12 +459,98 @@ export const barcodeSymbology = v.union(
   v.literal("upc_a"),
 );
 
+export const attendanceSessionKind = v.union(
+  v.literal("hacking"),
+  v.literal("briefing"),
+  v.literal("review_preparation"),
+  v.literal("overnight_access"),
+  v.literal("workshop"),
+  v.literal("other"),
+);
+
+export const attendanceSessionRequirement = v.union(
+  v.literal("required"),
+  v.literal("optional"),
+  v.literal("information_only"),
+);
+export type AttendanceSessionRequirement = Infer<typeof attendanceSessionRequirement>;
+
+export const attendanceSessionStatus = v.union(
+  v.literal("scheduled"),
+  v.literal("preparing"),
+  v.literal("ready"),
+  v.literal("open"),
+  v.literal("closing"),
+  v.literal("closed"),
+  v.literal("cancelled"),
+);
+export type AttendanceSessionStatus = Infer<typeof attendanceSessionStatus>;
+
+export const attendanceExpectationBuildState = v.union(
+  v.literal("not_started"),
+  v.literal("running"),
+  v.literal("complete"),
+  v.literal("failed"),
+  v.literal("cancelled"),
+);
+
+export const attendanceSessionJobKind = v.union(
+  v.literal("build_expectations"),
+  v.literal("finalize_results"),
+  v.literal("cancel_results"),
+);
+
+export const attendanceSessionJobStatus = v.union(
+  v.literal("queued"),
+  v.literal("running"),
+  v.literal("complete"),
+  v.literal("failed"),
+  v.literal("cancelled"),
+);
+
+export const attendanceStationStatus = v.union(
+  v.literal("inactive"),
+  v.literal("active"),
+  v.literal("disabled"),
+);
+export type AttendanceStationStatus = Infer<typeof attendanceStationStatus>;
+
 export const attendanceScanTransition = v.union(
   v.literal("venue_entry"),
   v.literal("venue_exit"),
   v.literal("session_confirm"),
   v.literal("zone_entry"),
   v.literal("zone_exit"),
+);
+
+export const attendancePresenceSourceKind = v.union(
+  v.literal("scanner"),
+  v.literal("staff_reconciliation"),
+  v.literal("manual_import"),
+);
+
+export const attendancePresenceTransition = v.union(
+  v.literal("venue_entry"),
+  v.literal("venue_exit"),
+  v.literal("session_confirm"),
+  v.literal("zone_entry"),
+  v.literal("zone_exit"),
+  v.literal("manual_reconcile"),
+);
+
+export const attendancePresenceOutcome = v.union(
+  v.literal("accepted"),
+  v.literal("duplicate"),
+  v.literal("rejected"),
+  v.literal("needs_review"),
+  v.literal("reconciled"),
+);
+
+export const attendanceCorrectionKind = v.union(
+  v.literal("presence_confirmed"),
+  v.literal("temporary_exit"),
+  v.literal("marked_needs_review"),
+  v.literal("voided_transition"),
 );
 
 export const attendanceStationMode = v.union(
@@ -459,6 +596,7 @@ export const venuePresenceState = v.union(
   v.literal("departed"),
   v.literal("unknown"),
 );
+export type VenuePresenceState = Infer<typeof venuePresenceState>;
 
 export const rollCallPresenceState = v.union(
   v.literal("not_arrived"),
@@ -479,6 +617,43 @@ export const sessionPresenceState = v.union(
   v.literal("needs_review"),
 );
 
+export const attendanceSessionExpectation = v.union(
+  v.literal("required"),
+  v.literal("optional"),
+  v.literal("not_expected"),
+  v.literal("excused"),
+);
+
+export const attendanceSessionResult = v.union(
+  v.literal("attended"),
+  v.literal("absent"),
+  v.literal("partial"),
+  v.literal("excused"),
+  v.literal("not_expected"),
+  v.literal("needs_review"),
+);
+
+export const attendanceExportSnapshotRow = v.object({
+  participantReference: v.optional(v.string()),
+  fullName: v.optional(v.string()),
+  email: v.optional(v.string()),
+  participantClass: v.optional(participantClass),
+  institution: v.optional(v.string()),
+  yearOfStudy: v.optional(studyYear),
+  vitRegistrationNumber: v.optional(v.string()),
+  expectation: v.optional(attendanceSessionExpectation),
+  state: v.optional(sessionPresenceState),
+  result: v.optional(attendanceSessionResult),
+  confirmedAt: v.optional(v.number()),
+  presentDurationMs: v.optional(v.number()),
+  late: v.optional(v.boolean()),
+  sessionName: v.optional(v.string()),
+  sessionStartsAt: v.optional(v.number()),
+  sessionEndsAt: v.optional(v.number()),
+});
+
+export type AttendanceExportSnapshotRow = Infer<typeof attendanceExportSnapshotRow>;
+
 export const reviewRoundStatus = v.union(
   v.literal("draft"),
   v.literal("published"),
@@ -486,6 +661,7 @@ export const reviewRoundStatus = v.union(
   v.literal("closing"),
   v.literal("closed"),
 );
+export type ReviewRoundStatus = Infer<typeof reviewRoundStatus>;
 
 export const eventStatus = v.union(
   v.literal("draft"),
@@ -494,6 +670,7 @@ export const eventStatus = v.union(
   v.literal("live"),
   v.literal("complete"),
 );
+export type EventStatus = Infer<typeof eventStatus>;
 
 export const reviewPanelStatus = v.union(
   v.literal("draft"),
@@ -501,6 +678,73 @@ export const reviewPanelStatus = v.union(
   v.literal("needs_reviewer"),
   v.literal("paused"),
   v.literal("closed"),
+);
+export type ReviewPanelStatus = Infer<typeof reviewPanelStatus>;
+
+export const reviewerClockInStatus = v.union(
+  v.literal("present"),
+  v.literal("temporarily_unavailable"),
+  v.literal("clocked_out"),
+  v.literal("no_show"),
+);
+
+export const reviewerClockInViewStatus = v.union(
+  v.literal("not_clocked_in"),
+  v.literal("present"),
+  v.literal("temporarily_unavailable"),
+  v.literal("clocked_out"),
+  v.literal("no_show"),
+);
+
+export const reviewRoundReserveStatus = v.union(
+  v.literal("available"),
+  v.literal("paged"),
+  v.literal("assigned"),
+  v.literal("removed"),
+);
+
+export const reviewerPageChainState = v.union(
+  v.literal("active"),
+  v.literal("filled"),
+  v.literal("exhausted"),
+  v.literal("cancelled"),
+);
+
+export const reviewerPageState = v.union(
+  v.literal("sent"),
+  v.literal("opened"),
+  v.literal("accepted"),
+  v.literal("declined"),
+  v.literal("expired"),
+  v.literal("cancelled"),
+);
+
+export const reviewerPushDeliveryState = v.union(
+  v.literal("unavailable"),
+  v.literal("pending"),
+  v.literal("sending"),
+  v.literal("retry_wait"),
+  v.literal("provider_accepted"),
+  v.literal("failed"),
+  v.literal("superseded"),
+);
+
+export const outboundCallDeliveryState = v.union(
+  v.literal("unavailable"),
+  v.literal("pending"),
+  v.literal("sending"),
+  v.literal("retry_wait"),
+  v.literal("provider_accepted"),
+  v.literal("queued"),
+  v.literal("initiated"),
+  v.literal("ringing"),
+  v.literal("answered"),
+  v.literal("completed"),
+  v.literal("busy"),
+  v.literal("no_answer"),
+  v.literal("cancelled"),
+  v.literal("failed"),
+  v.literal("ambiguous"),
 );
 
 export const teamRoundState = v.union(
@@ -537,6 +781,26 @@ export const integrationProviderHealth = v.union(
   v.literal("not_connected"),
 );
 
+export const integrationMetricCompleteness = v.union(
+  v.literal("complete"),
+  v.literal("partial"),
+  v.literal("unknown"),
+);
+
+export const githubInstallationState = v.union(
+  v.literal("active"),
+  v.literal("suspended"),
+  v.literal("revoked"),
+);
+
+export const githubRepositoryBindingState = v.union(
+  v.literal("setup"),
+  v.literal("active"),
+  v.literal("inaccessible"),
+  v.literal("revoked"),
+  v.literal("archived"),
+);
+
 export const githubRepositorySyncState = v.union(
   v.literal("pending"),
   v.literal("running"),
@@ -555,6 +819,39 @@ export const githubRepositoryCoverage = v.union(
   v.literal("complete"),
   v.literal("partial"),
   v.literal("unknown"),
+);
+
+export const figmaFileSyncState = v.union(
+  v.literal("pending"),
+  v.literal("running"),
+  v.literal("ready"),
+  v.literal("rate_limited"),
+  v.literal("error"),
+);
+
+export const figmaCredentialState = v.union(
+  v.literal("active"),
+  v.literal("revoked"),
+  v.literal("error"),
+);
+
+export const figmaCredentialConnectionState = v.union(
+  v.literal("active"),
+  v.literal("revoked"),
+);
+
+export const figmaFileBindingState = v.union(
+  v.literal("active"),
+  v.literal("inaccessible"),
+  v.literal("revoked"),
+  v.literal("archived"),
+);
+
+export const figmaWebhookState = v.union(
+  v.literal("pending"),
+  v.literal("active"),
+  v.literal("unavailable"),
+  v.literal("error"),
 );
 
 export const figmaPreviewState = v.union(

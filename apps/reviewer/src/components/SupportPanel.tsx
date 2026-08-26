@@ -223,7 +223,7 @@ export function SupportPanel({ canCreate, runtime }: { canCreate: boolean; runti
   )
 }
 
-type SupportCaseDetailResult = FunctionReturnType<typeof api.support.detailByPublicCode>
+type SupportCaseDetailResult = NonNullable<FunctionReturnType<typeof api.support.detailByPublicCode>>
 
 export function SupportCaseDetail({
   detail,
@@ -318,7 +318,7 @@ export function SupportCaseDetail({
 }
 
 function actionLabel(
-  kind: FunctionReturnType<typeof api.support.detail>['actions'][number]['kind'],
+  kind: NonNullable<FunctionReturnType<typeof api.support.detail>>['actions'][number]['kind'],
   nextState?: SupportState,
 ) {
   if (kind === 'opened') return 'Case opened'

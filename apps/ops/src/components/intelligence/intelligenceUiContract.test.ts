@@ -105,7 +105,7 @@ test('intelligence keeps the legacy console skin removed and ships the chat surf
     stylesheet.includes('@import "tailwindcss/utilities.css"'),
     'the chat surface is styled with Tailwind utilities',
   )
-  assert.ok(stylesheet.includes('--color-ink'), 'the Beautiful UI color tokens must exist')
+  assert.ok(stylesheet.includes('--color-ink'), 'the intelligence color tokens must exist')
   assert.equal(stylesheet.includes('.ic-'), false, 'bespoke ic- chat CSS must stay removed')
 })
 
@@ -118,9 +118,9 @@ test('the reusable trace does not mislabel every agent as the copilot', () => {
   assert.match(autonomyStreamSource, /autonomyRunTerminalState\(run\.state\)/)
   assert.match(autonomyStreamSource, /run\.shutdownState === 'pending'/)
   assert.match(autonomyStreamSource, /run\.shutdownState === 'not_required'/)
-  assert.match(autonomyStreamSource, /durable Worker abort is still being retried/)
-  assert.match(autonomyStreamSource, /No Worker submission was admitted, so no abort was required/)
-  assert.match(autonomyStreamSource, /recorded the durable abort request/)
+  assert.match(autonomyStreamSource, /stop request is still being retried/)
+  assert.match(autonomyStreamSource, /never started, so no stop request was needed/)
+  assert.match(autonomyStreamSource, /stop request was recorded, and this run no longer has event access/)
   assert.doesNotMatch(autonomyStreamSource, /shutdown is confirmed/)
   assert.doesNotMatch(autonomyStreamSource, /intelligenceTerminalState\(stream\.settlements\)/)
 })
@@ -136,11 +136,21 @@ test('the reusable trace exposes complete paged history without losing the readi
   assert.match(autonomyStreamSource, /historyCanLoadMore=\{stream\.historyCanLoadMore\}/)
 })
 
+test('an uncertain copilot send presents one idempotent retry state', () => {
+  assert.match(
+    liveConsoleSource,
+    /Delivery was interrupted\. Retry this same message; it cannot be sent twice\./,
+  )
+  assert.match(liveConsoleSource, /composerPendingConfirmation \? 'Retry same message'/)
+  assert.match(liveConsoleSource, /submitFailed && !composerPendingConfirmation/)
+  assert.doesNotMatch(liveConsoleSource, /previous send may have committed/i)
+})
+
 test('the setup surface configures effect-bounded autonomy, not cognitive quotas', () => {
   const completePolicySource = `${policySource}\n${policyFieldsSource}`
   assert.match(policySource, /api\.operationsAutonomyPolicyConfiguration/)
   assert.match(policyFieldsSource, /Authority boundary/)
-  assert.match(policyFieldsSource, /have no product quota/)
+  assert.match(policyFieldsSource, /investigate as deeply as needed/)
   assert.match(policyFieldsSource, /cannot change access, identity, participant/)
   assert.doesNotMatch(completePolicySource, /label="Model calls"/)
   assert.doesNotMatch(completePolicySource, /Logical model turns|maximumModelCalls|maximumToolCalls|maximumReadBytes|maximumWallClock|maximumRecommendations|maximumDelegations/u)
@@ -150,7 +160,7 @@ test('the setup surface configures effect-bounded autonomy, not cognitive quotas
   assert.match(policyFieldsSource, /Search by display name/)
   assert.match(policyFieldsSource, /Load more accounts/)
   assert.doesNotMatch(policySource, /configuration\.ownerOptions/)
-  assert.match(policyFieldsSource, /The agent still cannot execute it/)
+  assert.match(policyFieldsSource, /The agent cannot execute them/)
   assert.match(policyFieldsSource, /operationsAutonomyReadTools/)
   assert.match(policyFieldsSource, /const readToolOptions = operationsAutonomyReadTools/)
   assert.match(policyFieldsSource, /const areaOptions = operationsHealthAreas/)

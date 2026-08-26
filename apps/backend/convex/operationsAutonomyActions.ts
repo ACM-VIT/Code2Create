@@ -43,6 +43,7 @@ const streamAccess = v.object({
   ticket: v.string(),
   issuedAt: v.number(),
   expiresAt: v.number(),
+  serverNow: v.number(),
   signature: v.string(),
 });
 

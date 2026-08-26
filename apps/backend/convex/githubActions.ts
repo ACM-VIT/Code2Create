@@ -323,6 +323,18 @@ export const addRepository = action({
   },
   returns: v.object({ bindingId: v.id("githubRepositoryBindings") }),
   handler: async (ctx, args): Promise<{ bindingId: Id<"githubRepositoryBindings"> }> => {
+    const prior = await ctx.runQuery(internal.githubIntegrations.repositoryAddReceipt, {
+      eventSlug: args.eventSlug,
+      connectionId: args.connectionId,
+      repositoryId: args.repositoryId,
+      kind: args.kind,
+      ...(args.customKind !== undefined ? { customKind: args.customKind } : {}),
+      purpose: args.purpose,
+      trackedBranch: args.trackedBranch,
+      ...(args.rootPath !== undefined ? { rootPath: args.rootPath } : {}),
+      clientOperationId: args.clientOperationId,
+    });
+    if (prior) return prior;
     const connection: ConnectionContext = await ctx.runQuery(
       internal.githubIntegrations.connectionContext,
       {

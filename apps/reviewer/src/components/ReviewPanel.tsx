@@ -60,6 +60,7 @@ import {
   type ReviewerPushRegistration,
 } from '@/lib/push-notifications'
 import {
+  clearReviewerDevice,
   clearReviewerRegistration,
   createReviewerDevice,
   loadReviewerDevice,
@@ -69,7 +70,12 @@ import {
 } from '@/lib/reviewer-device'
 import { reviewWorkspaceKey } from '@/lib/review-workspace-key'
 import { describeError } from '@/lib/errors'
+import {
+  confirmObservedClientOperation,
+  runPersistentClientOperation,
+} from '@/lib/client-operation-intents'
 import type { ReviewerRuntime } from '@/lib/runtime'
+import { useEstimatedServerNow } from '@/lib/use-estimated-server-now'
 import { palette, radius } from '@/theme'
 
 type ReviewerNow = FunctionReturnType<typeof api.reviewer.now>
@@ -92,7 +98,15 @@ type DraftStorageState =
   | { status: 'loading' }
   | { status: 'ready' }
   | { status: 'unavailable'; message: string }
-type BusyAction = 'create' | 'register' | 'clock_in' | 'start' | null
+type BusyAction =
+  | 'create'
+  | 'reset'
+  | 'register'
+  | 'clock_in'
+  | 'start'
+  | 'demo_seat'
+  | 'demo_review'
+  | null
 type CorrectionCategory = 'reviewer_error' | 'technical_error' | 'other'
 
 const scores = [0, 1, 2, 3, 4] as const
@@ -101,7 +115,7 @@ const returnChoices = [5, 10, 15, 20, 30, 45, 60] as const
 
 export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const eventSlug = runtime.configuration.eventSlug
-  const { reviewHeartbeatIssue } = useReviewerSession()
+  const { localReviewerFixturesEnabled, reviewHeartbeatIssue } = useReviewerSession()
   const platform = reviewerPlatform()
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
   const [notificationState, setNotificationState] = useState<NotificationState>({ status: 'loading' })
@@ -119,6 +133,8 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const registerDevice = useMutation(api.reviewer.registerDevice)
   const clockIn = useMutation(api.reviewer.clockIn)
   const startReview = useMutation(api.reviewOperations.startReview)
+  const seatLocalOperator = useMutation(api.localDemoSeed.seatLocalOperatorOnPanel)
+  const startLocalReview = useMutation(api.localDemoSeed.startLiveReviewForLocalOperator)
   const loadReviewWorkspace = useAction(api.reviewer.reviewWorkspace)
   const [workspaceLoad, setWorkspaceLoad] = useState<WorkspaceLoadState | null>(null)
   const workspaceRequestRef = useRef<ActiveReview['id'] | null>(null)
@@ -130,8 +146,13 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
       .then((record) => {
         if (active) setDeviceState({ status: 'ready', record })
       })
-      .catch((caught: Error) => {
-        if (active) setDeviceState({ status: 'error', message: caught.message })
+      .catch(() => {
+        if (active) {
+          setDeviceState({
+            status: 'error',
+            message: 'This phone cannot read its saved reviewer setup.',
+          })
+        }
       })
     return () => {
       active = false
@@ -164,8 +185,13 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
       .then(() => {
         if (active) setDraftStorageState({ status: 'ready' })
       })
-      .catch((caught: Error) => {
-        if (active) setDraftStorageState({ status: 'unavailable', message: caught.message })
+      .catch(() => {
+        if (active) {
+          setDraftStorageState({
+            status: 'unavailable',
+            message: 'Encrypted drafts are unavailable. Install the signed reviewer app before scoring.',
+          })
+        }
       })
     return () => {
       active = false
@@ -231,6 +257,74 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     setErrorState(message === null ? null : { message, raisedWhile: heartbeatStatus })
   }
   const visibleError = error && error.raisedWhile === heartbeatStatus ? error.message : null
+  const presenceNeedsRetry =
+    current?.review?.status === 'awaiting_presence' &&
+    !current.review.assignment.reviewerPresenceConfirmed
+  const canClearPresenceOperation = current !== undefined && !presenceNeedsRetry
+
+  useEffect(() => {
+    if (!canClearPresenceOperation) return
+    let active = true
+    void confirmObservedClientOperation({
+      eventSlug,
+      slot: 'review.presence',
+    }).catch((caught: unknown) => {
+      if (active) {
+        setErrorState({
+          message: errorMessage(
+            caught,
+            'The saved presence confirmation could not be cleared.',
+          ),
+          raisedWhile: heartbeatStatus,
+        })
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [canClearPresenceOperation, eventSlug, heartbeatStatus])
+
+  const joinLocalDemoPanel = async () => {
+    if (busy) return
+    setBusy('demo_seat')
+    setError(null)
+    try {
+      await seatLocalOperator({ confirmation: 'seat-code2create-local-operator' })
+    } catch (caught) {
+      setError(errorMessage(caught, 'The demo panel could not be prepared.'))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const startLocalDemoReview = async () => {
+    if (busy) return
+    setBusy('demo_review')
+    setError(null)
+    try {
+      await startLocalReview({ confirmation: 'start-code2create-live-review' })
+    } catch (caught) {
+      setError(errorMessage(caught, 'The demo review could not be started.'))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const resetReviewerSetup = async () => {
+    if (busy) return
+    setBusy('reset')
+    try {
+      await clearReviewerDevice(eventSlug)
+      setDeviceState({ status: 'ready', record: null })
+    } catch {
+      setDeviceState({
+        status: 'error',
+        message: 'This phone could not clear its saved setup. Reinstall the reviewer app.',
+      })
+    } finally {
+      setBusy(null)
+    }
+  }
 
   if (!platform) {
     return (
@@ -248,6 +342,11 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
       <Panel>
         <Text style={styles.heading}>Reviewer setup needs attention</Text>
         <Problem>{deviceState.message}</Problem>
+        <Action
+          disabled={busy !== null}
+          label={busy === 'reset' ? 'Resetting…' : 'Reset reviewer setup'}
+          onPress={resetReviewerSetup}
+        />
       </Panel>
     )
   }
@@ -302,7 +401,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
       (notificationState.status === 'ready' ? notificationState.fingerprint : undefined) &&
     current.device.encryptedDraftReady === encryptedDraftReady
   const panelMode = reviewerPanelMode({
-    deviceIsCurrent,
+    deviceIsCurrent: deviceIsCurrent && checksMeetRound,
     hasAssignment: assignment !== null && assignment !== undefined,
     hasReview: current.review !== null && current.review !== undefined,
   })
@@ -426,6 +525,14 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     return (
       <Panel>
         <Nothing>No current review duty</Nothing>
+        {localReviewerFixturesEnabled ? (
+          <Action
+            disabled={busy !== null}
+            label={busy === 'demo_seat' ? 'Joining…' : 'Join demo panel'}
+            onPress={joinLocalDemoPanel}
+          />
+        ) : null}
+        {visibleError ? <Problem>{visibleError}</Problem> : null}
       </Panel>
     )
   }
@@ -527,6 +634,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
       ) : null}
       <Sheet onClose={() => setPagingOpen(false)} title="Getting paged" visible={pagingOpen}>
         <PagingSetup
+          eventSlug={eventSlug}
           onDone={() => setPagingOpen(false)}
           requestPermission={requestNotifications}
           tokenMissing={
@@ -551,6 +659,14 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
           clockedIn={clockedIn}
           current={current}
           onPress={clockIntoRound}
+        />
+      ) : null}
+
+      {localReviewerFixturesEnabled && deviceIsCurrent && checksMeetRound && current.panel && !review ? (
+        <Action
+          disabled={busy !== null}
+          label={busy === 'demo_review' ? 'Starting…' : 'Start demo review'}
+          onPress={startLocalDemoReview}
         />
       ) : null}
 
@@ -932,7 +1048,22 @@ function ReviewQrScanner({
     setScanning(false)
     setError(null)
     try {
-      await confirmPresence({ eventSlug, installationId, reviewSessionId, payload })
+      await runPersistentClientOperation({
+        eventSlug,
+        slot: 'review.presence',
+        fingerprint: JSON.stringify({
+          version: 1,
+          reviewSessionId,
+          installationId,
+        }),
+        execute: (clientOperationId) => confirmPresence({
+          eventSlug,
+          installationId,
+          reviewSessionId,
+          payload,
+          clientOperationId,
+        }),
+      })
       setManualCode('')
     } catch (caught) {
       setError(errorMessage(caught, 'The team code could not be confirmed.'))
@@ -1018,15 +1149,7 @@ function ClockInControl({
   current: ReviewerNow
   onPress: () => Promise<void>
 }) {
-  const [estimatedServerNow, setEstimatedServerNow] = useState(current.serverNow)
-  useEffect(() => {
-    const observedAt = Date.now()
-    const timer = setInterval(
-      () => setEstimatedServerNow(current.serverNow + Date.now() - observedAt),
-      1_000,
-    )
-    return () => clearInterval(timer)
-  }, [current.serverNow])
+  const estimatedServerNow = useEstimatedServerNow(current.serverNow)
   const clockInOpen =
     estimatedServerNow >= assignment.round.clockInOpensAt &&
     estimatedServerNow < assignment.round.endsAt
@@ -1060,12 +1183,7 @@ function ReviewHeading({ review, serverNow }: { review: WorkspaceReview; serverN
       <View style={styles.contextBar}>
         <View style={styles.contextText}>
           <Text numberOfLines={1} style={styles.contextTeam}>{review.team.name}</Text>
-          <Text numberOfLines={1} style={styles.contextDetail}>
-            {review.project.trackName}
-            {review.project.sponsorTracks.length > 0
-              ? ` · ${review.project.sponsorTracks.map((track) => track.name).join(', ')}`
-              : ''}
-          </Text>
+          <Text numberOfLines={1} style={styles.contextDetail}>Submitted project</Text>
         </View>
         {review.plannedEndAt ? (
           <ReviewClock
@@ -1081,18 +1199,9 @@ function ReviewHeading({ review, serverNow }: { review: WorkspaceReview; serverN
   return (
     <View style={styles.reviewHeading}>
       <Text ellipsizeMode="tail" numberOfLines={1} style={styles.eyebrow}>
-        {review.team.tableLabel ?? 'No table yet'}
+        {review.team.tableLabel ?? 'Location not mapped'}
       </Text>
       <Text style={styles.reviewTitle}>{review.team.name}</Text>
-      <Text style={styles.body}>{review.project.trackName}</Text>
-      {review.project.sponsorTracks.length > 0 ? (
-        <View>
-          <Text style={styles.meta}>Sponsor tracks</Text>
-          {review.project.sponsorTracks.map((track) => (
-            <Text key={track.id} style={styles.meta}>{track.name} · {track.eligibilityText}</Text>
-          ))}
-        </View>
-      ) : null}
     </View>
   )
 }
@@ -1106,15 +1215,7 @@ function ReviewClock({
   serverNow: number
   overdue: boolean
 }) {
-  const [estimatedServerNow, setEstimatedServerNow] = useState(serverNow)
-  useEffect(() => {
-    const observedAt = Date.now()
-    const timer = setInterval(
-      () => setEstimatedServerNow(serverNow + Date.now() - observedAt),
-      1_000,
-    )
-    return () => clearInterval(timer)
-  }, [serverNow])
+  const estimatedServerNow = useEstimatedServerNow(serverNow)
   const remainingSeconds = Math.ceil((plannedEndAt - estimatedServerNow) / 1_000)
   const absoluteSeconds = Math.abs(remainingSeconds)
   const hours = Math.floor(absoluteSeconds / 3_600)
@@ -2018,7 +2119,7 @@ const styles = StyleSheet.create({
   evidenceRow: { borderTopWidth: 1, borderTopColor: palette.tile, paddingTop: 10, gap: 3 },
   criterion: { paddingTop: 6, gap: 10 },
   stepMeter: { flexDirection: 'row', gap: 6 },
-  stepSegment: { flex: 1, height: 4, borderRadius: 2, backgroundColor: palette.ghost },
+  stepSegment: { flex: 1, height: 4, borderRadius: 2, backgroundColor: palette.tile },
   stepSegmentDone: { backgroundColor: palette.judging },
   stepSegmentCurrent: { backgroundColor: palette.strong },
   scorecard: { gap: 12, paddingTop: 4 },

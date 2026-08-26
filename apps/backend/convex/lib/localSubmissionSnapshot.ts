@@ -11,7 +11,6 @@ export async function createLocalSubmissionSnapshot(
     teamMemberIds: Id<"teamMembers">[];
     participantPolicyVersionId: Id<"participantPolicyVersions">;
     admissionPolicyVersionId: Id<"admissionPolicyVersions">;
-    coreTrackVersionId: Id<"trackVersions">;
     requesterMembershipId: Id<"eventMemberships">;
     requesterPersonId: Id<"people">;
     submittedAt: number;
@@ -33,8 +32,6 @@ export async function createLocalSubmissionSnapshot(
     sourceDraftVersion: 2,
     participantPolicyVersionId: args.participantPolicyVersionId,
     admissionPolicyVersionId: args.admissionPolicyVersionId,
-    expectedCoreTrackVersionId: args.coreTrackVersionId,
-    expectedSponsorTrackVersionIds: [],
     processedMemberCount: args.team.activeMemberCount,
     processedVitMemberCount: args.team.activeVitMemberCount,
     processedExternalMemberCount: args.team.activeExternalMemberCount,

@@ -135,9 +135,7 @@ export function SynesthesiaScreen() {
   })
 
   const retryMissingRequest = () => run('request-recovery', async () => {
-    const result = await requestOperation.run('song-request', () => () => {
-      throw new Error('There is no earlier music request to confirm.')
-    })
+    const result = await requestOperation.retryPending('song-request')
     const title = pendingRequest?.title ?? 'The track'
     setStatus(result.created ? `${title} was requested.` : `${title} is already in the queue.`)
     setPendingRequest(null)
@@ -148,9 +146,7 @@ export function SynesthesiaScreen() {
     if (!pendingVote) return Promise.resolve()
     const pending = pendingVote
     return run('vote-recovery', async () => {
-      await operations.run(`song-vote:${pending.requestId}`, () => () => {
-        throw new Error('There is no earlier vote change to confirm.')
-      })
+      await operations.retryPending(`song-vote:${pending.requestId}`)
       setPendingVote(null)
     })
   }
@@ -159,9 +155,7 @@ export function SynesthesiaScreen() {
     if (!pendingReportId) return Promise.resolve()
     const requestId = pendingReportId
     return run('report-recovery', async () => {
-      await operations.run(`song-report:${requestId}`, () => () => {
-        throw new Error('There is no earlier music report to confirm.')
-      })
+      await operations.retryPending(`song-report:${requestId}`)
       setPendingReportId(null)
       setReportingId(null)
       setReportReason('')
@@ -196,7 +190,7 @@ export function SynesthesiaScreen() {
                 {' · '}{state.window.catalogSourceLabel}
               </p>
             </div>
-            <div className="music-usage" aria-label="Your music activity">
+            <div className="music-usage" role="group" aria-label="Your music activity">
               <span>{state.usage.requests}/{state.window.maxRequestsPerParticipant} requests</span>
               <span>{state.usage.votes}/{state.window.maxVotesPerParticipant} votes</span>
             </div>

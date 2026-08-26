@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -11,7 +12,12 @@ import {
   requireFreshAuthSession,
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+} from "./lib/operations";
 import { appendReviewPanelVacancyReadFactById } from "./lib/operationsAutonomyReadFacts";
 import { requirePermission, revokeSourceGrants } from "./lib/permissions";
 import { grantPanelMemberAccess } from "./lib/reviewAccess";
@@ -20,6 +26,13 @@ import { normalizedText } from "./lib/strings";
 import { reviewPanelStatus } from "./values";
 
 const liveReviewStatuses = ["awaiting_presence", "active", "overdue"] as const;
+
+const panelMembershipOperationResult = z
+  .object({
+    status: z.enum(["ready", "needs_reviewer", "paused"]),
+    version: z.number().int().positive(),
+  })
+  .strict();
 
 type JoiningReviewer = {
   person: Doc<"people">;
@@ -174,9 +187,14 @@ export const swapPanelMember = mutation({
     if (prior) {
       const panelId = ctx.db.normalizeId("reviewPanels", prior.targetId);
       if (!panelId) throw new Error("Prior panel-membership result is invalid.");
-      const saved = await ctx.db.get(panelId);
-      if (!saved) throw new Error("Prior panel-membership result no longer resolves.");
-      return { panelId, status: saved.status, version: saved.version };
+      return {
+        panelId,
+        ...storedOperationResult(
+          prior.resultJson,
+          "panel-membership",
+          panelMembershipOperationResult,
+        ),
+      };
     }
     const panel = await ctx.db.get(args.panelId);
     if (!panel || panel.eventId !== event._id) {
@@ -349,6 +367,7 @@ export const swapPanelMember = mutation({
       requestFingerprint,
       targetType: "review_panel",
       targetId: panel._id,
+      resultJson: JSON.stringify({ status: nextStatus, version: nextVersion }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {

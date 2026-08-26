@@ -3,6 +3,7 @@ import { verifyGoogleIdToken } from "@better-auth/core/social-providers";
 import { createClient, type GenericCtx } from "@convex-dev/better-auth";
 import { convex, crossDomain } from "@convex-dev/better-auth/plugins";
 import { betterAuth } from "better-auth/minimal";
+import { bearer, oauthPopup } from "better-auth/plugins";
 
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
@@ -110,6 +111,8 @@ export function createAuth(ctx: GenericCtx<DataModel>) {
     },
     plugins: [
       expo(),
+      bearer(),
+      oauthPopup(),
       crossDomain({ siteUrl: participantSiteUrl }),
       convex({ authConfig }),
     ],

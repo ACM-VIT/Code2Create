@@ -51,7 +51,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "config:check": "expo config --type public",
-    "export:check": "expo export --platform all --output-dir dist --clear",
+    "export:check": "node scripts/export-check.mjs",
     "native:android:check": "expo prebuild --platform android --clean --no-install && cd android && ./gradlew app:compileDebugKotlin --no-daemon",
     "build:android:staging": "node scripts/nativeBuild.ts android staging",
     "build:android:production": "node scripts/nativeBuild.ts android production",

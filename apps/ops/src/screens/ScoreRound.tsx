@@ -11,12 +11,13 @@ import {
 } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
+import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
 import { LoadingLabel, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { RoundExportControl } from '../components/RoundExportControl'
 
@@ -26,23 +27,9 @@ type Scorecard = Review['scorecards'][number]
 type CorrectionCase = NonNullable<Scorecard['currentCase']>
 type ValueReview = FunctionReturnType<typeof api.scoreGovernance.roundValues>['page'][number]
 type ValueCriteria = FunctionReturnType<typeof api.scoreGovernance.roundValueCriteria>
+type ReviewView = 'needs_action' | 'settled' | 'all'
 
 const scoreGovernancePageSize = 20
-
-function useEstimatedServerNow(serverNow: number | undefined) {
-  const [estimatedServerNow, setEstimatedServerNow] = useState(serverNow ?? 0)
-  useEffect(() => {
-    if (serverNow === undefined) return
-    const observedAt = Date.now()
-    setEstimatedServerNow(serverNow)
-    const timer = window.setInterval(
-      () => setEstimatedServerNow(serverNow + Date.now() - observedAt),
-      1_000,
-    )
-    return () => window.clearInterval(timer)
-  }, [serverNow])
-  return estimatedServerNow
-}
 
 export function ScoreRound() {
   const { roundId } = useParams<{ roundId: string }>()
@@ -58,6 +45,7 @@ export function ScoreRound() {
     { initialNumItems: scoreGovernancePageSize },
   )
   const [showValues, setShowValues] = useState(false)
+  const [reviewView, setReviewView] = useState<ReviewView>('needs_action')
   const estimatedServerNow = useEstimatedServerNow(completeness?.serverNow)
   const valueCriteria = useQuery(
     api.scoreGovernance.roundValueCriteria,
@@ -105,6 +93,13 @@ export function ScoreRound() {
   const ordered = [...reviews.results].sort(
     (left, right) => reviewRank(left) - reviewRank(right) || left.teamName.localeCompare(right.teamName),
   )
+  const needsActionCount = ordered.filter(reviewNeedsAction).length
+  const settledCount = ordered.length - needsActionCount
+  const visibleReviews = ordered.filter((review) => {
+    if (reviewView === 'needs_action') return reviewNeedsAction(review)
+    if (reviewView === 'settled') return !reviewNeedsAction(review)
+    return true
+  })
   const correctionRequestsOpen =
     completeness.round.status === 'open' &&
     estimatedServerNow <= completeness.round.correctionRequestsCloseAt
@@ -167,8 +162,35 @@ export function ScoreRound() {
         )
       ) : null}
 
-      <div className="score-review-list">
-        {ordered.map((review) => (
+      <section className="score-team-workspace">
+        <div className="section-heading score-team-workspace-heading">
+          <div>
+            <h2>Team results</h2>
+            <p className="muted">Start with missing scores, disagreements, and correction requests.</p>
+          </div>
+          <div className="configuration-tabs score-team-tabs" role="group" aria-label="Team result view">
+            <button
+              aria-pressed={reviewView === 'needs_action'}
+              className={reviewView === 'needs_action' ? 'active' : ''}
+              type="button"
+              onClick={() => setReviewView('needs_action')}
+            >Needs action · {needsActionCount}</button>
+            <button
+              aria-pressed={reviewView === 'settled'}
+              className={reviewView === 'settled' ? 'active' : ''}
+              type="button"
+              onClick={() => setReviewView('settled')}
+            >Settled · {settledCount}</button>
+            <button
+              aria-pressed={reviewView === 'all'}
+              className={reviewView === 'all' ? 'active' : ''}
+              type="button"
+              onClick={() => setReviewView('all')}
+            >All · {ordered.length}</button>
+          </div>
+        </div>
+        <div className="score-review-list">
+        {visibleReviews.map((review) => (
           <ReviewCompleteness
             criteria={completeness.criteria}
             key={review.id}
@@ -177,7 +199,11 @@ export function ScoreRound() {
             roundStatus={completeness.round.status}
           />
         ))}
-      </div>
+        </div>
+        {visibleReviews.length === 0 && ordered.length > 0 ? (
+          <p className="empty">No team matches this result view.</p>
+        ) : null}
+      </section>
 
       {reviews.status === 'CanLoadMore' || reviews.status === 'LoadingMore' ? (
         <button
@@ -225,32 +251,38 @@ function ReviewCompleteness({
   const scorecards = [...review.scorecards].sort(
     (left, right) => Number(left.status !== 'draft') - Number(right.status !== 'draft'),
   )
+  const hasDecision = scorecards.some(
+    (scorecard) => scorecard.currentCase?.state === 'requested' && scorecard.canDecideCorrection,
+  )
+  const [open, setOpen] = useState(hasDecision)
+  const resultLabel = review.evaluationState
+    ? reviewEvaluationStateLabels[review.evaluationState]
+    : 'No result yet'
+  const shortfall = short.length === 0
+    ? disagreeing.length > 0
+      ? `Reviewers are far apart on ${listNames(disagreeing.map((coverage) => criterionLabel(criteria, coverage.criterionId)))}.`
+      : 'Every criterion has the scores it needs.'
+    : `${listNames(short.map((coverage) => criterionLabel(criteria, coverage.criterionId)))} ${short.length === 1 ? 'is' : 'are'} short of the ${short[0]?.requiredCount ?? 0} scores needed.`
   return (
     <article className="score-review-row">
-      <div className="review-team-heading">
-        <div>
+      <button
+        aria-expanded={open}
+        className="score-review-summary"
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="score-review-summary-copy">
           <strong>{review.teamName}</strong>
-          <span>Reviewed by {review.panelName}</span>
-        </div>
-        <div className="review-team-state">
-          <strong>{reviewSessionStatusLabels[review.status]}</strong>
-          <span>
-            {review.evaluationState
-              ? reviewEvaluationStateLabels[review.evaluationState]
-              : 'No result yet'}
+          <small>
+            {review.panelName} · {reviewSessionStatusLabels[review.status]} · {resultLabel}
             {review.manualReviewRecordId ? ' · entered from paper' : ''}
-          </span>
-        </div>
-      </div>
+          </small>
+          <span className={reviewNeedsAction(review) ? 'needs-attention' : ''}>{shortfall}</span>
+        </span>
+        <span className="panel-row-chevron" aria-hidden="true">{open ? '⌄' : '›'}</span>
+      </button>
 
-      <p className="review-team-shortfall">
-        {short.length === 0
-          ? disagreeing.length > 0
-            ? `Fully scored, but the reviewers are far apart on ${listNames(disagreeing.map((coverage) => criterionLabel(criteria, coverage.criterionId)))}.`
-            : 'Every criterion has the scores it needs.'
-          : `${listNames(short.map((coverage) => criterionLabel(criteria, coverage.criterionId)))} ${short.length === 1 ? 'is' : 'are'} short of the ${short[0]?.requiredCount ?? 0} scores needed.`}
-      </p>
-
+      {open ? <div className="score-review-body">
       <div className="coverage-strip">
         {review.coverage.map((coverage) => (
           <span className={coverage.submittedCount < coverage.requiredCount ? 'needs-attention' : ''} key={coverage.criterionId}>
@@ -306,6 +338,7 @@ function ReviewCompleteness({
           </ul>
         </details>
       ) : null}
+      </div> : null}
     </article>
   )
 }
@@ -700,6 +733,14 @@ function reviewRank(review: Review) {
   if (review.evaluationState !== 'complete') return 0
   if (review.cases.some((entry) => entry.state === 'requested' || entry.state === 'open')) return 1
   return 2
+}
+
+function reviewNeedsAction(review: Review) {
+  return review.evaluationState !== 'complete' ||
+    review.coverage.some(
+      (coverage) => coverage.submittedCount < coverage.requiredCount || coverage.spreadFlag,
+    ) ||
+    review.cases.some((entry) => entry.state === 'requested' || entry.state === 'open')
 }
 
 function criterionLabel(criteria: Completeness['criteria'], criterionId: string) {

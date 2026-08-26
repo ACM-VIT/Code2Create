@@ -24,8 +24,8 @@ if (!clientConfiguration.convexUrl || !clientConfiguration.convexSiteUrl) {
       <main className="centered-shell">
         <section className="narrow-panel">
           <p className="eyebrow">Code2Create</p>
-          <h1>Configuration needed</h1>
-          <p className="muted">Set VITE_CONVEX_URL and VITE_CONVEX_SITE_URL before starting the portal.</p>
+          <h1>The portal is unavailable.</h1>
+          <p className="muted">Please try again later or ask an organizer for help.</p>
         </section>
       </main>
     </ClientErrorBoundary>,

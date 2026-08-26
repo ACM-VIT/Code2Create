@@ -29,7 +29,6 @@ import {
   readBoundedRequestText,
 } from "./lib/boundedHttpBody";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
-import { noveltyInputFingerprint } from "./lib/novelty";
 import { findOperation, operationFingerprint } from "./lib/operations";
 import {
   boundedActivePermissionGrants,
@@ -44,10 +43,9 @@ import {
   admissionRecommendationState,
   applicationState,
   criterionAssessment,
-  noveltyBand,
 } from "./values";
 
-/** Pure ranking: human support, AI tie-break, novelty, submission time, then ID. */
+/** Pure ranking: human support, AI tie-break, submission time, then ID. */
 export type AdmissionCohortSignals = {
   applicationId: string;
   teamSize: number;
@@ -55,7 +53,6 @@ export type AdmissionCohortSignals = {
   reviewAccepts: number;
   reviewDeclines: number;
   aiRecommendation: "accept" | "waitlist" | "decline" | "needs_information" | null;
-  noveltyScore: number | null;
 };
 
 const aiSupportRank = {
@@ -77,8 +74,6 @@ export function compareAdmissionCohortCandidates(
     (right.aiRecommendation ? aiSupportRank[right.aiRecommendation] : 0) -
     (left.aiRecommendation ? aiSupportRank[left.aiRecommendation] : 0);
   if (aiSupport !== 0) return aiSupport;
-  const novelty = (right.noveltyScore ?? 0) - (left.noveltyScore ?? 0);
-  if (novelty !== 0) return novelty;
   if (left.submittedAt !== right.submittedAt) return left.submittedAt - right.submittedAt;
   return left.applicationId < right.applicationId
     ? -1
@@ -159,15 +154,9 @@ type CohortRow = {
       assessment: Doc<"admissionAIRecommendations">["criterionAssessments"][number]["assessment"];
     }[];
   } | null;
-  novelty: {
-    score: number;
-    band: NonNullable<Doc<"projectDrafts">["noveltyBand"]>;
-    nearestThemeLabel: string;
-    nearestSimilarity?: number;
-  } | null;
 };
 
-/** Loads only current-version recorded review, AI, and novelty signals. */
+/** Loads only current-version recorded human-review and AI signals. */
 async function loadAdmissionCohortRows(ctx: QueryCtx, event: Doc<"events">) {
   const applications = await ctx.db
     .query("applications")
@@ -193,7 +182,7 @@ async function loadAdmissionCohortRows(ctx: QueryCtx, event: Doc<"events">) {
       policies.set(application.admissionPolicyVersionId, loaded);
       policy = loaded;
     }
-    const [reviews, recommendation, draft] = await Promise.all([
+    const [reviews, recommendation] = await Promise.all([
       ctx.db
         .query("admissionHumanReviews")
         .withIndex("by_application_status", (index) =>
@@ -203,10 +192,6 @@ async function loadAdmissionCohortRows(ctx: QueryCtx, event: Doc<"events">) {
       application.aiRecommendationId
         ? ctx.db.get(application.aiRecommendationId)
         : Promise.resolve(null),
-      ctx.db
-        .query("projectDrafts")
-        .withIndex("by_team", (index) => index.eq("teamId", team._id))
-        .unique(),
     ]);
     const currentReviews = reviews.filter(
       (review) => review.applicationContentVersion === application.contentVersion,
@@ -245,37 +230,6 @@ async function loadAdmissionCohortRows(ctx: QueryCtx, event: Doc<"events">) {
             : [],
         }
       : null;
-    // Use novelty only while its fingerprint matches the submitted idea.
-    const noveltyValid = Boolean(
-      draft &&
-        draft.noveltyScore !== undefined &&
-        draft.noveltyBand !== undefined &&
-        draft.noveltyNearestThemeLabel !== undefined &&
-        draft.noveltyEvaluatedInputFingerprint === noveltyInputFingerprint(project.initialIdea),
-    );
-    let novelty: CohortRow["novelty"] = null;
-    if (
-      noveltyValid &&
-      draft &&
-      draft.noveltyScore !== undefined &&
-      draft.noveltyBand !== undefined &&
-      draft.noveltyNearestThemeLabel !== undefined
-    ) {
-      const preview = draft.noveltyPreviewRequestId
-        ? await ctx.db.get(draft.noveltyPreviewRequestId)
-        : null;
-      novelty = {
-        score: draft.noveltyScore,
-        band: draft.noveltyBand,
-        nearestThemeLabel: draft.noveltyNearestThemeLabel,
-        ...(preview &&
-        preview.state === "succeeded" &&
-        preview.inputFingerprint === draft.noveltyEvaluatedInputFingerprint &&
-        preview.nearestSimilarity !== undefined
-          ? { nearestSimilarity: preview.nearestSimilarity }
-          : {}),
-      };
-    }
     rows.push({
       application,
       team,
@@ -285,7 +239,6 @@ async function loadAdmissionCohortRows(ctx: QueryCtx, event: Doc<"events">) {
       reviewSignal,
       completedCurrentReviews: currentReviews.length,
       ai,
-      novelty,
     });
   }
   return rows;
@@ -315,7 +268,6 @@ function candidateSignals(row: CohortRow): AdmissionCohortSignals {
     reviewAccepts: row.reviewSignal.accept,
     reviewDeclines: row.reviewSignal.decline,
     aiRecommendation: row.ai?.current ? (row.ai.recommendation ?? null) : null,
-    noveltyScore: row.novelty ? row.novelty.score : null,
   };
 }
 
@@ -348,7 +300,6 @@ function candidateView(row: CohortRow, selection: ReturnType<typeof selectAdmiss
     },
     reviewSignal: row.reviewSignal,
     ...(row.ai ? { aiRecommendation: row.ai } : {}),
-    novelty: row.novelty,
     rank: selection.rank,
     cumulativePeople: selection.cumulativePeople,
     entryCapacityPeople: selection.entryCapacityPeople,
@@ -454,16 +405,6 @@ const aiRecommendationView = v.object({
   ),
 });
 
-const noveltyView = v.union(
-  v.null(),
-  v.object({
-    score: v.number(),
-    band: noveltyBand,
-    nearestThemeLabel: v.string(),
-    nearestSimilarity: v.optional(v.number()),
-  }),
-);
-
 const rosterEntryView = v.object({
   applicationId: v.id("applications"),
   teamId: v.id("teams"),
@@ -482,7 +423,6 @@ const candidateViewFields = {
   reviewCoverage: reviewCoverageView,
   reviewSignal: reviewSignalView,
   aiRecommendation: v.optional(aiRecommendationView),
-  novelty: noveltyView,
   rank: v.number(),
   cumulativePeople: v.number(),
   entryCapacityPeople: v.number(),
@@ -710,6 +650,12 @@ export const applyDecision = mutation({
       },
     });
     if (!prior) {
+      if (Date.now() < event.applicationsCloseAt) {
+        return refusal(
+          "APPLICATIONS_STILL_OPEN",
+          "Publish admission decisions after the application deadline.",
+        );
+      }
       if (["accepted", "waitlisted", "declined", "withdrawn"].includes(application.state)) {
         return refusal(
           "APPLICATION_DECIDED",
@@ -822,7 +768,6 @@ const searchMatchView = v.object({
   experienceBand: admissionExperienceBand,
   teamSize: v.number(),
   ideaExcerpt: v.string(),
-  novelty: noveltyView,
   reviewCoverage: reviewCoverageView,
 });
 
@@ -856,7 +801,6 @@ export const submissionSearchRead = internalQuery({
       const haystack = [
         row.team.name,
         row.project.initialIdea,
-        row.novelty?.nearestThemeLabel ?? "",
       ]
         .join("\n")
         .toLocaleLowerCase("en");
@@ -871,7 +815,6 @@ export const submissionSearchRead = internalQuery({
       experienceBand: row.application.experienceBand,
       teamSize: row.teamSize,
       ideaExcerpt: redactProjectText(row.project.initialIdea).slice(0, 240),
-      novelty: row.novelty,
       reviewCoverage: {
         assigned: row.application.assignedReviewCount,
         completed: row.completedCurrentReviews,

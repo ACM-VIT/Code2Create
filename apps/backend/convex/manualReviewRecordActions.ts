@@ -1,3 +1,5 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -33,14 +35,6 @@ export const uploadSource = action({
     version: v.number(),
   }),
   handler: async (ctx, args): Promise<UploadResult> => {
-    const context = await ctx.runQuery(internal.manualReviewRecords.sourceUploadContext, {
-      eventSlug: args.eventSlug,
-      recordId: args.recordId,
-      expectedRecordVersion: args.expectedRecordVersion,
-    });
-    if (context.kind === "complete") {
-      return { recordId: args.recordId, version: context.version };
-    }
     if (args.bytes.byteLength < 4 || args.bytes.byteLength > maximumSourceBytes) {
       throw new ConvexError({
         code: "SOURCE_SIZE_INVALID",
@@ -59,6 +53,19 @@ export const uploadSource = action({
         message: "The paper source must be a valid JPEG image.",
       });
     }
+    const sourceSha256 = bytesToHex(sha256(bytes));
+    const context = await ctx.runQuery(internal.manualReviewRecords.sourceUploadContext, {
+      eventSlug: args.eventSlug,
+      recordId: args.recordId,
+      expectedRecordVersion: args.expectedRecordVersion,
+      fileName: args.fileName,
+      sourceSha256,
+      sourceByteCount: args.bytes.byteLength,
+      clientOperationId: args.clientOperationId,
+    });
+    if (context.kind === "complete") {
+      return { recordId: args.recordId, version: context.version };
+    }
     const storageId = await ctx.storage.store(
       new Blob([args.bytes], { type: sourceContentType }),
     );
@@ -70,6 +77,8 @@ export const uploadSource = action({
         storageId,
         fileName: args.fileName,
         contentType: sourceContentType,
+        sourceSha256,
+        sourceByteCount: args.bytes.byteLength,
         clientOperationId: args.clientOperationId,
       });
       if (attached.storageId !== storageId) await ctx.storage.delete(storageId);

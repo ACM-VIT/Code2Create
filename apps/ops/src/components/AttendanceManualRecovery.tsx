@@ -19,6 +19,15 @@ type IncidentSeverity = FunctionArgs<typeof api.incidents.create>['severity']
 type ManualTransition = FunctionArgs<typeof api.attendanceManualSheets.createDraft>['transition']
 type VerificationKind = 'import' | 'reject'
 
+const manualSheetStatusLabels: Record<ManualSheet['status'], string> = {
+  draft: 'Draft',
+  submitted: 'Awaiting verifier',
+  imported: 'Imported',
+  needs_review: 'Imported · needs review',
+  rejected: 'Rejected',
+  cancelled: 'Cancelled',
+}
+
 type DraftRow = {
   key: string
   lineNumber: string
@@ -28,7 +37,13 @@ type DraftRow = {
   correctionReason: string
 }
 
-export default function AttendanceManualRecovery({ session }: { session: AttendanceSession }) {
+export default function AttendanceManualRecovery({
+  session,
+  serverNow,
+}: {
+  session: AttendanceSession
+  serverNow: number
+}) {
   const incidents = useQuery(api.incidents.forService, {
     eventSlug,
     affectedService: 'attendance_backend',
@@ -56,7 +71,12 @@ export default function AttendanceManualRecovery({ session }: { session: Attenda
       <IncidentArea data={incidents} />
 
       {manual.canEnter && session.status === 'open' ? (
-        <DraftSheetForm session={session} incidents={incidents.incidents} stations={manual.stations} />
+        <DraftSheetForm
+          session={session}
+          incidents={incidents.incidents}
+          stations={manual.stations}
+          serverNow={serverNow}
+        />
       ) : null}
 
       <div className="manual-sheet-list">
@@ -288,10 +308,12 @@ function DraftSheetForm({
   session,
   incidents,
   stations,
+  serverNow,
 }: {
   session: AttendanceSession
   incidents: Incident[]
   stations: ManualStation[]
+  serverNow: number
 }) {
   const createDraft = useMutation(api.attendanceManualSheets.createDraft)
   const approvedIncidents = incidents.filter(
@@ -302,7 +324,7 @@ function DraftSheetForm({
   const [stationId, setStationId] = useState('')
   const [serial, setSerial] = useState('')
   const [transition, setTransition] = useState<ManualTransition>('session_confirm')
-  const [rows, setRows] = useState<DraftRow[]>([newDraftRow(1)])
+  const [rows, setRows] = useState<DraftRow[]>(() => [newDraftRow(1, serverNow)])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -367,7 +389,7 @@ function DraftSheetForm({
         return () => createDraft(args)
       })
       setSerial('')
-      setRows([newDraftRow(1)])
+      setRows([newDraftRow(1, serverNow)])
       setNotice('Draft saved. Attach the source photo below; another person must verify it.')
       setOpen(false)
     } catch (caught) {
@@ -466,7 +488,7 @@ function DraftSheetForm({
           disabled={createPending || rows.length >= 25}
           onClick={() => {
             invalidate()
-            setRows((current) => [...current, newDraftRow(current.length + 1)])
+            setRows((current) => [...current, newDraftRow(current.length + 1, serverNow)])
           }}
         >
           Add line
@@ -736,12 +758,12 @@ function DraftCancellation({ sheet }: { sheet: ManualSheet }) {
   )
 }
 
-function newDraftRow(lineNumber: number): DraftRow {
+function newDraftRow(lineNumber: number, serverNow: number): DraftRow {
   return {
     key: crypto.randomUUID(),
     lineNumber: String(lineNumber),
     participantReference: '',
-    capturedAt: localDateTime(Date.now()),
+    capturedAt: localDateTime(serverNow),
     operatorInitials: '',
     correctionReason: '',
   }
@@ -777,9 +799,7 @@ function transitionName(value: ManualTransition) {
 }
 
 function sheetStatus(value: ManualSheet['status']) {
-  if (value === 'needs_review') return 'Imported · needs review'
-  if (value === 'submitted') return 'Awaiting verifier'
-  return value.charAt(0).toUpperCase() + value.slice(1)
+  return manualSheetStatusLabels[value]
 }
 
 function incidentState(incident: Incident) {

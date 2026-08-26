@@ -27,7 +27,7 @@ export default function DoorToolsRoute() {
         <Row
           detail={
             pendingCount === 0
-              ? 'Everything has reached the server'
+              ? 'All scans have synced'
               : `${pendingCount} still on this phone`
           }
           label="Unsent scans"

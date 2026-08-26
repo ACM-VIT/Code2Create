@@ -10,6 +10,12 @@ import {
   publishCommunicationsPolicy,
   saveCommunicationsPolicyDraft,
 } from "./lib/communicationsPolicy";
+import {
+  configurationDraftResultJson,
+  configurationPublicationResultJson,
+  storedConfigurationDraftResult,
+  storedConfigurationPublicationResult,
+} from "./lib/configurationOperationResult";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import {
@@ -230,13 +236,15 @@ export const createDraft = mutation({
     if (prior) {
       const policyVersionId = ctx.db.normalizeId("communicationsPolicyVersions", prior.targetId);
       if (!policyVersionId) throw new Error("The prior communications-policy draft is invalid.");
-      const policy = await ctx.db.get(policyVersionId);
-      if (!policy) throw new Error("The prior communications-policy draft no longer resolves.");
+      const stored = storedConfigurationDraftResult(
+        prior.resultJson,
+        "communications-policy draft",
+      );
       return {
         policyVersionId,
-        policyVersion: policy.version,
-        checksum: policy.checksum,
-        changed: false,
+        policyVersion: stored.version,
+        checksum: stored.checksum,
+        changed: stored.changed,
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -270,6 +278,11 @@ export const createDraft = mutation({
       requestFingerprint,
       targetType: "communications_policy",
       targetId: result.policyVersionId,
+      resultJson: configurationDraftResultJson({
+        version: result.policyVersion,
+        checksum: result.checksum,
+        changed: result.changed,
+      }),
       createdAt: Date.now(),
     });
     await writeAuditEvent(ctx, {
@@ -325,12 +338,14 @@ export const publish = mutation({
     if (prior) {
       const policyVersionId = ctx.db.normalizeId("communicationsPolicyVersions", prior.targetId);
       if (!policyVersionId) throw new Error("The prior communications-policy publication is invalid.");
-      const policy = await ctx.db.get(policyVersionId);
-      if (!policy) throw new Error("The prior communications-policy publication no longer resolves.");
+      const stored = storedConfigurationPublicationResult(
+        prior.resultJson,
+        "communications-policy publication",
+      );
       return {
         policyVersionId,
-        policyVersion: policy.version,
-        eventVersion: event.version,
+        policyVersion: stored.version,
+        eventVersion: stored.eventVersion,
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -363,6 +378,10 @@ export const publish = mutation({
       requestFingerprint,
       targetType: "communications_policy",
       targetId: result.policyVersionId,
+      resultJson: configurationPublicationResultJson({
+        version: result.policyVersion,
+        eventVersion: event.version + 1,
+      }),
       createdAt: Date.now(),
     });
     await writeAuditEvent(ctx, {

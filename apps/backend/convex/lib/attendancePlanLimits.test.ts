@@ -45,7 +45,7 @@ describe("attendance plan limits", () => {
     const fourCompatible = [
       optionalSession,
       { ...optionalSession, expectedCohort: { kind: "participant_classes" as const, participantClasses: ["vit_student" as const] } },
-      { ...optionalSession, expectedCohort: { kind: "tracks" as const, trackVersionIds: ["track-a"] } },
+      { ...optionalSession, expectedCohort: { kind: "explicit" as const, membershipIds: ["member-a"] } },
       { ...optionalSession, expectedCohort: { kind: "explicit" as const, membershipIds: ["member-a"] } },
     ];
     const disjointClass = {

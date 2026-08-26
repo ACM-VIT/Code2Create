@@ -127,6 +127,63 @@ function runCommandResult(
   return { rehearsalRunId, state, version };
 }
 
+function isRehearsalRunState(value: unknown): value is RehearsalRunState {
+  return (
+    value === "draft" ||
+    value === "active" ||
+    value === "completed" ||
+    value === "cancelled"
+  );
+}
+
+function isRehearsalScenarioState(value: unknown): value is RehearsalScenarioState {
+  return (
+    value === "pending" ||
+    value === "running" ||
+    value === "passed" ||
+    value === "failed" ||
+    value === "blocked"
+  );
+}
+
+function storedStateVersion<State extends string>(
+  resultJson: string | undefined,
+  label: string,
+  isState: (value: unknown) => value is State,
+) {
+  let stored: unknown;
+  try {
+    stored = JSON.parse(resultJson ?? "");
+  } catch {
+    throw new Error(`The stored ${label} result is invalid.`);
+  }
+  if (
+    typeof stored !== "object" ||
+    stored === null ||
+    !("state" in stored) ||
+    !("version" in stored) ||
+    !isState(stored.state) ||
+    typeof stored.version !== "number" ||
+    !Number.isSafeInteger(stored.version) ||
+    stored.version < 1
+  ) {
+    throw new Error(`The stored ${label} result is invalid.`);
+  }
+  return { state: stored.state, version: stored.version };
+}
+
+function storedRunCommandResult(
+  rehearsalRunId: Id<"rehearsalRuns">,
+  resultJson: string | undefined,
+) {
+  const result = storedStateVersion(resultJson, "rehearsal", isRehearsalRunState);
+  return runCommandResult(rehearsalRunId, result.state, result.version);
+}
+
+function stateVersionJson(result: { state: string; version: number }) {
+  return JSON.stringify({ state: result.state, version: result.version });
+}
+
 async function activePermissionGrants(
   ctx: ReadCtx,
   eventId: Id<"events">,
@@ -261,6 +318,7 @@ async function toRunView(
 export const list = query({
   args: { eventSlug: v.string() },
   returns: v.object({
+    serverNow: v.number(),
     canRead: v.boolean(),
     canCreate: v.boolean(),
     runs: v.array(runView),
@@ -305,6 +363,7 @@ export const list = query({
         .slice(0, 20);
     }
     return {
+      serverNow: Date.now(),
       canRead: readGrants.length > 0,
       canCreate: hasEventGrant(manageGrants),
       runs: await Promise.all(
@@ -611,14 +670,9 @@ export const create = mutation({
         "rehearsalRuns",
         prior.targetId,
       );
-      const saved = rehearsalRunId
-        ? await ctx.db.get("rehearsalRuns", rehearsalRunId)
-        : null;
-      if (!saved || saved.eventId !== event._id) {
-        throw new Error("Prior rehearsal result no longer resolves.");
-      }
+      if (!rehearsalRunId) throw new Error("The stored rehearsal result is invalid.");
       return {
-        ...runCommandResult(saved._id, saved.state, saved.version),
+        ...storedRunCommandResult(rehearsalRunId, prior.resultJson),
         scenarioCount: releaseRehearsalTemplate.length,
       };
     }
@@ -662,6 +716,7 @@ export const create = mutation({
         }),
       ),
     );
+    const result = runCommandResult(rehearsalRunId, "draft", 1);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -670,6 +725,7 @@ export const create = mutation({
       requestFingerprint,
       targetType: "rehearsal_run",
       targetId: rehearsalRunId,
+      resultJson: stateVersionJson(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -690,7 +746,7 @@ export const create = mutation({
       reason,
     });
     return {
-      ...runCommandResult(rehearsalRunId, "draft", 1),
+      ...result,
       scenarioCount: releaseRehearsalTemplate.length,
     };
   },
@@ -741,8 +797,7 @@ export const assignWorkstreamOwner = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const current = await requireRun(ctx, event._id, rehearsalRun._id);
-      return runCommandResult(current._id, current.state, current.version);
+      return storedRunCommandResult(rehearsalRun._id, prior.resultJson);
     }
     if (rehearsalRun.state === "completed" || rehearsalRun.state === "cancelled") {
       throw new ConvexError({
@@ -810,6 +865,11 @@ export const assignWorkstreamOwner = mutation({
       version: rehearsalRun.version + 1,
       updatedAt: now,
     });
+    const result = runCommandResult(
+      rehearsalRun._id,
+      rehearsalRun.state,
+      rehearsalRun.version + 1,
+    );
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -818,6 +878,7 @@ export const assignWorkstreamOwner = mutation({
       requestFingerprint,
       targetType: "rehearsal_run",
       targetId: rehearsalRun._id,
+      resultJson: stateVersionJson(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -848,11 +909,7 @@ export const assignWorkstreamOwner = mutation({
       }),
       reason,
     });
-    return runCommandResult(
-      rehearsalRun._id,
-      rehearsalRun.state,
-      rehearsalRun.version + 1,
-    );
+    return result;
   },
 });
 
@@ -898,8 +955,7 @@ export const start = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const current = await requireRun(ctx, event._id, rehearsalRun._id);
-      return runCommandResult(current._id, current.state, current.version);
+      return storedRunCommandResult(rehearsalRun._id, prior.resultJson);
     }
     if (rehearsalRun.state !== "draft" || rehearsalRun.version !== args.expectedVersion) {
       throw new ConvexError({
@@ -978,6 +1034,11 @@ export const start = mutation({
       startedAt: now,
       updatedAt: now,
     });
+    const result = runCommandResult(
+      rehearsalRun._id,
+      "active",
+      rehearsalRun.version + 1,
+    );
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -986,6 +1047,7 @@ export const start = mutation({
       requestFingerprint,
       targetType: "rehearsal_run",
       targetId: rehearsalRun._id,
+      resultJson: stateVersionJson(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1010,11 +1072,7 @@ export const start = mutation({
       }),
       reason,
     });
-    return runCommandResult(
-      rehearsalRun._id,
-      "active",
-      rehearsalRun.version + 1,
-    );
+    return result;
   },
 });
 
@@ -1105,14 +1163,14 @@ export const updateScenario = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const current = await ctx.db.get("rehearsalScenarios", scenario._id);
-      if (!current || current.rehearsalRunId !== rehearsalRun._id) {
-        throw new Error("Prior rehearsal scenario result no longer resolves.");
-      }
+      const result = storedStateVersion(
+        prior.resultJson,
+        "rehearsal scenario",
+        isRehearsalScenarioState,
+      );
       return {
-        rehearsalScenarioId: current._id,
-        state: current.state,
-        version: current.version,
+        rehearsalScenarioId: scenario._id,
+        ...result,
       };
     }
     if (rehearsalRun.state !== "active") {
@@ -1163,6 +1221,11 @@ export const updateScenario = mutation({
       scenarioVersion: scenario.version + 1,
       createdAt: now,
     });
+    const result = {
+      rehearsalScenarioId: scenario._id,
+      state: args.nextState,
+      version: scenario.version + 1,
+    };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1171,6 +1234,7 @@ export const updateScenario = mutation({
       requestFingerprint,
       targetType: "rehearsal_scenario",
       targetId: scenario._id,
+      resultJson: stateVersionJson(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1193,11 +1257,7 @@ export const updateScenario = mutation({
       }),
       reason: note ?? "Scenario execution started",
     });
-    return {
-      rehearsalScenarioId: scenario._id,
-      state: args.nextState,
-      version: scenario.version + 1,
-    };
+    return result;
   },
 });
 
@@ -1248,8 +1308,7 @@ export const complete = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const current = await requireRun(ctx, event._id, rehearsalRun._id);
-      return runCommandResult(current._id, current.state, current.version);
+      return storedRunCommandResult(rehearsalRun._id, prior.resultJson);
     }
     if (rehearsalRun.state !== "active" || rehearsalRun.version !== args.expectedVersion) {
       throw new ConvexError({
@@ -1278,6 +1337,11 @@ export const complete = mutation({
       completedAt: now,
       updatedAt: now,
     });
+    const result = runCommandResult(
+      rehearsalRun._id,
+      "completed",
+      rehearsalRun.version + 1,
+    );
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1286,6 +1350,7 @@ export const complete = mutation({
       requestFingerprint,
       targetType: "rehearsal_run",
       targetId: rehearsalRun._id,
+      resultJson: stateVersionJson(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1309,11 +1374,7 @@ export const complete = mutation({
       }),
       reason: summary,
     });
-    return runCommandResult(
-      rehearsalRun._id,
-      "completed",
-      rehearsalRun.version + 1,
-    );
+    return result;
   },
 });
 
@@ -1359,8 +1420,7 @@ export const cancel = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const current = await requireRun(ctx, event._id, rehearsalRun._id);
-      return runCommandResult(current._id, current.state, current.version);
+      return storedRunCommandResult(rehearsalRun._id, prior.resultJson);
     }
     if (
       (rehearsalRun.state !== "draft" && rehearsalRun.state !== "active") ||
@@ -1380,6 +1440,11 @@ export const cancel = mutation({
       cancelledAt: now,
       updatedAt: now,
     });
+    const result = runCommandResult(
+      rehearsalRun._id,
+      "cancelled",
+      rehearsalRun.version + 1,
+    );
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1388,6 +1453,7 @@ export const cancel = mutation({
       requestFingerprint,
       targetType: "rehearsal_run",
       targetId: rehearsalRun._id,
+      resultJson: stateVersionJson(result),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -1410,10 +1476,6 @@ export const cancel = mutation({
       }),
       reason,
     });
-    return runCommandResult(
-      rehearsalRun._id,
-      "cancelled",
-      rehearsalRun.version + 1,
-    );
+    return result;
   },
 });

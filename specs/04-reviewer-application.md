@@ -52,7 +52,7 @@ The **Now** screen can show only one primary action:
 - Complete device check
 - Clock in
 - Respond to page
-- Go to table
+- Go to team
 - Scan team
 - Continue review
 - Submit scorecard
@@ -60,21 +60,21 @@ The **Now** screen can show only one primary action:
 
 ### Visual direction
 
-The reviewer application does not share the operations dashboard's design. The dashboard is a dense work surface for someone sitting down with a screen; the reviewer application is used standing up, one-handed, in a loud hall, often at three in the morning, by a volunteer who was briefed once. It is closer to a child's learning app than to an operations console: few words, large icons, generous targets, and colour carrying meaning.
+The reviewer application does not share the operations dashboard's design. The dashboard is a dense work surface for a seated operator. A reviewer uses the mobile application while standing, with one hand, in a loud hall, and sometimes late at night. The interface uses few words, large icons, generous targets, and colour with a second non-colour cue.
 
-The single primary action fills the screen. It is a large tappable target with an icon and two or three words, not a row in a list — the reference point is a running app's start button rather than a settings page. A reviewer should be able to tell what to do next from across a table without reading.
+The single primary action fills the screen. It is a large target with an icon and two or three words. It is not a row in a list. Use a running application's start button as the reference. A reviewer must understand the next action from across a table.
 
 Colour identifies the kind of action rather than decorating it, and each action keeps its colour everywhere it appears, so the mapping can be learned once:
 
 | Action | Reads as |
 | --- | --- |
-| Respond to page | Urgent — the panel is waiting on this person |
-| Go to table, Scan team | Move or scan — a physical step |
+| Respond to page | Urgent. The panel is waiting for this person |
+| Go to team, Scan team | Move or scan. This is a physical step |
 | Continue review, Submit scorecard | The work itself |
 | Complete device check, Clock in | Setup, before judging can begin |
-| No current assignment | Resting — nothing is required |
+| No current assignment | Resting. No action is required |
 
-Supporting detail — the team name, the table, the round — sits under the action in small type. Anything a reviewer does not need in order to take the next step belongs on History or Profile, not here.
+Small text under the action shows the team name, hall location, and round. History or Profile contains other detail.
 
 What a reviewer sees follows from their grants, as everywhere else in the product. A person who holds only review grants never sees the scanner, floor mapping, or support surfaces, and the shell does not hint that they exist.
 
@@ -89,6 +89,7 @@ Before clock-in, the app checks:
 - production or approved staging build;
 - minimum build number;
 - notification permission and a registered token;
+- current reviewer-page phone-call consent state and consented E.164 destination;
 - camera permission;
 - local encrypted database can open;
 - current Convex connection;
@@ -125,6 +126,10 @@ The screen has **Accept** and **Decline**. Decline asks for one short reason.
 
 Opening a notification fetches the current page from the server. A stale or canceled page cannot be accepted from an old notification.
 
+The app explains reviewer-page calls during device setup. The reviewer can grant, update, or revoke consent. The screen names the synthesized fallback purpose and destination. The stored row pins the current consent and script-policy versions. Consent does not grant call authority. A call still requires the page chain's current `review.substitute.page` grant. Push remains first unless it has no usable device address.
+
+If a call arrives, it asks the reviewer to open the app. It contains no proposal, participant, score, or private incident detail. The reviewer still accepts or declines in the app.
+
 The page states are:
 
 `sent → opened → accepted`
@@ -155,7 +160,7 @@ When the review starts, the app caches the context required to finish that activ
 
 - submitted initial idea and ordered follow-up question/answer snapshots written by the team;
 - the immutable intake-policy and generated-question references behind that submitted sequence;
-- server-assigned event phase, fresh-project attestation, core-track version, and optional sponsor-track versions;
+- server-assigned event phase and fresh-project attestation;
 - problem, user, and evidence;
 - disclosed general-purpose starting resources and allowed pre-start setup;
 - current demo state;
@@ -167,7 +172,7 @@ When the review starts, the app caches the context required to finish that activ
 
 The app does not download another panel’s notes, private eligibility evidence, or peer score values.
 
-The reviewer can expand a brief field to its exact participant-written source answers. A generated phrase is convenience text, not evidence. The original answer, disclosure, demo, and integration checkpoint remain available, and neither the intake track recommendation nor the admission-analysis recommendation appears in judging context.
+The reviewer can expand a brief field to its exact participant-written source answers. A generated phrase is convenience text, not evidence. The original answer, disclosure, demo, and integration checkpoint remain available. The admission-analysis recommendation does not appear in judging context.
 
 The evidence tab can open:
 
@@ -266,7 +271,7 @@ The app shows **Submitted** only after the server returns the submitted scorecar
 
 If the response is lost, the app queries that operation ID. It either finds the accepted submission, retries the same operation, or shows a definite rejection. It never creates a second scorecard.
 
-After submission, editing is locked. A correction uses the review-administrator flow and keeps both versions.
+After submission, editing is locked. A correction uses the separately authorized correction flow and keeps both versions.
 
 ## 12. Short connection loss
 

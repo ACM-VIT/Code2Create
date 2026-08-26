@@ -1,9 +1,13 @@
 import { ConvexError, v } from "convex/values";
 
-import type { Doc } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
+import {
+  configurationPublicationResultJson,
+  storedConfigurationPublicationResult,
+} from "./lib/configurationOperationResult";
 import {
   floorConfigurationChecksum,
   floorCoordinate,
@@ -15,7 +19,12 @@ import {
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
-import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import {
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationVersion,
+} from "./lib/operations";
 import { normalizedText } from "./lib/strings";
 import { floorMappingState, floorPlanStatus } from "./values";
 
@@ -46,6 +55,7 @@ const planSummary = v.object({
   version: v.number(),
   zoneCount: v.number(),
   landmarkCount: v.number(),
+  zones: v.array(zoneInput),
   publishedAt: v.optional(v.number()),
 });
 
@@ -58,6 +68,13 @@ export const current = query({
     canCreate: v.boolean(),
     canPublish: v.boolean(),
     canFreeze: v.boolean(),
+    freezeReadiness: v.optional(
+      v.object({
+        eligibleTeamCount: v.number(),
+        unmappedTeamCount: v.number(),
+        ready: v.boolean(),
+      }),
+    ),
   }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -70,13 +87,33 @@ export const current = query({
     const publishedPlan = event.publishedFloorPlanVersionId
       ? await ctx.db.get(event.publishedFloorPlanVersionId)
       : null;
-    const [createGrantIds, readGrantIds, publishGrantIds, freezeGrantIds] = await Promise.all([
+    const [
+      createGrantIds,
+      draftReadGrantIds,
+      publishedReadGrantIds,
+      publishGrantIds,
+      freezeGrantIds,
+    ] = await Promise.all([
       matchingPermissionGrantIds(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "floor.plan.create",
         scopeType: "event",
       }),
+      draftPlan
+        ? matchingPermissionGrantIds(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            permissionKey: "floor.plan.read",
+            scopeType: "floor_plan",
+            scopeId: draftPlan._id,
+          })
+        : matchingPermissionGrantIds(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            permissionKey: "floor.plan.read",
+            scopeType: "event",
+          }),
       publishedPlan
         ? matchingPermissionGrantIds(ctx, {
             eventId: event._id,
@@ -122,22 +159,38 @@ export const current = query({
     ]);
     if (
       createGrantIds.length === 0 &&
-      readGrantIds.length === 0 &&
+      draftReadGrantIds.length === 0 &&
+      publishedReadGrantIds.length === 0 &&
       publishGrantIds.length === 0 &&
       freezeGrantIds.length === 0
     ) {
       throw new ConvexError({ code: "ACCESS_DENIED", message: "This account cannot access floor configuration." });
     }
+    const freezeReadiness =
+      publishedPlan &&
+      publishedPlan.eventId === event._id &&
+      publishedPlan.status === "published" &&
+      publishedPlan.mappingState === "open" &&
+      freezeGrantIds.length > 0
+        ? await readFloorFreezeReadiness(ctx, event._id, publishedPlan._id)
+        : undefined;
     return {
       eventVersion: event.version,
-      draftPlan: draftPlan ? await summarizePlan(ctx, draftPlan) : null,
+      draftPlan:
+        draftPlan && (draftReadGrantIds.length > 0 || publishGrantIds.length > 0)
+          ? await summarizePlan(ctx, draftPlan)
+          : null,
       publishedPlan:
-        publishedPlan && publishedPlan.eventId === event._id && publishedPlan.status === "published"
+        publishedPlan &&
+        publishedPlan.eventId === event._id &&
+        publishedPlan.status === "published" &&
+        (publishedReadGrantIds.length > 0 || freezeGrantIds.length > 0)
           ? await summarizePlan(ctx, publishedPlan)
           : null,
       canCreate: createGrantIds.length > 0,
       canPublish: publishGrantIds.length > 0,
       canFreeze: freezeGrantIds.length > 0,
+      ...(freezeReadiness ? { freezeReadiness } : {}),
     };
   },
 });
@@ -173,10 +226,16 @@ export const createDraft = mutation({
     });
     if (prior) {
       const planVersionId = ctx.db.normalizeId("floorPlanVersions", prior.targetId);
-      const plan = planVersionId ? await ctx.db.get(planVersionId) : null;
-      const currentEvent = await ctx.db.get(event._id);
-      if (!planVersionId || !plan || !currentEvent) throw new Error("Prior floor-plan result is unavailable.");
-      return { planVersionId, planNumber: plan.planNumber, eventVersion: currentEvent.version };
+      if (!planVersionId) throw new Error("The stored floor-plan creation is invalid.");
+      const stored = storedConfigurationPublicationResult(
+        prior.resultJson,
+        "floor-plan creation",
+      );
+      return {
+        planVersionId,
+        planNumber: stored.version,
+        eventVersion: stored.eventVersion,
+      };
     }
     if (event.version !== args.expectedEventVersion) throw configurationChanged();
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -267,6 +326,10 @@ export const createDraft = mutation({
       requestFingerprint,
       targetType: "floor_plan",
       targetId: planVersionId,
+      resultJson: configurationPublicationResultJson({
+        version: planNumber,
+        eventVersion,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -313,10 +376,16 @@ export const publish = mutation({
     });
     if (prior) {
       const planVersionId = ctx.db.normalizeId("floorPlanVersions", prior.targetId);
-      const plan = planVersionId ? await ctx.db.get(planVersionId) : null;
-      const currentEvent = await ctx.db.get(event._id);
-      if (!planVersionId || !plan || !currentEvent) throw new Error("Prior publication result is unavailable.");
-      return { planVersionId, planVersion: plan.version, eventVersion: currentEvent.version };
+      if (!planVersionId) throw new Error("The stored floor-plan publication is invalid.");
+      const stored = storedConfigurationPublicationResult(
+        prior.resultJson,
+        "floor-plan publication",
+      );
+      return {
+        planVersionId,
+        planVersion: stored.version,
+        eventVersion: stored.eventVersion,
+      };
     }
     if (event.version !== args.expectedEventVersion) throw configurationChanged();
     const plan = await ctx.db.get(args.planVersionId);
@@ -380,6 +449,10 @@ export const publish = mutation({
       requestFingerprint,
       targetType: "floor_plan",
       targetId: plan._id,
+      resultJson: configurationPublicationResultJson({
+        version: planVersion,
+        eventVersion,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -426,9 +499,11 @@ export const freeze = mutation({
     });
     if (prior) {
       const planVersionId = ctx.db.normalizeId("floorPlanVersions", prior.targetId);
-      const plan = planVersionId ? await ctx.db.get(planVersionId) : null;
-      if (!planVersionId || !plan) throw new Error("Prior freeze result is unavailable.");
-      return { planVersionId, planVersion: plan.version };
+      if (!planVersionId) throw new Error("The stored floor-plan freeze is invalid.");
+      return {
+        planVersionId,
+        planVersion: storedOperationVersion(prior.resultJson, "floor-plan"),
+      };
     }
     const plan = await ctx.db.get(args.planVersionId);
     if (
@@ -449,21 +524,14 @@ export const freeze = mutation({
       scopeType: "floor_plan",
       scopeId: plan._id,
     });
-    const [teams, locations] = await Promise.all([
-      ctx.db.query("teams").withIndex("by_event_status", (index) => index.eq("eventId", event._id)).collect(),
-      ctx.db
-        .query("teamFloorLocations")
-        .withIndex("by_plan_state", (index) => index.eq("planVersionId", plan._id).eq("state", "active"))
-        .collect(),
-    ]);
-    const eligibleTeamIds = new Set(teams.filter((team) => teamCanBeMapped(team.status)).map((team) => team._id));
-    const mappedEligibleIds = new Set(
-      locations.filter((location) => eligibleTeamIds.has(location.teamId)).map((location) => location.teamId),
-    );
-    if (eligibleTeamIds.size === 0 || mappedEligibleIds.size !== eligibleTeamIds.size) {
+    const readiness = await readFloorFreezeReadiness(ctx, event._id, plan._id);
+    if (!readiness.ready) {
       throw new ConvexError({
         code: "FLOOR_MAPPING_INCOMPLETE",
-        message: `${eligibleTeamIds.size - mappedEligibleIds.size} eligible teams still need a hall location.`,
+        message:
+          readiness.eligibleTeamCount === 0
+            ? "At least one eligible team is required before locations can be frozen."
+            : `${readiness.unmappedTeamCount} eligible teams still need a hall location.`,
       });
     }
     const now = Date.now();
@@ -484,6 +552,7 @@ export const freeze = mutation({
       requestFingerprint,
       targetType: "floor_plan",
       targetId: plan._id,
+      resultJson: String(planVersion),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -497,12 +566,49 @@ export const freeze = mutation({
       targetType: "floor_plan",
       targetId: plan._id,
       previousSummary: JSON.stringify({ mappingState: "open", version: plan.version }),
-      nextSummary: JSON.stringify({ mappingState: "frozen", version: planVersion, mappedTeams: mappedEligibleIds.size }),
+      nextSummary: JSON.stringify({
+        mappingState: "frozen",
+        version: planVersion,
+        mappedTeams: readiness.eligibleTeamCount,
+      }),
       reason,
     });
     return { planVersionId: plan._id, planVersion };
   },
 });
+
+async function readFloorFreezeReadiness(
+  ctx: QueryCtx | MutationCtx,
+  eventId: Id<"events">,
+  planVersionId: Id<"floorPlanVersions">,
+) {
+  const [teams, locations] = await Promise.all([
+    ctx.db
+      .query("teams")
+      .withIndex("by_event_status", (index) => index.eq("eventId", eventId))
+      .collect(),
+    ctx.db
+      .query("teamFloorLocations")
+      .withIndex("by_plan_state", (index) =>
+        index.eq("planVersionId", planVersionId).eq("state", "active"),
+      )
+      .collect(),
+  ]);
+  const eligibleTeamIds = new Set(
+    teams.filter((team) => teamCanBeMapped(team.status)).map((team) => team._id),
+  );
+  const mappedEligibleTeamIds = new Set(
+    locations
+      .filter((location) => eligibleTeamIds.has(location.teamId))
+      .map((location) => location.teamId),
+  );
+  const unmappedTeamCount = eligibleTeamIds.size - mappedEligibleTeamIds.size;
+  return {
+    eligibleTeamCount: eligibleTeamIds.size,
+    unmappedTeamCount,
+    ready: eligibleTeamIds.size > 0 && unmappedTeamCount === 0,
+  };
+}
 
 async function summarizePlan(
   ctx: QueryCtx,
@@ -527,6 +633,23 @@ async function summarizePlan(
     version: plan.version,
     zoneCount: zones.length,
     landmarkCount: landmarks.length,
+    zones: zones.map((zone) => ({
+      stableKey: zone.stableKey,
+      name: zone.name,
+      widthMeters: zone.widthMeters,
+      depthMeters: zone.depthMeters,
+      displayOrder: zone.displayOrder,
+      landmarks: landmarks
+        .filter((landmark) => landmark.zoneId === zone._id)
+        .sort((left, right) => left.displayOrder - right.displayOrder)
+        .map((landmark) => ({
+          stableKey: landmark.stableKey,
+          name: landmark.name,
+          x: landmark.x,
+          y: landmark.y,
+          displayOrder: landmark.displayOrder,
+        })),
+    })),
     ...(plan.publishedAt !== undefined ? { publishedAt: plan.publishedAt } : {}),
   };
 }

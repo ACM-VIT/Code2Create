@@ -11,6 +11,7 @@ type ResourceScopeType = Exclude<PermissionScopeType, "event">;
 export function selfScopeKind(permissionKey: PermissionKey) {
   if (
     permissionKey === "reviewer.device.register" ||
+    permissionKey === "communications.call_consent.manage" ||
     permissionKey === "support.case.create" ||
     permissionKey === "support.case.read" ||
     permissionKey === "support.case.reply"

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import type { OperationsIntelligenceStreamAccess } from '@code2create/domain'
 import type { FlueConversationMessage } from '@flue/sdk'
 
 import {
@@ -11,34 +12,46 @@ import {
 } from './intelligenceStream.ts'
 
 test('coalesces concurrent stream access and refreshes expired tickets', async () => {
-  const originalNow = Date.now
-  let now = 10_000
+  let serverNow = 10_000
+  let clientNow = 500
   let calls = 0
-  Date.now = () => now
-  try {
-    const provider = createIntelligenceStreamHeaderProvider(async () => {
-      calls += 1
-      return {
-        conversationUrl: 'https://intelligence.example/v1/operations-copilot/conversations/copilot%3Aevent%3Acv',
-        ticket: `ticket-${calls}`,
-        issuedAt: now,
-        expiresAt: now + 60_000,
-        signature: `signature-${calls}`,
-      }
-    })
+  const provider = createIntelligenceStreamHeaderProvider(async () => {
+    calls += 1
+    return streamAccess(`ticket-${calls}`, serverNow)
+  }, () => clientNow)
 
-    const [first, second] = await Promise.all([provider.headers(), provider.headers()])
-    assert.equal(calls, 1)
-    assert.deepEqual(first, second)
-    assert.equal(first['x-c2c-stream-ticket'], 'ticket-1')
+  const [first, second] = await Promise.all([provider.headers(), provider.headers()])
+  assert.equal(calls, 1)
+  assert.deepEqual(first, second)
+  assert.equal(first['x-c2c-stream-ticket'], 'ticket-1')
 
-    now += 56_000
-    const refreshed = await provider.headers()
-    assert.equal(calls, 2)
-    assert.equal(refreshed['x-c2c-stream-ticket'], 'ticket-2')
-  } finally {
-    Date.now = originalNow
-  }
+  serverNow += 56_000
+  clientNow += 56_000
+  const refreshed = await provider.headers()
+  assert.equal(calls, 2)
+  assert.equal(refreshed['x-c2c-stream-ticket'], 'ticket-2')
+})
+
+test('an invalidated in-flight ticket cannot repopulate the stream cache', async () => {
+  let resolveFirstLoad: ((value: OperationsIntelligenceStreamAccess) => void) | undefined
+  const firstLoad = new Promise<OperationsIntelligenceStreamAccess>((resolve) => {
+    resolveFirstLoad = resolve
+  })
+  let calls = 0
+  const provider = createIntelligenceStreamHeaderProvider(async () => {
+    calls += 1
+    return calls === 1 ? firstLoad : streamAccess('ticket-current', 20_000)
+  }, () => 1_000)
+
+  const staleHeaders = provider.headers()
+  provider.invalidate()
+  const currentHeaders = provider.headers()
+  if (!resolveFirstLoad) throw new Error('The first stream access load did not start.')
+  resolveFirstLoad(streamAccess('ticket-stale', 10_000))
+
+  await assert.rejects(staleHeaders, /changed while access was loading/u)
+  assert.equal((await currentHeaders)['x-c2c-stream-ticket'], 'ticket-current')
+  assert.equal(calls, 2)
 })
 
 test('rejects malformed stream access before exposing headers', async () => {
@@ -47,11 +60,23 @@ test('rejects malformed stream access before exposing headers', async () => {
     ticket: 'ticket',
     issuedAt: 1,
     expiresAt: 2,
+    serverNow: 1,
     signature: 'signature',
   }))
 
   await assert.rejects(provider.headers(), /invalid access ticket/u)
 })
+
+function streamAccess(ticket: string, serverNow: number): OperationsIntelligenceStreamAccess {
+  return {
+    conversationUrl: 'https://intelligence.example/v1/operations-copilot/conversations/copilot%3Aevent%3Acv',
+    ticket,
+    issuedAt: serverNow,
+    expiresAt: serverNow + 60_000,
+    serverNow,
+    signature: `signature-${ticket}`,
+  }
+}
 
 test('loads an opaque older history page through the strict Flue snapshot contract', async () => {
   const originalFetch = globalThis.fetch

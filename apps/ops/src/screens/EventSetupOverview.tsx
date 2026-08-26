@@ -17,7 +17,6 @@ type SetupRowProps = {
 }
 
 export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility }) {
-  const tracks = useQuery(api.intakeConfiguration.current, tabs.showTracks ? { eventSlug } : 'skip')
   const participants = useQuery(
     api.participantPolicyConfiguration.current,
     tabs.showParticipants ? { eventSlug } : 'skip',
@@ -69,7 +68,7 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
       <header className="setup-heading">
         <p className="eyebrow">Code2Create 7.0</p>
         <h1>Event setup</h1>
-        <p className="muted">The choices that shape the participant experience.</p>
+        <p className="muted">Configure what participants see and what staff run.</p>
       </header>
 
       {tabs.showLifecycle ? (
@@ -78,7 +77,7 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
         </SetupSection>
       ) : null}
 
-      {(tabs.showParticipants || tabs.showTracks || tabs.showIntake || tabs.showNovelty || tabs.showAdmissions) ? (
+      {(tabs.showParticipants || tabs.showIntake || tabs.showNovelty || tabs.showAdmissions) ? (
         <SetupSection title="Applications">
           {tabs.showParticipants ? (
             <SetupRow
@@ -89,17 +88,6 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
               state={publishedState(participants, Boolean(participants?.draftPolicy))}
               status={publishedStatus(participants, Boolean(participants?.draftPolicy))}
               to="/configuration/participants"
-            />
-          ) : null}
-          {tabs.showTracks ? (
-            <SetupRow
-              detail={tracks
-                ? `${tracks.publishedCatalog.tracks.length} tracks available to teams`
-                : 'Loading the track list…'}
-              label="Tracks"
-              state={publishedState(tracks, Boolean(tracks?.draftCatalog))}
-              status={publishedStatus(tracks, Boolean(tracks?.draftCatalog))}
-              to="/configuration/tracks"
             />
           ) : null}
           {tabs.showIntake ? (
@@ -120,7 +108,7 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
                   ? `${novelty.publishedCorpus.entryCount} reviewed projects in the comparison set`
                   : 'No comparison set is visible to participants'
                 : 'Loading idea comparison…'}
-              label="Idea comparison"
+              label="Idea originality"
               state={noveltyState(novelty)}
               status={noveltyStatus(novelty)}
               to="/configuration/novelty"
@@ -248,15 +236,15 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
             detail={intelligence
               ? intelligence.scheduler.lifecycle.kind === 'active'
                 ? `${humanizeAutonomyMode(intelligence.publishedPolicy.policy.mode)} · checks every ${intelligence.publishedPolicy.policy.scheduleIntervalMinutes} min`
-                : 'Unattended monitoring is stopped'
-              : 'Loading autonomous operations…'}
-            label="Autonomous operations"
+                : 'Agent monitoring is stopped'
+                : 'Loading the operations agent…'}
+            label="Operations agent"
             state={publishedState(intelligence, Boolean(intelligence?.draftPolicy))}
             status={intelligence
               ? intelligence.draftPolicy
-                ? 'Draft not published'
+                ? 'Finish draft'
                 : intelligence.scheduler.lifecycle.kind === 'active'
-                  ? 'Monitoring'
+                  ? 'Running'
                   : 'Off'
               : 'Loading'}
             to="/configuration/intelligence"
@@ -300,7 +288,7 @@ function publishedState(value: object | undefined, hasDraft: boolean): SetupStat
 
 function publishedStatus(value: object | undefined, hasDraft: boolean) {
   if (value === undefined) return 'Loading'
-  return hasDraft ? 'Draft not published' : 'Published'
+  return hasDraft ? 'Finish draft' : 'Ready'
 }
 
 function optionalPublicationState(
@@ -319,8 +307,8 @@ function optionalPublicationStatus(
   hasDraft: boolean,
 ) {
   if (value === undefined) return 'Loading'
-  if (hasDraft) return 'Draft not published'
-  return hasPublished ? 'Published' : 'Not published'
+  if (hasDraft) return 'Finish draft'
+  return hasPublished ? 'Ready' : 'Set up'
 }
 
 function noveltyState(
@@ -336,9 +324,9 @@ function noveltyStatus(
   value: ReturnType<typeof useQuery<typeof api.noveltyConfiguration.current>>,
 ) {
   if (value === undefined) return 'Loading'
-  if (value.draftCorpus) return 'Draft not published'
-  if (!value.publishedCorpus) return 'Not published'
-  return value.providerConfigured ? 'Published' : 'Provider not connected'
+  if (value.draftCorpus) return 'Finish draft'
+  if (!value.publishedCorpus) return 'Set up'
+  return value.providerConfigured ? 'Ready' : 'Connection needed'
 }
 
 function checkpointState(
@@ -354,7 +342,7 @@ function checkpointStatus(
   value: ReturnType<typeof useQuery<typeof api.checkpointConfiguration.current>>,
 ) {
   if (value === undefined) return 'Loading'
-  if (value.draftPlan) return 'Draft not published'
-  if (!value.hasPublishedPhaseSchedule) return 'Schedule needed'
-  return value.publishedPlan ? 'Published' : 'Not published'
+  if (value.draftPlan) return 'Finish draft'
+  if (!value.hasPublishedPhaseSchedule) return 'Publish schedule first'
+  return value.publishedPlan ? 'Ready' : 'Set up'
 }

@@ -42,7 +42,7 @@ describe("participant policy lifecycle", () => {
     });
   });
 
-  test("preserves the fresh-build rule and explicit team-lock warning", () => {
+  test("preserves the fresh-build rule and explicit team-lock and edit-deadline warning", () => {
     expect(() => normalizeParticipantPolicy({
       ...defaultParticipantPolicy,
       freshProjectAttestation: "We might start the project whenever it is convenient for us.",
@@ -50,7 +50,7 @@ describe("participant policy lifecycle", () => {
     expect(() => normalizeParticipantPolicy({
       ...defaultParticipantPolicy,
       finalSubmissionWarning: "Please check everything carefully before submitting this application.",
-    })).toThrow("team and track lock");
+    })).toThrow("team locks and the proposal remains editable until the deadline");
     expect(participantClassesMeetPolicy(
       ["vit_student", "external_participant"],
       { ...defaultParticipantPolicy, mixedParticipantClassesAllowed: false },
@@ -174,7 +174,6 @@ describe("participant policy lifecycle", () => {
         activeVitMemberCount: 0,
         activeExternalMemberCount: 13,
         membershipLocked: false,
-        trackLocked: false,
         version: 1,
         createdAt: fixture.now,
         updatedAt: fixture.now,
@@ -299,7 +298,6 @@ describe("participant policy lifecycle", () => {
       activeVitMemberCount: 0,
       activeExternalMemberCount: 0,
       membershipLocked: false,
-      trackLocked: false,
       version: 2,
       createdAt: fixture.now,
       updatedAt: fixture.now,
@@ -335,7 +333,6 @@ describe("participant policy lifecycle", () => {
         activeVitMemberCount: 1,
         activeExternalMemberCount: 1,
         membershipLocked: false,
-        trackLocked: false,
         version: 1,
         createdAt: fixture.now,
         updatedAt: fixture.now,
@@ -461,6 +458,7 @@ async function seedFixture(
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,

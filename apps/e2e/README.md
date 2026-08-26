@@ -1,11 +1,24 @@
-# Staging browser verification
+# Browser verification
+
+## Local product flows
+
+Start the full local stack from the repository root, then run the local browser suite in a second terminal:
+
+```sh
+pnpm dev
+pnpm test:e2e:local
+```
+
+The suite uses the local VIT participant, external participant, and Supreme fixtures. It verifies the participant entry and confirmed-team experiences, phone-width layout, the operations overview and check-in route, handbook search and navigation, and all three Worker health routes. Successful runs save viewport screenshots under `outputs/playwright/local-results/` for visual review.
+
+## Staging release verification
 
 This package checks the deployed participant and operations surfaces. It never creates accounts or bypasses Google sign-in.
 
 The protected `Staging release verification` workflow first asks the staging Convex deployment to verify two existing accounts:
 
-- one eligible participant with a complete current profile, an active team membership, and exact profile/team read grants;
-- one operations account with active event-scoped `operations.health.read` and `rehearsal.read` grants.
+- one eligible participant with a complete current profile, an exact team read grant, an immutable submitted project, and a confirmed application whose event has published venue, next-step, and Discord details;
+- one operations account with active event-scoped `operations.health.read` and `rehearsal.read` grants, backed by a current materialized event overview.
 
 The check uses an internal Convex query and a deployment-scoped key. The staging Convex environment must set `C2C_DEPLOYMENT_ENVIRONMENT=staging`. A role label does not satisfy a missing grant.
 

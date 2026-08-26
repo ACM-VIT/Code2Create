@@ -15,6 +15,7 @@ import {
   findOperation,
   operationFingerprint,
   recordOperation,
+  storedOperationVersion,
 } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
@@ -64,17 +65,10 @@ async function changeStatus(
       "eventAccessSubjects",
       prior.targetId,
     );
-    const targetSubject = targetSubjectId
-      ? await ctx.db.get(targetSubjectId)
-      : null;
-    if (
-      !targetSubject ||
-      targetSubject.eventId !== event._id ||
-      targetSubject.personId !== args.targetPersonId
-    ) {
-      throw new Error("Prior event-account status result no longer resolves.");
+    if (!targetSubjectId) {
+      throw new Error("Prior event-account status result is invalid.");
     }
-    return targetSubject.accessVersion;
+    return storedOperationVersion(prior.resultJson, "event-account status");
   }
 
   const authorizingGrantIds = await requirePermission(ctx, {
@@ -171,6 +165,7 @@ async function changeStatus(
     requestFingerprint,
     targetType: "event_access_subject",
     targetId: targetSubject._id,
+    resultJson: String(accessVersion),
     createdAt: now,
   });
   return accessVersion;

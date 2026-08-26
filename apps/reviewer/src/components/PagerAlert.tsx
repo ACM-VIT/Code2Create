@@ -12,6 +12,7 @@ import Svg, { Circle } from 'react-native-svg'
 import { Action, ErrorSheet, QuietAction } from '@/components/ui'
 import { describeError } from '@/lib/errors'
 import { useMutationAttempt } from '@/lib/mutation-attempt'
+import { useEstimatedServerNow } from '@/lib/use-estimated-server-now'
 import { palette, radius, type } from '@/theme'
 
 export type SubstitutePage = NonNullable<
@@ -215,12 +216,7 @@ export function PagerAlert({
 }
 
 function useSecondsRemaining(expiresAt: number, serverNow: number) {
-  const [estimated, setEstimated] = useState(serverNow)
-  useEffect(() => {
-    const observedAt = Date.now()
-    const timer = setInterval(() => setEstimated(serverNow + Date.now() - observedAt), 1_000)
-    return () => clearInterval(timer)
-  }, [serverNow])
+  const estimated = useEstimatedServerNow(serverNow)
   return Math.max(0, Math.ceil((expiresAt - Math.max(estimated, serverNow)) / 1_000))
 }
 
@@ -284,7 +280,7 @@ const ringSize = 176
 const ringStroke = 12
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#121213' },
+  root: { flex: 1, backgroundColor: palette.background },
   safe: { flex: 1, paddingHorizontal: screenPadding, alignItems: 'center' },
 
   eyebrowRow: { marginTop: 22, alignSelf: 'stretch', alignItems: 'center' },

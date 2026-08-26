@@ -52,7 +52,7 @@ Work surface by surface, and keep the whole product working end to end at every 
 
 1. **Inventory.** For each app, list every route, screen, and workspace, and every user-facing state on it. Tag each with persona + job + arc moment. Anything you cannot tag is a finding.
 2. **Walk the journeys.** Run `pnpm dev` from the root; it seeds Code2Create 7.0 including the mid-hackathon demo state (hour 26 of 48: 12 confirmed teams, 48 participants, 15 reviewers, 4 panels with one seat deliberately empty, and queues covering every state including one overdue review and one held team). Walk at minimum:
-   - **Participant:** sign in → profile → team formation → project intake → track choice → lock → admission status → offer response → attendance QR → queue status → review history.
+   - **Participant:** sign in → profile → team formation → project intake → final confirmation → proposal edits until the deadline → admission status → offer response → attendance QR → queue status → review history.
    - **First-run owner:** empty deployment → event setup → open applications.
    - **Ops mid-event:** event health → live review board → fill the empty panel seat → deal with the overdue review and the held team → attendance → a support case.
    - **Reviewer:** sign in → clock in → receive a page → scan → review context → score draft → submit → brief connection loss.

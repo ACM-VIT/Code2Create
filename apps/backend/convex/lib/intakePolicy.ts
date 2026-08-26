@@ -139,7 +139,6 @@ export const defaultDeterministicIntakePolicy: IntakePolicy = {
     "event_goal",
     "tradeoff",
     "risk",
-    "track_fit",
   ],
   fallbackQuestions: [
     {

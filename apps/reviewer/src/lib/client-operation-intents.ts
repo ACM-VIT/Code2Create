@@ -72,6 +72,19 @@ export async function runPersistentClientOperation<Result>(args: {
   })
 }
 
+export async function confirmObservedClientOperation(args: {
+  eventSlug: string
+  slot: string
+}) {
+  const key = operationStorageKey(args.eventSlug, args.slot)
+  await withSlotLock(key, async () => {
+    const current = await readOperation(key)
+    if (!current) return
+    await SecureStore.deleteItemAsync(key)
+    notifyListeners()
+  })
+}
+
 async function readOperation(key: string) {
   const stored = await SecureStore.getItemAsync(key)
   if (!stored) return null
@@ -166,12 +179,12 @@ function notifyListeners() {
 
 function unreadableOperationError() {
   return new OperatorError(
-    'A saved operation cannot be read safely. Do not repeat the action. Ask an administrator to reconcile its server outcome.',
+    'A saved action cannot be verified. Do not repeat it. Ask an administrator to check whether it completed.',
   )
 }
 
 function operationReadError(caught: unknown) {
   return caught instanceof Error
     ? caught.message
-    : 'A saved operation cannot be read safely. Do not repeat the action.'
+    : 'A saved action cannot be verified. Do not repeat it.'
 }

@@ -120,16 +120,41 @@ export async function inspectReleaseFixture(
       participantPolicy.eventId === event._id &&
       participantPolicy.status === "published",
   );
+  const communicationsPolicy = event.publishedCommunicationsPolicyId
+    ? await ctx.db.get(event.publishedCommunicationsPolicyId)
+    : null;
+  const communicationsPolicyReady = Boolean(
+    communicationsPolicy &&
+      communicationsPolicy.eventId === event._id &&
+      communicationsPolicy.status === "published",
+  );
   const [participantAccount, operationsAccount] = await Promise.all([
     releaseAccount(ctx, event._id, participantAccountEmail),
     releaseAccount(ctx, event._id, operationsAccountEmail),
   ]);
+  const operationsHealth = await ctx.db
+    .query("operationsHealthSnapshots")
+    .withIndex("by_event", (index) => index.eq("eventId", event._id))
+    .unique();
   const missing: string[] = [];
 
   if (!process.env.GOOGLE_CLIENT_ID?.trim() || !process.env.GOOGLE_CLIENT_SECRET?.trim()) {
     missing.push("google_auth");
   }
   if (!participantPolicyReady) missing.push("published_participant_policy");
+  if (!communicationsPolicyReady) missing.push("published_communications_policy");
+  if (
+    !operationsHealth ||
+    operationsHealth.state !== "ready" ||
+    operationsHealth.staleAt <= Date.now() ||
+    operationsHealth.eventVersion !== event.version ||
+    operationsHealth.snapshot.event.slug !== event.slug ||
+    operationsHealth.snapshot.event.name !== event.name ||
+    operationsHealth.snapshot.event.timezone !== event.timezone ||
+    operationsHealth.snapshot.event.status !== event.status
+  ) {
+    missing.push("operations_health_snapshot");
+  }
 
   if (!participantAccount) {
     missing.push("participant_account");
@@ -189,16 +214,30 @@ export async function inspectReleaseFixture(
         ) {
           missing.push("participant_team");
         } else {
-          const teamReadGrantIds = await matchingPermissionGrantIds(ctx, {
-            eventId: event._id,
-            eventAccessSubjectId: participantAccount.subject._id,
-            permissionKey: "team.read",
-            scopeType: "team",
-            scopeId: team._id,
-          });
-          const teamReadGrants = await Promise.all(
-            teamReadGrantIds.map((grantId) => ctx.db.get(grantId)),
-          );
+          const [teamReadGrantIds, integrationReadGrantIds, application] = await Promise.all([
+            matchingPermissionGrantIds(ctx, {
+              eventId: event._id,
+              eventAccessSubjectId: participantAccount.subject._id,
+              permissionKey: "team.read",
+              scopeType: "team",
+              scopeId: team._id,
+            }),
+            matchingPermissionGrantIds(ctx, {
+              eventId: event._id,
+              eventAccessSubjectId: participantAccount.subject._id,
+              permissionKey: "integration.read",
+              scopeType: "team",
+              scopeId: team._id,
+            }),
+            ctx.db
+              .query("applications")
+              .withIndex("by_team", (index) => index.eq("teamId", team._id))
+              .unique(),
+          ]);
+          const [teamReadGrants, integrationReadGrants] = await Promise.all([
+            Promise.all(teamReadGrantIds.map((grantId) => ctx.db.get(grantId))),
+            Promise.all(integrationReadGrantIds.map((grantId) => ctx.db.get(grantId))),
+          ]);
           if (
             !teamReadGrants.some(
               (grant) =>
@@ -206,6 +245,39 @@ export async function inspectReleaseFixture(
             )
           ) {
             missing.push("participant_team_read");
+          }
+          if (
+            !integrationReadGrants.some(
+              (grant) =>
+                grant?.scopeType === "team" && grant.scopeId === team._id,
+            )
+          ) {
+            missing.push("participant_integration_read");
+          }
+          if (
+            team.status !== "confirmed" ||
+            !team.membershipLocked ||
+            team.lockedProjectVersionId === undefined
+          ) {
+            missing.push("participant_confirmed_team");
+          }
+          if (
+            !application ||
+            application.eventId !== event._id ||
+            application.state !== "confirmed" ||
+            application.submittedProjectVersionId !== team.lockedProjectVersionId
+          ) {
+            missing.push("participant_confirmed_application");
+          } else {
+            const project = await ctx.db.get(application.submittedProjectVersionId);
+            if (
+              !project ||
+              project.eventId !== event._id ||
+              project.teamId !== team._id ||
+              project.initialIdea.trim().length === 0
+            ) {
+              missing.push("participant_submitted_project");
+            }
           }
         }
       }

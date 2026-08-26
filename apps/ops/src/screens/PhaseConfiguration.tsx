@@ -5,6 +5,8 @@ import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
+import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
+import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -14,6 +16,9 @@ type Configuration = FunctionReturnType<typeof api.phaseConfiguration.current>
 type Schedule = NonNullable<Configuration['publishedSchedule']>
 type SchedulePhase = Schedule['phases'][number]
 type PhaseKey = SchedulePhase['phaseKey']
+type PhaseOperationResult =
+  | FunctionReturnType<typeof api.phaseConfiguration.createDraft>
+  | FunctionReturnType<typeof api.phaseConfiguration.publish>
 
 type EditorPhase = {
   phaseKey: PhaseKey
@@ -63,7 +68,7 @@ export function PhaseConfiguration({
   const configuration = useQuery(api.phaseConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.phaseConfiguration.createDraft)
   const publish = useMutation(api.phaseConfiguration.publish)
-  const operations = useOperationRunner()
+  const operations = useOperationRunner<PhaseOperationResult>()
   const validation = useQuery(
     api.phaseConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftSchedule
@@ -79,6 +84,20 @@ export function PhaseConfiguration({
   const [error, setError] = useState<string | null>(null)
   const draftPending = operations.hasPending('phase-schedule-draft')
   const publishPending = operations.hasPending('phase-schedule-publish')
+  const pendingOperation = publishPending
+    ? {
+        slot: 'phase-schedule-publish',
+        title: 'Finish publishing the event schedule',
+        action: 'Confirm earlier publication',
+      }
+    : draftPending
+      ? {
+          slot: 'phase-schedule-draft',
+          title: 'Finish saving the event schedule draft',
+          action: 'Confirm earlier save',
+        }
+      : null
+  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!configuration) return
@@ -115,6 +134,7 @@ export function PhaseConfiguration({
 
   const saveDraft = async (event: FormEvent) => {
     event.preventDefault()
+    if (busy || operationPending) return
     setBusy(true)
     setError(null)
     try {
@@ -151,7 +171,7 @@ export function PhaseConfiguration({
 
   const publishDraft = async () => {
     const draft = configuration.draftSchedule
-    if (!draft || !validation?.valid) return
+    if (busy || operationPending || !draft || !validation?.valid) return
     setBusy(true)
     setError(null)
     try {
@@ -171,10 +191,24 @@ export function PhaseConfiguration({
     }
   }
 
+  const confirmPendingOperation = async () => {
+    if (busy || pendingOperation === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      await operations.retryPending(pendingOperation.slot)
+      setPublishArmed(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <section className="phase-config-shell">
       <ConfigurationTabs visibility={tabs} />
-      <header className="page-heading track-config-heading">
+      <header className="page-heading configuration-heading">
         <div>
           <p className="eyebrow">Event flow</p>
           <h1>Event schedule</h1>
@@ -193,6 +227,15 @@ export function PhaseConfiguration({
         <div><dt>Phases</dt><dd>5</dd></div>
       </dl>
 
+      {pendingOperation ? (
+        <PendingOperationRecovery
+          action={pendingOperation.action}
+          busy={busy}
+          onConfirm={() => void confirmPendingOperation()}
+          title={pendingOperation.title}
+        />
+      ) : null}
+
       {configuration.publishedSchedule ? (
         <ol className="published-phase-list">
           {configuration.publishedSchedule.phases.map((phase) => (
@@ -206,7 +249,7 @@ export function PhaseConfiguration({
         <p className="notice">No phase schedule is participant-visible yet.</p>
       )}
 
-      {configuration.draftSchedule ? (
+      {!operationPending && configuration.draftSchedule ? (
         <section className="catalog-review">
           <div className="section-heading">
             <div>
@@ -242,7 +285,7 @@ export function PhaseConfiguration({
         </section>
       ) : null}
 
-      {configuration.draftSchedule && configuration.canPublish && validation?.valid && publishArmed ? (
+      {!operationPending && configuration.draftSchedule && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish this event schedule?</h2>
           <p className="muted">
@@ -261,10 +304,15 @@ export function PhaseConfiguration({
         </section>
       ) : null}
 
-      {configuration.canDraft ? (
-        <form className="phase-editor" onSubmit={saveDraft}>
+      {!operationPending && configuration.canDraft ? (
+        <ConfigurationEditorDisclosure
+          defaultOpen={Boolean(configuration.draftSchedule)}
+          description={`Participant-facing phase names, descriptions, and times in ${configuration.timezone}.`}
+          title={configuration.draftSchedule ? 'Continue schedule draft' : 'Edit event schedule'}
+        >
+          <form className="phase-editor" onSubmit={saveDraft}>
           <fieldset disabled={draftPending} style={{ display: 'contents' }}>
-          <div className="track-editor-heading">
+          <div className="configuration-editor-heading">
             <div>
               <p className="eyebrow">{configuration.draftSchedule ? 'Replace current draft' : 'Create a draft'}</p>
               <h2>Schedule</h2>
@@ -300,7 +348,7 @@ export function PhaseConfiguration({
             ))}
           </div>
           </fieldset>
-          <section className="track-save">
+          <section className="configuration-save">
             <label className="field">
               <span>Why this changed</span>
               <textarea disabled={draftPending} required value={draftReason} onChange={(event) => setDraftReason(event.target.value)} />
@@ -314,7 +362,8 @@ export function PhaseConfiguration({
               {busy ? 'Saving…' : draftPending ? 'Confirm earlier draft' : configuration.draftSchedule ? 'Replace draft' : 'Save draft'}
             </button>
           </section>
-        </form>
+          </form>
+        </ConfigurationEditorDisclosure>
       ) : null}
 
       {error ? <p className="notice error" role="alert">{error}</p> : null}

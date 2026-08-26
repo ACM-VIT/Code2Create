@@ -54,7 +54,9 @@ const localOperatorEmail = "supreme@example.test";
 const localLivePanelStableKey = "panel_d";
 const demoSourceId = "local-demo-seed";
 const demoReason = "Local demo fixture";
-const teamsPerBatch = 4;
+const teamsPerBatch = 1;
+const operationsLeadPermissionsPerBatch = 20;
+const reviewersPerBatch = 3;
 
 const demoOperationsLead = {
   key: "operations-lead",
@@ -265,7 +267,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT001",
     name: "Pothole Patrol",
-    trackKey: "open_innovation",
     participantClass: "vit_student",
     initialIdea:
       "Residents photograph road damage on their commute and follow the repair until the ward closes it.",
@@ -274,7 +275,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT002",
     name: "Clinic Compass",
-    trackKey: "health_wellbeing",
     participantClass: "vit_student",
     initialIdea:
       "Carers find the nearest clinic that is actually open, staffed, and reachable without a car.",
@@ -283,7 +283,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT003",
     name: "Study Circle",
-    trackKey: "future_learning",
     participantClass: "vit_student",
     initialIdea:
       "Learners form four-person study groups around one topic, a shared hour, and a concrete goal.",
@@ -292,7 +291,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT004",
     name: "Grid Sense",
-    trackKey: "sustainable_systems",
     participantClass: "vit_student",
     initialIdea:
       "Hostel blocks see which appliances drive their evening peak and what shifting them would save.",
@@ -301,7 +299,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT005",
     name: "Caption Craft",
-    trackKey: "ai_for_people",
     participantClass: "vit_student",
     initialIdea:
       "Lecture recordings get accurate captions and a glossary for the terms the course actually uses.",
@@ -310,7 +307,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT006",
     name: "Transit Tally",
-    trackKey: "open_innovation",
     participantClass: "vit_student",
     initialIdea:
       "Riders report which shared shuttles actually arrived so the next rider plans on real timings.",
@@ -319,7 +315,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT007",
     name: "Calm Hours",
-    trackKey: "health_wellbeing",
     participantClass: "external_participant",
     initialIdea:
       "Shift workers plan sleep around rosters that change weekly instead of a fixed daily routine.",
@@ -328,7 +323,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT008",
     name: "Lab Ledger",
-    trackKey: "future_learning",
     participantClass: "vit_student",
     initialIdea:
       "Lab groups record what they actually changed between attempts so results can be reproduced.",
@@ -337,7 +331,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT009",
     name: "Water Watch",
-    trackKey: "sustainable_systems",
     participantClass: "vit_student",
     initialIdea:
       "Apartment committees spot a leak from the overnight tank curve before the bill tells them.",
@@ -346,7 +339,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT010",
     name: "Voice Bridge",
-    trackKey: "ai_for_people",
     participantClass: "external_participant",
     initialIdea:
       "Frontline staff take a spoken note in their own language and file it in the form the office needs.",
@@ -355,7 +347,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT011",
     name: "Repair Radar",
-    trackKey: "open_innovation",
     participantClass: "vit_student",
     initialIdea:
       "Owners of a broken appliance find the nearest person who has fixed that exact model before.",
@@ -364,7 +355,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT012",
     name: "Shelf Share",
-    trackKey: "sustainable_systems",
     participantClass: "external_participant",
     initialIdea:
       "Canteens publish safe surplus at closing time and nearby collection groups claim it in one tap.",
@@ -373,7 +363,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT013",
     name: "Ledger Lantern",
-    trackKey: "open_innovation",
     participantClass: "vit_student",
     initialIdea:
       "Hostel mess committees publish what they spent each week so residents can question it before the next cycle.",
@@ -383,7 +372,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT014",
     name: "Signal Shed",
-    trackKey: "health_wellbeing",
     participantClass: "external_participant",
     initialIdea:
       "Rural clinics log which medicines ran out and when, so the district can see the pattern rather than the excuse.",
@@ -393,7 +381,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT015",
     name: "Kiln Watch",
-    trackKey: "open_innovation",
     participantClass: "vit_student",
     initialIdea:
       "Brick kiln workers report air quality from their own phones and the reading is tied to the kiln, not the person.",
@@ -407,7 +394,6 @@ const demoTeams = [
   {
     publicCode: "DEMOT016",
     name: "Parcel Pilot",
-    trackKey: "open_innovation",
     participantClass: "external_participant",
     initialIdea:
       "A delivery route planner that reorders stops when a road closes partway through the shift.",
@@ -889,14 +875,13 @@ export const retimeEvent = internalMutation({
   },
 });
 
-export const seedStaffAndReviewers = internalMutation({
+export const seedOperationsLead = internalMutation({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
     requireLocalDeployment();
     const event = await requireDemoEvent(ctx);
     if (await findDemoPerson(ctx, demoOperationsLead.displayName)) return null;
-
     const now = Date.now();
     const lead = await createDemoAccount(ctx, {
       eventId: event._id,
@@ -912,44 +897,93 @@ export const seedStaffAndReviewers = internalMutation({
       assignedByPersonId: lead.personId,
       now,
     });
+    return null;
+  },
+});
+
+export const seedOperationsLeadGrantBatch = internalMutation({
+  args: { batchIndex: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    requireLocalDeployment();
+    const event = await requireDemoEvent(ctx);
+    const permissionKeys = eventWidePermissionKeys().slice(
+      args.batchIndex * operationsLeadPermissionsPerBatch,
+      (args.batchIndex + 1) * operationsLeadPermissionsPerBatch,
+    );
+    if (permissionKeys.length === 0) {
+      throw new Error("The demo operations lead permission batch is empty.");
+    }
+    const lead = await requireDemoPerson(ctx, demoOperationsLead.displayName);
+    const subject = await requireDemoSubject(ctx, event._id, lead._id);
     await grantEventWide(ctx, {
       eventId: event._id,
-      personId: lead.personId,
-      eventAccessSubjectId: lead.subjectId,
-      permissionKeys: eventWidePermissionKeys(),
-      grantedByPersonId: lead.personId,
+      personId: lead._id,
+      eventAccessSubjectId: subject._id,
+      permissionKeys,
+      grantedByPersonId: lead._id,
       reason: "Local demo operations lead",
+      now: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const seedStaffMember = internalMutation({
+  args: { staffIndex: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    requireLocalDeployment();
+    const staff = demoStaff[args.staffIndex];
+    if (!staff) throw new Error("The demo staff index is outside the fixture.");
+    if (await findDemoPerson(ctx, staff.displayName)) return null;
+    const event = await requireDemoEvent(ctx);
+    const lead = await requireDemoPerson(ctx, demoOperationsLead.displayName);
+    const now = Date.now();
+    const account = await createDemoAccount(ctx, {
+      eventId: event._id,
+      displayName: staff.displayName,
+      linkedBy: "access_invitation",
       now,
     });
+    await assignDemoRole(ctx, {
+      eventId: event._id,
+      personId: account.personId,
+      eventAccessSubjectId: account.subjectId,
+      role: staff.role,
+      assignedByPersonId: lead._id,
+      now,
+    });
+    await grantEventWide(ctx, {
+      eventId: event._id,
+      personId: account.personId,
+      eventAccessSubjectId: account.subjectId,
+      permissionKeys: assertPermissionKeys(staff.permissionKeys),
+      grantedByPersonId: lead._id,
+      reason: `Local demo ${staff.key.replaceAll("-", " ")}`,
+      now,
+    });
+    return null;
+  },
+});
 
-    for (const staff of demoStaff) {
-      const account = await createDemoAccount(ctx, {
-        eventId: event._id,
-        displayName: staff.displayName,
-        linkedBy: "access_invitation",
-        now,
-      });
-      await assignDemoRole(ctx, {
-        eventId: event._id,
-        personId: account.personId,
-        eventAccessSubjectId: account.subjectId,
-        role: staff.role,
-        assignedByPersonId: lead.personId,
-        now,
-      });
-      await grantEventWide(ctx, {
-        eventId: event._id,
-        personId: account.personId,
-        eventAccessSubjectId: account.subjectId,
-        permissionKeys: assertPermissionKeys(staff.permissionKeys),
-        grantedByPersonId: lead.personId,
-        reason: `Local demo ${staff.key.replaceAll("-", " ")}`,
-        now,
-      });
-    }
-
+export const seedReviewerBatch = internalMutation({
+  args: { batchIndex: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    requireLocalDeployment();
+    const event = await requireDemoEvent(ctx);
+    const lead = await requireDemoPerson(ctx, demoOperationsLead.displayName);
+    const batch = demoReviewers.slice(
+      args.batchIndex * reviewersPerBatch,
+      (args.batchIndex + 1) * reviewersPerBatch,
+    );
+    if (batch.length === 0) throw new Error("The demo reviewer batch is empty.");
+    const now = Date.now();
     const criterionKeys = demoRubricCriteria.map((criterion) => criterion.stableKey);
-    for (const [index, reviewer] of demoReviewers.entries()) {
+    for (const [offset, reviewer] of batch.entries()) {
+      if (await findDemoPerson(ctx, reviewer.displayName)) continue;
+      const index = args.batchIndex * reviewersPerBatch + offset;
       const account = await createDemoAccount(ctx, {
         eventId: event._id,
         displayName: reviewer.displayName,
@@ -961,7 +995,7 @@ export const seedStaffAndReviewers = internalMutation({
         personId: account.personId,
         eventAccessSubjectId: account.subjectId,
         role: reviewer.role,
-        assignedByPersonId: lead.personId,
+        assignedByPersonId: lead._id,
         now,
       });
       await ctx.db.insert("reviewerProfiles", {
@@ -1006,9 +1040,7 @@ async function createDemoTeam(
     definition: (typeof demoTeams)[number];
     teamIndex: number;
     leadPersonId: Id<"people">;
-    trackVersionId: Id<"trackVersions">;
     participantPolicyVersionId: Id<"participantPolicyVersions">;
-    trackCatalogVersionId: Id<"trackCatalogVersions">;
     intakePolicyVersionId: Id<"intakePolicyVersions">;
     admissionPolicyVersionId: Id<"admissionPolicyVersions">;
     now: number;
@@ -1101,7 +1133,6 @@ async function createDemoTeam(
       (membership) => membership.participantClass === "external_participant",
     ).length,
     membershipLocked: true,
-    trackLocked: true,
     version: 1,
     createdAt: now,
     updatedAt: now,
@@ -1135,13 +1166,9 @@ async function createDemoTeam(
   const projectDraftId = await ctx.db.insert("projectDrafts", {
     eventId: event._id,
     teamId,
-    trackCatalogVersionId: args.trackCatalogVersionId,
     intakePolicyVersionId: args.intakePolicyVersionId,
     stage: "submitted",
     initialIdea: definition.initialIdea,
-    chosenCoreTrackVersionId: args.trackVersionId,
-    chosenSponsorTrackVersionIds: [],
-    recommendationState: "not_requested",
     freshnessAttestedByMembershipId: leadMembership._id,
     freshnessAttestedAt: now - 30 * hour,
     version: 2,
@@ -1155,7 +1182,6 @@ async function createDemoTeam(
     teamMemberIds,
     participantPolicyVersionId: args.participantPolicyVersionId,
     admissionPolicyVersionId: args.admissionPolicyVersionId,
-    coreTrackVersionId: args.trackVersionId,
     requesterMembershipId: leadMembership._id,
     requesterPersonId: leadMembership.personId,
     submittedAt: now - 29 * hour,
@@ -1167,8 +1193,6 @@ async function createDemoTeam(
     initialIdea: definition.initialIdea,
     intakePolicyVersionId: args.intakePolicyVersionId,
     intakeResponses: [],
-    coreTrackVersionId: args.trackVersionId,
-    sponsorTrackVersionIds: [],
     lockedRosterSnapshotId: submissionAttemptId,
     lockedMemberCount: teamMemberIds.length,
     lockedLeadMembershipId: leadMembership._id,
@@ -1181,8 +1205,6 @@ async function createDemoTeam(
       participantPolicyVersionId: args.participantPolicyVersionId,
       previewedDraftVersion: 2,
       previewedTeamVersion: 1,
-      previewedTrackVersionId: args.trackVersionId,
-      previewedSponsorTrackVersionIds: [],
       confirmedByMembershipId: leadMembership._id,
       confirmedAt: now - 29 * hour,
     },
@@ -1315,41 +1337,32 @@ export const seedTeamBatch = internalMutation({
         index.eq("eventId", event._id).eq("publicCode", first.publicCode),
       )
       .unique();
-    if (existing) return null;
+    if (existing) {
+      const lead = await requireDemoPerson(ctx, demoOperationsLead.displayName);
+      await reconcileDemoTeamAccess(ctx, event, batch, lead._id);
+      return null;
+    }
 
     const participantPolicyVersionId = event.publishedParticipantPolicyId;
-    const trackCatalogVersionId = event.publishedTrackCatalogId;
     const intakePolicyVersionId = event.publishedIntakePolicyId;
     const admissionPolicyVersionId = event.publishedAdmissionPolicyId;
     if (
       !participantPolicyVersionId ||
-      !trackCatalogVersionId ||
       !intakePolicyVersionId ||
       !admissionPolicyVersionId
     ) {
       throw new Error("The local event is missing a published policy the demo teams need.");
     }
-    const tracks = await ctx.db
-      .query("trackVersions")
-      .withIndex("by_catalog_type_order", (index) =>
-        index.eq("catalogVersionId", trackCatalogVersionId).eq("type", "core"),
-      )
-      .collect();
-    const trackByKey = new Map(tracks.map((track) => [track.stableKey, track._id]));
     const lead = await requireDemoPerson(ctx, demoOperationsLead.displayName);
 
     const now = Date.now();
     for (const [offset, definition] of batch.entries()) {
-      const trackVersionId = trackByKey.get(definition.trackKey);
-      if (!trackVersionId) throw new Error(`The demo track ${definition.trackKey} is missing.`);
       await createDemoTeam(ctx, {
         event,
         definition,
         teamIndex: args.batchIndex * teamsPerBatch + offset,
         leadPersonId: lead._id,
-        trackVersionId,
         participantPolicyVersionId,
-        trackCatalogVersionId,
         intakePolicyVersionId,
         admissionPolicyVersionId,
         now,
@@ -1358,6 +1371,41 @@ export const seedTeamBatch = internalMutation({
     return null;
   },
 });
+
+async function reconcileDemoTeamAccess(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  definitions: readonly (typeof demoTeams)[number][],
+  actorPersonId: Id<"people">,
+) {
+  for (const definition of definitions) {
+    const team = await ctx.db
+      .query("teams")
+      .withIndex("by_event_code", (index) =>
+        index.eq("eventId", event._id).eq("publicCode", definition.publicCode),
+      )
+      .unique();
+    if (!team) throw new Error(`The local demo team ${definition.publicCode} is missing.`);
+    const members = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_team_status", (index) =>
+        index.eq("teamId", team._id).eq("status", "active"),
+      )
+      .collect();
+    for (const member of members) {
+      const membership = await ctx.db.get(member.membershipId);
+      if (!membership) throw new Error("A local demo team member has no event membership.");
+      await addTeamMemberGrants(ctx, {
+        event,
+        membership,
+        teamId: team._id,
+        teamMemberId: member._id,
+        actorPersonId,
+        lead: member.role === "lead",
+      });
+    }
+  }
+}
 
 export const seedReviewRound = internalMutation({
   args: {},
@@ -2257,7 +2305,26 @@ export const seedDemoState = action({
   handler: async (ctx) => {
     requireLocalDeployment();
     await ctx.runMutation(internal.localDemoSeed.retimeEvent, {});
-    await ctx.runMutation(internal.localDemoSeed.seedStaffAndReviewers, {});
+    await ctx.runMutation(internal.localDemoSeed.seedOperationsLead, {});
+    for (
+      let batchIndex = 0;
+      batchIndex * operationsLeadPermissionsPerBatch < eventWidePermissionKeys().length;
+      batchIndex += 1
+    ) {
+      await ctx.runMutation(internal.localDemoSeed.seedOperationsLeadGrantBatch, {
+        batchIndex,
+      });
+    }
+    for (const [staffIndex] of demoStaff.entries()) {
+      await ctx.runMutation(internal.localDemoSeed.seedStaffMember, { staffIndex });
+    }
+    for (
+      let batchIndex = 0;
+      batchIndex * reviewersPerBatch < demoReviewers.length;
+      batchIndex += 1
+    ) {
+      await ctx.runMutation(internal.localDemoSeed.seedReviewerBatch, { batchIndex });
+    }
     for (
       let batchIndex = 0;
       batchIndex * teamsPerBatch < demoTeams.length;

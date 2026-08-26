@@ -1,222 +1,217 @@
 # Product brief
 
-## 1. Problem
+## 1. Purpose
 
-Code2Create 7.0 needs to run reviews for a 48-hour event with roughly 900–1,000 people in one venue.
+Code2Create 7.0 is a 48-hour event for about 900 to 1,000 people in one venue.
 
-The planning discussion identifies the failures to prevent:
+The product controls participant registration, proposal intake, admission, attendance, floor operations, reviews, judging records, and staff response. Convex is the authority for event state. All clients read accepted state from the realtime backend.
 
-- reviewers were missing, asleep, or at the wrong place when a panel needed them;
-- panel composition did not consistently match the work being reviewed;
-- teams did not know when or where their review would happen;
-- reviewers opened a review without enough project or previous-round context;
-- one strong voice could dominate a panel;
-- scores moved through messages and spreadsheets, then arrived late or went missing;
-- organizers found problems after delays had already spread across the floor.
+The product must prevent these failures:
 
-The product is an event operating system for that review process. It connects participant preparation, floor queues, reviewer work, judging records, and staff intervention.
+- A reviewer is absent or at the wrong table.
+- A panel does not have the required expertise.
+- A team does not know its current review state or location.
+- A reviewer starts without the required project and review context.
+- One reviewer replaces independent panel scores with one consensus score.
+- A score or operational decision is lost in a message or spreadsheet.
+- Staff learn about a blocker after it has delayed other teams.
 
-## 2. Users
+## 2. Actors
 
-| User | Needs |
+| Actor | Main work |
 | --- | --- |
-| Participant | Clear registration, team state, project submission, session attendance, staff-managed queue position, and review progress |
-| Team lead | Control of team membership, project versions, and tool connections before the applicable locks |
-| Supreme | Suggested permission-administration and broad event-governance bundle |
-| Board | Suggested policy, admissions, rubric, results, correction, export, and override bundle |
-| SC | Suggested workflow-management bundles for selected operational scopes |
-| JC | Suggested frontline station, table, queue, support, verification, runner, or playback bundles |
-| External Judge | Suggested assigned-panel context, presence, and own-scorecard bundle |
+| Participant | Maintain a profile, join a team, submit a proposal, attend sessions, follow review state, and receive feedback |
+| Team lead | Manage membership, transfer leadership, revise the proposal, answer admission questions, and connect team tools |
+| Supreme | Hold suggested event-governance grants |
+| Board | Hold suggested policy, admission, rubric, result, correction, export, and override grants |
+| SC | Hold suggested workflow-management grants for assigned scopes |
+| JC | Hold suggested station, table, queue, support, verification, runner, or playback grants |
+| External Judge | Hold assigned-panel, presence, and own-scorecard grants |
 
-These are the only staff/judging role labels. Supreme, Board, SC, and JC are the four internal labels. External Judge is a separate label. Roles never authorize a protected function. Every permission is an atomic grant to one person. Each grant has an exact scope and validity window. Any event-linked person can receive a permission regardless of role. A specifically invited account can have no role label. Granting and revoking are separate scoped permissions. Operational bundles and assignments only materialize or revoke their own explicit grants.
+The only role labels are `Supreme`, `Board`, `SC`, `JC`, and `External Judge`. A role label does not authorize an action. Each protected action requires an atomic permission grant for one person, one scope, and one validity window. A person can receive a grant without a role label.
 
 ## 3. Product surfaces
 
 ### Participant portal
 
-The responsive participant portal provides these functions:
+The participant portal is a Vite web application. It provides:
 
 - Google sign-in;
-- a class-aware basic profile;
-- live team formation;
-- one-prompt-at-a-time project intake;
-- fresh-project attestation;
-- core-track choice and optional sponsor-track opt-in;
-- the final team/track lock;
-- admission status;
-- short responses from the locked lead when admissions requests more information;
-- team-lead offer response and selected-team next steps;
-- GitHub/Figma connections;
-- attendance status and dynamic QR;
-- a separate confirmed-team hall-location QR;
-- staff-managed queue status with a coarse wait estimate;
-- self-service support cases;
+- VIT-student and external-participant profiles;
+- realtime team formation and leadership transfer;
+- free-text proposal intake;
+- one or two friendly AI follow-up questions;
+- a non-blocking live novelty number above the idea text box;
+- proposal submission and revision;
+- admission status and information requests;
+- team-scoped GitHub and Figma connections;
+- venue and session attendance status;
+- a personal attendance QR when required;
+- a team-location QR for organizer scanning;
+- a separate review-presence QR;
+- staff-managed review-queue state;
+- support cases;
 - review history; and
-- Synesthesia.
+- Synesthesia music requests and votes.
 
-One immutable participant-policy version controls profile collection and team eligibility. The portal shows only the fields that the policy permits. The portal records acceptance of the exact version. Before a relevant write commits, the server rechecks the current version, team-size bounds, mixed-team rule, and lock warning. A later publication updates open portals and requires explicit acceptance. It never rewrites an earlier profile or submitted project snapshot.
+One published participant-policy version controls profile fields, team bounds, mixed-team eligibility, notices, consent text, and the membership-lock warning. Each participant accepts the exact current version. A later publication does not rewrite an earlier profile, proposal version, or consent record.
 
-Final submission also resolves one immutable admission release. Before applications begin, authorized operations users publish the complete year-adjusted rubric. They also publish the human-review minimum, human decision reasons, and participant capacity. The release contains either one exact admission-model release or an explicit human-only mode. Starting the first submission attempt freezes the release for the event; a failed attempt may unlock participant work but does not reopen admission configuration after an application exists. Publication cannot split teams across rubrics or reset capacity after admissions begins.
+The proposal starts with **What is your project about?** The team writes free text. The server stores that text before model work starts. The AI can ask one or two short and friendly questions. Each question helps the team clarify its idea. The AI cannot choose participant state, admission state, review state, or judging state. A deterministic fallback keeps the flow available when the AI is unavailable.
 
-An authenticated exact-team query returns the selected-team venue, dates, ordered next steps, and Discord. These values come from one current immutable communications policy. The public event payload does not contain these values. Important status email remains generic and pins the policy version that rendered it. The signed-in portal follows later publications in realtime.
+The live novelty feature is separate from the follow-up-question flow. It shows only one directional number from 0 through 100 above the idea text box. It has no label such as familiar or distinct. It shows no prior-project text, theme, or reflection prompt. A stale or failed request cannot block editing or submission. The number is absent from applications, admission analysis, human admission review, reviewer evidence, judging, awards, and exports.
 
-Project intake begins with **Hello.** and **What is your project about?** Committing the answer immediately opens track selection. The full track list remains available. A server-side OpenAI layer can highlight one track. It generates at most one or two short, relevant follow-up questions. Each question is supportive. The team can answer each question from its current intent without research or pitch preparation. A restrained cherry-blossom motif can identify the event without decorative clutter. The model produces no authoritative participant, admission, or judging state. Deterministic fallback prompts keep the same flow usable when the model is unavailable.
-
-While the participant writes the first answer, a separate debounced embedding path compares the current text with an immutable curated corpus of past Code2Create projects. The path atomically returns a directional `0–100` novelty signal, one approved nearest-theme label, and one supportive reflection prompt. The browser never renders a result for older text. The system does not disclose raw past-project text. The system excludes the signal from application submission, admissions, queues, judging, and awards.
+Final submission locks team membership. It does not lock proposal content. The current team lead can revise the submitted proposal until the event's authoritative `applicationsCloseAt` deadline. Every save creates an immutable proposal version. A revision makes all earlier human-review outputs and AI admission outputs stale. The system must create new review inputs before a human can publish a decision for the revised proposal.
 
 ### Reviewer app
 
-The dedicated Expo reviewer application provides Google sign-in, device registration, reviewer clock-in, pages, QR scans, review context, score drafts, submission, self-service support cases, and support for short connection loss. Provisioned staff devices also provide a capability-gated camera scanner for VIT ID barcodes and attendance QR. Review and scan controls use large targets and little text.
+The reviewer app is a dedicated Expo application. The project builds and signs native binaries locally. The event distributes updates from its own Cloudflare Worker and R2 service.
+
+The app provides Google sign-in, device registration, clock-in, pages, notification registration, consented phone-call escalation, review-presence scanning, attendance scanning on provisioned devices, review context, independent scorecards, support, and short connection-loss recovery.
+
+Reviewer paging uses a reusable outbound-calling service. The service sends push first. If push is unavailable, it can call immediately. Otherwise, the first unanswered 30-second repage can add one synthesized call. The reviewer must give active consent. The platform records consent, dispatch, provider results, page responses, cancellation before claim, and the page chain's authorizing grants. A future release can use the same service for participant operational calls. That release must define its own consent, message, audience, source check, and permission policy.
 
 ### Operations dashboard
 
-The permission-gated operations dashboard opens on a quiet, ordered event-health view. Event setup shows the current state and only its legal next action: open applications, close applications, start the event, or finish it. Each action names unfinished setup before it can run. Viewing and changing the state use independent grants. It provides separately permitted workspaces for support, rehearsal, attendance, Synesthesia, review, score, integration, admissions, and access. The live review board shows each team's current inside/active count. It rechecks the published minimum before a call or start. Only a freshly authenticated holder of the exact-team/review permission can record a reasoned exception. The rehearsal workspace turns the 61 release scenarios into one live run. The run has named workstream owners, expected states, recovery actions, append-only outcomes, and a separate final sign-off. Assigning an owner routes responsibility but grants no access. The health view shows bounded aggregate blockers and the next owner. It does not expose the underlying incident, participant, repository, or provider details. A separately granted operator can request a short brief from the frozen redacted view. The brief cites the health signals that it used and provides no control. Corrective commands remain inside their own exact permission boundaries.
+The operations dashboard is a separate Vite web application. It provides permission-scoped workspaces for event setup, access, applications, admission, panels, reviewer paging, attendance, team-location mapping, queues, reviews, judging, integrations, support, incidents, rehearsal, and Synesthesia.
 
-Admissions operators first configure the complete admission release. Separate grants control read, draft, validation, and publication actions. Operators then route an application to an exact active event account. The assignment creates only the application's review read/write grants and a personal realtime work item. Profile/year context, AI recommendation access, decisions, and offers remain separate permissions. A direct manual review grant remains valid without a role or routing record. An authorized human can request one or two specific missing facts instead of making a terminal decision. Only the locked lead can answer. The roster and tracks remain locked. The response creates a new immutable application-content version before human review and optional AI review run again.
+The dashboard shows accepted state and legal next actions. Each protected command rechecks the caller's exact permission, target scope, current version, and fresh-authentication requirement in the mutation that writes the result.
 
-## 4. Event model
+## 4. Core workflows
 
-The working event model has two ordinary reviews followed by a final round. The elimination schedule is still open.
+### Application
 
-A normal review follows this sequence:
+1. Each participant signs in with Google and completes the permitted profile fields.
+2. A participant creates or joins one team.
+3. The team maintains exactly one lead. Leadership transfer requires acceptance by the new lead.
+4. The team writes its proposal and answers one or two follow-up questions.
+5. The lead previews the active member list and current proposal.
+6. Final submission locks the member list and creates the first immutable proposal version.
+7. The lead can create later proposal versions until `applicationsCloseAt`.
+8. Each revision invalidates stale human-review and AI-admission outputs.
+9. Authorized humans review the current version and control the admission decision.
+10. The system sends generic status email. The authenticated portal shows the decision and next steps.
 
-1. The team confirms the project brief produced from its guided intake and connects any declared GitHub or Figma work.
-2. Operations confirms the team’s venue table.
-3. The review desk verifies the locked team/project, current operational blockers, and panel constraints. The review desk then places the team directly into an eligible panel queue.
-4. Participants receive the queue, call, table, hold, and review state in realtime. They cannot enqueue the team themselves.
-5. All assigned panel reviewers prove presence by scanning the review-presence team QR.
-6. The server starts the review and records one start time.
-7. Reviewers inspect the project and score their assigned criteria independently.
-8. Each reviewer submits a complete scorecard.
-9. The panel review completes after all required scorecards and commitments are present.
-10. The next review receives the previous review’s evidence, findings, and commitments, but not hidden peer scores.
+### Venue and attendance
 
-An operations user can handle a missing reviewer, team hold, table move, scan failure, or correction. Every exception requires a named permission and a reason.
+1. Staff scan the barcode on a VIT student's existing VIT ID from a provisioned phone.
+2. Staff scan the event QR for an external participant or an approved fallback case.
+3. The server records one-time venue arrival separately from session presence.
+4. The server records session entry, temporary exit, return, and final exit as participant-scoped facts.
+5. The participant and operations views update from the same accepted records.
+6. Attendance does not change admission, review scores, or awards.
 
-## 5. Scope
+### Team location
 
-### Included
+1. The team opens a short-lived team-location QR on its dashboard.
+2. An authorized organizer scans the QR while standing with the team.
+3. The organizer selects the team's zone and nearest published landmark.
+4. The server validates the organizer's zone-scoped grant and writes the mapping.
+5. The team sees the accepted location in realtime.
 
-- Google sign-in and participant classification;
-- staff/reviewer roster claims, role defaults, and person-specific scoped permission grants;
-- participant, team, and project onboarding;
-- a fresh-project rule, configurable event checkpoints, sequential intake, a published core-track count, and optional sponsor-track eligibility;
-- a versioned participant novelty corpus, native 1,536-dimension `text-embedding-3-small` comparison, and independently permissioned corpus operations;
-- a final submission confirmation that atomically locks team membership, the confirmed core track, and the selected sponsor-track set;
-- pre-event human application review, a structured year-adjusted AI recommendation, a one-or-two-question locked-lead information loop, shortlist, waitlist, capacity-backed offer, locked-lead confirmation, selected-team next steps, Discord handoff, and participant notifications;
-- one-time venue check-in, configurable hacking-session attendance, existing VIT ID barcode scanning, external/fallback QR, temporary exit/re-entry, review-presence QR, and hall-location QR;
-- reviewer expertise, conflicts, panels, and substitute paging;
-- a published hall plan, staff-scanned team-location mapping, staff-controlled routing, and queues;
-- timed reviews and reviewer presence;
-- versioned rubrics, criterion assignments, scorecards, and progress commitments;
-- team-scoped multi-repository GitHub/Figma resources, declared repository kinds, live progress facts, full checkpoint sets, exact-version private frame previews, and reviewer evidence views;
-- live operations views and controlled overrides;
-- a separate durable intelligence Worker whose first shipped job creates a bounded, evidence-linked operations brief from the current aggregate health projection;
-- scoped support cases shared in realtime across participant, event-app, and operations views;
-- audit history, round exports, backups, and incident procedures;
-- one scoped release-rehearsal record covering every required scenario and final sign-off;
-- two-person paper recovery for an already-started review, preserving each signed reviewer scorecard and the fixed review context;
-- a restricted, expiring emergency pack that freezes the current participant/presence roster, stations, active sessions, panels, and uniquely numbered paper-recovery forms;
-- Synesthesia requests, voting, moderation, and playback control.
+### Review
 
-### Excluded from the first production release
+1. Operations assigns the team to an eligible panel queue.
+2. Participants receive queue, call, table, hold, and review state in realtime.
+3. Assigned reviewers prove presence by scanning the team's review-presence QR.
+4. The server starts the review and records one authoritative start time.
+5. Reviewers inspect the proposal, project evidence, and permitted prior-review context.
+6. Each reviewer scores only assigned criteria and submits an independent scorecard.
+7. The review completes after all required scorecards and commitments are present.
+8. The next review receives released evidence, findings, and commitments. It does not receive hidden peer scores.
 
-- sponsor CRM, speaker outreach, marketing, and ticket sales;
-- mandatory problem statements for every team;
-- AI-generated judging scores or score recommendations;
-- automatic cross-panel score normalization;
-- review audio recording or transcription;
-- Bluetooth, mesh, or peer-to-peer data transport;
-- a participant mobile application;
-- a public social feed or engagement-points system.
+## 5. Admission and judging boundary
 
-## 6. Product rules
+Admission and judging are separate systems.
 
-- The server owns assignments, queues, review state, and submitted scores.
-- Attendance scans are participant-scoped facts. Session policy interprets them without editing the scan ledger.
-- Venue arrival, current zone presence, and hacking-session confirmation are distinct states.
-- A temporary exit, missing scan, or long break cannot change a judging score or automatically disqualify a participant.
-- Reviewers cannot see peer scores before the configured reveal point.
-- A reviewer scores only the criteria assigned to that reviewer.
-- A designated panel coordinator cannot replace the panel’s independent scorecards with one consensus number.
-- A reviewer’s designation does not multiply their score.
-- The routing service uses declared expertise, conflict checks, availability, and load. It does not use an AI model to decide winners or scores.
-- Convex is the only event authority. An agent may observe a purpose-built projection or draft a proposed next step, but it cannot hold a broad service credential, impersonate a user, or call an event command.
-- An agent proposal never carries authority. A future executable proposal must return through the ordinary UI. It must name its source and current target version. A human must confirm the proposal. The normal Convex mutation must recheck the human's exact permission, scope, fresh-session requirement, and current state.
-- The intake model may generate one bounded follow-up at a time, identify missing fields, and recommend one published track. Participants provide every answer and choose the track; a different choice has no adverse admission effect.
-- The live novelty signal is a drafting aid only. It may invite differentiation, but it cannot block submission, enter an application or reviewer view, change an admission recommendation, or become a judging score.
-- A separate admission-analysis model may produce a structured recommendation against the published year-adjusted application rubric. It cannot publish or silently change an application decision, and it cannot set or recommend a judging score.
-- Admission policy, optional admission-model configuration, and the initial overall capacity bucket publish in one transaction. A validating/finalizing submission attempt or an existing application closes ordinary publication for that event. Publication racing submission start has one serial winner. The attempt and resulting application pin the winner's exact policy.
-- The final application command requires an explicit preview of the active members, track, and project summary. Its first transaction locks membership and track; bounded resumable mutations materialize the exact roster snapshot before creating the application.
-- A participant-facing queue gives teams ahead and a time window. It does not promise an exact start minute.
-- Support is a diagnostic route only. A linked team, attendance session, queue, review, scorecard, or owner creates no authority and changes no underlying domain state.
-- A timer is calculated from the server start time. Clients do not write a database record every second.
-- A push notification asks a reviewer to open the app. The in-app page must still be accepted.
-- A score submission is accepted only after a server response. Local storage cannot claim success.
+An admission model can return a structured recommendation against the published admission policy. The recommendation is advisory. It cannot publish a decision, reserve capacity, change team state, or write a judging score. An authorized human records whether the human used, cleared, or overrode the recommendation.
 
-## 7. Scale assumptions
+Judging uses the published judging rubric, reviewer assignments, independent scorecards, and approved corrections. Judging does not use the novelty number or an AI admission recommendation. No AI can write or recommend a judging score.
 
-The venue count is confirmed. Final team and reviewer counts are not.
+## 6. Integrations and hosting
 
-Until registration closes, capacity tests use this provisional envelope:
+- Convex is the realtime backend and event authority.
+- The participant portal, operations dashboard, and handbook use Vite.
+- The backend is a separate application.
+- Google and Better Auth provide sign-in.
+- A team can connect multiple GitHub repositories across installations and organizations.
+- Each GitHub repository keeps its own tracked branch, purpose, baseline, snapshots, and health.
+- A team can connect one or more Figma files through scoped OAuth.
+- Cloudflare Workers handle approved external service boundaries.
+- Cloudflare Email Routing and the event-owned mail service deliver participant email.
+- Protected exports and previews use approved private S3 storage. Expo Update manifests and assets use the event-owned R2 service.
+- Expo Update manifests and assets come from the event-owned Cloudflare Worker and R2 service.
+- The product does not use EAS Build, EAS Update, or Expo Push Service.
 
-- 1,200 simultaneous live client connections;
-- 60 attendance scan attempts per second across provisioned stations during a session-opening burst;
-- 200–330 teams, depending on final team-size rules;
-- up to 60 reviews running at once;
-- a burst of 300 participant reconnects or queue-status reads around a round start;
-- 150 operational writes per minute during the busiest review window.
+## 7. Product rules
 
-The rehearsal must replace these figures with the registered team count, panel count, and round schedule.
+- The server owns assignments, queues, review state, attendance state, and submitted scores.
+- A client shows success only after an accepted server response.
+- Realtime views derive from accepted records.
+- Support links do not grant access to the linked domain record.
+- A permission bundle creates explicit grants. It does not add hidden authority.
+- An assignment creates only its declared grants. Revocation removes only grants from that source.
+- A model output never carries authority.
+- GitHub and Figma activity is evidence. It is not a score and does not prove individual contribution.
+- Attendance is an operational fact. It is not a score and does not automatically disqualify a participant.
+- A queue estimate is a range. It is not an appointment.
+- A push notification or phone call asks a reviewer to open the app. The reviewer must acknowledge the in-app page.
+- A score submission is accepted only after the server confirms it.
 
-## 8. Outcomes
+## 8. Initial scale envelope
 
-The launch is acceptable when:
+Capacity tests use this initial envelope until registration supplies final counts:
 
-- every published admission decision can be traced to its project/policy versions and independent recommendations;
-- every AI admission recommendation can be traced to the published year-adjusted policy and reviewed inputs, and every final outcome to a human actor who used, cleared, or overrode it;
-- every submitted application in one event points to the same frozen admission policy, and an enabled model pointer always belongs to that policy;
-- active offers and confirmations stay within approved venue capacity;
-- staffed arrival records the identity check for each accepted member, exposes a bounded live count, and never implies venue presence or hacking-session attendance;
-- operations can distinguish who is confirmed present, temporarily out, departed, excused, or unresolved for each active hacking session;
-- VIT ID barcode and QR scans update the same participant, team, zone, and emergency-roll-call projections without duplicate presence intervals;
-- operations can locate every clocked-in reviewer and see each unfilled panel seat;
-- a missing reviewer produces an acknowledged substitute or a visible unresolved exception;
-- every started review has the required presence record or an explicitly permitted, reasoned presence waiver;
-- participants can see whether they are waiting for the review desk, queued, called, held, in review, or complete;
-- participants and reviewers can open and reply to only their own support cases, while separately granted staff receive only the exact cases and actions their read/manage scopes cover;
-- a submitted scorecard can be recovered after an app restart or an ambiguous network response;
-- a round cannot close while required scorecards or criterion coverage are missing;
-- later reviewers can see previous commitments and checkpoint evidence;
-- every protected correction identifies the actor, target, previous value, new value, time, and reason;
-- a project application can be completed when OpenAI is unavailable, and its submitted summary preserves the participant-written idea and follow-up answers;
-- a stale live novelty request cannot replace a newer result, sensitive text creates no embedding request, and novelty failure never blocks saving or submitting the idea;
-- a selected team can read venue/date/next steps and its locked team/project summary, open the published Discord route, and receive an important-status notification without keeping the portal open;
-- only a team that confirms its live offer can enter attendance, hall-mapping, or review-queue flows;
-- a full adjudicated round export can reproduce every selected total, pin exact private object versions, and reach `closed` only after a different authorized person opens and verifies it;
-- reopening preserves the verified revision and requires another export/verification cycle before the round can close again;
-- a paper review cannot enter judging state until a different authorized person verifies the protected source, and its imported scorecard versions remain visibly tied to that paper record.
-- an authorized incident operator can prepare and print one reproducible emergency snapshot without gaining any other attendance, score, or permission-administration capability.
-- an authorized release owner can identify the person who ran each required rehearsal scenario and the recorded result. The owner can also identify each recovery, rerun, and final signer after all 61 scenarios passed.
-- an authorized operations reader can request a brief that cites only current aggregate signals, cannot reveal protected source records, and cannot perform the actions it lists.
-- a team below the round's participant minimum stays queued or cannot start. Presence must recover, or one exact and freshly authenticated person must record an immutable review-specific exception. The exception changes no attendance or judging state.
+- 1,200 simultaneous live clients;
+- 60 attendance scan attempts per second;
+- 200 to 330 teams;
+- up to 60 concurrent reviews;
+- 300 reconnects or queue reads near a round start; and
+- 150 operational writes per minute during the busiest review period.
 
-## 9. Policy versus software
+The rehearsal must replace these assumptions with the registered team count, panel count, and round schedule.
 
-The software must support versioned event configuration for these values:
+## 9. Acceptance outcomes
 
-- team size and team/track lock wording;
-- attendance sessions and cohorts;
-- check-in windows, tracked zones, temporary-exit alerts, and excused attendance;
-- rounds, review duration, extension count, rubric, and criterion coverage;
-- queue policy and correction windows;
-- track catalogs and event checkpoints;
-- intake generation policy;
-- the curated novelty corpus and similarity thresholds;
-- track/checkpoint guidance and common-idea reflection patterns;
-- deterministic fallback prompts and the bounded intake-model contract;
-- the year-adjusted admission rubric/model contract;
-- participant communications; and
-- any enabled intelligence automation policy.
+The production release must satisfy these outcomes:
 
-Event owners must approve those values before production data opens. A missing policy remains a launch blocker; engineers do not choose it inside client code.
+- Every application decision points to the current immutable proposal version and admission-policy version.
+- A proposal revision before `applicationsCloseAt` makes earlier review and AI outputs unusable.
+- No proposal edit is accepted after `applicationsCloseAt`.
+- Final submission locks membership but does not lock proposal content before the deadline.
+- Every final admission outcome identifies the authorized human actor.
+- Active offers and confirmations do not exceed approved participant capacity.
+- VIT ID barcode and QR scans update one participant identity without duplicate presence intervals.
+- Operations can distinguish venue arrival, session presence, temporary exit, departure, excusal, and unresolved state.
+- An authorized organizer can map a team from the team's dashboard QR.
+- Operations can locate clocked-in reviewers and unfilled panel seats.
+- A missing reviewer creates a visible page and escalation record.
+- Phone escalation requires current consent and a scoped permission.
+- Every started review has the required reviewer-presence record or a permitted, reasoned waiver.
+- Participants see the same queue and review state that operations accepted.
+- A submitted scorecard survives app restart and ambiguous network responses.
+- A round cannot close while required scorecards or criterion coverage are missing.
+- Every correction records actor, target, previous value, new value, time, and reason.
+- The application flow remains usable when OpenAI is unavailable.
+- The novelty number cannot block admission or affect judging.
+- GitHub supports multiple repositories for one team.
+- Figma evidence is pinned to exact file versions for review.
+- Cloudflare-hosted email and Expo Updates do not depend on EAS services.
+
+## 10. Required policy decisions
+
+Board and the named owners must publish these values before the applicable release gate:
+
+- team-size and mixed-team rules;
+- `applicationsOpenAt` and authoritative `applicationsCloseAt`;
+- participant profile fields, notices, and consent text;
+- fresh-project and pre-start-work rules;
+- admission criteria, human-review minimum, model policy, capacity, waitlist order, and offer deadline;
+- reviewer eligibility, panel size, and expertise coverage;
+- round schedule, rubric, correction deadline, feedback policy, and award rules;
+- attendance sessions, expected groups, grace windows, and result policy;
+- floor plan, zone grants, and location-mapping freeze;
+- reviewer page timeout, push policy, call script, consent text, provider rate limits, and retention;
+- GitHub and Figma requirements and accepted alternatives;
+- support categories, retention, and privacy periods;
+- Synesthesia catalog, request limits, moderation rules, and playback windows; and
+- incident, backup, rehearsal, and launch sign-off owners.

@@ -13,6 +13,7 @@ import {
   findOperation,
   operationFingerprint,
   recordOperation,
+  storedOperationVersion,
 } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
@@ -57,17 +58,10 @@ export const set = mutation({
         "eventAccessSubjects",
         prior.targetId,
       );
-      const targetSubject = targetSubjectId
-        ? await ctx.db.get(targetSubjectId)
-        : null;
-      if (
-        !targetSubject ||
-        targetSubject.eventId !== event._id ||
-        targetSubject.personId !== args.targetPersonId
-      ) {
-        throw new Error("Prior role-label result no longer resolves.");
-      }
-      return { accessVersion: targetSubject.accessVersion };
+      if (!targetSubjectId) throw new Error("Prior role-label result is invalid.");
+      return {
+        accessVersion: storedOperationVersion(prior.resultJson, "role-label"),
+      };
     }
 
     const authorizingGrantIds = await requirePermission(ctx, {
@@ -107,6 +101,7 @@ export const set = mutation({
         requestFingerprint,
         targetType: "event_access_subject",
         targetId: targetSubject._id,
+        resultJson: String(targetSubject.accessVersion),
         createdAt: Date.now(),
       });
       return { accessVersion: targetSubject.accessVersion };
@@ -163,6 +158,7 @@ export const set = mutation({
       requestFingerprint,
       targetType: "event_access_subject",
       targetId: targetSubject._id,
+      resultJson: String(accessVersion),
       createdAt: now,
     });
     return { accessVersion };

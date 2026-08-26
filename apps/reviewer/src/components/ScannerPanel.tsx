@@ -121,6 +121,7 @@ type HeartbeatState =
   | { status: 'checking' }
   | { status: 'online' }
   | { status: 'error'; message: string }
+type ServerClock = { serverNow: number; observedAt: number | null }
 type CredentialSetupState =
   | { step: 'participant' }
   | { step: 'identity'; participant: StaffedParticipant }
@@ -149,6 +150,12 @@ type CredentialSetupState =
         | 'badge_replaced'
         | 'badge_revoked'
     }
+
+function currentServerNow(clock: ServerClock) {
+  return clock.observedAt === null
+    ? clock.serverNow
+    : clock.serverNow + performance.now() - clock.observedAt
+}
 
 function SetupFrame({ children }: { children: React.ReactNode }) {
   return (
@@ -186,8 +193,13 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
       .then((record) => {
         if (active) setDeviceState({ status: 'ready', record })
       })
-      .catch((error: Error) => {
-        if (active) setDeviceState({ status: 'error', message: error.message })
+      .catch(() => {
+        if (active) {
+          setDeviceState({
+            status: 'error',
+            message: 'This phone cannot read its saved scanner setup.',
+          })
+        }
       })
     return () => {
       active = false
@@ -207,10 +219,30 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
     return <DoorSkeleton />
   }
   if (deviceState.status === 'error') {
+    const clearBrokenSetup = async () => {
+      if (registrationBusy) return
+      setRegistrationBusy(true)
+      setRegistrationError(null)
+      try {
+        await clearScannerDevice(eventSlug)
+        setDeviceState({ status: 'ready', record: null })
+      } catch {
+        setRegistrationError('This phone could not clear its saved setup. Reinstall the reviewer app.')
+      } finally {
+        setRegistrationBusy(false)
+      }
+    }
     return (
       <SetupFrame>
         <Section title="Scanner setup needs attention">
           <Problem>{deviceState.message}</Problem>
+          <Action
+            accent={palette.door}
+            disabled={registrationBusy}
+            label={registrationBusy ? 'Resetting…' : 'Reset scanner setup'}
+            onPress={clearBrokenSetup}
+          />
+          {registrationError ? <Problem>{registrationError}</Problem> : null}
         </Section>
       </SetupFrame>
     )
@@ -396,7 +428,10 @@ function ScannerSurface({
   const networkState = Network.useNetworkState()
   const busyRef = useRef(false)
   const replayingRef = useRef(false)
-  const serverOffsetRef = useRef(0)
+  const serverClockRef = useRef<ServerClock>({
+    serverNow: assignment.serverNow,
+    observedAt: null,
+  })
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [replaying, setReplaying] = useState(false)
@@ -449,14 +484,17 @@ function ScannerSurface({
   )
 
   useEffect(() => {
-    serverOffsetRef.current = assignment.serverNow - Date.now()
+    serverClockRef.current = {
+      serverNow: assignment.serverNow,
+      observedAt: performance.now(),
+    }
   }, [assignment.serverNow])
 
   const refreshPendingSummary = useCallback(async () => {
     const summary = await pendingAttendanceSummary({
       eventSlug,
       installationId: deviceRecord.installationId,
-      now: Date.now(),
+      now: currentServerNow(serverClockRef.current),
     })
     setPendingSummary(summary)
     return summary
@@ -473,7 +511,7 @@ function ScannerSurface({
       const pending = await loadPendingAttendanceScans({
         eventSlug,
         installationId: deviceRecord.installationId,
-        now: Date.now(),
+        now: currentServerNow(serverClockRef.current),
       })
       for (const operation of pending) {
         if (operation.stationStableKey !== assignment.station.stableKey) {
@@ -511,7 +549,7 @@ function ScannerSurface({
           if (!(error instanceof ConvexError)) {
             setHeartbeatState({
               status: 'error',
-              message: 'Pending scans are still waiting for the server.',
+              message: 'Pending scans are still waiting to sync.',
             })
             break
           }
@@ -593,7 +631,10 @@ function ScannerSurface({
             ? { oldestPendingCapturedAt: summary.oldestCapturedAt }
             : {}),
         })
-        serverOffsetRef.current = result.serverNow - Date.now()
+        serverClockRef.current = {
+          serverNow: result.serverNow,
+          observedAt: performance.now(),
+        }
         if (active) {
           setHeartbeatState({ status: 'online' })
           if (summary.count > 0) void replayPending()
@@ -680,10 +721,7 @@ function ScannerSurface({
     setPendingScan(credential)
   }
 
-  const submitPendingScan = async (
-    rovingTransition: ScanTransition | undefined,
-    nowMs: number,
-  ) => {
+  const submitPendingScan = async (rovingTransition: ScanTransition | undefined) => {
     if (!pendingScan || busyRef.current || replayingRef.current) return
     busyRef.current = true
     setBusy(true)
@@ -697,7 +735,7 @@ function ScannerSurface({
       serverSequence: assignment.device.lastSequence,
     })
     onDeviceRecord(reserved)
-    const capturedAt = Math.round(nowMs + serverOffsetRef.current)
+    const capturedAt = Math.round(currentServerNow(serverClockRef.current))
     const clientOperationId = randomUUID()
     const queuedOperation = {
       eventSlug,
@@ -714,11 +752,11 @@ function ScannerSurface({
       input: queuedOperation,
       maxScans: assignment.offlinePolicy.maxScans,
       maxAgeSeconds: assignment.offlinePolicy.maxAgeSeconds,
-      now: nowMs,
+      now: capturedAt,
     })
     await refreshPendingSummary()
     if (definitelyOffline) {
-      setPendingConfirmation('Saved on this phone. It is pending—not accepted—and will replay when the server is reachable.')
+      setPendingConfirmation('Saved on this phone. It is pending—not accepted—and will sync when the connection returns.')
       return
     }
     let result: ScanReceipt
@@ -746,8 +784,8 @@ function ScannerSurface({
         await refreshPendingSummary()
         throw error
       }
-      setHeartbeatState({ status: 'error', message: 'The server response is uncertain.' })
-      setPendingConfirmation('Saved on this phone. It is pending—not accepted—and will retry with the same operation ID.')
+      setHeartbeatState({ status: 'error', message: 'We could not confirm whether the scan was accepted.' })
+      setPendingConfirmation('Saved on this phone. It is pending—not accepted—and will retry safely.')
       return
     }
     try {
@@ -1379,14 +1417,14 @@ function ScannerSurface({
                       accent={palette.door}
                       key={option}
                       label={transitionName(option)}
-                      onPress={() => void submitPendingScan(option, Date.now())}
+                      onPress={() => void submitPendingScan(option)}
                     />
                   ))
                 ) : (
                   <Action
                     accent={palette.door}
                     label={`Confirm ${transitionName(assignment.station.mode).toLowerCase()}`}
-                    onPress={() => void submitPendingScan(undefined, Date.now())}
+                    onPress={() => void submitPendingScan(undefined)}
                   />
                 )}
                 <Action

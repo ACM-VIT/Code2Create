@@ -1,15 +1,18 @@
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
-import { internalQuery } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
+import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds } from "./lib/permissions";
 import { compareFigmaCheckpointFacts } from "./lib/figmaCheckpointComparison";
 
+type ReadCtx = QueryCtx | MutationCtx;
+
 async function fixedEvidenceContext(
-  ctx: QueryCtx,
+  ctx: ReadCtx,
   args: { eventSlug: string; reviewSessionId: Id<"reviewSessions"> },
 ) {
   const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -66,18 +69,29 @@ async function fixedEvidenceContext(
       message: "This account does not have permission for that fixed evidence set.",
     });
   }
-  return { event, session, checkpoint };
+  return {
+    event,
+    person,
+    session,
+    checkpoint,
+    grantIds: reviewGrantIds.length > 0 ? reviewGrantIds : checkpointGrantIds,
+    permissionScope:
+      reviewGrantIds.length > 0
+        ? { scopeType: "review" as const, scopeId: session._id }
+        : { scopeType: "evidence_checkpoint" as const, scopeId: checkpoint._id },
+  };
 }
 
 async function pinnedFigmaContext(
-  ctx: QueryCtx,
+  ctx: ReadCtx,
   args: {
     eventSlug: string;
     reviewSessionId: Id<"reviewSessions">;
     bindingId: Id<"figmaFileBindings">;
   },
 ) {
-  const { event, session, checkpoint } = await fixedEvidenceContext(ctx, args);
+  const context = await fixedEvidenceContext(ctx, args);
+  const { event, session, checkpoint } = context;
   const entry = checkpoint.figmaEntries.find((item) => item.bindingId === args.bindingId);
   if (!entry?.snapshotId) {
     throw new ConvexError({
@@ -100,7 +114,7 @@ async function pinnedFigmaContext(
   ) {
     throw new Error("The pinned Figma evidence context is invalid.");
   }
-  return { event, session, checkpoint, binding, snapshot };
+  return { ...context, binding, snapshot };
 }
 
 export const githubAccessContext = internalQuery({
@@ -166,6 +180,37 @@ export const githubAccessContext = internalQuery({
   },
 });
 
+async function requireFigmaArtifactAccess(
+  ctx: ReadCtx,
+  args: {
+    eventSlug: string;
+    reviewSessionId: Id<"reviewSessions">;
+    bindingId: Id<"figmaFileBindings">;
+  },
+) {
+  const context = await pinnedFigmaContext(ctx, args);
+  const { event, session, binding, snapshot } = context;
+  if (!snapshot.artifactId) {
+    throw new ConvexError({
+      code: "FIGMA_ARTIFACT_UNAVAILABLE",
+      message: "This Figma checkpoint has metadata but no full-file artifact.",
+    });
+  }
+  const artifact = await ctx.db.get(snapshot.artifactId);
+  if (
+    !artifact ||
+    artifact.state !== "available" ||
+    artifact.provider !== "figma" ||
+    artifact.eventId !== event._id ||
+    artifact.teamId !== session.teamId ||
+    artifact.figmaFileBindingId !== binding._id ||
+    artifact.providerVersionId !== snapshot.providerVersionId
+  ) {
+    throw new Error("The pinned Figma artifact manifest is invalid.");
+  }
+  return { ...context, artifact };
+}
+
 export const figmaAccessContext = internalQuery({
   args: {
     eventSlug: v.string(),
@@ -173,6 +218,8 @@ export const figmaAccessContext = internalQuery({
     bindingId: v.id("figmaFileBindings"),
   },
   returns: v.object({
+    artifactId: v.id("integrationArtifacts"),
+    snapshotId: v.id("figmaFileSnapshots"),
     objectKey: v.string(),
     storageRegion: v.string(),
     storageBucket: v.string(),
@@ -183,26 +230,10 @@ export const figmaAccessContext = internalQuery({
     providerVersionId: v.string(),
   }),
   handler: async (ctx, args) => {
-    const { event, session, binding, snapshot } = await pinnedFigmaContext(ctx, args);
-    if (!snapshot.artifactId) {
-      throw new ConvexError({
-        code: "FIGMA_ARTIFACT_UNAVAILABLE",
-        message: "This Figma checkpoint has metadata but no full-file artifact.",
-      });
-    }
-    const artifact = await ctx.db.get(snapshot.artifactId);
-    if (
-      !artifact ||
-      artifact.state !== "available" ||
-      artifact.provider !== "figma" ||
-      artifact.eventId !== event._id ||
-      artifact.teamId !== session.teamId ||
-      artifact.figmaFileBindingId !== binding._id ||
-      artifact.providerVersionId !== snapshot.providerVersionId
-    ) {
-      throw new Error("The pinned Figma artifact manifest is invalid.");
-    }
+    const { artifact, snapshot } = await requireFigmaArtifactAccess(ctx, args);
     return {
+      artifactId: artifact._id,
+      snapshotId: snapshot._id,
       objectKey: artifact.objectKey,
       storageRegion: artifact.storageRegion,
       storageBucket: artifact.storageBucket,
@@ -212,6 +243,86 @@ export const figmaAccessContext = internalQuery({
       capturedAt: snapshot.capturedAt,
       providerVersionId: snapshot.providerVersionId,
     };
+  },
+});
+
+export const recordFigmaArtifactAccess = internalMutation({
+  args: {
+    eventSlug: v.string(),
+    reviewSessionId: v.id("reviewSessions"),
+    bindingId: v.id("figmaFileBindings"),
+    artifactId: v.id("integrationArtifacts"),
+    snapshotId: v.id("figmaFileSnapshots"),
+    expectedObjectKey: v.string(),
+    expectedStorageRegion: v.string(),
+    expectedStorageBucket: v.string(),
+    expectedStoredBytes: v.number(),
+    expectedUncompressedBytes: v.number(),
+    expectedSha256: v.string(),
+    expectedCapturedAt: v.number(),
+    expectedProviderVersionId: v.string(),
+    signedUrlExpiresAt: v.number(),
+  },
+  returns: v.object({ serverNow: v.number() }),
+  handler: async (ctx, args) => {
+    const {
+      event,
+      person,
+      session,
+      binding,
+      snapshot,
+      artifact,
+      grantIds,
+      permissionScope,
+    } = await requireFigmaArtifactAccess(ctx, args);
+    if (
+      artifact._id !== args.artifactId ||
+      snapshot._id !== args.snapshotId ||
+      artifact.objectKey !== args.expectedObjectKey ||
+      artifact.storageRegion !== args.expectedStorageRegion ||
+      artifact.storageBucket !== args.expectedStorageBucket ||
+      artifact.storedBytes !== args.expectedStoredBytes ||
+      artifact.uncompressedBytes !== args.expectedUncompressedBytes ||
+      artifact.sha256 !== args.expectedSha256 ||
+      snapshot.capturedAt !== args.expectedCapturedAt ||
+      snapshot.providerVersionId !== args.expectedProviderVersionId
+    ) {
+      throw new ConvexError({
+        code: "FIGMA_ARTIFACT_CHANGED",
+        message: "The fixed Figma checkpoint changed while the download was prepared. Try again.",
+      });
+    }
+    const serverNow = Date.now();
+    if (
+      !Number.isSafeInteger(args.signedUrlExpiresAt) ||
+      args.signedUrlExpiresAt <= serverNow ||
+      args.signedUrlExpiresAt > serverNow + 60_000
+    ) {
+      throw new ConvexError({
+        code: "FIGMA_ARTIFACT_LINK_EXPIRED",
+        message: "The Figma checkpoint link expired while it was prepared. Try again.",
+      });
+    }
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "review.evidence.read",
+      grantIds,
+      scopeType: permissionScope.scopeType,
+      scopeId: permissionScope.scopeId,
+      action: "review.figma_artifact_download_opened",
+      targetType: "integration_artifact",
+      targetId: artifact._id,
+      nextSummary: JSON.stringify({
+        reviewSessionId: session._id,
+        bindingId: binding._id,
+        snapshotId: snapshot._id,
+        sha256: artifact.sha256,
+        signedUrlExpiresAt: args.signedUrlExpiresAt,
+      }),
+      reason: "Opened the fixed Figma checkpoint for an assigned review",
+    });
+    return { serverNow };
   },
 });
 
@@ -653,7 +764,7 @@ export const figmaComparisonListContext = internalQuery({
   },
 });
 
-function comparisonPreview(
+function availablePreview(
   fact: Doc<"figmaNodeFacts"> | null,
   args: {
     expectedFactId: Id<"figmaNodeFacts">;
@@ -679,13 +790,17 @@ function comparisonPreview(
   ) {
     throw new ConvexError({
       code: "FIGMA_PREVIEW_UNAVAILABLE",
-      message: "That rendered frame is unavailable in the fixed comparison.",
+      message: "That rendered frame is unavailable in the fixed evidence.",
     });
   }
   return {
+    factId: fact._id,
+    snapshotId: fact.snapshotId,
+    previewSetId: fact.previewSetId,
     objectKey: fact.render.objectKey,
     storageRegion: fact.render.storageRegion,
     storageBucket: fact.render.storageBucket,
+    byteCount: fact.render.byteCount,
     sha256: fact.render.sha256,
     width: fact.render.width,
     height: fact.render.height,
@@ -695,10 +810,14 @@ function comparisonPreview(
   };
 }
 
-const comparisonPreviewContext = v.object({
+const privateFigmaPreviewContext = v.object({
+  factId: v.id("figmaNodeFacts"),
+  snapshotId: v.id("figmaFileSnapshots"),
+  previewSetId: v.id("figmaPreviewSets"),
   objectKey: v.string(),
   storageRegion: v.string(),
   storageBucket: v.string(),
+  byteCount: v.number(),
   sha256: v.string(),
   width: v.number(),
   height: v.number(),
@@ -706,6 +825,27 @@ const comparisonPreviewContext = v.object({
   capturedAt: v.number(),
   providerVersionId: v.string(),
 });
+
+function samePrivateFigmaPreview(
+  left: ReturnType<typeof availablePreview>,
+  right: ReturnType<typeof availablePreview>,
+) {
+  return (
+    left.factId === right.factId &&
+    left.snapshotId === right.snapshotId &&
+    left.previewSetId === right.previewSetId &&
+    left.objectKey === right.objectKey &&
+    left.storageRegion === right.storageRegion &&
+    left.storageBucket === right.storageBucket &&
+    left.byteCount === right.byteCount &&
+    left.sha256 === right.sha256 &&
+    left.width === right.width &&
+    left.height === right.height &&
+    left.nodeName === right.nodeName &&
+    left.capturedAt === right.capturedAt &&
+    left.providerVersionId === right.providerVersionId
+  );
+}
 
 export const figmaComparisonPreviewAccessContext = internalQuery({
   args: {
@@ -716,8 +856,8 @@ export const figmaComparisonPreviewAccessContext = internalQuery({
     previousFactId: v.optional(v.id("figmaNodeFacts")),
   },
   returns: v.object({
-    current: v.optional(comparisonPreviewContext),
-    previous: v.optional(comparisonPreviewContext),
+    current: v.optional(privateFigmaPreviewContext),
+    previous: v.optional(privateFigmaPreviewContext),
   }),
   handler: async (ctx, args) => {
     if (!args.currentFactId && !args.previousFactId) {
@@ -811,7 +951,7 @@ export const figmaComparisonPreviewAccessContext = internalQuery({
     let previousPreview;
     if (args.previousFactId) {
       const previous = requirePrevious(previousSnapshot, previousSet);
-      previousPreview = comparisonPreview(previousFact, {
+      previousPreview = availablePreview(previousFact, {
         expectedFactId: args.previousFactId,
         eventId: event._id,
         teamId: session.teamId,
@@ -825,7 +965,7 @@ export const figmaComparisonPreviewAccessContext = internalQuery({
     return {
       ...(args.currentFactId
         ? {
-            current: comparisonPreview(currentFact, {
+            current: availablePreview(currentFact, {
               expectedFactId: args.currentFactId,
               eventId: event._id,
               teamId: session.teamId,
@@ -842,6 +982,189 @@ export const figmaComparisonPreviewAccessContext = internalQuery({
   },
 });
 
+export const recordFigmaComparisonPreviewAccess = internalMutation({
+  args: {
+    eventSlug: v.string(),
+    reviewSessionId: v.id("reviewSessions"),
+    bindingId: v.id("figmaFileBindings"),
+    currentFactId: v.optional(v.id("figmaNodeFacts")),
+    previousFactId: v.optional(v.id("figmaNodeFacts")),
+    expectedCurrent: v.optional(privateFigmaPreviewContext),
+    expectedPrevious: v.optional(privateFigmaPreviewContext),
+    signedUrlExpiresAt: v.number(),
+  },
+  returns: v.object({ serverNow: v.number() }),
+  handler: async (ctx, args) => {
+    if (
+      (args.currentFactId === undefined) !== (args.expectedCurrent === undefined) ||
+      (args.previousFactId === undefined) !== (args.expectedPrevious === undefined) ||
+      (!args.currentFactId && !args.previousFactId)
+    ) {
+      throw new ConvexError({
+        code: "FIGMA_COMPARISON_INVALID",
+        message: "Choose a rendered frame from the fixed comparison.",
+      });
+    }
+    const context = await pinnedFigmaContext(ctx, args);
+    const {
+      event,
+      person,
+      session,
+      checkpoint,
+      binding,
+      snapshot,
+      grantIds,
+      permissionScope,
+    } = context;
+    if (!checkpoint.previousCheckpointSetId) {
+      throw new ConvexError({
+        code: "FIGMA_COMPARISON_UNAVAILABLE",
+        message: "This review has no earlier judging checkpoint to compare.",
+      });
+    }
+    const previousCheckpoint = await ctx.db.get(checkpoint.previousCheckpointSetId);
+    if (
+      !previousCheckpoint ||
+      previousCheckpoint.eventId !== event._id ||
+      previousCheckpoint.teamId !== session.teamId ||
+      previousCheckpoint.roundSequence >= checkpoint.roundSequence ||
+      previousCheckpoint.createdAt > checkpoint.createdAt
+    ) {
+      throw new Error("The previous review evidence checkpoint is invalid.");
+    }
+    const previousEntry = previousCheckpoint.figmaEntries.find(
+      (entry) => entry.bindingId === binding._id,
+    );
+    const previousSnapshot = previousEntry?.snapshotId
+      ? await ctx.db.get(previousEntry.snapshotId)
+      : null;
+    if (
+      previousSnapshot &&
+      (previousSnapshot.eventId !== event._id ||
+        previousSnapshot.teamId !== session.teamId ||
+        previousSnapshot.figmaFileBindingId !== binding._id ||
+        previousSnapshot.capturedAt > snapshot.capturedAt)
+    ) {
+      throw new Error("The previous pinned Figma snapshot is invalid.");
+    }
+    if (args.previousFactId && !previousSnapshot) {
+      throw new ConvexError({
+        code: "FIGMA_COMPARISON_UNAVAILABLE",
+        message: "The earlier judging checkpoint has no rendered frame for this file.",
+      });
+    }
+    const [currentSet, previousSet, currentFact, previousFact] = await Promise.all([
+      ctx.db
+        .query("figmaPreviewSets")
+        .withIndex("by_snapshot", (index) => index.eq("snapshotId", snapshot._id))
+        .unique(),
+      previousSnapshot
+        ? ctx.db
+            .query("figmaPreviewSets")
+            .withIndex("by_snapshot", (index) => index.eq("snapshotId", previousSnapshot._id))
+            .unique()
+        : Promise.resolve(null),
+      args.currentFactId ? ctx.db.get(args.currentFactId) : Promise.resolve(null),
+      args.previousFactId ? ctx.db.get(args.previousFactId) : Promise.resolve(null),
+    ]);
+    if (!currentSet || (args.previousFactId && !previousSet)) {
+      throw new ConvexError({
+        code: "FIGMA_COMPARISON_UNAVAILABLE",
+        message: "The fixed comparison does not have rendered checkpoint sets.",
+      });
+    }
+    if (
+      currentSet.eventId !== event._id ||
+      currentSet.teamId !== session.teamId ||
+      currentSet.figmaFileBindingId !== binding._id ||
+      currentSet.providerVersionId !== snapshot.providerVersionId ||
+      (previousSet !== null &&
+        (previousSnapshot === null ||
+          previousSet.eventId !== event._id ||
+          previousSet.teamId !== session.teamId ||
+          previousSet.figmaFileBindingId !== binding._id ||
+          previousSet.providerVersionId !== previousSnapshot.providerVersionId))
+    ) {
+      throw new Error("The fixed Figma comparison sets are invalid.");
+    }
+    if (currentFact && previousFact && currentFact.nodeId !== previousFact.nodeId) {
+      throw new ConvexError({
+        code: "FIGMA_COMPARISON_INVALID",
+        message: "Choose both sides of the same fixed frame comparison.",
+      });
+    }
+    const currentPreview = args.currentFactId
+      ? availablePreview(currentFact, {
+          expectedFactId: args.currentFactId,
+          eventId: event._id,
+          teamId: session.teamId,
+          bindingId: binding._id,
+          snapshotId: snapshot._id,
+          previewSetId: currentSet._id,
+          providerVersionId: snapshot.providerVersionId,
+          capturedAt: snapshot.capturedAt,
+        })
+      : undefined;
+    let previousPreview: ReturnType<typeof availablePreview> | undefined;
+    if (args.previousFactId) {
+      const previous = requirePrevious(previousSnapshot, previousSet);
+      previousPreview = availablePreview(previousFact, {
+        expectedFactId: args.previousFactId,
+        eventId: event._id,
+        teamId: session.teamId,
+        bindingId: binding._id,
+        snapshotId: previous.snapshot._id,
+        previewSetId: previous.previewSet._id,
+        providerVersionId: previous.snapshot.providerVersionId,
+        capturedAt: previous.snapshot.capturedAt,
+      });
+    }
+    if (
+      (args.expectedCurrent !== undefined &&
+        (!currentPreview || !samePrivateFigmaPreview(currentPreview, args.expectedCurrent))) ||
+      (args.expectedPrevious !== undefined &&
+        (!previousPreview || !samePrivateFigmaPreview(previousPreview, args.expectedPrevious)))
+    ) {
+      throw new ConvexError({
+        code: "FIGMA_PREVIEW_CHANGED",
+        message: "The fixed Figma comparison changed while its links were prepared. Try again.",
+      });
+    }
+    const serverNow = Date.now();
+    if (
+      !Number.isSafeInteger(args.signedUrlExpiresAt) ||
+      args.signedUrlExpiresAt <= serverNow ||
+      args.signedUrlExpiresAt > serverNow + 60_000
+    ) {
+      throw new ConvexError({
+        code: "FIGMA_PREVIEW_LINK_EXPIRED",
+        message: "The Figma comparison links expired while they were prepared. Try again.",
+      });
+    }
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "review.evidence.read",
+      grantIds,
+      scopeType: permissionScope.scopeType,
+      scopeId: permissionScope.scopeId,
+      action: "review.figma_comparison_preview_opened",
+      targetType: "review_session",
+      targetId: session._id,
+      nextSummary: JSON.stringify({
+        bindingId: binding._id,
+        currentFactId: currentPreview?.factId,
+        currentSha256: currentPreview?.sha256,
+        previousFactId: previousPreview?.factId,
+        previousSha256: previousPreview?.sha256,
+        signedUrlExpiresAt: args.signedUrlExpiresAt,
+      }),
+      reason: "Opened rendered frames from a fixed review comparison",
+    });
+    return { serverNow };
+  },
+});
+
 function requirePrevious(
   snapshot: Doc<"figmaFileSnapshots"> | null,
   previewSet: Doc<"figmaPreviewSets"> | null,
@@ -852,6 +1175,49 @@ function requirePrevious(
   return { snapshot, previewSet };
 }
 
+async function requireFigmaPreviewAccess(
+  ctx: ReadCtx,
+  args: {
+    eventSlug: string;
+    reviewSessionId: Id<"reviewSessions">;
+    bindingId: Id<"figmaFileBindings">;
+    factId: Id<"figmaNodeFacts">;
+  },
+) {
+  const context = await pinnedFigmaContext(ctx, args);
+  const { event, session, binding, snapshot } = context;
+  const [previewSet, fact] = await Promise.all([
+    ctx.db
+      .query("figmaPreviewSets")
+      .withIndex("by_snapshot", (index) => index.eq("snapshotId", snapshot._id))
+      .unique(),
+    ctx.db.get(args.factId),
+  ]);
+  if (
+    !previewSet ||
+    previewSet.eventId !== event._id ||
+    previewSet.teamId !== session.teamId ||
+    previewSet.figmaFileBindingId !== binding._id ||
+    previewSet.providerVersionId !== snapshot.providerVersionId
+  ) {
+    throw new ConvexError({
+      code: "FIGMA_PREVIEW_UNAVAILABLE",
+      message: "This rendered frame is unavailable in the pinned checkpoint.",
+    });
+  }
+  const preview = availablePreview(fact, {
+    expectedFactId: args.factId,
+    eventId: event._id,
+    teamId: session.teamId,
+    bindingId: binding._id,
+    snapshotId: snapshot._id,
+    previewSetId: previewSet._id,
+    providerVersionId: snapshot.providerVersionId,
+    capturedAt: snapshot.capturedAt,
+  });
+  return { ...context, preview };
+}
+
 export const figmaPreviewAccessContext = internalQuery({
   args: {
     eventSlug: v.string(),
@@ -859,52 +1225,69 @@ export const figmaPreviewAccessContext = internalQuery({
     bindingId: v.id("figmaFileBindings"),
     factId: v.id("figmaNodeFacts"),
   },
-  returns: v.object({
-    objectKey: v.string(),
-    storageRegion: v.string(),
-    storageBucket: v.string(),
-    sha256: v.string(),
-    width: v.number(),
-    height: v.number(),
-    nodeName: v.string(),
-    capturedAt: v.number(),
-    providerVersionId: v.string(),
-  }),
+  returns: privateFigmaPreviewContext,
   handler: async (ctx, args) => {
-    const { event, session, binding, snapshot } = await pinnedFigmaContext(ctx, args);
-    const [previewSet, fact] = await Promise.all([
-      ctx.db
-        .query("figmaPreviewSets")
-        .withIndex("by_snapshot", (index) => index.eq("snapshotId", snapshot._id))
-        .unique(),
-      ctx.db.get(args.factId),
-    ]);
-    if (
-      !previewSet ||
-      !fact ||
-      fact.previewSetId !== previewSet._id ||
-      fact.snapshotId !== snapshot._id ||
-      fact.eventId !== event._id ||
-      fact.teamId !== session.teamId ||
-      fact.figmaFileBindingId !== binding._id ||
-      fact.providerVersionId !== snapshot.providerVersionId ||
-      fact.render.state !== "available"
-    ) {
+    const { preview } = await requireFigmaPreviewAccess(ctx, args);
+    return preview;
+  },
+});
+
+export const recordFigmaPreviewAccess = internalMutation({
+  args: {
+    eventSlug: v.string(),
+    reviewSessionId: v.id("reviewSessions"),
+    bindingId: v.id("figmaFileBindings"),
+    factId: v.id("figmaNodeFacts"),
+    expected: privateFigmaPreviewContext,
+    signedUrlExpiresAt: v.number(),
+  },
+  returns: v.object({ serverNow: v.number() }),
+  handler: async (ctx, args) => {
+    const {
+      event,
+      person,
+      session,
+      binding,
+      preview,
+      grantIds,
+      permissionScope,
+    } = await requireFigmaPreviewAccess(ctx, args);
+    if (!samePrivateFigmaPreview(preview, args.expected)) {
       throw new ConvexError({
-        code: "FIGMA_PREVIEW_UNAVAILABLE",
-        message: "This rendered frame is unavailable in the pinned checkpoint.",
+        code: "FIGMA_PREVIEW_CHANGED",
+        message: "The fixed Figma frame changed while its link was prepared. Try again.",
       });
     }
-    return {
-      objectKey: fact.render.objectKey,
-      storageRegion: fact.render.storageRegion,
-      storageBucket: fact.render.storageBucket,
-      sha256: fact.render.sha256,
-      width: fact.render.width,
-      height: fact.render.height,
-      nodeName: fact.nodeName,
-      capturedAt: snapshot.capturedAt,
-      providerVersionId: snapshot.providerVersionId,
-    };
+    const serverNow = Date.now();
+    if (
+      !Number.isSafeInteger(args.signedUrlExpiresAt) ||
+      args.signedUrlExpiresAt <= serverNow ||
+      args.signedUrlExpiresAt > serverNow + 60_000
+    ) {
+      throw new ConvexError({
+        code: "FIGMA_PREVIEW_LINK_EXPIRED",
+        message: "The Figma frame link expired while it was prepared. Try again.",
+      });
+    }
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "review.evidence.read",
+      grantIds,
+      scopeType: permissionScope.scopeType,
+      scopeId: permissionScope.scopeId,
+      action: "review.figma_preview_opened",
+      targetType: "figma_node_fact",
+      targetId: preview.factId,
+      nextSummary: JSON.stringify({
+        reviewSessionId: session._id,
+        bindingId: binding._id,
+        snapshotId: preview.snapshotId,
+        sha256: preview.sha256,
+        signedUrlExpiresAt: args.signedUrlExpiresAt,
+      }),
+      reason: "Opened a rendered frame from fixed review evidence",
+    });
+    return { serverNow };
   },
 });

@@ -9,6 +9,9 @@ const secureStore = vi.hoisted(() => {
     setItemAsync: vi.fn(async (key: string, value: string) => {
       values.set(key, value)
     }),
+    deleteItemAsync: vi.fn(async (key: string) => {
+      values.delete(key)
+    }),
   }
 })
 
@@ -29,11 +32,13 @@ const crypto = vi.hoisted(() => {
 vi.mock('expo-secure-store', () => ({
   getItemAsync: secureStore.getItemAsync,
   setItemAsync: secureStore.setItemAsync,
+  deleteItemAsync: secureStore.deleteItemAsync,
 }))
 
 vi.mock('expo-crypto', () => ({ randomUUID: crypto.randomUUID }))
 
 import {
+  clearReviewerDevice,
   clearReviewerRegistration,
   createReviewerDevice,
   loadReviewerDevice,
@@ -45,6 +50,7 @@ describe('reviewer device registration attempts', () => {
     secureStore.values.clear()
     secureStore.getItemAsync.mockClear()
     secureStore.setItemAsync.mockClear()
+    secureStore.deleteItemAsync.mockClear()
     crypto.reset()
     crypto.randomUUID.mockClear()
   })
@@ -110,5 +116,13 @@ describe('reviewer device registration attempts', () => {
       'The reviewer setup stored on this phone is invalid.',
     )
     expect(secureStore.setItemAsync).not.toHaveBeenCalled()
+  })
+
+  test('clears an unreadable setup so the phone can be provisioned again', async () => {
+    secureStore.values.set('code2create.reviewer.code2create-7', '{invalid')
+
+    await clearReviewerDevice('code2create-7')
+
+    await expect(loadReviewerDevice('code2create-7')).resolves.toBeNull()
   })
 })
