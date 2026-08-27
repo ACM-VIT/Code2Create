@@ -5,7 +5,11 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, components } from "./_generated/api";
 import { defaultDeterministicIntakePolicy } from "./lib/intakePolicy.ts";
 import { defaultParticipantPolicy } from "./lib/participantPolicy.ts";
-import { eventOwnerPermissionKeys } from "./lib/permissionCatalog.ts";
+import {
+  eventOwnerPermissionKeys,
+  isPermissionKey,
+  permissionCatalog,
+} from "./lib/permissionCatalog.ts";
 import { supremeSelfPermissionKeys } from "./lib/rolePermissions.ts";
 import schema from "./schema.ts";
 
@@ -17,6 +21,21 @@ type BackendTest = TestConvex<typeof schema>;
 
 describe("event bootstrap", () => {
   afterEach(() => vi.unstubAllEnvs());
+
+  test("derives every non-event-wide self permission for Supreme", () => {
+    const catalogSelfPermissions = Object.keys(permissionCatalog)
+      .filter(isPermissionKey)
+      .filter((permissionKey) => {
+        const definition = permissionCatalog[permissionKey];
+        return !definition.eventWide &&
+          definition.scopes.some((scope) => scope === "self");
+      });
+
+    expect(supremeSelfPermissionKeys).toEqual(catalogSelfPermissions);
+    expect(supremeSelfPermissionKeys).toContain(
+      "communications.call_consent.manage",
+    );
+  });
 
   test("lets the configured owner create the complete draft baseline once", async () => {
     vi.stubEnv("AUTH_SITE_URL", "http://localhost:3211");
