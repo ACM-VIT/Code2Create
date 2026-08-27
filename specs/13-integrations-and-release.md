@@ -603,7 +603,7 @@ If VIT policy requires another provider/region, replace this decision before pro
 | Synesthesia | synthetic catalog and operator | approved staging catalog, scoped test operators, and licensed test account | frozen event catalog, named scoped operators/moderators, and approved licensed venue account |
 | S3 | local/test bucket | staging integration/export prefixes | production integration/export prefixes |
 | Recovery operator | no production key | exact disposable staging target and restore key | data-read export key only; destructive production restore uses a separate incident-controlled identity |
-| Sentry | development | staging | production |
+| PostHog | one EU project with development release tags | the Code2Create EU project with staging release tags and source maps | the Code2Create EU project with production release tags and source maps |
 
 No callback URL, provider key, auth secret, user record, or push token is shared across staging and production.
 
@@ -615,13 +615,12 @@ The complete pull-request gate must run:
 2. formatting, lint, and TypeScript;
 3. domain/unit tests;
 4. Convex schema/function tests;
-5. production builds for the participant, operations, and handbook Vite applications plus the intelligence, update, email, and voice Workers;
-6. a staging handbook build when Google identity or `handbook.read` changes;
-7. intelligence protocol/permission/race tests and a strict Wrangler dry-run with the Workers AI and Durable Object bindings;
-8. Expo export/config validation plus update-Worker dry-run build and protocol/concurrency tests;
-9. Playwright against an isolated seeded deployment;
-10. OpenAI embedding-width, corpus, race, Responses, and fallback fixtures; Workers AI and Flue contracts; email, call, GitHub, and Figma webhook fixtures;
-11. secret scan.
+5. production builds for the participant and operations Vite applications plus the intelligence, update, email, and voice Workers;
+6. intelligence protocol/permission/race tests and a strict Wrangler dry-run with the Workers AI and Durable Object bindings;
+7. Expo export/config validation plus update-Worker dry-run build and protocol/concurrency tests;
+8. Playwright against an isolated seeded deployment;
+9. OpenAI embedding-width, corpus, race, Responses, and fallback fixtures; Workers AI and Flue contracts; email, call, GitHub, and Figma webhook fixtures;
+10. secret scan.
 
 The checked-in `Product checks` workflow uses a pinned TruffleHog scan and a frozen pnpm install. It runs on pull requests and pushes to `staging` and `main`. It runs repository lint, type checks, domain and Convex tests, service protocol tests, autonomy-boundary evaluation, all Vite builds, and all Worker builds. It also validates public Expo configuration and exports the iOS and Android JavaScript bundles with non-secret fixtures. GitHub Actions verifies releases. It does not deploy a Cloudflare Worker and holds no Cloudflare, mobile, or update-signing credential.
 
@@ -652,7 +651,6 @@ Each Worker connects separately to `ACM-VIT/Code2Create`. This preserves indepen
 | --- | --- | --- | --- |
 | `code2create-participant-staging` | `apps/web` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 | `code2create-operations-staging` | `apps/ops` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
-| `code2create-handbook-staging` | `apps/handbook` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 | `code2create-intelligence-staging` | `apps/intelligence` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 | `code2create-updates-staging` | `apps/updates` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 | `code2create-email-staging` | `apps/email` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
@@ -660,13 +658,12 @@ Each Worker connects separately to `ACM-VIT/Code2Create`. This preserves indepen
 
 Every staging build sets `NODE_VERSION=24.18.0` and `PNPM_VERSION=11.18.0`. Cloudflare supplies `WORKERS_CI`, `WORKERS_CI_BRANCH`, and `WORKERS_CI_COMMIT_SHA`. Cloudflare's production-branch setting owns the branch boundary. The environment-specific package commands set `CLOUDFLARE_ENV` and `VITE_DEPLOYMENT_ENVIRONMENT`, and the Vite deployments use `WORKERS_CI_COMMIT_SHA` as `VITE_RELEASE_ID`. Do not create user-defined copies of the `WORKERS_CI_*` values.
 
-The three browser applications use these additional build values:
+The two browser applications use these additional build values:
 
 | Application | Plain build variables | Secret build variables |
 | --- | --- | --- |
-| Participant | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` | `SENTRY_AUTH_TOKEN` |
-| Operations | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` | `SENTRY_AUTH_TOKEN` |
-| Handbook | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG` | none |
+| Participant | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY` |
+| Operations | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY` |
 
 The remaining Workers need only the common build-tool versions. Their operational configuration belongs to the matching Worker runtime, not to Workers Builds:
 
@@ -677,7 +674,7 @@ The remaining Workers need only the common build-tool versions. Their operationa
 | Email | staging Queue consumer and dead-letter Queue | `CONVEX_EMAIL_EVENT_CALLBACK_URL`, `EMAIL_EVENT_CALLBACK_SECRET`, `EMAIL_ROUTING_ADDRESS`, `EMAIL_ROUTING_FORWARD_TO`, `EMAIL_SENDING_DOMAIN` |
 | Voice | outbound-call Durable Object and staging `PUBLIC_BASE_URL` | `OUTBOUND_CALL_REQUEST_SECRET`, `OUTBOUND_CALL_EVENT_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `SARVAM_API_KEY` |
 
-The Cloudflare GitHub App and the Worker-specific build token are configured in Cloudflare. They do not become repository or application environment variables. Cloudflare's automatic dependency installation uses the workspace lockfile. Watch paths remain unrestricted for the first staging release so a shared package, generated API, handbook document, lockfile, or patch cannot leave one Worker stale.
+The Cloudflare GitHub App and the Worker-specific build token are configured in Cloudflare. They do not become repository or application environment variables. Cloudflare's automatic dependency installation uses the workspace lockfile. Watch paths remain unrestricted for the first staging release so a shared package, generated API, specification, lockfile, or patch cannot leave one Worker stale.
 
 Cloudflare does not deploy Convex. The tested staging Convex functions and environment configuration must exist before a dependent Worker commit reaches `staging`. Do not make one Worker deploy Convex: seven independent builds could race and would give a frontend deployment backend authority. The production Worker connections and custom domains are configured only after the staging release is accepted.
 
@@ -734,7 +731,7 @@ The ordered review-queue aggregate has no compatibility or backfill path. Its fi
 4. Create staged Cloudflare deployments for all three web applications and the intelligence Worker; run deep-link, auth-origin, permission, asset, health, signed-ingress, and callback checks.
 5. Promote the tested Cloudflare deployments without changing the environment pairings.
 6. If needed, publish a same-runtime JavaScript update from a clean commit through the signed local publisher only after the identical commit passes against the staging update service and fleet.
-7. Verify one synthetic novelty preview against the published native-width corpus. Verify one OpenAI interpretation/fallback and one bounded Workers AI operations brief. Verify one enrolled VIT ID barcode and one QR attendance transition. Verify GitHub/Figma callbacks, one test push, export bucket write, Sentry release, and dashboard release IDs.
+7. Verify one synthetic novelty preview against the published native-width corpus. Verify one OpenAI interpretation/fallback and one bounded Workers AI operations brief. Verify one enrolled VIT ID barcode and one QR attendance transition. Verify GitHub/Figma callbacks, one test push, export bucket write, PostHog release, and dashboard release IDs.
 8. Record the release in event configuration.
 
 Do not change native dependencies, auth callback shape, rubric calculation, or destructive schema during a live round.
@@ -800,7 +797,7 @@ Before launch, rehearse rotation for:
 - update Worker admin token and the locally held Expo Updates signing key;
 - Cloudflare Email Sending API token and email-event HMAC secret;
 - S3 application credential;
-- Sentry auth token.
+- PostHog CLI personal API key.
 
 Token-encryption key rotation keeps the previous decrypt key until every active Figma access/refresh token and every unexpired pending or verifying OAuth PKCE verifier is re-encrypted. The bounded, cursor-resumable status and rotation commands cover each owner separately; the previous key is removed only after a complete dry run reports no live ciphertext on it. Attendance-key wrapping rotation authenticates and re-encrypts each event lookup key without changing a barcode fingerprint. A compromised event lookup key is different: pause VIT ID barcode acceptance, create a new event key set, and require staffed barcode re-enrollment while QR remains available. GitHub webhook-secret rotation may require an overlap or coordinated provider update. Figma passcode rotation updates each active webhook and verifies its new `PING` before discarding the old encrypted value.
 

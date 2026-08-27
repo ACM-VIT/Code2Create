@@ -9,8 +9,10 @@ import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditor
 import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonLine, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
-import { readableError } from '../lib/errors'
-import { useOperationRunner } from '../lib/operations'
+import {
+  type ConfigurationOperationDescriptor,
+  useConfigurationOperations,
+} from '../lib/configurationOperations'
 
 type Configuration = FunctionReturnType<typeof api.checkpointConfiguration.current>
 type Plan = NonNullable<Configuration['publishedPlan']>
@@ -63,6 +65,19 @@ const defaults = [
   },
 ] as const satisfies readonly EditorDefinition[]
 
+const operationDescriptors = [
+  {
+    slot: 'checkpoint-publish',
+    title: 'Finish publishing the team update prompts',
+    action: 'Confirm earlier publication',
+  },
+  {
+    slot: 'checkpoint-draft',
+    title: 'Finish saving the team update prompts draft',
+    action: 'Confirm earlier save',
+  },
+] satisfies readonly ConfigurationOperationDescriptor[]
+
 export function CheckpointConfiguration({
   tabs,
 }: {
@@ -71,7 +86,7 @@ export function CheckpointConfiguration({
   const configuration = useQuery(api.checkpointConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.checkpointConfiguration.createDraft)
   const publish = useMutation(api.checkpointConfiguration.publish)
-  const operations = useOperationRunner<CheckpointOperationResult>()
+  const operations = useConfigurationOperations<CheckpointOperationResult>(operationDescriptors)
   const validation = useQuery(
     api.checkpointConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPlan
@@ -83,24 +98,9 @@ export function CheckpointConfiguration({
   const [draftReason, setDraftReason] = useState('Aligned with the participant event flow')
   const [publishReason, setPublishReason] = useState('Checked against the published event phases')
   const [publishArmed, setPublishArmed] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('checkpoint-draft')
   const publishPending = operations.hasPending('checkpoint-publish')
-  const pendingOperation = publishPending
-    ? {
-        slot: 'checkpoint-publish',
-        title: 'Finish publishing the team update prompts',
-        action: 'Confirm earlier publication',
-      }
-    : draftPending
-      ? {
-          slot: 'checkpoint-draft',
-          title: 'Finish saving the team update prompts draft',
-          action: 'Confirm earlier save',
-        }
-      : null
-  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!configuration) return
@@ -141,61 +141,33 @@ export function CheckpointConfiguration({
     )))
   }
 
-  const saveDraft = async (event: FormEvent) => {
+  const saveDraft = (event: FormEvent) => {
     event.preventDefault()
-    if (busy || operationPending) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('checkpoint-draft', (clientOperationId) => () => createDraft({
-        eventSlug,
-        definitions,
-        expectedEventVersion: configuration.eventVersion,
-        ...(configuration.draftPlan ? { expectedDraftPlanId: configuration.draftPlan.id } : {}),
-        reason: draftReason,
-        clientOperationId,
-      }))
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    void operations.run('checkpoint-draft', (clientOperationId) => () => createDraft({
+      eventSlug,
+      definitions,
+      expectedEventVersion: configuration.eventVersion,
+      ...(configuration.draftPlan ? { expectedDraftPlanId: configuration.draftPlan.id } : {}),
+      reason: draftReason,
+      clientOperationId,
+    }))
   }
 
-  const publishDraft = async () => {
+  const publishDraft = () => {
     const draft = configuration.draftPlan
-    if (busy || operationPending || !draft || !validation?.valid) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('checkpoint-publish', (clientOperationId) => () => publish({
-        eventSlug,
-        draftPlanId: draft.id,
-        expectedDraftChecksum: draft.checksum,
-        expectedEventVersion: configuration.eventVersion,
-        reason: publishReason,
-        clientOperationId,
-      }))
-      setPublishArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    if (!draft || !validation?.valid) return
+    void operations.run('checkpoint-publish', (clientOperationId) => () => publish({
+      eventSlug,
+      draftPlanId: draft.id,
+      expectedDraftChecksum: draft.checksum,
+      expectedEventVersion: configuration.eventVersion,
+      reason: publishReason,
+      clientOperationId,
+    }), () => setPublishArmed(false))
   }
 
-  const confirmPendingOperation = async () => {
-    if (busy || pendingOperation === null) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.retryPending(pendingOperation.slot)
-      setPublishArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+  const confirmPendingOperation = () => {
+    void operations.retryPending(() => setPublishArmed(false))
   }
 
   return (

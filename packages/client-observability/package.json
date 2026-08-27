@@ -6,16 +6,15 @@
   "exports": {
     ".": "./src/index.tsx",
     "./environment": "./src/environment.ts",
-    "./privacy": "./src/privacy.ts",
-    "./vite": "./src/vite.ts"
+    "./privacy": "./src/privacy.ts"
   },
   "scripts": {
-    "test": "node --test src/privacy.test.ts src/vite.test.ts",
+    "test": "node --test src/privacy.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@sentry/react": "^10.69.0",
-    "@sentry/vite-plugin": "^5.4.0",
+    "@posthog/react": "^1.10.5",
+    "posthog-js": "^1.420.0",
     "react": "^19.2.8"
   },
   "devDependencies": {

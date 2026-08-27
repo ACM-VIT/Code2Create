@@ -9,8 +9,11 @@ import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditor
 import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
-import { readableError } from '../lib/errors'
-import { useOperationRunner } from '../lib/operations'
+import { formatZonedDateTimeWindow as formatWindow } from '../lib/dateTime'
+import {
+  type ConfigurationOperationDescriptor,
+  useConfigurationOperations,
+} from '../lib/configurationOperations'
 
 type Configuration = FunctionReturnType<typeof api.communicationsPolicyConfiguration.current>
 type Policy = Configuration['publishedPolicy']['policy']
@@ -21,6 +24,19 @@ type CommunicationsPolicyOperationResult =
   | FunctionReturnType<typeof api.communicationsPolicyConfiguration.createDraft>
   | FunctionReturnType<typeof api.communicationsPolicyConfiguration.publish>
 
+const operationDescriptors = [
+  {
+    slot: 'communications-policy-publish',
+    title: 'Finish publishing the accepted-team details',
+    action: 'Confirm earlier publication',
+  },
+  {
+    slot: 'communications-policy-draft',
+    title: 'Finish saving the accepted-team details draft',
+    action: 'Confirm earlier save',
+  },
+] satisfies readonly ConfigurationOperationDescriptor[]
+
 export function CommunicationsPolicyConfiguration({
   tabs,
 }: {
@@ -29,7 +45,9 @@ export function CommunicationsPolicyConfiguration({
   const configuration = useQuery(api.communicationsPolicyConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.communicationsPolicyConfiguration.createDraft)
   const publish = useMutation(api.communicationsPolicyConfiguration.publish)
-  const operations = useOperationRunner<CommunicationsPolicyOperationResult>()
+  const operations = useConfigurationOperations<CommunicationsPolicyOperationResult>(
+    operationDescriptors,
+  )
   const validation = useQuery(
     api.communicationsPolicyConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPolicy
@@ -41,24 +59,9 @@ export function CommunicationsPolicyConfiguration({
   const [draftReason, setDraftReason] = useState('')
   const [publishReason, setPublishReason] = useState('')
   const [publishArmed, setPublishArmed] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('communications-policy-draft')
   const publishPending = operations.hasPending('communications-policy-publish')
-  const pendingOperation = publishPending
-    ? {
-        slot: 'communications-policy-publish',
-        title: 'Finish publishing the accepted-team details',
-        action: 'Confirm earlier publication',
-      }
-    : draftPending
-      ? {
-          slot: 'communications-policy-draft',
-          title: 'Finish saving the accepted-team details draft',
-          action: 'Confirm earlier save',
-        }
-      : null
-  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!configuration) return
@@ -116,63 +119,35 @@ export function CommunicationsPolicyConfiguration({
     updatePolicy('nextSteps', policy.nextSteps.filter((_, stepIndex) => stepIndex !== index))
   }
 
-  const saveDraft = async (event: FormEvent) => {
+  const saveDraft = (event: FormEvent) => {
     event.preventDefault()
-    if (busy || operationPending) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('communications-policy-draft', (clientOperationId) => () => createDraft({
-        eventSlug,
-        policy: fromEditorPolicy(policy, configuration.timezone),
-        expectedEventVersion: configuration.eventVersion,
-        ...(configuration.draftPolicy
-          ? { expectedDraftPolicyId: configuration.draftPolicy.id }
-          : {}),
-        reason: draftReason,
-        clientOperationId,
-      }))
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    void operations.run('communications-policy-draft', (clientOperationId) => () => createDraft({
+      eventSlug,
+      policy: fromEditorPolicy(policy, configuration.timezone),
+      expectedEventVersion: configuration.eventVersion,
+      ...(configuration.draftPolicy
+        ? { expectedDraftPolicyId: configuration.draftPolicy.id }
+        : {}),
+      reason: draftReason,
+      clientOperationId,
+    }))
   }
 
-  const publishDraft = async () => {
+  const publishDraft = () => {
     const draft = configuration.draftPolicy
-    if (busy || operationPending || !draft || !validation?.valid) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('communications-policy-publish', (clientOperationId) => () => publish({
-        eventSlug,
-        draftPolicyId: draft.id,
-        expectedDraftChecksum: draft.checksum,
-        expectedEventVersion: configuration.eventVersion,
-        reason: publishReason,
-        clientOperationId,
-      }))
-      setPublishArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    if (!draft || !validation?.valid) return
+    void operations.run('communications-policy-publish', (clientOperationId) => () => publish({
+      eventSlug,
+      draftPolicyId: draft.id,
+      expectedDraftChecksum: draft.checksum,
+      expectedEventVersion: configuration.eventVersion,
+      reason: publishReason,
+      clientOperationId,
+    }), () => setPublishArmed(false))
   }
 
-  const confirmPendingOperation = async () => {
-    if (busy || pendingOperation === null) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.retryPending(pendingOperation.slot)
-      setPublishArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+  const confirmPendingOperation = () => {
+    void operations.retryPending(() => setPublishArmed(false))
   }
 
   return (
@@ -440,15 +415,6 @@ function zonedTimestamp(value: string, timezone: string, label: string) {
     throw new Error(`${label} is not a valid local time in ${timezone}.`)
   }
   return date.getTime()
-}
-
-function formatWindow(startsAt: number, endsAt: number, timezone: string) {
-  const format = new Intl.DateTimeFormat(undefined, {
-    timeZone: timezone,
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  })
-  return `${format.format(startsAt)} – ${format.format(endsAt)}`
 }
 
 function pad(value: number) {

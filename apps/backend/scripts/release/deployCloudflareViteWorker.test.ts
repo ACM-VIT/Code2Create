@@ -41,7 +41,7 @@ test('builds an explicit Wrangler deployment command', () => {
 
 test('rejects an unset environment instead of falling back to production', () => {
   assert.throws(
-    () => cloudflareWorkerName('code2create-handbook', {}),
+    () => cloudflareWorkerName('code2create-operations', {}),
     /Set CLOUDFLARE_ENV/u,
   )
 })

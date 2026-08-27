@@ -1,6 +1,6 @@
-const { getSentryExpoConfig } = require('@sentry/react-native/metro')
+const { getPostHogExpoConfig } = require('posthog-react-native/metro')
 
-const config = getSentryExpoConfig(__dirname)
+const config = getPostHogExpoConfig(__dirname)
 
 config.resolver.blockList = [
   ...config.resolver.blockList,

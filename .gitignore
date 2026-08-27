@@ -30,7 +30,6 @@ yarn-error.log*
 !**/.env.example
 !apps/web/.env.development
 !apps/ops/.env.development
-!apps/handbook/.env.development
 
 # local native provider configuration
 /apps/reviewer/google-services.json

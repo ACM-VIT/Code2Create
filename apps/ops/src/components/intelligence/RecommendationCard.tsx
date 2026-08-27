@@ -8,6 +8,7 @@ import type { FunctionReturnType } from 'convex/server'
 import { useState } from 'react'
 
 import { eventSlug } from '../../lib/config'
+import { formatCompactDateTime } from '../../lib/dateTime'
 import { readableError } from '../../lib/errors'
 import type { OperationRunner } from '../../lib/operations'
 import { PendingOperationRecovery } from '../PendingOperationRecovery'
@@ -130,7 +131,7 @@ export function RecommendationCard({
       <dl className="review-progress intelligence-recommendation-evidence">
         <div>
           <dt>Proposed</dt>
-          <dd>{formatDateTime(recommendation.proposedAt)}</dd>
+          <dd>{formatCompactDateTime(recommendation.proposedAt)}</dd>
         </div>
         <div>
           <dt>Command version</dt>
@@ -139,7 +140,7 @@ export function RecommendationCard({
         {recommendation.decidedAt === undefined ? null : (
           <div>
             <dt>Decided</dt>
-            <dd>{formatDateTime(recommendation.decidedAt)}</dd>
+            <dd>{formatCompactDateTime(recommendation.decidedAt)}</dd>
           </div>
         )}
         <div>
@@ -319,7 +320,7 @@ function AutonomyEvidenceObservation({
           <h5>{observation.statement}</h5>
         </div>
         <time dateTime={new Date(observation.observedAt).toISOString()}>
-          {formatDateTime(observation.observedAt)}
+          {formatCompactDateTime(observation.observedAt)}
         </time>
       </header>
       <p>{observation.reasoning}</p>
@@ -371,7 +372,7 @@ function CitationList({
           <div>
             <strong>{readLabel(citation.read)}</strong>
             <time dateTime={new Date(citation.generatedAt).toISOString()}>
-              {formatDateTime(citation.generatedAt)}
+              {formatCompactDateTime(citation.generatedAt)}
             </time>
           </div>
           <p><code>{citation.keys.join(' · ')}</code></p>
@@ -466,13 +467,4 @@ function recommendationStatusLabel(status: Recommendation['status']) {
 
 function readLabel(read: string) {
   return read.replaceAll('_', ' ')
-}
-
-function formatDateTime(value: number) {
-  return new Date(value).toLocaleString([], {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }

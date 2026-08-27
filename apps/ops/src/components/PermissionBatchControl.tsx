@@ -286,7 +286,7 @@ function BatchGrantRow({
           }}
         >
           {definitions.map((candidate) => (
-            <option key={candidate.key} value={candidate.key}>{permissionName(candidate.key)}</option>
+            <option key={candidate.key} value={candidate.key}>{candidate.label}</option>
           ))}
         </select>
       </label>

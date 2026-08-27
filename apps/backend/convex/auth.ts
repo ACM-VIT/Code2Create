@@ -74,7 +74,6 @@ async function recordGoogleIdentity(
 export function createAuth(ctx: GenericCtx<DataModel>) {
   const participantSiteUrl = requiredWebOrigin("PARTICIPANT_SITE_URL");
   const operationsSiteUrl = requiredWebOrigin("OPERATIONS_SITE_URL");
-  const handbookSiteUrl = requiredWebOrigin("HANDBOOK_SITE_URL");
   const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
   const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
   const googleProvider =
@@ -94,7 +93,6 @@ export function createAuth(ctx: GenericCtx<DataModel>) {
     trustedOrigins: [
       participantSiteUrl,
       operationsSiteUrl,
-      handbookSiteUrl,
       "code2create-ops://",
     ],
     database: authComponent.adapter(ctx),

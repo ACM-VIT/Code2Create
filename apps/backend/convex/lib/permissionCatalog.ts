@@ -7,7 +7,6 @@ type PermissionDefinition = {
 };
 
 export const permissionCatalog = {
-  "handbook.read": { scopes: [], eventWide: true },
   "event.lifecycle.read": { scopes: [], eventWide: true },
   "event.lifecycle.manage": { scopes: [], eventWide: true },
   "participant.profile.read": { scopes: ["self"], eventWide: false },
@@ -325,3 +324,16 @@ export type PermissionKey = keyof typeof permissionCatalog;
 export function isPermissionKey(value: string): value is PermissionKey {
   return Object.hasOwn(permissionCatalog, value);
 }
+
+export const eventWidePermissionKeys = Object.keys(permissionCatalog)
+  .filter(isPermissionKey)
+  .filter((permissionKey) => permissionCatalog[permissionKey].eventWide);
+
+const delegatedPermissionAdministrationKeys = new Set<PermissionKey>([
+  "access.permissions.grant_scoped",
+  "access.permissions.revoke_scoped",
+]);
+
+export const eventOwnerPermissionKeys = eventWidePermissionKeys.filter(
+  (permissionKey) => !delegatedPermissionAdministrationKeys.has(permissionKey),
+);

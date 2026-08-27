@@ -12,6 +12,7 @@ import {
 } from '../components/intelligence'
 import { LoadingLabel, SkeletonList } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
+import { formatClockTime, formatCompactDateTime } from '../lib/dateTime'
 import { readableError } from '../lib/errors'
 import {
   autonomyRunPhaseLabel,
@@ -87,9 +88,9 @@ export function IntelligenceActivity({ canGenerate }: { canGenerate: boolean }) 
           <strong>{activeRun ? autonomyRunStateLabel(activeRun.state) : 'Idle'}</strong>
           <small>
             {activeRun
-              ? `${autonomyRunPhaseLabel(activeRun.phase)} · since ${formatTime(activeRun.createdAt)}`
+              ? `${autonomyRunPhaseLabel(activeRun.phase)} · since ${formatClockTime(activeRun.createdAt)}`
               : runs[0] !== undefined
-                ? `Last updated ${formatDateTime(runs[0].updatedAt)}`
+                ? `Last updated ${formatCompactDateTime(runs[0].updatedAt)}`
                 : 'Has not run yet'}
           </small>
         </div>
@@ -172,17 +173,4 @@ export function IntelligenceActivity({ canGenerate }: { canGenerate: boolean }) 
 
     </section>
   )
-}
-
-function formatTime(value: number) {
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-function formatDateTime(value: number) {
-  return new Date(value).toLocaleString([], {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }

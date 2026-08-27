@@ -5,16 +5,34 @@ const workspace = new URL('..', import.meta.url)
 const children = new Set()
 const usesProcessGroups = process.platform !== 'win32'
 let stopping = false
+const fullStack = process.argv.includes('--full')
 
 const localSurfaces = [
   { label: 'Participant portal', healthUrl: 'http://localhost:5180/', displayUrl: 'http://localhost:5180' },
   { label: 'Operations dashboard', healthUrl: 'http://localhost:5181/', displayUrl: 'http://localhost:5181' },
-  { label: 'Handbook', healthUrl: 'http://localhost:5182/', displayUrl: 'http://localhost:5182' },
-  { label: 'Reviewer Metro', healthUrl: 'http://localhost:8082/status', displayUrl: 'http://localhost:8082' },
-  { label: 'Intelligence Worker', healthUrl: 'http://localhost:8791/health', displayUrl: 'http://localhost:8791/health' },
-  { label: 'Updates Worker', healthUrl: 'http://localhost:8792/health', displayUrl: 'http://localhost:8792/health' },
-  { label: 'Email Worker', healthUrl: 'http://localhost:8793/health', displayUrl: 'http://localhost:8793/health' },
-  { label: 'Voice Worker', healthUrl: 'http://localhost:8794/health', displayUrl: 'http://localhost:8794/health' },
+  ...(fullStack
+    ? [
+        { label: 'Reviewer Metro', healthUrl: 'http://localhost:8082/status', displayUrl: 'http://localhost:8082' },
+        { label: 'Intelligence Worker', healthUrl: 'http://localhost:8791/health', displayUrl: 'http://localhost:8791/health' },
+        { label: 'Updates Worker', healthUrl: 'http://localhost:8792/health', displayUrl: 'http://localhost:8792/health' },
+        { label: 'Email Worker', healthUrl: 'http://localhost:8793/health', displayUrl: 'http://localhost:8793/health' },
+        { label: 'Voice Worker', healthUrl: 'http://localhost:8794/health', displayUrl: 'http://localhost:8794/health' },
+      ]
+    : []),
+]
+
+const applicationPackages = [
+  '@code2create/web',
+  '@code2create/ops',
+  ...(fullStack
+    ? [
+        '@code2create/reviewer',
+        '@code2create/intelligence',
+        '@code2create/updates',
+        '@code2create/email',
+        '@code2create/voice',
+      ]
+    : []),
 ]
 
 function start(args, onOutput) {
@@ -236,22 +254,7 @@ try {
     '--stream',
     // Keep sibling applications running if one development process exits.
     '--no-bail',
-    '--filter',
-    '@code2create/web',
-    '--filter',
-    '@code2create/ops',
-    '--filter',
-    '@code2create/handbook',
-    '--filter',
-    '@code2create/reviewer',
-    '--filter',
-    '@code2create/intelligence',
-    '--filter',
-    '@code2create/updates',
-    '--filter',
-    '@code2create/email',
-    '--filter',
-    '@code2create/voice',
+    ...applicationPackages.flatMap((packageName) => ['--filter', packageName]),
     'run',
     'dev',
   ])

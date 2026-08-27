@@ -144,7 +144,7 @@ On restart, the app restores the current session. The app fetches `reviewer.now`
 | Figma | Metadata, full content, comments, or previews cannot refresh. | Keep the committed raw checkpoint. Show render state, counts, and each freshness time. Obey the provider retry time. Accept live or manual evidence. |
 | Cloudflare web delivery | The participant, operations, or handbook frontend fails. Dynamic attendance QR presentation may also fail. | Enrolled VIT ID barcodes, issued external badge QR codes, and the Expo app can continue if Convex is healthy. Operations uses its prepared incident pack and alternate connectivity. The repository Markdown remains the handbook source of truth. |
 | Private S3 | A new emergency pack, protected export, or evidence preview cannot be stored or opened. | Keep current live Convex state authoritative. Do not claim that the artifact is ready. Use only an already printed, unexpired pack under incident policy. Escalate storage recovery. |
-| Sentry | Crash reports are delayed. | Event functions continue. Use Convex and operations logs. |
+| PostHog | Analytics and crash reports are delayed. | Event functions continue. Use Convex and operations logs. |
 
 GitHub or Figma downtime does not block a review. The reviewer sees that evidence is stale and records what was demonstrated.
 
@@ -365,8 +365,8 @@ Scheduled and signal-triggered autonomy runs are domain history, not human audit
 - Keep auth secrets, Google client secrets, GitHub private key, webhook secrets, Figma secret, Expo credentials, and backup credentials out of client bundles and source control.
 - Do not put project text, scores, phone numbers, or provider tokens in push payloads or error logs.
 - Do not put attendance bearer values, hashes, exact movement history, or sensitive exception reasons in logs, crash reports, analytics, push payloads, or ordinary exports.
-- Do not put support descriptions, replies, internal notes, reporter contact, or linked-record identifiers in Sentry, analytics, push payloads, or aggregate health signals. Reporter queries exclude internal actions.
-- Do not put proposal text, novelty input, fingerprint, vector, or similarity, generated brief text, admission recommendation explanations, OpenAI request content, or system instructions in job metadata, Sentry, or operational metrics.
+- Do not put support descriptions, replies, internal notes, reporter contact, or linked-record identifiers in PostHog, push payloads, or aggregate health signals. Reporter queries exclude internal actions.
+- Do not put proposal text, novelty input, fingerprint, vector, or similarity, generated brief text, admission recommendation explanations, OpenAI request content, or system instructions in job metadata, PostHog, or operational metrics.
 - Treat every Flue initial-data snapshot and durable agent message as stored service data. Send only the purpose-built aggregate health projection. Keep traces content-free. Never log the snapshot, prompt, model output, callback body, signature, or HMAC secret.
 - Treat autonomous-run source snapshots and Flue history as the same restricted intelligence retention class. Metrics may use state, age, area/severity counts, policy/model/agent versions, cumulative activity counters, phase, and terminal category, but not the frozen snapshot, raw read results, prompt, reasoning, tool arguments/results, or private model prose.
 - Intake requests send only project text and published routing definitions required for interpretation; they exclude identity, contact, auth, admission, provider-credential, reviewer, and score data.
@@ -374,7 +374,7 @@ Scheduled and signal-triggered autonomy runs are domain history, not human audit
 - Admission-analysis requests send only redacted submitted proposal answers, deterministic experience band, and the published admission rubric. They exclude identity, contact, institution-prestige data, human review or decision state, capacity, attendance, integrations, and judging data.
 - Outbound call requests contain only the destination, approved purpose, script version, bounded page facts, locale, consent proof, and idempotency key. Logs and provider metadata do not contain proposal, participant, reviewer-note, or score data.
 - Set OpenAI Responses requests to `store: false`. Disclose the effective abuse-monitoring and data-retention policy. The embeddings endpoint has no `store` request field. Disclose its effective account-level data controls separately. Do not describe either path as Zero Data Retention unless that control is approved and enabled.
-- Redact auth headers and cookies before Sentry or structured logging.
+- Redact auth headers and cookies before PostHog or structured logging.
 - Store compressed Figma files, previews, and temporary GitHub source blobs in the private artifact bucket. Reviewers receive short-lived URLs only after assignment and snapshot checks.
 - Figma's temporary render URL is untrusted transport, not stored evidence. Download it server-side, validate the bounded PNG, copy it to the approved bucket, and expose only the copied object through the fixed-review access path.
 - Raw provider payloads and source/design artifacts follow explicit evidence-retention periods; derived judging records keep only the approved manifest and facts.

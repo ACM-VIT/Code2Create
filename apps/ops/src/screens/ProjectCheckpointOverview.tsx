@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { LoadingLabel, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
+import { formatCompactDateTime } from '../lib/dateTime'
 
 type CheckpointKey = 'ideation' | 'intermediate_update' | 'final_update'
 type Availability = 'awaiting_confirmation' | 'upcoming' | 'open' | 'late' | 'closed' | 'submitted'
@@ -114,8 +115,8 @@ export function ProjectCheckpointOverview() {
                 <span style={{ width: `${completion}%` }} />
               </div>
               <dl className="checkpoint-progress-window">
-                <Stat label="Due" value={formatTime(checkpoint.dueAt)} />
-                <Stat label="Closes" value={formatTime(checkpoint.closesAt)} />
+                <Stat label="Due" value={formatCompactDateTime(checkpoint.dueAt)} />
+                <Stat label="Closes" value={formatCompactDateTime(checkpoint.closesAt)} />
               </dl>
             </div>
           ) : null}
@@ -170,7 +171,7 @@ export function ProjectCheckpointOverview() {
                 </div>
                 <small>
                   {team.submittedAt
-                    ? `Submitted ${formatTime(team.submittedAt)}${team.timing === 'late' ? ' · late' : ''}`
+                    ? `Submitted ${formatCompactDateTime(team.submittedAt)}${team.timing === 'late' ? ' · late' : ''}`
                     : team.draftVersion
                       ? 'Draft saved, not submitted'
                       : 'Not started'}
@@ -234,13 +235,4 @@ function Stat({ label, value }: { label: string; value: string }) {
       <dd>{value}</dd>
     </div>
   )
-}
-
-function formatTime(timestamp: number) {
-  return new Date(timestamp).toLocaleString([], {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }

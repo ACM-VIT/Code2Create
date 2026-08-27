@@ -9,8 +9,10 @@ import { AutonomyPolicyFields } from '../components/intelligence'
 import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
-import { readableError } from '../lib/errors'
-import { useOperationRunner } from '../lib/operations'
+import {
+  type ConfigurationOperationDescriptor,
+  useConfigurationOperations,
+} from '../lib/configurationOperations'
 import {
   allAutonomyRecommendationKinds,
   cloneAutonomyPolicy,
@@ -22,11 +24,23 @@ type AutonomyPolicyOperationResult =
   | FunctionReturnType<typeof api.operationsAutonomyPolicyConfiguration.publish>
   | FunctionReturnType<typeof api.operationsAutonomyPolicyConfiguration.disable>
 
-type PendingPolicyOperation = {
-  slot: string
-  title: string
-  action: string
-}
+const operationDescriptors = [
+  {
+    slot: 'autonomy-disable',
+    title: 'Finish stopping autonomy',
+    action: 'Confirm earlier stop',
+  },
+  {
+    slot: 'autonomy-policy-publish',
+    title: 'Finish publishing the policy',
+    action: 'Confirm earlier publication',
+  },
+  {
+    slot: 'autonomy-policy-draft',
+    title: 'Finish saving the policy draft',
+    action: 'Confirm earlier save',
+  },
+] satisfies readonly ConfigurationOperationDescriptor[]
 
 export function IntelligencePolicyConfiguration({
   tabs,
@@ -47,7 +61,9 @@ export function IntelligencePolicyConfiguration({
   const createDraft = useMutation(api.operationsAutonomyPolicyConfiguration.createDraft)
   const publish = useMutation(api.operationsAutonomyPolicyConfiguration.publish)
   const disable = useMutation(api.operationsAutonomyPolicyConfiguration.disable)
-  const operations = useOperationRunner<AutonomyPolicyOperationResult>()
+  const operations = useConfigurationOperations<AutonomyPolicyOperationResult>(
+    operationDescriptors,
+  )
   const validation = useQuery(
     api.operationsAutonomyPolicyConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPolicy
@@ -61,19 +77,10 @@ export function IntelligencePolicyConfiguration({
   const [disableReason, setDisableReason] = useState('')
   const [publishArmed, setPublishArmed] = useState(false)
   const [disableArmed, setDisableArmed] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('autonomy-policy-draft')
   const publishPending = operations.hasPending('autonomy-policy-publish')
   const disablePending = operations.hasPending('autonomy-disable')
-  const pendingOperation: PendingPolicyOperation | null = disablePending
-    ? { slot: 'autonomy-disable', title: 'Finish stopping autonomy', action: 'Confirm earlier stop' }
-    : publishPending
-      ? { slot: 'autonomy-policy-publish', title: 'Finish publishing the policy', action: 'Confirm earlier publication' }
-      : draftPending
-        ? { slot: 'autonomy-policy-draft', title: 'Finish saving the policy draft', action: 'Confirm earlier save' }
-        : null
-  const operationPending = pendingOperation !== null
   const ownerOptions = useMemo(() => {
     if (!configuration) return ownerOptionsPage.results
     const byId = new Map(
@@ -142,82 +149,47 @@ export function IntelligencePolicyConfiguration({
     })
   }
 
-  const saveDraft = async (event: FormEvent) => {
+  const saveDraft = (event: FormEvent) => {
     event.preventDefault()
-    if (busy || operationPending) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('autonomy-policy-draft', (clientOperationId) => () => createDraft({
-        eventSlug,
-        policy,
-        expectedEventVersion: configuration.eventVersion,
-        ...(configuration.draftPolicy
-          ? { expectedDraftPolicyId: configuration.draftPolicy.id }
-          : {}),
-        reason: draftReason,
-        clientOperationId,
-      }))
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    void operations.run('autonomy-policy-draft', (clientOperationId) => () => createDraft({
+      eventSlug,
+      policy,
+      expectedEventVersion: configuration.eventVersion,
+      ...(configuration.draftPolicy
+        ? { expectedDraftPolicyId: configuration.draftPolicy.id }
+        : {}),
+      reason: draftReason,
+      clientOperationId,
+    }))
   }
 
-  const publishDraft = async () => {
+  const publishDraft = () => {
     const draft = configuration.draftPolicy
-    if (busy || operationPending || !draft || !validation?.valid) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('autonomy-policy-publish', (clientOperationId) => () => publish({
-        eventSlug,
-        draftPolicyId: draft.id,
-        expectedDraftChecksum: draft.checksum,
-        expectedEventVersion: configuration.eventVersion,
-        reason: publishReason,
-        clientOperationId,
-      }))
-      setPublishArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    if (!draft || !validation?.valid) return
+    void operations.run('autonomy-policy-publish', (clientOperationId) => () => publish({
+      eventSlug,
+      draftPolicyId: draft.id,
+      expectedDraftChecksum: draft.checksum,
+      expectedEventVersion: configuration.eventVersion,
+      reason: publishReason,
+      clientOperationId,
+    }), () => setPublishArmed(false))
   }
 
-  const disableAutonomy = async () => {
-    if (busy || operationPending || configuration.scheduler.lifecycle.kind !== 'active') return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('autonomy-disable', (clientOperationId) => () => disable({
-        eventSlug,
-        reason: disableReason,
-        clientOperationId,
-      }))
-      setDisableArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+  const disableAutonomy = () => {
+    if (configuration.scheduler.lifecycle.kind !== 'active') return
+    void operations.run('autonomy-disable', (clientOperationId) => () => disable({
+      eventSlug,
+      reason: disableReason,
+      clientOperationId,
+    }), () => setDisableArmed(false))
   }
 
-  const confirmPendingOperation = async () => {
-    if (busy || pendingOperation === null) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.retryPending(pendingOperation.slot)
+  const confirmPendingOperation = () => {
+    void operations.retryPending(() => {
       setPublishArmed(false)
       setDisableArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    })
   }
 
   const schedulerActive = configuration.scheduler.lifecycle.kind === 'active'

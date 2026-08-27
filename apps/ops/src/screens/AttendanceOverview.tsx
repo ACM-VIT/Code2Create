@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
+import { formatMonthDayTimeWindow as formatWindow } from '../lib/dateTime'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
 import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
@@ -637,17 +638,6 @@ export function AttendanceOverview() {
 
 function Count({ label, value }: { label: string; value: number | string }) {
   return <div><dt>{label}</dt><dd>{value}</dd></div>
-}
-
-function formatWindow(startsAt: number, endsAt: number, timezone: string) {
-  const formatter = new Intl.DateTimeFormat(undefined, {
-    timeZone: timezone,
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-  return `${formatter.format(startsAt)} – ${formatter.format(endsAt)}`
 }
 
 const sessionStatusLabels: Record<AttendanceSessionData['status'], string> = {

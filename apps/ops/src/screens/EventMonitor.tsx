@@ -6,6 +6,7 @@ import { Icon, type IconName } from '../components/Icon'
 import { OperationsAttention } from '../components/OperationsAttention'
 import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
+import { formatClockTime, formatCompactDateTime } from '../lib/dateTime'
 
 const attentionCoveredSignalKeys = ['panels_needing_reviewer', 'overdue_reviews']
 type HealthOverviewData = FunctionReturnType<typeof api.operationsHealth.overview>
@@ -53,7 +54,7 @@ export function EventMonitor({ canManageAttention }: { canManageAttention: boole
             <span>
               {health.state === 'missing'
                 ? 'The first event-wide check has not completed.'
-                : `Last complete check: ${formatDateTime(health.lastGeneratedAt)}.`}
+                : `Last complete check: ${formatCompactDateTime(health.lastGeneratedAt)}.`}
             </span>
           </div>
         ) : systemSignals.length === 0 ? (
@@ -69,7 +70,7 @@ export function EventMonitor({ canManageAttention }: { canManageAttention: boole
                   <strong>{signal.title}</strong>
                   <small>
                     {signal.detail} {signal.owner} handles this
-                    {signal.oldestAt !== undefined ? ` · oldest ${formatDateTime(signal.oldestAt)}` : ''}.
+                    {signal.oldestAt !== undefined ? ` · oldest ${formatCompactDateTime(signal.oldestAt)}` : ''}.
                   </small>
                 </div>
                 <span className="row-count">{signal.count}{signal.atLeast ? '+' : ''}</span>
@@ -93,7 +94,7 @@ function HealthState({
         <span>System health</span>
         <strong>{health.state === 'missing' ? 'Starting' : 'Delayed'}</strong>
         <small>
-          {health.state === 'missing' ? 'Waiting for the first check' : `Last complete ${formatTime(health.lastGeneratedAt)}`}
+          {health.state === 'missing' ? 'Waiting for the first check' : `Last complete ${formatClockTime(health.lastGeneratedAt)}`}
         </small>
       </div>
     )
@@ -102,7 +103,7 @@ function HealthState({
     <div className={`health-current ${health.snapshot.summary.status}`}>
       <span>System health</span>
       <strong>{statusLabel(health.snapshot.summary.status)}</strong>
-      <small>Updated {formatTime(health.snapshot.generatedAt)}</small>
+      <small>Updated {formatClockTime(health.snapshot.generatedAt)}</small>
     </div>
   )
 }
@@ -118,17 +119,4 @@ function severityIcon(value: 'watch' | 'attention' | 'critical'): IconName {
   if (value === 'critical') return 'alert'
   if (value === 'attention') return 'clock'
   return 'pause'
-}
-
-function formatTime(value: number) {
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-function formatDateTime(value: number) {
-  return new Date(value).toLocaleString([], {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }

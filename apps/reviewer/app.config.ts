@@ -12,6 +12,11 @@ const convexSiteUrl = readApplicationUrl('EXPO_PUBLIC_CONVEX_SITE_URL', deployme
 const eventSlug = readEventSlug()
 const releaseId = readReleaseId()
 const apnsEnvironment = readApnsEnvironment()
+const posthogProjectToken = readPostHogProjectToken()
+const posthogHost = readHttpsUrl('EXPO_PUBLIC_POSTHOG_HOST')
+const posthogCliHost = readHttpsUrl('POSTHOG_CLI_HOST')
+const posthogCliProjectId = readPositiveInteger('POSTHOG_CLI_PROJECT_ID')
+const posthogCliApiKey = readEnvironmentValue('POSTHOG_CLI_API_KEY')
 
 if (process.env.C2C_NATIVE_BUILD === 'true') {
   const missing: string[] = []
@@ -25,6 +30,11 @@ if (process.env.C2C_NATIVE_BUILD === 'true') {
   if (!releaseId) missing.push('EXPO_PUBLIC_RELEASE_ID')
   if (!deploymentEnvironment) missing.push('EXPO_PUBLIC_DEPLOYMENT_ENVIRONMENT')
   if (!apnsEnvironment) missing.push('EXPO_PUBLIC_APNS_ENVIRONMENT')
+  if (!posthogProjectToken) missing.push('EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN')
+  if (!posthogHost) missing.push('EXPO_PUBLIC_POSTHOG_HOST')
+  if (!posthogCliHost) missing.push('POSTHOG_CLI_HOST')
+  if (!posthogCliProjectId) missing.push('POSTHOG_CLI_PROJECT_ID')
+  if (!posthogCliApiKey) missing.push('POSTHOG_CLI_API_KEY')
   if (process.env.C2C_NATIVE_PLATFORM === 'android' && !androidGoogleServicesFile) {
     missing.push('C2C_ANDROID_GOOGLE_SERVICES_FILE')
   }
@@ -38,6 +48,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: config.name ?? 'Code2Create Ops',
   slug: config.slug ?? 'code2create-ops',
+  plugins: [
+    ...(config.plugins ?? []),
+    [
+      'posthog-react-native/expo',
+      {
+        skipOnConflict: true,
+        uploadNativeSymbols: process.env.C2C_NATIVE_BUILD === 'true',
+      },
+    ],
+  ],
   runtimeVersion: { policy: 'appVersion' },
   ios: {
     ...config.ios,
@@ -190,6 +210,36 @@ function readApnsEnvironment() {
     throw new Error('EXPO_PUBLIC_APNS_ENVIRONMENT is invalid.')
   }
   return value
+}
+
+function readPostHogProjectToken() {
+  const value = readEnvironmentValue('EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN')
+  if (!value) return null
+  if (!/^phc_[A-Za-z0-9]+$/u.test(value)) {
+    throw new Error('EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN is invalid.')
+  }
+  return value
+}
+
+function readHttpsUrl(name: string) {
+  const value = readEnvironmentValue(name)
+  if (!value) return null
+  const url = new URL(value)
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+    throw new Error(`${name} must be a complete HTTPS URL without credentials, query, or fragment.`)
+  }
+  return url.origin
+}
+
+function readPositiveInteger(name: string) {
+  const value = readEnvironmentValue(name)
+  if (!value) return null
+  if (!/^\d+$/u.test(value)) throw new Error(`${name} must be a positive integer.`)
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new Error(`${name} must be a positive integer.`)
+  }
+  return parsed
 }
 
 function readEnvironmentValue(name: string) {

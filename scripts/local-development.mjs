@@ -71,7 +71,6 @@ export const localConvexEnvironment = Object.freeze({
   AUTH_SITE_URL: 'http://localhost:3211',
   PARTICIPANT_SITE_URL: 'http://localhost:5180',
   OPERATIONS_SITE_URL: 'http://localhost:5181',
-  HANDBOOK_SITE_URL: 'http://localhost:5182',
   INTELLIGENCE_WORKER_URL: 'http://localhost:8791',
   INTELLIGENCE_INGRESS_SECRET: intelligenceIngressSecret,
   INTELLIGENCE_CALLBACK_SECRET: intelligenceCallbackSecret,

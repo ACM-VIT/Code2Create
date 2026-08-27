@@ -11,6 +11,7 @@ import { useRef, useState } from 'react'
 import { Icon, type IconName } from '../components/Icon'
 import { LoadingLabel, SkeletonCard, SkeletonLine, SkeletonList, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
+import { formatMediumDateTime as formatTime } from '../lib/dateTime'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
 import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
@@ -637,10 +638,6 @@ function actionLabel(action: NonNullable<FunctionReturnType<typeof api.support.d
     return `Handed from ${action.previousOwnerName ?? 'nobody'} to ${action.nextOwnerName ?? 'nobody'}`
   }
   return 'Request updated'
-}
-
-function formatTime(value: number) {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(value)
 }
 
 function formatDuration(milliseconds: number) {

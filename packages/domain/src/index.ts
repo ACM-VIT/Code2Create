@@ -112,3 +112,4 @@ export * from "./voice.ts";
 export * from "./labels.ts";
 export * from "./eventStage.ts";
 export * from "./synesthesia.ts";
+export * from "./permissions.ts";

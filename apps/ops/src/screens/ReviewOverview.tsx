@@ -7,6 +7,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
+import { formatMonthDayTimeWindow as formatWindow } from '../lib/dateTime'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
 
@@ -117,14 +118,4 @@ export function ReviewOverview({ showSetup }: { showSetup: boolean }) {
 
 function Count({ label, value }: { label: string; value: number }) {
   return <div><dt>{label}</dt><dd>{value}</dd></div>
-}
-
-function formatWindow(startsAt: number, endsAt: number) {
-  const formatter = new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-  return `${formatter.format(startsAt)} – ${formatter.format(endsAt)}`
 }

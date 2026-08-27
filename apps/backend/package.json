@@ -10,9 +10,8 @@
     }
   },
   "scripts": {
-    "generate:handbook": "node ../../scripts/generate-handbook.mjs",
-    "dev": "pnpm generate:handbook && node ../../scripts/with-workspace-node.mjs convex dev",
-    "dev:once": "pnpm generate:handbook && node ../../scripts/with-workspace-node.mjs convex dev --once",
+    "dev": "node ../../scripts/with-workspace-node.mjs convex dev",
+    "dev:once": "node ../../scripts/with-workspace-node.mjs convex dev --once",
     "codegen": "node ../../scripts/with-workspace-node.mjs convex codegen",
     "recovery:backup": "node scripts/recovery/backup.ts",
     "recovery:rehearse": "node scripts/recovery/rehearse.ts",

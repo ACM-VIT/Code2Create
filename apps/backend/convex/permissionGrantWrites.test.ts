@@ -70,7 +70,7 @@ describe("permission grant writes", () => {
     const fixture = await seedWriteFixture(backend, now);
     const grants: PermissionGrantPlan[] = [
       { permissionKey: "operations.health.read", scopeType: "event" },
-      { permissionKey: "handbook.read", scopeType: "event" },
+      { permissionKey: "event.lifecycle.read", scopeType: "event" },
       { permissionKey: "operations.health.read", scopeType: "event" },
     ];
     const args = {
@@ -138,7 +138,7 @@ describe("permission grant writes", () => {
         permissionKey: "access.permissions.grant_scoped",
         scopeType: "event",
         delegation: {
-          permissionKey: "handbook.read",
+          permissionKey: "event.lifecycle.read",
           scopeType: "event",
           target: { kind: "any_event_person" },
         },
@@ -165,7 +165,7 @@ describe("permission grant writes", () => {
 
     const oversizedGrants: PermissionGrantPlan[] = Array.from(
       { length: maximumCurrentGrantsPerSource + 1 },
-      () => ({ permissionKey: "handbook.read", scopeType: "event" }),
+      () => ({ permissionKey: "event.lifecycle.read", scopeType: "event" }),
     );
     await expect(
       backend.run((ctx) =>

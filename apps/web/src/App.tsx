@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { ClientObservabilityIdentity } from '@code2create/client-observability'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import { AuthLoading, Authenticated, Unauthenticated, useQuery } from 'convex/react'
 import { lazy, Suspense } from 'react'
@@ -12,6 +13,7 @@ const ParticipantApp = lazy(() =>
 )
 
 export default function App({ authClient }: { authClient: Code2CreateAuthClient }) {
+  const { data: session } = authClient.useSession()
   const publicState = useQuery(api.system.getPublicState, { eventSlug })
 
   if (publicState === undefined) {
@@ -20,6 +22,7 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
 
   return (
     <>
+      <ClientObservabilityIdentity distinctId={session?.user.id ?? null} />
       <AuthLoading>
         <LoadingScreen />
       </AuthLoading>

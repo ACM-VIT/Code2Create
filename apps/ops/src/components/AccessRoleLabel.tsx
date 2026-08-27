@@ -30,6 +30,7 @@ export function AccessRoleLabel({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const rolePending = operations.hasPending('access-role-set')
+  const synchronizingSupreme = currentRole === 'supreme' && selectedRole === 'supreme'
 
   const selectRole = (value: string) => {
     if (!value) {
@@ -65,7 +66,9 @@ export function AccessRoleLabel({
 
   return (
     <AccessManagementDisclosure
-      description={`Currently ${currentRole ? eventRoleLabels[currentRole] : 'no role label'}. This changes grouping, not permissions.`}
+      description={currentRole === 'supreme'
+        ? 'Supreme includes every event-wide permission and the account’s own reviewer permissions.'
+        : `Currently ${currentRole ? eventRoleLabels[currentRole] : 'no role label'}. Exact scoped permissions remain separate.`}
       title="Change role label"
     >
       <form className="role-form" onSubmit={submit}>
@@ -79,7 +82,7 @@ export function AccessRoleLabel({
           </select>
         </label>
         <label className="field">
-          <span>Why this role is changing</span>
+          <span>{synchronizingSupreme ? 'Why Supreme access is being synchronized' : 'Why this role is changing'}</span>
           <textarea required disabled={busy || rolePending} value={reason} onChange={(event) => setReason(event.target.value)} />
         </label>
         <div className="role-submit">
@@ -87,10 +90,18 @@ export function AccessRoleLabel({
             className="secondary"
             type="submit"
             disabled={busy || (!rolePending && (
-              reason.trim().length < 5 || selectedRole === (currentRole ?? '')
+              reason.trim().length < 5 || (
+                selectedRole === (currentRole ?? '') && !synchronizingSupreme
+              )
             ))}
           >
-            {busy ? 'Saving…' : rolePending ? 'Confirm earlier role change' : 'Save role label'}
+            {busy
+              ? 'Saving…'
+              : rolePending
+                ? 'Confirm earlier role change'
+                : synchronizingSupreme
+                  ? 'Synchronize Supreme access'
+                  : 'Save role'}
           </button>
           <small>You may be asked to sign in again before this change.</small>
         </div>

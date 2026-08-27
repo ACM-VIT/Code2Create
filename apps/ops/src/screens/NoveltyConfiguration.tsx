@@ -8,8 +8,11 @@ import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditor
 import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
+import {
+  type ConfigurationOperationDescriptor,
+  useConfigurationOperations,
+} from '../lib/configurationOperations'
 import { readableError } from '../lib/errors'
-import { useOperationRunner } from '../lib/operations'
 import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
 
 type Configuration = FunctionReturnType<typeof api.noveltyConfiguration.current>
@@ -21,6 +24,24 @@ type NoveltyOperationResult =
   | FunctionReturnType<typeof api.noveltyConfiguration.replaceEntries>
   | FunctionReturnType<typeof api.noveltyConfiguration.publish>
 
+const operationDescriptors = [
+  {
+    slot: 'novelty-corpus-publish',
+    title: 'Finish publishing the idea comparison set',
+    action: 'Confirm earlier publication',
+  },
+  {
+    slot: 'novelty-corpus-import',
+    title: 'Finish preparing the idea comparison set',
+    action: 'Confirm earlier preparation',
+  },
+  {
+    slot: 'novelty-corpus-draft',
+    title: 'Finish saving the idea comparison draft',
+    action: 'Confirm earlier save',
+  },
+] satisfies readonly ConfigurationOperationDescriptor[]
+
 export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility }) {
   const configuration = useQuery(api.noveltyConfiguration.current, { eventSlug })
   const serverNow = useEstimatedServerNow(configuration?.serverNow, 60_000)
@@ -28,7 +49,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
   const createDraft = useMutation(api.noveltyConfiguration.createDraft)
   const replaceEntries = useAction(api.noveltyConfiguration.replaceEntries)
   const publish = useMutation(api.noveltyConfiguration.publish)
-  const operations = useOperationRunner<NoveltyOperationResult>()
+  const operations = useConfigurationOperations<NoveltyOperationResult>(operationDescriptors)
   const [policy, setPolicy] = useState<Policy | null>(null)
   const [entriesText, setEntriesText] = useState('')
   const [loadedSource, setLoadedSource] = useState('')
@@ -36,31 +57,10 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
   const [importReason, setImportReason] = useState('Reviewed past projects for idea comparison')
   const [publishReason, setPublishReason] = useState('Approved the live idea comparison')
   const [publishArmed, setPublishArmed] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { busy, error, operationPending, pendingOperation, setError } = operations
   const draftPending = operations.hasPending('novelty-corpus-draft')
   const importPending = operations.hasPending('novelty-corpus-import')
   const publishPending = operations.hasPending('novelty-corpus-publish')
-  const pendingOperation = publishPending
-    ? {
-        slot: 'novelty-corpus-publish',
-        title: 'Finish publishing the idea comparison set',
-        action: 'Confirm earlier publication',
-      }
-    : importPending
-      ? {
-          slot: 'novelty-corpus-import',
-          title: 'Finish preparing the idea comparison set',
-          action: 'Confirm earlier preparation',
-        }
-      : draftPending
-        ? {
-            slot: 'novelty-corpus-draft',
-            title: 'Finish saving the idea comparison draft',
-            action: 'Confirm earlier save',
-          }
-        : null
-  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!configuration || !defaults) return
@@ -88,81 +88,52 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
     setPolicy((current) => current ? { ...current, [key]: value } : current)
   }
 
-  const run = async (command: () => Promise<void>) => {
-    if (busy || operationPending) return
-    setBusy(true)
-    setError(null)
-    try {
-      await command()
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const saveDraft = (event: FormEvent) => {
     event.preventDefault()
-    void run(async () => {
-      await operations.run('novelty-corpus-draft', (clientOperationId) => () => createDraft({
-        eventSlug,
-        policy,
-        expectedEventVersion: configuration.eventVersion,
-        ...(configuration.draftCorpus
-          ? { expectedDraftCorpusId: configuration.draftCorpus.id }
-          : {}),
-        reason: draftReason,
-        clientOperationId,
-      }))
-    })
+    void operations.run('novelty-corpus-draft', (clientOperationId) => () => createDraft({
+      eventSlug,
+      policy,
+      expectedEventVersion: configuration.eventVersion,
+      ...(configuration.draftCorpus
+        ? { expectedDraftCorpusId: configuration.draftCorpus.id }
+        : {}),
+      reason: draftReason,
+      clientOperationId,
+    }))
   }
 
   const importEntries = () => {
     const draft = configuration.draftCorpus
     if (!draft) return
-    void run(async () => {
-      const entries = parseCorpusEntries(entriesText)
-      await operations.run('novelty-corpus-import', (clientOperationId) => () => replaceEntries({
-        eventSlug,
-        corpusVersionId: draft.id,
-        expectedRevision: draft.revision,
-        entries,
-        reason: importReason,
-        clientOperationId,
-      }))
-    })
+    void operations.run('novelty-corpus-import', (clientOperationId) => () => replaceEntries({
+      eventSlug,
+      corpusVersionId: draft.id,
+      expectedRevision: draft.revision,
+      entries: parseCorpusEntries(entriesText),
+      reason: importReason,
+      clientOperationId,
+    }))
   }
 
   const publishDraft = () => {
     const draft = configuration.draftCorpus
     const checksum = draft?.checksum
     if (!draft || !checksum || draft.importState !== 'ready') return
-    void run(async () => {
-      await operations.run('novelty-corpus-publish', (clientOperationId) => () => publish({
-        eventSlug,
-        draftCorpusId: draft.id,
-        expectedDraftRevision: draft.revision,
-        expectedDraftChecksum: checksum,
-        expectedEventVersion: configuration.eventVersion,
-        reason: publishReason,
-        clientOperationId,
-      }))
-      setPublishArmed(false)
-    })
+    void operations.run('novelty-corpus-publish', (clientOperationId) => () => publish({
+      eventSlug,
+      draftCorpusId: draft.id,
+      expectedDraftRevision: draft.revision,
+      expectedDraftChecksum: checksum,
+      expectedEventVersion: configuration.eventVersion,
+      reason: publishReason,
+      clientOperationId,
+    }), () => setPublishArmed(false))
   }
 
-  const confirmPendingOperation = async () => {
-    if (busy || pendingOperation === null) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.retryPending(pendingOperation.slot)
+  const confirmPendingOperation = () => {
+    void operations.retryPending(() => {
       setPublishArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    })
   }
 
   const readFile = (event: ChangeEvent<HTMLInputElement>) => {

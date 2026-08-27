@@ -15,6 +15,7 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
+import { formatMonthDayTime as formatTime } from '../lib/dateTime'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
 import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
@@ -750,15 +751,6 @@ function criterionLabel(criteria: Completeness['criteria'], criterionId: string)
 function listNames(values: string[]) {
   if (values.length <= 1) return values[0] ?? 'Nothing'
   return `${values.slice(0, -1).join(', ')} and ${values[values.length - 1]}`
-}
-
-function formatTime(value: number) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(value)
 }
 
 function formatScore(value: number) {

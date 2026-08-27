@@ -1,126 +1,98 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import {
-  sanitizeTelemetryUrl,
-  scrubTelemetryBreadcrumb,
-  scrubTelemetryEvent,
-} from './privacy.ts'
+import { sanitizeTelemetryUrl, scrubPostHogEvent } from './privacy.ts'
 
-test('telemetry removes identity, request payloads, secrets, and opaque route segments', () => {
-  const event = scrubTelemetryEvent({
-    user: { id: 'person-1', email: 'person@example.org' },
-    extra: { projectText: 'private idea' },
-    contexts: { participant: { email: 'person@example.org', idea: 'private idea' } },
-    fingerprint: ['person@example.org', 'private idea'],
-    tags: { surface: 'operations-web', participantName: 'Alice' },
-    request: {
-      url: 'https://event.example.org/admissions/j57abc123?token=secret#answer',
-      method: 'post',
-      data: { answer: 'private' },
-      headers: { authorization: 'Bearer secret' },
-      cookies: { session: 'secret' },
-    },
-    transaction: '/reviews/j57abc123',
-    message: 'Failure while reading private idea text',
-    logentry: { message: 'failure', params: ['private'] },
-    exception: {
-      values: [{
+test('PostHog events remove identity properties, content, and opaque route segments', () => {
+  const event = scrubPostHogEvent({
+    event: '$exception',
+    $set: { email: 'person@example.org' },
+    $set_once: { name: 'Alice' },
+    properties: {
+      token: 'public-project-token',
+      distinct_id: 'user-1',
+      c2c_surface: 'operations-web',
+      participantName: 'Alice',
+      proposal: 'private idea',
+      $current_url: 'https://event.example.org/admissions/j57abc123?token=secret#answer',
+      $pathname: '/reviews/j57abc123',
+      $exception_message: 'Failure while reading private idea text',
+      $exception_list: [{
         type: 'Error',
         value: 'Participant person@example.org submitted private idea text',
-        mechanism: { type: 'generic', data: { target: 'person@example.org' } },
+        mechanism: { type: 'generic', handled: true, data: { email: 'person@example.org' } },
         stacktrace: {
+          type: 'raw',
           frames: [{
+            platform: 'web:javascript',
             function: 'submitApplication',
             module: 'intake',
             package: 'participant-web',
             lineno: 52,
             colno: 8,
             in_app: true,
-            filename: 'https://event.example.org/private-project-name.tsx',
+            filename: 'https://event.example.org/assets/index-a71f.js',
             abs_path: '/Users/person@example.org/private-project-name.tsx',
             context_line: 'throw new Error(privateIdea)',
             pre_context: ['const privateIdea = "secret"'],
             post_context: ['send(privateIdea)'],
             vars: { privateIdea: 'secret' },
+            chunk_id: 'chunk-1',
           }],
         },
       }],
     },
   })
 
-  assert.deepEqual(event.request, {
-    url: 'https://event.example.org/admissions/:id',
-    method: 'POST',
-  })
-  assert.equal(event.transaction, '/reviews/:id')
-  assert.equal('message' in event, false)
-  assert.equal('logentry' in event, false)
-  assert.deepEqual(event.exception, {
-    values: [{
-      type: 'Error',
-      stacktrace: {
-        frames: [{
-          function: 'submitApplication',
-          module: 'intake',
-          package: 'participant-web',
-          lineno: 52,
-          colno: 8,
-          in_app: true,
-        }],
-      },
-    }],
-  })
-  assert.equal('user' in event, false)
-  assert.equal('extra' in event, false)
-  assert.equal('contexts' in event, false)
-  assert.equal('fingerprint' in event, false)
-  assert.deepEqual(event.tags, { surface: 'operations-web' })
-})
-
-test('telemetry drops console breadcrumbs and keeps only safe transport facts', () => {
-  assert.equal(
-    scrubTelemetryBreadcrumb({ category: 'console', message: 'participant@example.org' }),
-    null,
-  )
-  assert.deepEqual(
-    scrubTelemetryBreadcrumb({
-      category: 'fetch',
-      message: 'private response',
-      data: {
-        url: 'https://api.example.org/team/k17secret?code=oauth',
-        method: 'post',
-        status_code: 503,
-        request_body: 'private',
-      },
-      private_context: { email: 'participant@example.org' },
-    }),
-    {
-      category: 'fetch',
-      data: {
-        url: 'https://api.example.org/team/:id',
-        method: 'POST',
-        status_code: 503,
-      },
+  assert.deepEqual(event, {
+    event: '$exception',
+    properties: {
+      token: 'public-project-token',
+      distinct_id: 'user-1',
+      c2c_surface: 'operations-web',
+      $current_url: 'https://event.example.org/admissions/:id',
+      $pathname: '/reviews/:id',
+      $exception_list: [{
+        type: 'Error',
+        mechanism: { type: 'generic', handled: true },
+        stacktrace: {
+          type: 'raw',
+          frames: [{
+            platform: 'web:javascript',
+            function: 'submitApplication',
+            module: 'intake',
+            package: 'participant-web',
+            lineno: 52,
+            colno: 8,
+            in_app: true,
+            filename: 'https://event.example.org/assets/index-a71f.js',
+            chunk_id: 'chunk-1',
+          }],
+        },
+      }],
     },
-  )
+  })
 })
 
-test('telemetry default-denies unknown event and breadcrumb fields', () => {
-  const event = scrubTelemetryEvent({
-    level: 'error',
-    tags: { surface: 'alice', email: 'person@example.org' },
-    modules: { 'private-project-name': '1.0.0' },
-    unknown: { nested: { answer: 'private' } },
-    breadcrumbs: [{
-      category: 'custom-person@example.org',
-      message: 'private idea',
-      data: { answer: 'private' },
-      unknown: { email: 'person@example.org' },
-      level: 'error',
-    }],
+test('PostHog privacy filtering default-denies unknown fields', () => {
+  const event = scrubPostHogEvent({
+    event: 'application_opened',
+    properties: {
+      token: 'public-project-token',
+      unknown: { nested: { answer: 'private' } },
+      email: 'person@example.org',
+      '$feature/safe-flag': 'enabled',
+      $active_feature_flags: ['safe-flag', 42],
+    },
   })
-  assert.deepEqual(event, { level: 'error', breadcrumbs: [{ level: 'error' }] })
+  assert.deepEqual(event, {
+    event: 'application_opened',
+    properties: {
+      token: 'public-project-token',
+      '$feature/safe-flag': 'enabled',
+      $active_feature_flags: ['safe-flag'],
+    },
+  })
 })
 
 test('malformed telemetry URLs are replaced', () => {
