@@ -17,30 +17,30 @@ The platform must correct these problems.
 
 ## Local full-flow testing
 
-Run `pnpm dev` from the repository root. It starts the local Convex deployment, enables the localhost-only identity and email fixtures, seeds the Code2Create 7.0 event, and starts every application.
+Run `pnpm dev` from the repository root. It starts the local Convex deployment, applies the localhost service configuration, and starts every application. It does not create an event, account, team, application, queue, review, or provider result.
 
 The command prints the local address list only after every surface answers its readiness route. If one surface never becomes ready, the command names it and stops the complete stack. `Ctrl-C`, terminal close, and normal startup failure terminate the child process groups, so an old Vite, Convex, Expo, or Wrangler process does not keep a port occupied.
 
-The local test accounts need no Google credentials or manually generated auth secret. To exercise real Google OAuth locally, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `apps/backend/.env.local`; the exact redirect URI is `http://localhost:3211/api/auth/callback/google`.
+Local testing uses real Google identity. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `INITIAL_SUPREME_EMAILS` in `apps/backend/.env.local`. Register `http://localhost:3211/api/auth/callback/google` as the exact redirect URI and the three web origins below as authorized JavaScript origins. Put each provider credential needed for the test in the same environment file; an unconfigured provider reports that it is unavailable and never returns a synthetic success.
 
 | Surface | Local address | Test entry |
 | --- | --- | --- |
-| Participant portal | `http://localhost:5180` | Select VIT Student or External participant, then use **Use local test account**. |
-| Operations dashboard | `http://localhost:5181` | Use **Use local Supreme account**. |
-| Handbook renderer | `http://localhost:5182` | Use **Use local Supreme account**. |
-| Reviewer app | `http://localhost:8082` | Run a local native build, then use **Use local event operator**. The Judging screen offers local-only controls for joining the demo panel and starting a demo review after phone setup. |
+| Participant portal | `http://localhost:5180` | Choose the participant class and continue with Google after applications open. |
+| Operations dashboard | `http://localhost:5181` | Continue with an invited Google account. On an empty backend, an email in `INITIAL_SUPREME_EMAILS` completes first-run event setup. |
+| Handbook renderer | `http://localhost:5182` | Continue with a Google account that has `handbook.read`. |
+| Reviewer app | `http://localhost:8082` | Run a local native build and continue with an invited Google account on the device or simulator. |
 | Intelligence Worker | `http://localhost:8791` | `GET /health` |
 | Expo Updates Worker | `http://localhost:8792` | `GET /health` |
 | Email Worker | `http://localhost:8793` | `GET /health` |
 | Voice Worker | `http://localhost:8794` | `GET /health` |
 
-The local identities create ordinary Better Auth sessions and use the normal Convex permission and workflow boundaries. Browser test-account sign-in returns to the exact local path, including participant team-join links. The reviewer fixture is available only inside the locally compiled native app; it does not create a browser replacement for camera, push, encrypted storage, or offline behavior. Local email follows the normal delivery state machine with a localhost-only synthetic provider event. None of these fixtures can run outside the full localhost stack. Real deployments still require Google OAuth and Cloudflare Email configuration.
+Every local record now comes from the same user-facing or operator workflow used outside development. Test email, GitHub, Figma, OpenAI, paging, and outbound calls only with their real configured staging resources. Use a locally compiled reviewer app for camera, push, encrypted storage, and offline behavior; a browser is not a substitute.
 
-On an empty staging or production deployment, the operations surface becomes the first-run setup after Google sign-in. Only an email listed in `INITIAL_SUPREME_EMAILS` can create the event slug pinned by `INITIAL_EVENT_SLUG`. The owner enters the application deadline, event window, venue, Discord invite, VIT email domain, team bounds, and participant capacity. One Convex mutation creates the draft event, its safe baseline policies, the owner's event account and role label, and the owner's exact scoped grants. Applications remain closed until an authorized organizer opens them from Event setup.
+On an empty deployment, the operations surface becomes the first-run setup after Google sign-in. Only an email listed in `INITIAL_SUPREME_EMAILS` can create the event slug pinned by `INITIAL_EVENT_SLUG`. The owner enters the application deadline, event window, venue, Discord invite, VIT email domain, team bounds, and participant capacity. One Convex mutation creates the draft event, its safe baseline policies, the owner's event account and role label, and the owner's exact scoped grants. Applications remain closed until an authorized organizer opens them from Event setup.
 
 Local briefs, copilot turns, and autonomous runs use the normal signed Convex-to-Flue boundaries. The local Worker uses the configured remote Workers AI binding; it does not replace model work with a browser fixture. Autonomous runs still use the durable semantic inbox, paginated redacted reads, human-only proposal approval, and Worker admission fence used outside development.
 
-If the backend is already running and only the fixtures or seed need repair, run `pnpm dev:prepare`.
+If the backend is already running and its environment changed, run `pnpm dev:prepare`. This reapplies configuration only; it never writes product data.
 
 ## Encryption key rotation
 
@@ -288,7 +288,7 @@ The remaining launch work is:
 - Supply the staging Sentry release values, deploy the participant and operations Workers, and test both against staging Convex.
 - Bind approved custom domains for the participant and operations surfaces, then repeat the release for production.
 - Complete a permissioned staging intelligence run through Workers AI and the signed callback.
-- Configure the controlled browser accounts, protected browser states, and synthetic provider fixtures, then run and approve the checked-in staging release-verification workflow.
+- Configure controlled browser accounts, protected browser states, provider sandbox accounts, and approved test destinations. Then run and approve the checked-in staging release-verification workflow against those real boundaries.
 - Run and approve backup and restore against production-shaped staging.
 - Route production Sentry and Convex alerts to named owners.
 - Run the complete venue and release rehearsal in the shipped run workspace.

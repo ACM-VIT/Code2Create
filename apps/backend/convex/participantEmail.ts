@@ -8,7 +8,6 @@ import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 import { readBoundedJsonResponse } from "./lib/boundedHttpBody";
 import { interpretCloudflareEmailSendResponse } from "./lib/cloudflareEmailSending";
-import { localProviderFixturesEnabled } from "./lib/localBrowserFixtures";
 
 const cloudflareApiBase = "https://api.cloudflare.com/client/v4/accounts";
 
@@ -36,26 +35,6 @@ export const deliver = internalAction({
       attemptId,
     });
     if (!claim) return null;
-    if (localProviderFixturesEnabled()) {
-      const providerMessageId = `local-${randomUUID()}`;
-      const providerAt = Date.now();
-      await ctx.runMutation(internal.participantNotificationState.recordSent, {
-        deliveryId: claim.deliveryId,
-        attemptId,
-        providerMessageId,
-        initialOutcome: "queued",
-      });
-      await ctx.runMutation(internal.participantNotificationState.recordProviderEvent, {
-        eventId: `local-${randomUUID()}`,
-        providerMessageId,
-        recipientEmailNormalized: claim.destinationEmail,
-        eventType: "email.delivered",
-        providerAt,
-        disableDestination: false,
-        payloadHash: `local-${claim.deliveryId}-${providerAt}`,
-      });
-      return null;
-    }
     const accountId = process.env.CLOUDFLARE_EMAIL_ACCOUNT_ID?.trim();
     const apiToken = process.env.CLOUDFLARE_EMAIL_API_TOKEN?.trim();
     const from = process.env.CLOUDFLARE_EMAIL_FROM?.trim();

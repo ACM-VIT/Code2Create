@@ -20,10 +20,8 @@ import {
   requireFreshAuthSession,
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
-import { localProviderFixturesEnabled } from "./lib/localBrowserFixtures";
 import {
   defaultNoveltyPolicy,
-  localNoveltyEmbedding,
   maximumNoveltyCorpusEntries,
   minimumNoveltyCorpusEntries,
   normalizeNoveltyCorpusEntries,
@@ -225,8 +223,7 @@ export const current = query({
     return {
       serverNow: Date.now(),
       eventVersion: event.version,
-      providerConfigured:
-        Boolean(process.env.OPENAI_API_KEY?.trim()) || localProviderFixturesEnabled(),
+      providerConfigured: Boolean(process.env.OPENAI_API_KEY?.trim()),
       publishedCorpus: publishedCorpus ? await readCorpus(ctx, publishedCorpus) : null,
       draftCorpus: draftCorpus ? await readCorpus(ctx, draftCorpus) : null,
       canDraft: draftGrants.length > 0,
@@ -742,8 +739,7 @@ export const replaceEntries = action({
     );
     if (begun.kind === "complete") return begun;
     const apiKey = process.env.OPENAI_API_KEY?.trim();
-    const useLocalFixture = !apiKey && localProviderFixturesEnabled();
-    if (!apiKey && !useLocalFixture) {
+    if (!apiKey) {
       await ctx.runMutation(internal.noveltyConfiguration.failEntryImport, {
         actorPersonId: begun.actorPersonId,
         corpusVersionId: begun.corpusVersionId,
@@ -758,21 +754,14 @@ export const replaceEntries = action({
       });
     }
     const startedAt = Date.now();
-    const client = apiKey ? new OpenAI({ apiKey, timeout: 15_000, maxRetries: 0 }) : null;
+    const client = new OpenAI({ apiKey, timeout: 15_000, maxRetries: 0 });
     try {
-      const response = client
-        ? await client.embeddings.create({
-            model: begun.model,
-            encoding_format: "float",
-            input: begun.entries.map((entry) => `${entry.themeLabel}\n${entry.summary}`),
-          })
-        : null;
-      const ordered = response
-        ? response.data.toSorted((left, right) => left.index - right.index)
-        : begun.entries.map((entry, index) => ({
-            index,
-            embedding: localNoveltyEmbedding(`${entry.themeLabel}\n${entry.summary}`),
-          }));
+      const response = await client.embeddings.create({
+        model: begun.model,
+        encoding_format: "float",
+        input: begun.entries.map((entry) => `${entry.themeLabel}\n${entry.summary}`),
+      });
+      const ordered = response.data.toSorted((left, right) => left.index - right.index);
       if (
         ordered.length !== begun.entries.length ||
         ordered.some((item, index) => item.index !== index || !validEmbedding(item.embedding))
@@ -786,7 +775,7 @@ export const replaceEntries = action({
         requestFingerprint: begun.requestFingerprint,
         reason: begun.reason,
         clientOperationId: args.clientOperationId,
-        ...(response?._request_id ? { providerRequestId: response._request_id } : {}),
+        ...(response._request_id ? { providerRequestId: response._request_id } : {}),
         latencyMs: Date.now() - startedAt,
         entries: begun.entries.map((entry, index) => {
           const embedding = ordered[index]?.embedding;

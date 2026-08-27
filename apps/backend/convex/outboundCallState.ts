@@ -259,31 +259,6 @@ export const recordDispatchFailure = internalMutation({
   },
 });
 
-export const recordLocalCompleted = internalMutation({
-  args: {
-    deliveryId: v.id("outboundCallDeliveries"),
-    attemptId: v.string(),
-    providerCallId: v.string(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const delivery = await ctx.db.get(args.deliveryId);
-    if (!delivery || delivery.state !== "sending" || delivery.attemptId !== args.attemptId) {
-      return null;
-    }
-    const now = Date.now();
-    await ctx.db.patch(delivery._id, {
-      state: "completed",
-      providerCallId: args.providerCallId,
-      claimExpiresAt: undefined,
-      version: delivery.version + 1,
-      updatedAt: now,
-      completedAt: now,
-    });
-    return null;
-  },
-});
-
 export const recordProviderEvent = internalMutation({
   args: {
     providerEventId: v.string(),

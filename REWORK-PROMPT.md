@@ -51,7 +51,7 @@ Everything hangs off where the event is: setup → applications open → admissi
 Work surface by surface, and keep the whole product working end to end at every step — never trade a working product for unfinished complexity.
 
 1. **Inventory.** For each app, list every route, screen, and workspace, and every user-facing state on it. Tag each with persona + job + arc moment. Anything you cannot tag is a finding.
-2. **Walk the journeys.** Run `pnpm dev` from the root; it seeds Code2Create 7.0 including the mid-hackathon demo state (hour 26 of 48: 12 confirmed teams, 48 participants, 15 reviewers, 4 panels with one seat deliberately empty, and queues covering every state including one overdue review and one held team). Walk at minimum:
+2. **Walk the journeys.** Use a clean local or staging deployment with real Google accounts. Create the event and every test state through the product or an ordinary authorized operator workflow; do not use seed data, identity bypasses, or synthetic provider success. Walk at minimum:
    - **Participant:** sign in → profile → team formation → project intake → final confirmation → proposal edits until the deadline → admission status → offer response → attendance QR → queue status → review history.
    - **First-run owner:** empty deployment → event setup → open applications.
    - **Ops mid-event:** event health → live review board → fill the empty panel seat → deal with the overdue review and the held team → attendance → a support case.
@@ -59,7 +59,7 @@ Work surface by surface, and keep the whole product working end to end at every 
    - **Each staff label** (Supreme, Board, SC, JC, External Judge) with a representative grant bundle — and once with **no grants**, to see exactly what denial looks like.
 3. **Record findings before fixing.** Every point where you would be confused, misled, stuck, or shown the wrong thing as that person, written down with the persona and moment.
 4. **Fix in journey order, not codebase order.** The step a person hits first gets fixed first.
-5. **Verify after each surface.** Re-walk the affected journeys against the seeded event, and keep `pnpm check:product` and `pnpm test` green.
+5. **Verify after each surface.** Re-walk the affected journeys against the dedicated test event, and keep `pnpm check:product` and `pnpm test` green.
 
 ## Guardrails — what product-oriented does NOT mean
 
@@ -72,7 +72,7 @@ Work surface by surface, and keep the whole product working end to end at every 
 
 - Every screen in every app passes the five questions.
 - Every user-visible word is plain language, and the same concept is named identically on every surface.
-- Every journey above is walkable locally, start to finish, without reading code, a spec, or the database to know what to do next — and the seeded mid-hackathon event makes every operational screen judgeable by looking at it.
+- Every journey above is walkable start to finish with real test accounts and product-created data, without reading code, a spec, or the database to know what to do next.
 - No orphan routes, dead fields, unreachable states, or unexplained controls remain.
 - `pnpm check:product` and `pnpm test` pass, `pnpm dev` full flow works, and the specs match shipped behavior.
 

@@ -369,7 +369,7 @@ async function eligibleReserve(
   return { reserve: args.reserve, person, subject, clockIn, device };
 }
 
-/** Internal entry point used only by page handling and local fixtures. */
+/** Internal entry point used by page handling and focused tests. */
 export async function sendNextPage(
   ctx: MutationCtx,
   pageChainId: Id<"reviewerPageChains">,

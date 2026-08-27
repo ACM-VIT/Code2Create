@@ -21,7 +21,6 @@
     "dev:voice": "pnpm --filter @code2create/voice dev",
     "dev:trailer": "pnpm --filter @code2create/trailer dev",
     "render:trailer": "pnpm --filter @code2create/trailer render",
-    "test:e2e:local": "pnpm --filter @code2create/e2e test:local",
     "test:e2e:release": "pnpm --filter @code2create/e2e test:release",
     "check:fixtures:staging": "pnpm --filter @code2create/backend browser-fixtures:check:staging",
     "check:providers:staging": "pnpm --filter @code2create/backend providers:check:staging",

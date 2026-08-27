@@ -1,16 +1,5 @@
 # Browser verification
 
-## Local product flows
-
-Start the full local stack from the repository root, then run the local browser suite in a second terminal:
-
-```sh
-pnpm dev
-pnpm test:e2e:local
-```
-
-The suite uses the local VIT participant, external participant, and Supreme fixtures. It verifies the participant entry and confirmed-team experiences, phone-width layout, the operations overview and check-in route, handbook search and navigation, and all three Worker health routes. Successful runs save viewport screenshots under `outputs/playwright/local-results/` for visual review.
-
 ## Staging release verification
 
 This package checks the deployed participant and operations surfaces. It never creates accounts or bypasses Google sign-in.

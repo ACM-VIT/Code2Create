@@ -29,7 +29,6 @@ import {
   integrationPolicyChecksum,
   normalizeIntegrationPolicy,
 } from "./lib/integrationPolicy";
-import { localBrowserFixtureOrigins } from "./lib/localBrowserFixtures";
 import {
   defaultOperationsAutonomyPolicy,
   normalizeOperationsAutonomyPolicy,
@@ -60,7 +59,6 @@ const publicShellState = v.object({
   serverNow: v.number(),
   auth: v.object({
     googleConfigured: v.boolean(),
-    localDevelopmentFixturesEnabled: v.boolean(),
   }),
   event: v.union(
     v.null(),
@@ -79,7 +77,6 @@ function publicAuthState() {
     googleConfigured: Boolean(
       process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim(),
     ),
-    localDevelopmentFixturesEnabled: localBrowserFixtureOrigins() !== null,
   };
 }
 
@@ -138,7 +135,6 @@ export const getPublicState = query({
   returns: v.object({
     auth: v.object({
       googleConfigured: v.boolean(),
-      localDevelopmentFixturesEnabled: v.boolean(),
     }),
     event: v.union(
       v.null(),

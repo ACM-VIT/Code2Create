@@ -878,7 +878,6 @@ export default defineSchema({
     draftId: v.id("projectDrafts"),
     requestedByPersonId: v.id("people"),
     requestedByMembershipId: v.id("eventMemberships"),
-    submissionSource: v.union(v.literal("participant"), v.literal("local_seed")),
     authorizingGrantIds: v.array(v.id("permissionGrants")),
     clientOperationId: v.string(),
     requestFingerprint: v.string(),

@@ -1,9 +1,6 @@
-import { api } from '@code2create/backend/api'
 import { useState } from 'react'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
-import { useAction } from 'convex/react'
 import { ErrorNotice } from '../components/Form'
-import { readableError } from '../lib/errors'
 import type { ParticipantClass, PublicState } from '../types'
 
 export const participantClassStorageKey = 'code2create.participant-class'
@@ -21,8 +18,6 @@ export function EntryScreen({
   })
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const createBrowserSession = useAction(api.localDevelopment.createBrowserSession)
-
   if (!publicState.event) {
     return (
       <main className="centered-shell">
@@ -54,24 +49,6 @@ export function EntryScreen({
     } catch {
       setError('Google sign-in could not start. Try again.')
     } finally {
-      setBusy(false)
-    }
-  }
-
-  const signInLocally = async () => {
-    if (!participantClass || !publicState.auth.localDevelopmentFixturesEnabled) return
-    setBusy(true)
-    setError(null)
-    try {
-      const session = await createBrowserSession({
-        confirmation: 'create-code2create-local-browser-session',
-        actor: participantClass === 'vit_student' ? 'vitParticipant' : 'externalParticipant',
-        surface: 'participant',
-        returnPath: `${window.location.pathname}${window.location.search}${window.location.hash}`,
-      })
-      window.location.assign(session.url)
-    } catch (caught) {
-      setError(readableError(caught))
       setBusy(false)
     }
   }
@@ -110,17 +87,7 @@ export function EntryScreen({
         >
           {busy ? 'Opening Google…' : 'Continue with Google'}
         </button>
-        {publicState.auth.localDevelopmentFixturesEnabled ? (
-          <button
-            type="button"
-            className="secondary full-width"
-            disabled={!participantClass || busy}
-            onClick={() => void signInLocally()}
-          >
-            {busy ? 'Opening…' : 'Use local test account'}
-          </button>
-        ) : null}
-        {!publicState.auth.googleConfigured && !publicState.auth.localDevelopmentFixturesEnabled ? (
+        {!publicState.auth.googleConfigured ? (
           <p className="configuration-note">Google sign-in is unavailable right now. Ask an organizer for help.</p>
         ) : null}
         <ErrorNotice message={error} />

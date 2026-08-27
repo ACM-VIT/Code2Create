@@ -44,7 +44,6 @@ export async function createTestSubmissionSnapshot(
     draftId,
     requestedByPersonId: leadMembership.personId,
     requestedByMembershipId: leadMembership._id,
-    submissionSource: "local_seed",
     authorizingGrantIds: [],
     clientOperationId: `test:${team._id}`,
     requestFingerprint: `test:${team._id}:${draftId}`,

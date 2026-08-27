@@ -42,9 +42,6 @@ type Fixture = Awaited<ReturnType<typeof seedCohortFixture>>;
 const readSecret = "read-secret-".padEnd(48, "r");
 const savedEnvironment = {
   INTELLIGENCE_READ_SECRET: process.env.INTELLIGENCE_READ_SECRET,
-  LOCAL_DEVELOPMENT_SEED_ENABLED: process.env.LOCAL_DEVELOPMENT_SEED_ENABLED,
-  CONVEX_CLOUD_URL: process.env.CONVEX_CLOUD_URL,
-  CONVEX_SITE_URL: process.env.CONVEX_SITE_URL,
   AUTH_SITE_URL: process.env.AUTH_SITE_URL,
   PARTICIPANT_SITE_URL: process.env.PARTICIPANT_SITE_URL,
   OPERATIONS_SITE_URL: process.env.OPERATIONS_SITE_URL,
@@ -52,9 +49,6 @@ const savedEnvironment = {
 };
 
 process.env.INTELLIGENCE_READ_SECRET = readSecret;
-process.env.LOCAL_DEVELOPMENT_SEED_ENABLED = "true";
-process.env.CONVEX_CLOUD_URL = "http://127.0.0.1:3210";
-process.env.CONVEX_SITE_URL = "http://127.0.0.1:3211";
 process.env.AUTH_SITE_URL = "http://localhost:3211";
 process.env.PARTICIPANT_SITE_URL = "http://localhost:4173";
 process.env.OPERATIONS_SITE_URL = "http://localhost:4174";
@@ -371,127 +365,6 @@ describe("admission cohort query and decisions", () => {
   });
 });
 
-describe("admission cohort at seeded scale", () => {
-  test(
-    "the opt-in seeder builds a realistic cohort and the view holds up at 350 teams",
-    { timeout: 300_000 },
-    async () => {
-      const backend = seededBackend();
-      await seedLocalCohortEvent(backend);
-      const seeded = await backend.action(api.localAdmissionCohortSeed.seedAdmissionCohort, {
-        confirmation: "seed-code2create-admission-cohort",
-        teamCount: 350,
-      });
-      expect(seeded).toMatchObject({ requestedTeams: 350 });
-      expect(seeded.createdTeams).toBe(350);
-      const eventId = await backend.run(async (ctx) => {
-        const event = await ctx.db
-          .query("events")
-          .withIndex("by_slug", (index) => index.eq("slug", "code2create-7"))
-          .unique();
-        if (!event) throw new Error("The seeded event is missing.");
-        return event._id;
-      });
-      await backend.run(async (ctx) => {
-        const recommendations = await ctx.db
-          .query("admissionAIRecommendations")
-          .withIndex("by_event_state_created", (index) => index.eq("eventId", eventId))
-          .collect();
-        const factIds = (await ctx.db
-          .query("operationsAutonomyReadFacts")
-          .withIndex("by_event_source_sequence_entity", (index) =>
-            index.eq("eventId", eventId).eq("source", "admission_jobs"),
-          )
-          .collect())
-          .flatMap((fact) => fact.source === "admission_jobs" ? [fact.value.jobId] : []);
-        expect(new Set(factIds)).toEqual(
-          new Set(recommendations.map((recommendation) => recommendation._id)),
-        );
-      });
-      const capacity = 600;
-      const view = await backend.query(internal.admissionCohort.cohortRead, {
-        eventId,
-        capacityPeople: capacity,
-      });
-      expect(
-        view.counts.candidateTeams +
-          view.counts.committedTeams +
-          view.counts.decidedOutTeams,
-      ).toBe(350);
-      expect(view.candidates.length).toBeLessThanOrEqual(48);
-      expect(view.window.startRank).toBe(view.candidates[0]?.rank ?? 0);
-      expect(view.window.endRank).toBe(view.candidates.at(-1)?.rank ?? 0);
-      for (const [index, entry] of view.candidates.entries()) {
-        expect(entry.rank).toBe(view.window.startRank + index);
-        expect(entry.suggestedIn).toBe(entry.entryCapacityPeople <= capacity);
-      }
-      const visibleIn = view.candidates.filter((entry) => entry.suggestedIn);
-      const visibleOut = view.candidates.filter((entry) => !entry.suggestedIn);
-      expect(visibleIn.length).toBeLessThanOrEqual(24);
-      expect(visibleOut.length).toBeLessThanOrEqual(24);
-      if (view.window.hasEarlier) expect(visibleIn).toHaveLength(24);
-      if (view.window.hasLater) expect(visibleOut).toHaveLength(24);
-      expect(JSON.stringify(view).length).toBeLessThan(256 * 1_024);
-      expect(view.summary.suggestedPeople).toBeLessThanOrEqual(capacity);
-      const firstOut = view.candidates.find((entry) => !entry.suggestedIn);
-      expect(firstOut).toBeDefined();
-      expect(view.summary.suggestedPeople + (firstOut?.teamSize ?? 0)).toBeGreaterThan(capacity);
-      expect(view.summary.bandMix).toHaveLength(5);
-      const mixTotal = view.summary.bandMix.reduce(
-        (total, band) => total + band.teamsIn + band.teamsOut,
-        0,
-      );
-      expect(mixTotal).toBe(view.counts.candidateTeams);
-      for (const band of view.summary.bandMix) {
-        expect(band.teamsIn + band.teamsOut).toBeGreaterThan(0);
-      }
-      expect(view.candidates.some((entry) => entry.reviewCoverage.decidable)).toBe(true);
-      expect(view.candidates.some((entry) => !entry.reviewCoverage.decidable)).toBe(true);
-      expect(view.candidates.every((entry) => !("novelty" in entry))).toBe(true);
-
-      const widerCapacity = capacity + 40;
-      const wider = await backend.query(internal.admissionCohort.cohortRead, {
-        eventId,
-        capacityPeople: widerCapacity,
-      });
-      expect(wider.counts).toEqual(view.counts);
-      expect(wider.candidates.length).toBeLessThanOrEqual(48);
-      for (const entry of wider.candidates) {
-        expect(entry.suggestedIn).toBe(entry.entryCapacityPeople <= widerCapacity);
-      }
-      expect(wider.window.startRank).toBeGreaterThanOrEqual(view.window.startRank);
-
-      const search = await backend.query(internal.admissionCohort.submissionSearchRead, {
-        eventId,
-        searchQuery: "librarians",
-        limit: 10,
-      });
-      expect(search.matches.length).toBeGreaterThan(0);
-      expect(search.matches.length).toBeLessThanOrEqual(10);
-      for (const match of search.matches) {
-        expect(match.ideaExcerpt.toLowerCase()).toContain("librarians");
-        expect(match.teamSize).toBeGreaterThan(0);
-      }
-    },
-  );
-
-  test("the seeder refuses to run outside a local deployment", async () => {
-    const backend = seededBackend();
-    await seedLocalCohortEvent(backend);
-    process.env.LOCAL_DEVELOPMENT_SEED_ENABLED = "false";
-    try {
-      await expect(
-        backend.action(api.localAdmissionCohortSeed.seedAdmissionCohort, {
-          confirmation: "seed-code2create-admission-cohort",
-          teamCount: 5,
-        }),
-      ).rejects.toThrow("local");
-    } finally {
-      process.env.LOCAL_DEVELOPMENT_SEED_ENABLED = "true";
-    }
-  });
-});
-
 function seededBackend() {
   const backend = convexTest(schema, modules);
   backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
@@ -572,30 +445,6 @@ async function insertAccount(
     updatedAt: now,
   });
   return { personId, subjectId };
-}
-
-async function seedLocalCohortEvent(backend: BackendTest) {
-  const now = Date.now();
-  return backend.run(async (ctx) => {
-    const eventId = await ctx.db.insert("events", {
-      slug: "code2create-7",
-      name: "Code2Create local",
-      timezone: "Asia/Kolkata",
-      status: "registration_open",
-      vitEmailDomains: ["vitstudent.ac.in"],
-      applicationsCloseAt: now + 86_400_000,
-      startsAt: now + 14 * 24 * 60 * 60 * 1_000,
-      endsAt: now + 16 * 24 * 60 * 60 * 1_000,
-      version: 1,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const { personId } = await insertAccount(ctx, eventId, "cohort-seed-owner", now);
-    const ids = await insertPolicyChain(ctx, eventId, personId, now, {
-      minimumHumanReviews: 1,
-    });
-    return { eventId, ...ids };
-  });
 }
 
 async function insertPolicyChain(

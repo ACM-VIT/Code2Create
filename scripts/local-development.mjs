@@ -15,45 +15,51 @@ const localBetterAuthSecret = 'code2create-local-better-auth-secret-2026-v1'
 // Local-only deterministic key; production requires a random versioned key.
 const attendanceWrappingKey = 'Y29kZTJjcmVhdGUtbG9jYWwtYXR0ZW5kYW5jZS1rZXk'
 
-const localTunnelFixturesEnabled =
-  process.env.LOCAL_TUNNEL_FIXTURES_ENABLED?.trim() === 'true'
-
-function localSurfaceOrigin(key, localhostOrigin) {
-  if (!localTunnelFixturesEnabled) return localhostOrigin
-  const configured = process.env[key]?.trim()
-  if (!configured) throw new Error(`${key} is required for local tunnel fixtures.`)
-  let url
-  try {
-    url = new URL(configured)
-  } catch {
-    throw new Error(`${key} must be an HTTPS trycloudflare.com origin.`)
-  }
-  if (
-    url.origin !== configured ||
-    url.protocol !== 'https:' ||
-    !url.hostname.endsWith('.trycloudflare.com')
-  ) {
-    throw new Error(`${key} must be an HTTPS trycloudflare.com origin.`)
-  }
-  return url.origin
-}
-
 const privateEnvironmentKeys = [
+  'APNS_BUNDLE_ID',
+  'APNS_KEY_ID',
+  'APNS_PRIVATE_KEY',
+  'APNS_TEAM_ID',
+  'ARTIFACT_S3_ACCESS_KEY_ID',
+  'ARTIFACT_S3_BUCKET',
+  'ARTIFACT_S3_KMS_KEY_ID',
+  'ARTIFACT_S3_REGION',
+  'ARTIFACT_S3_SECRET_ACCESS_KEY',
+  'ATTENDANCE_PREVIOUS_WRAPPING_KEY',
+  'ATTENDANCE_PREVIOUS_WRAPPING_KEY_VERSION',
+  'ATTENDANCE_WRAPPING_KEY',
+  'ATTENDANCE_WRAPPING_KEY_VERSION',
   'BETTER_AUTH_SECRET',
+  'CLOUDFLARE_EMAIL_ACCOUNT_ID',
+  'CLOUDFLARE_EMAIL_API_TOKEN',
+  'CLOUDFLARE_EMAIL_FROM',
+  'CLOUDFLARE_EMAIL_REPLY_TO',
+  'EMAIL_EVENT_CALLBACK_SECRET',
+  'FIGMA_CLIENT_ID',
+  'FIGMA_CLIENT_SECRET',
+  'FIREBASE_CLIENT_EMAIL',
+  'FIREBASE_PRIVATE_KEY',
+  'FIREBASE_PROJECT_ID',
+  'GITHUB_APP_CLIENT_ID',
+  'GITHUB_APP_CLIENT_SECRET',
+  'GITHUB_APP_ID',
+  'GITHUB_APP_PRIVATE_KEY',
+  'GITHUB_WEBHOOK_SECRET',
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
   'INITIAL_SUPREME_EMAILS',
   'OPENAI_API_KEY',
+  'OUTBOUND_CALL_EVENT_SECRET',
+  'OUTBOUND_CALL_REQUEST_SECRET',
+  'OUTBOUND_CALL_WORKER_URL',
+  'PROVIDER_TOKEN_ENCRYPTION_KEY',
+  'PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION',
+  'PROVIDER_TOKEN_PREVIOUS_ENCRYPTION_KEY',
+  'PROVIDER_TOKEN_PREVIOUS_ENCRYPTION_KEY_VERSION',
 ]
 
 const localPrivateEnvironment = Object.fromEntries(
   privateEnvironmentKeys.flatMap((key) => {
-    if (
-      localTunnelFixturesEnabled &&
-      (key === 'GOOGLE_CLIENT_ID' || key === 'GOOGLE_CLIENT_SECRET')
-    ) {
-      return []
-    }
     const value = process.env[key]?.trim()
     return value ? [[key, value]] : []
   }),
@@ -61,27 +67,12 @@ const localPrivateEnvironment = Object.fromEntries(
 
 export const localConvexEnvironment = Object.freeze({
   C2C_DEPLOYMENT_ENVIRONMENT: 'development',
-  LOCAL_DEVELOPMENT_SEED_ENABLED: 'true',
-  LOCAL_PROVIDER_FIXTURES_ENABLED: 'true',
-  ...(localTunnelFixturesEnabled ? { LOCAL_TUNNEL_FIXTURES_ENABLED: 'true' } : {}),
   BETTER_AUTH_SECRET: localBetterAuthSecret,
-  AUTH_SITE_URL: localSurfaceOrigin('AUTH_SITE_URL', 'http://localhost:3211'),
-  PARTICIPANT_SITE_URL: localSurfaceOrigin(
-    'PARTICIPANT_SITE_URL',
-    'http://localhost:5180',
-  ),
-  OPERATIONS_SITE_URL: localSurfaceOrigin(
-    'OPERATIONS_SITE_URL',
-    'http://localhost:5181',
-  ),
-  HANDBOOK_SITE_URL: localSurfaceOrigin(
-    'HANDBOOK_SITE_URL',
-    'http://localhost:5182',
-  ),
-  INTELLIGENCE_WORKER_URL: localSurfaceOrigin(
-    'INTELLIGENCE_WORKER_URL',
-    'http://localhost:8791',
-  ),
+  AUTH_SITE_URL: 'http://localhost:3211',
+  PARTICIPANT_SITE_URL: 'http://localhost:5180',
+  OPERATIONS_SITE_URL: 'http://localhost:5181',
+  HANDBOOK_SITE_URL: 'http://localhost:5182',
+  INTELLIGENCE_WORKER_URL: 'http://localhost:8791',
   INTELLIGENCE_INGRESS_SECRET: intelligenceIngressSecret,
   INTELLIGENCE_CALLBACK_SECRET: intelligenceCallbackSecret,
   INTELLIGENCE_READ_SECRET: intelligenceReadSecret,
@@ -91,10 +82,6 @@ export const localConvexEnvironment = Object.freeze({
   INITIAL_EVENT_SLUG: 'code2create-7',
   ...localPrivateEnvironment,
 })
-
-export const localConvexEnvironmentRemovals = Object.freeze(
-  localTunnelFixturesEnabled ? ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'] : [],
-)
 
 export const localIntelligenceWorkerEnvironment = Object.freeze({
   INTELLIGENCE_INGRESS_SECRET: intelligenceIngressSecret,
@@ -116,5 +103,5 @@ export const localIntelligenceWorkerEnvironment = Object.freeze({
     'http://127.0.0.1:3211/intelligence/operations-autonomy/recommendations',
   CONVEX_INTELLIGENCE_AUTONOMY_RECOMMENDATION_EVIDENCE_URL:
     'http://127.0.0.1:3211/intelligence/operations-autonomy/recommendation-evidence',
-  OPS_ORIGIN: localSurfaceOrigin('OPERATIONS_SITE_URL', 'http://localhost:5181'),
+  OPS_ORIGIN: 'http://localhost:5181',
 })

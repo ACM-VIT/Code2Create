@@ -7,9 +7,7 @@ import { action, internalMutation, internalQuery } from "./_generated/server";
 import { authComponent } from "./auth";
 import { requireEventBySlug } from "./lib/events";
 import { requireEventSubject, requireMembership } from "./lib/identity";
-import { localProviderFixturesEnabled } from "./lib/localBrowserFixtures";
 import {
-  localNoveltyEmbedding,
   normalizeNoveltyIdea,
   noveltyBandForScore,
   noveltyEmbeddingDimensions,
@@ -426,9 +424,8 @@ export const preview = action({
     });
     if (begun.kind === "complete") return begun.result;
     const apiKey = process.env.OPENAI_API_KEY?.trim();
-    const useLocalFixture = !apiKey && localProviderFixturesEnabled();
     const startedAt = Date.now();
-    if (!apiKey && !useLocalFixture) {
+    if (!apiKey) {
       return ctx.runMutation(internal.novelty.finishPreview, {
         requestId: begun.requestId,
         inputFingerprint: begun.inputFingerprint,
@@ -437,21 +434,17 @@ export const preview = action({
         failureCategory: "provider_not_configured",
       });
     }
-    const client = apiKey ? new OpenAI({ apiKey, timeout: 8_000, maxRetries: 0 }) : null;
+    const client = new OpenAI({ apiKey, timeout: 8_000, maxRetries: 0 });
     try {
-      const response = client
-        ? await client.embeddings.create({
-            model: begun.embeddingModel,
-            encoding_format: "float",
-            input: begun.normalizedIdea,
-          })
-        : null;
-      const embedding = response
-        ? response.data[0]?.embedding
-        : localNoveltyEmbedding(begun.normalizedIdea);
+      const response = await client.embeddings.create({
+        model: begun.embeddingModel,
+        encoding_format: "float",
+        input: begun.normalizedIdea,
+      });
+      const embedding = response.data[0]?.embedding;
       if (
         !embedding ||
-        (response !== null && response.data.length !== 1) ||
+        response.data.length !== 1 ||
         !validEmbedding(embedding)
       ) {
         throw new Error("The embedding provider returned an invalid idea vector.");
@@ -471,7 +464,7 @@ export const preview = action({
           requestId: begun.requestId,
           inputFingerprint: begun.inputFingerprint,
           state: "unavailable",
-          ...(response?._request_id ? { providerRequestId: response._request_id } : {}),
+          ...(response._request_id ? { providerRequestId: response._request_id } : {}),
           latencyMs: Date.now() - startedAt,
           failureCategory: "corpus_index_empty",
         });
@@ -497,7 +490,7 @@ export const preview = action({
         nearestSimilarity: nearest._score,
         nearestThemeLabel: nearestMetadata.themeLabel,
         reflectionPrompt: nearestMetadata.reflectionPrompt,
-        ...(response?._request_id ? { providerRequestId: response._request_id } : {}),
+        ...(response._request_id ? { providerRequestId: response._request_id } : {}),
         latencyMs: Date.now() - startedAt,
       });
     } catch (error) {

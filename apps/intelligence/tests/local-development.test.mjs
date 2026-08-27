@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
 import test from 'node:test'
 
 import {
@@ -61,37 +60,4 @@ test('local intelligence uses one localhost-only signed service boundary', () =>
   )
   assert.equal(recommendationUrl.origin, 'http://127.0.0.1:3211')
   assert.equal(recommendationUrl.pathname, '/intelligence/operations-recommendations')
-})
-
-test('quick-tunnel development publishes the same Worker and operations origins', () => {
-  const tunnelOrigins = {
-    AUTH_SITE_URL: 'https://auth-code2create.trycloudflare.com',
-    HANDBOOK_SITE_URL: 'https://handbook-code2create.trycloudflare.com',
-    INTELLIGENCE_WORKER_URL: 'https://intelligence-code2create.trycloudflare.com',
-    OPERATIONS_SITE_URL: 'https://operations-code2create.trycloudflare.com',
-    PARTICIPANT_SITE_URL: 'https://participant-code2create.trycloudflare.com',
-  }
-  const moduleUrl = new URL('../../../scripts/local-development.mjs', import.meta.url).href
-  const output = execFileSync(
-    process.execPath,
-    [
-      '--input-type=module',
-      '--eval',
-      `const config = await import(${JSON.stringify(moduleUrl)}); process.stdout.write(JSON.stringify({ workerUrl: config.localConvexEnvironment.INTELLIGENCE_WORKER_URL, operationsOrigin: config.localIntelligenceWorkerEnvironment.OPS_ORIGIN }));`,
-    ],
-    {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        ...tunnelOrigins,
-        LOCAL_TUNNEL_FIXTURES_ENABLED: 'true',
-      },
-    },
-  )
-  const configuration = JSON.parse(output)
-
-  assert.deepEqual(configuration, {
-    workerUrl: tunnelOrigins.INTELLIGENCE_WORKER_URL,
-    operationsOrigin: tunnelOrigins.OPERATIONS_SITE_URL,
-  })
 })

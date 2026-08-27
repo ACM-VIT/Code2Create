@@ -2,7 +2,7 @@ import { api } from '@code2create/backend/api'
 import { type EventStage, eventRoleLabels, eventStageGuidance } from '@code2create/domain'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import type { FunctionReturnType } from 'convex/server'
-import { AuthLoading, Authenticated, Unauthenticated, useAction, useMutation, useQuery } from 'convex/react'
+import { AuthLoading, Authenticated, Unauthenticated, useMutation, useQuery } from 'convex/react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { lazy, Suspense, useState } from 'react'
 
@@ -135,7 +135,6 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
         <SignIn
           authClient={authClient}
           googleConfigured={publicState.auth.googleConfigured}
-          localDevelopmentFixturesEnabled={publicState.auth.localDevelopmentFixturesEnabled}
         />
       </Unauthenticated>
       <Authenticated>
@@ -740,15 +739,12 @@ function formatDateTime(timestamp: number) {
 function SignIn({
   authClient,
   googleConfigured,
-  localDevelopmentFixturesEnabled,
 }: {
   authClient: Code2CreateAuthClient
   googleConfigured: boolean
-  localDevelopmentFixturesEnabled: boolean
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const createBrowserSession = useAction(api.localDevelopment.createBrowserSession)
   const signIn = async () => {
     setBusy(true)
     setError(null)
@@ -758,22 +754,6 @@ function SignIn({
     } catch {
       setError('Google sign-in could not be completed. Try again.')
     } finally {
-      setBusy(false)
-    }
-  }
-  const signInLocally = async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      const session = await createBrowserSession({
-        confirmation: 'create-code2create-local-browser-session',
-        actor: 'supreme',
-        surface: 'operations',
-        returnPath: `${window.location.pathname}${window.location.search}${window.location.hash}`,
-      })
-      window.location.assign(session.url)
-    } catch (caught) {
-      setError(readableError(caught))
       setBusy(false)
     }
   }
@@ -787,15 +767,7 @@ function SignIn({
         label={busy ? 'Opening Google…' : 'Continue with Google'}
         onClick={() => void signIn()}
       />
-      {localDevelopmentFixturesEnabled ? (
-        <GateAction
-          disabled={busy}
-          label={busy ? 'Opening…' : 'Use local Supreme account'}
-          onClick={() => void signInLocally()}
-          secondary
-        />
-      ) : null}
-      {!googleConfigured && !localDevelopmentFixturesEnabled ? (
+      {!googleConfigured ? (
         <p className="gate-error">Google sign-in is unavailable. Check the event’s authentication setup.</p>
       ) : null}
     </Gate>

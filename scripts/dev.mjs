@@ -193,11 +193,11 @@ async function waitForApplications(applicationsExit) {
   )
 }
 
-async function runPreparation(mode) {
-  const child = start(['exec', 'node', 'scripts/prepare-local-development.mjs', mode])
+async function runPreparation() {
+  const child = start(['exec', 'node', 'scripts/prepare-local-development.mjs'])
   const { code, signal } = await waitForExit(child)
   if (code !== 0) {
-    throw new Error(`Local ${mode} preparation failed (${signal ?? `exit ${code}`}).`)
+    throw new Error(`Local environment preparation failed (${signal ?? `exit ${code}`}).`)
   }
 }
 
@@ -228,9 +228,8 @@ try {
   const { child: backend, listenerReady, pushReady } = startBackend()
   const backendExit = waitForExit(backend)
   await waitForBackendListener(backendExit, listenerReady)
-  await runPreparation('environment')
+  await runPreparation()
   await waitForBackend(backendExit, pushReady)
-  await runPreparation('seed')
 
   const applications = start([
     '--parallel',

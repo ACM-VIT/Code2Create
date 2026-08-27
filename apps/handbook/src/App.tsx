@@ -4,7 +4,6 @@ import {
   AuthLoading,
   Authenticated,
   Unauthenticated,
-  useAction,
   useQuery,
 } from 'convex/react'
 import { lazy, Suspense, useDeferredValue, useState } from 'react'
@@ -46,7 +45,6 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
           authClient={authClient}
           eventName={publicState.event?.name ?? 'Code2Create'}
           googleConfigured={publicState.auth.googleConfigured}
-          localDevelopmentFixturesEnabled={publicState.auth.localDevelopmentFixturesEnabled}
         />
       </Unauthenticated>
       <Authenticated>
@@ -254,16 +252,13 @@ function SignIn({
   authClient,
   eventName,
   googleConfigured,
-  localDevelopmentFixturesEnabled,
 }: {
   authClient: Code2CreateAuthClient
   eventName: string
   googleConfigured: boolean
-  localDevelopmentFixturesEnabled: boolean
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const createBrowserSession = useAction(api.localDevelopment.createBrowserSession)
 
   const signIn = async () => {
     setBusy(true)
@@ -283,23 +278,6 @@ function SignIn({
     }
   }
 
-  const signInLocally = async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      const session = await createBrowserSession({
-        confirmation: 'create-code2create-local-browser-session',
-        actor: 'supreme',
-        surface: 'handbook',
-        returnPath: `${window.location.pathname}${window.location.search}${window.location.hash}`,
-      })
-      window.location.assign(session.url)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Local sign-in could not be completed.')
-      setBusy(false)
-    }
-  }
-
   return (
     <main className="centered">
       <section className="sign-in">
@@ -309,12 +287,7 @@ function SignIn({
         <button className="primary" type="button" disabled={!googleConfigured || busy} onClick={() => void signIn()}>
           {busy ? 'Opening Google…' : 'Continue with Google'}
         </button>
-        {localDevelopmentFixturesEnabled ? (
-          <button className="secondary" type="button" disabled={busy} onClick={() => void signInLocally()}>
-            {busy ? 'Opening…' : 'Use local Supreme account'}
-          </button>
-        ) : null}
-        {!googleConfigured && !localDevelopmentFixturesEnabled ? (
+        {!googleConfigured ? (
           <p className="notice">Google sign-in is unavailable. Ask an organizer to check handbook access.</p>
         ) : null}
         {error ? <p className="notice error" role="alert">{error}</p> : null}

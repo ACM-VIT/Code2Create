@@ -1338,7 +1338,7 @@ One current server-owned aggregate-health materialization per event.
 - event ID, the exact event version observed during computation, and `ready | stale` state with its deadline;
 - one fully validated bounded redacted health snapshot, including server generation time.
 
-The 30-second cron discovers at most two events and rejects a deployment containing more than one. Its action calls one broad bounded internal query, then one narrow `by_event` upsert mutation. An exact retry is a no-op and an older result cannot replace a newer snapshot. Each accepted generation schedules its own 90-second stale marker; the marker compares the expected generation before changing state, so an old deadline cannot expire a newer snapshot. Bootstrap and local seed schedule the initial refresh. Reads return explicit `missing`, `stale`, or `ready` state and never recompute live.
+The 30-second cron discovers at most two events and rejects a deployment containing more than one. Its action calls one broad bounded internal query, then one narrow `by_event` upsert mutation. An exact retry is a no-op and an older result cannot replace a newer snapshot. Each accepted generation schedules its own 90-second stale marker; the marker compares the expected generation before changing state, so an old deadline cannot expire a newer snapshot. Event bootstrap schedules the initial refresh. Reads return explicit `missing`, `stale`, or `ready` state and never recompute live.
 
 ### `operationsAutonomyPolicyVersions`
 

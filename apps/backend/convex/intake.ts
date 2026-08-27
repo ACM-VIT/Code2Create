@@ -1868,7 +1868,6 @@ export const submit = mutation({
       draftId: draft._id,
       requestedByPersonId: person._id,
       requestedByMembershipId: membership._id,
-      submissionSource: "participant",
       authorizingGrantIds: grantIds,
       clientOperationId: args.clientOperationId,
       requestFingerprint,

@@ -9,7 +9,6 @@
     "install:browser:ci": "playwright install --with-deps chromium",
     "lint": "oxlint",
     "test": "node --experimental-strip-types --test src/environment.test.ts src/storage-state.test.ts",
-    "test:local": "playwright test --config playwright.local.config.ts",
     "test:release": "playwright test",
     "typecheck": "tsc --noEmit"
   },

@@ -1,5 +1,5 @@
 import { api } from '@code2create/backend/api'
-import { useAction, useConvexAuth, useMutation, useQuery } from 'convex/react'
+import { useConvexAuth, useMutation, useQuery } from 'convex/react'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { AppState, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -26,15 +26,12 @@ type ReviewerSession = {
   surfaces: Surface[]
   canCreateSupport: boolean
   canManageAttention: boolean
-  localReviewerFixturesEnabled: boolean
   judgingStatus: DutyStatus
   reviewHeartbeatIssue: string | null
   signOut: () => void
 }
 
 const SessionContext = createContext<ReviewerSession | null>(null)
-const localReviewerFixtureEmail = 'supreme@example.test'
-
 export function useReviewerSession() {
   const session = useContext(SessionContext)
   if (!session) throw new Error('useReviewerSession used outside the reviewer session provider.')
@@ -56,7 +53,6 @@ export function ReviewerSessionProvider({
     api.access.reviewerCapabilities,
     isAuthenticated ? { eventSlug } : 'skip',
   )
-  const createNativeSession = useAction(api.localDevelopment.createNativeSession)
   const heartbeat = useMutation(api.reviewer.heartbeat)
   const [authError, setAuthError] = useState<string | null>(null)
   const [authBusy, setAuthBusy] = useState(false)
@@ -145,29 +141,6 @@ export function ReviewerSessionProvider({
         setAuthBusy(false)
       }
     }
-    const signInLocally = async () => {
-      setAuthBusy(true)
-      setAuthError(null)
-      try {
-        const local = await createNativeSession({
-          confirmation: 'create-code2create-local-native-session',
-          surface: 'reviewer',
-        })
-        const result = await runtime.authClient.crossDomain.oneTimeToken.verify({
-          token: local.token,
-        })
-        if (result.error) {
-          setAuthError('The local event operator could not sign in. Try again.')
-          return
-        }
-        runtime.authClient.updateSession()
-      } catch (caught) {
-        setAuthError(errorMessage(caught, 'The local event operator could not sign in.'))
-      } finally {
-        setAuthBusy(false)
-      }
-    }
-
     return (
       <Gate
         error={authError}
@@ -178,15 +151,7 @@ export function ReviewerSessionProvider({
           label={authBusy ? 'Opening…' : 'Continue with Google'}
           onPress={signIn}
         />
-        {publicState.auth.localDevelopmentFixturesEnabled ? (
-          <PrimaryAction
-            disabled={authBusy}
-            label="Use the local event operator"
-            onPress={signInLocally}
-            secondary
-          />
-        ) : null}
-        {!publicState.auth.googleConfigured && !publicState.auth.localDevelopmentFixturesEnabled ? (
+        {!publicState.auth.googleConfigured ? (
           <Text style={styles.error}>Google sign-in is unavailable. Ask an organizer to check event access.</Text>
         ) : null}
       </Gate>
@@ -238,9 +203,6 @@ export function ReviewerSessionProvider({
         surfaces,
         canCreateSupport: capabilities?.supportCreate ?? false,
         canManageAttention: capabilities?.attentionManage ?? false,
-        localReviewerFixturesEnabled:
-          publicState.auth.localDevelopmentFixturesEnabled
-          && session.user.email === localReviewerFixtureEmail,
         judgingStatus: currentJudgingStatus,
         reviewHeartbeatIssue: heartbeatRoundId ? reviewHeartbeatIssue : null,
         signOut,

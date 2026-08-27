@@ -15,7 +15,6 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { readBoundedJsonResponse } from "./lib/boundedHttpBody";
-import { localProviderFixturesEnabled } from "./lib/localBrowserFixtures";
 
 const acceptedResponse = z
   .object({
@@ -74,15 +73,6 @@ export const deliver = internalAction({
       attemptId,
     });
     if (!claim) return null;
-    if (localProviderFixturesEnabled()) {
-      await ctx.runMutation(internal.outboundCallState.recordLocalCompleted, {
-        deliveryId: claim.deliveryId,
-        attemptId,
-        providerCallId: `local-${randomUUID()}`,
-      });
-      return null;
-    }
-
     const worker = requiredServiceUrl("OUTBOUND_CALL_WORKER_URL");
     const callbackUrl = outboundCallCallbackUrl();
     const secret = process.env.OUTBOUND_CALL_REQUEST_SECRET?.trim();

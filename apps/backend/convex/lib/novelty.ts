@@ -8,32 +8,6 @@ export const noveltyEmbeddingDimensions = 1_536;
 export const minimumNoveltyCorpusEntries = 5;
 export const maximumNoveltyCorpusEntries = 200;
 
-const localFixtureStopWords = new Set([
-  "a",
-  "an",
-  "and",
-  "are",
-  "as",
-  "at",
-  "be",
-  "by",
-  "for",
-  "from",
-  "in",
-  "is",
-  "it",
-  "of",
-  "on",
-  "or",
-  "that",
-  "the",
-  "their",
-  "this",
-  "through",
-  "to",
-  "with",
-]);
-
 const discouragedReflectionTerms = [
   "admission",
   "bad idea",
@@ -252,45 +226,4 @@ export function validEmbedding(embedding: readonly number[]) {
     embedding.length === noveltyEmbeddingDimensions &&
     embedding.every((component) => Number.isFinite(component))
   );
-}
-
-export function localNoveltyEmbedding(value: string) {
-  const normalized = value.normalize("NFKC").toLocaleLowerCase("en");
-  const tokens = (normalized.match(/[\p{L}\p{N}]+/gu) ?? [])
-    .filter((token) => !localFixtureStopWords.has(token));
-  if (tokens.length === 0) {
-    throw new Error("A local novelty fixture needs at least one word or number.");
-  }
-  const features = [
-    ...tokens.map((token) => ({ value: `word:${token}`, weight: 1 })),
-    ...tokens.slice(1).map((token, index) => ({
-      value: `pair:${tokens[index]}:${token}`,
-      weight: 0.5,
-    })),
-  ];
-  const components = new Map<number, number>();
-  for (const feature of features) {
-    const hash = fixtureFeatureHash(feature.value);
-    const index = hash % noveltyEmbeddingDimensions;
-    const sign = (hash & 0x8000_0000) === 0 ? 1 : -1;
-    components.set(index, (components.get(index) ?? 0) + feature.weight * sign);
-  }
-  const embedding = Array.from(
-    { length: noveltyEmbeddingDimensions },
-    (_, index) => components.get(index) ?? 0,
-  );
-  const magnitude = Math.sqrt(
-    embedding.reduce((sum, component) => sum + component * component, 0),
-  );
-  if (magnitude === 0) throw new Error("The local novelty fixture produced no vector.");
-  return embedding.map((component) => component / magnitude);
-}
-
-function fixtureFeatureHash(value: string) {
-  let hash = 2_166_136_261;
-  for (const character of value) {
-    hash ^= character.codePointAt(0) ?? 0;
-    hash = Math.imul(hash, 16_777_619);
-  }
-  return hash >>> 0;
 }

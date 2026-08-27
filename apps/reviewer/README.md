@@ -20,7 +20,7 @@ pnpm --filter @code2create/reviewer exec expo run:ios --no-bundler
 pnpm --filter @code2create/reviewer exec expo run:android --no-bundler
 ```
 
-Copy `.env.example` to `.env.local` before the first local build. In local development, **Use local event operator** creates an ordinary Better Auth session for the seeded Supreme account and exercises the normal permission checks. The action is rejected outside the full localhost stack. Staging and production show only Google sign-in.
+Copy `.env.example` to `.env.local` before the first local build. Development uses the same Google sign-in, invitation, scoped-grant, device-registration, and panel-assignment paths as staging and production. It creates no synthetic identity or assignment.
 
 The development client uses Metro, so it does not prove an over-the-air install even when the local Updates Worker is running. Use the signed staging build and staging Updates Worker for the device update rehearsal.
 

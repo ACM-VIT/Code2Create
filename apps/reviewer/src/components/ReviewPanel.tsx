@@ -104,8 +104,6 @@ type BusyAction =
   | 'register'
   | 'clock_in'
   | 'start'
-  | 'demo_seat'
-  | 'demo_review'
   | null
 type CorrectionCategory = 'reviewer_error' | 'technical_error' | 'other'
 
@@ -115,7 +113,7 @@ const returnChoices = [5, 10, 15, 20, 30, 45, 60] as const
 
 export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const eventSlug = runtime.configuration.eventSlug
-  const { localReviewerFixturesEnabled, reviewHeartbeatIssue } = useReviewerSession()
+  const { reviewHeartbeatIssue } = useReviewerSession()
   const platform = reviewerPlatform()
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
   const [notificationState, setNotificationState] = useState<NotificationState>({ status: 'loading' })
@@ -133,8 +131,6 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const registerDevice = useMutation(api.reviewer.registerDevice)
   const clockIn = useMutation(api.reviewer.clockIn)
   const startReview = useMutation(api.reviewOperations.startReview)
-  const seatLocalOperator = useMutation(api.localDemoSeed.seatLocalOperatorOnPanel)
-  const startLocalReview = useMutation(api.localDemoSeed.startLiveReviewForLocalOperator)
   const loadReviewWorkspace = useAction(api.reviewer.reviewWorkspace)
   const [workspaceLoad, setWorkspaceLoad] = useState<WorkspaceLoadState | null>(null)
   const workspaceRequestRef = useRef<ActiveReview['id'] | null>(null)
@@ -283,32 +279,6 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
       active = false
     }
   }, [canClearPresenceOperation, eventSlug, heartbeatStatus])
-
-  const joinLocalDemoPanel = async () => {
-    if (busy) return
-    setBusy('demo_seat')
-    setError(null)
-    try {
-      await seatLocalOperator({ confirmation: 'seat-code2create-local-operator' })
-    } catch (caught) {
-      setError(errorMessage(caught, 'The demo panel could not be prepared.'))
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const startLocalDemoReview = async () => {
-    if (busy) return
-    setBusy('demo_review')
-    setError(null)
-    try {
-      await startLocalReview({ confirmation: 'start-code2create-live-review' })
-    } catch (caught) {
-      setError(errorMessage(caught, 'The demo review could not be started.'))
-    } finally {
-      setBusy(null)
-    }
-  }
 
   const resetReviewerSetup = async () => {
     if (busy) return
@@ -525,13 +495,6 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     return (
       <Panel>
         <Nothing>No current review duty</Nothing>
-        {localReviewerFixturesEnabled ? (
-          <Action
-            disabled={busy !== null}
-            label={busy === 'demo_seat' ? 'Joining…' : 'Join demo panel'}
-            onPress={joinLocalDemoPanel}
-          />
-        ) : null}
         {visibleError ? <Problem>{visibleError}</Problem> : null}
       </Panel>
     )
@@ -659,14 +622,6 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
           clockedIn={clockedIn}
           current={current}
           onPress={clockIntoRound}
-        />
-      ) : null}
-
-      {localReviewerFixturesEnabled && deviceIsCurrent && checksMeetRound && current.panel && !review ? (
-        <Action
-          disabled={busy !== null}
-          label={busy === 'demo_review' ? 'Starting…' : 'Start demo review'}
-          onPress={startLocalDemoReview}
         />
       ) : null}
 
