@@ -16,7 +16,6 @@ import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
 import {
-  areaForPermission,
   grantSourceName,
   type PermissionArea,
   permissionAreas,
@@ -82,8 +81,12 @@ export function AccessPerson() {
   const displayedPermissionKeys = detail.currentPermissionKeys.filter(
     (permissionKey) => !isScopedAuthorityKey(permissionKey),
   )
+  const catalogByKey = new Map(detail.catalog.map((definition) => [definition.key, definition]))
   const accessAreaCount = new Set(
-    displayedPermissionKeys.map((permissionKey) => areaForPermission(permissionKey)),
+    displayedPermissionKeys.flatMap((permissionKey) => {
+      const definition = catalogByKey.get(permissionKey)
+      return definition ? [definition.area] : []
+    }),
   ).size
   const canManageAccount =
     detail.person.status === 'active' && (
@@ -209,14 +212,14 @@ function PermissionMatrix({ detail }: { detail: AccessDetail }) {
 
   const held = rows.filter((row) => row.held).length
   const heldAreaCount = new Set(
-    rows.filter((row) => row.held).map((row) => areaForPermission(row.definition.key)),
+    rows.filter((row) => row.held).map((row) => row.definition.area),
   ).size
   const filter = chosen ?? (held > 0 ? 'held' : 'all')
   const term = search.trim().toLowerCase()
   const visible = rows.filter((row) => {
     if (filter === 'held' && !row.held) return false
     if (filter === 'missing' && row.held) return false
-    if (term && !permissionName(row.definition.key).toLowerCase().includes(term)) return false
+    if (term && !row.definition.label.toLowerCase().includes(term)) return false
     return true
   })
 
@@ -224,7 +227,7 @@ function PermissionMatrix({ detail }: { detail: AccessDetail }) {
     .map((area) => ({
       ...area,
       rows: visible
-        .filter((row) => areaForPermission(row.definition.key) === area.value)
+        .filter((row) => row.definition.area === area.value)
         .sort((left, right) => Number(right.held) - Number(left.held)),
     }))
     .filter((area) => area.rows.length > 0)
@@ -344,7 +347,7 @@ function PermissionMatrixRow({
           {row.held ? <Icon name="shield" size={13} /> : null}
         </span>
         <div className="permission-row-name">
-          <strong>{permissionName(row.definition.key)}</strong>
+          <strong>{row.definition.label}</strong>
           <small>{row.held ? 'Has access' : scopeSummary(row.definition)}</small>
         </div>
         <div className="permission-row-action">
@@ -868,7 +871,7 @@ function ScopedAuthorityControl({ detail }: { detail: AccessDetail }) {
               }}
             >
               {delegable.map((candidate) => (
-                <option key={candidate.key} value={candidate.key}>{permissionName(candidate.key)}</option>
+                <option key={candidate.key} value={candidate.key}>{candidate.label}</option>
               ))}
             </select>
           </label>

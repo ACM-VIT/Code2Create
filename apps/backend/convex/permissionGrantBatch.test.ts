@@ -18,13 +18,11 @@ const savedEnvironment = {
   AUTH_SITE_URL: process.env.AUTH_SITE_URL,
   PARTICIPANT_SITE_URL: process.env.PARTICIPANT_SITE_URL,
   OPERATIONS_SITE_URL: process.env.OPERATIONS_SITE_URL,
-  HANDBOOK_SITE_URL: process.env.HANDBOOK_SITE_URL,
 };
 
 process.env.AUTH_SITE_URL = "http://localhost:3211";
 process.env.PARTICIPANT_SITE_URL = "http://localhost:4173";
 process.env.OPERATIONS_SITE_URL = "http://localhost:4174";
-process.env.HANDBOOK_SITE_URL = "http://localhost:4175";
 
 afterAll(() => {
   for (const [name, value] of Object.entries(savedEnvironment)) {
@@ -46,7 +44,7 @@ describe("direct permission batches", () => {
       targetPersonId: fixture.targetPersonId,
       grants: [
         { permissionKey: "operations.health.read", scopeType: "event" },
-        { permissionKey: "handbook.read", scopeType: "event" },
+        { permissionKey: "event.lifecycle.read", scopeType: "event" },
       ],
       expectedAccessVersion: 1,
       reason: "Cover the event command desk",
@@ -80,7 +78,7 @@ describe("direct permission batches", () => {
     }));
     expect(afterGrant.target?.accessVersion).toBe(2);
     expect(afterGrant.grants.map((grant) => grant.permissionKey).sort()).toEqual([
-      "handbook.read",
+      "event.lifecycle.read",
       "operations.health.read",
     ]);
     expect(afterGrant.grants.every(
@@ -136,7 +134,7 @@ describe("direct permission batches", () => {
       actor.mutation(api.access.grantBatch, {
         eventSlug: fixture.eventSlug,
         targetPersonId: fixture.targetPersonId,
-        grants: [{ permissionKey: "handbook.read", scopeType: "event" }],
+        grants: [{ permissionKey: "event.lifecycle.read", scopeType: "event" }],
         expectedAccessVersion: 1,
         reason: "Second concurrent duty",
         clientOperationId: "concurrent-grant-two",
@@ -191,7 +189,7 @@ describe("direct permission batches", () => {
       ] as const) {
         for (const permissionKey of [
           "operations.health.read",
-          "handbook.read",
+          "event.lifecycle.read",
         ] as const) {
           await insertPermissionGrant(ctx, {
             eventId: fixture.eventId,
@@ -216,7 +214,7 @@ describe("direct permission batches", () => {
 
     const grants = [
       { permissionKey: "operations.health.read", scopeType: "event" },
-      { permissionKey: "handbook.read", scopeType: "event" },
+      { permissionKey: "event.lifecycle.read", scopeType: "event" },
     ] as const;
     await expect(actor.mutation(api.access.grantBatch, {
       eventSlug: fixture.eventSlug,

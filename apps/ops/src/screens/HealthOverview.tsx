@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom'
 import { OperationsAttention } from '../components/OperationsAttention'
 import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
+import { formatClockTime } from '../lib/dateTime'
 
 type Lifecycle = FunctionReturnType<typeof api.eventLifecycle.current>
 
@@ -144,10 +145,6 @@ function healthTime(
   health: FunctionReturnType<typeof api.operationsHealth.overview>,
 ) {
   if (health.state === 'missing') return 'Open monitor'
-  if (health.state === 'stale') return `Last complete ${formatTime(health.lastGeneratedAt)}`
-  return `Updated ${formatTime(health.snapshot.generatedAt)}`
-}
-
-function formatTime(value: number) {
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  if (health.state === 'stale') return `Last complete ${formatClockTime(health.lastGeneratedAt)}`
+  return `Updated ${formatClockTime(health.snapshot.generatedAt)}`
 }

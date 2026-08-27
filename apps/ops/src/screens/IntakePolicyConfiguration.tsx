@@ -8,8 +8,10 @@ import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditor
 import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
-import { readableError } from '../lib/errors'
-import { useOperationRunner } from '../lib/operations'
+import {
+  type ConfigurationOperationDescriptor,
+  useConfigurationOperations,
+} from '../lib/configurationOperations'
 
 type Configuration = FunctionReturnType<typeof api.intakePolicyConfiguration.current>
 type Policy = Configuration['publishedPolicy']['policy']
@@ -30,6 +32,19 @@ const purposeOptions = [
 ] satisfies readonly Purpose[]
 
 const answerLengthOptions = ['short', 'medium'] satisfies readonly AnswerLength[]
+
+const operationDescriptors = [
+  {
+    slot: 'intake-policy-publish',
+    title: 'Finish publishing the idea questions',
+    action: 'Confirm earlier publication',
+  },
+  {
+    slot: 'intake-policy-draft',
+    title: 'Finish saving the draft idea questions',
+    action: 'Confirm earlier save',
+  },
+] satisfies readonly ConfigurationOperationDescriptor[]
 
 const assistedModelTemplate: AssistedModel = {
   mode: 'assisted',
@@ -53,7 +68,7 @@ export function IntakePolicyConfiguration({
   const configuration = useQuery(api.intakePolicyConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.intakePolicyConfiguration.createDraft)
   const publish = useMutation(api.intakePolicyConfiguration.publish)
-  const operations = useOperationRunner<IntakePolicyOperationResult>()
+  const operations = useConfigurationOperations<IntakePolicyOperationResult>(operationDescriptors)
   const validation = useQuery(
     api.intakePolicyConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPolicy
@@ -65,24 +80,9 @@ export function IntakePolicyConfiguration({
   const [draftReason, setDraftReason] = useState('Refined the participant introduction')
   const [publishReason, setPublishReason] = useState('Validated for new participant intakes')
   const [publishArmed, setPublishArmed] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('intake-policy-draft')
   const publishPending = operations.hasPending('intake-policy-publish')
-  const pendingOperation = publishPending
-    ? {
-        slot: 'intake-policy-publish',
-        title: 'Finish publishing the idea questions',
-        action: 'Confirm earlier publication',
-      }
-    : draftPending
-      ? {
-          slot: 'intake-policy-draft',
-          title: 'Finish saving the draft idea questions',
-          action: 'Confirm earlier save',
-        }
-      : null
-  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!configuration) return
@@ -140,63 +140,35 @@ export function IntakePolicyConfiguration({
     })
   }
 
-  const saveDraft = async (event: FormEvent) => {
+  const saveDraft = (event: FormEvent) => {
     event.preventDefault()
-    if (busy || operationPending) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('intake-policy-draft', (clientOperationId) => () => createDraft({
-        eventSlug,
-        policy: withGeneratedPatternKeys(policy),
-        expectedEventVersion: configuration.eventVersion,
-        ...(configuration.draftPolicy
-          ? { expectedDraftPolicyId: configuration.draftPolicy.id }
-          : {}),
-        reason: draftReason,
-        clientOperationId,
-      }))
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    void operations.run('intake-policy-draft', (clientOperationId) => () => createDraft({
+      eventSlug,
+      policy: withGeneratedPatternKeys(policy),
+      expectedEventVersion: configuration.eventVersion,
+      ...(configuration.draftPolicy
+        ? { expectedDraftPolicyId: configuration.draftPolicy.id }
+        : {}),
+      reason: draftReason,
+      clientOperationId,
+    }))
   }
 
-  const publishDraft = async () => {
+  const publishDraft = () => {
     const draft = configuration.draftPolicy
-    if (busy || operationPending || !draft || !validation?.valid) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('intake-policy-publish', (clientOperationId) => () => publish({
-        eventSlug,
-        draftPolicyId: draft.id,
-        expectedDraftChecksum: draft.checksum,
-        expectedEventVersion: configuration.eventVersion,
-        reason: publishReason,
-        clientOperationId,
-      }))
-      setPublishArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    if (!draft || !validation?.valid) return
+    void operations.run('intake-policy-publish', (clientOperationId) => () => publish({
+      eventSlug,
+      draftPolicyId: draft.id,
+      expectedDraftChecksum: draft.checksum,
+      expectedEventVersion: configuration.eventVersion,
+      reason: publishReason,
+      clientOperationId,
+    }), () => setPublishArmed(false))
   }
 
-  const confirmPendingOperation = async () => {
-    if (busy || pendingOperation === null) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.retryPending(pendingOperation.slot)
-      setPublishArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+  const confirmPendingOperation = () => {
+    void operations.retryPending(() => setPublishArmed(false))
   }
 
   return (

@@ -45,14 +45,12 @@ const savedEnvironment = {
   AUTH_SITE_URL: process.env.AUTH_SITE_URL,
   PARTICIPANT_SITE_URL: process.env.PARTICIPANT_SITE_URL,
   OPERATIONS_SITE_URL: process.env.OPERATIONS_SITE_URL,
-  HANDBOOK_SITE_URL: process.env.HANDBOOK_SITE_URL,
 };
 
 process.env.INTELLIGENCE_READ_SECRET = readSecret;
 process.env.AUTH_SITE_URL = "http://localhost:3211";
 process.env.PARTICIPANT_SITE_URL = "http://localhost:4173";
 process.env.OPERATIONS_SITE_URL = "http://localhost:4174";
-process.env.HANDBOOK_SITE_URL = "http://localhost:4175";
 
 afterAll(() => {
   for (const [name, value] of Object.entries(savedEnvironment)) {

@@ -13,6 +13,7 @@ import { useRef, useState, type FormEvent } from 'react'
 
 import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
+import { formatMediumDateTime as formatTime } from '../lib/dateTime'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
 import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
@@ -937,8 +938,4 @@ function scenarioActionName(state: RehearsalScenarioState) {
   if (state === 'failed') return 'failure'
   if (state === 'blocked') return 'block'
   return 'update'
-}
-
-function formatTime(value: number) {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(value)
 }

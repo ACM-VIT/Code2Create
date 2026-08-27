@@ -9,8 +9,14 @@ import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditor
 import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
-import { readableError } from '../lib/errors'
-import { useOperationRunner } from '../lib/operations'
+import {
+  formatZonedDateTimeWindow as formatWindow,
+  formatZonedTime as formatTime,
+} from '../lib/dateTime'
+import {
+  type ConfigurationOperationDescriptor,
+  useConfigurationOperations,
+} from '../lib/configurationOperations'
 
 type Configuration = FunctionReturnType<typeof api.phaseConfiguration.current>
 type Schedule = NonNullable<Configuration['publishedSchedule']>
@@ -60,6 +66,19 @@ const phaseDefaults = [
   description: string
 }[]
 
+const operationDescriptors = [
+  {
+    slot: 'phase-schedule-publish',
+    title: 'Finish publishing the event schedule',
+    action: 'Confirm earlier publication',
+  },
+  {
+    slot: 'phase-schedule-draft',
+    title: 'Finish saving the event schedule draft',
+    action: 'Confirm earlier save',
+  },
+] satisfies readonly ConfigurationOperationDescriptor[]
+
 export function PhaseConfiguration({
   tabs,
 }: {
@@ -68,7 +87,7 @@ export function PhaseConfiguration({
   const configuration = useQuery(api.phaseConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.phaseConfiguration.createDraft)
   const publish = useMutation(api.phaseConfiguration.publish)
-  const operations = useOperationRunner<PhaseOperationResult>()
+  const operations = useConfigurationOperations<PhaseOperationResult>(operationDescriptors)
   const validation = useQuery(
     api.phaseConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftSchedule
@@ -80,24 +99,9 @@ export function PhaseConfiguration({
   const [draftReason, setDraftReason] = useState('Aligned with the event run sheet')
   const [publishReason, setPublishReason] = useState('Checked and approved for participant display')
   const [publishArmed, setPublishArmed] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('phase-schedule-draft')
   const publishPending = operations.hasPending('phase-schedule-publish')
-  const pendingOperation = publishPending
-    ? {
-        slot: 'phase-schedule-publish',
-        title: 'Finish publishing the event schedule',
-        action: 'Confirm earlier publication',
-      }
-    : draftPending
-      ? {
-          slot: 'phase-schedule-draft',
-          title: 'Finish saving the event schedule draft',
-          action: 'Confirm earlier save',
-        }
-      : null
-  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!configuration) return
@@ -132,77 +136,49 @@ export function PhaseConfiguration({
     )))
   }
 
-  const saveDraft = async (event: FormEvent) => {
+  const saveDraft = (event: FormEvent) => {
     event.preventDefault()
-    if (busy || operationPending) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('phase-schedule-draft', (clientOperationId) => () => createDraft({
-        eventSlug,
-        phases: phases.map((phase) => ({
-          phaseKey: phase.phaseKey,
-          displayName: phase.displayName,
-          description: phase.description,
-          startsAt: zonedTimestamp(
-            phase.startsAt,
-            configuration.timezone,
-            `${phase.displayName} start`,
-          ),
-          endsAt: zonedTimestamp(
-            phase.endsAt,
-            configuration.timezone,
-            `${phase.displayName} end`,
-          ),
-        })),
-        expectedEventVersion: configuration.eventVersion,
-        ...(configuration.draftSchedule
-          ? { expectedDraftScheduleId: configuration.draftSchedule.id }
-          : {}),
-        reason: draftReason,
-        clientOperationId,
-      }))
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    void operations.run('phase-schedule-draft', (clientOperationId) => () => createDraft({
+      eventSlug,
+      phases: phases.map((phase) => ({
+        phaseKey: phase.phaseKey,
+        displayName: phase.displayName,
+        description: phase.description,
+        startsAt: zonedTimestamp(
+          phase.startsAt,
+          configuration.timezone,
+          `${phase.displayName} start`,
+        ),
+        endsAt: zonedTimestamp(
+          phase.endsAt,
+          configuration.timezone,
+          `${phase.displayName} end`,
+        ),
+      })),
+      expectedEventVersion: configuration.eventVersion,
+      ...(configuration.draftSchedule
+        ? { expectedDraftScheduleId: configuration.draftSchedule.id }
+        : {}),
+      reason: draftReason,
+      clientOperationId,
+    }))
   }
 
-  const publishDraft = async () => {
+  const publishDraft = () => {
     const draft = configuration.draftSchedule
-    if (busy || operationPending || !draft || !validation?.valid) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('phase-schedule-publish', (clientOperationId) => () => publish({
-        eventSlug,
-        draftScheduleId: draft.id,
-        expectedDraftChecksum: draft.checksum,
-        expectedEventVersion: configuration.eventVersion,
-        reason: publishReason,
-        clientOperationId,
-      }))
-      setPublishArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    if (!draft || !validation?.valid) return
+    void operations.run('phase-schedule-publish', (clientOperationId) => () => publish({
+      eventSlug,
+      draftScheduleId: draft.id,
+      expectedDraftChecksum: draft.checksum,
+      expectedEventVersion: configuration.eventVersion,
+      reason: publishReason,
+      clientOperationId,
+    }), () => setPublishArmed(false))
   }
 
-  const confirmPendingOperation = async () => {
-    if (busy || pendingOperation === null) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.retryPending(pendingOperation.slot)
-      setPublishArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+  const confirmPendingOperation = () => {
+    void operations.retryPending(() => setPublishArmed(false))
   }
 
   return (
@@ -414,22 +390,6 @@ function zonedTimestamp(value: string, timezone: string, label: string) {
     throw new Error(`${label} is not a valid local time in ${timezone}.`)
   }
   return date.getTime()
-}
-
-function formatWindow(startsAt: number, endsAt: number, timezone: string) {
-  const format = new Intl.DateTimeFormat(undefined, {
-    timeZone: timezone,
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  })
-  return `${format.format(startsAt)} – ${format.format(endsAt)}`
-}
-
-function formatTime(timestamp: number, timezone: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    timeZone: timezone,
-    timeStyle: 'short',
-  }).format(timestamp)
 }
 
 function pad(value: number) {

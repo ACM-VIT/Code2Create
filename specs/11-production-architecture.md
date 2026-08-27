@@ -6,7 +6,7 @@
 | --- | --- |
 | Language | TypeScript |
 | Workspace | pnpm workspaces |
-| Participant, operations, and handbook web | Separate Vite, React, and React Router SPAs |
+| Participant and operations web | Separate Vite, React, and React Router SPAs |
 | Reviewer/event-operations mobile | Expo, React Native, Expo Router |
 | Authentication | Better Auth, Google provider only |
 | Better Auth database/host | Convex component via `@convex-dev/better-auth` |
@@ -25,7 +25,7 @@
 | Mobile protected storage | `expo-secure-store`; SQLCipher-backed `expo-sqlite` for one active draft |
 | Web hosting | Cloudflare Workers static assets through `@cloudflare/vite-plugin` |
 | Mobile build/release | Local Expo prebuild plus signed Gradle/Xcode artifacts; event-owned Expo Updates Worker and private R2 buckets |
-| Crash reporting | Sentry for web and mobile |
+| Product analytics and crash reporting | PostHog for privacy-filtered web/mobile page and screen events, exception capture, and release symbolication |
 | Large artifacts and recovery copy | Private AWS S3 bucket in `ap-south-1`, versioned and encrypted with KMS, for evidence, protected exports, expiring emergency packs, and recovery copies, subject to VIT data-policy approval |
 | Verification and Worker delivery | GitHub Actions for checks; Cloudflare Workers Builds for branch-bound Worker deployment |
 | Tests | Vitest, Convex function tests, Playwright, Maestro, and a Convex load driver |
@@ -36,7 +36,7 @@ The repository locks all dependency versions. The team upgrades them only after 
 
 The event needs two client platforms and one shared live state.
 
-- Separate Vite SPAs keep participant, operations, and handbook delivery separate. All authoritative product reads and writes remain in Convex.
+- Separate Vite SPAs keep participant and operations delivery separate. All authoritative product reads and writes remain in Convex.
 - Expo provides the native reviewer features requested in the planning discussion.
 - Better Auth runs on Convex, so authentication does not add a hosted auth vendor or second auth database.
 - Convex supplies transactions and reactive queries. A custom REST database and WebSocket service would repeat these functions.
@@ -64,7 +64,6 @@ Cloudflare-hosted Vite SPAs <----> Convex <--> bounded external Workpools
     |                              |
     +---- participant              +---- Expo event app
           operations                    camera / SecureStore / bounded local recovery
-          protected handbook                ^
                                             |
 Cloudflare update Worker <--> private R2 ---+
 
@@ -91,7 +90,6 @@ The participant portal, operations dashboard, and reviewer app do not copy live 
 apps/
   web/                    Vite participant portal
   ops/                    Vite permission-gated operations dashboard
-  handbook/               Vite permission-gated Markdown application
   reviewer/               Expo reviewer application
   updates/                Expo Updates protocol Worker and local signed publisher
   intelligence/           Flue/Vite Cloudflare Worker for bounded durable intelligence jobs
@@ -101,11 +99,9 @@ apps/
     convex/               auth, schema, functions, HTTP routes, schedules, workpools, and generated API types
     scripts/recovery/     typed backup export and staging-only restore rehearsal commands
 packages/
-  client-observability/   shared browser/mobile Sentry setup and release tags
+  client-observability/   shared browser PostHog setup, privacy filter, and release tags
   domain/                 pure rubric, routing, queue, and state-transition rules
-  web-auth/               shared typed Better Auth and Convex React bridge for the three browser apps
-scripts/
-  generate-handbook.mjs   build the server-only Markdown module from README and specs
+  web-auth/               shared typed Better Auth and Convex React bridge for the browser apps
 specs/                    authoritative handbook source documents
 ```
 
@@ -129,8 +125,8 @@ Configuration:
 - Email/password is disabled.
 - Auth routes are registered in `convex/http.ts`.
 - The browser clients call the CORS-enabled Convex auth routes directly through the shared cross-domain adapter; Cloudflare serves no auth or application API route.
-- `PARTICIPANT_SITE_URL`, `OPERATIONS_SITE_URL`, and `HANDBOOK_SITE_URL` are separate exact origins. Production uses HTTPS origins only; local development uses the fixed ports 5180, 5181, and 5182.
-- The participant origin is the cross-domain adapter's default return destination. Operations and handbook always send an absolute callback URL on their own trusted origin.
+- `PARTICIPANT_SITE_URL` and `OPERATIONS_SITE_URL` are separate exact origins. Production uses HTTPS origins only; local development uses the fixed ports 5180 and 5181.
+- The participant origin is the cross-domain adapter's default return destination. Operations always sends an absolute callback URL on its own trusted origin.
 - After OAuth, the adapter redirects to the requesting browser origin with a three-minute single-use token. A fresh URL token always supersedes an older interrupted transfer in that tab. The origin verifies it once, immediately removes the consumed token from the address bar, and retains only the resulting session-transfer token if browser-session establishment is interrupted. Success clears that retained token. A stale account transfer can therefore neither override a newer sign-in nor be mistaken for a reusable one-time token.
 - The Expo client calls the same auth base URL and returns through environment-specific deep links.
 - Production trusts only the production web origin and app scheme. Development wildcard schemes never enter production configuration.
@@ -210,8 +206,6 @@ Each Vite shell starts with only public event and authentication configuration. 
 
 `README.md` and `specs/*.md` are the sole handbook source of truth. The canonical minimal reader is [code2create-specs.theg1239.chatgpt.site](https://code2create-specs.theg1239.chatgpt.site). It uses a simple password for planning access.
 
-The optional protected integration has a separate read path. Before an integration test or deployment, `scripts/generate-handbook.mjs` converts the authoritative Markdown into a server-only Convex module. The public Vite bundle contains only the reader shell. Document-list, document-body, and search queries require the caller's exact event-scoped `handbook.read` grant. Search runs on the server and returns bounded snippets. This integration is not a second source of truth or a required production surface.
-
 Do not expose generic “read any table” functions.
 
 Admissions uses two records for different purposes. `admissionReviewAssignments` routes pending and completed work. `admissionHumanReviews` stores append-only recommendation versions.
@@ -236,7 +230,7 @@ Convex mutations handle state changes. A protected mutation:
 8. schedules external work after the transaction when required;
 9. returns the accepted ID, version, and server time.
 
-Do not perform GitHub, Figma, Expo, Sentry, or S3 network calls inside the database transaction.
+Do not perform GitHub, Figma, Expo, PostHog, or S3 network calls inside the database transaction.
 
 Low-risk draft saves can use a compact operation ID and expected version. A score submission, page acceptance, review start, move, correction, or round change must resolve an ambiguous response before the client sends a new command.
 
@@ -528,7 +522,7 @@ Full Figma JSON, captured previews, protected attendance/round exports, and emer
 
 ### Web
 
-Cloudflare deploys `apps/web`, `apps/ops`, and `apps/handbook` as separate Workers static-asset applications. All three use the official Vite plugin and `single-page-application` not-found handling. Wrangler environments use staging names for rehearsal and unsuffixed names for production. The handbook renders the repository Markdown and does not become a separate source of truth.
+Cloudflare deploys `apps/web` and `apps/ops` as separate Workers static-asset applications. Both use the official Vite plugin and `single-page-application` not-found handling. Wrangler environments use staging names for rehearsal and unsuffixed names for production.
 
 `apps/intelligence` is another Vite-built Worker, not a static user surface. Its HTTP shell delegates signed autonomy admission, continuation, and abort to `src/routes/autonomyRoutes.ts`; separate `src/lib/autonomy*.ts` modules own fencing, transport, exhaustive traversal, orchestration, investigation, reduction, evidence, finalization, and artifact persistence. Wrangler creates the Flue Durable Object namespaces, the run-keyed autonomy admission-fence namespace, and the Workers AI binding under `code2create-intelligence-staging` or `code2create-intelligence`. The staging Worker points only to staging Convex endpoints and uses staging-only HMAC secrets. It exposes `/health`; signed service ingress for briefs, copilot turns, autonomy admission, continuation, and abort; and capability-protected sanitized history/long-poll routes. It never exposes the raw Flue agent router, a browser mutation or attachment route, prompts, reasoning, metadata, or tool arguments/results.
 
@@ -561,13 +555,13 @@ Before a binary for a new runtime reaches a phone, release operations publishes 
 | Store | Secrets |
 | --- | --- |
 | Convex environment | Better Auth secret, Google secret, OpenAI API key, GitHub App private key and webhook secret, Figma client secret, token-encryption key, attendance-key wrapping key, Firebase service account, APNs private key and identifiers, Cloudflare Email settings and event HMAC, voice Worker URL and callback HMAC, S3 restricted credential, intelligence Worker URL, and separate intelligence HMAC secrets |
-| Cloudflare build environment | Public Convex query/auth URLs, event slug, Sentry DSN; no provider private key or handbook Markdown |
+| Cloudflare build environment | Public Convex query/auth URLs, event slug, PostHog project token/ingest host, and build-only source-map upload credentials; no provider private key or handbook Markdown |
 | Update Worker environment | Environment-specific admin token; the private R2 bucket is a binding and the update signing key is absent |
 | Intelligence Worker environment | Workers AI binding, autonomy admission-fence namespace, exact Ops origin, exact Convex brief/autonomy callback, read, work-authorization, recommendation, and recommendation-evidence URLs, plus four HMAC secrets for ingress, callback/recommendation delivery, read/work authorization, and browser stream capabilities; no Convex service credential or event provider secret |
 | Email Worker environment | Exact Convex email-event callback URL, sending domain, verified Email Routing forward destination, and email-event HMAC secret; no Convex service credential or Cloudflare Email Sending API token |
 | Voice Worker environment | Public Worker origin, approved Twilio credential and sending number, Sarvam synthesis key, request HMAC, and callback HMAC; no Convex service credential, broad event credential, purpose decision, or proposal data |
-| Controlled mobile release machine | Update private key and publisher token, Android keystore/passwords, Firebase `google-services.json`, Apple signing/provisioning keychain, public backend/auth/update URLs, app identifiers, Sentry upload token |
-| Cloudflare Workers Builds | Worker-specific GitHub connection and deploy token; browser build values and Sentry upload token only where required; no Convex deploy, provider, mobile, or update-signing key |
+| Controlled mobile release machine | Update private key and publisher token, Android keystore/passwords, Firebase `google-services.json`, Apple signing/provisioning keychain, public backend/auth/update URLs, app identifiers, and PostHog symbol-upload credentials |
+| Cloudflare Workers Builds | Worker-specific GitHub connection and deploy token; browser build values and PostHog source-map upload credentials only where required; no Convex deploy, provider, mobile, or update-signing key |
 | GitHub Actions | Controlled browser/provider verification credentials only; no Cloudflare deploy, mobile, or update-signing key |
 
 Figma OAuth grants are encrypted once per Figma App/user and referenced by team-owned file bindings. Figma webhook passcodes are random and stored encrypted or as verification hashes. GitHub installation tokens are minted when needed and not persisted after expiry.
@@ -600,7 +594,7 @@ Figma OAuth grants are encrypted once per Figma App/user and referenced by team-
 
 ## 18. Observability
 
-- Sentry receives web/mobile exceptions, release ID, environment, route/screen, and non-sensitive event identifiers.
+- PostHog receives privacy-filtered web/mobile page or screen events, exceptions, release ID, environment, and non-sensitive event identifiers. Session replay, click autocapture, console capture, and performance capture are disabled.
 - Convex logs function errors, external-job attempts, and scheduled-work failures.
 - Intake diagnostics show model latency, timeout/refusal/schema-failure/question-policy-rejection/fallback rates, token usage, skips by purpose or fallback key, and config version without logging answer or generated-question text.
 - Novelty diagnostics show request state, latency, failure category, pinned corpus version, and bounded aggregate volume. They do not log idea text, fingerprints, vectors, similarities, or participant scores.
@@ -610,19 +604,17 @@ Figma OAuth grants are encrypted once per Figma App/user and referenced by team-
 - Synesthesia diagnostics show active-window state, request/moderation counts, open reports, playback pause, stale-write failures, and acknowledgment age without logging participant notes or report text.
 - Event-scoped `operations.health.read` returns only bounded counts, oldest observation, owner, and next action across current intake/admission work, participant delivery, attendance, review, export, integration, incident, and Synesthesia state. Underlying text, identities, provider codes, resource names, object keys, and judging values stay behind their separate reads.
 - Operations-intelligence diagnostics report request/dispatch/callback state, age, terminal category, source projection time, agent version, and model ID. Logs and Cloudflare traces exclude the frozen snapshot, prompt, model output, callback body, signatures, and secrets.
-- Support diagnostics use case state, age, and bounded counts only. Descriptions, contact routes, public replies, and internal notes stay inside exact support reads and never enter aggregate health or Sentry.
+- Support diagnostics use case state, age, and bounded counts only. Descriptions, contact routes, public replies, and internal notes stay inside exact support reads and never enter aggregate health or PostHog.
 - One 30-second server cron targets at most two event rows and enforces the deployment's single-event invariant. Its internal action runs the bounded aggregate internal query once, then an indexed mutation upserts exactly one `operationsHealthSnapshots` row for the event. Each generation schedules a generation-checked stale marker, so subscribers receive a server-owned stale transition if refresh work stops. Browser and mobile clients subscribe only to that row and do not run timers or pass non-semantic refresh arguments. Missing and stale materializations are explicit states; no client, intelligence read, or brief path falls back to the broad live query.
 - A provisioned scanner sends an authenticated heartbeat every 45 seconds only while its camera-ready scanner surface is foregrounded. The server rechecks the exact station grant, configuration version, device assignment, and hashed installation secret, and writes at most once per 30 seconds. During a live event, an expected active station becomes stale after two minutes; registration time or an old scan alone is not treated as current liveness.
 - GitHub Actions records verification results. Cloudflare Workers Builds records the build and deployment tied to each staging or production Worker and Git commit.
 
-Business history stays in domain records and audit events. Sentry is not the judging ledger.
+Business history stays in domain records and audit events. PostHog is not the judging ledger.
 
 ## 19. Architecture acceptance
 
 - Google sign-in works on the participant and operations Vite origins and a signed Expo build through the same Better Auth instance.
-- Google sign-in works on the handbook Vite origin through the same Better Auth instance.
 - The canonical handbook mirror renders the repository Markdown and does not become a separate source of truth.
-- The handbook's public Cloudflare bundle contains no protected Markdown. A signed-in account without `handbook.read` cannot list, search, or fetch a protected document.
 - No Clerk package, environment, issuer, or user ID appears in the product repository.
 - An auth session alone cannot read event data without an active application grant.
 - A role label alone cannot read event data; a person of any role can use a manually granted permission only inside its exact scope and validity.

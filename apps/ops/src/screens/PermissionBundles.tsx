@@ -11,10 +11,8 @@ import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
 import {
-  areaForPermission,
   availablePermissionAreas,
   bindingName,
-  permissionName,
   readPermissionArea,
   scopeName,
   type PermissionArea,
@@ -454,9 +452,9 @@ function BundleEntryRow({
   onRemove: () => void
 }) {
   const definition = catalog.find((candidate) => candidate.key === entry.permissionKey)
-  const permissionArea = areaForPermission(entry.permissionKey)
+  const permissionArea = definition?.area ?? 'operations'
   const visibleDefinitions = catalog.filter(
-    (candidate) => areaForPermission(candidate.key) === permissionArea,
+    (candidate) => candidate.area === permissionArea,
   )
   const scopes = definition ? scopesFor(definition) : []
   const selectPermission = (value: string) => {
@@ -470,7 +468,7 @@ function BundleEntryRow({
   }
   const selectArea = (value: string) => {
     const area = readPermissionArea(value)
-    const next = defaultEntry(catalog.find((candidate) => areaForPermission(candidate.key) === area))
+    const next = defaultEntry(catalog.find((candidate) => candidate.area === area))
     if (next) onChange(next)
   }
   const selectSource = (value: string) => {
@@ -501,7 +499,7 @@ function BundleEntryRow({
         <span>What they can do</span>
         <select disabled={!canEdit} value={entry.permissionKey} onChange={(event) => selectPermission(event.target.value)}>
           {visibleDefinitions.map((candidate) => (
-            <option key={candidate.key} value={candidate.key}>{permissionName(candidate.key)}</option>
+            <option key={candidate.key} value={candidate.key}>{candidate.label}</option>
           ))}
         </select>
       </label>
@@ -585,7 +583,7 @@ function firstEntries(catalog: CatalogEntry[]) {
 }
 
 function firstCatalogEntry(catalog: CatalogEntry[]) {
-  return catalog.find((entry) => areaForPermission(entry.key) === 'applications') ?? catalog[0]
+  return catalog.find((entry) => entry.area === 'applications') ?? catalog[0]
 }
 
 function defaultEntry(definition: CatalogEntry | undefined): DraftEntry | null {

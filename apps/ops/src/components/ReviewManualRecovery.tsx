@@ -4,6 +4,7 @@ import { useAction, useMutation, useQuery } from 'convex/react'
 import { useEffect, useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
+import { formatMonthDayTime as formatTime } from '../lib/dateTime'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
 import { compressPaperImage } from '../lib/paperImage'
@@ -826,13 +827,4 @@ function incidentState(incident: Incident) {
 
 function recordStatus(status: ManualRecord['status']) {
   return manualRecordStatusLabels[status]
-}
-
-function formatTime(value: number) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(value)
 }

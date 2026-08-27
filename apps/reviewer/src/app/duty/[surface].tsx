@@ -7,8 +7,9 @@ import { PulsePanel } from '@/components/PulsePanel'
 import { ReviewPanel } from '@/components/ReviewPanel'
 import { ScannerPanel } from '@/components/ScannerPanel'
 import { SupportPanel } from '@/components/SupportPanel'
-import { useReviewerSession, type Surface } from '@/components/ReviewerSession'
+import { useReviewerSession } from '@/components/ReviewerSession'
 import { dutyMeta } from '@/lib/duties'
+import type { Surface } from '@/lib/reviewer-surfaces'
 
 export default function DutyRoute() {
   const { surface } = useLocalSearchParams<{ surface: string }>()

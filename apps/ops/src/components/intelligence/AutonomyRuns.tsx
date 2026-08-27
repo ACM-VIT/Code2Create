@@ -10,6 +10,7 @@ import {
   type AutonomyQueuedWork,
   type AutonomyRun,
 } from '../../lib/operationsAutonomyPresentation'
+import { formatCompactDateTime } from '../../lib/dateTime'
 
 export function AutonomyQueuedWorkList({ items }: { items: AutonomyQueuedWork[] }) {
   if (items.length === 0) return null
@@ -21,8 +22,8 @@ export function AutonomyQueuedWorkList({ items }: { items: AutonomyQueuedWork[] 
           <div className="row-text">
             <strong>{triggerLabel(item.trigger)} queued</strong>
             <small>
-              Requested {formatDateTime(item.createdAt)} · event state{' '}
-              {formatDateTime(item.sourceGeneratedAt)}
+              Requested {formatCompactDateTime(item.createdAt)} · event state{' '}
+              {formatCompactDateTime(item.sourceGeneratedAt)}
             </small>
             <small className="instance-id">{item.id}</small>
           </div>
@@ -93,11 +94,11 @@ export function AutonomyRunInspection({ run }: { run: AutonomyRun }) {
           </div>
           <div>
             <dt>Source generated</dt>
-            <dd>{formatDateTime(run.sourceGeneratedAt)}</dd>
+            <dd>{formatCompactDateTime(run.sourceGeneratedAt)}</dd>
           </div>
           <div>
             <dt>Accepted</dt>
-            <dd>{run.acceptedAt === undefined ? 'Not accepted' : formatDateTime(run.acceptedAt)}</dd>
+            <dd>{run.acceptedAt === undefined ? 'Not accepted' : formatCompactDateTime(run.acceptedAt)}</dd>
           </div>
           <div>
             <dt>Executor</dt>
@@ -152,7 +153,7 @@ function RunMetric({ label, value }: { label: string; value: number | string }) 
 
 function runMeta(run: AutonomyRun) {
   const parts = [
-    `${triggerLabel(run.trigger)} · ${formatDateTime(run.createdAt)}`,
+    `${triggerLabel(run.trigger)} · ${formatCompactDateTime(run.createdAt)}`,
     `${run.telemetry.toolCalls} ${run.telemetry.toolCalls === 1 ? 'tool call' : 'tool calls'}`,
     `${run.telemetry.delegations} ${run.telemetry.delegations === 1 ? 'investigation' : 'investigations'}`,
     `${formatBytes(run.telemetry.readBytes)} read`,
@@ -183,13 +184,4 @@ function triggerLabel(trigger: AutonomyRun['trigger']) {
 function formatBytes(bytes: number) {
   if (bytes < 1_024) return `${bytes} B`
   return `${(bytes / 1_024).toFixed(bytes < 10_240 ? 1 : 0)} KiB`
-}
-
-function formatDateTime(value: number) {
-  return new Date(value).toLocaleString([], {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }

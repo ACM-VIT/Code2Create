@@ -1,3 +1,4 @@
+import { areaForPermission, permissionName } from "@code2create/domain";
 import {
   paginationOptsValidator,
   paginationResultValidator,
@@ -646,17 +647,6 @@ export const operationsCapabilities = query({
   },
 });
 
-export const handbookCapabilities = query({
-  args: { eventSlug: v.string() },
-  returns: v.union(v.null(), v.object({ read: v.boolean() })),
-  handler: async (ctx, args) => {
-    const subject = await currentCapabilitySubject(ctx, args.eventSlug);
-    if (!subject) return null;
-    const { event } = capabilityReader(ctx, subject);
-    return { read: await event("handbook.read") };
-  },
-});
-
 const directoryItem = v.object({
   personId: v.id("people"),
   displayName: v.string(),
@@ -1194,6 +1184,8 @@ export const detail = query({
       catalog: v.array(
         v.object({
           key: v.string(),
+          label: v.string(),
+          area: v.string(),
           eventWide: v.boolean(),
           scopes: v.array(scopeType),
         }),
@@ -1373,6 +1365,8 @@ export const detail = query({
       revokeDelegations,
       catalog: Object.entries(permissionCatalog).map(([key, definition]) => ({
         key,
+        label: permissionName(key),
+        area: areaForPermission(key),
         eventWide: definition.eventWide,
         scopes: [...definition.scopes],
       })),

@@ -6,6 +6,7 @@ import { useState } from 'react'
 
 import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
+import { formatCompactDateTime } from '../lib/dateTime'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
 import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
@@ -162,7 +163,7 @@ export function EmergencyPack({
                     <span className={`state-label ${status}`}>{emergencyPackStatusLabels[status]}</span>
                     <strong>{pack.purpose}</strong>
                     <small>
-                      Requested by {pack.requestedByName} · {formatDateTime(pack.requestedAt)}
+                      Requested by {pack.requestedByName} · {formatCompactDateTime(pack.requestedAt)}
                     </small>
                   </div>
                   {pack.counts ? (
@@ -181,12 +182,12 @@ export function EmergencyPack({
                   <span>
                     {pack.snapshotAt === undefined
                       ? 'The snapshot has not been taken yet'
-                      : `Snapshot taken ${formatDateTime(pack.snapshotAt)}`}
+                      : `Snapshot taken ${formatCompactDateTime(pack.snapshotAt)}`}
                   </span>
                   <span>
                     {status === 'expired'
-                      ? `Expired ${formatDateTime(pack.expiresAt)}`
-                      : `Usable until ${formatDateTime(pack.expiresAt)}`}
+                      ? `Expired ${formatCompactDateTime(pack.expiresAt)}`
+                      : `Usable until ${formatCompactDateTime(pack.expiresAt)}`}
                   </span>
                   {pack.byteCount !== undefined ? <span>{formatBytes(pack.byteCount)}</span> : null}
                 </div>
@@ -341,7 +342,7 @@ function PackLead({
           {usable.length === 1
             ? 'One paper backup is printable right now.'
             : `${usable.length} paper backups are printable right now.`}
-          {` The newest stops being usable at ${formatDateTime(first.expiresAt)}.`}
+          {` The newest stops being usable at ${formatCompactDateTime(first.expiresAt)}.`}
         </p>
         <p className="muted">Print it before then, or the room falls back to nothing.</p>
       </>
@@ -376,14 +377,6 @@ function currentStatus(pack: EmergencyPack, now: number): EmergencyPackStatus {
   return pack.expiresAt <= now ? 'expired' : pack.status
 }
 
-function formatDateTime(value: number) {
-  return new Date(value).toLocaleString([], {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
 
 function formatBytes(value: number) {
   if (value < 1_000) return `${value} B`

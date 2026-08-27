@@ -101,7 +101,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           freshProjectAttestation:
             "We will begin project-specific implementation and design after Code2Create's official start.",
           finalSubmissionWarning:
-            'Submitting locks this exact team. You can revise the project answers until the application deadline.',
+            'Submitting locks this exact team. You can edit the proposal until the application deadline.',
         },
         admissionPolicyVersion: 'admission-v1',
         admissionParticipantCapacity: Number(participantCapacity),

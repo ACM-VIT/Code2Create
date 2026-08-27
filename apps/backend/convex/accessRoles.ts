@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 
+import type { Id } from "./_generated/dataModel";
 import { mutation } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
@@ -15,7 +16,8 @@ import {
   recordOperation,
   storedOperationVersion,
 } from "./lib/operations";
-import { requirePermission } from "./lib/permissions";
+import { requirePermission, revokeSourceGrants } from "./lib/permissions";
+import { grantSupremeRolePermissions } from "./lib/rolePermissions";
 import { normalizedText } from "./lib/strings";
 import { eventRole } from "./values";
 
@@ -93,6 +95,35 @@ export const set = mutation({
       )
       .unique();
     if ((currentRole?.role ?? null) === args.role) {
+      let accessVersion = targetSubject.accessVersion;
+      if (args.role === "supreme" && currentRole) {
+        const createdCount = await grantSupremeRolePermissions(ctx, {
+          eventId: event._id,
+          personId: args.targetPersonId,
+          eventAccessSubjectId: targetSubject._id,
+          roleId: currentRole._id,
+          grantedByPersonId: person._id,
+        });
+        if (createdCount > 0) {
+          const now = Date.now();
+          accessVersion += 1;
+          await ctx.db.patch(targetSubject._id, { accessVersion, updatedAt: now });
+          await writeAuditEvent(ctx, {
+            eventId: event._id,
+            actorPersonId: person._id,
+            permissionKey: "access.roles.assign",
+            grantIds: authorizingGrantIds,
+            scopeType: "person",
+            scopeId: args.targetPersonId,
+            action: "access.supreme_permissions_synchronized",
+            targetType: "event_access_subject",
+            targetId: targetSubject._id,
+            previousSummary: JSON.stringify({ role: "supreme" }),
+            nextSummary: JSON.stringify({ role: "supreme", createdGrantCount: createdCount }),
+            reason,
+          });
+        }
+      }
       await recordOperation(ctx, {
         eventId: event._id,
         actorPersonId: person._id,
@@ -101,14 +132,23 @@ export const set = mutation({
         requestFingerprint,
         targetType: "event_access_subject",
         targetId: targetSubject._id,
-        resultJson: String(targetSubject.accessVersion),
+        resultJson: String(accessVersion),
         createdAt: Date.now(),
       });
-      return { accessVersion: targetSubject.accessVersion };
+      return { accessVersion };
     }
 
     const now = Date.now();
     if (currentRole) {
+      if (currentRole.role === "supreme") {
+        await revokeSourceGrants(ctx, {
+          eventId: event._id,
+          sourceType: "role_template",
+          sourceId: currentRole._id,
+          revokedByPersonId: person._id,
+          reason,
+        });
+      }
       await ctx.db.patch(currentRole._id, {
         status: args.role === null ? "revoked" : "replaced",
         endedAt: now,
@@ -116,8 +156,9 @@ export const set = mutation({
         endReason: reason,
       });
     }
+    let nextRoleId: Id<"eventRoles"> | null = null;
     if (args.role !== null) {
-      await ctx.db.insert("eventRoles", {
+      nextRoleId = await ctx.db.insert("eventRoles", {
         eventId: event._id,
         personId: args.targetPersonId,
         eventAccessSubjectId: targetSubject._id,
@@ -129,6 +170,15 @@ export const set = mutation({
         assignedByPersonId: person._id,
         createdAt: now,
         reason,
+      });
+    }
+    if (args.role === "supreme" && nextRoleId) {
+      await grantSupremeRolePermissions(ctx, {
+        eventId: event._id,
+        personId: args.targetPersonId,
+        eventAccessSubjectId: targetSubject._id,
+        roleId: nextRoleId,
+        grantedByPersonId: person._id,
       });
     }
     const accessVersion = targetSubject.accessVersion + 1;

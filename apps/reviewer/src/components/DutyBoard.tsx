@@ -3,13 +3,14 @@ import { useSyncExternalStore } from 'react'
 
 import { DutyHome, type DutyHeadline, type DutyTile } from '@/components/DutyHome'
 import { DutyIcon } from '@/components/DutyIcon'
-import { useReviewerSession, type Surface } from '@/components/ReviewerSession'
+import { useReviewerSession } from '@/components/ReviewerSession'
 import {
   localStoreWasReset,
   subscribeToLocalStoreReset,
 } from '@/lib/encrypted-local-database'
 import { dutyMeta, splitDuties } from '@/lib/duties'
 import { dutySubscriptionPlan } from '@/lib/duty-subscriptions'
+import type { Surface } from '@/lib/reviewer-surfaces'
 import {
   type DutyStatus,
   useDoorStatus,

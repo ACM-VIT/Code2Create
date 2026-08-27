@@ -1,5 +1,5 @@
 import type { DutyIconName } from '@/components/DutyIcon'
-import type { Surface } from '@/components/ReviewerSession'
+import type { Surface } from '@/lib/reviewer-surfaces'
 import type { DutyKey } from '@/theme'
 
 export const dutyMeta: Record<Surface, { key: DutyKey; label: string; icon: DutyIconName }> = {

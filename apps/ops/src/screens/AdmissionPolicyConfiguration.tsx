@@ -8,8 +8,10 @@ import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditor
 import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
-import { readableError } from '../lib/errors'
-import { useOperationRunner } from '../lib/operations'
+import {
+  type ConfigurationOperationDescriptor,
+  useConfigurationOperations,
+} from '../lib/configurationOperations'
 
 type CurrentConfiguration = FunctionReturnType<typeof api.admissionPolicyConfiguration.current>
 type AdmissionConfiguration = CurrentConfiguration['publishedRelease']['configuration']
@@ -39,6 +41,19 @@ const guidanceFields: {
   { key: 'mixedOrExternal', label: 'Mixed or external team' },
 ]
 
+const operationDescriptors = [
+  {
+    slot: 'admission-policy-publish',
+    title: 'Finish publishing the admission policy',
+    action: 'Confirm earlier publication',
+  },
+  {
+    slot: 'admission-policy-draft',
+    title: 'Finish saving the admission policy draft',
+    action: 'Confirm earlier save',
+  },
+] satisfies readonly ConfigurationOperationDescriptor[]
+
 export function AdmissionPolicyConfiguration({
   tabs,
 }: {
@@ -53,30 +68,17 @@ export function AdmissionPolicyConfiguration({
   )
   const createDraft = useMutation(api.admissionPolicyConfiguration.createDraft)
   const publish = useMutation(api.admissionPolicyConfiguration.publish)
-  const operations = useOperationRunner<AdmissionPolicyOperationResult>()
+  const operations = useConfigurationOperations<AdmissionPolicyOperationResult>(
+    operationDescriptors,
+  )
   const [configuration, setConfiguration] = useState<AdmissionConfiguration | null>(null)
   const [loadedRelease, setLoadedRelease] = useState('')
   const [draftReason, setDraftReason] = useState('')
   const [publishReason, setPublishReason] = useState('')
   const [publishArmed, setPublishArmed] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('admission-policy-draft')
   const publishPending = operations.hasPending('admission-policy-publish')
-  const pendingOperation = publishPending
-    ? {
-        slot: 'admission-policy-publish',
-        title: 'Finish publishing the admission policy',
-        action: 'Confirm earlier publication',
-      }
-    : draftPending
-      ? {
-          slot: 'admission-policy-draft',
-          title: 'Finish saving the admission policy draft',
-          action: 'Confirm earlier save',
-        }
-      : null
-  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!current) return
@@ -116,65 +118,37 @@ export function AdmissionPolicyConfiguration({
     )))
   }
 
-  const saveDraft = async (event: FormEvent) => {
+  const saveDraft = (event: FormEvent) => {
     event.preventDefault()
-    if (busy || operationPending) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('admission-policy-draft', (clientOperationId) => () => createDraft({
-        eventSlug,
-        configuration,
-        expectedEventVersion: current.eventVersion,
-        ...(current.draftRelease
-          ? { expectedDraftPolicyId: current.draftRelease.policyId }
-          : {}),
-        reason: draftReason,
-        clientOperationId,
-      }))
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    void operations.run('admission-policy-draft', (clientOperationId) => () => createDraft({
+      eventSlug,
+      configuration,
+      expectedEventVersion: current.eventVersion,
+      ...(current.draftRelease
+        ? { expectedDraftPolicyId: current.draftRelease.policyId }
+        : {}),
+      reason: draftReason,
+      clientOperationId,
+    }))
   }
 
-  const publishDraft = async () => {
+  const publishDraft = () => {
     const draft = current.draftRelease
-    if (busy || operationPending || !draft || !validation?.valid || current.publicationLocked) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('admission-policy-publish', (clientOperationId) => () => publish({
-        eventSlug,
-        draftPolicyId: draft.policyId,
-        expectedPolicyChecksum: draft.policyChecksum,
-        expectedModelConfigId: draft.modelConfigId,
-        expectedModelChecksum: draft.modelChecksum,
-        expectedEventVersion: current.eventVersion,
-        reason: publishReason,
-        clientOperationId,
-      }))
-      setPublishArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    if (!draft || !validation?.valid || current.publicationLocked) return
+    void operations.run('admission-policy-publish', (clientOperationId) => () => publish({
+      eventSlug,
+      draftPolicyId: draft.policyId,
+      expectedPolicyChecksum: draft.policyChecksum,
+      expectedModelConfigId: draft.modelConfigId,
+      expectedModelChecksum: draft.modelChecksum,
+      expectedEventVersion: current.eventVersion,
+      reason: publishReason,
+      clientOperationId,
+    }), () => setPublishArmed(false))
   }
 
-  const confirmPendingOperation = async () => {
-    if (busy || pendingOperation === null) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.retryPending(pendingOperation.slot)
-      setPublishArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+  const confirmPendingOperation = () => {
+    void operations.retryPending(() => setPublishArmed(false))
   }
 
   const publishedConfiguration = current.publishedRelease.configuration

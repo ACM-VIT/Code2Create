@@ -5,6 +5,10 @@ import { useQuery } from 'convex/react'
 import { Link } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
+import {
+  formatMonthDayTime as formatTime,
+  formatMonthDayTimeWindow as formatWindow,
+} from '../lib/dateTime'
 import { LoadingLabel, SkeletonList } from '../components/Skeleton'
 
 type Round = FunctionReturnType<typeof api.scoreGovernance.rounds>[number]
@@ -79,23 +83,4 @@ export function ScoreOverview() {
 
 function Summary({ label, value }: { label: string; value: number | string }) {
   return <div><dt>{label}</dt><dd>{value}</dd></div>
-}
-
-function formatWindow(startsAt: number, endsAt: number) {
-  const formatter = new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-  return `${formatter.format(startsAt)} – ${formatter.format(endsAt)}`
-}
-
-function formatTime(value: number) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(value)
 }

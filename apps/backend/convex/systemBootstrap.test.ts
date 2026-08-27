@@ -5,6 +5,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, components } from "./_generated/api";
 import { defaultDeterministicIntakePolicy } from "./lib/intakePolicy.ts";
 import { defaultParticipantPolicy } from "./lib/participantPolicy.ts";
+import { eventOwnerPermissionKeys } from "./lib/permissionCatalog.ts";
+import { supremeSelfPermissionKeys } from "./lib/rolePermissions.ts";
 import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -17,6 +19,9 @@ describe("event bootstrap", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   test("lets the configured owner create the complete draft baseline once", async () => {
+    vi.stubEnv("AUTH_SITE_URL", "http://localhost:3211");
+    vi.stubEnv("PARTICIPANT_SITE_URL", "http://localhost:4173");
+    vi.stubEnv("OPERATIONS_SITE_URL", "http://localhost:4174");
     vi.stubEnv("INITIAL_SUPREME_EMAILS", "owner@example.test");
     vi.stubEnv("INITIAL_EVENT_SLUG", "code2create-7");
     const backend = convexTest(schema, modules);
@@ -35,7 +40,7 @@ describe("event bootstrap", () => {
       eventExists: false,
     });
 
-    const startsAt = Date.UTC(2027, 6, 18, 3, 30);
+    const startsAt = Date.now() + 7 * 24 * 60 * 60 * 1_000;
     const endsAt = startsAt + 48 * 60 * 60 * 1_000;
     const created = await owner.mutation(api.system.bootstrapEvent, {
       eventSlug: "code2create-7",
@@ -73,11 +78,9 @@ describe("event bootstrap", () => {
       },
     });
 
-    const [handbookAccess, operationsAccess] = await Promise.all([
-      owner.query(api.access.handbookCapabilities, { eventSlug: "code2create-7" }),
-      owner.query(api.access.operationsCapabilities, { eventSlug: "code2create-7" }),
-    ]);
-    expect(handbookAccess).toEqual({ read: true });
+    const operationsAccess = await owner.query(api.access.operationsCapabilities, {
+      eventSlug: "code2create-7",
+    });
     expect(operationsAccess).toMatchObject({
       eventLifecycle: true,
       accessPeople: true,
@@ -108,7 +111,52 @@ describe("event bootstrap", () => {
       eventSlug: "code2create-7",
       personId: ownerPersonId,
     });
-    expect(accessDetail?.effectivePermissionKeys).toContain("event.lifecycle.manage");
+    if (!accessDetail) throw new Error("The Supreme access detail is missing.");
+    expect(accessDetail.effectivePermissionKeys).toEqual(
+      expect.arrayContaining([
+        ...eventOwnerPermissionKeys,
+        ...supremeSelfPermissionKeys,
+      ]),
+    );
+    await expect(owner.query(api.outboundCallConsents.mine, {
+      eventSlug: "code2create-7",
+    })).resolves.toMatchObject({ state: "not_configured", version: 0 });
+    await backend.run(async (ctx) => {
+      const subject = await ctx.db
+        .query("eventAccessSubjects")
+        .withIndex("by_event_person", (index) =>
+          index.eq("eventId", created.eventId).eq("personId", ownerPersonId),
+        )
+        .unique();
+      if (!subject) throw new Error("The Supreme event account is missing.");
+      for (const permissionKey of supremeSelfPermissionKeys) {
+        const grants = await ctx.db
+          .query("permissionGrants")
+          .withIndex("by_subject_permission_status", (index) =>
+            index
+              .eq("eventAccessSubjectId", subject._id)
+              .eq("permissionKey", permissionKey)
+              .eq("status", "active"),
+          )
+          .take(2);
+        for (const grant of grants) await ctx.db.delete(grant._id);
+      }
+    });
+    await expect(owner.query(api.outboundCallConsents.mine, {
+      eventSlug: "code2create-7",
+    })).rejects.toThrow("does not have permission");
+    const synchronized = await owner.mutation(api.accessRoles.set, {
+      eventSlug: "code2create-7",
+      targetPersonId: ownerPersonId,
+      role: "supreme",
+      expectedAccessVersion: accessDetail.accessVersion,
+      reason: "Synchronize the Supreme permission template.",
+      clientOperationId: "bootstrap-supreme-permission-sync",
+    });
+    expect(synchronized.accessVersion).toBe(accessDetail.accessVersion + 1);
+    await expect(owner.query(api.outboundCallConsents.mine, {
+      eventSlug: "code2create-7",
+    })).resolves.toMatchObject({ state: "not_configured", version: 0 });
     expect(accessDetail).not.toHaveProperty("grants");
     const grantPage = await owner.query(api.access.grantLedger, {
       eventSlug: "code2create-7",
@@ -303,7 +351,7 @@ describe("event bootstrap", () => {
 });
 
 async function createGoogleIdentity(backend: BackendTest, email: string) {
-  const now = Date.UTC(2027, 5, 1, 9, 0);
+  const now = Date.now();
   const authUserResult: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "user",
@@ -322,7 +370,7 @@ async function createGoogleIdentity(backend: BackendTest, email: string) {
       model: "session",
       data: {
         expiresAt: now + 60 * 60 * 1_000,
-        token: `bootstrap-session-${email}`,
+        token: crypto.randomUUID(),
         createdAt: now,
         updatedAt: now,
         userId: authUserId,

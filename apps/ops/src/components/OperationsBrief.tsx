@@ -4,6 +4,7 @@ import type { FunctionReturnType } from 'convex/server'
 import { useEffect, useState } from 'react'
 
 import { eventSlug } from '../lib/config'
+import { formatCompactDateTime } from '../lib/dateTime'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
 import { briefStreamObserverKey } from '../lib/operationsBrief'
@@ -114,7 +115,7 @@ export function OperationsBrief({
           <div className="intelligence-brief-result">
             <p className="eyebrow">
               Requested by an operator · Source checked{' '}
-              {brief.sourceGeneratedAt ? formatDateTime(brief.sourceGeneratedAt) : 'recently'}
+              {brief.sourceGeneratedAt ? formatCompactDateTime(brief.sourceGeneratedAt) : 'recently'}
             </p>
             <h3>{brief.headline}</h3>
             <p>{brief.summary}</p>
@@ -156,13 +157,4 @@ function severityLabel(value: 'watch' | 'attention' | 'critical') {
 
 function severityIcon(value: 'watch' | 'attention' | 'critical'): IconName {
   return value === 'watch' ? 'pulse' : 'alert'
-}
-
-function formatDateTime(value: number) {
-  return new Date(value).toLocaleString([], {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }

@@ -1,5 +1,5 @@
 import { api } from '@code2create/backend/api'
-import { applicationStateLabels } from '@code2create/domain'
+import { applicationStateLabels, type ApplicationState } from '@code2create/domain'
 import { usePaginatedQuery, useQuery } from 'convex/react'
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
@@ -7,17 +7,6 @@ import { useState } from 'react'
 import { eventSlug } from '../lib/config'
 import { LoadingLabel, SkeletonList } from '../components/Skeleton'
 
-type QueueState =
-  | 'submitted'
-  | 'under_review'
-  | 'needs_information'
-  | 'accepted'
-  | 'waitlisted'
-  | 'declined'
-  | 'offer_sent'
-  | 'confirmed'
-  | 'offer_expired'
-  | 'withdrawn'
 type AssignmentState = 'active' | 'completed'
 type QueueView = 'all' | 'mine'
 
@@ -69,7 +58,7 @@ export function AdmissionsQueue({
   )
 }
 
-const stageOrder: QueueState[] = [
+const stageOrder: ApplicationState[] = [
   'submitted',
   'under_review',
   'needs_information',
@@ -86,7 +75,7 @@ function ApplicationList() {
   const counts = useQuery(api.admissions.stageCounts, { eventSlug })
   const countByState = new Map((counts ?? []).map((row) => [row.state, row.count]))
   const busiest = stageOrder.find((candidate) => (countByState.get(candidate) ?? 0) > 0)
-  const [chosen, setState] = useState<QueueState | null>(null)
+  const [chosen, setState] = useState<ApplicationState | null>(null)
   const state = chosen ?? busiest ?? 'submitted'
   const { results, status, loadMore } = usePaginatedQuery(
     api.admissions.list,
@@ -143,7 +132,7 @@ function ApplicationList() {
   )
 }
 
-function parseQueueState(value: string): QueueState {
+function parseQueueState(value: string): ApplicationState {
   return stageOrder.find((candidate) => candidate === value) ?? 'submitted'
 }
 

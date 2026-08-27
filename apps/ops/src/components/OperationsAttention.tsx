@@ -6,6 +6,7 @@ import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { eventSlug } from '../lib/config'
+import { formatClockTime } from '../lib/dateTime'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
 import { Icon, type IconName } from './Icon'
@@ -209,7 +210,7 @@ function rowMeta(row: {
   recurrenceCount: number
   acknowledged: boolean
 }) {
-  const parts = [`Open since ${formatTime(row.firstObservedAt)}`]
+  const parts = [`Open since ${formatClockTime(row.firstObservedAt)}`]
   if (row.recurrenceCount > 1) parts.push(`${ordinal(row.recurrenceCount)} time today`)
   if (row.acknowledged) parts.push('Picked up')
   return parts.join(' · ')
@@ -228,8 +229,4 @@ function severityIcon(value: 'watch' | 'attention' | 'critical'): IconName {
   if (value === 'critical') return 'alert'
   if (value === 'attention') return 'clock'
   return 'pause'
-}
-
-function formatTime(value: number) {
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }

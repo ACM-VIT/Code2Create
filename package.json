@@ -4,15 +4,15 @@
   "private": true,
   "packageManager": "pnpm@11.18.0",
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=22.22.0"
   },
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "dev:full": "node scripts/dev.mjs --full",
     "dev:prepare": "node scripts/prepare-local-development.mjs",
     "dev:web": "pnpm --filter @code2create/web dev",
     "dev:ops": "pnpm --filter @code2create/ops dev",
-    "dev:handbook": "pnpm --filter @code2create/handbook dev",
     "dev:backend": "pnpm --filter @code2create/backend dev",
     "dev:reviewer": "pnpm --filter @code2create/reviewer dev",
     "dev:updates": "pnpm --filter @code2create/updates dev",
@@ -25,11 +25,9 @@
     "check:fixtures:staging": "pnpm --filter @code2create/backend browser-fixtures:check:staging",
     "check:providers:staging": "pnpm --filter @code2create/backend providers:check:staging",
     "attendance:badges": "pnpm --filter @code2create/web badges:generate",
-    "build": "pnpm generate:handbook && pnpm --filter @code2create/web --filter @code2create/ops --filter @code2create/handbook --filter @code2create/updates --filter @code2create/intelligence --filter @code2create/email --filter @code2create/voice build",
+    "build": "pnpm --filter @code2create/web --filter @code2create/ops --filter @code2create/updates --filter @code2create/intelligence --filter @code2create/email --filter @code2create/voice build",
     "build:web": "pnpm --filter @code2create/web build",
     "build:ops": "pnpm --filter @code2create/ops build",
-    "build:handbook": "pnpm generate:handbook && pnpm --filter @code2create/handbook build",
-    "generate:handbook": "pnpm --filter @code2create/backend generate:handbook",
     "recovery:backup": "pnpm --filter @code2create/backend recovery:backup",
     "recovery:rehearse": "pnpm --filter @code2create/backend recovery:rehearse",
     "test": "pnpm --filter './apps/**' --filter './packages/**' --if-present test",
@@ -39,5 +37,8 @@
     "audit:dependencies": "node scripts/audit-production-dependencies.mjs",
     "check:product": "pnpm lint && pnpm typecheck",
     "check:release": "pnpm audit:dependencies && pnpm check:product && pnpm test && pnpm build && pnpm --filter @code2create/intelligence deploy:check && pnpm --filter @code2create/reviewer export:check"
+  },
+  "devDependencies": {
+    "@posthog/cli": "^0.15.1"
   }
 }

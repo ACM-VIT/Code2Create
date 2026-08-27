@@ -1,7 +1,8 @@
 import { StyleSheet, Text, View } from 'react-native'
 
 import { DutyScreen } from '@/components/DutyScreen'
-import { PrimaryAction, useReviewerSession } from '@/components/ReviewerSession'
+import { useReviewerSession } from '@/components/ReviewerSession'
+import { PrimaryAction } from '@/components/ReviewerSessionGate'
 import { palette, radius } from '@/theme'
 
 export default function AccountScreen() {

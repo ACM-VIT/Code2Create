@@ -1,4 +1,4 @@
-type ReleaseSurface = 'participant' | 'operations' | 'handbook'
+type ReleaseSurface = 'participant' | 'operations'
 type ValidationMode = 'build' | 'deploy'
 type BuildEnvironment = Readonly<Record<string, string | undefined>>
 
@@ -28,15 +28,17 @@ export function validateWebReleaseEnvironment(
     throw new Error('VITE_EVENT_SLUG must be a lowercase hyphenated slug of at most 80 characters.')
   }
 
-  if (surface === 'handbook') return
-
-  const dsn = requiredHttpsUrl(environment, 'VITE_SENTRY_DSN', true)
-  if (!dsn.username || dsn.pathname === '/') {
-    throw new Error('VITE_SENTRY_DSN must be a complete HTTPS project DSN.')
+  const projectToken = required(environment, 'VITE_POSTHOG_PROJECT_TOKEN')
+  if (!/^phc_[A-Za-z0-9]+$/u.test(projectToken)) {
+    throw new Error('VITE_POSTHOG_PROJECT_TOKEN must be a PostHog project token.')
   }
-  required(environment, 'SENTRY_ORG')
-  required(environment, 'SENTRY_PROJECT')
-  required(environment, 'SENTRY_AUTH_TOKEN')
+  requiredHttpsUrl(environment, 'VITE_POSTHOG_HOST')
+  requiredHttpsUrl(environment, 'POSTHOG_CLI_HOST')
+  const projectId = required(environment, 'POSTHOG_CLI_PROJECT_ID')
+  if (!/^\d+$/u.test(projectId) || Number(projectId) < 1) {
+    throw new Error('POSTHOG_CLI_PROJECT_ID must be a positive integer.')
+  }
+  required(environment, 'POSTHOG_CLI_API_KEY')
 }
 
 function requiredCloudflareEnvironment(environment: BuildEnvironment) {
@@ -50,7 +52,6 @@ function requiredCloudflareEnvironment(environment: BuildEnvironment) {
 function requiredHttpsUrl(
   environment: BuildEnvironment,
   name: string,
-  allowPublicUsername = false,
 ) {
   const value = required(environment, name)
   let url: URL
@@ -59,7 +60,7 @@ function requiredHttpsUrl(
   } catch {
     throw new Error(`${name} must be a complete HTTPS URL.`)
   }
-  if (url.protocol !== 'https:' || url.password || (!allowPublicUsername && url.username)) {
+  if (url.protocol !== 'https:' || url.password || url.username) {
     throw new Error(`${name} must be a complete HTTPS URL without embedded credentials.`)
   }
   return url
@@ -72,8 +73,8 @@ function required(environment: BuildEnvironment, name: string) {
 }
 
 function parseSurface(value: string | undefined): ReleaseSurface {
-  if (value === 'participant' || value === 'operations' || value === 'handbook') return value
-  throw new Error('Choose the participant, operations, or handbook release surface.')
+  if (value === 'participant' || value === 'operations') return value
+  throw new Error('Choose the participant or operations release surface.')
 }
 
 function parseMode(value: string | undefined): ValidationMode {

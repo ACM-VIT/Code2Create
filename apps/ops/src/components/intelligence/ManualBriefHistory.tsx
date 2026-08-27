@@ -3,6 +3,7 @@ import { usePaginatedQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
 
 import { eventSlug } from '../../lib/config'
+import { formatClockTime, formatCompactDateTime } from '../../lib/dateTime'
 import { Icon, type IconName } from '../Icon'
 import { LoadingLabel } from '../Skeleton'
 
@@ -69,10 +70,10 @@ export function ManualBriefHistory() {
 function runMeta(run: BriefRun) {
   const parts = [
     'Requested by an operator',
-    `Requested ${formatDateTime(run.requestedAt)}`,
+    `Requested ${formatCompactDateTime(run.requestedAt)}`,
   ]
-  if (run.workerAcceptedAt !== undefined) parts.push(`Started ${formatTime(run.workerAcceptedAt)}`)
-  if (run.completedAt !== undefined) parts.push(`Finished ${formatTime(run.completedAt)}`)
+  if (run.workerAcceptedAt !== undefined) parts.push(`Started ${formatClockTime(run.workerAcceptedAt)}`)
+  if (run.completedAt !== undefined) parts.push(`Finished ${formatClockTime(run.completedAt)}`)
   if (run.failureCode !== undefined) parts.push(failureLabel(run.failureCode))
   if (run.model !== undefined) parts.push(run.model)
   return parts.join(' · ')
@@ -103,17 +104,4 @@ function failureLabel(code: NonNullable<BriefRun['failureCode']>) {
   if (code === 'agent_timed_out') return 'The agent took too long'
   if (code === 'model_did_not_publish') return 'The agent finished without a brief'
   return 'The agent response could not be saved'
-}
-
-function formatTime(value: number) {
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-function formatDateTime(value: number) {
-  return new Date(value).toLocaleString([], {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }

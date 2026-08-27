@@ -1,16 +1,13 @@
 import { cloudflare } from '@cloudflare/vite-plugin'
-import { sentryViteBuild } from '@code2create/client-observability/vite'
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-export default defineConfig(({ command, mode }) => {
-  const sentry = sentryViteBuild({ ...loadEnv(mode, process.cwd(), ''), ...process.env })
+export default defineConfig(({ command }) => {
   return {
-    build: { sourcemap: sentry.sourcemap },
+    build: { sourcemap: true },
     plugins: [
       react(),
       ...(command === 'build' ? [cloudflare({ inspectorPort: 9229 })] : []),
-      ...sentry.plugins,
     ],
     server: { port: 5180, strictPort: true },
   }

@@ -11,7 +11,7 @@ pnpm --filter @code2create/reviewer config:check
 pnpm --filter @code2create/reviewer export:check
 ```
 
-Copy `.env.example` to `.env.local` for development. The example disables Sentry source-map upload only for the local build; staging and production still require their release credentials. Expo Go is not a reviewer build: camera, encrypted storage, native APNs/FCM registration, and background notification behavior must be tested in a locally compiled app.
+Copy `.env.example` to `.env.local` for development. PostHog error capture runs locally, while source-map and native-symbol uploads require release credentials only for signed staging and production builds. Expo Go is not a reviewer build: camera, encrypted storage, native APNs/FCM registration, and background notification behavior must be tested in a locally compiled app.
 
 With the root `pnpm dev` stack running, compile and open the app without starting a second Metro process:
 

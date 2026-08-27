@@ -8,8 +8,10 @@ import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditor
 import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
 import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
-import { readableError } from '../lib/errors'
-import { useOperationRunner } from '../lib/operations'
+import {
+  type ConfigurationOperationDescriptor,
+  useConfigurationOperations,
+} from '../lib/configurationOperations'
 
 type Configuration = FunctionReturnType<typeof api.participantPolicyConfiguration.current>
 type Policy = Configuration['publishedPolicy']['policy']
@@ -24,6 +26,19 @@ const fieldModes: { value: FieldMode; label: string }[] = [
   { value: 'required', label: 'Required' },
 ]
 
+const operationDescriptors = [
+  {
+    slot: 'participant-policy-publish',
+    title: 'Finish publishing the participant rules',
+    action: 'Confirm earlier publication',
+  },
+  {
+    slot: 'participant-policy-draft',
+    title: 'Finish saving the participant rules draft',
+    action: 'Confirm earlier save',
+  },
+] satisfies readonly ConfigurationOperationDescriptor[]
+
 export function ParticipantPolicyConfiguration({
   tabs,
 }: {
@@ -32,7 +47,7 @@ export function ParticipantPolicyConfiguration({
   const configuration = useQuery(api.participantPolicyConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.participantPolicyConfiguration.createDraft)
   const publish = useMutation(api.participantPolicyConfiguration.publish)
-  const operations = useOperationRunner<PolicyOperationResult>()
+  const operations = useConfigurationOperations<PolicyOperationResult>(operationDescriptors)
   const validation = useQuery(
     api.participantPolicyConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPolicy
@@ -44,24 +59,9 @@ export function ParticipantPolicyConfiguration({
   const [draftReason, setDraftReason] = useState('')
   const [publishReason, setPublishReason] = useState('')
   const [publishArmed, setPublishArmed] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('participant-policy-draft')
   const publishPending = operations.hasPending('participant-policy-publish')
-  const pendingOperation = publishPending
-    ? {
-        slot: 'participant-policy-publish',
-        title: 'Finish publishing the participant rules',
-        action: 'Confirm earlier publication',
-      }
-    : draftPending
-      ? {
-          slot: 'participant-policy-draft',
-          title: 'Finish saving the participant rules draft',
-          action: 'Confirm earlier save',
-        }
-      : null
-  const operationPending = pendingOperation !== null
 
   useEffect(() => {
     if (!configuration) return
@@ -88,63 +88,35 @@ export function ParticipantPolicyConfiguration({
     setPolicy((current) => current ? { ...current, [key]: value } : current)
   }
 
-  const saveDraft = async (event: FormEvent) => {
+  const saveDraft = (event: FormEvent) => {
     event.preventDefault()
-    if (busy || operationPending) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('participant-policy-draft', (clientOperationId) => () => createDraft({
-        eventSlug,
-        policy,
-        expectedEventVersion: configuration.eventVersion,
-        ...(configuration.draftPolicy
-          ? { expectedDraftPolicyId: configuration.draftPolicy.id }
-          : {}),
-        reason: draftReason,
-        clientOperationId,
-      }))
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    void operations.run('participant-policy-draft', (clientOperationId) => () => createDraft({
+      eventSlug,
+      policy,
+      expectedEventVersion: configuration.eventVersion,
+      ...(configuration.draftPolicy
+        ? { expectedDraftPolicyId: configuration.draftPolicy.id }
+        : {}),
+      reason: draftReason,
+      clientOperationId,
+    }))
   }
 
-  const publishDraft = async () => {
+  const publishDraft = () => {
     const draft = configuration.draftPolicy
-    if (busy || operationPending || !draft || !validation?.valid) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('participant-policy-publish', (clientOperationId) => () => publish({
-        eventSlug,
-        draftPolicyId: draft.id,
-        expectedDraftChecksum: draft.checksum,
-        expectedEventVersion: configuration.eventVersion,
-        reason: publishReason,
-        clientOperationId,
-      }))
-      setPublishArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+    if (!draft || !validation?.valid) return
+    void operations.run('participant-policy-publish', (clientOperationId) => () => publish({
+      eventSlug,
+      draftPolicyId: draft.id,
+      expectedDraftChecksum: draft.checksum,
+      expectedEventVersion: configuration.eventVersion,
+      reason: publishReason,
+      clientOperationId,
+    }), () => setPublishArmed(false))
   }
 
-  const confirmPendingOperation = async () => {
-    if (busy || pendingOperation === null) return
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.retryPending(pendingOperation.slot)
-      setPublishArmed(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
+  const confirmPendingOperation = () => {
+    void operations.retryPending(() => setPublishArmed(false))
   }
 
   return (

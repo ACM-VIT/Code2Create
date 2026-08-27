@@ -20,12 +20,10 @@ const clearDelayMs = 90 * 1_000;
 const originalAuthSiteUrl = process.env.AUTH_SITE_URL;
 const originalParticipantSiteUrl = process.env.PARTICIPANT_SITE_URL;
 const originalOperationsSiteUrl = process.env.OPERATIONS_SITE_URL;
-const originalHandbookSiteUrl = process.env.HANDBOOK_SITE_URL;
 
 process.env.AUTH_SITE_URL = "http://localhost:3211";
 process.env.PARTICIPANT_SITE_URL = "http://localhost:4173";
 process.env.OPERATIONS_SITE_URL = "http://localhost:4174";
-process.env.HANDBOOK_SITE_URL = "http://localhost:4175";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -35,7 +33,6 @@ afterAll(() => {
   restoreEnvironment("AUTH_SITE_URL", originalAuthSiteUrl);
   restoreEnvironment("PARTICIPANT_SITE_URL", originalParticipantSiteUrl);
   restoreEnvironment("OPERATIONS_SITE_URL", originalOperationsSiteUrl);
-  restoreEnvironment("HANDBOOK_SITE_URL", originalHandbookSiteUrl);
 });
 
 describe("operations attention ledger", () => {

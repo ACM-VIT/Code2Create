@@ -30,7 +30,6 @@ const savedEnvironment = {
   AUTH_SITE_URL: process.env.AUTH_SITE_URL,
   PARTICIPANT_SITE_URL: process.env.PARTICIPANT_SITE_URL,
   OPERATIONS_SITE_URL: process.env.OPERATIONS_SITE_URL,
-  HANDBOOK_SITE_URL: process.env.HANDBOOK_SITE_URL,
   INTELLIGENCE_INGRESS_SECRET: process.env.INTELLIGENCE_INGRESS_SECRET,
   INTELLIGENCE_STREAM_SECRET: process.env.INTELLIGENCE_STREAM_SECRET,
   INTELLIGENCE_WORKER_URL: process.env.INTELLIGENCE_WORKER_URL,
@@ -42,7 +41,6 @@ const streamSecret = "observability-stream-".padEnd(48, "s");
 process.env.AUTH_SITE_URL = "http://localhost:3211";
 process.env.PARTICIPANT_SITE_URL = "http://localhost:4173";
 process.env.OPERATIONS_SITE_URL = "http://localhost:4174";
-process.env.HANDBOOK_SITE_URL = "http://localhost:4175";
 process.env.INTELLIGENCE_INGRESS_SECRET = ingressSecret;
 process.env.INTELLIGENCE_STREAM_SECRET = streamSecret;
 process.env.INTELLIGENCE_WORKER_URL = "https://intelligence.example.test";

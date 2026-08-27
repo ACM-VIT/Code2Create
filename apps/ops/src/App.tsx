@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { ClientObservabilityIdentity } from '@code2create/client-observability'
 import { type EventStage, eventRoleLabels, eventStageGuidance } from '@code2create/domain'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import type { FunctionReturnType } from 'convex/server'
@@ -14,6 +15,7 @@ import {
 import type { ConfigurationTabsVisibility } from './components/ConfigurationTabs'
 import { Gate, GateAction, GateBoot } from './components/AuthGate'
 import { eventSlug } from './lib/config'
+import { formatMediumDateTime as formatDateTime } from './lib/dateTime'
 import { readableError } from './lib/errors'
 import { useOperationRunner } from './lib/operations'
 import { useEstimatedServerNow } from './lib/useEstimatedServerNow'
@@ -124,12 +126,14 @@ const CheckpointConfiguration = lazy(() =>
 )
 
 export default function App({ authClient }: { authClient: Code2CreateAuthClient }) {
+  const { data: session } = authClient.useSession()
   const publicState = useQuery(api.system.getPublicShellState, { eventSlug })
   const serverNow = useEstimatedServerNow(publicState?.serverNow, 60_000)
   if (publicState === undefined) return <GateBoot status="Loading…" />
 
   return (
     <>
+      <ClientObservabilityIdentity distinctId={session?.user.id ?? null} />
       <AuthLoading><GateBoot status="Checking access…" /></AuthLoading>
       <Unauthenticated>
         <SignIn
@@ -727,13 +731,6 @@ function NoOperationsAccess({ authClient }: { authClient: Code2CreateAuthClient 
       <GateAction label="Use another Google account" onClick={() => void authClient.signOut()} secondary />
     </Gate>
   )
-}
-
-function formatDateTime(timestamp: number) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(timestamp)
 }
 
 function SignIn({

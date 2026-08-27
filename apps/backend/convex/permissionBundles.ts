@@ -1,3 +1,4 @@
+import { areaForPermission, permissionName } from "@code2create/domain";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
@@ -325,6 +326,8 @@ export const workspace = query({
     catalog: v.array(
       v.object({
         key: v.string(),
+        label: v.string(),
+        area: v.string(),
         eventWide: v.boolean(),
         scopes: v.array(scopeType),
       }),
@@ -405,6 +408,8 @@ export const workspace = query({
         )
         .map(([key, definition]) => ({
           key,
+          label: permissionName(key),
+          area: areaForPermission(key),
           eventWide: definition.eventWide,
           scopes: [...definition.scopes],
         })),

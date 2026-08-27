@@ -4,6 +4,7 @@ import { useAction, useMutation, useQuery } from 'convex/react'
 import { useState } from 'react'
 
 import { eventSlug } from '../lib/config'
+import { formatMonthDayTime as formatTime } from '../lib/dateTime'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
 import { LoadingLabel, SkeletonCard } from './Skeleton'
@@ -402,15 +403,6 @@ function ReopenRound({
 
 function Summary({ label, value }: { label: string; value: number }) {
   return <div><dt>{label}</dt><dd>{value}</dd></div>
-}
-
-function formatTime(value: number) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(value)
 }
 
 function formatBytes(value: number) {
