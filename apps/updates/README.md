@@ -6,7 +6,7 @@ The Worker serves signed manifests, signed rollback directives, and immutable co
 
 ## Cloudflare setup
 
-Create one bucket per environment, set a different random admin token in each Worker environment, then deploy.
+Create one bucket per environment and set a different random admin token in each Worker environment. Cloudflare Workers Builds then deploys staging from repository branch `staging`, root directory `apps/updates`, build command `pnpm cloudflare:build:staging`, and deploy command `pnpm cloudflare:deploy:staging`. Non-production branch builds stay disabled.
 
 ```sh
 pnpm --filter @code2create/updates bucket:create:staging
@@ -15,6 +15,7 @@ pnpm --filter @code2create/updates bucket:create:production
 pnpm --filter @code2create/updates configure:staging
 pnpm --filter @code2create/updates configure:production
 
+# Authorized manual recovery only
 pnpm --filter @code2create/updates deploy:staging
 pnpm --filter @code2create/updates deploy:production
 ```

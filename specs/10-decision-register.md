@@ -77,6 +77,7 @@ This file records current decisions only. It does not keep obsolete product path
 | T-028 | Use server start time for review timers. | Clients do not write one row per second. |
 | T-029 | Use two-person verification for paper score recovery and final round exports. | A protected manual source needs independent confirmation. |
 | T-030 | Run operations intelligence outside the authority boundary. | It can observe and recommend, but a human command makes effects. |
+| T-031 | Deploy staging Workers from `staging` and production Workers from `main` through separate Cloudflare Workers Builds connections. | Branch identity, Worker runtime configuration, deployment history, and rollback stay exact for each surface. |
 
 ## 3. Required concurrency rules
 

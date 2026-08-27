@@ -623,13 +623,13 @@ The complete pull-request gate must run:
 10. OpenAI embedding-width, corpus, race, Responses, and fallback fixtures; Workers AI and Flue contracts; email, call, GitHub, and Figma webhook fixtures;
 11. secret scan.
 
-The checked-in `Product checks` workflow uses a pinned TruffleHog scan and a frozen pnpm install. It runs repository lint, type checks, domain and Convex tests, service protocol tests, autonomy-boundary evaluation, all Vite builds, and all Worker builds. It also validates public Expo configuration and exports the iOS and Android JavaScript bundles with non-secret fixtures. The protected deployment workflow performs environment-specific strict Wrangler deploys. CI has no mobile or update-signing key.
+The checked-in `Product checks` workflow uses a pinned TruffleHog scan and a frozen pnpm install. It runs on pull requests and pushes to `staging` and `main`. It runs repository lint, type checks, domain and Convex tests, service protocol tests, autonomy-boundary evaluation, all Vite builds, and all Worker builds. It also validates public Expo configuration and exports the iOS and Android JavaScript bundles with non-secret fixtures. GitHub Actions verifies releases. It does not deploy a Cloudflare Worker and holds no Cloudflare, mobile, or update-signing credential.
 
 The manually triggered `Staging release verification` workflow is also checked in. Before it opens a browser, an internal read-only Convex query verifies the exact staging event, Google configuration, published participant and communications policies, a current operations-health snapshot, one eligible participant with a complete accepted-team home, that participant's exact profile/team/integration read grants, and the operations account's event-scoped health and rehearsal grants. The query refuses a Convex deployment that does not set `C2C_DEPLOYMENT_ENVIRONMENT=staging`. A role does not satisfy a missing grant. Playwright then checks anonymous and authenticated participant/operations surfaces with protected storage states. A parallel read-only job uses only controlled synthetic fixtures to verify native-width OpenAI embeddings, one GitHub App repository/topic, one Figma file, and the intelligence Worker health route. Neither job prints a cookie, token, participant project, or provider body. The first controlled staging run, broader multi-client flow coverage, signed native artifacts, physical-device camera checks, and production-shaped provider/rate-limit rehearsals remain release blockers.
 
 The staging GitHub provider fixture receives `RELEASE_GITHUB_REQUIRED_TOPIC` from the protected environment and must match the staging event's published integration topic. The check does not embed an event-specific topic in release code.
 
-Main-branch release candidates must also run:
+Production candidates merged to `main` must also run:
 
 - locally signed staging APK/IPA when native inputs changed;
 - Maestro smoke suite on at least Android and iOS plus physical-device VIT-barcode/QR smoke when attendance camera inputs changed;
@@ -642,18 +642,46 @@ CI logs must not print environment values, cookies, webhook bodies, or provider 
 
 ## 12. Production release
 
-### GitHub environment contract
+### Git branch and Cloudflare Workers Builds contract
 
-The manual **Deploy web surfaces** workflow selects the protected GitHub Environment named `staging` or `production`. Each environment supplies these non-secret variables:
+Cloudflare Workers Builds owns Worker deployment from GitHub. `staging` is the sole release branch for every staging Worker. `main` is the sole release branch for every production Worker. A staging Worker treats `staging` as its production branch inside Cloudflare; this wording describes Cloudflare's deployment channel, not the Code2Create production environment. Non-production branch builds are disabled. A feature branch cannot create a preview or replace staging.
 
-- `CONVEX_URL`, `CONVEX_SITE_URL`, and `EVENT_SLUG`;
-- `SENTRY_ORG`;
-- `PARTICIPANT_SENTRY_DSN` and `PARTICIPANT_SENTRY_PROJECT`;
-- `OPERATIONS_SENTRY_DSN` and `OPERATIONS_SENTRY_PROJECT`.
+Each Worker connects separately to `ACM-VIT/Code2Create`. This preserves independent build logs, runtime bindings, secrets, rollback, and failure state. No build deploys another Worker as a side effect.
 
-It supplies `CLOUDFLARE_ACCOUNT_ID`, a least-privilege `CLOUDFLARE_API_TOKEN`, and `SENTRY_AUTH_TOKEN` as GitHub Environment secrets. Production has required reviewers. The workflow validates configuration, builds all three user applications plus the intelligence Worker before deploying any of them, and uses strict Wrangler deploys against the exact environment-specific Worker names. Missing values stop before upload, and no secret value is printed. Custom-domain routing is added only after the exact staging and production domains are approved.
+| Staging Worker | Root directory | Build command | Deploy command |
+| --- | --- | --- | --- |
+| `code2create-participant-staging` | `apps/web` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-operations-staging` | `apps/ops` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-handbook-staging` | `apps/handbook` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-intelligence-staging` | `apps/intelligence` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-updates-staging` | `apps/updates` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-email-staging` | `apps/email` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-voice-staging` | `apps/voice` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 
-An authorized local staging release may use Wrangler's encrypted OAuth profile instead of copying a CI API token into the shell. The release validator checks the selected environment and release identity, while Wrangler remains the single authentication boundary and refuses the upload when its credential is absent or insufficient. Routine production release stays in the protected workflow above.
+Every staging build sets `NODE_VERSION=24.18.0` and `PNPM_VERSION=11.18.0`. Cloudflare supplies `WORKERS_CI`, `WORKERS_CI_BRANCH`, and `WORKERS_CI_COMMIT_SHA`. Cloudflare's production-branch setting owns the branch boundary. The environment-specific package commands set `CLOUDFLARE_ENV` and `VITE_DEPLOYMENT_ENVIRONMENT`, and the Vite deployments use `WORKERS_CI_COMMIT_SHA` as `VITE_RELEASE_ID`. Do not create user-defined copies of the `WORKERS_CI_*` values.
+
+The three browser applications use these additional build values:
+
+| Application | Plain build variables | Secret build variables |
+| --- | --- | --- |
+| Participant | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` | `SENTRY_AUTH_TOKEN` |
+| Operations | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` | `SENTRY_AUTH_TOKEN` |
+| Handbook | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG` | none |
+
+The remaining Workers need only the common build-tool versions. Their operational configuration belongs to the matching Worker runtime, not to Workers Builds:
+
+| Worker | Wrangler-owned bindings and plain runtime values | Runtime secrets |
+| --- | --- | --- |
+| Intelligence | Workers AI, admission-fence Durable Object, exact Ops origin, and exact Convex callback/read/work/recommendation URLs | `INTELLIGENCE_INGRESS_SECRET`, `INTELLIGENCE_CALLBACK_SECRET`, `INTELLIGENCE_READ_SECRET`, `INTELLIGENCE_STREAM_SECRET`; the URLs and Ops origin may also be stored as encrypted Worker secrets |
+| Updates | staging R2 bucket and `UPDATE_CHANNEL=staging` | `C2C_UPDATES_ADMIN_TOKEN` |
+| Email | staging Queue consumer and dead-letter Queue | `CONVEX_EMAIL_EVENT_CALLBACK_URL`, `EMAIL_EVENT_CALLBACK_SECRET`, `EMAIL_ROUTING_ADDRESS`, `EMAIL_ROUTING_FORWARD_TO`, `EMAIL_SENDING_DOMAIN` |
+| Voice | outbound-call Durable Object and staging `PUBLIC_BASE_URL` | `OUTBOUND_CALL_REQUEST_SECRET`, `OUTBOUND_CALL_EVENT_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `SARVAM_API_KEY` |
+
+The Cloudflare GitHub App and the Worker-specific build token are configured in Cloudflare. They do not become repository or application environment variables. Cloudflare's automatic dependency installation uses the workspace lockfile. Watch paths remain unrestricted for the first staging release so a shared package, generated API, handbook document, lockfile, or patch cannot leave one Worker stale.
+
+Cloudflare does not deploy Convex. The tested staging Convex functions and environment configuration must exist before a dependent Worker commit reaches `staging`. Do not make one Worker deploy Convex: seven independent builds could race and would give a frontend deployment backend authority. The production Worker connections and custom domains are configured only after the staging release is accepted.
+
+An authorized local staging release may use Wrangler's encrypted OAuth profile for recovery. The release validator checks the selected environment and release identity, and Wrangler refuses upload without its own credential. Routine staging deployment comes only from `staging`; routine production deployment will come only from `main`.
 
 ### Intelligence release contract
 
@@ -889,3 +917,6 @@ Current milestone note: the metadata scheduler, exact provider retry gate, separ
 - [Cloudflare R2 consistency](https://developers.cloudflare.com/r2/reference/consistency/)
 - [Cloudflare Workers static assets](https://developers.cloudflare.com/workers/static-assets/)
 - [Cloudflare SPA routing](https://developers.cloudflare.com/workers/static-assets/routing/single-page-application/)
+- [Cloudflare Workers Builds configuration](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)
+- [Cloudflare Workers Builds branch control](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)
+- [Cloudflare Workers Builds monorepos and Wrangler environments](https://developers.cloudflare.com/workers/ci-cd/builds/advanced-setups/)

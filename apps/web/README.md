@@ -27,4 +27,4 @@ pnpm --filter @code2create/web build
 
 ## Deployment
 
-The protected `Deploy web surfaces` workflow builds and deploys the participant portal, operations dashboard, handbook, and intelligence Worker from one commit. `.env.example` documents the release variables; local development does not use that template.
+Cloudflare Workers Builds deploys this application from its own Worker connection. The staging Worker uses repository branch `staging`, root directory `apps/web`, build command `pnpm cloudflare:build:staging`, and deploy command `pnpm cloudflare:deploy:staging`. Non-production branch builds stay disabled. `.env.example` documents the additional browser build values; local development does not use that template.

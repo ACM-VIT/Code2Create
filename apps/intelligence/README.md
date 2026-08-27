@@ -98,7 +98,9 @@ The live brief evaluation runs the real brief agent, instructions, model, and pu
 
 ## Deployment
 
-Build once and deploy the exact output through the protected release workflow. For a manual staging check:
+Cloudflare Workers Builds deploys the staging Worker from repository branch `staging`, root directory `apps/intelligence`, build command `pnpm cloudflare:build:staging`, and deploy command `pnpm cloudflare:deploy:staging`. Non-production branch builds stay disabled. The checked-in command derives the release identity from Cloudflare's commit metadata; the Worker connection owns the branch boundary.
+
+For an authorized local recovery deployment:
 
 ```sh
 CLOUDFLARE_ENV=staging VITE_RELEASE_ID="$(git rev-parse HEAD)" \

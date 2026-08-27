@@ -30,4 +30,4 @@ The release build regenerates the backend handbook module before building the cl
 
 ## Deployment
 
-The protected `Deploy web surfaces` workflow builds and deploys all web surfaces from one commit. `.env.example` lists release variables.
+Cloudflare Workers Builds deploys this application from its own Worker connection. The staging Worker uses repository branch `staging`, root directory `apps/handbook`, build command `pnpm cloudflare:build:staging`, and deploy command `pnpm cloudflare:deploy:staging`. Non-production branch builds stay disabled. `.env.example` lists the additional browser build variables.

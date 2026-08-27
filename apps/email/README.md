@@ -22,7 +22,7 @@ This Worker consumes Cloudflare Email Sending lifecycle events. It also forwards
 
    `EMAIL_EVENT_CALLBACK_SECRET` must equal the backend secret. `EMAIL_ROUTING_ADDRESS` is the one literal inbound alias accepted by the Worker. `EMAIL_ROUTING_FORWARD_TO` must be a verified Email Routing destination.
 
-3. Deploy the Worker:
+3. Connect `code2create-email-staging` to repository branch `staging` with root directory `apps/email`, build command `pnpm cloudflare:build:staging`, and deploy command `pnpm cloudflare:deploy:staging`. Non-production branch builds stay disabled. For an authorized manual recovery deployment:
 
    ```sh
    pnpm --filter @code2create/email deploy:staging

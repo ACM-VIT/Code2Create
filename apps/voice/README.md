@@ -13,6 +13,8 @@ The Worker uses:
 
 Copy `.env.example` to `.dev.vars` for local provider testing. Do not commit it. Set the same request and callback secrets on the matching Convex deployment. Configure the remaining provider secrets on each Cloudflare Worker environment before deployment.
 
+Cloudflare Workers Builds deploys staging from repository branch `staging`, root directory `apps/voice`, build command `pnpm cloudflare:build:staging`, and deploy command `pnpm cloudflare:deploy:staging`. Non-production branch builds stay disabled.
+
 ```sh
 pnpm --filter @code2create/voice dev
 pnpm --filter @code2create/voice test

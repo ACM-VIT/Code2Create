@@ -27,7 +27,7 @@
 | Mobile build/release | Local Expo prebuild plus signed Gradle/Xcode artifacts; event-owned Expo Updates Worker and private R2 buckets |
 | Crash reporting | Sentry for web and mobile |
 | Large artifacts and recovery copy | Private AWS S3 bucket in `ap-south-1`, versioned and encrypted with KMS, for evidence, protected exports, expiring emergency packs, and recovery copies, subject to VIT data-policy approval |
-| CI | GitHub Actions |
+| Verification and Worker delivery | GitHub Actions for checks; Cloudflare Workers Builds for branch-bound Worker deployment |
 | Tests | Vitest, Convex function tests, Playwright, Maestro, and a Convex load driver |
 
 The repository locks all dependency versions. The team upgrades them only after staging tests pass for authentication, push, camera, and reviews.
@@ -532,9 +532,9 @@ Cloudflare deploys `apps/web`, `apps/ops`, and `apps/handbook` as separate Worke
 
 `apps/intelligence` is another Vite-built Worker, not a static user surface. Its HTTP shell delegates signed autonomy admission, continuation, and abort to `src/routes/autonomyRoutes.ts`; separate `src/lib/autonomy*.ts` modules own fencing, transport, exhaustive traversal, orchestration, investigation, reduction, evidence, finalization, and artifact persistence. Wrangler creates the Flue Durable Object namespaces, the run-keyed autonomy admission-fence namespace, and the Workers AI binding under `code2create-intelligence-staging` or `code2create-intelligence`. The staging Worker points only to staging Convex endpoints and uses staging-only HMAC secrets. It exposes `/health`; signed service ingress for briefs, copilot turns, autonomy admission, continuation, and abort; and capability-protected sanitized history/long-poll routes. It never exposes the raw Flue agent router, a browser mutation or attachment route, prompts, reasoning, metadata, or tool arguments/results.
 
-The manual GitHub release workflow selects the protected `staging` or `production` GitHub Environment. It validates HTTPS backend URLs, event slug, release ID, Sentry upload configuration, and Cloudflare credentials without printing values. It builds the participant, operations, and handbook frontends and the intelligence Worker before the first deployment. It then runs strict Wrangler deployments.
+Cloudflare Workers Builds connects each staging Worker to the repository's `staging` branch and each production Worker to `main`. Each Worker owns one application root, validates its browser build values when applicable, derives the release ID from Cloudflare's commit SHA, and runs its checked-in strict Wrangler deployment. Non-production branch builds are disabled. GitHub Actions verifies the repository but does not deploy Workers.
 
-Preview and staging builds use only non-production Convex deployments. Before authentication approval, operators enter each frontend domain as an exact Better Auth origin and Google return path. Final routes remain blocked until all required domains are supplied.
+Staging builds use only the staging Convex deployment. Before authentication approval, operators enter each frontend domain as an exact Better Auth origin and Google return path. Final routes remain blocked until all required domains are supplied.
 
 ### Backend
 
@@ -567,7 +567,8 @@ Before a binary for a new runtime reaches a phone, release operations publishes 
 | Email Worker environment | Exact Convex email-event callback URL, sending domain, verified Email Routing forward destination, and email-event HMAC secret; no Convex service credential or Cloudflare Email Sending API token |
 | Voice Worker environment | Public Worker origin, approved Twilio credential and sending number, Sarvam synthesis key, request HMAC, and callback HMAC; no Convex service credential, broad event credential, purpose decision, or proposal data |
 | Controlled mobile release machine | Update private key and publisher token, Android keystore/passwords, Firebase `google-services.json`, Apple signing/provisioning keychain, public backend/auth/update URLs, app identifiers, Sentry upload token |
-| GitHub Actions | Cloudflare and Convex deploy credentials scoped by protected environment; no mobile or update-signing key |
+| Cloudflare Workers Builds | Worker-specific GitHub connection and deploy token; browser build values and Sentry upload token only where required; no Convex deploy, provider, mobile, or update-signing key |
+| GitHub Actions | Controlled browser/provider verification credentials only; no Cloudflare deploy, mobile, or update-signing key |
 
 Figma OAuth grants are encrypted once per Figma App/user and referenced by team-owned file bindings. Figma webhook passcodes are random and stored encrypted or as verification hashes. GitHub installation tokens are minted when needed and not persisted after expiry.
 
@@ -612,7 +613,7 @@ Figma OAuth grants are encrypted once per Figma App/user and referenced by team-
 - Support diagnostics use case state, age, and bounded counts only. Descriptions, contact routes, public replies, and internal notes stay inside exact support reads and never enter aggregate health or Sentry.
 - One 30-second server cron targets at most two event rows and enforces the deployment's single-event invariant. Its internal action runs the bounded aggregate internal query once, then an indexed mutation upserts exactly one `operationsHealthSnapshots` row for the event. Each generation schedules a generation-checked stale marker, so subscribers receive a server-owned stale transition if refresh work stops. Browser and mobile clients subscribe only to that row and do not run timers or pass non-semantic refresh arguments. Missing and stale materializations are explicit states; no client, intelligence read, or brief path falls back to the broad live query.
 - A provisioned scanner sends an authenticated heartbeat every 45 seconds only while its camera-ready scanner surface is foregrounded. The server rechecks the exact station grant, configuration version, device assignment, and hashed installation secret, and writes at most once per 30 seconds. During a live event, an expected active station becomes stale after two minutes; registration time or an old scan alone is not treated as current liveness.
-- GitHub Actions records build/test/deploy results.
+- GitHub Actions records verification results. Cloudflare Workers Builds records the build and deployment tied to each staging or production Worker and Git commit.
 
 Business history stays in domain records and audit events. Sentry is not the judging ledger.
 

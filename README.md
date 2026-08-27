@@ -259,9 +259,9 @@ Phase-bound project checkpoints form a separate immutable layer. Operations publ
 
 ### Release status
 
-GitHub Actions scans changed history for secrets. It installs the frozen pnpm lockfile, lints, type-checks, tests, and builds the Vite apps and Cloudflare Workers. It also checks the Expo configuration and exports both mobile JavaScript bundles.
+GitHub Actions scans changed history for secrets. It installs the frozen pnpm lockfile, lints, type-checks, tests, and builds the Vite apps and Cloudflare Workers. It also checks the Expo configuration and exports both mobile JavaScript bundles. It verifies code and does not own Cloudflare deployment.
 
-A separate protected workflow builds the participant and operations surfaces plus the service Workers. Wrangler deploys each surface to its own staging or production Cloudflare Worker. The canonical handbook mirror is published separately from repository Markdown to ChatGPT Sites.
+Cloudflare Workers Builds connects each Worker directly to this GitHub repository. The `staging` branch deploys only staging Workers. The `main` branch is reserved for production Workers. Each Worker builds from its own application root with an environment-specific pnpm command, and non-production branch builds are disabled. The canonical handbook mirror is published separately from repository Markdown to ChatGPT Sites.
 
 Gradle and Xcode build signed Android APK/AAB and iOS IPA files on a controlled local machine. The release machine exports and signs JavaScript updates. A separate Cloudflare Worker and environment-specific R2 bucket serve those updates.
 
@@ -279,12 +279,13 @@ The isolated staging Convex deployment, intelligence Worker, handbook renderer, 
 - The current authenticated handbook renderer is deployed at `code2create-handbook-staging.acmvit.workers.dev`. The separate ChatGPT Sites handbook remains the canonical planning mirror.
 - The participant and operations staging Workers are not deployed. Their release scripts correctly stop until `VITE_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, and `SENTRY_AUTH_TOKEN` are supplied together.
 - The Cloudflare staging email Queue and dead-letter Queue exist. The email Worker, Event Subscription, sending identity, support alias, and forwarding destination remain closed until O-034 selects the event-owned domain and addresses. The voice Worker remains closed until the approved Twilio and Sarvam staging credentials exist.
-- The protected GitHub `staging` environment contains the exact Convex URLs, event slug, and deployment key. Repository Actions cannot run until an ACM-VIT organization owner enables Actions for this repository.
+- The repository has a `staging` release branch and checked-in Cloudflare Workers Builds commands for all seven Workers. The existing staging Workers still need their Git connections enabled in Cloudflare. Repository verification Actions remain unavailable until an ACM-VIT organization owner enables Actions for this repository.
 
 The remaining launch work is:
 
 - Select permanent platform identifiers.
 - Supply native signing and provider credentials.
+- Connect each staging Worker to `ACM-VIT/Code2Create`, select `staging`, and apply the build settings in `specs/13-integrations-and-release.md`.
 - Publish a privacy-reviewed novelty corpus.
 - Back up the update private key.
 - Produce signed builds and test them on the proposed phones.

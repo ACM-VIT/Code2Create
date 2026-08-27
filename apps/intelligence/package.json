@@ -6,6 +6,10 @@
 	"scripts": {
 		"dev": "vite dev --port 8791 --strictPort",
 		"build": "vite build",
+		"cloudflare:build:staging": "CLOUDFLARE_ENV=staging VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm build",
+		"cloudflare:deploy:staging": "CLOUDFLARE_ENV=staging VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm deploy:built",
+		"cloudflare:build:production": "CLOUDFLARE_ENV=production VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm build",
+		"cloudflare:deploy:production": "CLOUDFLARE_ENV=production VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm deploy:built",
 		"deploy": "pnpm build && pnpm deploy:built",
 		"deploy:built": "node ../backend/scripts/release/deployCloudflareViteWorker.ts code2create-intelligence",
 		"deploy:check": "wrangler deploy --name code2create-intelligence-staging --strict --dry-run",

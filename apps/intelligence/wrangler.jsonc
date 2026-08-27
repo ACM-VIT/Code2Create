@@ -3,6 +3,8 @@
 	"name": "code2create-intelligence",
 	"compatibility_date": "2026-08-07",
 	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": true,
+	"preview_urls": false,
 	"ai": { "binding": "AI", "remote": true },
 	"durable_objects": {
 		"bindings": [{
