@@ -20,11 +20,23 @@
 	"env": {
 		"staging": {
 			"name": "code2create-intelligence-staging",
-			"ai": { "binding": "AI" }
+			"ai": { "binding": "AI" },
+			"durable_objects": {
+				"bindings": [{
+					"name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",
+					"class_name": "OperationsAutonomyAdmissionFence"
+				}]
+			}
 		},
 		"production": {
 			"name": "code2create-intelligence",
-			"ai": { "binding": "AI" }
+			"ai": { "binding": "AI" },
+			"durable_objects": {
+				"bindings": [{
+					"name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",
+					"class_name": "OperationsAutonomyAdmissionFence"
+				}]
+			}
 		}
 	}
 }

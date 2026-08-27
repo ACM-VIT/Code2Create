@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "build:release": "node ../backend/scripts/release/webEnvironment.ts participant build && pnpm build",
     "deploy": "pnpm build:release && pnpm deploy:built",
-    "deploy:built": "node ../backend/scripts/release/webEnvironment.ts participant deploy && wrangler deploy --env \"$CLOUDFLARE_ENV\" --strict --message \"$VITE_RELEASE_ID\"",
+    "deploy:built": "node ../backend/scripts/release/webEnvironment.ts participant deploy && node ../backend/scripts/release/deployCloudflareViteWorker.ts code2create-participant",
     "lint": "oxlint",
     "test": "node --experimental-strip-types --test scripts/generateAttendanceBadges.test.ts src/lib/errors.test.ts src/lib/operations.test.ts src/lib/time.test.ts",
     "typecheck": "tsc -b",

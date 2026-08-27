@@ -27,6 +27,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ENV: ${{ inputs.environment }}
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       SENTRY_ORG: ${{ vars.SENTRY_ORG }}
       VITE_CONVEX_SITE_URL: ${{ vars.CONVEX_SITE_URL }}
@@ -63,6 +64,9 @@ jobs:
 
       - name: Build outbound voice Worker
         run: pnpm --filter @code2create/voice build
+
+      - name: Deploy Convex backend
+        run: pnpm --filter @code2create/backend exec convex deploy --typecheck enable --message "${GITHUB_SHA}"
 
       - name: Deploy participant portal
         run: pnpm --filter @code2create/web deploy:built

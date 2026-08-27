@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "build:release": "node ../backend/scripts/release/webEnvironment.ts operations build && pnpm build",
     "deploy": "pnpm build:release && pnpm deploy:built",
-    "deploy:built": "node ../backend/scripts/release/webEnvironment.ts operations deploy && wrangler deploy --env \"$CLOUDFLARE_ENV\" --strict --message \"$VITE_RELEASE_ID\"",
+    "deploy:built": "node ../backend/scripts/release/webEnvironment.ts operations deploy && node ../backend/scripts/release/deployCloudflareViteWorker.ts code2create-operations",
     "lint": "oxlint",
     "test": "node --experimental-strip-types --test src/components/intelligence/intelligenceUiContract.test.ts src/components/intelligence/liveAgentProjection.test.ts src/lib/errors.test.ts src/lib/intelligenceConversation.test.ts src/lib/intelligenceStream.test.ts src/lib/operations.test.ts src/lib/operationsAutonomyPresentation.test.ts src/lib/operationsBrief.test.ts",
     "typecheck": "tsc -b",
