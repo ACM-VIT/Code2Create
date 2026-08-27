@@ -269,20 +269,23 @@ Staging and production use separate update Workers and R2 buckets. They use diff
 
 This handbook is the launch contract. It does not state that every acceptance item is complete.
 
-The isolated staging Convex deployment and intelligence Worker are deployed. They use environment-specific ingress and callback secrets. The Worker health route succeeds. The Worker rejects unsigned work.
+The isolated staging Convex deployment, intelligence Worker, handbook renderer, and self-hosted Expo Updates service are deployed. They use environment-specific bindings and secrets. Their health routes succeed, and protected service routes reject unsigned or unauthenticated work.
 
-### Staging deployment snapshot · 8 August 2026
+### Staging deployment snapshot · 27 August 2026
 
-- The staging Convex backend is deployed at `patient-dove-650.eu-west-1.convex.cloud`.
-- The staging intelligence Worker and self-hosted Expo Updates Worker/R2 service are deployed.
+- The current Convex backend is deployed at `patient-dove-650.eu-west-1.convex.cloud`. It has no event or demo product data. Google sign-in, the initial owner allowlist, the event slug, and OpenAI are configured for first-run setup.
+- The current intelligence Worker is deployed at `code2create-intelligence-staging.acmvit.workers.dev`. Its four signed boundaries, eight backend endpoints, Workers AI binding, Flue agents, and autonomy admission fence are configured. `/health` succeeds, and unsigned ingress returns `401`.
+- The current self-hosted Expo Updates Worker and staging R2 bucket are deployed at `code2create-updates-staging.acmvit.workers.dev`. Its health route reports the staging channel, and its admin route rejects anonymous access.
+- The current authenticated handbook renderer is deployed at `code2create-handbook-staging.acmvit.workers.dev`. The separate ChatGPT Sites handbook remains the canonical planning mirror.
 - The participant and operations staging Workers are not deployed. Their release scripts correctly stop until `VITE_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, and `SENTRY_AUTH_TOKEN` are supplied together.
-- The Cloudflare staging email Queue and dead-letter Queue exist. The email Worker, Event Subscription, sending identity, support alias, and forwarding destination remain closed until O-034 selects the event-owned domain and addresses.
+- The Cloudflare staging email Queue and dead-letter Queue exist. The email Worker, Event Subscription, sending identity, support alias, and forwarding destination remain closed until O-034 selects the event-owned domain and addresses. The voice Worker remains closed until the approved Twilio and Sarvam staging credentials exist.
+- The protected GitHub `staging` environment contains the exact Convex URLs, event slug, and deployment key. Repository Actions cannot run until an ACM-VIT organization owner enables Actions for this repository.
 
 The remaining launch work is:
 
 - Select permanent platform identifiers.
 - Supply native signing and provider credentials.
-- Configure the OpenAI key and publish a privacy-reviewed novelty corpus.
+- Publish a privacy-reviewed novelty corpus.
 - Back up the update private key.
 - Produce signed builds and test them on the proposed phones.
 - Supply the staging Sentry release values, deploy the participant and operations Workers, and test both against staging Convex.
