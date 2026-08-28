@@ -41,17 +41,24 @@ export function EntryScreen({
     setBusy(true)
     setError(null)
     try {
-      const result = await authClient.signIn.social({
+      const result = await authClient.signIn.popup({
         provider: 'google',
         callbackURL: window.location.href,
       })
-      if (result.error) setError('Google sign-in could not start. Try again.')
+      if (result.error) setError(popupErrorMessage(result.error.code))
     } catch {
-      setError('Google sign-in could not start. Try again.')
+      setError(popupErrorMessage(undefined))
     } finally {
       setBusy(false)
     }
   }
+
+function popupErrorMessage(code: string | undefined) {
+  if (code === 'POPUP_BLOCKED') return 'Allow pop-ups for this site, then try again.'
+  if (code === 'POPUP_CLOSED') return 'Google sign-in was closed before it finished.'
+  if (code === 'POPUP_TIMEOUT') return 'Google sign-in took too long. Try again.'
+  return 'Google sign-in could not start. Try again.'
+}
 
   return (
     <main className="centered-shell">
