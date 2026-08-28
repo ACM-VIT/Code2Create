@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "code2create-landing",
+  "compatibility_date": "2026-08-04",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "not_found_handling": "single-page-application"
+  },
+  "env": {
+    "staging": {
+      "name": "code2create-landing-staging"
+    },
+    "production": {
+      "name": "code2create-landing"
+    }
+  }
+}

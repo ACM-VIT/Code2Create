@@ -615,7 +615,7 @@ The complete pull-request gate must run:
 2. formatting, lint, and TypeScript;
 3. domain/unit tests;
 4. Convex schema/function tests;
-5. production builds for the participant and operations Vite applications plus the intelligence, update, email, and voice Workers;
+5. production builds for the landing, participant, and operations Vite applications plus the intelligence, update, email, and voice Workers;
 6. intelligence protocol/permission/race tests and a strict Wrangler dry-run with the Workers AI and Durable Object bindings;
 7. Expo export/config validation plus update-Worker dry-run build and protocol/concurrency tests;
 8. Playwright against an isolated seeded deployment;
@@ -649,6 +649,7 @@ Each Worker connects separately to `ACM-VIT/Code2Create`. This preserves indepen
 
 | Staging Worker | Root directory | Build command | Deploy command |
 | --- | --- | --- | --- |
+| `code2create-landing-staging` | `apps/landing` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 | `code2create-participant-staging` | `apps/web` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 | `code2create-operations-staging` | `apps/ops` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 | `code2create-intelligence-staging` | `apps/intelligence` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
@@ -658,10 +659,11 @@ Each Worker connects separately to `ACM-VIT/Code2Create`. This preserves indepen
 
 Every staging build sets `NODE_VERSION=24.18.0` and `PNPM_VERSION=11.18.0`. Cloudflare supplies `WORKERS_CI`, `WORKERS_CI_BRANCH`, and `WORKERS_CI_COMMIT_SHA`. Cloudflare's production-branch setting owns the branch boundary. The environment-specific package commands set `CLOUDFLARE_ENV` and `VITE_DEPLOYMENT_ENVIRONMENT`, and the Vite deployments use `WORKERS_CI_COMMIT_SHA` as `VITE_RELEASE_ID`. Do not create user-defined copies of the `WORKERS_CI_*` values.
 
-The two browser applications use these additional build values:
+The three browser applications use these additional build values:
 
 | Application | Plain build variables | Secret build variables |
 | --- | --- | --- |
+| Landing | `VITE_PARTICIPANT_PORTAL_URL`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY` |
 | Participant | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY` |
 | Operations | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY` |
 

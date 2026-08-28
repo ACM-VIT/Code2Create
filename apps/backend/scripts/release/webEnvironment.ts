@@ -1,4 +1,4 @@
-type ReleaseSurface = 'participant' | 'operations'
+type ReleaseSurface = 'landing' | 'participant' | 'operations'
 type ValidationMode = 'build' | 'deploy'
 type BuildEnvironment = Readonly<Record<string, string | undefined>>
 
@@ -13,19 +13,21 @@ export function validateWebReleaseEnvironment(
     throw new Error('VITE_RELEASE_ID must be no longer than 120 characters.')
   }
 
-  if (mode === 'deploy') return
-
   const deploymentEnvironment = required(environment, 'VITE_DEPLOYMENT_ENVIRONMENT')
   if (deploymentEnvironment !== cloudflareEnvironment) {
     throw new Error('VITE_DEPLOYMENT_ENVIRONMENT must match CLOUDFLARE_ENV.')
   }
 
-  requiredHttpsUrl(environment, 'VITE_CONVEX_URL')
-  requiredHttpsUrl(environment, 'VITE_CONVEX_SITE_URL')
+  if (surface === 'landing') {
+    requiredHttpsUrl(environment, 'VITE_PARTICIPANT_PORTAL_URL')
+  } else {
+    requiredHttpsUrl(environment, 'VITE_CONVEX_URL')
+    requiredHttpsUrl(environment, 'VITE_CONVEX_SITE_URL')
 
-  const eventSlug = required(environment, 'VITE_EVENT_SLUG')
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(eventSlug) || eventSlug.length > 80) {
-    throw new Error('VITE_EVENT_SLUG must be a lowercase hyphenated slug of at most 80 characters.')
+    const eventSlug = required(environment, 'VITE_EVENT_SLUG')
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(eventSlug) || eventSlug.length > 80) {
+      throw new Error('VITE_EVENT_SLUG must be a lowercase hyphenated slug of at most 80 characters.')
+    }
   }
 
   const projectToken = required(environment, 'VITE_POSTHOG_PROJECT_TOKEN')
@@ -33,6 +35,9 @@ export function validateWebReleaseEnvironment(
     throw new Error('VITE_POSTHOG_PROJECT_TOKEN must be a PostHog project token.')
   }
   requiredHttpsUrl(environment, 'VITE_POSTHOG_HOST')
+
+  if (mode === 'deploy') return
+
   requiredHttpsUrl(environment, 'POSTHOG_CLI_HOST')
   const projectId = required(environment, 'POSTHOG_CLI_PROJECT_ID')
   if (!/^\d+$/u.test(projectId) || Number(projectId) < 1) {
@@ -73,8 +78,8 @@ function required(environment: BuildEnvironment, name: string) {
 }
 
 function parseSurface(value: string | undefined): ReleaseSurface {
-  if (value === 'participant' || value === 'operations') return value
-  throw new Error('Choose the participant or operations release surface.')
+  if (value === 'landing' || value === 'participant' || value === 'operations') return value
+  throw new Error('Choose the landing, participant, or operations release surface.')
 }
 
 function parseMode(value: string | undefined): ValidationMode {

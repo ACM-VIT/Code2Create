@@ -522,7 +522,7 @@ Full Figma JSON, captured previews, protected attendance/round exports, and emer
 
 ### Web
 
-Cloudflare deploys `apps/web` and `apps/ops` as separate Workers static-asset applications. Both use the official Vite plugin and `single-page-application` not-found handling. Wrangler environments use staging names for rehearsal and unsuffixed names for production.
+Cloudflare deploys `apps/landing`, `apps/web`, and `apps/ops` as separate Workers static-asset applications. The public landing page sends applicants to the configured participant-portal origin and does not read private event data. All three use the official Vite plugin and `single-page-application` not-found handling. Wrangler environments use staging names for rehearsal and unsuffixed names for production.
 
 `apps/intelligence` is another Vite-built Worker, not a static user surface. Its HTTP shell delegates signed autonomy admission, continuation, and abort to `src/routes/autonomyRoutes.ts`; separate `src/lib/autonomy*.ts` modules own fencing, transport, exhaustive traversal, orchestration, investigation, reduction, evidence, finalization, and artifact persistence. Wrangler creates the Flue Durable Object namespaces, the run-keyed autonomy admission-fence namespace, and the Workers AI binding under `code2create-intelligence-staging` or `code2create-intelligence`. The staging Worker points only to staging Convex endpoints and uses staging-only HMAC secrets. It exposes `/health`; signed service ingress for briefs, copilot turns, autonomy admission, continuation, and abort; and capability-protected sanitized history/long-poll routes. It never exposes the raw Flue agent router, a browser mutation or attachment route, prompts, reasoning, metadata, or tool arguments/results.
 

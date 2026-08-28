@@ -56,6 +56,7 @@ The full command additionally starts reviewer Metro, intelligence, Expo Updates,
 ```sh
 pnpm dev:web
 pnpm dev:ops
+pnpm dev:landing
 pnpm dev:backend
 pnpm dev:reviewer
 pnpm dev:intelligence
@@ -68,6 +69,7 @@ pnpm dev:voice
 | --- | --- |
 | Participant portal | `http://localhost:5180` |
 | Operations dashboard | `http://localhost:5181` |
+| Public landing page | `http://localhost:5182` |
 | Convex HTTP/auth | `http://localhost:3211` |
 | Reviewer Metro | `http://localhost:8082` |
 | Intelligence Worker | `http://localhost:8791/health` |
@@ -83,6 +85,7 @@ Run `pnpm dev:prepare` after changing local backend or worker environment while 
 | --- | --- |
 | `apps/web` | Participant portal |
 | `apps/ops` | Organizer operations dashboard |
+| `apps/landing` | Public Code2Create landing page |
 | `apps/reviewer` | Native reviewer and floor-operations app |
 | `apps/backend` | Convex data, authorization, transactions, jobs, and provider orchestration |
 | `apps/intelligence` | Flue-based operations intelligence worker |
@@ -105,6 +108,7 @@ Use focused package checks while editing:
 pnpm --filter @code2create/backend typecheck
 pnpm --filter @code2create/ops typecheck
 pnpm --filter @code2create/web typecheck
+pnpm --filter @code2create/landing typecheck
 pnpm --filter @code2create/reviewer typecheck
 ```
 
