@@ -21,7 +21,7 @@ import {
   noveltyEmbeddingModel,
   noveltyInputFingerprint,
   noveltyScoreForDensity,
-  noveltyTeamMatchLimit,
+  noveltyDensityMatchLimit,
   type NoveltyIdeaLifecycle,
   validEmbedding,
 } from "./lib/novelty";
@@ -829,7 +829,7 @@ export const preview = action({
           "by_corpus_embedding",
           {
             vector: embedding,
-            limit: 3,
+            limit: noveltyDensityMatchLimit,
             filter: (filter) => filter.eq("corpusVersionId", begun.corpusVersionId),
           },
         ),
@@ -838,7 +838,7 @@ export const preview = action({
           "by_event_embedding",
           {
             vector: embedding,
-            limit: noveltyTeamMatchLimit + 1,
+            limit: noveltyDensityMatchLimit + 1,
             filter: (filter) => filter.eq("eventId", begun.eventId),
           },
         ),
@@ -856,7 +856,7 @@ export const preview = action({
       }
       const metadata = await ctx.runQuery(internal.novelty.readMatchMetadata, {
         corpusVersionId: begun.corpusVersionId,
-        entryIds: corpusMatches.map((match) => match._id),
+        entryIds: [nearest._id],
       });
       const nearestMetadata = metadata[0];
       if (!nearestMetadata || nearestMetadata.id !== nearest._id) {
@@ -869,9 +869,8 @@ export const preview = action({
       const teamSimilarity = new Map(
         teamMatches.map((match) => [match._id, match._score] as const),
       );
-      const densityMatches = teamMetadata
+      const teamDensityMatches = teamMetadata
         .filter((idea) => idea.teamId !== begun.teamId)
-        .slice(0, noveltyTeamMatchLimit)
         .map((idea) => {
           const similarity = teamSimilarity.get(idea.id);
           if (similarity === undefined) {
@@ -879,6 +878,13 @@ export const preview = action({
           }
           return { similarity, lifecycle: idea.lifecycle };
         });
+      const corpusDensityMatches = corpusMatches.map((match) => ({
+        similarity: match._score,
+        lifecycle: "submitted" as const,
+      }));
+      const densityMatches = [...corpusDensityMatches, ...teamDensityMatches]
+        .toSorted((left, right) => right.similarity - left.similarity)
+        .slice(0, noveltyDensityMatchLimit);
       const density = effectiveSimilarTeams(
         densityMatches,
         noveltyDensitySimilarityPolicy,
