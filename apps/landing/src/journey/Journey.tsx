@@ -27,6 +27,7 @@ import Cards, {
 } from './Cards.js';
 import { Plant, createBloomTimeline } from '../timeline/botanical.js';
 import { eventRegistrationUrl } from '../lib/config.js';
+import FaqBoard from './FaqBoard.js';
 import type { PetalFieldHandle } from './Petals.js';
 import './journey.css';
 
@@ -210,8 +211,6 @@ const FAQ = [
 ];
 
 interface JourneyProps {
-  onFaqToggle(id: string): void
-  openFaq: string | null
   petalsRef: RefObject<PetalFieldHandle | null>
 }
 
@@ -229,7 +228,7 @@ function emberStyle(ember: (typeof EMBERS)[number]): EmberStyle {
   };
 }
 
-export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProps) {
+export default function Journey({ petalsRef }: JourneyProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
 
@@ -932,42 +931,7 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
         {/* ---------- FAQs ---------- */}
         <div className="faq-shell" id="faqs">
           <h2 className="visually-hidden">Frequently asked questions</h2>
-          <div className="faq-columns">
-            {ladderColumns.map((column, columnIndex) => (
-              <ul className="faq-column" key={columnIndex}>
-                <span className="rope rope--near" aria-hidden="true" />
-                <span className="rope rope--far" aria-hidden="true" />
-                {column.map((item) => {
-                  const open = openFaq === item.id;
-                  return (
-                    <li className="plank" key={item.id}>
-                      <h3 className="plank__heading">
-                        <button
-                          className="plank__face"
-                          type="button"
-                          aria-expanded={open}
-                          aria-controls={`faq-${item.id}`}
-                          onClick={() => onFaqToggle(item.id)}
-                        >
-                          <span>{item.q}</span>
-                          <svg
-                            className="plank__chevron"
-                            viewBox="0 0 16 16"
-                            aria-hidden="true"
-                          >
-                            <path d="M 3 5.5 L 8 10.5 L 13 5.5" />
-                          </svg>
-                        </button>
-                      </h3>
-                      <div className="plank__answer" id={`faq-${item.id}`} data-open={open}>
-                        <p>{item.a ?? 'Answers go live closer to the event. Watch this space.'}</p>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            ))}
-          </div>
+          <FaqBoard columns={ladderColumns} />
         </div>
       </div>
     </div>
