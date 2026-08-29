@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Petal } from './Petal'
 import { PortalButton, PortalTextButton } from './PortalButton'
 import { PortalError } from './PortalField'
@@ -80,8 +80,34 @@ export function TeamCluster({
   const [pinned, setPinned] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [confirmingLeave, setConfirmingLeave] = useState(false)
+  const leaveTriggerRef = useRef<HTMLButtonElement>(null)
+  const leaveDialogRef = useRef<HTMLDivElement>(null)
+  const restoreLeaveTriggerFocus = useRef(false)
+  const movingLeaveFlowFocus = useRef(false)
   const open = pinned || hovered
   const shown = members.slice(0, 4)
+
+  useEffect(() => {
+    if (confirmingLeave) {
+      leaveDialogRef.current
+        ?.querySelector<HTMLButtonElement>('[data-leave-cancel]')
+        ?.focus()
+      movingLeaveFlowFocus.current = false
+      return
+    }
+
+    if (!restoreLeaveTriggerFocus.current) return
+
+    restoreLeaveTriggerFocus.current = false
+    leaveTriggerRef.current?.focus()
+    movingLeaveFlowFocus.current = false
+  }, [confirmingLeave])
+
+  const closeLeaveConfirmation = () => {
+    movingLeaveFlowFocus.current = true
+    restoreLeaveTriggerFocus.current = true
+    setConfirmingLeave(false)
+  }
 
   return (
     <div
@@ -90,6 +116,7 @@ export function TeamCluster({
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setPinned(true)}
       onBlur={(event) => {
+        if (movingLeaveFlowFocus.current) return
         const nextTarget = event.relatedTarget
         if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return
         setPinned(false)
@@ -165,8 +192,15 @@ export function TeamCluster({
             <div className="mt-3 border-t border-petal-line pt-3">
               {confirmingLeave ? (
                 <div
+                  ref={leaveDialogRef}
                   role="alertdialog"
                   aria-label={`Confirm leaving ${team.name}`}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Escape') return
+                    event.preventDefault()
+                    event.stopPropagation()
+                    closeLeaveConfirmation()
+                  }}
                   className="rounded-petal-xs border border-petal-edge-soft bg-[linear-gradient(155deg,rgba(255,255,255,.08),rgba(12,0,4,.78)_62%)] px-4 py-3.5 shadow-[0_18px_36px_-16px_rgba(0,0,0,.9)]"
                 >
                   <p className="mb-3 text-[12.5px] leading-relaxed text-[rgb(248_248_248/.72)]">
@@ -189,9 +223,10 @@ export function TeamCluster({
                   </PortalButton>
                   <PortalTextButton
                     type="button"
+                    data-leave-cancel
                     className="mt-3 w-full"
                     disabled={leaveAction.pending}
-                    onClick={() => setConfirmingLeave(false)}
+                    onClick={closeLeaveConfirmation}
                   >
                     Keep team
                   </PortalTextButton>
@@ -199,10 +234,12 @@ export function TeamCluster({
                 </div>
               ) : leaveAction.available ? (
                 <button
+                  ref={leaveTriggerRef}
                   type="button"
                   className="rounded-sm text-[12px] text-[rgb(248_248_248/.45)] underline-offset-4 transition-colors hover:text-rose-light hover:underline"
                   disabled={leaveAction.pending}
                   onClick={() => {
+                    movingLeaveFlowFocus.current = true
                     setPinned(true)
                     setConfirmingLeave(true)
                   }}
