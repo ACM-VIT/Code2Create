@@ -73,9 +73,10 @@ export function TeamRoster() {
 
   const entries = entryPage.results
   const loadingPeople = entryPage.status === 'LoadingFirstPage'
-  const waiting = entries.filter((entry) => entry.status === 'pending' || entry.status === 'waiting_for_lead').length
-  const joined = entries.filter((entry) => entry.status === 'claimed').length
-  const skipped = entries.filter((entry) => entry.status === 'skipped_has_team').length
+  const waiting = workspace.entryCounts.waiting
+  const joined = workspace.entryCounts.claimed
+  const skipped = workspace.entryCounts.skipped
+  const total = workspace.entryCounts.total
 
   const readCsv = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -191,7 +192,7 @@ export function TeamRoster() {
       ) : (
         <section className="stage-block">
           <p className="eyebrow">Where this list stands</p>
-          {entries.length === 0 ? (
+          {total === 0 ? (
             <p>No team assignments have been imported yet.</p>
           ) : (
             <>
@@ -203,7 +204,7 @@ export function TeamRoster() {
               <p>
                 {waiting === 0
                   ? 'Every imported person is on a team.'
-                  : `${waiting} of ${entries.length} ${people(entries.length)} are still waiting to join their team.`}
+                  : `${waiting} of ${total} ${people(total)} are still waiting to join their team.`}
               </p>
               {!workspace.canImport ? (
                 <p className="muted">You can read this list but not import team assignments.</p>
