@@ -101,6 +101,7 @@ describe("event bootstrap", () => {
       eventSlug: "code2create-7",
     });
     expect(operationsAccess).toMatchObject({
+      isSupreme: true,
       eventLifecycle: true,
       accessPeople: true,
       health: true,

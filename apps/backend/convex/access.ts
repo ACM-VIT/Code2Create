@@ -133,6 +133,7 @@ const reviewerCapabilitiesView = v.object({
 });
 
 const operationsCapabilitiesView = v.object({
+  isSupreme: v.boolean(),
   admissions: v.boolean(),
   applicationRead: v.boolean(),
   applicationReviewRead: v.boolean(),
@@ -647,7 +648,23 @@ export const operationsCapabilities = query({
   returns: v.union(v.null(), operationsCapabilitiesView),
   handler: async (ctx, args) => {
     const subject = await currentCapabilitySubject(ctx, args.eventSlug);
-    return subject ? resolveOperationsCapabilities(ctx, subject) : null;
+    if (!subject) return null;
+    const [capabilities, role] = await Promise.all([
+      resolveOperationsCapabilities(ctx, subject),
+      ctx.db
+        .query("eventRoles")
+        .withIndex("by_event_person_status", (index) =>
+          index
+            .eq("eventId", subject.eventId)
+            .eq("personId", subject.personId)
+            .eq("status", "active"),
+        )
+        .unique(),
+    ]);
+    return {
+      ...capabilities,
+      isSupreme: role?.role === "supreme",
+    };
   },
 });
 
