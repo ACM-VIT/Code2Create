@@ -256,6 +256,14 @@ async function liveTeamNamed(
   return activeMatches[0] ?? null;
 }
 
+function entryStatusForPreviewOutcome(
+  outcome: PreviewRow["outcome"],
+): Doc<"teamRosterEntries">["status"] {
+  if (outcome === "already_on_team") return "skipped_has_team";
+  if (outcome === "waiting_for_lead") return "waiting_for_lead";
+  return "pending";
+}
+
 async function prepareTeamRosterPreview(
   ctx: ReadCtx,
   event: Doc<"events">,
@@ -565,7 +573,7 @@ export const confirmImport = mutation({
       createdAt: now,
     });
     const insertedEntryIds = new Map<number, Id<"teamRosterEntries">>();
-    for (const row of prepared.normalizedRows) {
+    for (const row of prepared.rows) {
       const teamRosterEntryId = await ctx.db.insert("teamRosterEntries", {
         eventId: event._id,
         teamRosterImportId,
@@ -574,7 +582,7 @@ export const confirmImport = mutation({
         displayName: row.displayName,
         teamName: row.teamName,
         role: row.role,
-        status: "pending",
+        status: entryStatusForPreviewOutcome(row.outcome),
         version: 1,
         createdByPersonId: person._id,
         createdAt: now,
