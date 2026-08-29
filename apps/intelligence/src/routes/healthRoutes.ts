@@ -18,6 +18,9 @@ export const healthRoutes = new Hono<{ Bindings: Cloudflare.Env }>();
 
 healthRoutes.get('/health', (context) => {
 	try {
+		if (context.env.OPENAI_API_KEY.trim().length === 0) {
+			throw new Error('OPENAI_API_KEY is unavailable.');
+		}
 		for (const [value, name] of [
 			[context.env.INTELLIGENCE_INGRESS_SECRET, 'INTELLIGENCE_INGRESS_SECRET'],
 			[context.env.INTELLIGENCE_CALLBACK_SECRET, 'INTELLIGENCE_CALLBACK_SECRET'],
@@ -38,9 +41,6 @@ healthRoutes.get('/health', (context) => {
 				'Convex autonomy recommendation evidence',
 			],
 		] as const) serviceUrl(value, name);
-		if (typeof context.env.AI.run !== 'function') {
-			throw new Error('The Workers AI binding is unavailable.');
-		}
 		return context.json({ ok: true });
 	} catch {
 		return context.json({ ok: false }, 503);

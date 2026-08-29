@@ -14,28 +14,30 @@ allowBuilds:
   unrs-resolver: true
   workerd: true
 overrides:
+  '@babel/core': 7.29.7
+  '@react-native/metro-config': 0.86.3
   esbuild: 0.28.1
-  image-size: 1.2.1
   nanoid: 3.3.18
   next: 16.2.11
   postcss: 8.5.25
+  react-native: 0.86.3
   react-server-dom-webpack: 19.2.8
   sharp: 0.35.2
   uuid: 11.1.1
 minimumReleaseAgeExclude:
-  - '@expo/cli@57.0.13'
+  - '@expo/cli@57.0.13 || 57.0.20'
   - '@expo/config-plugins@57.0.7'
   - babel-preset-expo@57.0.6
   - expo-asset@57.0.9
   - expo-file-system@57.0.2 || 57.0.6
   - expo-modules-core@57.0.10
-  - expo@57.0.11
+  - expo@57.0.11 || 57.0.18
   - expo-notifications@57.0.9
   - expo-router@57.0.11
   - expo-symbols@57.0.2
   - '@cloudflare/vite-plugin@1.51.1'
-  - miniflare@5.20260801.1-alpha
-  - wrangler@4.120.0
+  - miniflare@5.20260801.1-alpha || 5.20260828.0-alpha
+  - wrangler@4.127.1
   - '@remotion/bundler@4.0.508'
   - '@remotion/captions@4.0.508'
   - '@remotion/cli@4.0.508'
@@ -65,6 +67,18 @@ minimumReleaseAgeExclude:
   - '@remotion/web-renderer@4.0.508'
   - '@remotion/zod-types@4.0.508'
   - remotion@4.0.508
+  - '@cloudflare/workerd-darwin-64@1.20260828.1'
+  - '@cloudflare/workerd-darwin-arm64@1.20260828.1'
+  - '@cloudflare/workerd-linux-64@1.20260828.1'
+  - '@cloudflare/workerd-linux-arm64@1.20260828.1'
+  - '@cloudflare/workerd-windows-64@1.20260828.1'
+  - workerd@1.20260828.1
+  - '@expo/env@2.4.3'
+  - '@expo/fingerprint@0.20.11'
+  - '@expo/metro-config@57.0.12'
+  - expo-constants@57.0.16
+  - expo-font@57.0.2
+  - expo-updates@57.0.19
+  - '@cloudflare/workers-types@5.20260828.1'
 patchedDependencies:
   '@flue/runtime@2.0.3': patches/@flue__runtime@2.0.3.patch
-  image-size@1.2.1: patches/image-size@1.2.1.patch

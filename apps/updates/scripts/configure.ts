@@ -28,7 +28,7 @@ try {
   }
 
   const existingToken = matches[0]?.[1]?.trim()
-  const token = existingToken || randomBytes(48).toString('base64url')
+  const token = existingToken || Buffer.from(randomBytes(48)).toString('base64url')
   if (token.length < 32 || /\s/u.test(token)) {
     throw new Error('The existing C2C_UPDATES_ADMIN_TOKEN is invalid.')
   }

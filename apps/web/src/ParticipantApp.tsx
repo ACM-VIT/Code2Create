@@ -202,10 +202,11 @@ export function ParticipantApp({
       : location.pathname === '/integrations'
         ? canOpenIntegrations ? <IntegrationsScreen /> : <Navigate replace to="/" />
         : intakeStatus.applicationState !== null
-          ? <SubmittedScreen capabilities={access} publicState={publicState} team={team} />
+          ? <SubmittedScreen capabilities={access} publicState={publicState} team={team} members={teamMembers.results} />
           : (
               <IntakeScreen
                 team={team}
+                members={teamMembers.results}
                 {...(intakeStatus.submissionFailureMessage === undefined
                   ? {}
                   : { submissionFailureMessage: intakeStatus.submissionFailureMessage })}

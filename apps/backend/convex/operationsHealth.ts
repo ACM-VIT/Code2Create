@@ -30,6 +30,7 @@ import {
 import { enqueueOperationsAutonomySignal } from "./lib/operationsAutonomyInbox";
 import { requirePermission } from "./lib/permissions";
 import { activeSynesthesiaWindow } from "./lib/synesthesia";
+import { reconcileOperationsEpisodes } from "./lib/operationsEpisodes";
 
 const queryLimit = 101;
 const reviewerHeartbeatWindowMs = 2 * 60 * 1_000;
@@ -1099,6 +1100,7 @@ export const upsertSnapshot = internalMutation({
         snapshot: args.snapshot,
         now: args.snapshot.generatedAt,
       });
+      await reconcileOperationsEpisodes(ctx, args.eventId, args.snapshot);
       return "created";
     }
     if (existing.snapshot.generatedAt > args.snapshot.generatedAt) return "stale";
@@ -1123,6 +1125,7 @@ export const upsertSnapshot = internalMutation({
       snapshot: args.snapshot,
       now: args.snapshot.generatedAt,
     });
+    await reconcileOperationsEpisodes(ctx, args.eventId, args.snapshot);
     return "updated";
   },
 });

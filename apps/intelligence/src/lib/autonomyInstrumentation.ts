@@ -2,6 +2,8 @@ import type { FlueExecutionInterceptor, FlueInstrumentation } from '@flue/runtim
 import * as v from 'valibot';
 
 import { operationsAutonomyDispatchRequestSchema } from './autonomyProtocol.ts';
+import { operationsEpisodeInitialDataSchema } from './episodeProtocol.ts';
+import { readEpisodeProjection } from './episodeTransport.ts';
 import {
 	autonomyRunState,
 	cachedModelAuthorization,
@@ -12,10 +14,36 @@ import { autonomyOperationId } from './autonomyOperationId.ts';
 
 const instrumentationKey = Symbol.for('code2create.operations-autonomy-authority.v1');
 
+type IntelligenceExecutionBindings = AutonomyBindings & Partial<Pick<
+	Cloudflare.Env,
+	'CONVEX_INTELLIGENCE_EPISODE_READ_URL' | 'CONVEX_INTELLIGENCE_EPISODE_CALLBACK_URL'
+>>;
+
 export function createAutonomyExecutionInterceptor(
-	bindings: AutonomyBindings,
+	bindings: IntelligenceExecutionBindings,
 ): FlueExecutionInterceptor {
 	return async (operation, context, next) => {
+		if (context.agentName === 'operations-episode') {
+			if (operation.type !== 'model' && operation.type !== 'task') return next();
+			const input = v.safeParse(operationsEpisodeInitialDataSchema, context.initialData);
+			if (!input.success || context.instanceId !== input.output.episodeId) {
+				throw new Error('The episode model execution context is invalid.');
+			}
+			if (bindings.CONVEX_INTELLIGENCE_EPISODE_READ_URL === undefined) {
+				throw new Error('The episode authority endpoint is unavailable.');
+			}
+			const executionId = operation.type === 'model' ? operation.turnId : operation.taskId;
+			await readEpisodeProjection({
+				episodeId: input.output.episodeId,
+				operationId: `authorize:${operation.type}:${executionId}`,
+				bindings: {
+					CONVEX_INTELLIGENCE_EPISODE_READ_URL:
+						bindings.CONVEX_INTELLIGENCE_EPISODE_READ_URL,
+					INTELLIGENCE_READ_SECRET: bindings.INTELLIGENCE_READ_SECRET,
+				},
+			});
+			return next();
+		}
 		if (context.agentName !== 'operations-autopilot') return next();
 		if (operation.type === 'task') {
 			throw new Error('Native Flue task delegation is disabled for autonomous runs.');
@@ -47,7 +75,7 @@ export function createAutonomyExecutionInterceptor(
 }
 
 export function createAutonomyInstrumentation(
-	bindings: AutonomyBindings,
+	bindings: IntelligenceExecutionBindings,
 ): FlueInstrumentation {
 	return {
 		key: instrumentationKey,

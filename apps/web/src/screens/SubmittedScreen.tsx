@@ -3,15 +3,18 @@ import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 
-import type { CurrentTeam, PublicState, SubmittedIntake } from '../types'
+import type { CurrentTeam, CurrentTeamMember, PublicState, SubmittedIntake } from '../types'
 import { AttendancePanel } from '../components/AttendancePanel'
 import { ReviewQueuePanel } from '../components/ReviewQueuePanel'
 import { ReleasedFeedbackPanel } from '../components/ReleasedFeedbackPanel'
+import { EditingPresence } from '../components/EditingPresence'
+import { useEditingPresence } from '../hooks/useEditingPresence'
 import { TeamLocationPanel } from '../components/TeamLocationPanel'
 import { ProjectCheckpointsPanel } from '../components/ProjectCheckpointsPanel'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
+import { clearSessionDraft, readSessionDraft, writeSessionDraft } from '../lib/sessionDraft'
 
 type ParticipantDelivery = FunctionReturnType<typeof api.participantNotifications.mine>
 type ParticipantDeliveryState = NonNullable<ParticipantDelivery>['state']
@@ -96,10 +99,12 @@ export function SubmittedScreen({
   capabilities,
   publicState,
   team,
+  members,
 }: {
   capabilities: ParticipantCapabilities
   publicState: PublicState
   team: CurrentTeam
+  members: CurrentTeamMember[]
 }) {
   const intake = useQuery(api.intake.submitted, { eventSlug })
   if (intake === undefined) return <p className="muted">Loading your application…</p>
@@ -112,6 +117,7 @@ export function SubmittedScreen({
       publicState={publicState}
       intake={intake}
       team={team}
+      members={members}
     />
   )
 }
@@ -121,11 +127,13 @@ function SubmittedWorkspace({
   publicState,
   intake,
   team,
+  members,
 }: {
   capabilities: ParticipantCapabilities
   publicState: PublicState
   intake: SubmittedIntake
   team: CurrentTeam
+  members: CurrentTeamMember[]
 }) {
   const application = intake.application
   const copy = applicationCopy[application.state]
@@ -316,6 +324,7 @@ function SubmittedWorkspace({
         application={application}
         canEdit={canEditProposal}
         intake={intake}
+        members={members}
         timezone={event.timezone}
       />
       {delivery && deliveryNeedsAttention(delivery.state) ? (
@@ -415,31 +424,43 @@ function ProposalSummary({
   application,
   canEdit,
   intake,
+  members,
   timezone,
 }: {
   application: CurrentApplication
   canEdit: boolean
   intake: SubmittedIntake
+  members: CurrentTeamMember[]
   timezone: string
 }) {
   const reviseSubmission = useMutation(api.intake.reviseSubmission)
   const revisionAttempt = useMutationAttempt<FunctionReturnType<typeof api.intake.reviseSubmission>>()
   const pending = revisionAttempt.hasPending('proposal-revision')
+  const proposalStorageKey = `c2c:${eventSlug}:${application.id}:proposal`
+  const recoveredDraft = useRef(readSessionDraft(proposalStorageKey)).current
   const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
-  const [draft, setDraft] = useState(() => proposalDraft(intake))
-  const [sourceProjectId, setSourceProjectId] = useState(intake.project.id)
+  const [draft, setDraft] = useState(() => (
+    recoveredDraft === null
+      ? proposalDraft(intake)
+      : recoverProposalDraft(intake, recoveredDraft)
+  ))
+  const [hasRecoveredDraft, setHasRecoveredDraft] = useState(recoveredDraft !== null)
+  const editBase = useRef(proposalEditBase(application, intake))
+  const [editConflict, setEditConflict] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { editors, markEditing, stopEditing } = useEditingPresence(canEdit && editing)
 
   useEffect(() => {
-    if (sourceProjectId === intake.project.id) return
-    setSourceProjectId(intake.project.id)
-    setDraft(proposalDraft(intake))
-    setEditing(false)
-    setExpanded(false)
-    setError(null)
-  }, [intake, sourceProjectId])
+    if (editBase.current.projectVersionId === intake.project.id) return
+    if (editing) {
+      setEditConflict(true)
+      return
+    }
+    editBase.current = proposalEditBase(application, intake)
+    if (!hasRecoveredDraft) setDraft(proposalDraft(intake))
+  }, [application, editing, hasRecoveredDraft, intake])
 
   const save = async (event: FormEvent) => {
     event.preventDefault()
@@ -450,10 +471,10 @@ function ProposalSummary({
         const args = {
           eventSlug,
           applicationId: application.id,
-          expectedApplicationVersion: application.version,
-          expectedApplicationContentVersion: application.contentVersion,
-          expectedProjectVersionId: intake.project.id,
-          expectedProjectVersion: intake.project.version,
+          expectedApplicationVersion: editBase.current.applicationVersion,
+          expectedApplicationContentVersion: editBase.current.applicationContentVersion,
+          expectedProjectVersionId: editBase.current.projectVersionId,
+          expectedProjectVersion: editBase.current.projectVersion,
           initialIdea: draft.initialIdea,
           responses: draft.responses.map((response) => ({
             questionId: response.questionId,
@@ -464,6 +485,10 @@ function ProposalSummary({
         }
         return () => reviseSubmission(args)
       })
+      clearSessionDraft(proposalStorageKey)
+      setHasRecoveredDraft(false)
+      setEditConflict(false)
+      stopEditing()
       setEditing(false)
     } catch (caught) {
       setError(readableError(caught))
@@ -498,8 +523,17 @@ function ProposalSummary({
             className="text-button"
             disabled={busy || pending}
             onClick={() => {
-              setDraft(proposalDraft(intake))
-              if (!editing) setExpanded(true)
+              if (editing) {
+                setDraft(proposalDraft(intake))
+                clearSessionDraft(proposalStorageKey)
+                setHasRecoveredDraft(false)
+                setEditConflict(false)
+                stopEditing()
+              } else {
+                editBase.current = proposalEditBase(application, intake)
+                if (!hasRecoveredDraft) setDraft(proposalDraft(intake))
+                setExpanded(true)
+              }
               setEditing(!editing)
               setError(null)
             }}
@@ -508,8 +542,30 @@ function ProposalSummary({
           </button>
         ) : null}
       </div>
+      <EditingPresence editors={editors ?? []} members={members} />
       {editing && canEdit ? (
         <form className="proposal-editor" onSubmit={save}>
+          {hasRecoveredDraft ? (
+            <p className="notice" role="status">Recovered your unsaved changes from this tab.</p>
+          ) : null}
+          {editConflict ? (
+            <div className="notice" role="status">
+              <p>A newer proposal was saved. Your changes are still here.</p>
+              <div className="button-row">
+                <button type="button" className="text-button" onClick={() => {
+                  setDraft(proposalDraft(intake))
+                  editBase.current = proposalEditBase(application, intake)
+                  setEditConflict(false)
+                  setHasRecoveredDraft(false)
+                  clearSessionDraft(proposalStorageKey)
+                }}>Use saved version</button>
+                <button type="button" className="text-button" onClick={() => {
+                  editBase.current = proposalEditBase(application, intake)
+                  setEditConflict(false)
+                }}>Keep mine</button>
+              </div>
+            </div>
+          ) : null}
           <label className="field">
             <span>What do you want to build?</span>
             <textarea
@@ -519,10 +575,16 @@ function ProposalSummary({
               maxLength={intake.editRules.initialIdeaMaxLength}
               value={draft.initialIdea}
               disabled={busy || pending}
-              onChange={(event) => setDraft((current) => ({
-                ...current,
-                initialIdea: event.currentTarget.value,
-              }))}
+              onChange={(event) => {
+                setDraft((current) => ({
+                  ...current,
+                  initialIdea: event.currentTarget.value,
+                }))
+                const nextDraft = { ...draft, initialIdea: event.currentTarget.value }
+                writeSessionDraft(proposalStorageKey, serializeProposalDraft(nextDraft))
+                setHasRecoveredDraft(true)
+                markEditing('proposal_revision')
+              }}
             />
           </label>
           {intake.project.intakeResponses.map((response, index) => (
@@ -535,14 +597,27 @@ function ProposalSummary({
                   maxLength={intake.editRules.followUpAnswerMaxLength}
                   value={draft.responses[index]?.answer ?? ''}
                   disabled={busy || pending || draft.responses[index]?.skipped}
-                  onChange={(event) => setDraft((current) => ({
-                    ...current,
-                    responses: current.responses.map((item, itemIndex) => (
-                      itemIndex === index
-                        ? { ...item, answer: event.currentTarget.value }
-                        : item
-                    )),
-                  }))}
+                  onChange={(event) => {
+                    setDraft((current) => ({
+                      ...current,
+                      responses: current.responses.map((item, itemIndex) => (
+                        itemIndex === index
+                          ? { ...item, answer: event.currentTarget.value }
+                          : item
+                      )),
+                    }))
+                    const nextDraft = {
+                      ...draft,
+                      responses: draft.responses.map((item, itemIndex) => (
+                        itemIndex === index
+                          ? { ...item, answer: event.currentTarget.value }
+                          : item
+                      )),
+                    }
+                    writeSessionDraft(proposalStorageKey, serializeProposalDraft(nextDraft))
+                    setHasRecoveredDraft(true)
+                    markEditing('proposal_revision')
+                  }}
                 />
               </label>
               <label className="proposal-skip">
@@ -550,14 +625,27 @@ function ProposalSummary({
                   type="checkbox"
                   checked={draft.responses[index]?.skipped ?? false}
                   disabled={busy || pending}
-                  onChange={(event) => setDraft((current) => ({
-                    ...current,
-                    responses: current.responses.map((item, itemIndex) => (
-                      itemIndex === index
-                        ? { ...item, skipped: event.currentTarget.checked }
-                        : item
-                    )),
-                  }))}
+                  onChange={(event) => {
+                    setDraft((current) => ({
+                      ...current,
+                      responses: current.responses.map((item, itemIndex) => (
+                        itemIndex === index
+                          ? { ...item, skipped: event.currentTarget.checked }
+                          : item
+                      )),
+                    }))
+                    const nextDraft = {
+                      ...draft,
+                      responses: draft.responses.map((item, itemIndex) => (
+                        itemIndex === index
+                          ? { ...item, skipped: event.currentTarget.checked }
+                          : item
+                      )),
+                    }
+                    writeSessionDraft(proposalStorageKey, serializeProposalDraft(nextDraft))
+                    setHasRecoveredDraft(true)
+                    markEditing('proposal_revision')
+                  }}
                 />
                 Skip this question
               </label>
@@ -567,7 +655,7 @@ function ProposalSummary({
           <button
             type="submit"
             className="primary"
-            disabled={busy || invalidIdea || invalidResponse}
+            disabled={busy || editConflict || invalidIdea || invalidResponse}
           >
             {busy ? 'Saving…' : pending ? 'Confirm earlier save' : 'Save proposal'}
           </button>
@@ -610,6 +698,43 @@ function proposalDraft(intake: SubmittedIntake) {
       answer: response.answer ?? '',
       skipped: response.skipped,
     })),
+  }
+}
+
+type ProposalDraft = ReturnType<typeof proposalDraft>
+
+function proposalEditBase(application: CurrentApplication, intake: SubmittedIntake) {
+  return {
+    applicationVersion: application.version,
+    applicationContentVersion: application.contentVersion,
+    projectVersionId: intake.project.id,
+    projectVersion: intake.project.version,
+  }
+}
+
+function serializeProposalDraft(draft: ProposalDraft) {
+  const values = new URLSearchParams()
+  values.set('idea', draft.initialIdea)
+  for (const response of draft.responses) {
+    values.set(`answer:${response.questionId}`, response.answer)
+    values.set(`skipped:${response.questionId}`, response.skipped ? '1' : '0')
+  }
+  return values.toString()
+}
+
+function recoverProposalDraft(intake: SubmittedIntake, stored: string): ProposalDraft {
+  const current = proposalDraft(intake)
+  const values = new URLSearchParams(stored)
+  return {
+    initialIdea: values.get('idea') ?? current.initialIdea,
+    responses: current.responses.map((response) => {
+      const storedSkipped = values.get(`skipped:${response.questionId}`)
+      return {
+        ...response,
+        answer: values.get(`answer:${response.questionId}`) ?? response.answer,
+        skipped: storedSkipped === null ? response.skipped : storedSkipped === '1',
+      }
+    }),
   }
 }
 

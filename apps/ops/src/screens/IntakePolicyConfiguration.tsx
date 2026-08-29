@@ -289,13 +289,10 @@ export function IntakePolicyConfiguration({
               <NumberField label="Question maximum · characters" min={40} max={140} value={policy.questionMaxLength} onChange={(value) => updatePolicy('questionMaxLength', value)} />
               <label className="field">
                 <span>Fixed-question count</span>
-                <select value={policy.deterministicFollowUpCount} onChange={(event) => updatePolicy('deterministicFollowUpCount', parseFollowUpCount(event.target.value))}>
-                  <option value={1}>One</option>
-                  <option value={2}>Two</option>
-                </select>
+                <input disabled value="Two" />
               </label>
             </div>
-            <p className="muted intake-policy-note">Assisted intake never asks more than two questions.</p>
+            <p className="muted intake-policy-note">Every introduction asks two follow-up questions. Assisted mode writes them from the team’s current answers.</p>
           </PolicySection>
 
           <PolicySection title="Question goals" description="Assisted questions use one of these reviewed goals.">
@@ -488,12 +485,6 @@ function parseAnswerLength(value: string): AnswerLength {
   const length = answerLengthOptions.find((candidate) => candidate === value)
   if (!length) throw new Error('The selected answer length is invalid.')
   return length
-}
-
-function parseFollowUpCount(value: string): 1 | 2 {
-  if (value === '1') return 1
-  if (value === '2') return 2
-  throw new Error('The selected question count is invalid.')
 }
 
 function parseModelMode(value: string): Policy['model']['mode'] {

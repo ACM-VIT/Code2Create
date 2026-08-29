@@ -14,8 +14,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
-    "@types/node": "^24.13.3",
-    "oxlint": "^1.76.0",
-    "typescript": "~6.0.3"
+    "@types/node": "^26.4.0",
+    "oxlint": "^1.80.0",
+    "typescript": "~7.0.2"
   }
 }

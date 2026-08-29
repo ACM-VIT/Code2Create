@@ -4,8 +4,8 @@ import {
 	verifyServiceBody,
 	type OperationsHealthSnapshot,
 } from '@code2create/domain';
+import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
 import { AgentRunError, init, setProvider } from '@flue/runtime';
-import { cloudflareBindingProvider } from '@flue/runtime/cloudflare/workers-ai';
 import { start, type Flue } from '@flue/runtime/node';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
@@ -14,9 +14,9 @@ import * as v from 'valibot';
 
 import { OperationsBrief, operationsBriefModel } from '../agents/operations-brief.ts';
 import {
-	intelligenceWorkersAiModelId,
-	modelStreamIdleTimeoutMs,
-} from '../lib/workersAi.ts';
+	operationsIntelligenceModel,
+	operationsIntelligenceModelId,
+} from '../lib/model.ts';
 import {
 	operationsIntelligenceCallbackSchema,
 	operationsIntelligenceRequestSchema,
@@ -35,42 +35,17 @@ export type EvaluationRuntime = {
 	deliveriesFor(briefId: string): readonly Delivery[];
 };
 
-function evaluationBinding(name: 'CLOUDFLARE_ACCOUNT_ID' | 'CLOUDFLARE_API_TOKEN') {
-	const value = process.env[name]?.trim();
-	if (!value) throw new Error(`The live evaluation requires ${name}.`);
-	return value;
-}
-
 function configureEvaluationProvider() {
-	const accountId = evaluationBinding('CLOUDFLARE_ACCOUNT_ID');
-	if (!/^[a-f0-9]{32}$/u.test(accountId)) {
-		throw new Error('CLOUDFLARE_ACCOUNT_ID must be a 32-character lowercase hex id.');
+	const apiKey = process.env['OPENAI_API_KEY']?.trim();
+	if (!apiKey) throw new Error('The live evaluation requires OPENAI_API_KEY.');
+	const provider = openaiProvider();
+	const configuredModel = provider.getModels().find(
+		(model) => model.id === operationsIntelligenceModelId,
+	);
+	if (configuredModel === undefined || operationsBriefModel !== operationsIntelligenceModel) {
+		throw new Error('The live evaluation model is not available from OpenAI.');
 	}
-	const apiToken = evaluationBinding('CLOUDFLARE_API_TOKEN');
-	setProvider(cloudflareBindingProvider({
-		binding: {
-			async run(modelId, inputs, options) {
-				if (modelId !== intelligenceWorkersAiModelId || `cloudflare/${modelId}` !== operationsBriefModel) {
-					throw new Error('The live evaluation model is not allowed.');
-				}
-				const signal = options?.['signal'];
-				return fetch(
-					`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${modelId}`,
-					{
-						method: 'POST',
-						headers: {
-							authorization: `Bearer ${apiToken}`,
-							'content-type': 'application/json',
-						},
-						body: JSON.stringify(inputs),
-						...(signal instanceof AbortSignal ? { signal } : {}),
-					},
-				);
-			},
-		},
-		gateway: false,
-		streamIdleTimeoutMs: modelStreamIdleTimeoutMs,
-	}));
+	setProvider(provider);
 }
 
 function briefIdOf(value: unknown): string {

@@ -18,9 +18,7 @@ import {
 
 const runsPerCase = 3;
 // The evaluation config reports why live cases are skipped without a model credential.
-const evaluationEnabled = ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'].every(
-	(name) => (process.env[name] ?? '').trim().length > 0,
-);
+const evaluationEnabled = (process.env['OPENAI_API_KEY'] ?? '').trim().length > 0;
 
 function authoredText(run: BriefRun) {
 	const payload = succeededPayload(run);

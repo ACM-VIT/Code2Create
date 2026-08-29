@@ -1,5 +1,6 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import workpoolTest from "@convex-dev/workpool/test";
+import presenceTest from "@convex-dev/presence/test";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
@@ -36,6 +37,7 @@ describe("participant intake lifecycle", () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     workpoolTest.register(backend, "intakeWorkpool");
+    presenceTest.register(backend, "intakePresence");
     const fixture = await seedFixture(backend);
     const participant = backend.withIdentity({
       subject: fixture.authUserId,
@@ -63,6 +65,18 @@ describe("participant intake lifecycle", () => {
       name: "Plain Petals",
       clientOperationId: "intake-team-create",
     });
+    const raviAuthUserId = await createAuthUser(
+      backend,
+      Date.now(),
+      "Ravi Menon",
+      "ravi@example.test",
+    );
+    const raviAuthSessionId = await createAuthSession(
+      backend,
+      raviAuthUserId,
+      Date.now(),
+      "ravi-intake-session-token",
+    );
     const secondMembershipId = await backend.run(async (ctx) => {
       const event = await ctx.db
         .query("events")
@@ -71,7 +85,7 @@ describe("participant intake lifecycle", () => {
       const currentTeam = await ctx.db.get(team.teamId);
       if (!event || !currentTeam) throw new Error("The intake team fixture is incomplete.");
       const personId = await ctx.db.insert("people", {
-        authUserId: "ravi-intake-auth-user",
+        authUserId: raviAuthUserId,
         googleSubject: "ravi-intake-google-subject",
         verifiedEmail: "ravi@example.test",
         displayName: "Ravi Menon",
@@ -110,6 +124,19 @@ describe("participant intake lifecycle", () => {
         joinedAt: event.createdAt,
         source: "code",
       });
+      for (const permissionKey of ["team.read", "team.project.write"] as const) {
+        await insertPermissionGrant(ctx, {
+          eventId: event._id,
+          personId,
+          eventAccessSubjectId: subjectId,
+          permissionKey,
+          scopeType: "team",
+          scopeId: currentTeam._id,
+          sourceType: "team_membership",
+          sourceId: membershipId,
+          reason: "Participant intake presence fixture",
+        });
+      }
       await ctx.db.patch(currentTeam._id, {
         activeMemberCount: 2,
         activeExternalMemberCount: 2,
@@ -118,6 +145,36 @@ describe("participant intake lifecycle", () => {
       });
       return membershipId;
     });
+
+    await participant.mutation(api.intakePresence.heartbeat, {
+      eventSlug: fixture.eventSlug,
+      surface: "idea",
+      sessionId: "anika-idea-session",
+    });
+    expect(await participant.query(api.intakePresence.list, {
+      eventSlug: fixture.eventSlug,
+    })).toEqual([]);
+
+    const secondParticipant = backend.withIdentity({
+      subject: raviAuthUserId,
+      sessionId: raviAuthSessionId,
+    });
+    const secondPresence = await secondParticipant.mutation(api.intakePresence.heartbeat, {
+      eventSlug: fixture.eventSlug,
+      surface: "idea",
+      sessionId: "ravi-idea-session",
+    });
+    expect(await participant.query(api.intakePresence.list, {
+      eventSlug: fixture.eventSlug,
+    })).toEqual([
+      { membershipId: secondMembershipId, surface: "idea" },
+    ]);
+    await secondParticipant.mutation(api.intakePresence.disconnect, {
+      sessionToken: secondPresence.sessionToken,
+    });
+    expect(await participant.query(api.intakePresence.list, {
+      eventSlug: fixture.eventSlug,
+    })).toEqual([]);
 
     const idea = "A shared campus tool that routes accessibility requests to volunteers who can help.";
     const savedIdea = await participant.mutation(api.intake.saveInitialIdea, {
@@ -143,7 +200,7 @@ describe("participant intake lifecycle", () => {
     }
     expect(withQuestion.draft.stage).toBe("follow_up");
 
-    const answered = await participant.mutation(api.intake.respondToFollowUp, {
+    await participant.mutation(api.intake.respondToFollowUp, {
       eventSlug: fixture.eventSlug,
       questionId: activeQuestion.id,
       answer: "Students with temporary or permanent access needs would use it first.",
@@ -151,10 +208,31 @@ describe("participant intake lifecycle", () => {
       expectedDraftVersion: withQuestion.draft.version,
       clientOperationId: "intake-follow-up-answer",
     });
+    await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
+      draftId: savedIdea.draftId,
+      modelAvailable: false,
+    });
+    const withThirdQuestion = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    const thirdQuestion = withThirdQuestion?.draft?.followUps.find(
+      (question) => question.ordinal === 2 && question.state === "active",
+    );
+    if (!withThirdQuestion?.draft || !thirdQuestion) {
+      throw new Error("The third total intake question did not become visible.");
+    }
+    const answeredThirdQuestion = await participant.mutation(api.intake.respondToFollowUp, {
+      eventSlug: fixture.eventSlug,
+      questionId: thirdQuestion.id,
+      answer: "We want to finish a reliable request handoff and completion update.",
+      skipped: false,
+      expectedDraftVersion: withThirdQuestion.draft.version,
+      clientOperationId: "intake-third-question-answer",
+    });
     const freshness = await participant.mutation(api.intake.setFreshnessAttestation, {
       eventSlug: fixture.eventSlug,
       accepted: true,
-      expectedDraftVersion: answered.draftVersion,
+      expectedDraftVersion: answeredThirdQuestion.draftVersion,
       clientOperationId: "intake-freshness-confirm",
     });
 
@@ -212,7 +290,7 @@ describe("participant intake lifecycle", () => {
       ],
       blockers: [],
     });
-    expect(preview.followUps).toHaveLength(1);
+    expect(preview.followUps).toHaveLength(2);
 
     const submitRequest = {
       eventSlug: fixture.eventSlug,
@@ -304,6 +382,16 @@ describe("participant intake lifecycle", () => {
       canEdit: true,
     });
     if (!submitted) throw new Error("The submitted application did not persist.");
+    await expect(participant.mutation(api.intakePresence.heartbeat, {
+      eventSlug: fixture.eventSlug,
+      surface: "idea",
+      sessionId: "locked-idea-session",
+    })).rejects.toThrow("locked");
+    await expect(participant.mutation(api.intakePresence.heartbeat, {
+      eventSlug: fixture.eventSlug,
+      surface: "proposal_revision",
+      sessionId: "proposal-session",
+    })).resolves.toMatchObject({ sessionToken: expect.any(String) });
     const reviewFixture = await backend.run(async (ctx) => {
       const membership = await ctx.db.get(fixture.membershipId);
       if (!membership) throw new Error("The participant membership is missing.");
@@ -457,7 +545,7 @@ async function seedFixture(backend: BackendTest) {
     });
     const intakePolicy = normalizeIntakePolicy({
       ...defaultDeterministicIntakePolicy,
-      deterministicFollowUpCount: 1,
+      deterministicFollowUpCount: 2,
     });
     const intakePolicyId = await ctx.db.insert("intakePolicyVersions", {
       eventId,
@@ -547,13 +635,18 @@ async function seedFixture(backend: BackendTest) {
   });
 }
 
-async function createAuthUser(backend: BackendTest, now: number) {
+async function createAuthUser(
+  backend: BackendTest,
+  now: number,
+  name = "Anika Shah",
+  email = "anika@example.test",
+) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "user",
       data: {
-        name: "Anika Shah",
-        email: "anika@example.test",
+        name,
+        email,
         emailVerified: true,
         createdAt: now,
         updatedAt: now,
@@ -563,13 +656,18 @@ async function createAuthUser(backend: BackendTest, now: number) {
   return documentId(result, "Better Auth user");
 }
 
-async function createAuthSession(backend: BackendTest, userId: string, now: number) {
+async function createAuthSession(
+  backend: BackendTest,
+  userId: string,
+  now: number,
+  token = "participant-intake-session-token",
+) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "session",
       data: {
         expiresAt: now + 60 * 60 * 1_000,
-        token: "participant-intake-session-token",
+        token,
         createdAt: now,
         updatedAt: now,
         userId,

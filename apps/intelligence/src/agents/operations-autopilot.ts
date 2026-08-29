@@ -34,7 +34,7 @@ import {
 	runAutonomyWorkItem,
 } from '../lib/autonomyOrchestration.ts';
 import type { AutonomyLifecycleEvent } from '../lib/autonomyLifecycle.ts';
-import { operationsIntelligenceModel } from '../lib/workersAi.ts';
+import { operationsIntelligenceModel } from '../lib/model.ts';
 import { autonomyOperationId } from '../lib/autonomyOperationId.ts';
 import {
 	cloudflareAutonomyArtifactStore,
@@ -44,7 +44,7 @@ import { classifyAutonomyShellSettlement } from '../lib/autonomyShell.ts';
 import { admissionControllerForRun } from '../lib/autonomyAdmissionController.ts';
 
 export const operationsAutopilotModel = operationsIntelligenceModel;
-export const operationsAutopilotAgentVersion = 'operations-autopilot-v2';
+export const operationsAutopilotAgentVersion = 'operations-autopilot-v3';
 
 const completedOutputSchema = v.strictObject({
 	completed: v.literal(true),

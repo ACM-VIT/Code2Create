@@ -74,7 +74,7 @@ The accepted privacy notice explains that proposal text can be sent to OpenAI fo
 
 ### Follow-up questions
 
-After the first answer, the AI asks one or two friendly questions. The questions appear one at a time. The system can stop after one question when the proposal is clear enough.
+After the first answer, the AI asks two friendly questions. They appear one at a time. The second follow-up is the third total question and must appear before final review. If an AI request fails or returns invalid output, the system uses that ordinal's published fallback question.
 
 Each question must:
 
@@ -294,7 +294,7 @@ The participant cannot control playback or queue order. A music action cannot ch
 - The server rejects proposal writes at or after `applicationsCloseAt`.
 - Every proposal save creates or advances an immutable version without deleting history.
 - A revision invalidates stale human and AI admission outputs.
-- The intake asks one or two friendly questions and works without OpenAI.
+- The intake asks two friendly questions and works without OpenAI through published fallback questions.
 - The novelty feature shows only one number above the idea text box.
 - The novelty feature never blocks save or submission and never enters admission or judging.
 - Proposal routing uses the current proposal and reviewer-domain coverage.

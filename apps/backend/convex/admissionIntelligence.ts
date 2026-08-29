@@ -6,6 +6,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalAction, internalMutation } from "./_generated/server";
 import { admissionGuidanceForBand, admissionInputFingerprint } from "./lib/admission";
+import { operationFingerprint } from "./lib/operations";
 import { redactProjectText } from "./lib/projectText";
 import { appendAdmissionJobReadFactById } from "./lib/operationsAutonomyReadFacts/admissionJobs";
 import { admissionDecision, admissionExperienceBand, criterionAssessment } from "./values";
@@ -117,7 +118,10 @@ export const beginRecommendation = internalMutation({
   returns: v.union(v.null(), recommendationContext),
   handler: async (ctx, args): Promise<RecommendationContext | null> => {
     const recommendation = await ctx.db.get(args.recommendationId);
-    if (!recommendation || recommendation.state !== "pending") return null;
+    if (
+      !recommendation ||
+      (recommendation.state !== "pending" && recommendation.state !== "running")
+    ) return null;
     const [application, project, policy, modelConfig] = await Promise.all([
       ctx.db.get(recommendation.applicationId),
       ctx.db.get(recommendation.projectVersionId),
@@ -182,8 +186,10 @@ export const beginRecommendation = internalMutation({
       }
       return null;
     }
-    await ctx.db.patch(recommendation._id, { state: "running" });
-    await appendAdmissionJobReadFactById(ctx, recommendation._id, Date.now());
+    if (recommendation.state === "pending") {
+      await ctx.db.patch(recommendation._id, { state: "running" });
+      await appendAdmissionJobReadFactById(ctx, recommendation._id, Date.now());
+    }
     return {
       recommendationId: recommendation._id,
       applicationId: application._id,
@@ -243,13 +249,36 @@ export const finishRecommendation = internalMutation({
     confidence: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"))),
     limitations: v.array(v.string()),
     providerRequestId: v.optional(v.string()),
+    operationId: v.optional(v.string()),
+    agentVersion: v.optional(v.string()),
+    agentModel: v.optional(v.string()),
     latencyMs: v.optional(v.number()),
     failureCategory: v.optional(v.string()),
   },
-  returns: v.null(),
+  returns: v.union(v.literal("accepted"), v.literal("already_exists"), v.literal("stale")),
   handler: async (ctx, args) => {
     const recommendation = await ctx.db.get(args.recommendationId);
-    if (!recommendation || recommendation.state !== "running") return null;
+    const agentOutputChecksum = args.operationId
+      ? operationFingerprint([
+          args.sourceInputFingerprint,
+          args.state,
+          args.recommendation ?? null,
+          JSON.stringify(args.criterionAssessments),
+          JSON.stringify(args.strengths),
+          JSON.stringify(args.concerns),
+          JSON.stringify(args.proposedQuestions),
+          args.confidence ?? null,
+          JSON.stringify(args.limitations),
+          args.agentVersion ?? null,
+          args.agentModel ?? null,
+        ])
+      : undefined;
+    if (
+      recommendation?.agentOperationId !== undefined &&
+      args.operationId === recommendation.agentOperationId &&
+      agentOutputChecksum === recommendation.agentOutputChecksum
+    ) return "already_exists";
+    if (!recommendation || recommendation.state !== "running") return "stale";
     const application = await ctx.db.get(recommendation.applicationId);
     if (
       !application ||
@@ -266,7 +295,7 @@ export const finishRecommendation = internalMutation({
       if (application?.aiRecommendationId === recommendation._id) {
         await ctx.db.patch(application._id, { aiDisposition: "stale" });
       }
-      return null;
+      return "stale";
     }
     let state = args.state;
     if (state === "succeeded") {
@@ -324,6 +353,10 @@ export const finishRecommendation = internalMutation({
       confidence: succeeded ? args.confidence : undefined,
       limitations: args.limitations,
       providerRequestId: args.providerRequestId,
+      agentOperationId: args.operationId,
+      agentOutputChecksum,
+      agentVersion: args.agentVersion,
+      agentModel: args.agentModel,
       latencyMs: args.latencyMs,
       failureCategory:
         args.state === "succeeded" && !succeeded
@@ -336,7 +369,7 @@ export const finishRecommendation = internalMutation({
       aiRecommendationId: recommendation._id,
       aiDisposition: succeeded ? undefined : "unavailable",
     });
-    return null;
+    return "accepted";
   },
 });
 

@@ -6,26 +6,15 @@ import { defineConfig } from 'vitest/config';
 const developmentEnvFile = fileURLToPath(new URL('../../.env.local', import.meta.url));
 if (existsSync(developmentEnvFile)) process.loadEnvFile(developmentEnvFile);
 
-if (!['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'].every(
-	(name) => (process.env[name] ?? '').trim().length > 0,
-)) {
+if ((process.env['OPENAI_API_KEY'] ?? '').trim().length === 0) {
 	console.warn(
-		'\n[eval] Skipping only the live operations brief evaluation: it needs CLOUDFLARE_ACCOUNT_ID plus CLOUDFLARE_API_TOKEN in the environment or repository-root .env.local. Deterministic autonomy evaluations still run.\n',
+		'\n[eval] Skipping only the live operations brief evaluation: it needs OPENAI_API_KEY in the environment or repository-root .env.local. Deterministic autonomy evaluations still run.\n',
 	);
 }
 
 export default defineConfig({
 	resolve: {
 		alias: [
-			{
-				find: /^@flue\/runtime\/cloudflare\/workers-ai$/u,
-				replacement: fileURLToPath(
-					new URL(
-						'./node_modules/@flue/runtime/dist/cloudflare/workers-ai-provider.mjs',
-						import.meta.url,
-					),
-				),
-			},
 			{
 				find: /^@flue\/runtime\/cloudflare$/u,
 				replacement: fileURLToPath(

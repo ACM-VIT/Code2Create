@@ -228,7 +228,7 @@ describe('operations autonomy deterministic boundary evaluation', () => {
 				},
 			},
 			agentVersion: 'operations-autopilot-eval',
-			model: 'cloudflare/eval-model',
+			model: 'openai/eval-model',
 			bindings: backend.bindings,
 			request,
 		});
@@ -252,7 +252,7 @@ describe('operations autonomy deterministic boundary evaluation', () => {
 				observedSignalKeys: [],
 			},
 			agentVersion: 'operations-autopilot-eval',
-			model: 'cloudflare/eval-model',
+			model: 'openai/eval-model',
 			bindings: backend.bindings,
 			request: backend.request,
 		};

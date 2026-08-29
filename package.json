@@ -23,6 +23,7 @@
     "dev:trailer": "pnpm --filter @code2create/trailer dev",
     "render:trailer": "pnpm --filter @code2create/trailer render",
     "test:e2e:release": "pnpm --filter @code2create/e2e test:release",
+    "test:idea-round-release": "pnpm --filter @code2create/backend test:idea-round-release && pnpm --filter @code2create/intelligence test && pnpm --filter @code2create/intelligence eval",
     "check:fixtures:staging": "pnpm --filter @code2create/backend browser-fixtures:check:staging",
     "check:providers:staging": "pnpm --filter @code2create/backend providers:check:staging",
     "attendance:badges": "pnpm --filter @code2create/web badges:generate",
@@ -41,6 +42,6 @@
     "check:release": "pnpm audit:dependencies && pnpm check:product && pnpm test && pnpm build && pnpm --filter @code2create/intelligence deploy:check && pnpm --filter @code2create/reviewer export:check"
   },
   "devDependencies": {
-    "@posthog/cli": "^0.15.1"
+    "@posthog/cli": "^0.16.0"
   }
 }

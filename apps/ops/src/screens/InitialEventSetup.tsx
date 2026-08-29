@@ -114,7 +114,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           initialIdeaMaxLength: 4_000,
           followUpAnswerMinLength: 5,
           followUpAnswerMaxLength: 1_200,
-          minimumFollowUpCount: 1,
+          minimumFollowUpCount: 2,
           maximumFollowUpCount: 2,
           deterministicFollowUpCount: 2,
           questionMaxLength: 140,

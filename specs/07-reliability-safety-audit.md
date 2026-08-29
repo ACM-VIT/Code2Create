@@ -11,7 +11,7 @@ The event must expect:
 - duplicate scans and lost network responses;
 - wrong table, wrong session/station, expired QR, unreadable/forgotten VIT ID, copied external badge, or late reviewer;
 - missed entry/exit scans, simultaneous VIT-barcode/QR scans, and an offline replay that conflicts with newer presence;
-- OpenAI, Cloudflare Workers AI/Flue, GitHub, Figma, Google, Expo, or Convex service trouble;
+- OpenAI/Flue, GitHub, Figma, Google, Expo, or Convex service trouble;
 - human mistakes during a fast round transition.
 
 The system protects judging records and emergency-accountability data first. If the system cannot safely confirm attendance, operations redirects scanning or marks presence uncertain. If the system cannot safely start or finish a review, operations pauses the affected session, panel, or round. The system never invents acceptance to keep a queue moving.
@@ -135,7 +135,7 @@ On restart, the app restores the current session. The app fetches `reviewer.now`
 | OpenAI embeddings or Convex vector search | A live novelty preview is slow, rate-limited, invalid, stale, or unavailable. | Keep the idea editable and submittable. Show a quiet unavailable state. Never reuse or attach a result if its team, corpus, or normalized input fingerprint changed. |
 | OpenAI intake | Interpretation is slow, refused, invalid, rate-limited, or unavailable. | Keep the committed answer. Follow the published deterministic question edge. Allow proposal confirmation and submission without model output. |
 | OpenAI admissions | Structured analysis is slow, stale, refused, invalid, rate-limited, or unavailable. | Mark the recommendation unavailable or stale. Continue the complete human review and decision path. Never reuse output for a different application version. |
-| Cloudflare intelligence Worker or Workers AI | Signed dispatch fails, the agent does not publish, the callback is invalid, or work exceeds ten minutes. | Mark that brief failed. Retain the ordinary realtime health view. Let every operational workflow continue. Never infer or execute a corrective command. |
+| Cloudflare intelligence Worker or OpenAI | Signed dispatch fails, the agent does not publish, the callback is invalid, or work exceeds ten minutes. | Mark that brief failed. Retain the ordinary realtime health view. Let every operational workflow continue. Never infer or execute a corrective command. |
 | APNs or FCM | Background pages may not arrive or a native token may expire. | Invalidate only the rejected token. Retain the in-app page. Use consented call escalation and the runner fallback. |
 | Outbound call provider | A call is rejected, delayed, duplicated, or has an ambiguous result. | Keep the in-app page authoritative. Deduplicate provider events. Do not redial an unknown result without the configured rule. Use the next candidate or runner fallback. |
 | Cloudflare Email Service | A decision-delivery request is delayed, rejected, ambiguous, bounced, or suppressed. The Queue relay is unavailable. | Keep the portal authoritative. Expose transport state only under exact-person communications permission. Never retry an unknown outcome blindly. Retain Queue events through the configured DLQ. Use the approved Email Routing support alias. |

@@ -9,6 +9,7 @@ import {
   AutonomyRunList,
   ManualBriefHistory,
   RecommendationQueues,
+  RelevantSituations,
 } from '../components/intelligence'
 import { LoadingLabel, SkeletonList } from '../components/Skeleton'
 import { eventSlug } from '../lib/config'
@@ -95,6 +96,8 @@ export function IntelligenceActivity({ canGenerate }: { canGenerate: boolean }) 
           </small>
         </div>
       </header>
+
+      <RelevantSituations />
 
       <section className="attention-section">
         <div className="section-heading">

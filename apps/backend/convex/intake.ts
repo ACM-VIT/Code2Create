@@ -208,7 +208,7 @@ async function participantNoveltyConfig(
   };
 }
 
-async function currentReadTeamContext(ctx: QueryCtx, eventSlug: string) {
+export async function currentReadTeamContext(ctx: QueryCtx, eventSlug: string) {
   const person = await findCurrentPerson(ctx);
   if (!person) return null;
   const event = await requireEventBySlug(ctx, eventSlug);
@@ -244,7 +244,7 @@ async function currentReadTeamContext(ctx: QueryCtx, eventSlug: string) {
 }
 
 async function participantApplicationForTeam(
-  ctx: QueryCtx,
+  ctx: ReadCtx,
   event: Doc<"events">,
   team: Doc<"teams">,
 ) {
@@ -351,6 +351,7 @@ export const current = query({
     v.object({
       teamId: v.id("teams"),
       teamVersion: v.number(),
+      applicationsCloseAt: v.number(),
       currentRole: v.union(v.literal("lead"), v.literal("member")),
       draft: v.union(v.null(), currentDraftView),
       application: v.union(v.null(), participantApplicationView),
@@ -422,6 +423,7 @@ export const current = query({
     return {
       teamId: team._id,
       teamVersion: team.version,
+      applicationsCloseAt: event.applicationsCloseAt,
       currentRole: member.role,
       draft: visibleDraft,
       application: participantApplication?.view ?? null,
@@ -464,6 +466,7 @@ export const submitted = query({
     const context = await currentReadTeamContext(ctx, args.eventSlug);
     if (!context) return null;
     const { event, member, team } = context;
+    const now = Date.now();
     const participantApplication = await participantApplicationForTeam(ctx, event, team);
     if (!participantApplication) return null;
     const project = await ctx.db.get(
@@ -490,7 +493,6 @@ export const submitted = query({
     if (intakePolicyChecksum(normalizedPolicy) !== intakePolicy.checksum) {
       throw new Error("A submitted project's intake policy checksum is invalid.");
     }
-    const now = Date.now();
     return {
       serverNow: now,
       currentRole: member.role,
@@ -910,7 +912,7 @@ export const status = query({
   },
 });
 
-async function currentTeamContext(ctx: MutationCtx, eventSlug: string) {
+export async function currentTeamContext(ctx: MutationCtx, eventSlug: string) {
   const event = await requireEventBySlug(ctx, eventSlug);
   const { person } = await requireCurrentPerson(ctx);
   const subject = await requireEventSubject(ctx, event._id, person._id);
