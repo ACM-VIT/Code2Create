@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Petal } from './Petal'
 import { initialsOf } from './initials'
 
@@ -49,17 +49,19 @@ function Avatar({
 
 /**
  * The top-right team presence: an overlapping avatar stack that opens the
- * roster on hover or focus. Only data the roster query actually returns is
- * shown — name, lead role, the join code, and the seat count.
+ * roster on hover or focus. The roster shows name, lead role, the join code,
+ * and the seat count. Live screens can pass leave actions in `actions`.
  */
 export function TeamCluster({
   team,
   members,
   locked = false,
+  actions,
 }: {
   team: ClusterTeam
   members: readonly ClusterMember[]
   locked?: boolean
+  actions?: ReactNode
 }) {
   // Hover previews the roster; a click (or keyboard focus) pins it open so it
   // survives the pointer leaving. Tracking them separately keeps a click on an
@@ -148,6 +150,7 @@ export function TeamCluster({
               {team.publicCode}
             </span>
           </div>
+          {actions}
         </div>
       ) : null}
     </div>
