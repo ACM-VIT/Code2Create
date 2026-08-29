@@ -6,7 +6,7 @@ import { fingerprintText, normalizedLongText, normalizedText } from "./strings";
 export const noveltyEmbeddingModel = "text-embedding-3-small" as const;
 export const noveltyEmbeddingDimensions = 1_536;
 export const minimumNoveltyCorpusEntries = 5;
-export const maximumNoveltyCorpusEntries = 200;
+export const maximumNoveltyCorpusEntries = 300;
 export const noveltyTeamMatchLimit = 50;
 export const noveltyDensitySimilarityPolicy = {
   distinctSimilarityBoundary: 0.6,

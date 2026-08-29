@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import { ConvexError, v, type Infer } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -30,6 +29,7 @@ import { requirePermission } from "./lib/permissions";
 import { requirePinnedIntakePolicy, requirePublishedIntakePolicy } from "./lib/intakePolicy";
 import { containsSensitiveProjectText } from "./lib/projectText";
 import { normalizedText } from "./lib/strings";
+import { createOpenAiEmbeddings, OpenAiEmbeddingError } from "./lib/openAiEmbeddings";
 
 const noveltyBand = v.union(
   v.literal("familiar"),
@@ -532,12 +532,12 @@ export const indexDraftIdea = internalAction({
     if (prepared.kind === "complete") return null;
     const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) return null;
-    const client = new OpenAI({ apiKey, timeout: 8_000, maxRetries: 0 });
     try {
-      const response = await client.embeddings.create({
+      const response = await createOpenAiEmbeddings({
+        apiKey,
         model: prepared.embeddingModel,
-        encoding_format: "float",
         input: prepared.normalizedIdea,
+        timeoutMs: 8_000,
       });
       const embedding = response.data[0]?.embedding;
       if (!embedding || response.data.length !== 1 || !validEmbedding(embedding)) return null;
@@ -637,12 +637,12 @@ export const indexSubmittedProjectIdea = internalAction({
     if (prepared.kind === "complete") return null;
     const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) return null;
-    const client = new OpenAI({ apiKey, timeout: 8_000, maxRetries: 0 });
     try {
-      const response = await client.embeddings.create({
+      const response = await createOpenAiEmbeddings({
+        apiKey,
         model: prepared.embeddingModel,
-        encoding_format: "float",
         input: prepared.normalizedIdea,
+        timeoutMs: 8_000,
       });
       const embedding = response.data[0]?.embedding;
       if (!embedding || response.data.length !== 1 || !validEmbedding(embedding)) return null;
@@ -802,14 +802,14 @@ export const preview = action({
             failureCategory: "provider_not_configured",
           });
         }
-        const client = new OpenAI({ apiKey, timeout: 8_000, maxRetries: 0 });
-        const response = await client.embeddings.create({
+        const response = await createOpenAiEmbeddings({
+          apiKey,
           model: begun.embeddingModel,
-          encoding_format: "float",
           input: begun.normalizedIdea,
+          timeoutMs: 8_000,
         });
         embedding = response.data[0]?.embedding;
-        providerRequestId = response._request_id ?? undefined;
+        providerRequestId = response.requestId;
         if (
           !embedding
           || response.data.length !== 1
@@ -899,12 +899,12 @@ export const preview = action({
         latencyMs: Date.now() - startedAt,
       });
     } catch (error) {
-      const status = error instanceof OpenAI.APIError ? error.status : undefined;
+      const status = error instanceof OpenAiEmbeddingError ? error.status : undefined;
       const failureCategory = status === 429
         ? "provider_rate_limited"
         : status
           ? `provider_http_${status}`
-          : error instanceof OpenAI.APIConnectionTimeoutError
+          : error instanceof OpenAiEmbeddingError && error.timedOut
             ? "provider_timed_out"
             : "provider_request_failed";
       return ctx.runMutation(internal.novelty.finishPreview, {

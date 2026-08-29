@@ -110,6 +110,7 @@ import type * as lib_intelligenceRecommendationValidators from "../lib/intellige
 import type * as lib_intelligenceServiceConfiguration from "../lib/intelligenceServiceConfiguration.js";
 import type * as lib_labelContract from "../lib/labelContract.js";
 import type * as lib_novelty from "../lib/novelty.js";
+import type * as lib_openAiEmbeddings from "../lib/openAiEmbeddings.js";
 import type * as lib_operations from "../lib/operations.js";
 import type * as lib_operationsAttention from "../lib/operationsAttention.js";
 import type * as lib_operationsAttentionDetectors from "../lib/operationsAttentionDetectors.js";
@@ -354,6 +355,7 @@ declare const fullApi: ApiFromModules<{
   "lib/intelligenceServiceConfiguration": typeof lib_intelligenceServiceConfiguration;
   "lib/labelContract": typeof lib_labelContract;
   "lib/novelty": typeof lib_novelty;
+  "lib/openAiEmbeddings": typeof lib_openAiEmbeddings;
   "lib/operations": typeof lib_operations;
   "lib/operationsAttention": typeof lib_operationsAttention;
   "lib/operationsAttentionDetectors": typeof lib_operationsAttentionDetectors;
