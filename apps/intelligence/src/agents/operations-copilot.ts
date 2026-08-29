@@ -24,11 +24,11 @@ import {
 	operationsCopilotInitialDataSchema,
 	type OperationsCopilotInitialData,
 } from '../protocol.ts';
-import { operationsIntelligenceModel } from '../lib/workersAi.ts';
+import { operationsIntelligenceModel } from '../lib/model.ts';
 
 /** Shared by model execution and proposal attribution. */
 export const operationsCopilotModel = operationsIntelligenceModel;
-export const operationsCopilotAgentVersion = 'operations-copilot-v2';
+export const operationsCopilotAgentVersion = 'operations-copilot-v3';
 
 const readDescriptions: Record<OperationsIntelligenceReadName, string> = {
 	operations_health:

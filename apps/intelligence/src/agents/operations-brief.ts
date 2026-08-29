@@ -22,11 +22,11 @@ import {
 	type OperationsIntelligenceInput,
 } from '../protocol.ts';
 import { buildGroundedOperationsBrief } from '../lib/groundedBrief.ts';
-import { operationsIntelligenceModel } from '../lib/workersAi.ts';
+import { operationsIntelligenceModel } from '../lib/model.ts';
 
 /** Shared by model execution and callback attribution. */
 export const operationsBriefModel = operationsIntelligenceModel;
-export const operationsBriefAgentVersion = 'operations-brief-v2';
+export const operationsBriefAgentVersion = 'operations-brief-v3';
 
 function successCallback(
 	input: OperationsIntelligenceInput,

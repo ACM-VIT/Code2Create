@@ -65,6 +65,8 @@ const localPrivateEnvironment = Object.fromEntries(
   }),
 )
 
+const localOpenAiApiKey = process.env.OPENAI_API_KEY?.trim()
+
 export const localConvexEnvironment = Object.freeze({
   C2C_DEPLOYMENT_ENVIRONMENT: 'development',
   BETTER_AUTH_SECRET: localBetterAuthSecret,
@@ -83,6 +85,7 @@ export const localConvexEnvironment = Object.freeze({
 })
 
 export const localIntelligenceWorkerEnvironment = Object.freeze({
+	...(localOpenAiApiKey ? { OPENAI_API_KEY: localOpenAiApiKey } : {}),
   INTELLIGENCE_INGRESS_SECRET: intelligenceIngressSecret,
   INTELLIGENCE_CALLBACK_SECRET: intelligenceCallbackSecret,
   INTELLIGENCE_READ_SECRET: intelligenceReadSecret,
@@ -92,6 +95,10 @@ export const localIntelligenceWorkerEnvironment = Object.freeze({
   CONVEX_INTELLIGENCE_READ_URL: 'http://127.0.0.1:3211/intelligence/operations-reads',
   CONVEX_INTELLIGENCE_RECOMMENDATION_URL:
     'http://127.0.0.1:3211/intelligence/operations-recommendations',
+  CONVEX_INTELLIGENCE_EPISODE_READ_URL:
+    'http://127.0.0.1:3211/intelligence/operations-episodes/read',
+  CONVEX_INTELLIGENCE_EPISODE_CALLBACK_URL:
+    'http://127.0.0.1:3211/intelligence/operations-episodes/callback',
   CONVEX_INTELLIGENCE_AUTONOMY_CALLBACK_URL:
     'http://127.0.0.1:3211/intelligence/operations-autonomy/callback',
   CONVEX_INTELLIGENCE_AUTONOMY_READ_URL:

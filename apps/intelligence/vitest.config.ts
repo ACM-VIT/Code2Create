@@ -5,15 +5,6 @@ export default defineConfig({
 	resolve: {
 		alias: [
 			{
-				find: /^@flue\/runtime\/cloudflare\/workers-ai$/u,
-				replacement: fileURLToPath(
-					new URL(
-						'./node_modules/@flue/runtime/dist/cloudflare/workers-ai-provider.mjs',
-						import.meta.url,
-					),
-				),
-			},
-			{
 				find: /^@flue\/runtime\/cloudflare$/u,
 				replacement: fileURLToPath(
 					new URL('./src/evals/cloudflare-runtime.ts', import.meta.url),

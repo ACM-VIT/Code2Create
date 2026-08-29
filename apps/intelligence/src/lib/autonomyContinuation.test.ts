@@ -167,7 +167,7 @@ function workArgs(args: {
 		step: directStep,
 		writeLifecycle: vi.fn(),
 		agentVersion: 'operations-autopilot-test',
-		model: 'cloudflare/scripted',
+		model: 'openai/scripted',
 		bindings: args.backend.bindings,
 		artifacts: args.artifacts,
 	};

@@ -1864,6 +1864,23 @@ code {
   min-height: 145px;
 }
 
+.editing-presence {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 5px 10px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.editing-presence > span {
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
 .minimal-input-surface input:focus,
 .minimal-textarea-surface textarea:focus {
   border-color: transparent;

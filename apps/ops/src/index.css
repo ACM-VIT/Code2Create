@@ -2212,6 +2212,36 @@ label > span { color: var(--muted); font-size: .75rem; }
   gap: 8px;
 }
 
+.intelligence-situation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.intelligence-situation {
+  display: grid;
+  gap: 12px;
+}
+
+.intelligence-situation > .section-heading h3 {
+  margin: 2px 0 0;
+  font-size: 1rem;
+}
+
+.intelligence-situation.critical {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
+}
+
+.intelligence-situation-analysis ul {
+  display: grid;
+  gap: 7px;
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.intelligence-situation-analysis li small {
+  color: var(--faint);
+}
+
 @media (max-width: 760px) {
   .intelligence-brief-heading,
   .intelligence-recommendation > .section-heading {

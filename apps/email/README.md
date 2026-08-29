@@ -28,13 +28,15 @@ This Worker consumes Cloudflare Email Sending lifecycle events. It also forwards
    pnpm --filter @code2create/email deploy:staging
    ```
 
-4. In the Cloudflare Queues dashboard, create one Event Subscription on `code2create-email-events-staging`.
+4. Create the Email Sending Event Subscription on `code2create-email-events-staging`:
+
+   ```sh
+   pnpm --filter @code2create/email subscription:create:staging
+   ```
 
    - Source: Email Sending.
    - Domain: the exact `EMAIL_SENDING_DOMAIN`.
    - Events: `message.delivered`, `message.deferred`, `message.bounced`, `message.failed`, `message.rejected`, and `message.complained`.
-
-   Wrangler `4.120.0` does not yet expose the `email.sending` source in `queues subscription create`. Do not substitute another source. Recheck the current CLI before setup. Until the CLI supports this source, the Cloudflare dashboard is the supported creation path.
 
 5. Verify the subscription through the CLI:
 

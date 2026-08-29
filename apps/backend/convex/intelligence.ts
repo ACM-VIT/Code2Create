@@ -34,6 +34,7 @@ const intakeContext = v.object({
   draftId: v.id("projectDrafts"),
   inputFingerprint: v.string(),
   ordinal: v.number(),
+  minimumFollowUpCount: v.number(),
   modelId: v.string(),
   systemInstruction: v.string(),
   maxOutputTokens: v.number(),
@@ -178,6 +179,7 @@ export const beginIntakeInterpretation = internalMutation({
       draftId: draft._id,
       inputFingerprint,
       ordinal,
+      minimumFollowUpCount: normalized.minimumFollowUpCount,
       modelId: normalized.model.modelId,
       systemInstruction: normalized.model.systemInstruction,
       maxOutputTokens: normalized.model.maxOutputTokens,
@@ -446,7 +448,7 @@ function validateModelOutput(output: ModelOutput, context: IntakeContext) {
     (output.nextQuestion && !purposeKeys.has(output.nextQuestion.purposeKey)) ||
     (output.stopReason === "needs_question") !== Boolean(output.nextQuestion) ||
     ((output.stopReason === "enough_context" || output.stopReason === "question_limit") &&
-      context.ordinal === 1)
+      context.ordinal <= context.minimumFollowUpCount)
   ) {
     return null;
   }

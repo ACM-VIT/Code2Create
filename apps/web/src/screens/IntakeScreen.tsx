@@ -3,10 +3,13 @@ import { useAction, useMutation, useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { ErrorNotice, TextArea } from '../components/Form'
+import { EditingPresence } from '../components/EditingPresence'
+import { useEditingPresence } from '../hooks/useEditingPresence'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
-import type { CurrentIntake, CurrentTeam } from '../types'
+import { clearSessionDraft, readSessionDraft, writeSessionDraft } from '../lib/sessionDraft'
+import type { CurrentIntake, CurrentTeam, CurrentTeamMember } from '../types'
 
 type NoveltySignal = {
   score: number
@@ -36,35 +39,50 @@ type PendingIntakeOperation = {
   action: string
 }
 
+type RecoveredFollowUp = {
+  answer: string
+  questionId: string
+}
+
 function normalizedIdeaLength(value: string) {
   return value.trim().replace(/\s+/g, ' ').length
 }
 
 export function IntakeScreen({
   team,
+  members,
   submissionFailureMessage,
 }: {
   team: CurrentTeam
+  members: CurrentTeamMember[]
   submissionFailureMessage?: string
 }) {
   const intake = useQuery(api.intake.current, { eventSlug })
   if (intake === undefined) return <p className="muted">Loading your application…</p>
   if (intake === null) return <ErrorNotice message="Your application is unavailable." />
-  if (!team.canWriteProject) return <ReadOnlyIntake intake={intake} />
+  if (!team.canWriteProject) return <ReadOnlyIntake intake={intake} members={members} />
   return (
     <>
       <ErrorNotice message={submissionFailureMessage ?? null} />
-      <IntakeWorkspace team={team} intake={intake} />
+      <IntakeWorkspace team={team} intake={intake} members={members} />
     </>
   )
 }
 
-function ReadOnlyIntake({ intake }: { intake: CurrentIntake }) {
+function ReadOnlyIntake({
+  intake,
+  members,
+}: {
+  intake: CurrentIntake
+  members: CurrentTeamMember[]
+}) {
+  const { editors } = useEditingPresence(false)
   const draft = intake.draft
   return (
     <IntakeFrame label="Project idea">
       <h1>Project editing is unavailable.</h1>
       <p className="minimal-step-hint">Your team’s saved work remains here. Another member with project access can continue.</p>
+      <EditingPresence editors={editors ?? []} members={members} />
       {draft?.initialIdea ? (
         <div className="submitted-summary">
           <p className="preserve-lines">{draft.initialIdea}</p>
@@ -74,7 +92,15 @@ function ReadOnlyIntake({ intake }: { intake: CurrentIntake }) {
   )
 }
 
-function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentIntake }) {
+function IntakeWorkspace({
+  team,
+  intake,
+  members,
+}: {
+  team: CurrentTeam
+  intake: CurrentIntake
+  members: CurrentTeamMember[]
+}) {
   const draft = intake.draft
   const previewNovelty = useAction(api.novelty.preview)
   const saveIdea = useMutation(api.intake.saveInitialIdea)
@@ -87,10 +113,24 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
     api.intake.submissionPreview,
     draft?.stage === 'review' ? { eventSlug } : 'skip',
   )
-  const [idea, setIdea] = useState(draft?.initialIdea ?? '')
+  const ideaStorageKey = `c2c:${eventSlug}:${team.id}:idea`
+  const recoveredIdea = useRef(readSessionDraft(ideaStorageKey)).current
+  const initialSavedIdea = draft?.initialIdea ?? ''
+  const [idea, setIdea] = useState(recoveredIdea ?? initialSavedIdea)
+  const [ideaDirty, setIdeaDirty] = useState(
+    recoveredIdea !== null && recoveredIdea !== initialSavedIdea,
+  )
+  const ideaBase = useRef({ value: initialSavedIdea, version: draft?.version ?? 0 })
+  const [ideaConflict, setIdeaConflict] = useState(false)
   const [answer, setAnswer] = useState('')
+  const followUpBase = useRef<{ questionId: string | null; version: number }>({
+    questionId: null,
+    version: draft?.version ?? 0,
+  })
+  const [recoveredFollowUp, setRecoveredFollowUp] = useState<RecoveredFollowUp | null>(null)
   const [editingFollowUpId, setEditingFollowUpId] = useState<string | null>(null)
   const [editedFollowUpAnswer, setEditedFollowUpAnswer] = useState('')
+  const [revisionBaseVersion, setRevisionBaseVersion] = useState<number | null>(null)
   const [editingIdea, setEditingIdea] = useState(false)
   const [confirmedSnapshotKey, setConfirmedSnapshotKey] = useState<string | null>(null)
   const [pendingFollowUp, setPendingFollowUp] = useState<PendingFollowUp | null>(null)
@@ -101,14 +141,19 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
   const [noveltyState, setNoveltyState] = useState<NoveltyState>({ status: 'idle' })
   const noveltySequence = useRef(0)
   const commandInFlight = useRef(false)
+  const [applicationsOpen, setApplicationsOpen] = useState(
+    () => Date.now() < intake.applicationsCloseAt,
+  )
   const operations = useOperationRunner<IntakeOperationResult>()
-
   const ideaEditorOpen = !draft || draft.stage === 'opening' || editingIdea
-  const novelty = draft?.novelty ?? opening?.novelty ?? null
+  const { editors, markEditing, stopEditing } = useEditingPresence(team.canWriteProject)
 
-  useEffect(() => {
-    if (draft?.initialIdea !== undefined) setIdea(draft.initialIdea)
-  }, [draft?.initialIdea])
+  const novelty = draft?.novelty ?? opening?.novelty ?? null
+  const noveltyCorpusVersionId = novelty?.corpusVersionId ?? null
+  const noveltyMinimumIdeaLength = novelty?.minimumIdeaLength ?? null
+  const noveltyDebounceMs = novelty?.debounceMs ?? null
+  const savedNoveltyScore = draft?.noveltySignal?.score ?? null
+
   const activeFollowUp = draft?.followUps.find((followUp) => followUp.state === 'active')
   const ideaPending = operations.hasPending('idea')
   const followUpSlot = pendingFollowUp ? `follow-up:${pendingFollowUp.questionId}` : null
@@ -117,27 +162,80 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
   const revisionPending = revisionSlot !== null && operations.hasPending(revisionSlot)
   const freshnessPending = operations.hasPending('freshness')
   const submitPending = operations.hasPending('final-submit')
-  useEffect(() => setAnswer(''), [activeFollowUp?.id])
+  useEffect(() => {
+    const remaining = intake.applicationsCloseAt - Date.now()
+    if (remaining <= 0) {
+      setApplicationsOpen(false)
+      stopEditing()
+      return
+    }
+    setApplicationsOpen(true)
+    const timer = window.setTimeout(() => {
+      setApplicationsOpen(false)
+      stopEditing()
+    }, Math.min(remaining + 50, 2_147_000_000))
+    return () => window.clearTimeout(timer)
+  }, [intake.applicationsCloseAt, stopEditing])
+
+  useEffect(() => {
+    const savedValue = draft?.initialIdea ?? ''
+    const savedVersion = draft?.version ?? 0
+    if (!ideaDirty) {
+      ideaBase.current = { value: savedValue, version: savedVersion }
+      setIdea(savedValue)
+      setIdeaConflict(false)
+      return
+    }
+    if (
+      savedVersion !== ideaBase.current.version &&
+      savedValue !== ideaBase.current.value
+    ) {
+      setIdeaConflict(true)
+    }
+  }, [draft?.initialIdea, draft?.version, ideaDirty])
+
+  useEffect(() => {
+    const nextQuestionId = activeFollowUp?.id ?? null
+    if (followUpBase.current.questionId === nextQuestionId) return
+    const priorQuestionId = followUpBase.current.questionId
+    if (priorQuestionId && answer.trim()) {
+      setRecoveredFollowUp({ answer, questionId: priorQuestionId })
+    }
+    followUpBase.current = {
+      questionId: nextQuestionId,
+      version: draft?.version ?? 0,
+    }
+    if (!nextQuestionId) {
+      setAnswer('')
+      return
+    }
+    setAnswer(readSessionDraft(`c2c:${eventSlug}:${team.id}:follow-up:${nextQuestionId}`) ?? '')
+  }, [activeFollowUp?.id, answer, draft?.version, team.id])
 
   useEffect(() => {
     noveltySequence.current += 1
     const sequence = noveltySequence.current
-    const savedSignal = draft?.noveltySignal
     const savedIdeaMatches =
       draft?.initialIdea !== undefined &&
       draft.initialIdea.trim().replace(/\s+/g, ' ') === idea.trim().replace(/\s+/g, ' ')
 
-    if (novelty && savedSignal && savedIdeaMatches) {
+    if (noveltyCorpusVersionId !== null && savedNoveltyScore !== null && savedIdeaMatches) {
       setNoveltyState({
         status: 'ready',
         signal: {
-          score: savedSignal.score,
+          score: savedNoveltyScore,
         },
       })
       return
     }
 
-    if (!ideaEditorOpen || !novelty || normalizedIdeaLength(idea) < novelty.minimumIdeaLength) {
+    if (
+      !ideaEditorOpen ||
+      noveltyCorpusVersionId === null ||
+      noveltyMinimumIdeaLength === null ||
+      noveltyDebounceMs === null ||
+      normalizedIdeaLength(idea) < noveltyMinimumIdeaLength
+    ) {
       setNoveltyState({ status: 'idle' })
       return
     }
@@ -146,7 +244,7 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
     const timer = window.setTimeout(() => {
       void previewNovelty({
         eventSlug,
-        corpusVersionId: novelty.corpusVersionId,
+        corpusVersionId: noveltyCorpusVersionId,
         idea,
         clientRequestId: crypto.randomUUID(),
       })
@@ -168,17 +266,18 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
             setNoveltyState({ status: 'unavailable' })
           }
         })
-    }, novelty.debounceMs)
+    }, noveltyDebounceMs)
 
     return () => window.clearTimeout(timer)
   }, [
     draft?.initialIdea,
-    draft?.noveltySignal,
-    draft?.noveltySignal?.score,
     idea,
     ideaEditorOpen,
-    novelty,
+    noveltyCorpusVersionId,
+    noveltyDebounceMs,
+    noveltyMinimumIdeaLength,
     previewNovelty,
+    savedNoveltyScore,
   ])
 
   const run = async (command: () => Promise<unknown>) => {
@@ -202,9 +301,13 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
       await operations.run('idea', (clientOperationId) => () => saveIdea({
           eventSlug,
           idea,
-          expectedDraftVersion: draft?.version ?? 0,
+          expectedDraftVersion: ideaBase.current.version,
           clientOperationId,
         }))
+      clearSessionDraft(ideaStorageKey)
+      setIdeaDirty(false)
+      setIdeaConflict(false)
+      stopEditing()
       setEditingIdea(false)
     })
   }
@@ -222,9 +325,12 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
           questionId: activeFollowUp.id,
           answer,
           skipped: false,
-          expectedDraftVersion: draft?.version ?? 0,
+          expectedDraftVersion: followUpBase.current.version,
           clientOperationId,
         }))
+      clearSessionDraft(`c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`)
+      setAnswer('')
+      stopEditing()
       setPendingFollowUp(null)
     })
   }
@@ -297,6 +403,16 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
     )
   }
 
+  if (!applicationsOpen) {
+    return (
+      <IntakeFrame label="Project idea">
+        <h1>Applications are closed.</h1>
+        <p className="minimal-step-hint">Your team’s saved work remains available here.</p>
+        {draft?.initialIdea ? <p className="preserve-lines">{draft.initialIdea}</p> : null}
+      </IntakeFrame>
+    )
+  }
+
   if (!draft || draft.stage === 'opening' || editingIdea) {
     if (opening === undefined) {
       return <IntakeFrame label="Project idea"><p className="minimal-step-hint">Loading…</p></IntakeFrame>
@@ -308,6 +424,41 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
         <h1>{opening.initialPrompt}</h1>
         <p className="minimal-step-hint">{opening.initialHelpText}</p>
         <form onSubmit={submitIdea} className="minimal-textarea-surface">
+          <EditingPresence editors={editors ?? []} members={members} />
+          {ideaConflict ? (
+            <div className="notice" role="status">
+              <p>A teammate saved a newer idea. Your text is still here.</p>
+              <div className="button-row">
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => {
+                    const savedValue = draft?.initialIdea ?? ''
+                    setIdea(savedValue)
+                    setIdeaDirty(false)
+                    setIdeaConflict(false)
+                    ideaBase.current = { value: savedValue, version: draft?.version ?? 0 }
+                    clearSessionDraft(ideaStorageKey)
+                  }}
+                >
+                  Use saved version
+                </button>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => {
+                    ideaBase.current = {
+                      value: draft?.initialIdea ?? '',
+                      version: draft?.version ?? 0,
+                    }
+                    setIdeaConflict(false)
+                  }}
+                >
+                  Keep mine
+                </button>
+              </div>
+            </div>
+          ) : null}
           <NoveltyCounter
             state={noveltyState}
             currentLength={normalizedIdeaLength(idea)}
@@ -325,6 +476,9 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
               const nextIdea = event.currentTarget.value
               noveltySequence.current += 1
               setIdea(nextIdea)
+              setIdeaDirty(true)
+              writeSessionDraft(ideaStorageKey, nextIdea)
+              markEditing('idea')
               setNoveltyState(
                 novelty && normalizedIdeaLength(nextIdea) >= novelty.minimumIdeaLength
                   ? { status: 'checking' }
@@ -342,6 +496,14 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
                 disabled={busy}
                 onClick={() => {
                   setIdea(draft?.initialIdea ?? '')
+                  setIdeaDirty(false)
+                  setIdeaConflict(false)
+                  ideaBase.current = {
+                    value: draft?.initialIdea ?? '',
+                    version: draft?.version ?? 0,
+                  }
+                  clearSessionDraft(ideaStorageKey)
+                  stopEditing()
                   setEditingIdea(false)
                   setError(null)
                 }}
@@ -350,7 +512,7 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
               </button>
               ) : <span className="character-count">{idea.length} / {initialIdeaMaxLength}</span>}
             <span className="minimal-privacy">Do not include private contact details.</span>
-            <button type="submit" className="minimal-continue" disabled={busy || idea.trim().length < initialIdeaMinLength}>
+            <button type="submit" className="minimal-continue" disabled={busy || ideaConflict || idea.trim().length < initialIdeaMinLength}>
               {busy ? 'Saving…' : 'Continue'} <span aria-hidden="true">→</span>
             </button>
           </div>
@@ -373,6 +535,7 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
         <h1>{activeFollowUp.question}</h1>
         <p className="minimal-step-hint">Keep it short—one or two sentences is plenty.</p>
         <form onSubmit={submitAnswer} className="minimal-textarea-surface compact-surface">
+          <EditingPresence editors={editors ?? []} members={members} />
           <TextArea
             autoFocus
             required
@@ -381,12 +544,27 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
             rows={6}
             disabled={busy}
             value={answer}
-            onChange={(event) => setAnswer(event.target.value)}
+            onChange={(event) => {
+              setAnswer(event.target.value)
+              writeSessionDraft(
+                `c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`,
+                event.target.value,
+              )
+              markEditing('follow_up')
+            }}
             placeholder="Type your answer…"
           />
           <ErrorNotice message={error} />
           <div className="minimal-surface-actions">
-            <button type="button" className="minimal-back" disabled={busy} onClick={() => setEditingIdea(true)}>
+            <button type="button" className="minimal-back" disabled={busy} onClick={() => {
+              ideaBase.current = {
+                value: draft.initialIdea ?? '',
+                version: draft.version,
+              }
+              setIdea(draft.initialIdea ?? '')
+              setIdeaDirty(false)
+              setEditingIdea(true)
+            }}>
               Edit idea
             </button>
             <button
@@ -402,9 +580,12 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
                   eventSlug,
                   questionId: activeFollowUp.id,
                   skipped: true,
-                  expectedDraftVersion: draft.version,
+                  expectedDraftVersion: followUpBase.current.version,
                   clientOperationId,
                 }))
+                clearSessionDraft(`c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`)
+                setAnswer('')
+                stopEditing()
                 setPendingFollowUp(null)
               })}
             >
@@ -435,15 +616,22 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
       preview.draftVersion,
     ].join(':')
     const confirmedLock = confirmedSnapshotKey === confirmationKey
+    const revisionConflict =
+      editingFollowUpId !== null &&
+      revisionBaseVersion !== null &&
+      revisionBaseVersion !== preview.draftVersion
     const canSubmit =
       preview.blockers.length === 0 &&
       confirmedLock &&
+      editors !== undefined &&
+      editors.length === 0 &&
       team.currentRole === 'lead' &&
       team.canSubmitApplication
     return (
       <IntakeFrame label="Final check" wide>
         <h1>Everything look right?</h1>
         <p className="minimal-step-hint">Submitting locks your current team. The lead can still revise the proposal until the application deadline.</p>
+        <EditingPresence editors={editors ?? []} members={members} />
         <div className="minimal-review-layout">
           <div className="minimal-review-card">
             <div className="review-card-heading">
@@ -471,6 +659,23 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
             <div className="review-block project-review-block">
               <span className="field-label">Your idea</span>
               <p className="preserve-lines">{preview.initialIdea}</p>
+              {recoveredFollowUp ? (
+                <div className="notice" role="status">
+                  <p>A teammate answered while you were typing. Your draft is still available.</p>
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => {
+                      setEditingFollowUpId(recoveredFollowUp.questionId)
+                      setEditedFollowUpAnswer(recoveredFollowUp.answer)
+                      setRevisionBaseVersion(preview.draftVersion)
+                      setRecoveredFollowUp(null)
+                    }}
+                  >
+                    Review my draft
+                  </button>
+                </div>
+              ) : null}
               {preview.followUps.map((followUp) => (
                 <div className="review-follow-up" key={followUp.id}>
                   <p className="review-question">{followUp.question}</p>
@@ -490,12 +695,14 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
                               questionId: followUp.id,
                               answer: editedFollowUpAnswer,
                               skipped: false,
-                              expectedDraftVersion: preview.draftVersion,
+                              expectedDraftVersion: revisionBaseVersion ?? preview.draftVersion,
                               clientOperationId,
                             }))
                           setPendingRevisionId(null)
                           setPendingRevisionKind(null)
                           setEditingFollowUpId(null)
+                          setRevisionBaseVersion(null)
+                          stopEditing()
                         })
                       }}
                     >
@@ -507,10 +714,31 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
                         rows={4}
                         disabled={busy}
                         value={editedFollowUpAnswer}
-                        onChange={(event) => setEditedFollowUpAnswer(event.target.value)}
+                        onChange={(event) => {
+                          setEditedFollowUpAnswer(event.target.value)
+                          markEditing('follow_up')
+                        }}
                       />
+                      {revisionConflict ? (
+                        <div className="notice" role="status">
+                          <p>A teammate saved a newer answer. Your text is still here.</p>
+                          <div className="button-row">
+                            <button type="button" className="text-button" onClick={() => {
+                              setEditedFollowUpAnswer(followUp.answer ?? '')
+                              setRevisionBaseVersion(preview.draftVersion)
+                            }}>Use saved version</button>
+                            <button type="button" className="text-button" onClick={() => {
+                              setRevisionBaseVersion(preview.draftVersion)
+                            }}>Keep mine</button>
+                          </div>
+                        </div>
+                      ) : null}
                       <div className="button-row">
-                        <button className="secondary" disabled={busy} type="button" onClick={() => setEditingFollowUpId(null)}>Cancel</button>
+                        <button className="secondary" disabled={busy} type="button" onClick={() => {
+                          setEditingFollowUpId(null)
+                          setRevisionBaseVersion(null)
+                          stopEditing()
+                        }}>Cancel</button>
                         <button className="secondary" disabled={busy} type="button" onClick={() => void run(async () => {
                           const slot = `follow-up-revision:${followUp.id}`
                           if (!operations.hasPending(slot)) {
@@ -521,14 +749,16 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
                               eventSlug,
                               questionId: followUp.id,
                               skipped: true,
-                              expectedDraftVersion: preview.draftVersion,
+                              expectedDraftVersion: revisionBaseVersion ?? preview.draftVersion,
                               clientOperationId,
                             }))
                           setPendingRevisionId(null)
                           setPendingRevisionKind(null)
                           setEditingFollowUpId(null)
+                          setRevisionBaseVersion(null)
+                          stopEditing()
                         })}>Skip answer</button>
-                        <button className="primary" disabled={busy || editedFollowUpAnswer.trim().length < draft.intakePolicy.followUpAnswerMinLength} type="submit">
+                        <button className="primary" disabled={busy || revisionConflict || editedFollowUpAnswer.trim().length < draft.intakePolicy.followUpAnswerMinLength} type="submit">
                           Save
                         </button>
                       </div>
@@ -543,6 +773,7 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
                         onClick={() => {
                           setEditingFollowUpId(followUp.id)
                           setEditedFollowUpAnswer(followUp.answer ?? '')
+                          setRevisionBaseVersion(preview.draftVersion)
                         }}
                       >
                         Edit answer
@@ -591,9 +822,18 @@ function IntakeWorkspace({ team, intake }: { team: CurrentTeam; intake: CurrentI
             {team.currentRole === 'lead' && !team.canSubmitApplication ? (
               <p className="notice">Submission is unavailable. Ask an organizer if this looks wrong.</p>
             ) : null}
+            {editors !== undefined && editors.length > 0 ? (
+              <p className="notice">Wait for your teammate’s current edit before submitting.</p>
+            ) : null}
             <ErrorNotice message={error} />
             <div className="minimal-surface-actions">
-              <button type="button" className="minimal-back" disabled={busy} onClick={() => setEditingIdea(true)}>Edit idea</button>
+              <button type="button" className="minimal-back" disabled={busy} onClick={() => {
+                const savedIdea = preview.initialIdea ?? ''
+                ideaBase.current = { value: savedIdea, version: preview.draftVersion }
+                setIdea(savedIdea)
+                setIdeaDirty(false)
+                setEditingIdea(true)
+              }}>Edit idea</button>
               <button
                 type="button"
                 className="minimal-continue"

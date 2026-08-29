@@ -2,11 +2,12 @@
 
 This Cloudflare Worker hosts the Flue agents used by the operations dashboard. Convex remains the authority for event state, permissions, autonomous-run scheduling, typed recommendation proposals, and every operator-approved effect. Every agent can access only its closed, redacted, signed projection routes; the autopilot is further restricted to the read set frozen into its run policy. The Worker cannot invoke event commands or make consequential changes directly.
 
-There are three separate agent surfaces:
+There are four separate agent surfaces:
 
 - an operator-requested operations brief with a grounded, Convex-published result;
 - a subject-private operations copilot conversation;
 - the operations autopilot, which drains durable semantic work, exhaustively pages every policy-approved read, investigates and criticizes evidence, and either records observations or proposes typed recommendations for human review.
+- an event-owned episode investigator, with one durable instance per correlated operational situation and typed hypotheses and forecasts published back to Convex.
 
 Autopilot runs have no product-level limit on model turns, investigations, read pages, proposals, or total reasoning time. Each network request, model response, database transaction, and history page stays technically bounded; durable continuations and opaque cursors carry unfinished work into later Flue submissions. A run stops only after its durable work is exhausted, its authority is revoked, or it reaches an explicit terminal result. A run-scoped admission-fence Durable Object serializes initial admission, continuation, and revocation so a delayed request cannot resurrect a stopped run.
 
@@ -28,7 +29,7 @@ Run the Worker:
 pnpm dev:intelligence
 ```
 
-The repository-root `pnpm dev` command supplies matching local Convex/Worker HMAC values, service URLs, the stream secret, and the exact operations origin. Workers AI calls use the configured remote `AI` binding and spend real tokens.
+The repository-root `pnpm dev` command supplies matching local Convex/Worker HMAC values, service URLs, the stream secret, the exact operations origin, and the existing `OPENAI_API_KEY` from the ignored repository-root `.env.local`. Agent calls use OpenAI directly and spend real tokens.
 
 The HTTP shell stays separate from autonomy semantics: `src/routes/autonomyRoutes.ts` owns signed autonomy admission, continuation, and abort; the `src/lib/autonomy*.ts` modules separately own fencing, transport, exhaustive traversal, orchestration, investigation, reduction, evidence, finalization, and artifact persistence. The public HTTP surface is:
 
@@ -36,6 +37,7 @@ The HTTP shell stays separate from autonomy semantics: `src/routes/autonomyRoute
 - `POST /v1/operations-briefs`, authenticated with the brief-ingress HMAC context;
 - `POST /v1/operations-copilot/turns`, authenticated with the copilot-ingress HMAC context;
 - `POST /v1/operations-autonomy-runs`, authenticated with the autonomy-ingress HMAC context;
+- `POST /v1/operations-episodes`, authenticated with the episode-ingress HMAC context;
 - `POST /v1/operations-autonomy-runs/:runId/continue`, for a backend-owned durable work item;
 - `POST /v1/operations-autonomy-runs/:runId/abort`, which durably revokes admission before aborting agent work;
 - `GET|HEAD /v1/operations-brief-runs/:instanceId`, with a short-lived route-bound read ticket;
@@ -50,7 +52,7 @@ The public projection removes hidden messages, metadata, files, reasoning conten
 
 The Worker requires:
 
-- `AI`, the Workers AI binding used for `@cf/moonshotai/kimi-k2.6`;
+- `OPENAI_API_KEY`, the encrypted Worker secret used by Flue's OpenAI Responses provider;
 - `OPERATIONS_AUTONOMY_ADMISSION_FENCE`, the run-keyed admission-fence Durable Object namespace;
 - `INTELLIGENCE_INGRESS_SECRET`, for signed brief, copilot, autonomy, continuation, and abort ingress;
 - `INTELLIGENCE_CALLBACK_SECRET`, for callbacks and recommendation proposals;
@@ -59,6 +61,8 @@ The Worker requires:
 - `CONVEX_INTELLIGENCE_CALLBACK_URL`;
 - `CONVEX_INTELLIGENCE_READ_URL`;
 - `CONVEX_INTELLIGENCE_RECOMMENDATION_URL`;
+- `CONVEX_INTELLIGENCE_EPISODE_READ_URL`;
+- `CONVEX_INTELLIGENCE_EPISODE_CALLBACK_URL`;
 - `CONVEX_INTELLIGENCE_AUTONOMY_CALLBACK_URL`;
 - `CONVEX_INTELLIGENCE_AUTONOMY_READ_URL`;
 - `CONVEX_INTELLIGENCE_AUTONOMY_WORK_URL`;
@@ -66,11 +70,12 @@ The Worker requires:
 - `CONVEX_INTELLIGENCE_AUTONOMY_RECOMMENDATION_EVIDENCE_URL`;
 - `OPS_ORIGIN`, the exact HTTPS operations-dashboard origin (local HTTP is allowed only on localhost).
 
-Each provider request disables gateway logging and cache reuse and carries an abortable request deadline. These are request-level failure-containment bounds, not an autonomy-run budget: unfinished or interrupted semantic work remains durable and can continue in a new submission while authority is current.
+Flue sends model work directly to the pinned OpenAI Responses model. Interrupted semantic work remains durable and can continue in a new submission while authority is current.
 
 Keep staging and production values separate. Secrets belong in Wrangler secret storage, not committed environment files:
 
 ```sh
+pnpm exec wrangler secret put OPENAI_API_KEY --env staging
 pnpm exec wrangler secret put INTELLIGENCE_STREAM_SECRET --env staging
 ```
 
@@ -94,7 +99,7 @@ pnpm --filter @code2create/intelligence eval
 
 The deterministic autonomy suite exercises the production signing and transport contracts, work authorization after local context restoration, cursor-paged evidence, later-page recommendation provenance, lost-response replay after later work, citation-splice rejection, and HMAC domain separation. Backend tests separately exercise the real Convex read and recommendation mutations. Unit and fault-injection tests cover cursor cycles, snapshot drift, cold continuation, candidate ownership, sanitized history paging, and admission-fence races.
 
-The live brief evaluation runs the real brief agent, instructions, model, and publish tool against frozen health snapshots. It checks exact publication, grounded citations, empty-source handling, and prompt-injection resistance. It requires `CLOUDFLARE_ACCOUNT_ID` and a scoped `CLOUDFLARE_API_TOKEN`, calls the pinned Workers AI model, and spends tokens.
+The live brief evaluation runs the real brief agent, instructions, pinned OpenAI model, and publish tool against frozen health snapshots. It checks exact publication, grounded citations, empty-source handling, and prompt-injection resistance. It requires `OPENAI_API_KEY` and spends tokens.
 
 ## Deployment
 

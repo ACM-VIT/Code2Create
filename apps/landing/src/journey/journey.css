@@ -1,0 +1,1206 @@
+/* ------------------------------------------------------------------ *
+ * The journey: one pinned stage that carries hero → about → stats →
+ * timeline → FAQs, scrubbed by a single master timeline.
+ *
+ * Sizing rule: anything that has to line up with something else is a %
+ * of the stage. Type is clamped against vw so it stays readable as the
+ * stage shrinks. The breakpoints at the bottom re-block the layout for
+ * tablets and phones rather than just scaling it down.
+ * ------------------------------------------------------------------ */
+
+/* ~1588vh of travel over the timeline's 244s — the same glide-not-resist
+   pace as the 146s/1050vh cut; the added length is the schedule act
+   running at five times its old scroll span. */
+.journey {
+  position: relative;
+  height: 1688vh;
+}
+
+.journey__stage {
+  position: sticky;
+  top: 0;
+  height: 100svh;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--ink);
+}
+
+/* Night sky. Deliberately static — nothing about it shifts on scroll. */
+.sky {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(180deg, var(--ink) 62%, var(--rose-deep) 116%, var(--blush) 142%);
+}
+
+/* Fades in for the timeline and FAQ acts so the bottom of the stage is the
+   same ink the footer opens on — no seam between the two. */
+.sky-dim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: var(--ink);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * Ridge lines
+ *
+ * hills-band.webp is the design's own footer-hills plate — a wide,
+ * asymmetric forested range, NOT a mirrored tile — with its seam blended
+ * out offline so repeat-x continues the range naturally. `auto 100%`
+ * keeps the artwork's aspect at every band height: nothing is squashed.
+ * ------------------------------------------------------------------ */
+
+.ridge {
+  position: absolute;
+  left: -10%;
+  bottom: 0;
+  width: 120%;
+  z-index: 1;
+  background-image: url('/assets/img/hills-band.webp');
+  background-repeat: repeat-x;
+  background-position: 0 bottom;
+  background-size: auto 100%;
+  pointer-events: none;
+  will-change: background-position, transform;
+}
+
+.ridge--far {
+  height: 36%;
+  opacity: 0.55;
+  filter: brightness(0.52) saturate(0.7);
+}
+
+.ridge--mid {
+  height: 29%;
+  opacity: 0.9;
+  filter: brightness(0.74) saturate(0.85);
+  z-index: 3;
+}
+
+.ridge--near {
+  height: 22%;
+  filter: brightness(0.95);
+  z-index: 5;
+}
+
+.ridge--near::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 -2px;
+  height: 22%;
+  background: linear-gradient(180deg, rgba(5, 10, 7, 0) 0%, #050a07 72%);
+}
+
+/* ------------------------------------------------------------------ *
+ * Sky lanterns — they lift out from behind the ridge line, so they sit
+ * under the middle and front bands.
+ * ------------------------------------------------------------------ */
+
+.embers {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.embers img {
+  position: absolute;
+  bottom: -14%;
+  height: auto;
+  opacity: 0;
+  animation-name: ember-rise;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  filter: drop-shadow(0 0 12px rgba(255, 170, 80, 0.45));
+}
+
+@keyframes ember-rise {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(-3deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.85;
+  }
+  85% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate3d(var(--sway, 40px), -125vh, 0) rotate(4deg);
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Petals
+ * ------------------------------------------------------------------ */
+
+.petals {
+  /* One field for the page, fixed to the viewport, so the fall carries across
+     the FAQ/footer boundary. It never takes the pointer — the pointer is read
+     off window, so nothing underneath stops being clickable. */
+  position: fixed;
+  inset: 0;
+  /* A canvas is a replaced element: `inset: 0` with `width: auto` resolves to
+     its *intrinsic* size — the width/height attributes, which are the backing
+     store at devicePixelRatio — so it lays out at 2x the viewport and the
+     field ends up half off screen. Size it explicitly. */
+  width: 100%;
+  height: 100%;
+  z-index: 45;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * Hero
+ * ------------------------------------------------------------------ */
+
+.hero-tree {
+  position: absolute;
+  left: -19%;
+  top: 6%;
+  width: 104%;
+  z-index: 6;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* The emblem holds its ground while the copy leaves — it is about to
+   become the cards, so it must not move. Its left/top/width come from the
+   LOGO table in Cards.jsx, applied by Journey.jsx, so the cards can line
+   up on it exactly at every breakpoint. */
+.emblem-holder {
+  position: absolute;
+  z-index: 12;
+  aspect-ratio: 150 / 163.825;
+  pointer-events: none;
+  filter: drop-shadow(2.765px 2.765px 1.382px rgba(0, 0, 0, 0.25));
+}
+
+.emblem {
+  width: 100%;
+  height: 100%;
+}
+
+.hero-copy {
+  position: absolute;
+  left: 50%;
+  top: 56%;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(100% - 40px, 1000px);
+  text-align: center;
+}
+
+.hero-wordmark {
+  line-height: 0;
+}
+
+.hero-wordmark img {
+  width: clamp(230px, 52.3vw, 669px);
+  height: auto;
+}
+
+.hero-tagline {
+  margin-top: clamp(14px, 2.6vh, 24px);
+  font-size: clamp(11px, 1.56vw, 20px);
+  text-transform: uppercase;
+  color: var(--paper);
+}
+
+.hero-cta {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: clamp(162px, 15.8vw, 202px);
+  aspect-ratio: 188 / 40.23;
+  margin-top: clamp(20px, 4.6vh, 42px);
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(13px, 1.25vw, 16px);
+  color: var(--paper-warm);
+  transition: transform 0.3s ease, filter 0.3s ease;
+}
+
+.hero-cta img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.hero-cta span {
+  position: relative;
+}
+
+.hero-cta:hover {
+  filter: drop-shadow(0 0 14px rgba(216, 132, 162, 0.55));
+}
+
+/* Date and venue, quiet under the button. */
+.hero-venue {
+  margin-top: clamp(12px, 2.4vh, 22px);
+  font-family: var(--font-display);
+  font-size: clamp(12px, 1.2vw, 16px);
+  color: rgba(255, 235, 243, 0.82);
+}
+
+/* ------------------------------------------------------------------ *
+ * Cards — born as the emblem's wedges, they end as a fanned hand
+ * ------------------------------------------------------------------ */
+
+.cards {
+  position: absolute;
+  inset: 0;
+  /* Always under the front ridge, so a card can never flash in front of the
+     hills on its way to the fan. The hand-off still works because the emblem
+     is hidden on the very frame the cards appear. */
+  z-index: 4;
+  pointer-events: none;
+}
+
+.card {
+  position: absolute;
+  aspect-ratio: 560 / 862;
+  background: linear-gradient(180deg, var(--card-from) 0%, var(--card-to) 100%);
+  box-shadow: -18px 0 22px rgba(0, 0, 0, 0.32);
+  transform-origin: 50% 50%;
+  will-change: transform, clip-path;
+}
+
+/* The wedge's own colour, carried over from the logo so the hand-off is
+   invisible; it cross-fades to the card face as the card unfolds. */
+.card__wedge {
+  position: absolute;
+  inset: 0;
+}
+
+.card__face {
+  position: absolute;
+  inset: 0;
+}
+
+/* The club-suit scan fills the card exactly — it is pre-cropped to the
+   card box's own ratio, with its rounded corners cut to transparency. */
+.card__scan {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ------------------------------------------------------------------ *
+ * About chapters
+ * ------------------------------------------------------------------ */
+
+.chapters {
+  position: absolute;
+  left: 34%;
+  top: 20%;
+  z-index: 12;
+  width: min(58%, 720px);
+}
+
+.chapter {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+}
+
+.chapter__title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.28em;
+  font-family: var(--font-display);
+  font-weight: 500;
+  /* Height-aware, so a short stage shrinks the heading with everything else
+     and the copy always ends above the fanned cards. */
+  font-size: clamp(22px, min(3.75vw, 6.4vh), 48px);
+  line-height: 1.05;
+  color: #fff;
+}
+
+.chapter__title img {
+  width: clamp(130px, 22.5vw, 288px);
+  height: auto;
+}
+
+.chapter__name {
+  font-weight: 700;
+}
+
+/* Real copy now, several paragraphs of it — sized against width *and* height
+   so the longest chapter always ends above the fanned cards below. */
+.chapter__body {
+  margin-top: clamp(10px, 2.6vh, 24px);
+  /* The copy is short now, two brief paragraphs per chapter, so it can afford
+     to be read at a real size and still end well above the fanned cards. */
+  font-size: clamp(11px, min(1.35vw, 2.5vh), 17px);
+  line-height: 1.5;
+  color: #fff;
+}
+
+.chapter__body p + p {
+  margin-top: 0.55em;
+}
+
+/* ------------------------------------------------------------------ *
+ * Lanterns
+ * ------------------------------------------------------------------ */
+
+.lanterns {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.lantern {
+  position: absolute;
+  will-change: transform;
+}
+
+/* Only the lamp itself takes the pointer, so hovering the sky does nothing. */
+.lantern__follow {
+  position: relative;
+  pointer-events: auto;
+  will-change: transform;
+}
+
+/* Buoyancy — a balloon never quite holds still. */
+.lantern__bob {
+  animation: balloon-bob var(--bob, 8s) ease-in-out infinite alternate;
+}
+
+@keyframes balloon-bob {
+  from {
+    transform: translate3d(0, -1.4%, 0) rotate(-1.1deg);
+  }
+  to {
+    transform: translate3d(0, 1.8%, 0) rotate(1.3deg);
+  }
+}
+
+.lantern__body {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: auto;
+  animation: flame-body var(--flicker, 3.4s) ease-in-out infinite alternate;
+  animation-delay: var(--flicker-delay, 0s);
+}
+
+/* The lamp's own halo — a slow burn that keeps dipping and recovering. */
+/* The halo around the paper itself — warm and tight at the mouth. */
+.lantern__glow {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 52%;
+  width: 200%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(
+    circle,
+    rgba(255, 226, 168, 0.34) 0%,
+    rgba(255, 176, 92, 0.16) 24%,
+    rgba(255, 146, 62, 0.05) 46%,
+    rgba(255, 140, 60, 0) 70%
+  );
+  filter: blur(2px);
+  animation: flame-glow var(--flicker, 3.4s) ease-in-out infinite alternate;
+  animation-delay: var(--flicker-delay, 0s);
+}
+
+
+/* The shaft of light spilling out of the base. */
+/*
+ * Light spilling from the lantern's mouth. A flat gradient inside a hard
+ * polygon reads as a paper triangle, so this is built the way the light
+ * actually behaves: the source is a point at the top, brightness falls off
+ * radially from it, and the edges are soft because nothing clips them — the
+ * ellipse shape *is* the cone. Two layers, a wide spill and a brighter core.
+ */
+.lantern__beam {
+  position: absolute;
+  z-index: 0;
+  left: 50%;
+  top: 76%;
+  width: 190%;
+  height: 340%;
+  transform: translateX(-50%);
+  /* The bottom of the shaft dissolves rather than stopping. */
+  mask-image: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.65) 46%, transparent 94%);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.65) 46%, transparent 94%);
+  animation: flame-beam var(--flicker, 3.4s) ease-in-out infinite alternate;
+  animation-delay: var(--flicker-delay, 0s);
+}
+
+.lantern__beam::before,
+.lantern__beam::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+/* The wide spill. */
+.lantern__beam::before {
+  background: radial-gradient(
+    ellipse 46% 86% at 50% 0%,
+    rgba(255, 208, 143, 0.22) 0%,
+    rgba(255, 184, 108, 0.09) 38%,
+    rgba(255, 170, 96, 0.02) 62%,
+    transparent 78%
+  );
+  filter: blur(6px);
+}
+
+/* The brighter shaft down the middle. */
+.lantern__beam::after {
+  background: radial-gradient(
+    ellipse 17% 70% at 50% 0%,
+    rgba(255, 238, 205, 0.34) 0%,
+    rgba(255, 214, 152, 0.13) 40%,
+    transparent 72%
+  );
+  filter: blur(3px);
+}
+
+
+.lantern__label {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: clamp(4px, 1.2vh, 10px);
+  font-size: clamp(12px, 2.5vw, 34px);
+  line-height: 1.22;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.75);
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+@keyframes flame-glow {
+  0% {
+    opacity: 0.55;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+  38% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.06);
+  }
+  62% {
+    opacity: 0.7;
+    transform: translate(-50%, -50%) scale(0.97);
+  }
+  100% {
+    opacity: 0.95;
+    transform: translate(-50%, -50%) scale(1.03);
+  }
+}
+
+@keyframes flame-beam {
+  0% {
+    opacity: 0.5;
+  }
+  40% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 0.62;
+  }
+  100% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes flame-body {
+  0% {
+    filter: brightness(0.88) drop-shadow(0 0 16px rgba(255, 172, 84, 0.35));
+  }
+  45% {
+    filter: brightness(1.1) drop-shadow(0 0 34px rgba(255, 186, 104, 0.6));
+  }
+  100% {
+    filter: brightness(0.97) drop-shadow(0 0 24px rgba(255, 178, 92, 0.45));
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Wind — thin streaks that make the gust legible
+ * ------------------------------------------------------------------ */
+
+.wind {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.wind__line {
+  position: absolute;
+  left: -45%;
+  height: 1px;
+  /* A gust you notice only once you look for it. */
+  background: linear-gradient(
+    90deg,
+    rgba(255, 232, 240, 0) 0%,
+    rgba(255, 236, 244, 0.32) 38%,
+    rgba(255, 236, 244, 0.4) 56%,
+    rgba(255, 232, 240, 0) 100%
+  );
+  filter: blur(0.4px);
+  border-radius: 1px;
+  animation-name: wind-streak;
+  animation-timing-function: cubic-bezier(0.36, 0, 0.66, 1);
+  animation-iteration-count: infinite;
+}
+
+@keyframes wind-streak {
+  0% {
+    transform: translate3d(0, 0, 0) scaleX(0.4);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  76% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(175vw, -3vh, 0) scaleX(1.15);
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Timeline
+ * ------------------------------------------------------------------ */
+
+/* The great blossom behind the day card: below the card (12) and the
+   bonsai (7), above the sky wash — an ornament, never a curtain. Anchored
+   to the day card's own centre — the card is `left: 12%; width: min(560px,
+   46%)`, so its midline is 12% plus half of that. */
+.rosette {
+  position: absolute;
+  left: calc(12% + min(280px, 23%));
+  top: 50%;
+  z-index: 6;
+  /* Hidden while the act is trialled without the bloom — the routed petal
+     river alone frames the card. Delete this line to bring it back. */
+  display: none;
+  width: min(70vh, 42vw);
+  aspect-ratio: 1;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.rosette svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.rosette__back path {
+  fill: url(#rosetteBackTint);
+}
+
+.rosette__petal {
+  will-change: transform, opacity;
+}
+
+.rosette__petal-shape {
+  fill: url(#rosetteFlush);
+  /* A soft rose rim: white petals overlap white petals, and this is what
+     keeps their edges legible against each other. */
+  stroke: rgba(214, 120, 155, 0.35);
+  stroke-width: 0.7;
+  stroke-linejoin: round;
+}
+
+.rosette__glow {
+  fill: url(#rosetteTipGlow);
+}
+
+.rosette__vein {
+  fill: none;
+  stroke: rgba(196, 92, 128, 0.17);
+  stroke-width: 0.7;
+  stroke-linecap: round;
+}
+
+.rosette__sepal {
+  fill: #8e2c44;
+}
+
+.rosette__disc {
+  fill: #7c2246;
+}
+
+.rosette__stamen {
+  fill: none;
+  stroke: rgba(238, 196, 212, 0.95);
+  stroke-width: 0.8;
+  stroke-linecap: round;
+}
+
+.rosette__anther {
+  fill: #f7e08e;
+  stroke: rgba(150, 110, 30, 0.55);
+  stroke-width: 0.4;
+}
+
+.rosette__pistil {
+  fill: #f3d488;
+}
+
+.bonsai {
+  position: absolute;
+  right: 6%;
+  bottom: 4%;
+  z-index: 7;
+  width: clamp(176px, 25.6%, 352px);
+  height: clamp(256px, 58%, 512px);
+  /* Its own layer: the bloom repaints inside it every scrubbed frame, and
+     the slide on/off stage is a transform — neither should damage the rest
+     of the stage. */
+  will-change: transform;
+}
+
+.bonsai .plant-shell {
+  inset: 0;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  height: 100%;
+}
+
+/* The design asks for no backdrop bloom on this act. */
+.bonsai .plant-aura {
+  display: none;
+}
+
+/* Height follows the copy rather than a fixed ratio — a fixed box leaves a
+   pool of dead space at some widths and crops at others. The cards are
+   stacked, so the tallest one sets the height for all of them. */
+.days {
+  position: absolute;
+  /* Inside the pocket the petal river loops around: the route runs down the
+     left edge, along the floor and up at ~63% width, so the card sits a
+     little high and right of the frame's centre-left, clear of all three
+     runs. */
+  left: 16%;
+  top: 44%;
+  z-index: 12;
+  display: grid;
+  width: min(560px, 46%);
+  transform: translateY(-50%);
+}
+
+.day {
+  grid-area: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(20px, 3vw, 36px) clamp(20px, 3.4vw, 44px);
+  background: var(--ink);
+  border-radius: 21.643px 0 21.643px 0;
+  /* Scrubbed through y/opacity the whole act — keep them composited. */
+  will-change: transform, opacity;
+}
+
+/* Frameless now, so the type carries the card by itself: brighter, a step
+   larger, and shadowed so drifting petals never sit flush behind a glyph. */
+.day__title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(19px, 2.3vw, 30px);
+  color: var(--rose-light);
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.85);
+  /* A wrapped title breaks into even lines, never an orphaned last word. */
+  text-wrap: balance;
+}
+
+/* The phase's date line, quieter than the title, above the body. */
+.day__when {
+  margin-top: clamp(4px, 1vh, 10px);
+  font-family: var(--font-display);
+  font-size: clamp(11px, 1.15vw, 15px);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  color: rgba(255, 235, 243, 0.92);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.85);
+}
+
+.day__body {
+  margin-top: clamp(8px, 2.4vh, 20px);
+  font-family: var(--font-display);
+  font-size: clamp(11px, 1.25vw, 16px);
+  line-height: 1.45;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.85);
+  text-wrap: pretty;
+}
+
+/* ------------------------------------------------------------------ *
+ * FAQ boughs — drawn, so the limbs can actually grow
+ * ------------------------------------------------------------------ */
+
+.branches {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.bough {
+  position: absolute;
+  will-change: transform;
+}
+
+.bough img {
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.55));
+}
+
+/* One plate serves both sides; the supplied pair were the same bitmap, one
+   of them simply mirrored. */
+.bough--right img {
+  transform: scaleX(-1);
+}
+
+/* The phone layout's ghost bough: an invisible box parked past the frame's
+   edge, keeping the simulation's pair intact while the single branch
+   carries every rope. Flattened — its height only places its (unused)
+   knots. */
+.bough--ghost {
+  aspect-ratio: 1827 / 220;
+}
+
+.faq-shell {
+  position: absolute;
+  left: 50%;
+  top: 24%;
+  z-index: 12;
+  width: min(100% - 2 * clamp(16px, 4vw, 52px), 1177px);
+  transform: translateX(-50%);
+}
+
+.faq-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 550px));
+  justify-content: space-between;
+  gap: clamp(16px, 4.3vw, 50px);
+}
+
+.faq-column {
+  position: relative;
+  will-change: transform;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(12px, 3.4vh, 30px);
+  margin: 0;
+}
+
+/* Two cords per column, paid out from the boughs above. */
+/* `top` and `height` are set from JS, which reads where the limb actually
+   crosses this cord out of the plate — see attachRopes(). These are only the
+   fallback. */
+.rope {
+  position: absolute;
+  top: calc(-1 * clamp(30px, 8vh, 70px));
+  bottom: 18px;
+  z-index: 0;
+  width: 5px;
+  /* Twisted fibre: the diagonal banding is the lay of the rope, the inset
+     shadows round it off. */
+  background: repeating-linear-gradient(
+    -66deg,
+    #5c2f21 0,
+    #8a4c35 2px,
+    #6d3a28 4px,
+    #4a2519 6px
+  );
+  box-shadow:
+    inset -1.5px 0 0 rgba(0, 0, 0, 0.45),
+    inset 1px 0 0 rgba(255, 196, 152, 0.16);
+  border-radius: 3px;
+}
+
+
+/* The knot: a wrap of cord where the rope meets the wood. */
+.rope::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -3px;
+  width: 11px;
+  height: 9px;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, #8b4a34 0%, #5e3122 55%, #7a3f2c 100%);
+  border-radius: 50% / 40%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+.rope::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  width: 7px;
+  height: 5px;
+  transform: translateX(-50%);
+  background: #6b3726;
+  border-radius: 50%;
+}
+
+.rope--near {
+  left: 38px;
+}
+
+.rope--far {
+  right: 38px;
+}
+
+.plank {
+  position: relative;
+  z-index: 1;
+  /* Above the board, where the two cords converge, so the settle reads as
+     a swing rather than a spin. */
+  transform-origin: 50% -320%;
+  will-change: transform;
+}
+
+.plank__heading {
+  margin: 0;
+  font: inherit;
+}
+
+.plank__face {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: clamp(42px, 7.6vh, 70px);
+  padding: 10px clamp(20px, 3.2vw, 40px);
+  background-image: url('/assets/img/wood.png');
+  background-size: cover;
+  background-position: center;
+  border-radius: 10px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  font-size: clamp(12px, 1.52vw, 19px);
+  line-height: 1.25;
+  text-align: left;
+  color: var(--ink-card);
+}
+
+/* No hover theatrics — the chevron is the affordance, and it turns over
+   when the answer is open. */
+.plank__chevron {
+  flex: 0 0 auto;
+  width: clamp(12px, 1.1vw, 16px);
+  height: auto;
+  margin-left: auto;
+  fill: none;
+  stroke: var(--ink-card);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.75;
+  transition: transform 0.3s ease;
+}
+
+.plank__face[aria-expanded='true'] .plank__chevron {
+  transform: rotate(180deg);
+}
+
+.plank__face[aria-expanded='true'] {
+  border-radius: 10px 10px 0 0;
+}
+
+.plank__answer {
+  display: grid;
+  grid-template-rows: 0fr;
+  background-image: linear-gradient(rgba(80, 34, 56, 0.08), rgba(80, 34, 56, 0.08)),
+    url('/assets/img/wood.png');
+  background-size: cover;
+  background-position: center;
+  border-radius: 0 0 10px 10px;
+  box-shadow: inset 0 6px 7px rgba(0, 0, 0, 0.25);
+  transition: grid-template-rows 0.34s ease;
+}
+
+.plank__answer[data-open='false'] {
+  box-shadow: none;
+}
+
+.plank__answer[data-open='true'] {
+  grid-template-rows: 1fr;
+}
+
+.plank__answer p {
+  overflow: hidden;
+  padding-inline: clamp(18px, 3vw, 38px);
+  font-size: clamp(9px, 1.17vw, 15px);
+  line-height: 1.3;
+  color: var(--ink-card);
+}
+
+.plank__answer[data-open='true'] p {
+  padding-block: 10px 14px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Tablet — the stage still works, but the composition needs room
+ * ------------------------------------------------------------------ */
+
+@media (max-width: 1100px) {
+  /* The tree is sized off the viewport's width, so on a squarish tablet
+     frame it comes out short and hangs high, crowding the navbar and the
+     emblem. Lower it and hold it to the left so the mark and wordmark get
+     the same clear sky they have on a desktop frame. */
+  .hero-tree {
+    left: -34%;
+    top: 20%;
+    width: 92%;
+  }
+
+  .chapters {
+    left: 34%;
+    width: 60%;
+  }
+
+  .bonsai {
+    right: 3%;
+    width: 34%;
+  }
+
+  /* Held inside the petal river's pocket, same as the desktop frame: the
+     stream descends at ~8-11% of the width, so 6% put the card straight
+     under it. */
+  .days {
+    left: 16%;
+    width: 44%;
+  }
+
+  /* The day card's midline at this breakpoint: 16% + half of 44%. */
+  .rosette {
+    left: 38%;
+  }
+
+  .rope--near {
+    left: 26px;
+  }
+
+  .rope--far {
+    right: 26px;
+  }
+}
+
+/* Portrait-ish frames above phone width: the petal route switches to its
+   flat band across ~58-61% of the height (the same h > 1.15w test the
+   canvas uses), so the card moves above the band instead of sitting in it. */
+@media (min-width: 761px) and (max-aspect-ratio: 100/115) {
+  .days {
+    top: 30%;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Phones — stack the chapters, drop to one FAQ column, and let the
+ * artwork run past the edges instead of being squeezed.
+ * ------------------------------------------------------------------ */
+
+@media (max-width: 760px) {
+  .hero-tree {
+    left: -34%;
+    top: 5%;
+    width: 178%;
+  }
+
+  .hero-copy {
+    top: 58%;
+  }
+
+  .hero-wordmark img {
+    width: 78vw;
+  }
+
+  .hero-tagline {
+    font-size: clamp(10px, 3vw, 15px);
+  }
+
+  .hero-cta {
+    width: clamp(152px, 48vw, 194px);
+    font-size: clamp(12px, 3.6vw, 16px);
+  }
+
+  .hero-venue {
+    font-size: clamp(11px, 3.3vw, 14px);
+  }
+
+  /* Below the featured card, which sits across the top on a phone; the copy
+     has to clear the fan of cards waiting further down. */
+  .chapters {
+    left: 6%;
+    top: 41%;
+    width: 88%;
+  }
+
+  .chapter__title {
+    font-size: clamp(19px, 5.6vw, 28px);
+  }
+
+  .chapter__body {
+    font-size: clamp(10.5px, 3.1vw, 13.5px);
+    line-height: 1.42;
+  }
+
+  .lantern__label {
+    font-size: clamp(11px, 4vw, 18px);
+  }
+
+  /* The design floats the big lamps and their captions over the hills. */
+  .lanterns {
+    z-index: 6;
+  }
+
+  /* No room for it here: the phone screen already carries the bonsai and
+     the day card, and the blossom only crowded them. */
+  .rosette {
+    display: none;
+  }
+
+  /* Centred by arithmetic, not by a transform: the timeline animates
+     xPercent on this element and would overwrite translateX(). Held clear of
+     the navbar, which the pot used to sit behind. */
+  .bonsai {
+    left: 26%;
+    right: auto;
+    top: 15%;
+    bottom: auto;
+    width: 48%;
+    height: 34%;
+  }
+
+  .days {
+    left: 4%;
+    top: auto;
+    bottom: 5%;
+    width: 92%;
+    transform: none;
+  }
+
+  .day {
+    padding: clamp(18px, 5vw, 26px) clamp(16px, 5vw, 24px);
+  }
+
+  .day__title {
+    font-size: clamp(22px, 6.6vw, 30px);
+  }
+
+  .day {
+    justify-content: center;
+  }
+
+  .day__body {
+    font-size: clamp(12px, 3.7vw, 16px);
+    line-height: 1.4;
+  }
+
+  .day__when {
+    font-size: clamp(11px, 3.2vw, 14px);
+  }
+
+  /* The clip window must hold the whole full-width plate (~51vw tall plus
+     its slight upward offset) — a fixed 34% sliced a hard edge through the
+     blossoms on wide-but-short screens. */
+  .branches {
+    height: min(56vw, 100%);
+  }
+
+  /* Pinned just below the full-width branch plate (its height is
+     108vw × 861/1827 ≈ 51vw), so the ladder starts clear of the blossoms
+     at any aspect; the svh ceiling only stops extreme wide-short windows
+     from pushing the rungs past mid-screen. */
+  .faq-shell {
+    top: min(46vw, 52svh);
+    width: calc(100% - 32px);
+  }
+
+  .faq-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* One ladder carrying every question, sized against the viewport so the
+     whole run of twelve rungs FITS the section: 12% of the height for the
+     boughs, ~5.2svh a rung, ~1svh a gap ≈ 85svh all told. The ladder's
+     height follows the section's, so the camera tilt has nothing left to
+     do on a phone — which is what used to read as the rig suddenly
+     hitching upward right after the drop. */
+  .faq-column {
+    gap: clamp(6px, 1svh, 12px);
+  }
+
+  .plank__face {
+    min-height: clamp(34px, 5.2svh, 46px);
+    padding-inline: 16px;
+    font-size: 13px;
+    line-height: 1.28;
+  }
+
+  .plank__answer p {
+    padding-inline: 20px;
+    font-size: 12px;
+  }
+
+  .rope--near {
+    left: 18px;
+  }
+
+  .rope--far {
+    right: 18px;
+  }
+}
+
+/* Short, wide windows — keep the tall pieces from colliding. */
+@media (max-height: 620px) {
+  .hero-copy {
+    top: 48%;
+  }
+
+  .days {
+    top: 26%;
+  }
+
+  /* Stays married to the day card's centre. */
+  .rosette {
+    top: 26%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lantern__body,
+  .lantern__glow,
+  .lantern__beam,
+  .embers img {
+    animation: none;
+  }
+}

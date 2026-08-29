@@ -1,0 +1,169 @@
+/* ------------------------------------------------------------------ *
+ * Footer — Figma node 1681:1289.
+ *
+ * No background plates here: the petal drift the design paints in is a
+ * live particle field that settles along the floor, and the cursor
+ * pushes it about.
+ * ------------------------------------------------------------------ */
+
+.footer {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  padding-block: clamp(96px, 20vh, 166px) clamp(110px, 20vh, 190px);
+  /* Opens on the same ink the journey ends on, so there is no seam. */
+  background: linear-gradient(180deg, var(--ink) 0%, #150610 50%, #351123 80%, var(--rose-deep) 100%);
+}
+
+.footer__inner {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: clamp(28px, 6vw, 80px);
+  flex-wrap: wrap;
+}
+
+.footer__brand-name {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: clamp(17px, 1.6vw, 20.6px);
+  letter-spacing: -0.01em;
+  color: var(--rose-light);
+}
+
+.footer__nav {
+  display: flex;
+  gap: clamp(18px, 3.6vw, 46px);
+  flex-wrap: wrap;
+}
+
+.footer__group ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.footer__group-title,
+.footer__group a {
+  font-family: var(--font-body);
+  font-size: clamp(13px, 1.25vw, 16px);
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.footer__group-title {
+  margin-bottom: 16px;
+  color: var(--rose-light);
+}
+
+.footer__group a {
+  color: #fff;
+  transition: color 0.22s ease;
+}
+
+.footer__group a:hover {
+  color: var(--rose-light);
+}
+
+/* ------------------------------------------------------------------ */
+
+.footer__socials {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: clamp(14px, 3.7vw, 47px);
+  margin: clamp(36px, 7.6vh, 63px) 0 0;
+}
+
+.footer__socials a {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  transition: transform 0.24s ease, filter 0.24s ease;
+}
+
+.footer__socials a:hover {
+  transform: translateY(-3px);
+  filter: drop-shadow(0 0 10px rgba(254, 180, 203, 0.7));
+}
+
+.footer__socials img {
+  width: clamp(24px, 2.4vw, 31px);
+  height: clamp(24px, 2.4vw, 31px);
+  object-fit: contain;
+}
+
+/* Medium's mark ships as a blue PNG; Figma renders it in #f0f7ff. */
+.footer__mask-icon {
+  width: clamp(21px, 2.1vw, 27px);
+  aspect-ratio: 1;
+  background: #f0f7ff;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+}
+
+.footer__love {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(9px, 1.4vw, 18px);
+  margin-top: clamp(14px, 2.2vh, 18px);
+  font-family: var(--font-ui);
+  font-weight: 400;
+  font-size: clamp(18px, 3.13vw, 40px);
+  line-height: 1.1;
+  text-align: center;
+  color: var(--rose-light);
+}
+
+.footer__love img {
+  width: clamp(16px, 2.8vw, 36px);
+  height: auto;
+}
+
+/* Oversized wordmark, standing in the drift. */
+.footer__wordmark {
+  position: relative;
+  z-index: 2;
+  width: min(88%, 1004px);
+  height: auto;
+  margin: clamp(28px, 6vh, 60px) auto 0;
+}
+
+@media (max-width: 860px) {
+  .footer {
+    padding-bottom: clamp(90px, 16vh, 150px);
+  }
+
+  .footer__inner {
+    flex-direction: column;
+  }
+
+  .footer__nav {
+    gap: 24px 28px;
+  }
+
+  .footer__socials a {
+    width: 36px;
+    height: 36px;
+  }
+
+  .footer__wordmark {
+    width: 94%;
+  }
+}

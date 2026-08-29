@@ -2,14 +2,20 @@ import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import {
   eventOwnerPermissionKeys,
+  isPermissionKey,
+  permissionCatalog,
   type PermissionKey,
 } from "./permissionCatalog";
 import { insertPermissionGrant } from "./permissions";
 
-export const supremeSelfPermissionKeys = [
-  "reviewer.device.register",
-  "communications.call_consent.manage",
-] as const satisfies readonly PermissionKey[];
+export const supremeSelfPermissionKeys: readonly PermissionKey[] = Object.keys(
+  permissionCatalog,
+)
+  .filter(isPermissionKey)
+  .filter((permissionKey) => {
+    const definition = permissionCatalog[permissionKey];
+    return !definition.eventWide && definition.scopes.some((scope) => scope === "self");
+  });
 
 export async function grantSupremeRolePermissions(
   ctx: MutationCtx,

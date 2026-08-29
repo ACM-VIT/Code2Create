@@ -1,0 +1,39 @@
+{
+  "name": "@code2create/landing",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:release": "node ../backend/scripts/release/webEnvironment.ts landing build && pnpm build && pnpm posthog:sourcemaps",
+    "posthog:sourcemaps": "node ../../scripts/upload-posthog-sourcemaps.mjs dist code2create-landing",
+    "cloudflare:build:staging": "CLOUDFLARE_ENV=staging VITE_DEPLOYMENT_ENVIRONMENT=staging VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm build:release",
+    "cloudflare:deploy:staging": "CLOUDFLARE_ENV=staging VITE_DEPLOYMENT_ENVIRONMENT=staging VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm deploy:built",
+    "cloudflare:build:production": "CLOUDFLARE_ENV=production VITE_DEPLOYMENT_ENVIRONMENT=production VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm build:release",
+    "cloudflare:deploy:production": "CLOUDFLARE_ENV=production VITE_DEPLOYMENT_ENVIRONMENT=production VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm deploy:built",
+    "deploy": "pnpm build:release && pnpm deploy:built",
+    "deploy:built": "node ../backend/scripts/release/webEnvironment.ts landing deploy && node ../backend/scripts/release/deployCloudflareViteWorker.ts code2create-landing",
+    "lint": "oxlint",
+    "typecheck": "tsc -b",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@code2create/client-observability": "workspace:*",
+    "@gsap/react": "^2.1.2",
+    "gsap": "^3.15.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.54.1",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.0",
+    "oxlint": "^1.80.0",
+    "typescript": "~7.0.2",
+    "vite": "^8.2.2",
+    "wrangler": "^4.127.1"
+  }
+}

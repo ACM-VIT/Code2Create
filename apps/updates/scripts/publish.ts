@@ -332,7 +332,7 @@ function signPayload(body: string, privateKey: string, certificate: X509Certific
   return signedPayloadSchema.parse({
     body,
     signature: serializeDictionary({
-      sig: rawSignature.toString('base64'),
+      sig: Buffer.from(rawSignature).toString('base64'),
       keyid: 'main',
     }),
   })

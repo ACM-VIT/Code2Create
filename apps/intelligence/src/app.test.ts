@@ -9,6 +9,7 @@ import {
 	operationsCopilotInstanceId,
 	operationsCopilotIngressSignatureContext,
 	operationsCopilotStreamTicketSignatureContext,
+	operationsEpisodeIngressSignatureContext,
 	operationsIntelligenceIngressSignatureContext,
 	operationsIntelligenceProtocolVersion,
 	operationsIntelligenceStreamTicketHeaders,
@@ -88,16 +89,11 @@ vi.mock('@flue/runtime', async (importOriginal) => {
 		dispatch: runtime.dispatchBrief,
 		init: runtime.init,
 		instrument: vi.fn(),
-		setProvider: vi.fn(),
 	};
 });
 
 vi.mock('@flue/runtime/cloudflare', () => ({
 	createCloudflareTracing: vi.fn(() => ({})),
-}));
-
-vi.mock('@flue/runtime/cloudflare/workers-ai', () => ({
-	cloudflareBindingProvider: vi.fn(() => ({ id: 'cloudflare' })),
 }));
 
 vi.mock('@flue/runtime/routing', () => ({
@@ -114,9 +110,7 @@ vi.mock('@flue/runtime/routing', () => ({
 }));
 
 vi.mock('cloudflare:workers', () => ({
-	env: {
-		AI: { run: vi.fn() },
-	},
+	env: {},
 }));
 
 vi.mock('./agents/operations-brief.ts', () => ({ OperationsBrief: {} }));
@@ -124,6 +118,7 @@ vi.mock('./agents/operations-copilot.ts', () => ({ OperationsCopilot: {} }));
 vi.mock('./agents/operations-autopilot.ts', () => ({
 	OperationsAutopilot: runtime.autopilotAgent,
 }));
+vi.mock('./agents/operations-episode.ts', () => ({ OperationsEpisode: {} }));
 
 import app from './app.ts';
 
@@ -133,15 +128,6 @@ const copilotInstanceId = operationsCopilotInstanceId({
 	eventSlug: 'code2create-7',
 	conversationId,
 });
-const ai: Cloudflare.Env['AI'] = {
-	aiGatewayLogId: null,
-	gateway: vi.fn(),
-	aiSearch: vi.fn(),
-	autorag: vi.fn(),
-	run: vi.fn(),
-	models: vi.fn(),
-	toMarkdown: vi.fn(),
-};
 const admissionControllers = new Map<string, AutonomyAdmissionController>();
 const admissionControllerNamespace = {
 	getByName(runId: string) {
@@ -185,7 +171,7 @@ const admissionControllerNamespace = {
 	},
 };
 const environment: Cloudflare.Env = {
-	AI: ai,
+	OPENAI_API_KEY: 'openai-test-key',
 	FLUE_OPERATIONS_AUTOPILOT_AGENT: {
 		getByName: () => ({ requestAutonomyArtifactPurge: vi.fn() }),
 	},
@@ -197,6 +183,8 @@ const environment: Cloudflare.Env = {
 	CONVEX_INTELLIGENCE_CALLBACK_URL: 'https://example.test/callback',
 	CONVEX_INTELLIGENCE_READ_URL: 'https://example.test/reads',
 	CONVEX_INTELLIGENCE_RECOMMENDATION_URL: 'https://example.test/recommendations',
+	CONVEX_INTELLIGENCE_EPISODE_READ_URL: 'https://example.test/episodes/read',
+	CONVEX_INTELLIGENCE_EPISODE_CALLBACK_URL: 'https://example.test/episodes/callback',
 	CONVEX_INTELLIGENCE_AUTONOMY_CALLBACK_URL: 'https://example.test/autonomy/callback',
 	CONVEX_INTELLIGENCE_AUTONOMY_READ_URL: 'https://example.test/autonomy/reads',
 	CONVEX_INTELLIGENCE_AUTONOMY_WORK_URL: 'https://example.test/autonomy/work',
@@ -211,7 +199,7 @@ describe('intelligence readiness', () => {
 		const ready = await app.request('/health', undefined, environment);
 		const unready = await app.request('/health', undefined, {
 			...environment,
-			INTELLIGENCE_STREAM_SECRET: 'too-short',
+			OPENAI_API_KEY: '',
 		});
 
 		expect(ready.status).toBe(200);
@@ -408,6 +396,45 @@ describe('operations brief ingress', () => {
 			uid: null,
 			message: { kind: 'signal', type: 'operations.health.snapshot' },
 		});
+	});
+});
+
+describe('operations episode ingress', () => {
+	beforeEach(() => {
+		runtime.dispatchBrief.mockReset();
+	});
+
+	test('admits a signed episode revision into its stable durable instance', async () => {
+		const receipt: DispatchReceipt = {
+			submissionId: 'episode-submission-1',
+			acceptedAt: '2026-08-29T00:00:00.000Z',
+			uid: 'episode-agent-uid',
+		};
+		runtime.dispatchBrief.mockResolvedValueOnce(receipt);
+		const response = await signedEpisodeRequest(JSON.stringify({
+			protocolVersion: operationsIntelligenceProtocolVersion,
+			episodeId: 'episode-1',
+			eventId: 'event-1',
+			revision: 3,
+		}));
+
+		expect(response.status).toBe(202);
+		expect(await response.json()).toEqual({
+			state: 'accepted',
+			episodeId: 'episode-1',
+			instanceId: 'episode-1',
+			submissionId: receipt.submissionId,
+			acceptedAt: receipt.acceptedAt,
+		});
+		expect(runtime.dispatchBrief).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+			id: 'episode-1',
+			initialData: expect.objectContaining({ episodeId: 'episode-1', eventId: 'event-1' }),
+			message: expect.objectContaining({
+				kind: 'signal',
+				type: 'operations.episode.changed',
+				attributes: { episodeId: 'episode-1', revision: '3' },
+			}),
+		}));
 	});
 });
 
@@ -975,6 +1002,29 @@ async function signedBriefRequest(body: string) {
 	});
 	return app.request(
 		'/v1/operations-briefs',
+		{
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				'x-c2c-timestamp': timestamp,
+				'x-c2c-signature': signature,
+			},
+			body,
+		},
+		environment,
+	);
+}
+
+async function signedEpisodeRequest(body: string) {
+	const timestamp = Date.now().toString();
+	const signature = await signServiceBody({
+		context: operationsEpisodeIngressSignatureContext,
+		secret,
+		timestamp,
+		body,
+	});
+	return app.request(
+		'/v1/operations-episodes',
 		{
 			method: 'POST',
 			headers: {

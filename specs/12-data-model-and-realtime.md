@@ -2850,7 +2850,7 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - One team/checkpoint key has at most one immutable submission. It records the accepted schedule/window, due/close boundary, timing, source draft version, and actor.
 - Participant checkpoint submission never creates or changes queue, team-round, review, evidence-provider, evaluation, or score state. Late or missing is context, not an automatic penalty.
 - A review evidence transaction pins only a checkpoint submission that already existed at its capture time; reviewer reads and verified exports follow that exact ID after later team or provider changes.
-- Every introduction asks one or two follow-ups and terminates through valid generated questions or deterministic fallbacks. Later checkpoints use their separately published fixed questions and do not reuse this route.
+- Every introduction asks exactly two follow-ups and terminates through valid generated questions or published deterministic fallbacks. Later checkpoints use their separately published fixed questions and do not reuse this route.
 - A novelty corpus publishes only from one complete 5–200-entry ready set whose embeddings are finite native 1,536-value `text-embedding-3-small` outputs. Draft, entry replacement, publication, and read fail independently without their exact event grants.
 - A novelty request stores no raw idea, performs no provider call for sensitive-looking text, applies the event's exact team rate limit, and returns only one whole-number result.
 - A repeated preview ID cannot create another row or name different text. Provider failure leaves intake usable. A completion attaches only while the saved idea fingerprint and pinned corpus match.

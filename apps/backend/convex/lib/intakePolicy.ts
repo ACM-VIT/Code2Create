@@ -128,7 +128,7 @@ export const defaultDeterministicIntakePolicy: IntakePolicy = {
   initialIdeaMaxLength: 4_000,
   followUpAnswerMinLength: 5,
   followUpAnswerMaxLength: 1_200,
-  minimumFollowUpCount: 1,
+  minimumFollowUpCount: 2,
   maximumFollowUpCount: 2,
   deterministicFollowUpCount: 2,
   questionMaxLength: 140,
@@ -267,13 +267,13 @@ export function normalizeIntakePolicy(input: IntakePolicy): IntakePolicy {
     200,
     2_000,
   );
-  if (input.minimumFollowUpCount !== 1 || input.maximumFollowUpCount !== 2) {
-    invalidPolicy("The introduction must allow one or two follow-up questions.");
+  if (input.minimumFollowUpCount !== 2 || input.maximumFollowUpCount !== 2) {
+    invalidPolicy("The introduction must ask exactly two follow-up questions.");
   }
   const deterministicFollowUpCount = wholeNumber(
     input.deterministicFollowUpCount,
     "Deterministic follow-up count",
-    1,
+    2,
     2,
   );
   const questionMaxLength = wholeNumber(
@@ -344,7 +344,7 @@ export function normalizeIntakePolicy(input: IntakePolicy): IntakePolicy {
     initialIdeaMaxLength,
     followUpAnswerMinLength,
     followUpAnswerMaxLength,
-    minimumFollowUpCount: 1,
+    minimumFollowUpCount: 2,
     maximumFollowUpCount: 2,
     deterministicFollowUpCount,
     questionMaxLength,

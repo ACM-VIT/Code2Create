@@ -16,7 +16,7 @@ import {
 } from './environment.ts'
 import { scrubPostHogEvent } from './privacy.ts'
 
-export type BrowserSurface = 'participant-web' | 'operations-web'
+export type BrowserSurface = 'landing-web' | 'participant-web' | 'operations-web'
 
 export type BrowserObservabilityConfiguration = {
   projectToken: string | undefined

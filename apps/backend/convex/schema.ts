@@ -140,8 +140,17 @@ import {
   operationsBriefPriority,
   operationsHealthArea,
   operationsHealthSeverity,
+  operationsHealthSignalKey,
   operationsHealthSnapshot,
 } from "./lib/operationsIntelligenceValidators";
+import {
+  operationsEpisodeAnalysisState,
+  operationsEpisodeExpectedState,
+  operationsEpisodeHypothesisStance,
+  operationsEpisodeLifecycle,
+  operationsEpisodePredictionOutcome,
+  operationsEpisodeState,
+} from "./lib/operationsEpisodeValidators";
 
 const attendanceRollCallCounts = v.object({
   expected: v.number(),
@@ -523,6 +532,10 @@ export default defineSchema({
     nearestThemeLabel: v.optional(v.string()),
     reflectionPrompt: v.optional(v.string()),
     providerRequestId: v.optional(v.string()),
+    agentOperationId: v.optional(v.string()),
+    agentOutputChecksum: v.optional(v.string()),
+    agentVersion: v.optional(v.string()),
+    agentModel: v.optional(v.string()),
     latencyMs: v.optional(v.number()),
     failureCategory: v.optional(v.string()),
     requestedAt: v.number(),
@@ -4313,6 +4326,136 @@ export default defineSchema({
     state: v.union(v.literal("ready"), v.literal("stale")),
     staleAt: v.number(),
   }).index("by_event", ["eventId"]),
+
+  /** Append-only, redacted observations that form the intelligence world model. */
+  operationsIntelligenceFacts: defineTable({
+    eventId: v.id("events"),
+    factKey: v.string(),
+    source: v.literal("operations_health"),
+    correlationKey: v.string(),
+    signalKey: operationsHealthSignalKey,
+    area: operationsHealthArea,
+    severity: operationsHealthSeverity,
+    title: v.string(),
+    detail: v.string(),
+    owner: v.string(),
+    nextAction: v.string(),
+    count: v.number(),
+    atLeast: v.boolean(),
+    occurredAt: v.number(),
+    observedAt: v.number(),
+    checksum: v.string(),
+  })
+    .index("by_event_fact_key", ["eventId", "factKey"])
+    .index("by_event_correlation_observed_at", [
+      "eventId",
+      "correlationKey",
+      "observedAt",
+    ]),
+
+  /** A durable situation assembled from related facts; identities are never people. */
+  operationsIntelligenceEpisodes: defineTable({
+    eventId: v.id("events"),
+    correlationKey: v.string(),
+    lifecycle: operationsEpisodeLifecycle,
+    state: operationsEpisodeState,
+    severity: operationsHealthSeverity,
+    title: v.string(),
+    summary: v.string(),
+    owner: v.string(),
+    nextAction: v.string(),
+    firstObservedAt: v.number(),
+    lastObservedAt: v.number(),
+    clearPassCount: v.number(),
+    factCount: v.number(),
+    signalCount: v.number(),
+    relevanceScore: v.number(),
+    confidence: v.number(),
+    observationChecksum: v.string(),
+    revision: v.number(),
+    analysisState: operationsEpisodeAnalysisState,
+    analysisSummary: v.optional(v.string()),
+    suggestedAction: v.optional(v.string()),
+    analysisOperationId: v.optional(v.string()),
+    analysisChecksum: v.optional(v.string()),
+    analysisAgentVersion: v.optional(v.string()),
+    analysisModel: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_event_lifecycle_relevance", ["eventId", "lifecycle", "relevanceScore"])
+    .index("by_event_correlation_lifecycle", [
+      "eventId",
+      "correlationKey",
+      "lifecycle",
+    ])
+    .index("by_analysis_kind_updated_at", ["analysisState.kind", "updatedAt"]),
+
+  operationsIntelligenceEpisodeFacts: defineTable({
+    eventId: v.id("events"),
+    episodeId: v.id("operationsIntelligenceEpisodes"),
+    factId: v.id("operationsIntelligenceFacts"),
+    factKey: v.string(),
+    linkedAt: v.number(),
+  })
+    .index("by_episode_fact_key", ["episodeId", "factKey"])
+    .index("by_episode_linked_at", ["episodeId", "linkedAt"]),
+
+  operationsIntelligenceHypotheses: defineTable({
+    eventId: v.id("events"),
+    episodeId: v.id("operationsIntelligenceEpisodes"),
+    analysisRevision: v.number(),
+    ordinal: v.number(),
+    stance: operationsEpisodeHypothesisStance,
+    statement: v.string(),
+    confidence: v.number(),
+    evidenceFactKeys: v.array(v.string()),
+    createdAt: v.number(),
+  }).index("by_episode_revision_ordinal", ["episodeId", "analysisRevision", "ordinal"]),
+
+  operationsIntelligenceCounterfactuals: defineTable({
+    eventId: v.id("events"),
+    episodeId: v.id("operationsIntelligenceEpisodes"),
+    analysisRevision: v.number(),
+    ordinal: v.number(),
+    intervention: v.string(),
+    expectedState: operationsEpisodeExpectedState,
+    probability: v.number(),
+    rationale: v.string(),
+    evidenceFactKeys: v.array(v.string()),
+    createdAt: v.number(),
+  }).index("by_episode_revision_ordinal", ["episodeId", "analysisRevision", "ordinal"]),
+
+  operationsIntelligencePredictions: defineTable({
+    eventId: v.id("events"),
+    episodeId: v.id("operationsIntelligenceEpisodes"),
+    analysisRevision: v.number(),
+    ordinal: v.number(),
+    statement: v.string(),
+    expectedState: operationsEpisodeExpectedState,
+    probability: v.number(),
+    horizonAt: v.number(),
+    evidenceFactKeys: v.array(v.string()),
+    outcome: operationsEpisodePredictionOutcome,
+    createdAt: v.number(),
+  })
+    .index("by_episode_revision_ordinal", ["episodeId", "analysisRevision", "ordinal"])
+    .index("by_outcome_kind_horizon_at", ["outcome.kind", "horizonAt"])
+    .index("by_event_outcome_kind_horizon_at", ["eventId", "outcome.kind", "horizonAt"]),
+
+  operationsIntelligenceOutcomes: defineTable({
+    eventId: v.id("events"),
+    episodeId: v.id("operationsIntelligenceEpisodes"),
+    predictionId: v.optional(v.id("operationsIntelligencePredictions")),
+    kind: v.union(
+      v.literal("episode_resolved"),
+      v.literal("prediction_confirmed"),
+      v.literal("prediction_disconfirmed"),
+      v.literal("prediction_expired"),
+    ),
+    summary: v.string(),
+    observedAt: v.number(),
+  }).index("by_episode_observed_at", ["episodeId", "observedAt"]),
 
   operationsIntelligenceBriefs: defineTable({
     eventId: v.id("events"),
