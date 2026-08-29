@@ -1,0 +1,11 @@
+{
+	email technicaldirector.acmvit@gmail.com
+}
+
+realtime-staging.c2c.sh {
+	reverse_proxy backend:3210
+}
+
+api-staging.c2c.sh {
+	reverse_proxy backend:3211
+}

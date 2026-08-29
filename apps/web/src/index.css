@@ -1,3 +1,95 @@
+/* Tailwind v4 (no preflight — the app keeps its own base styles in App.css, and
+   utilities stay unlayered so they beat those element/class selectors). */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css";
+
+/* ------------------------------------------------------------------ *
+ * Night-hanami portal tokens — from Claude Design "Portal Mockups"
+ * (t11 f0a-f7). Palette is shared with apps/landing's base.css so the
+ * landing page and the portal read as one event.
+ * ------------------------------------------------------------------ */
+@theme {
+  --color-ink: #0c0004;
+  --color-ink-deep: #060002;
+  --color-rose: #d884a2;
+  --color-rose-light: #feb4cb;
+  --color-rose-deep: #a04263;
+  --color-blush: #e3a9bf;
+  --color-paper: #f8f8f8;
+  --color-paper-warm: #fefdfe;
+  --color-avatar: #2a0e18;
+  --color-avatar-lead: #3a1522;
+
+  /* Petal-card washes and hairlines. The mockup builds every surface from
+     a white-to-ink gradient over a translucent rose edge. */
+  --color-petal-line: rgb(216 132 162 / 0.25);
+  --color-petal-edge: rgb(254 180 203 / 0.55);
+  --color-petal-edge-soft: rgb(216 132 162 / 0.4);
+
+  --font-display: "DM Serif Display", ui-serif, Georgia, serif;
+  --font-ui: Geist, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, Menlo, monospace;
+
+  /* The asymmetric petal corner — the portal's most load-bearing shape. */
+  --radius-petal: 26px 5px 26px 5px;
+  --radius-petal-sm: 20px 4px 20px 4px;
+  --radius-petal-xs: 12px 3px 12px 3px;
+  --radius-btn: 16px 0 16px 0;
+  --radius-btn-sm: 12px 0 12px 0;
+
+  --animate-petal-fall: c2cfall 9s linear infinite;
+  --animate-petal-pulse: c2cpulse 1.1s steps(2) infinite;
+  --animate-dot-pulse: c2cpulse 2s ease-in-out infinite;
+  --animate-sway: c2csway 9s ease-in-out infinite;
+
+  @keyframes c2cfall {
+    0%   { transform: translate(0, -40px) rotate(0deg); opacity: 0; }
+    8%   { opacity: .9; }
+    55%  { transform: translate(26px, 340px) rotate(170deg); opacity: .85; }
+    100% { transform: translate(-14px, 860px) rotate(330deg); opacity: 0; }
+  }
+  @keyframes c2cpulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: .35; }
+  }
+  @keyframes c2cburst {
+    0%   { transform: translate(0, 0) rotate(0); opacity: .95; }
+    100% { transform: translate(var(--bx), var(--by)) rotate(260deg); opacity: 0; }
+  }
+  @keyframes c2csway {
+    0%, 100% { transform: rotate(-.5deg); }
+    50%      { transform: rotate(.7deg); }
+  }
+}
+
+/* Tailwind's preflight is off, so bare buttons would keep the user-agent's
+   light ButtonFace background. The portal and the dev gallery draw their own
+   buttons; reset them here rather than at every call site. */
+@layer base {
+  [data-portal-scene] button,
+  [data-dev-gallery] button {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  [data-portal-scene] button:disabled,
+  [data-dev-gallery] button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+/* The portal scene animates artwork continuously; honour the OS setting. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+
 :root {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color: #ececee;
@@ -68,7 +160,6 @@ p {
 
 h1,
 h2 {
-  color: var(--text);
   font-family: inherit;
   font-weight: 400;
 }

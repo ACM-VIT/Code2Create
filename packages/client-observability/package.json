@@ -9,7 +9,7 @@
     "./privacy": "./src/privacy.ts"
   },
   "scripts": {
-    "test": "node --test src/privacy.test.ts",
+    "test": "node --test src/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

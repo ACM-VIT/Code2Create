@@ -3,6 +3,7 @@ import { convexTest, type TestConvex } from "convex-test";
 import { afterAll, describe, expect, test } from "vitest";
 
 import {
+  deriveOperationsCopilotConversationId,
   operationsCopilotRecommendationSignatureContext,
   operationsIntelligenceProtocolVersion,
   signServiceBody,
@@ -10,6 +11,23 @@ import {
 
 import { api, components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import {
+  admissionPolicyChecksum,
+  admissionPolicyForConfiguration,
+  defaultAdmissionCriteria,
+  defaultAdmissionReasonCodes,
+  normalizeAdmissionConfiguration,
+} from "./lib/admissionPolicy.ts";
+import {
+  defaultDeterministicIntakePolicy,
+  intakePolicyChecksum,
+  normalizeIntakePolicy,
+} from "./lib/intakePolicy.ts";
+import {
+  defaultParticipantPolicy,
+  normalizeParticipantPolicy,
+  participantPolicyChecksum,
+} from "./lib/participantPolicy.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
 import { insertIntelligenceRecommendation } from "./intelligenceRecommendations.ts";
 import schema from "./schema.ts";
@@ -22,15 +40,18 @@ type BackendTest = TestConvex<typeof schema>;
 type Fixture = Awaited<ReturnType<typeof seedFloor>>;
 
 const callbackSecret = "callback-secret-".padEnd(48, "c");
+const streamSecret = "stream-secret-".padEnd(48, "s");
 const testConversationId = `cv_${"c".repeat(64)}`;
 const savedEnvironment = {
   INTELLIGENCE_CALLBACK_SECRET: process.env.INTELLIGENCE_CALLBACK_SECRET,
+  INTELLIGENCE_STREAM_SECRET: process.env.INTELLIGENCE_STREAM_SECRET,
   AUTH_SITE_URL: process.env.AUTH_SITE_URL,
   PARTICIPANT_SITE_URL: process.env.PARTICIPANT_SITE_URL,
   OPERATIONS_SITE_URL: process.env.OPERATIONS_SITE_URL,
 };
 
 process.env.INTELLIGENCE_CALLBACK_SECRET = callbackSecret;
+process.env.INTELLIGENCE_STREAM_SECRET = streamSecret;
 process.env.AUTH_SITE_URL = "http://localhost:3211";
 process.env.PARTICIPANT_SITE_URL = "http://localhost:4173";
 process.env.OPERATIONS_SITE_URL = "http://localhost:4174";
@@ -624,6 +645,276 @@ describe("intelligence recommendations", () => {
     const state = await backend.run((ctx) => ctx.db.get(fixture.teamRoundStateId));
     expect(state?.state).toBe("called");
   });
+
+  test("an admission command requires a fresh policy citation and freezes its observed base", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFloor(backend);
+    const source = admissionProposalBody(fixture);
+    const missingPolicyKey = await backend.mutation(
+      internal.intelligenceRecommendations.proposeFromWorker,
+      {
+        proposal: {
+          ...source,
+          citations: [{ ...source.citations[0]!, keys: ["capacity"] }],
+        },
+      },
+    );
+    const staleCitation = await backend.mutation(
+      internal.intelligenceRecommendations.proposeFromWorker,
+      {
+        proposal: {
+          ...source,
+          proposalKey: `${source.proposalKey}:stale`,
+          citations: [{ ...source.citations[0]!, generatedAt: Date.now() - 16 * 60 * 1_000 }],
+        },
+      },
+    );
+    expect(missingPolicyKey).toBe("invalid_citation");
+    expect(staleCitation).toBe("invalid_citation");
+
+    const response = await signedPropose(backend, JSON.stringify(source));
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ state: "accepted" });
+    const [recommendation, policy] = await backend.run(async (ctx) => [
+      await ctx.db.query("intelligenceRecommendations").unique(),
+      await ctx.db.get(fixture.admissionPolicyId),
+    ] as const);
+    expect(recommendation?.arguments).toMatchObject({
+      kind: "set_admission_minimum_human_reviews",
+      minimumHumanReviews: 1,
+      expectedEventVersion: 1,
+      expectedBasePolicyId: fixture.admissionPolicyId,
+      expectedBasePolicyChecksum: policy?.checksum,
+      expectedBaseModelConfigId: null,
+      expectedBaseModelChecksum: null,
+      baseStatus: "published",
+      reason: "Use one organizer review during this submission round.",
+    });
+    if (recommendation?.arguments.kind !== "set_admission_minimum_human_reviews") {
+      throw new Error("The admission command was not normalized.");
+    }
+    expect(recommendation.arguments.releaseVersion).toMatch(/^ask-2-\d+$/u);
+  });
+
+  test("admission approval needs both capabilities and leaves no partial draft on refusal", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFloor(backend);
+    const recommendationId = await proposeAdmission(backend, fixture);
+    await backend.run((ctx) => insertPermissionGrant(ctx, {
+      eventId: fixture.eventId,
+      personId: fixture.onlookerPersonId,
+      eventAccessSubjectId: fixture.onlookerSubjectId,
+      permissionKey: "configuration.admission.draft.create",
+      scopeType: "event",
+      sourceType: "manual",
+      sourceId: `${fixture.eventSlug}:draft-only`,
+      grantedByPersonId: fixture.operatorPersonId,
+      reason: "Prove publish authority is independently required",
+    }));
+    const onlooker = backend.withIdentity({
+      subject: fixture.onlookerAuthUserId,
+      sessionId: fixture.onlookerAuthSessionId,
+    });
+    await expect(onlooker.mutation(api.intelligenceRecommendations.approve, {
+      eventSlug: fixture.eventSlug,
+      recommendationId,
+      expectedVersion: 1,
+      clientOperationId: "admission-approve-without-publish",
+    })).rejects.toThrow();
+    const result = await backend.run(async (ctx) => ({
+      recommendation: await ctx.db.get(recommendationId),
+      drafts: await ctx.db
+        .query("admissionPolicyVersions")
+        .withIndex("by_event_status", (index) =>
+          index.eq("eventId", fixture.eventId).eq("status", "draft"),
+        )
+        .collect(),
+    }));
+    expect(result.recommendation).toMatchObject({ status: "proposed", version: 1 });
+    expect(result.drafts).toHaveLength(0);
+  });
+
+  test("admission approval publishes exactly once and audits the operator", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFloor(backend);
+    const recommendationId = await proposeAdmission(backend, fixture);
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    const operation = {
+      eventSlug: fixture.eventSlug,
+      recommendationId,
+      expectedVersion: 1,
+      clientOperationId: "admission-approve-idempotent",
+    } as const;
+    expect(await operator.mutation(api.intelligenceRecommendations.approve, operation)).toEqual({
+      version: 2,
+    });
+    expect(await operator.mutation(api.intelligenceRecommendations.approve, operation)).toEqual({
+      version: 2,
+    });
+
+    const result = await backend.run(async (ctx) => {
+      const event = await ctx.db.get(fixture.eventId);
+      const policies = await ctx.db
+        .query("admissionPolicyVersions")
+        .withIndex("by_event_status", (index) => index.eq("eventId", fixture.eventId))
+        .collect();
+      const published = event?.publishedAdmissionPolicyId
+        ? await ctx.db.get(event.publishedAdmissionPolicyId)
+        : null;
+      return {
+        event,
+        policies,
+        published,
+        recommendation: await ctx.db.get(recommendationId),
+        audits: await ctx.db.query("auditEvents").collect(),
+      };
+    });
+    expect(result.event?.version).toBe(2);
+    expect(result.policies).toHaveLength(2);
+    expect(result.published).toMatchObject({
+      status: "published",
+      minimumHumanReviews: 1,
+    });
+    expect(result.recommendation).toMatchObject({
+      status: "approved",
+      version: 2,
+      decidedByPersonId: fixture.operatorPersonId,
+      executedTargetType: "admission_policy",
+      executedTargetId: result.published?._id,
+    });
+    expect(result.audits.map((audit) => audit.action)).toEqual(expect.arrayContaining([
+      "configuration.admission_drafted",
+      "configuration.admission_published",
+      "operations.intelligence_recommendation_approved",
+    ]));
+    expect(result.audits.every((audit) => audit.actorPersonId === fixture.operatorPersonId)).toBe(true);
+  });
+
+  test("admission approval refuses stale event state and an active submission lock atomically", async () => {
+    const staleBackend = seededBackend();
+    const staleFixture = await seedFloor(staleBackend);
+    const staleRecommendationId = await proposeAdmission(staleBackend, staleFixture);
+    await staleBackend.run((ctx) => ctx.db.patch(staleFixture.eventId, {
+      version: 2,
+      updatedAt: Date.now(),
+    }));
+    const staleOperator = staleBackend.withIdentity({
+      subject: staleFixture.operatorAuthUserId,
+      sessionId: staleFixture.operatorAuthSessionId,
+    });
+    await expect(staleOperator.mutation(api.intelligenceRecommendations.approve, {
+      eventSlug: staleFixture.eventSlug,
+      recommendationId: staleRecommendationId,
+      expectedVersion: 1,
+      clientOperationId: "admission-stale-event",
+    })).rejects.toThrow("Event configuration changed");
+    expect(await staleBackend.run((ctx) => ctx.db.get(staleRecommendationId))).toMatchObject({
+      status: "proposed",
+      version: 1,
+    });
+
+    const lockedBackend = seededBackend();
+    const lockedFixture = await seedFloor(lockedBackend);
+    const lockedRecommendationId = await proposeAdmission(lockedBackend, lockedFixture);
+    await insertSubmissionLock(lockedBackend, lockedFixture);
+    const lockedOperator = lockedBackend.withIdentity({
+      subject: lockedFixture.operatorAuthUserId,
+      sessionId: lockedFixture.operatorAuthSessionId,
+    });
+    await expect(lockedOperator.mutation(api.intelligenceRecommendations.approve, {
+      eventSlug: lockedFixture.eventSlug,
+      recommendationId: lockedRecommendationId,
+      expectedVersion: 1,
+      clientOperationId: "admission-submission-lock",
+    })).rejects.toThrow("closes when the first project submission begins");
+    const lockedResult = await lockedBackend.run(async (ctx) => ({
+      recommendation: await ctx.db.get(lockedRecommendationId),
+      drafts: await ctx.db
+        .query("admissionPolicyVersions")
+        .withIndex("by_event_status", (index) =>
+          index.eq("eventId", lockedFixture.eventId).eq("status", "draft"),
+        )
+        .collect(),
+    }));
+    expect(lockedResult.recommendation).toMatchObject({ status: "proposed", version: 1 });
+    expect(lockedResult.drafts).toHaveLength(0);
+  });
+
+  test("the inline Ask query is private to the signed-in operator and still permission gated", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFloor(backend);
+    const [operatorConversationId, onlookerConversationId] = await Promise.all([
+      deriveOperationsCopilotConversationId({
+        secret: streamSecret,
+        eventId: fixture.eventId,
+        eventAccessSubjectId: fixture.operatorSubjectId,
+      }),
+      deriveOperationsCopilotConversationId({
+        secret: streamSecret,
+        eventId: fixture.eventId,
+        eventAccessSubjectId: fixture.onlookerSubjectId,
+      }),
+    ]);
+    await backend.run(async (ctx) => {
+      const source = proposalBody(fixture);
+      for (const [index, ownerConversationId] of [
+        operatorConversationId,
+        onlookerConversationId,
+        operatorConversationId,
+      ].entries()) {
+        await ctx.db.insert("intelligenceRecommendations", {
+          eventId: fixture.eventId,
+          proposalKey: `private-conversation-${index}`,
+          effectKey: `private-effect-${index}`,
+          provenance: {
+            kind: "copilot",
+            conversationId: ownerConversationId,
+            citations: source.citations,
+          },
+          arguments: source.arguments,
+          statement: `Private command ${index}`,
+          reasoning: "Only the operator who owns this conversation may see it inline.",
+          status: "proposed",
+          agentVersion: source.agentVersion,
+          model: source.model,
+          proposedAt: Date.now() + index,
+          version: 1,
+          createdAt: Date.now() + index,
+          updatedAt: Date.now() + index,
+        });
+      }
+    });
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    const onlooker = backend.withIdentity({
+      subject: fixture.onlookerAuthUserId,
+      sessionId: fixture.onlookerAuthSessionId,
+    });
+    expect((await operator.query(api.intelligenceRecommendations.copilotConversation, {
+      eventSlug: fixture.eventSlug,
+    })).map((entry) => entry.statement)).toEqual(["Private command 0", "Private command 2"]);
+    expect((await onlooker.query(api.intelligenceRecommendations.copilotConversation, {
+      eventSlug: fixture.eventSlug,
+    })).map((entry) => entry.statement)).toEqual(["Private command 1"]);
+
+    await backend.run(async (ctx) => {
+      const grants = await ctx.db.query("permissionGrants").collect();
+      for (const grant of grants) {
+        if (
+          grant.eventAccessSubjectId === fixture.onlookerSubjectId &&
+          grant.permissionKey === "operations.intelligence.read"
+        ) await ctx.db.delete(grant._id);
+      }
+    });
+    await expect(onlooker.query(api.intelligenceRecommendations.copilotConversation, {
+      eventSlug: fixture.eventSlug,
+    })).rejects.toThrow();
+  });
 });
 
 function seededBackend() {
@@ -655,6 +946,32 @@ function proposalBody(fixture: Fixture) {
       teamRoundStateId: fixture.teamRoundStateId,
       expectedTeamRoundStateVersion: 1,
       reason: "The team missed both calls while the queue waited.",
+    },
+  };
+}
+
+function admissionProposalBody(fixture: Fixture) {
+  return {
+    protocolVersion: operationsIntelligenceProtocolVersion,
+    proposalKey: `${testConversationId}:admission-minimum-1`,
+    conversationId: testConversationId,
+    eventSlug: fixture.eventSlug,
+    agentVersion: "operations-copilot-v5",
+    model: "cloudflare/test-model",
+    statement: "Publish an admission policy that requires one completed human review.",
+    reasoning:
+      "The operator asked for one human review and the fresh cohort read identifies the current policy boundary.",
+    citations: [
+      {
+        read: "admission_cohort" as const,
+        generatedAt: Date.now(),
+        keys: ["policy"],
+      },
+    ],
+    arguments: {
+      kind: "set_admission_minimum_human_reviews" as const,
+      minimumHumanReviews: 1,
+      reason: "Use one organizer review during this submission round.",
     },
   };
 }
@@ -692,6 +1009,78 @@ async function propose(backend: BackendTest, fixture: Fixture) {
   return row._id;
 }
 
+async function proposeAdmission(backend: BackendTest, fixture: Fixture) {
+  const result = await backend.mutation(
+    internal.intelligenceRecommendations.proposeFromWorker,
+    { proposal: admissionProposalBody(fixture) },
+  );
+  expect(result).toBe("accepted");
+  const row = await backend.run((ctx) =>
+    ctx.db
+      .query("intelligenceRecommendations")
+      .withIndex("by_event_proposal", (index) =>
+        index
+          .eq("eventId", fixture.eventId)
+          .eq("proposalKey", admissionProposalBody(fixture).proposalKey),
+      )
+      .unique(),
+  );
+  if (!row) throw new Error("The admission proposal was not recorded.");
+  return row._id;
+}
+
+async function insertSubmissionLock(backend: BackendTest, fixture: Fixture) {
+  await backend.run(async (ctx) => {
+    const policy = normalizeIntakePolicy(defaultDeterministicIntakePolicy);
+    const intakePolicyId = await ctx.db.insert("intakePolicyVersions", {
+      eventId: fixture.eventId,
+      version: 1,
+      status: "published",
+      ...policy,
+      checksum: intakePolicyChecksum(policy),
+      createdByPersonId: fixture.operatorPersonId,
+      createdAt: Date.now(),
+      publishedAt: Date.now(),
+    });
+    const draftId = await ctx.db.insert("projectDrafts", {
+      eventId: fixture.eventId,
+      teamId: fixture.teamId,
+      intakePolicyVersionId: intakePolicyId,
+      stage: "review",
+      initialIdea: "This active submission attempt freezes policy publication.",
+      version: 1,
+      lastEditedByMembershipId: fixture.membershipId,
+      updatedAt: Date.now(),
+    });
+    await ctx.db.insert("teamSubmissionAttempts", {
+      eventId: fixture.eventId,
+      teamId: fixture.teamId,
+      draftId,
+      requestedByPersonId: fixture.operatorPersonId,
+      requestedByMembershipId: fixture.membershipId,
+      authorizingGrantIds: [],
+      clientOperationId: "admission-freeze-fixture",
+      requestFingerprint: "admission-freeze-fixture",
+      state: "validating",
+      sourceTeamVersion: 1,
+      lockedTeamVersion: 1,
+      sourceDraftVersion: 1,
+      participantPolicyVersionId: fixture.participantPolicyId,
+      admissionPolicyVersionId: fixture.admissionPolicyId,
+      processedMemberCount: 0,
+      processedVitMemberCount: 0,
+      processedExternalMemberCount: 0,
+      hasFirstYear: false,
+      hasSecondYear: false,
+      hasLaterYear: false,
+      hasPostgraduateYear: false,
+      hasNotApplicableYear: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  });
+}
+
 async function seedFloor(backend: BackendTest) {
   const now = Date.now();
   const eventSlug = `recommendation-${crypto.randomUUID()}`;
@@ -714,6 +1103,47 @@ async function seedFloor(backend: BackendTest) {
     });
     const operator = await insertAccount(ctx, eventId, "operator", now, operatorAuthUserId);
     const onlooker = await insertAccount(ctx, eventId, "onlooker", now, onlookerAuthUserId);
+    const participantPolicy = normalizeParticipantPolicy(defaultParticipantPolicy);
+    const participantPolicyId = await ctx.db.insert("participantPolicyVersions", {
+      eventId,
+      version: 1,
+      status: "published",
+      ...participantPolicy,
+      checksum: participantPolicyChecksum(participantPolicy),
+      createdByPersonId: operator.personId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    const admissionConfiguration = normalizeAdmissionConfiguration({
+      version: "admission-v1",
+      minimumHumanReviews: 2,
+      overallParticipantCapacity: 1_000,
+      criteria: defaultAdmissionCriteria,
+      decisionReasonCodes: defaultAdmissionReasonCodes,
+      model: null,
+    });
+    const admissionPolicy = admissionPolicyForConfiguration(admissionConfiguration);
+    const admissionPolicyId = await ctx.db.insert("admissionPolicyVersions", {
+      eventId,
+      ...admissionPolicy,
+      status: "published",
+      checksum: admissionPolicyChecksum(admissionPolicy),
+      createdByPersonId: operator.personId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    await ctx.db.insert("admissionCapacityBuckets", {
+      eventId,
+      admissionPolicyVersionId: admissionPolicyId,
+      capacity: 1_000,
+      reserved: 0,
+      version: 1,
+      updatedAt: now,
+    });
+    await ctx.db.patch(eventId, {
+      publishedParticipantPolicyId: participantPolicyId,
+      publishedAdmissionPolicyId: admissionPolicyId,
+    });
     const rubricVersionId = await ctx.db.insert("reviewRubricVersions", {
       eventId,
       version: 1,
@@ -813,6 +1243,22 @@ async function seedFloor(backend: BackendTest) {
       grantedByPersonId: operator.personId,
       reason: "Recommendation test",
     });
+    for (const permissionKey of [
+      "configuration.admission.draft.create",
+      "configuration.admission.publish",
+    ] as const) {
+      await insertPermissionGrant(ctx, {
+        eventId,
+        personId: operator.personId,
+        eventAccessSubjectId: operator.subjectId,
+        permissionKey,
+        scopeType: "event",
+        sourceType: "manual",
+        sourceId: `${eventSlug}:${permissionKey}`,
+        grantedByPersonId: operator.personId,
+        reason: "Recommendation admission-command test",
+      });
+    }
     for (const account of [operator, onlooker]) {
       await insertPermissionGrant(ctx, {
         eventId,
@@ -830,11 +1276,17 @@ async function seedFloor(backend: BackendTest) {
       eventSlug,
       eventId,
       roundId,
+      teamId,
+      membershipId,
+      participantPolicyId,
+      admissionPolicyId,
       teamRoundStateId: teamRoundStateId as Id<"teamRoundStates">,
       operatorPersonId: operator.personId,
       operatorSubjectId: operator.subjectId,
       operatorAuthUserId,
       operatorAuthSessionId,
+      onlookerPersonId: onlooker.personId,
+      onlookerSubjectId: onlooker.subjectId,
       onlookerAuthUserId,
       onlookerAuthSessionId,
     };

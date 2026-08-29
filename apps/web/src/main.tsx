@@ -1,5 +1,8 @@
 import { ConvexReactClient } from 'convex/react'
-import { ClientObservabilityProvider } from '@code2create/client-observability'
+import {
+  ClientObservabilityProvider,
+  installBrowserChunkRecovery,
+} from '@code2create/client-observability'
 import { Code2CreateAuthProvider, createCode2CreateAuthClient } from '@code2create/web-auth'
 import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -7,6 +10,8 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
 import { clientConfiguration } from './lib/config.ts'
+
+installBrowserChunkRecovery()
 
 const rootElement = document.getElementById('root')
 if (!rootElement) throw new Error('The application root element is missing.')
