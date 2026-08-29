@@ -1,5 +1,6 @@
 import { api } from '@code2create/backend/api'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
+import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Navigate, useLocation } from 'react-router-dom'
@@ -99,7 +100,11 @@ export function ParticipantApp({
       : teamAccessUnavailable
         ? <TeamAccessNotice />
         : null
-    const teamSetup = canJoinTeam ? <TeamScreen embedded /> : <TeamJoinAccessNotice />
+    const teamSetup = canJoinTeam
+      ? me.pendingTeam
+        ? <PendingTeamPanel pendingTeam={me.pendingTeam} />
+        : <TeamScreen embedded />
+      : <TeamJoinAccessNotice />
     const profileContext = !canReadProfile
       ? <ProfileAccessNotice mode="read" />
       : canWriteProfile
@@ -149,6 +154,22 @@ export function ParticipantApp({
   }
 
   if (!team) {
+    if (canJoinTeam && me.pendingTeam) {
+      return (
+        <>
+          <PortalHeader name={me.person.displayName} email={me.person.verifiedEmail} onSignOut={signOut} showSupport={canReadSupport} />
+          {location.pathname === '/support'
+            ? canReadSupport
+              ? <SupportScreen canCreate={canCreateSupport} />
+              : <Navigate replace to="/" />
+            : (
+                <main className="portal-main">
+                  <PendingTeamPanel pendingTeam={me.pendingTeam} />
+                </main>
+              )}
+        </>
+      )
+    }
     return (
       <>
         <PortalHeader name={me.person.displayName} email={me.person.verifiedEmail} onSignOut={signOut} showSupport={canReadSupport} />
@@ -316,6 +337,28 @@ function PortalLoading() {
     <main className="centered-shell">
       <p className="muted" role="status">Loading your portal…</p>
     </main>
+  )
+}
+
+type PendingTeam = NonNullable<FunctionReturnType<typeof api.participants.me>>['pendingTeam']
+
+function PendingTeamPanel({ pendingTeam }: { pendingTeam: NonNullable<PendingTeam> }) {
+  return (
+    <section className="intake-panel">
+      <p className="eyebrow">Your team</p>
+      <h1>You&rsquo;re assigned to {pendingTeam.teamName}.</h1>
+      {pendingTeam.status === 'waiting_for_lead' ? (
+        <p className="lead">
+          Your team lead has not signed in yet. You can stay on this page; you&rsquo;ll join
+          automatically after they do.
+        </p>
+      ) : (
+        <p className="lead">
+          You&rsquo;ll join {pendingTeam.teamName} as its {pendingTeam.role === 'lead' ? 'lead' : 'member'} when you
+          continue below.
+        </p>
+      )}
+    </section>
   )
 }
 
