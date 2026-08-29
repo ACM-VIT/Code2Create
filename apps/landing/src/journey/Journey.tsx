@@ -26,7 +26,7 @@ import Cards, {
   STAR_REACH,
 } from './Cards.js';
 import { Plant, createBloomTimeline } from '../timeline/botanical.js';
-import { participantPortalUrl } from '../lib/config.js';
+import { eventRegistrationUrl } from '../lib/config.js';
 import type { PetalFieldHandle } from './Petals.js';
 import './journey.css';
 
@@ -882,7 +882,7 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
             <img src="/assets/svg/wordmark.svg" alt="Code2Create" width="669" height="85" />
           </h1>
           <p className="hero-tagline">Don’t just code for the vibes, Code2Create.</p>
-          <a className="hero-cta" href={participantPortalUrl}>
+          <a className="hero-cta" href={eventRegistrationUrl}>
             <img src="/assets/svg/btn-box.svg" alt="" aria-hidden="true" />
             <span>Register now</span>
           </a>
