@@ -75,13 +75,14 @@ export const dispatchEpisode = internalAction({
         submissionId: parsed.data.submissionId,
         acceptedAt,
       });
-    } catch {
-      await ctx.runMutation(internal.operationsEpisodes.recordDispatchFailure, {
+    } catch (error) {
+      const recorded = await ctx.runMutation(internal.operationsEpisodes.recordDispatchFailure, {
         episodeId: prepared.episodeId,
         revision: prepared.revision,
         attemptId: prepared.attemptId,
         now: Date.now(),
       });
+      if (recorded) throw error;
     }
     return null;
   },

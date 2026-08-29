@@ -423,8 +423,6 @@ export default defineSchema({
         redactionVersion: v.string(),
         questionPolicyVersion: v.string(),
         evaluationSuiteVersion: v.string(),
-        maxOutputTokens: v.number(),
-        timeoutMs: v.number(),
       }),
     ),
     checksum: v.string(),
@@ -1906,12 +1904,20 @@ export default defineSchema({
     confidence: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"))),
     limitations: v.array(v.string()),
     providerRequestId: v.optional(v.string()),
+    agentOperationId: v.optional(v.string()),
+    agentOutputChecksum: v.optional(v.string()),
+    agentVersion: v.optional(v.string()),
+    agentModel: v.optional(v.string()),
+    agentDispatchAttemptId: v.optional(v.string()),
+    agentSubmissionId: v.optional(v.string()),
+    agentAcceptedAt: v.optional(v.number()),
     latencyMs: v.optional(v.number()),
     failureCategory: v.optional(v.string()),
     createdAt: v.number(),
     completedAt: v.optional(v.number()),
   })
     .index("by_application_created", ["applicationId", "createdAt"])
+    .index("by_event_created", ["eventId", "createdAt"])
     .index("by_event_state_created", ["eventId", "state", "createdAt"]),
 
   admissionPolicyVersions: defineTable({
@@ -1962,8 +1968,6 @@ export default defineSchema({
     promptVersion: v.string(),
     schemaVersion: v.string(),
     evaluationSuiteVersion: v.string(),
-    maxOutputTokens: v.number(),
-    timeoutMs: v.number(),
     status: v.union(
       v.literal("draft"),
       v.literal("published"),
@@ -4383,6 +4387,7 @@ export default defineSchema({
     resolvedAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
+    .index("by_event_updated_at", ["eventId", "updatedAt"])
     .index("by_event_lifecycle_relevance", ["eventId", "lifecycle", "relevanceScore"])
     .index("by_event_correlation_lifecycle", [
       "eventId",
@@ -4492,6 +4497,29 @@ export default defineSchema({
   })
     .index("by_event_requested", ["eventId", "requestedAt"])
     .index("by_event_state_updated", ["eventId", "state", "updatedAt"]),
+
+  /** Authoritative ingress ledger for every operator-to-copilot turn. */
+  operationsCopilotTurns: defineTable({
+    eventId: v.id("events"),
+    eventAccessSubjectId: v.id("eventAccessSubjects"),
+    conversationId: v.string(),
+    turnId: v.string(),
+    message: v.string(),
+    state: v.union(
+      v.literal("pending"),
+      v.literal("accepted"),
+      v.literal("delivery_unknown"),
+      v.literal("conflict"),
+    ),
+    submissionId: v.optional(v.string()),
+    acceptedAt: v.optional(v.number()),
+    deduplicated: v.optional(v.boolean()),
+    failureDetail: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_event_created", ["eventId", "createdAt"])
+    .index("by_subject_turn", ["eventAccessSubjectId", "turnId"]),
 
   operationsAutonomyPolicyVersions: defineTable({
     eventId: v.id("events"),

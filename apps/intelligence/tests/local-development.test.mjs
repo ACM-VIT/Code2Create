@@ -64,4 +64,12 @@ test('local intelligence uses one localhost-only signed service boundary', () =>
   )
   assert.equal(recommendationUrl.origin, 'http://127.0.0.1:3211')
   assert.equal(recommendationUrl.pathname, '/intelligence/operations-recommendations')
+  const ideaReadUrl = new URL(
+    localIntelligenceWorkerEnvironment.CONVEX_INTELLIGENCE_IDEA_READ_URL,
+  )
+  assert.equal(ideaReadUrl.pathname, '/intelligence/idea-submissions/read')
+  const ideaCallbackUrl = new URL(
+    localIntelligenceWorkerEnvironment.CONVEX_INTELLIGENCE_IDEA_CALLBACK_URL,
+  )
+  assert.equal(ideaCallbackUrl.pathname, '/intelligence/idea-submissions/callback')
 })

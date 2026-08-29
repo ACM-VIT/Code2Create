@@ -3,7 +3,7 @@ import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api, components } from "./_generated/api";
+import { api, components, internal } from "./_generated/api";
 import {
   admissionModelConfigurationChecksum,
   admissionPolicyChecksum,
@@ -147,6 +147,192 @@ describe("manual admission analysis retry", () => {
       expectedRecommendationId: first.recommendationId,
       clientOperationId: "retry-successful-analysis",
     })).rejects.toThrow("current, still running, or no longer");
+  });
+
+  test("keeps one authorized durable-agent run idempotent across reads and callback retries", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFixture(backend);
+    const runner = backend.withIdentity({
+      subject: fixture.runnerAuthUserId,
+      sessionId: fixture.runnerAuthSessionId,
+    });
+    const rerun = await runner.mutation(api.admissions.rerunAiRecommendation, {
+      eventSlug: fixture.eventSlug,
+      applicationId: fixture.applicationId,
+      expectedApplicationVersion: 1,
+      expectedRecommendationId: fixture.failedRecommendationId,
+      reason: "Retry with the durable idea agent",
+      clientOperationId: "durable-agent-analysis",
+    });
+    const prepared = await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+      recommendationId: rerun.recommendationId,
+    });
+    expect(prepared).toMatchObject({
+      applicationId: fixture.applicationId,
+      eventId: fixture.eventId,
+      modelId: "gpt-4.1-mini",
+      promptVersion: "admission-rerun-prompt-v1",
+      schemaVersion: "admission-rerun-schema-v1",
+      evaluationSuiteVersion: "admission-rerun-eval-v1",
+      contentVersion: 1,
+    });
+    if (!prepared) throw new Error("The durable dispatch was not prepared.");
+    expect(await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+      recommendationId: rerun.recommendationId,
+    })).toBeNull();
+    expect(await backend.mutation(internal.admissionAgentActions.recordDispatchReceipt, {
+      recommendationId: rerun.recommendationId,
+      attemptId: prepared.attemptId,
+      submissionId: "idea-submission-1",
+      acceptedAt: 1_000,
+    })).toBe(true);
+    expect(await backend.mutation(internal.admissionIntelligence.recoverAgentRecommendation, {
+      recommendationId: rerun.recommendationId,
+      submissionId: "another-submission",
+    })).toBe(false);
+
+    const firstRead = await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
+      recommendationId: rerun.recommendationId,
+    });
+    const repeatedRead = await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
+      recommendationId: rerun.recommendationId,
+    });
+    expect(repeatedRead).toEqual(firstRead);
+    if (!firstRead) throw new Error("The idea-agent fixture did not produce a projection.");
+    const criterionAssessments = firstRead.criteria.map((criterion) => ({
+      criterionKey: criterion.criterionKey,
+      assessment: "meets" as const,
+      sourceRefs: ["initial_idea"],
+    }));
+    const completion = {
+      recommendationId: rerun.recommendationId,
+      sourceInputFingerprint: firstRead.sourceInputFingerprint,
+      state: "succeeded" as const,
+      recommendation: "accept" as const,
+      criterionAssessments,
+      strengths: ["The proposal identifies a concrete operational handoff."],
+      concerns: [],
+      proposedQuestions: [],
+      confidence: "medium" as const,
+      limitations: ["The analysis uses only the submitted project answers."],
+      operationId: `idea-analysis:${rerun.recommendationId}`,
+      agentVersion: "idea-submission-v2",
+      agentModel: "openai/gpt-4.1-mini",
+    };
+    expect(await backend.mutation(
+      internal.admissionIntelligence.finishRecommendation,
+      completion,
+    )).toBe("accepted");
+    expect(await backend.mutation(
+      internal.admissionIntelligence.finishRecommendation,
+      completion,
+    )).toBe("already_exists");
+    const stored = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
+    expect(stored).toMatchObject({
+      state: "succeeded",
+      agentOperationId: completion.operationId,
+      agentVersion: completion.agentVersion,
+      agentModel: completion.agentModel,
+    });
+    expect(stored?.agentDispatchAttemptId).toBeUndefined();
+    expect(stored?.agentSubmissionId).toBeUndefined();
+    expect(stored?.agentAcceptedAt).toBeUndefined();
+  });
+
+  test("recovers only the exact accepted agent submission and permits one new dispatch", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFixture(backend);
+    const runner = backend.withIdentity({
+      subject: fixture.runnerAuthUserId,
+      sessionId: fixture.runnerAuthSessionId,
+    });
+    const rerun = await runner.mutation(api.admissions.rerunAiRecommendation, {
+      eventSlug: fixture.eventSlug,
+      applicationId: fixture.applicationId,
+      expectedApplicationVersion: 1,
+      expectedRecommendationId: fixture.failedRecommendationId,
+      reason: "Recover an interrupted durable idea analysis",
+      clientOperationId: "recover-durable-agent-analysis",
+    });
+    const first = await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+      recommendationId: rerun.recommendationId,
+    });
+    if (!first) throw new Error("The first durable dispatch was not prepared.");
+    expect(await backend.mutation(internal.admissionAgentActions.recordDispatchReceipt, {
+      recommendationId: rerun.recommendationId,
+      attemptId: first.attemptId,
+      submissionId: "accepted-submission-1",
+      acceptedAt: 1_000,
+    })).toBe(true);
+    expect(await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
+      recommendationId: rerun.recommendationId,
+    })).not.toBeNull();
+
+    expect(await backend.mutation(internal.admissionIntelligence.recoverAgentRecommendation, {
+      recommendationId: rerun.recommendationId,
+      submissionId: "accepted-submission-1",
+    })).toBe(true);
+    const recovered = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
+    expect(recovered).toMatchObject({
+      state: "pending",
+      failureCategory: "agent_analysis_recovered",
+    });
+    expect(recovered?.agentSubmissionId).toBeUndefined();
+
+    const second = await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+      recommendationId: rerun.recommendationId,
+    });
+    expect(second?.attemptId).not.toBe(first.attemptId);
+    expect(await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+      recommendationId: rerun.recommendationId,
+    })).toBeNull();
+  });
+
+  test("rejects prohibited scoring language at the authoritative callback seam", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFixture(backend);
+    const runner = backend.withIdentity({
+      subject: fixture.runnerAuthUserId,
+      sessionId: fixture.runnerAuthSessionId,
+    });
+    const rerun = await runner.mutation(api.admissions.rerunAiRecommendation, {
+      eventSlug: fixture.eventSlug,
+      applicationId: fixture.applicationId,
+      expectedApplicationVersion: 1,
+      expectedRecommendationId: fixture.failedRecommendationId,
+      reason: "Verify authoritative callback policy",
+      clientOperationId: "reject-prohibited-agent-output",
+    });
+    const projection = await backend.mutation(
+      internal.admissionIntelligence.beginRecommendation,
+      { recommendationId: rerun.recommendationId },
+    );
+    if (!projection) throw new Error("The callback-policy fixture has no projection.");
+    expect(await backend.mutation(internal.admissionIntelligence.finishRecommendation, {
+      recommendationId: rerun.recommendationId,
+      sourceInputFingerprint: projection.sourceInputFingerprint,
+      state: "succeeded",
+      recommendation: "accept",
+      criterionAssessments: projection.criteria.map((criterion) => ({
+        criterionKey: criterion.criterionKey,
+        assessment: "meets" as const,
+        sourceRefs: ["initial_idea"],
+      })),
+      strengths: ["This idea deserves the highest score."],
+      concerns: [],
+      proposedQuestions: [],
+      confidence: "high",
+      limitations: ["Only submitted evidence was considered."],
+      operationId: "idea-analysis:prohibited-language",
+      agentVersion: "idea-submission-v2",
+      agentModel: "openai/gpt-4.1-mini",
+    })).toBe("accepted");
+    const stored = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
+    expect(stored).toMatchObject({
+      state: "invalid",
+      failureCategory: "invalid_completion_payload",
+      criterionAssessments: [],
+    });
   });
 });
 
@@ -293,8 +479,6 @@ async function seedFixture(backend: BackendTest) {
         promptVersion: "admission-rerun-prompt-v1",
         schemaVersion: "admission-rerun-schema-v1",
         evaluationSuiteVersion: "admission-rerun-eval-v1",
-        maxOutputTokens: 800,
-        timeoutMs: 10_000,
       },
     });
     const admissionPolicy = admissionPolicyForConfiguration(configuration);

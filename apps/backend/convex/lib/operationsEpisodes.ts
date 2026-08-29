@@ -8,6 +8,7 @@ import type {
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { intelligenceWorkpool } from "../workpools";
 import { operationFingerprint } from "./operations";
 
 const resolutionClearPasses = 3;
@@ -198,13 +199,21 @@ async function linkFacts(
   return inserted;
 }
 
-async function scheduleAnalysis(
+export async function enqueueEpisodeAnalysis(
   ctx: MutationCtx,
   episodeId: Id<"operationsIntelligenceEpisodes">,
+  revision: number,
 ) {
-  await ctx.scheduler.runAfter(0, internal.operationsEpisodeActions.dispatchEpisode, {
-    episodeId,
-  });
+  await intelligenceWorkpool.enqueueAction(
+    ctx,
+    internal.operationsEpisodeActions.dispatchEpisode,
+    { episodeId },
+    {
+      retry: true,
+      onComplete: internal.operationsEpisodes.episodeDispatchFinished,
+      context: { episodeId, revision },
+    },
+  );
 }
 
 function actualPredictionState(episode: Doc<"operationsIntelligenceEpisodes">) {
@@ -286,7 +295,7 @@ export async function reconcileOperationsEpisodes(
         updatedAt: snapshot.generatedAt,
       });
       await linkFacts(ctx, { eventId, episodeId, facts, linkedAt: snapshot.generatedAt });
-      await scheduleAnalysis(ctx, episodeId);
+      await enqueueEpisodeAnalysis(ctx, episodeId, 1);
       continue;
     }
     const insertedFacts = await linkFacts(ctx, {
@@ -314,7 +323,7 @@ export async function reconcileOperationsEpisodes(
       ...(changed ? { analysisState: { kind: "pending" } as const } : {}),
       updatedAt: snapshot.generatedAt,
     });
-    if (changed) await scheduleAnalysis(ctx, existing._id);
+    if (changed) await enqueueEpisodeAnalysis(ctx, existing._id, revision);
   }
 
   const active = await ctx.db
@@ -336,7 +345,7 @@ export async function reconcileOperationsEpisodes(
         ...(changed ? { analysisState: { kind: "pending" } as const } : {}),
         updatedAt: snapshot.generatedAt,
       });
-      if (changed) await scheduleAnalysis(ctx, episode._id);
+      if (changed) await enqueueEpisodeAnalysis(ctx, episode._id, episode.revision + 1);
       continue;
     }
     await ctx.db.patch(episode._id, {

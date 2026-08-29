@@ -34,6 +34,7 @@ import {
   boundedActivePermissionGrants,
   requirePermission,
 } from "./lib/permissions";
+import { noveltyInputFingerprint } from "./lib/novelty";
 import { redactProjectText } from "./lib/projectText";
 import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits";
 import {
@@ -140,6 +141,7 @@ type CohortRow = {
   application: Doc<"applications">;
   team: Doc<"teams">;
   project: Doc<"projectVersions">;
+  draft: Doc<"projectDrafts"> | null;
   teamSize: number;
   minimumHumanReviews: number;
   reviewSignal: { accept: number; waitlist: number; decline: number; needsInformation: number };
@@ -156,6 +158,24 @@ type CohortRow = {
   } | null;
 };
 
+function noveltySignal(draft: Doc<"projectDrafts"> | null, submittedIdea: string) {
+  if (
+    draft === null ||
+    draft.noveltyEvaluatedInputFingerprint !== noveltyInputFingerprint(submittedIdea) ||
+    draft.noveltyScore === undefined ||
+    draft.noveltyBand === undefined ||
+    draft.noveltyNearestThemeLabel === undefined ||
+    !Number.isSafeInteger(draft.noveltyScore) ||
+    draft.noveltyScore < 0 ||
+    draft.noveltyScore > 100
+  ) return null;
+  return {
+    score: draft.noveltyScore,
+    band: draft.noveltyBand,
+    nearestThemeLabel: draft.noveltyNearestThemeLabel,
+  };
+}
+
 /** Loads only current-version recorded human-review and AI signals. */
 async function loadAdmissionCohortRows(ctx: QueryCtx, event: Doc<"events">) {
   const applications = await ctx.db
@@ -170,9 +190,13 @@ async function loadAdmissionCohortRows(ctx: QueryCtx, event: Doc<"events">) {
   const policies = new Map<Id<"admissionPolicyVersions">, Doc<"admissionPolicyVersions">>();
   const rows: CohortRow[] = [];
   for (const application of applications) {
-    const [team, project] = await Promise.all([
+    const [team, project, draft] = await Promise.all([
       ctx.db.get(application.teamId),
       ctx.db.get(application.submittedProjectVersionId),
+      ctx.db
+        .query("projectDrafts")
+        .withIndex("by_team", (index) => index.eq("teamId", application.teamId))
+        .unique(),
     ]);
     if (!team || !project) continue;
     let policy = policies.get(application.admissionPolicyVersionId);
@@ -234,6 +258,7 @@ async function loadAdmissionCohortRows(ctx: QueryCtx, event: Doc<"events">) {
       application,
       team,
       project,
+      draft,
       teamSize: project.lockedMemberCount,
       minimumHumanReviews: policy.minimumHumanReviews,
       reviewSignal,
@@ -300,6 +325,7 @@ function candidateView(row: CohortRow, selection: ReturnType<typeof selectAdmiss
     },
     reviewSignal: row.reviewSignal,
     ...(row.ai ? { aiRecommendation: row.ai } : {}),
+    novelty: noveltySignal(row.draft, row.project.initialIdea),
     rank: selection.rank,
     cumulativePeople: selection.cumulativePeople,
     entryCapacityPeople: selection.entryCapacityPeople,
@@ -405,6 +431,15 @@ const aiRecommendationView = v.object({
   ),
 });
 
+const noveltySignalView = v.union(
+  v.null(),
+  v.object({
+    score: v.number(),
+    band: v.union(v.literal("familiar"), v.literal("developing"), v.literal("distinct")),
+    nearestThemeLabel: v.string(),
+  }),
+);
+
 const rosterEntryView = v.object({
   applicationId: v.id("applications"),
   teamId: v.id("teams"),
@@ -437,6 +472,7 @@ const operatorCandidateView = v.object({
 const internalCandidateView = v.object({
   ...candidateViewFields,
   experienceBand: admissionExperienceBand,
+  novelty: noveltySignalView,
 });
 
 const cohortSummaryView = v.object({
@@ -537,7 +573,7 @@ export const cohort = query({
         return false;
       });
     const candidates = visible(view.candidates).map((candidate) => {
-      const { experienceBand, aiRecommendation, ...rest } = candidate;
+      const { experienceBand, aiRecommendation, novelty: _novelty, ...rest } = candidate;
       return {
         ...rest,
         ...(canReadProfile(candidate.applicationId) ? { experienceBand } : {}),
@@ -768,6 +804,7 @@ const searchMatchView = v.object({
   experienceBand: admissionExperienceBand,
   teamSize: v.number(),
   ideaExcerpt: v.string(),
+  novelty: noveltySignalView,
   reviewCoverage: reviewCoverageView,
 });
 
@@ -815,6 +852,7 @@ export const submissionSearchRead = internalQuery({
       experienceBand: row.application.experienceBand,
       teamSize: row.teamSize,
       ideaExcerpt: redactProjectText(row.project.initialIdea).slice(0, 240),
+      novelty: noveltySignal(row.draft, row.project.initialIdea),
       reviewCoverage: {
         assigned: row.application.assignedReviewCount,
         completed: row.completedCurrentReviews,

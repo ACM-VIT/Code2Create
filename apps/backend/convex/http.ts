@@ -1,6 +1,10 @@
 import { httpRouter } from "convex/server";
 
 import { admissionIntelligenceReadEndpoint } from "./admissionCohort";
+import {
+  ideaIntelligenceCallbackEndpoint,
+  ideaIntelligenceReadEndpoint,
+} from "./admissionAgentHttp";
 import { authComponent, createAuth } from "./auth";
 import { figmaWebhook } from "./figmaWebhook";
 import { githubWebhook } from "./githubWebhook";
@@ -98,6 +102,16 @@ http.route({
   path: "/intelligence/admission-reads",
   method: "POST",
   handler: admissionIntelligenceReadEndpoint,
+});
+http.route({
+  path: "/intelligence/idea-submissions/read",
+  method: "POST",
+  handler: ideaIntelligenceReadEndpoint,
+});
+http.route({
+  path: "/intelligence/idea-submissions/callback",
+  method: "POST",
+  handler: ideaIntelligenceCallbackEndpoint,
 });
 
 export default http;

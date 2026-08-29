@@ -2,6 +2,7 @@ import type { FlueConversationMessage } from '@flue/react'
 import {
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
   useEffect,
   useId,
   useLayoutEffect,
@@ -42,6 +43,7 @@ export function LiveAgentConsole({
   showOperatorMessages = true,
   terminalState,
   terminalCopy: terminalCopyOverrides,
+  timelineFooter,
   workingCopy = {
     title: 'Preparing response',
     detail: 'Live output continues here.',
@@ -67,6 +69,7 @@ export function LiveAgentConsole({
   showOperatorMessages?: boolean
   terminalState: LiveAgentTerminalState
   terminalCopy?: Partial<Record<Exclude<LiveAgentTerminalState, 'none'>, LiveAgentCopy>>
+  timelineFooter?: ReactNode
   workingCopy?: LiveAgentCopy
 }) {
   const timeline = useMemo(
@@ -175,7 +178,7 @@ export function LiveAgentConsole({
         ref={timelineRef}
         role="log"
       >
-        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-2.5 px-4 pt-4 pb-2">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-2.5 px-4 pt-4 pb-6">
           {onLoadOlder !== undefined && (historyCanLoadMore || historyLoading) ? (
             <div className="flex justify-center pb-1">
               {historyLoading ? (
@@ -213,6 +216,9 @@ export function LiveAgentConsole({
               state={terminalState}
             />
           ) : null}
+          {timelineFooter === undefined ? null : (
+            <div className="pt-3 pb-2">{timelineFooter}</div>
+          )}
         </div>
       </div>
 
@@ -231,7 +237,7 @@ export function LiveAgentConsole({
 
       {onSubmitPrompt === undefined ? null : (
         <form
-          className={embedded ? 'shrink-0 p-1.5' : 'shrink-0 px-4 pb-4'}
+          className={embedded ? 'shrink-0 p-1.5 pb-3' : 'shrink-0 px-4 pt-2 pb-8'}
           onSubmit={(event) => void sendPrompt(event)}
         >
           <div className="mx-auto w-full max-w-3xl">

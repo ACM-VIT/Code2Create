@@ -8,7 +8,12 @@ import { useEditingPresence } from '../hooks/useEditingPresence'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
-import { clearSessionDraft, readSessionDraft, writeSessionDraft } from '../lib/sessionDraft'
+import {
+  clearSessionDraft,
+  readVersionedSessionDraft,
+  sessionDraftConflicts,
+  writeVersionedSessionDraft,
+} from '../lib/sessionDraft'
 import type { CurrentIntake, CurrentTeam, CurrentTeamMember } from '../types'
 
 type NoveltySignal = {
@@ -46,6 +51,11 @@ type RecoveredFollowUp = {
 
 function normalizedIdeaLength(value: string) {
   return value.trim().replace(/\s+/g, ' ').length
+}
+
+function storedDraftVersion(value: string) {
+  const version = Number(value)
+  return Number.isSafeInteger(version) && version >= 0 ? version : null
 }
 
 export function IntakeScreen({
@@ -114,19 +124,24 @@ function IntakeWorkspace({
     draft?.stage === 'review' ? { eventSlug } : 'skip',
   )
   const ideaStorageKey = `c2c:${eventSlug}:${team.id}:idea`
-  const recoveredIdea = useRef(readSessionDraft(ideaStorageKey)).current
+  const [recoveredIdea] = useState(() => readVersionedSessionDraft(ideaStorageKey))
+  const recoveredIdeaVersion = recoveredIdea ? storedDraftVersion(recoveredIdea.base) : null
   const initialSavedIdea = draft?.initialIdea ?? ''
-  const [idea, setIdea] = useState(recoveredIdea ?? initialSavedIdea)
+  const initialSavedVersion = draft?.version ?? 0
+  const [idea, setIdea] = useState(recoveredIdea?.value ?? initialSavedIdea)
   const [ideaDirty, setIdeaDirty] = useState(
-    recoveredIdea !== null && recoveredIdea !== initialSavedIdea,
+    recoveredIdea !== null && recoveredIdea.value !== initialSavedIdea,
   )
-  const ideaBase = useRef({ value: initialSavedIdea, version: draft?.version ?? 0 })
-  const [ideaConflict, setIdeaConflict] = useState(false)
+  const ideaBase = useRef({ version: recoveredIdeaVersion ?? initialSavedVersion })
+  const [ideaConflict, setIdeaConflict] = useState(
+    sessionDraftConflicts(recoveredIdea, String(initialSavedVersion)),
+  )
   const [answer, setAnswer] = useState('')
   const followUpBase = useRef<{ questionId: string | null; version: number }>({
     questionId: null,
     version: draft?.version ?? 0,
   })
+  const [followUpConflict, setFollowUpConflict] = useState(false)
   const [recoveredFollowUp, setRecoveredFollowUp] = useState<RecoveredFollowUp | null>(null)
   const [editingFollowUpId, setEditingFollowUpId] = useState<string | null>(null)
   const [editedFollowUpAnswer, setEditedFollowUpAnswer] = useState('')
@@ -181,17 +196,12 @@ function IntakeWorkspace({
     const savedValue = draft?.initialIdea ?? ''
     const savedVersion = draft?.version ?? 0
     if (!ideaDirty) {
-      ideaBase.current = { value: savedValue, version: savedVersion }
+      ideaBase.current = { version: savedVersion }
       setIdea(savedValue)
       setIdeaConflict(false)
       return
     }
-    if (
-      savedVersion !== ideaBase.current.version &&
-      savedValue !== ideaBase.current.value
-    ) {
-      setIdeaConflict(true)
-    }
+    if (savedVersion !== ideaBase.current.version) setIdeaConflict(true)
   }, [draft?.initialIdea, draft?.version, ideaDirty])
 
   useEffect(() => {
@@ -201,16 +211,33 @@ function IntakeWorkspace({
     if (priorQuestionId && answer.trim()) {
       setRecoveredFollowUp({ answer, questionId: priorQuestionId })
     }
-    followUpBase.current = {
-      questionId: nextQuestionId,
-      version: draft?.version ?? 0,
-    }
+    const currentVersion = draft?.version ?? 0
     if (!nextQuestionId) {
+      followUpBase.current = { questionId: null, version: currentVersion }
+      setFollowUpConflict(false)
       setAnswer('')
       return
     }
-    setAnswer(readSessionDraft(`c2c:${eventSlug}:${team.id}:follow-up:${nextQuestionId}`) ?? '')
+    const recovered = readVersionedSessionDraft(
+      `c2c:${eventSlug}:${team.id}:follow-up:${nextQuestionId}`,
+    )
+    const recoveredVersion = recovered ? storedDraftVersion(recovered.base) : null
+    followUpBase.current = {
+      questionId: nextQuestionId,
+      version: recoveredVersion ?? currentVersion,
+    }
+    setFollowUpConflict(sessionDraftConflicts(recovered, String(currentVersion)))
+    setAnswer(recovered?.value ?? '')
   }, [activeFollowUp?.id, answer, draft?.version, team.id])
+
+  useEffect(() => {
+    if (
+      activeFollowUp &&
+      answer.trim() &&
+      followUpBase.current.questionId === activeFollowUp.id &&
+      followUpBase.current.version !== (draft?.version ?? 0)
+    ) setFollowUpConflict(true)
+  }, [activeFollowUp, answer, draft?.version])
 
   useEffect(() => {
     noveltySequence.current += 1
@@ -330,6 +357,7 @@ function IntakeWorkspace({
         }))
       clearSessionDraft(`c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`)
       setAnswer('')
+      setFollowUpConflict(false)
       stopEditing()
       setPendingFollowUp(null)
     })
@@ -437,7 +465,7 @@ function IntakeWorkspace({
                     setIdea(savedValue)
                     setIdeaDirty(false)
                     setIdeaConflict(false)
-                    ideaBase.current = { value: savedValue, version: draft?.version ?? 0 }
+                    ideaBase.current = { version: draft?.version ?? 0 }
                     clearSessionDraft(ideaStorageKey)
                   }}
                 >
@@ -447,11 +475,12 @@ function IntakeWorkspace({
                   type="button"
                   className="text-button"
                   onClick={() => {
-                    ideaBase.current = {
-                      value: draft?.initialIdea ?? '',
-                      version: draft?.version ?? 0,
-                    }
+                    ideaBase.current = { version: draft?.version ?? 0 }
                     setIdeaConflict(false)
+                    writeVersionedSessionDraft(ideaStorageKey, {
+                      base: String(ideaBase.current.version),
+                      value: idea,
+                    })
                   }}
                 >
                   Keep mine
@@ -477,7 +506,10 @@ function IntakeWorkspace({
               noveltySequence.current += 1
               setIdea(nextIdea)
               setIdeaDirty(true)
-              writeSessionDraft(ideaStorageKey, nextIdea)
+              writeVersionedSessionDraft(ideaStorageKey, {
+                base: String(ideaBase.current.version),
+                value: nextIdea,
+              })
               markEditing('idea')
               setNoveltyState(
                 novelty && normalizedIdeaLength(nextIdea) >= novelty.minimumIdeaLength
@@ -498,10 +530,7 @@ function IntakeWorkspace({
                   setIdea(draft?.initialIdea ?? '')
                   setIdeaDirty(false)
                   setIdeaConflict(false)
-                  ideaBase.current = {
-                    value: draft?.initialIdea ?? '',
-                    version: draft?.version ?? 0,
-                  }
+                  ideaBase.current = { version: draft?.version ?? 0 }
                   clearSessionDraft(ideaStorageKey)
                   stopEditing()
                   setEditingIdea(false)
@@ -536,6 +565,33 @@ function IntakeWorkspace({
         <p className="minimal-step-hint">Keep it short—one or two sentences is plenty.</p>
         <form onSubmit={submitAnswer} className="minimal-textarea-surface compact-surface">
           <EditingPresence editors={editors ?? []} members={members} />
+          {followUpConflict ? (
+            <div className="notice" role="status">
+              <p>A teammate saved a newer draft while this answer was unsaved. Your text is still here.</p>
+              <div className="button-row">
+                <button type="button" className="text-button" onClick={() => {
+                  setAnswer('')
+                  followUpBase.current = {
+                    questionId: activeFollowUp.id,
+                    version: draft.version,
+                  }
+                  setFollowUpConflict(false)
+                  clearSessionDraft(`c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`)
+                }}>Use saved version</button>
+                <button type="button" className="text-button" onClick={() => {
+                  followUpBase.current = {
+                    questionId: activeFollowUp.id,
+                    version: draft.version,
+                  }
+                  setFollowUpConflict(false)
+                  writeVersionedSessionDraft(
+                    `c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`,
+                    { base: String(draft.version), value: answer },
+                  )
+                }}>Keep mine</button>
+              </div>
+            </div>
+          ) : null}
           <TextArea
             autoFocus
             required
@@ -546,9 +602,12 @@ function IntakeWorkspace({
             value={answer}
             onChange={(event) => {
               setAnswer(event.target.value)
-              writeSessionDraft(
+              writeVersionedSessionDraft(
                 `c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`,
-                event.target.value,
+                {
+                  base: String(followUpBase.current.version),
+                  value: event.target.value,
+                },
               )
               markEditing('follow_up')
             }}
@@ -557,10 +616,7 @@ function IntakeWorkspace({
           <ErrorNotice message={error} />
           <div className="minimal-surface-actions">
             <button type="button" className="minimal-back" disabled={busy} onClick={() => {
-              ideaBase.current = {
-                value: draft.initialIdea ?? '',
-                version: draft.version,
-              }
+              ideaBase.current = { version: draft.version }
               setIdea(draft.initialIdea ?? '')
               setIdeaDirty(false)
               setEditingIdea(true)
@@ -570,7 +626,7 @@ function IntakeWorkspace({
             <button
               type="button"
               className="minimal-back"
-              disabled={busy}
+              disabled={busy || followUpConflict}
               onClick={() => void run(async () => {
                 const slot = `follow-up:${activeFollowUp.id}`
                 if (!operations.hasPending(slot)) {
@@ -585,6 +641,7 @@ function IntakeWorkspace({
                 }))
                 clearSessionDraft(`c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`)
                 setAnswer('')
+                setFollowUpConflict(false)
                 stopEditing()
                 setPendingFollowUp(null)
               })}
@@ -592,7 +649,7 @@ function IntakeWorkspace({
               Skip
             </button>
             <span className="character-count">{answer.length} / {draft.intakePolicy.followUpAnswerMaxLength}</span>
-            <button type="submit" className="minimal-continue" disabled={busy || answer.trim().length < draft.intakePolicy.followUpAnswerMinLength}>
+            <button type="submit" className="minimal-continue" disabled={busy || followUpConflict || answer.trim().length < draft.intakePolicy.followUpAnswerMinLength}>
               {busy ? 'Saving…' : 'Continue'} <span aria-hidden="true">→</span>
             </button>
           </div>
@@ -829,7 +886,7 @@ function IntakeWorkspace({
             <div className="minimal-surface-actions">
               <button type="button" className="minimal-back" disabled={busy} onClick={() => {
                 const savedIdea = preview.initialIdea ?? ''
-                ideaBase.current = { value: savedIdea, version: preview.draftVersion }
+                ideaBase.current = { version: preview.draftVersion }
                 setIdea(savedIdea)
                 setIdeaDirty(false)
                 setEditingIdea(true)

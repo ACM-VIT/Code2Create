@@ -15,8 +15,62 @@ import {
   signServiceBody,
   verifyServiceBody,
 } from "./intelligence.ts";
+import {
+  ideaIntelligenceAnalysisPolicyViolation,
+  type IdeaIntelligenceAnalysis,
+} from "./ideaIntelligence.ts";
 
 const signingSecret = "s".repeat(32);
+
+const validIdeaAnalysis: IdeaIntelligenceAnalysis = {
+  recommendation: "needs_information",
+  criterionAssessments: [
+    {
+      criterionKey: "problem_clarity",
+      assessment: "partly_meets",
+      sourceRefs: ["initial_idea"],
+    },
+  ],
+  strengths: ["The proposal identifies a concrete operational problem."],
+  concerns: ["The user validation approach is not yet described."],
+  proposedQuestions: ["How will the team validate the need with intended users?"],
+  confidence: "medium",
+  limitations: ["Only the submitted project answers were available."],
+};
+
+test("idea analysis policy accepts only exact, grounded, non-scoring output", () => {
+  const context = {
+    criterionKeys: ["problem_clarity"],
+    sourceRefs: ["initial_idea"],
+  };
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({ analysis: validIdeaAnalysis, ...context }),
+    null,
+  );
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: {
+        ...validIdeaAnalysis,
+        criterionAssessments: [{
+          ...validIdeaAnalysis.criterionAssessments[0]!,
+          sourceRefs: ["invented_source"],
+        }],
+      },
+      ...context,
+    }),
+    "evidence_mismatch",
+  );
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: {
+        ...validIdeaAnalysis,
+        strengths: ["This proposal deserves a high score."],
+      },
+      ...context,
+    }),
+    "prohibited_language",
+  );
+});
 
 test("service signing measures multibyte secrets in UTF-8 bytes", async () => {
   const secret = "é".repeat(16);

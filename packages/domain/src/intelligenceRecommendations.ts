@@ -1,4 +1,7 @@
-import type { OperationsIntelligenceReadName } from "./intelligenceReads.ts";
+import type {
+  AdmissionIntelligenceReadName,
+  OperationsIntelligenceReadName,
+} from "./intelligenceReads.ts";
 import type { OperationsAutonomyReadTool } from "./operationsAutonomyPolicy.ts";
 import type { SupportCaseCategory } from "./labels.ts";
 
@@ -51,7 +54,7 @@ export type IntelligenceRecommendationStatus =
 
 /** Evidence required for every recommendation. */
 export type IntelligenceRecommendationCitation = {
-  read: OperationsIntelligenceReadName;
+  read: OperationsIntelligenceReadName | AdmissionIntelligenceReadName;
   generatedAt: number;
   keys: string[];
 };

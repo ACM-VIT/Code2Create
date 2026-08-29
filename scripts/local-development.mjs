@@ -99,6 +99,10 @@ export const localIntelligenceWorkerEnvironment = Object.freeze({
     'http://127.0.0.1:3211/intelligence/operations-episodes/read',
   CONVEX_INTELLIGENCE_EPISODE_CALLBACK_URL:
     'http://127.0.0.1:3211/intelligence/operations-episodes/callback',
+  CONVEX_INTELLIGENCE_IDEA_READ_URL:
+    'http://127.0.0.1:3211/intelligence/idea-submissions/read',
+  CONVEX_INTELLIGENCE_IDEA_CALLBACK_URL:
+    'http://127.0.0.1:3211/intelligence/idea-submissions/callback',
   CONVEX_INTELLIGENCE_AUTONOMY_CALLBACK_URL:
     'http://127.0.0.1:3211/intelligence/operations-autonomy/callback',
   CONVEX_INTELLIGENCE_AUTONOMY_READ_URL:

@@ -2,9 +2,10 @@ import { useState } from 'react'
 
 import { OperationsBrief } from '../components/OperationsBrief'
 import { OperationsCopilotConsole } from '../components/OperationsCopilotConsole'
+import { AgentControlPlane } from '../components/intelligence/AgentControlPlane'
 import { IntelligenceActivity } from './IntelligenceActivity'
 
-type IntelligenceTab = 'activity' | 'ask' | 'brief'
+type IntelligenceTab = 'agents' | 'activity' | 'ask' | 'brief'
 
 export function IntelligenceWorkspace({
   canGenerate,
@@ -16,13 +17,17 @@ export function IntelligenceWorkspace({
   showBrief: boolean
 }) {
   const [tab, setTab] = useState<IntelligenceTab>(
-    canRead ? 'activity' : showBrief ? 'brief' : 'ask',
+    canRead ? 'agents' : showBrief ? 'brief' : 'ask',
   )
   let activeTab = tab
+  if (tab === 'agents' && !canRead) activeTab = showBrief ? 'brief' : 'ask'
   if (tab === 'activity' && !canRead) activeTab = showBrief ? 'brief' : 'ask'
   if (tab === 'brief' && !showBrief) activeTab = 'ask'
   const tabs: { id: IntelligenceTab; label: string }[] = []
-  if (canRead) tabs.push({ id: 'activity', label: 'Activity' })
+  if (canRead) {
+    tabs.push({ id: 'agents', label: 'Agents' })
+    tabs.push({ id: 'activity', label: 'Decisions' })
+  }
   tabs.push({ id: 'ask', label: 'Ask' })
   if (showBrief) tabs.push({ id: 'brief', label: 'Summary' })
 
@@ -48,7 +53,11 @@ export function IntelligenceWorkspace({
         </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col" role="tabpanel">
-        {activeTab === 'activity' ? (
+        {activeTab === 'agents' ? (
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+            <AgentControlPlane />
+          </div>
+        ) : activeTab === 'activity' ? (
           <div className="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto p-5">
             <IntelligenceActivity canGenerate={canGenerate} />
           </div>

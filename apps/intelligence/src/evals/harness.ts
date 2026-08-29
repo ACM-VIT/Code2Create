@@ -7,7 +7,7 @@ import {
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
 import { AgentRunError, init, setProvider } from '@flue/runtime';
 import { start, type Flue } from '@flue/runtime/node';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import * as v from 'valibot';
@@ -80,7 +80,7 @@ function listen(server: Server) {
 /** Starts Flue with a local callback endpoint to exercise signed delivery end to end. */
 export async function startEvaluationRuntime(): Promise<EvaluationRuntime> {
 	configureEvaluationProvider();
-	const secret = randomBytes(32).toString('hex');
+	const secret = randomUUID().replaceAll('-', '');
 	const deliveries: Delivery[] = [];
 	const server = createServer((request, response) => {
 		void (async () => {

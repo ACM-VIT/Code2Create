@@ -14,6 +14,7 @@ import {
 import { useIntelligenceStream } from '../lib/useIntelligenceStream'
 import { useOperationRunner } from '../lib/operations'
 import { LiveAgentConsole } from './intelligence'
+import { CopilotCommandTray } from './intelligence/CopilotCommandTray'
 
 type TurnResult = FunctionReturnType<
   typeof api.operationsIntelligenceActions.submitCopilotTurn
@@ -118,6 +119,7 @@ export function OperationsCopilotConsole({
       onReconnect={stream.reconnect}
       {...canGenerate ? { onSubmitPrompt: submitPrompt } : {}}
       terminalState={canRead ? terminalState : 'none'}
+      {...canRead ? { timelineFooter: <CopilotCommandTray /> } : {}}
     />
   )
 }

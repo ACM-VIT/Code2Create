@@ -17,7 +17,8 @@
 		{ "tag": "v2", "new_sqlite_classes": ["FlueOperationsCopilotAgent"] },
 		{ "tag": "v3", "new_sqlite_classes": ["FlueOperationsAutopilotAgent"] },
 		{ "tag": "v4", "new_sqlite_classes": ["OperationsAutonomyAdmissionFence"] },
-		{ "tag": "v5", "new_sqlite_classes": ["FlueOperationsEpisodeAgent"] }
+		{ "tag": "v5", "new_sqlite_classes": ["FlueOperationsEpisodeAgent"] },
+		{ "tag": "v6", "new_sqlite_classes": ["FlueIdeaSubmissionAgent"] }
 	],
 	"env": {
 		"staging": {

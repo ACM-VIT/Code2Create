@@ -919,17 +919,20 @@ export const recommendationHistoryRead = internalQuery({
       .take(50);
     return {
       generatedAt: args.now,
-      recommendations: rows.map((row) => ({
-        proposalKey: row.proposalKey,
-        kind: row.arguments.kind,
-        statement: redactProjectText(row.statement),
-        status: row.status,
-        ...(row.operatorNote !== undefined
-          ? { operatorNote: redactProjectText(row.operatorNote) }
-          : {}),
-        proposedAt: row.proposedAt,
-        ...(row.decidedAt !== undefined ? { decidedAt: row.decidedAt } : {}),
-      })),
+      recommendations: rows.flatMap((row) => {
+        if (row.arguments.kind === "set_admission_minimum_human_reviews") return [];
+        return [{
+          proposalKey: row.proposalKey,
+          kind: row.arguments.kind,
+          statement: redactProjectText(row.statement),
+          status: row.status,
+          ...(row.operatorNote !== undefined
+            ? { operatorNote: redactProjectText(row.operatorNote) }
+            : {}),
+          proposedAt: row.proposedAt,
+          ...(row.decidedAt !== undefined ? { decidedAt: row.decidedAt } : {}),
+        }];
+      }),
     };
   },
 });

@@ -14,7 +14,12 @@ import { ProjectCheckpointsPanel } from '../components/ProjectCheckpointsPanel'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
-import { clearSessionDraft, readSessionDraft, writeSessionDraft } from '../lib/sessionDraft'
+import {
+  clearSessionDraft,
+  readVersionedSessionDraft,
+  sessionDraftConflicts,
+  writeVersionedSessionDraft,
+} from '../lib/sessionDraft'
 
 type ParticipantDelivery = FunctionReturnType<typeof api.participantNotifications.mine>
 type ParticipantDeliveryState = NonNullable<ParticipantDelivery>['state']
@@ -437,29 +442,33 @@ function ProposalSummary({
   const revisionAttempt = useMutationAttempt<FunctionReturnType<typeof api.intake.reviseSubmission>>()
   const pending = revisionAttempt.hasPending('proposal-revision')
   const proposalStorageKey = `c2c:${eventSlug}:${application.id}:proposal`
-  const recoveredDraft = useRef(readSessionDraft(proposalStorageKey)).current
+  const [recoveredDraft] = useState(() => readVersionedSessionDraft(proposalStorageKey))
+  const currentEditBase = proposalEditBase(application, intake)
   const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [draft, setDraft] = useState(() => (
     recoveredDraft === null
       ? proposalDraft(intake)
-      : recoverProposalDraft(intake, recoveredDraft)
+      : recoverProposalDraft(intake, recoveredDraft.value)
   ))
   const [hasRecoveredDraft, setHasRecoveredDraft] = useState(recoveredDraft !== null)
-  const editBase = useRef(proposalEditBase(application, intake))
-  const [editConflict, setEditConflict] = useState(false)
+  const editBase = useRef(currentEditBase)
+  const [editConflict, setEditConflict] = useState(
+    sessionDraftConflicts(recoveredDraft, proposalEditBaseFingerprint(currentEditBase)),
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { editors, markEditing, stopEditing } = useEditingPresence(canEdit && editing)
 
   useEffect(() => {
-    if (editBase.current.projectVersionId === intake.project.id) return
-    if (editing) {
+    const latest = proposalEditBase(application, intake)
+    if (proposalEditBaseFingerprint(editBase.current) === proposalEditBaseFingerprint(latest)) return
+    if (editing || hasRecoveredDraft) {
       setEditConflict(true)
       return
     }
-    editBase.current = proposalEditBase(application, intake)
-    if (!hasRecoveredDraft) setDraft(proposalDraft(intake))
+    editBase.current = latest
+    setDraft(proposalDraft(intake))
   }, [application, editing, hasRecoveredDraft, intake])
 
   const save = async (event: FormEvent) => {
@@ -562,6 +571,10 @@ function ProposalSummary({
                 <button type="button" className="text-button" onClick={() => {
                   editBase.current = proposalEditBase(application, intake)
                   setEditConflict(false)
+                  writeVersionedSessionDraft(proposalStorageKey, {
+                    base: proposalEditBaseFingerprint(editBase.current),
+                    value: serializeProposalDraft(draft),
+                  })
                 }}>Keep mine</button>
               </div>
             </div>
@@ -581,7 +594,10 @@ function ProposalSummary({
                   initialIdea: event.currentTarget.value,
                 }))
                 const nextDraft = { ...draft, initialIdea: event.currentTarget.value }
-                writeSessionDraft(proposalStorageKey, serializeProposalDraft(nextDraft))
+                writeVersionedSessionDraft(proposalStorageKey, {
+                  base: proposalEditBaseFingerprint(editBase.current),
+                  value: serializeProposalDraft(nextDraft),
+                })
                 setHasRecoveredDraft(true)
                 markEditing('proposal_revision')
               }}
@@ -614,7 +630,10 @@ function ProposalSummary({
                           : item
                       )),
                     }
-                    writeSessionDraft(proposalStorageKey, serializeProposalDraft(nextDraft))
+                    writeVersionedSessionDraft(proposalStorageKey, {
+                      base: proposalEditBaseFingerprint(editBase.current),
+                      value: serializeProposalDraft(nextDraft),
+                    })
                     setHasRecoveredDraft(true)
                     markEditing('proposal_revision')
                   }}
@@ -642,7 +661,10 @@ function ProposalSummary({
                           : item
                       )),
                     }
-                    writeSessionDraft(proposalStorageKey, serializeProposalDraft(nextDraft))
+                    writeVersionedSessionDraft(proposalStorageKey, {
+                      base: proposalEditBaseFingerprint(editBase.current),
+                      value: serializeProposalDraft(nextDraft),
+                    })
                     setHasRecoveredDraft(true)
                     markEditing('proposal_revision')
                   }}
@@ -710,6 +732,15 @@ function proposalEditBase(application: CurrentApplication, intake: SubmittedInta
     projectVersionId: intake.project.id,
     projectVersion: intake.project.version,
   }
+}
+
+function proposalEditBaseFingerprint(base: ReturnType<typeof proposalEditBase>) {
+  return [
+    base.applicationVersion,
+    base.applicationContentVersion,
+    base.projectVersionId,
+    base.projectVersion,
+  ].join(':')
 }
 
 function serializeProposalDraft(draft: ProposalDraft) {

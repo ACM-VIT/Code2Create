@@ -77,7 +77,11 @@ export async function createAdmissionRecommendation(
       ctx,
       internal.admissionAgentActions.dispatchRecommendation,
       { recommendationId },
-      { retry: true },
+      {
+        retry: true,
+        onComplete: internal.admissionIntelligence.agentDispatchFinished,
+        context: recommendationId,
+      },
     );
   }
   return recommendationId;

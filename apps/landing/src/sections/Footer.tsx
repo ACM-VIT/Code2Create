@@ -1,14 +1,44 @@
+import type { MouseEvent } from 'react';
+
+import { JOURNEY_STOPS, leapTo } from '../lib/journeyLeap.js';
+import { eventRegistrationUrl } from '../lib/config.js';
 import './footer.css';
 
-/* Link groups from Figma node 1681:1322, minus the Guests and Timeline
-   columns, which this edition does not carry. */
-const groups = [
-  { title: 'About', items: ['c2c', 'acm'] },
+/* Three columns, per the Figma frame — but with live destinations: journey
+   leaps for the pinned chapters, real URLs for everything off the page. */
+const groups: {
+  title: string
+  items: { label: string; at?: number; href?: string }[]
+}[] = [
   {
-    title: 'Our Products',
-    items: ['ACMONE', 'CLI-RPG', 'EXAMCOOKER', 'CLITOP', 'LOCALHOST', 'OS', 'UNIPOOL'],
+    title: 'Explore',
+    items: [
+      { label: 'About', at: JOURNEY_STOPS.about },
+      { label: 'Stats', at: JOURNEY_STOPS.stats },
+      { label: 'Timeline', at: JOURNEY_STOPS.timeline },
+      { label: 'FAQs', at: JOURNEY_STOPS.faqs },
+    ],
   },
-  { title: 'Sponsors', items: ['about w', 'events'] },
+  {
+    title: 'Our Projects',
+    items: [
+      { label: 'Conclave', href: 'https://conclave.acmvit.in' },
+      { label: 'UniPool', href: 'https://unipool.in' },
+      { label: 'ExamCooker', href: 'https://examcooker.acmvit.in' },
+      { label: 'TAGRED', href: 'https://github.com/ACM-VIT/TAGRED' },
+    ],
+  },
+  {
+    title: 'Register',
+    items: [{ label: 'Gravitas portal', href: eventRegistrationUrl }],
+  },
+  {
+    title: 'ACM-VIT',
+    items: [
+      { label: 'Website', href: 'https://acmvit.in' },
+      { label: 'GitHub', href: 'https://github.com/ACM-VIT' },
+    ],
+  },
 ];
 
 const socials = [
@@ -21,6 +51,11 @@ const socials = [
 ];
 
 export default function Footer() {
+  const jump = (event: MouseEvent<HTMLAnchorElement>, at: number) => {
+    event.preventDefault();
+    leapTo(at);
+  };
+
   return (
     <footer className="footer" id="register">
 
@@ -35,8 +70,16 @@ export default function Footer() {
               <p className="footer__group-title">{group.title}</p>
               <ul>
                 {group.items.map((item) => (
-                  <li key={item}>
-                    <a href="#top">{item}</a>
+                  <li key={item.label}>
+                    {item.at === undefined ? (
+                      <a href={item.href} target="_blank" rel="noreferrer">
+                        {item.label}
+                      </a>
+                    ) : (
+                      <a href="#top" onClick={(event) => jump(event, item.at!)}>
+                        {item.label}
+                      </a>
+                    )}
                   </li>
                 ))}
               </ul>

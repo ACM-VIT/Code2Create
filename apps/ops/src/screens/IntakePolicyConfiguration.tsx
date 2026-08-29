@@ -56,8 +56,6 @@ const assistedModelTemplate: AssistedModel = {
   redactionVersion: 'intake-redaction-v1',
   questionPolicyVersion: 'intake-question-policy-v1',
   evaluationSuiteVersion: 'intake-evaluation-v1',
-  maxOutputTokens: 600,
-  timeoutMs: 8_000,
 }
 
 export function IntakePolicyConfiguration({
@@ -399,8 +397,6 @@ export function IntakePolicyConfiguration({
                   <label className="field"><span>Redaction version</span><input required spellCheck={false} value={policy.model.redactionVersion} onChange={(event) => updateAssistedModel({ redactionVersion: event.target.value })} /></label>
                   <label className="field"><span>Question-policy version</span><input required spellCheck={false} value={policy.model.questionPolicyVersion} onChange={(event) => updateAssistedModel({ questionPolicyVersion: event.target.value })} /></label>
                   <label className="field"><span>Evaluation-suite version</span><input required spellCheck={false} value={policy.model.evaluationSuiteVersion} onChange={(event) => updateAssistedModel({ evaluationSuiteVersion: event.target.value })} /></label>
-                  <NumberField label="Output-token limit" min={200} max={1200} value={policy.model.maxOutputTokens} onChange={(value) => updateAssistedModel({ maxOutputTokens: value })} />
-                  <NumberField label="Timeout in milliseconds" min={2000} max={15000} value={policy.model.timeoutMs} onChange={(value) => updateAssistedModel({ timeoutMs: value })} />
                 </div>
               </details>
             ) : null}

@@ -12,6 +12,7 @@ import { describe, expect, test } from 'vitest';
 import * as v from 'valibot';
 
 import { deliverCallback } from './lib/callback.ts';
+import { performAdmissionRead } from './lib/admissionReads.ts';
 import { deliverProposal, performPlatformRead } from './lib/reads.ts';
 import {
 	operationsCopilotRequestSchema,
@@ -199,6 +200,70 @@ describe('operations intelligence transport', () => {
 				wrongShape,
 			),
 		).rejects.toThrow();
+	});
+
+	test('accepts explicit absent novelty in admission cohorts and rejects an omitted field', async () => {
+		const candidate = {
+			applicationId: 'application-1',
+			teamId: 'team-1',
+			teamName: 'Boundary Team',
+			state: 'under_review',
+			submittedAt: 1,
+			experienceBand: 'early_year',
+			teamSize: 3,
+			reviewCoverage: { assigned: 2, completed: 2, required: 2, decidable: true, shortfall: 0 },
+			reviewSignal: { accept: 2, waitlist: 0, decline: 0, needsInformation: 0 },
+			novelty: null,
+			rank: 1,
+			cumulativePeople: 3,
+			entryCapacityPeople: 3,
+			suggestedIn: true,
+		};
+		const data = {
+			generatedAt: 1,
+			capacityPeople: 750,
+			policy: {
+				version: 'admissions-v1',
+				minimumHumanReviews: 2,
+				overallParticipantCapacity: 750,
+				criteria: [{ criterionKey: 'problem', label: 'Problem clarity' }],
+			},
+			summary: {
+				capacityPeople: 750,
+				committedPeople: 0,
+				suggestedPeople: 3,
+				remainingPeople: 747,
+				suggestedInTeamCount: 1,
+				suggestedInNotYetDecidableCount: 0,
+				bandMix: [
+					{ band: 'first_year', teamsIn: 0, peopleIn: 0, teamsOut: 0, peopleOut: 0 },
+					{ band: 'early_year', teamsIn: 1, peopleIn: 3, teamsOut: 0, peopleOut: 0 },
+					{ band: 'later_year', teamsIn: 0, peopleIn: 0, teamsOut: 0, peopleOut: 0 },
+					{ band: 'postgraduate_or_professional', teamsIn: 0, peopleIn: 0, teamsOut: 0, peopleOut: 0 },
+					{ band: 'mixed_or_external', teamsIn: 0, peopleIn: 0, teamsOut: 0, peopleOut: 0 },
+				],
+			},
+			counts: { committedTeams: 0, decidedOutTeams: 0, candidateTeams: 1 },
+			window: { startRank: 1, endRank: 1, hasEarlier: false, hasLater: false },
+			candidates: [candidate],
+		};
+		const bindings = {
+			CONVEX_INTELLIGENCE_READ_URL: 'https://example.test/intelligence/reads',
+			INTELLIGENCE_READ_SECRET: secret,
+		};
+		const validRequest: typeof fetch = async () => Response.json({ read: 'admission_cohort', data });
+		await expect(
+			performAdmissionRead('admission_cohort', 'code2create-7', { capacityPeople: 750 }, bindings, validRequest),
+		).resolves.toMatchObject({ capacityPeople: 750, candidates: [{ novelty: null }] });
+
+		const { novelty: _novelty, ...withoutNovelty } = candidate;
+		const invalidRequest: typeof fetch = async () => Response.json({
+			read: 'admission_cohort',
+			data: { ...data, candidates: [withoutNovelty] },
+		});
+		await expect(
+			performAdmissionRead('admission_cohort', 'code2create-7', { capacityPeople: 750 }, bindings, invalidRequest),
+		).rejects.toThrow('read data is invalid');
 	});
 
 	test('signs recommendation proposals with their own context', async () => {

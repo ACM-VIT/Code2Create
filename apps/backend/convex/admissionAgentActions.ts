@@ -1,5 +1,6 @@
 import {
   ideaIntelligenceIngressSignatureContext,
+  ideaIntelligenceRecoveryLeaseMs,
   operationsIntelligenceProtocolVersion,
   signServiceBody,
   type IdeaIntelligenceDispatchRequest,
@@ -8,7 +9,7 @@ import { v } from "convex/values";
 import { z } from "zod";
 
 import { internal } from "./_generated/api";
-import { internalAction, internalQuery } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { readBoundedJsonResponse } from "./lib/boundedHttpBody";
 import {
   requireIntelligenceHmacSecret,
@@ -19,15 +20,25 @@ const dispatchContext = v.object({
   recommendationId: v.id("admissionAIRecommendations"),
   applicationId: v.id("applications"),
   eventId: v.id("events"),
+  modelId: v.string(),
+  promptVersion: v.string(),
+  schemaVersion: v.string(),
+  evaluationSuiteVersion: v.string(),
   contentVersion: v.number(),
+  attemptId: v.string(),
 });
 
-export const prepareDispatch = internalQuery({
+export const prepareDispatch = internalMutation({
   args: { recommendationId: v.id("admissionAIRecommendations") },
   returns: v.union(v.null(), dispatchContext),
   handler: async (ctx, args) => {
     const recommendation = await ctx.db.get(args.recommendationId);
-    if (!recommendation || recommendation.state !== "pending") return null;
+    if (
+      !recommendation ||
+      recommendation.state !== "pending" ||
+      recommendation.agentDispatchAttemptId ||
+      recommendation.agentSubmissionId
+    ) return null;
     const application = await ctx.db.get(recommendation.applicationId);
     if (
       !application ||
@@ -35,11 +46,119 @@ export const prepareDispatch = internalQuery({
       application.aiRecommendationId !== recommendation._id ||
       application.contentVersion !== recommendation.applicationContentVersion
     ) return null;
+    const modelConfig = recommendation.modelConfigVersionId
+      ? await ctx.db.get(recommendation.modelConfigVersionId)
+      : null;
+    if (!modelConfig || modelConfig.eventId !== application.eventId) return null;
+    const attemptId = crypto.randomUUID();
+    await ctx.db.patch(recommendation._id, { agentDispatchAttemptId: attemptId });
     return {
       recommendationId: recommendation._id,
       applicationId: application._id,
       eventId: application.eventId,
+      modelId: modelConfig.modelId,
+      promptVersion: modelConfig.promptVersion,
+      schemaVersion: modelConfig.schemaVersion,
+      evaluationSuiteVersion: modelConfig.evaluationSuiteVersion,
       contentVersion: application.contentVersion,
+      attemptId,
+    };
+  },
+});
+
+export const recordDispatchReceipt = internalMutation({
+  args: {
+    recommendationId: v.id("admissionAIRecommendations"),
+    attemptId: v.string(),
+    submissionId: v.string(),
+    acceptedAt: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const recommendation = await ctx.db.get(args.recommendationId);
+    if (
+      !recommendation ||
+      recommendation.state !== "pending" ||
+      recommendation.agentDispatchAttemptId !== args.attemptId
+    ) return false;
+    await ctx.db.patch(recommendation._id, {
+      agentDispatchAttemptId: undefined,
+      agentSubmissionId: args.submissionId,
+      agentAcceptedAt: args.acceptedAt,
+    });
+    await ctx.scheduler.runAfter(
+      ideaIntelligenceRecoveryLeaseMs,
+      internal.admissionIntelligence.recoverAgentRecommendation,
+      {
+        recommendationId: recommendation._id,
+        submissionId: args.submissionId,
+      },
+    );
+    return true;
+  },
+});
+
+export const recordDispatchFailure = internalMutation({
+  args: {
+    recommendationId: v.id("admissionAIRecommendations"),
+    attemptId: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const recommendation = await ctx.db.get(args.recommendationId);
+    if (
+      !recommendation ||
+      recommendation.state !== "pending" ||
+      recommendation.agentDispatchAttemptId !== args.attemptId
+    ) return false;
+    await ctx.db.patch(recommendation._id, { agentDispatchAttemptId: undefined });
+    return true;
+  },
+});
+
+export const currentRecommendation = internalQuery({
+  args: { applicationId: v.string(), eventId: v.string() },
+  returns: v.union(v.null(), v.id("admissionAIRecommendations")),
+  handler: async (ctx, args) => {
+    const applicationId = ctx.db.normalizeId("applications", args.applicationId);
+    const eventId = ctx.db.normalizeId("events", args.eventId);
+    if (!applicationId || !eventId) return null;
+    const application = await ctx.db.get(applicationId);
+    if (!application || application.eventId !== eventId || !application.aiRecommendationId) {
+      return null;
+    }
+    const recommendation = await ctx.db.get(application.aiRecommendationId);
+    if (
+      !recommendation ||
+      recommendation.applicationId !== application._id ||
+      recommendation.applicationContentVersion !== application.contentVersion ||
+      (recommendation.state !== "pending" && recommendation.state !== "running")
+    ) return null;
+    return recommendation._id;
+  },
+});
+
+export const prepareProjectionIdentity = internalQuery({
+  args: { recommendationId: v.string() },
+  returns: v.union(v.null(), v.object({
+    recommendationId: v.id("admissionAIRecommendations"),
+    applicationId: v.id("applications"),
+    eventId: v.id("events"),
+    contentVersion: v.number(),
+  })),
+  handler: async (ctx, args) => {
+    const recommendationId = ctx.db.normalizeId(
+      "admissionAIRecommendations",
+      args.recommendationId,
+    );
+    if (!recommendationId) return null;
+    const recommendation = await ctx.db.get(recommendationId);
+    if (!recommendation) return null;
+    return {
+      recommendationId: recommendation._id,
+      applicationId: recommendation.applicationId,
+      eventId: recommendation.eventId,
+      contentVersion: recommendation.applicationContentVersion,
     };
   },
 });
@@ -56,46 +175,67 @@ export const dispatchRecommendation = internalAction({
   args: { recommendationId: v.id("admissionAIRecommendations") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const prepared = await ctx.runQuery(internal.admissionAgentActions.prepareDispatch, args);
+    const prepared = await ctx.runMutation(internal.admissionAgentActions.prepareDispatch, args);
     if (!prepared) return null;
-    const request: IdeaIntelligenceDispatchRequest = {
-      protocolVersion: operationsIntelligenceProtocolVersion,
-      recommendationId: prepared.recommendationId,
-      applicationId: prepared.applicationId,
-      eventId: prepared.eventId,
-      contentVersion: prepared.contentVersion,
-    };
-    const body = JSON.stringify(request);
-    const timestamp = String(Date.now());
-    const signature = await signServiceBody({
-      context: ideaIntelligenceIngressSignatureContext,
-      secret: requireIntelligenceHmacSecret("INTELLIGENCE_INGRESS_SECRET"),
-      timestamp,
-      body,
-    });
-    const response = await fetch(
-      new URL("/v1/idea-submissions", requireIntelligenceWorkerOrigin()),
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-c2c-signature": signature,
-          "x-c2c-timestamp": timestamp,
-        },
+    try {
+      const request: IdeaIntelligenceDispatchRequest = {
+        protocolVersion: operationsIntelligenceProtocolVersion,
+        recommendationId: prepared.recommendationId,
+        applicationId: prepared.applicationId,
+        eventId: prepared.eventId,
+        modelId: prepared.modelId,
+        promptVersion: prepared.promptVersion,
+        schemaVersion: prepared.schemaVersion,
+        evaluationSuiteVersion: prepared.evaluationSuiteVersion,
+        contentVersion: prepared.contentVersion,
+      };
+      const body = JSON.stringify(request);
+      const timestamp = String(Date.now());
+      const signature = await signServiceBody({
+        context: ideaIntelligenceIngressSignatureContext,
+        secret: requireIntelligenceHmacSecret("INTELLIGENCE_INGRESS_SECRET"),
+        timestamp,
         body,
-        signal: AbortSignal.timeout(20_000),
-      },
-    );
-    if (!response.ok) {
-      throw new Error(`The idea intelligence Worker returned HTTP ${response.status}.`);
-    }
-    const receipt = receiptSchema.safeParse(await readBoundedJsonResponse(response, 8 * 1_024));
-    if (
-      !receipt.success ||
-      receipt.data.applicationId !== prepared.applicationId ||
-      receipt.data.instanceId !== prepared.applicationId
-    ) {
-      throw new Error("The idea intelligence Worker returned an invalid receipt.");
+      });
+      const response = await fetch(
+        new URL("/v1/idea-submissions", requireIntelligenceWorkerOrigin()),
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-c2c-signature": signature,
+            "x-c2c-timestamp": timestamp,
+          },
+          body,
+          signal: AbortSignal.timeout(20_000),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(`The idea intelligence Worker returned HTTP ${response.status}.`);
+      }
+      const receipt = receiptSchema.safeParse(await readBoundedJsonResponse(response, 8 * 1_024));
+      if (
+        !receipt.success ||
+        receipt.data.applicationId !== prepared.applicationId ||
+        receipt.data.instanceId !== prepared.applicationId
+      ) {
+        throw new Error("The idea intelligence Worker returned an invalid receipt.");
+      }
+      await ctx.runMutation(internal.admissionAgentActions.recordDispatchReceipt, {
+        recommendationId: prepared.recommendationId,
+        attemptId: prepared.attemptId,
+        submissionId: receipt.data.submissionId,
+        acceptedAt: Date.parse(receipt.data.acceptedAt),
+      });
+    } catch (error) {
+      const recorded = await ctx.runMutation(
+        internal.admissionAgentActions.recordDispatchFailure,
+        {
+          recommendationId: prepared.recommendationId,
+          attemptId: prepared.attemptId,
+        },
+      );
+      if (recorded) throw error;
     }
     return null;
   },

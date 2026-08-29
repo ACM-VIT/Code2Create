@@ -12,6 +12,8 @@ import type * as access from "../access.js";
 import type * as accessInvitations from "../accessInvitations.js";
 import type * as accessRoles from "../accessRoles.js";
 import type * as accessSubjects from "../accessSubjects.js";
+import type * as admissionAgentActions from "../admissionAgentActions.js";
+import type * as admissionAgentHttp from "../admissionAgentHttp.js";
 import type * as admissionCohort from "../admissionCohort.js";
 import type * as admissionIntelligence from "../admissionIntelligence.js";
 import type * as admissionPolicyConfiguration from "../admissionPolicyConfiguration.js";
@@ -253,6 +255,8 @@ declare const fullApi: ApiFromModules<{
   accessInvitations: typeof accessInvitations;
   accessRoles: typeof accessRoles;
   accessSubjects: typeof accessSubjects;
+  admissionAgentActions: typeof admissionAgentActions;
+  admissionAgentHttp: typeof admissionAgentHttp;
   admissionCohort: typeof admissionCohort;
   admissionIntelligence: typeof admissionIntelligence;
   admissionPolicyConfiguration: typeof admissionPolicyConfiguration;

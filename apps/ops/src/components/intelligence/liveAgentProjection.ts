@@ -238,6 +238,10 @@ function safeToolLabel(toolName: string) {
       return 'Read admission cohort'
     case 'propose_recommendation':
       return 'Record recommendation proposal'
+    case 'inspect_event_commands':
+      return 'Inspect event controls'
+    case 'propose_event_command':
+      return 'Request command approval'
     case 'publish_operations_brief':
       return 'Publish operations brief'
     case 'task':

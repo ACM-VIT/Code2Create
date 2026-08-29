@@ -12,6 +12,8 @@ const manualBriefHistorySource = read('./ManualBriefHistory.tsx')
 const activitySource = read('../../screens/IntelligenceActivity.tsx')
 const policySource = read('../../screens/IntelligencePolicyConfiguration.tsx')
 const policyFieldsSource = read('./AutonomyPolicyFields.tsx')
+const controlPlaneSource = read('./AgentControlPlane.tsx')
+const workspaceSource = read('../../screens/IntelligenceWorkspace.tsx')
 const stylesheet = read('../../index.css')
 
 test('intelligence surfaces compose the established operations primitives', () => {
@@ -203,6 +205,22 @@ test('autonomy uses the existing activity and recommendation primitives', () => 
   assert.match(manualBriefHistorySource, /api\.intelligenceObservability\.briefHistory/)
   assert.match(manualBriefHistorySource, /Load older manual briefs/)
   assert.doesNotMatch(activitySource, /execute|autopilot-card|machine-brain/u)
+})
+
+test('the agent control plane exposes every release, prompt, management boundary, and paged run ledger', () => {
+  assert.match(workspaceSource, /<AgentControlPlane/)
+  assert.match(workspaceSource, /id: 'agents'/)
+  assert.match(controlPlaneSource, /intelligenceAgentDefinitions/)
+  assert.match(controlPlaneSource, /api\.intelligenceObservability\.agentFleetStatus/)
+  assert.match(controlPlaneSource, /api\.intelligenceObservability\.agentRunHistory/)
+  assert.match(controlPlaneSource, /Load older runs/)
+  assert.match(controlPlaneSource, /Deployed configuration/)
+  assert.match(controlPlaneSource, /Authority boundary/)
+  assert.match(controlPlaneSource, /Durable memory/)
+  assert.match(controlPlaneSource, /Code-owned release/)
+  assert.match(controlPlaneSource, /Management boundary/)
+  assert.match(controlPlaneSource, /className="mx-auto grid/)
+  assert.doesNotMatch(stylesheet, /agent-control-plane|agent-fleet|agent-run-ledger/u)
 })
 
 function assertUsesClasses(source: string, classNames: readonly string[]) {

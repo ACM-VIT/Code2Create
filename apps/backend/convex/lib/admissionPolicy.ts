@@ -42,8 +42,6 @@ export const admissionModelConfigurationInput = v.object({
   promptVersion: v.string(),
   schemaVersion: v.string(),
   evaluationSuiteVersion: v.string(),
-  maxOutputTokens: v.number(),
-  timeoutMs: v.number(),
 });
 
 export const admissionConfigurationInput = v.object({
@@ -81,8 +79,6 @@ export type AdmissionModelConfiguration = {
   promptVersion: string;
   schemaVersion: string;
   evaluationSuiteVersion: string;
-  maxOutputTokens: number;
-  timeoutMs: number;
 };
 
 export type AdmissionConfiguration = {
@@ -248,8 +244,6 @@ function normalizeModel(
       1,
       80,
     ),
-    maxOutputTokens: wholeNumber(model.maxOutputTokens, "Maximum output tokens", 300, 2_000),
-    timeoutMs: wholeNumber(model.timeoutMs, "Model timeout", 2_000, 30_000),
   };
 }
 
@@ -348,8 +342,6 @@ export function admissionModelConfigurationChecksum(model: AdmissionModelConfigu
     promptVersion: model.promptVersion,
     schemaVersion: model.schemaVersion,
     evaluationSuiteVersion: model.evaluationSuiteVersion,
-    maxOutputTokens: model.maxOutputTokens,
-    timeoutMs: model.timeoutMs,
   }));
 }
 
@@ -383,8 +375,6 @@ export function admissionModelConfigurationFromDocument(
     promptVersion: model.promptVersion,
     schemaVersion: model.schemaVersion,
     evaluationSuiteVersion: model.evaluationSuiteVersion,
-    maxOutputTokens: model.maxOutputTokens,
-    timeoutMs: model.timeoutMs,
   };
 }
 

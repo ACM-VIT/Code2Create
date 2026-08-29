@@ -412,8 +412,6 @@ function ModelEditor({
           <label className="field"><span>Prompt version</span><input required value={model.promptVersion} onChange={(event) => update('promptVersion', event.currentTarget.value)} /></label>
           <label className="field"><span>Schema version</span><input required value={model.schemaVersion} onChange={(event) => update('schemaVersion', event.currentTarget.value)} /></label>
           <label className="field"><span>Evaluation suite</span><input required value={model.evaluationSuiteVersion} onChange={(event) => update('evaluationSuiteVersion', event.currentTarget.value)} /></label>
-          <label className="field"><span>Maximum response tokens</span><input required type="number" min={300} max={2000} value={model.maxOutputTokens} onChange={(event) => update('maxOutputTokens', event.currentTarget.valueAsNumber)} /></label>
-          <label className="field"><span>Timeout · milliseconds</span><input required type="number" min={2000} max={30000} value={model.timeoutMs} onChange={(event) => update('timeoutMs', event.currentTarget.valueAsNumber)} /></label>
         </div>
       </details>
     </div>
@@ -466,7 +464,5 @@ function newModel(policyVersion: string): ModelConfiguration {
     promptVersion: 'admission-recommendation-v1',
     schemaVersion: 'admission-recommendation-v1',
     evaluationSuiteVersion: 'admission-recommendation-v1',
-    maxOutputTokens: 1_200,
-    timeoutMs: 15_000,
   }
 }

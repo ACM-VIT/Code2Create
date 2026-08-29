@@ -115,3 +115,4 @@ export * from "./synesthesia.ts";
 export * from "./permissions.ts";
 export * from "./operationsEpisodes.ts";
 export * from "./ideaIntelligence.ts";
+export * from "./intelligenceAgents.ts";

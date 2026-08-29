@@ -8,6 +8,7 @@ import { briefRoutes } from './routes/briefRoutes.ts';
 import { copilotRoutes } from './routes/copilotRoutes.ts';
 import { episodeRoutes } from './routes/episodeRoutes.ts';
 import { healthRoutes } from './routes/healthRoutes.ts';
+import { ideaRoutes } from './routes/ideaRoutes.ts';
 import { streamRoutes } from './routes/streamRoutes.ts';
 
 instrument(createCloudflareTracing({ content: false }));
@@ -21,6 +22,7 @@ app.route('/', autonomyRoutes);
 app.route('/', briefRoutes);
 app.route('/', copilotRoutes);
 app.route('/', episodeRoutes);
+app.route('/', ideaRoutes);
 
 app.onError(() => new Response(JSON.stringify({ error: 'internal_error' }), {
 	status: 500,

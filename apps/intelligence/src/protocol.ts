@@ -574,7 +574,7 @@ export const admissionReadEnvelopeSchema = v.strictObject({
 });
 
 /** Rejects unsupported support categories before proposal delivery. */
-export const copilotRecommendationArgumentsSchema = v.variant('kind', [
+export const autonomyRecommendationArgumentsSchema = v.variant('kind', [
 	v.strictObject({
 		kind: v.literal('hold_review_team'),
 		teamRoundStateId: convexId,
@@ -602,8 +602,41 @@ export const copilotRecommendationArgumentsSchema = v.variant('kind', [
 	}),
 ]);
 
+export const copilotRecommendationArgumentsSchema = v.variant('kind', [
+	v.strictObject({
+		kind: v.literal('hold_review_team'),
+		teamRoundStateId: convexId,
+		expectedTeamRoundStateVersion: positiveInteger,
+		reason: boundedText(5, 500),
+	}),
+	v.strictObject({
+		kind: v.literal('page_reserve_reviewer'),
+		missingPanelMemberId: convexId,
+		expectedPanelVersion: positiveInteger,
+		reason: boundedText(5, 500),
+	}),
+	v.strictObject({
+		kind: v.literal('open_support_case'),
+		category: v.picklist(supportCaseCategoryOrder),
+		description: boundedText(10, 2_000),
+		roundId: v.optional(convexId),
+		teamId: v.optional(convexId),
+	}),
+	v.strictObject({
+		kind: v.literal('dismiss_attention_item'),
+		itemId: convexId,
+		expectedItemVersion: positiveInteger,
+		reason: boundedText(5, 500),
+	}),
+	v.strictObject({
+		kind: v.literal('set_admission_minimum_human_reviews'),
+		minimumHumanReviews: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(5)),
+		reason: boundedText(5, 500),
+	}),
+]);
+
 export const copilotCitationSchema = v.strictObject({
-	read: v.picklist(operationsIntelligenceReadNames),
+	read: v.picklist([...operationsIntelligenceReadNames, ...admissionIntelligenceReadNames]),
 	generatedAt: nonNegativeInteger,
 	keys: v.pipe(v.array(boundedText(1, 200)), v.minLength(1), v.maxLength(16)),
 });
@@ -614,7 +647,8 @@ export const copilotProposalInputSchema = v.strictObject({
 	statement: boundedText(10, 300),
 	reasoning: boundedText(10, 1_500),
 	citations: v.pipe(v.array(copilotCitationSchema), v.minLength(1), v.maxLength(8)),
-	arguments: copilotRecommendationArgumentsSchema,
+	command: boundedText(3, 160),
+	argumentsJson: boundedText(2, 4_000),
 });
 
 export const copilotProposalSchema = v.strictObject({

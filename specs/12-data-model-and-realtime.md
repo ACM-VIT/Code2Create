@@ -372,7 +372,7 @@ One immutable version owns the complete pre-event introduction contract. These v
 - exactly two ordered fallback questions with text, purpose, and `short | medium` answer length;
 - required prohibited wording plus optional additional blocked terms;
 - zero to twenty reviewed common-idea patterns `{ stableKey, description, supportiveQuestionGuidance }`;
-- model contract `{ mode: deterministic }` or `{ mode: assisted, modelId, systemInstruction, instructionVersion, schemaVersion, redactionVersion, questionPolicyVersion, evaluationSuiteVersion, maxOutputTokens, timeoutMs }`;
+- model contract `{ mode: deterministic }` or `{ mode: assisted, modelId, systemInstruction, instructionVersion, schemaVersion, redactionVersion, questionPolicyVersion, evaluationSuiteVersion }`;
 - checksum, creator, creation time, and optional publication time.
 
 `events.publishedIntakePolicyId` points to the one published version. At most one draft exists. Saving a changed complete draft retires the previous draft; publishing requires that exact draft ID and checksum, the current event version, a recent Google session, and a reason. It marks the old published row `superseded` and moves the event pointer in the same transaction. A participant draft pins the published ID when the first idea is saved and never adopts a later publication.
@@ -432,14 +432,13 @@ The optional model release is a child of exactly one admission-policy version.
 
 - `eventId`, owning `admissionPolicyVersionId`, unique release label, and the same lifecycle status as its policy;
 - approved OpenAI model ID plus prompt, Structured Output schema, and evaluation-suite version labels;
-- maximum output tokens from 300 through 2,000 and hard timeout from two through thirty seconds;
 - checksum, creator/time, and optional publication time.
 
 Draft replacement retires the previous policy and its model together. Publication checks the exact policy/model IDs and checksums, event version, fresh Google session, reason, and idempotent operation ID. One mutation supersedes the prior pair, publishes the new pair or explicit human-only policy, creates its empty overall `admissionCapacityBuckets` row, and moves both event pointers. An enabled policy must have its own matching model; a disabled policy has neither a model row nor model pointer.
 
 The first validating or finalizing submission attempt, and then the first submitted application, permanently closes admission draft replacement and publication for the event. Submission start pins the published pair on its durable attempt. Successful finalization copies that policy ID to the immutable proposal version and application. A publication and submission race has one serial result.
 
-The separately reviewed runtime contract still enforces `store: false`, no tools or background response, closed recommendation and criterion enums, source references, bounded explanations/questions, prohibited identity/prestige/judging inputs, and human review on every provider failure. The version labels identify that approved contract; they are not a claim that an evaluation suite ran unless release evidence records that run.
+The durable Flue runtime has no operator-configured model-call timeout or output-token ceiling. Exact accepted-submission leases recover interrupted work without making the recommendation terminal. The separately reviewed runtime contract enforces a closed recommendation schema, exact criterion coverage, authorized source references, bounded explanations/questions, prohibited identity/prestige/judging language, actual model provenance, and human review on every provider failure. The version labels identify that approved contract; they are not a claim that an evaluation suite ran unless release evidence records that run.
 
 ### Configuration publication checks
 
