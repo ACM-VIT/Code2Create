@@ -103,6 +103,7 @@ import {
   synesthesiaWindowKind,
   synesthesiaWindowStatus,
   teamRoundState,
+  teamRosterEntryStatus,
   teamStatus,
   venueCheckInStatus,
   venueIdentityCheckMethod,
@@ -693,6 +694,49 @@ export default defineSchema({
     .index("by_event_status_created", ["eventId", "status", "createdAt"])
     .index("by_import_row", ["rosterImportId", "sourceRowNumber"])
     .index("by_claimed_person", ["eventId", "claimedByPersonId"]),
+
+  teamRosterImports: defineTable({
+    eventId: v.id("events"),
+    sourceName: v.string(),
+    sourceFileName: v.optional(v.string()),
+    previewChecksum: v.string(),
+    rowCount: v.number(),
+    createdCount: v.number(),
+    replacedCount: v.number(),
+    unchangedCount: v.number(),
+    alreadyOnTeamCount: v.number(),
+    waitingForLeadCount: v.number(),
+    appliedNowCount: v.number(),
+    reason: v.string(),
+    authorizingGrantIds: v.array(v.id("permissionGrants")),
+    createdByPersonId: v.id("people"),
+    clientOperationId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_event_created", ["eventId", "createdAt"])
+    .index("by_event_operation", ["eventId", "clientOperationId"]),
+
+  teamRosterEntries: defineTable({
+    eventId: v.id("events"),
+    teamRosterImportId: v.id("teamRosterImports"),
+    sourceRowNumber: v.number(),
+    emailNormalized: v.string(),
+    displayName: v.string(),
+    teamName: v.string(),
+    role: memberRole,
+    status: teamRosterEntryStatus,
+    version: v.number(),
+    createdByPersonId: v.id("people"),
+    createdAt: v.number(),
+    claimedByMembershipId: v.optional(v.id("eventMemberships")),
+    claimedTeamId: v.optional(v.id("teams")),
+    claimedAt: v.optional(v.number()),
+    supersededByEntryId: v.optional(v.id("teamRosterEntries")),
+  })
+    .index("by_event_email_status", ["eventId", "emailNormalized", "status"])
+    .index("by_event_team_status", ["eventId", "teamName", "status"])
+    .index("by_import_row", ["teamRosterImportId", "sourceRowNumber"])
+    .index("by_event_created", ["eventId", "createdAt"]),
 
   eventMemberships: defineTable({
     eventId: v.id("events"),
