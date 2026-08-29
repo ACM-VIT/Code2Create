@@ -138,6 +138,7 @@ function describeChanges(
     published.phoneField !== draft.phoneField ||
     published.vitRegistrationNumberField !== draft.vitRegistrationNumberField ||
     published.vitProgrammeField !== draft.vitProgrammeField ||
+    published.vitCampusField !== draft.vitCampusField ||
     published.externalCityField !== draft.externalCityField ||
     published.externalCountryField !== draft.externalCountryField
   ) {

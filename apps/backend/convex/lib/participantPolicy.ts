@@ -23,6 +23,7 @@ export const participantPolicyInput = v.object({
   phoneField: profileFieldMode,
   vitRegistrationNumberField: profileFieldMode,
   vitProgrammeField: profileFieldMode,
+  vitCampusField: profileFieldMode,
   externalCityField: profileFieldMode,
   externalCountryField: profileFieldMode,
   profileNotice: v.string(),
@@ -40,6 +41,7 @@ export type ParticipantPolicy = {
   phoneField: ProfileFieldMode;
   vitRegistrationNumberField: ProfileFieldMode;
   vitProgrammeField: ProfileFieldMode;
+  vitCampusField: ProfileFieldMode;
   externalCityField: ProfileFieldMode;
   externalCountryField: ProfileFieldMode;
   profileNotice: string;
@@ -60,6 +62,7 @@ export const defaultParticipantPolicy: ParticipantPolicy = {
   phoneField: "optional",
   vitRegistrationNumberField: "required",
   vitProgrammeField: "required",
+  vitCampusField: "required",
   externalCityField: "optional",
   externalCountryField: "required",
   profileNotice:
@@ -132,6 +135,7 @@ export function normalizeParticipantPolicy(input: ParticipantPolicy): Participan
     phoneField: input.phoneField,
     vitRegistrationNumberField: input.vitRegistrationNumberField,
     vitProgrammeField: input.vitProgrammeField,
+    vitCampusField: input.vitCampusField,
     externalCityField: input.externalCityField,
     externalCountryField: input.externalCountryField,
     profileNotice: normalizedLongText(input.profileNotice, "Profile notice", 20, 600),
@@ -162,6 +166,7 @@ export function participantPolicyFromDocument(
     phoneField: policy.phoneField,
     vitRegistrationNumberField: policy.vitRegistrationNumberField,
     vitProgrammeField: policy.vitProgrammeField,
+    vitCampusField: policy.vitCampusField,
     externalCityField: policy.externalCityField,
     externalCountryField: policy.externalCountryField,
     profileNotice: policy.profileNotice,
@@ -287,7 +292,8 @@ export function isProfileCompleteForPolicy(
     return (
       profile.yearOfStudy !== "not_applicable" &&
       requiredValue(policy.vitRegistrationNumberField, profile.vitRegistrationNumber) &&
-      requiredValue(policy.vitProgrammeField, profile.vitProgramme)
+      requiredValue(policy.vitProgrammeField, profile.vitProgramme) &&
+      requiredValue(policy.vitCampusField, profile.vitCampus)
     );
   }
   return (

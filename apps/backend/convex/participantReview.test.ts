@@ -720,6 +720,7 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
       phoneField: "not_collected",
       vitRegistrationNumberField: "required",
       vitProgrammeField: "not_collected",
+      vitCampusField: "not_collected",
       externalCityField: "not_collected",
       externalCountryField: "not_collected",
       profileNotice: "Fixture profile notice.",

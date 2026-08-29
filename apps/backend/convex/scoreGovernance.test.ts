@@ -709,6 +709,7 @@ async function seedCorrectionFixture(backend: BackendTest) {
       phoneField: "optional",
       vitRegistrationNumberField: "not_collected",
       vitProgrammeField: "not_collected",
+      vitCampusField: "not_collected",
       externalCityField: "optional",
       externalCountryField: "optional",
       profileNotice: "Correction fixture profile notice",

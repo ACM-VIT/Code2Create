@@ -35,6 +35,7 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
   const [institution, setInstitution] = useState(existing?.institution ?? '')
   const [yearOfStudy, setYearOfStudy] = useState(existing?.yearOfStudy ?? 'first')
   const [currentRole, setCurrentRole] = useState(existing?.currentRole ?? '')
+  const [campus, setCampus] = useState(existing?.vitCampus ?? '')
   const [externalCity, setExternalCity] = useState(existing?.externalCity ?? '')
   const [externalCountry, setExternalCountry] = useState(existing?.externalCountry ?? '')
   const [busy, setBusy] = useState(false)
@@ -62,6 +63,9 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
         ...(policy.phoneField !== 'not_collected' && phone ? { phone } : {}),
         ...(!vitStudent ? { institution, yearOfStudy } : {}),
         ...(!vitStudent && yearOfStudy === 'not_applicable' && currentRole ? { currentRole } : {}),
+        ...(vitStudent && policy.vitCampusField !== 'not_collected' && campus
+          ? { vitCampus: campus }
+          : {}),
         ...(!vitStudent && policy.externalCityField !== 'not_collected' && externalCity
           ? { externalCity }
           : {}),
@@ -149,6 +153,11 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
               {policy.vitProgrammeField !== 'not_collected' ? (
                 <Field label="Programme code" hint="Derived from your VIT registration number">
                   <TextInput readOnly value={vitStudentIdentity.programmeCode} />
+                </Field>
+              ) : null}
+              {policy.vitCampusField !== 'not_collected' ? (
+                <Field label="Campus" {...(policy.vitCampusField === 'optional' ? { hint: 'Optional' } : {})}>
+                  <TextInput required={policy.vitCampusField === 'required'} value={campus} onChange={(event) => setCampus(event.target.value)} />
                 </Field>
               ) : null}
             </>

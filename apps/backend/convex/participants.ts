@@ -56,6 +56,7 @@ const profileView = v.object({
   currentRole: v.optional(v.string()),
   vitRegistrationNumber: v.optional(v.string()),
   vitProgramme: v.optional(v.string()),
+  vitCampus: v.optional(v.string()),
   externalCity: v.optional(v.string()),
   externalCountry: v.optional(v.string()),
   isComplete: v.boolean(),
@@ -189,6 +190,9 @@ export const me = query({
               : {}),
             ...(profile.vitProgramme !== undefined
               ? { vitProgramme: profile.vitProgramme }
+              : {}),
+            ...(profile.vitCampus !== undefined
+              ? { vitCampus: profile.vitCampus }
               : {}),
             ...(profile.externalCity !== undefined
               ? { externalCity: profile.externalCity }
@@ -542,6 +546,7 @@ export const saveProfile = mutation({
     institution: v.optional(v.string()),
     yearOfStudy: v.optional(studyYear),
     currentRole: v.optional(v.string()),
+    vitCampus: v.optional(v.string()),
     externalCity: v.optional(v.string()),
     externalCountry: v.optional(v.string()),
     expectedProfileVersion: v.number(),
@@ -559,6 +564,7 @@ export const saveProfile = mutation({
       args.institution ?? null,
       args.yearOfStudy ?? null,
       args.currentRole ?? null,
+      args.vitCampus ?? null,
       args.externalCity ?? null,
       args.externalCountry ?? null,
       args.expectedProfileVersion,
@@ -644,6 +650,9 @@ export const saveProfile = mutation({
       vitStudentIdentity && policy.vitProgrammeField !== "not_collected"
         ? vitStudentIdentity.programmeCode
         : undefined;
+    const vitCampus = membership.participantClass === "vit_student"
+      ? policyField(args.vitCampus, policy.vitCampusField, "VIT campus", 80)
+      : undefined;
     const externalCity = membership.participantClass === "external_participant"
       ? policyField(args.externalCity, policy.externalCityField, "City", 100)
       : undefined;
@@ -697,6 +706,7 @@ export const saveProfile = mutation({
         currentRole,
         vitRegistrationNumber,
         vitProgramme,
+        vitCampus,
         externalCity,
         externalCountry,
         profileVersion,
@@ -716,6 +726,7 @@ export const saveProfile = mutation({
         ...(currentRole !== undefined ? { currentRole } : {}),
         ...(vitRegistrationNumber !== undefined ? { vitRegistrationNumber } : {}),
         ...(vitProgramme !== undefined ? { vitProgramme } : {}),
+        ...(vitCampus !== undefined ? { vitCampus } : {}),
         ...(externalCity !== undefined ? { externalCity } : {}),
         ...(externalCountry !== undefined ? { externalCountry } : {}),
         profileVersion,
