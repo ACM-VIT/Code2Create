@@ -80,14 +80,18 @@ export function TeamCluster({
       className="relative text-right"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onFocusCapture={() => setPinned(true)}
+      onBlurCapture={(event) => {
+        const next = event.relatedTarget
+        if (next instanceof Node && event.currentTarget.contains(next)) return
+        setPinned(false)
+      }}
     >
       <button
         type="button"
         aria-expanded={open}
         aria-label={`Team ${team.name}, ${team.activeMemberCount} of ${team.teamMaximumSize} members`}
         onClick={() => setPinned((value) => !value)}
-        onFocus={() => setPinned(true)}
-        onBlur={() => setPinned(false)}
         className="block cursor-pointer rounded-lg"
       >
         <div className="flex justify-end">
