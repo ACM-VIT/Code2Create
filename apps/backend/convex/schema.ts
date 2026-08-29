@@ -906,6 +906,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_event_code", ["eventId", "publicCode"])
+    .index("by_event_name", ["eventId", "name"])
     .index("by_event_status", ["eventId", "status"]),
 
   teamMembers: defineTable({
