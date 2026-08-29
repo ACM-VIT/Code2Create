@@ -153,6 +153,7 @@ export function ParticipantApp({
         <IntakeScreen
           team={team}
           members={teamMembers.results}
+          onSignOut={signOut}
           {...(intakeStatus.submissionFailureMessage === undefined
             ? {}
             : { submissionFailureMessage: intakeStatus.submissionFailureMessage })}
@@ -174,6 +175,7 @@ export function ParticipantApp({
           publicState={publicState}
           team={team}
           members={teamMembers.results}
+          onSignOut={signOut}
         />
       </Suspense>
     )
@@ -196,11 +198,12 @@ export function ParticipantApp({
       : location.pathname === '/integrations'
         ? canOpenIntegrations ? <IntegrationsScreen /> : <Navigate replace to="/" />
         : intakeStatus.applicationState !== null
-          ? <SubmittedScreen capabilities={access} publicState={publicState} team={team} members={teamMembers.results} />
+          ? <SubmittedScreen capabilities={access} publicState={publicState} team={team} members={teamMembers.results} onSignOut={signOut} />
           : (
               <IntakeScreen
                 team={team}
                 members={teamMembers.results}
+                onSignOut={signOut}
                 {...(intakeStatus.submissionFailureMessage === undefined
                   ? {}
                   : { submissionFailureMessage: intakeStatus.submissionFailureMessage })}

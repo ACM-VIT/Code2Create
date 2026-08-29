@@ -74,30 +74,33 @@ export function IntakeScreen({
   team,
   members,
   submissionFailureMessage,
+  onSignOut,
 }: {
   team: CurrentTeam
   members: CurrentTeamMember[]
   submissionFailureMessage?: string
+  onSignOut: () => void
 }) {
   const intake = useQuery(api.intake.current, { eventSlug })
   if (intake === undefined) {
     return (
-      <IntakeStage team={team} members={members} title="Loading your application…" />
+      <IntakeStage team={team} members={members} onSignOut={onSignOut} title="Loading your application…" />
     )
   }
   if (intake === null) {
     return (
-      <IntakeStage team={team} members={members} title="Your application is unavailable." />
+      <IntakeStage team={team} members={members} onSignOut={onSignOut} title="Your application is unavailable." />
     )
   }
   if (!team.canWriteProject) {
-    return <ReadOnlyIntake team={team} intake={intake} members={members} />
+    return <ReadOnlyIntake team={team} intake={intake} members={members} onSignOut={onSignOut} />
   }
   return (
     <IntakeWorkspace
       team={team}
       intake={intake}
       members={members}
+      onSignOut={onSignOut}
       {...(submissionFailureMessage === undefined ? {} : { submissionFailureMessage })}
     />
   )
@@ -119,6 +122,7 @@ function IntakeStage({
   width = 'max-w-[820px]',
   titleClass = 'lg:text-[38px]',
   branch = false,
+  onSignOut,
 }: {
   team: CurrentTeam
   members: readonly CurrentTeamMember[]
@@ -131,12 +135,13 @@ function IntakeStage({
   width?: string
   titleClass?: string
   branch?: boolean
+  onSignOut: () => void
 }) {
   return (
     <PortalScene
       tree="left"
       branch={branch}
-      header={<TeamCluster team={team} members={members} />}
+      header={<TeamCluster team={team} members={members} onSignOut={onSignOut} />}
     >
       <div className={`flex w-full flex-col items-center ${width}`}>
         {steps ? (
@@ -196,10 +201,12 @@ function ReadOnlyIntake({
   team,
   intake,
   members,
+  onSignOut,
 }: {
   team: CurrentTeam
   intake: CurrentIntake
   members: CurrentTeamMember[]
+  onSignOut: () => void
 }) {
   const { editors } = useEditingPresence(false)
   const draft = intake.draft
@@ -207,6 +214,7 @@ function ReadOnlyIntake({
     <IntakeStage
       team={team}
       members={members}
+      onSignOut={onSignOut}
       title="Project editing is unavailable."
       hint="Your team’s saved work remains here. Another member with project access can continue."
     >
@@ -227,11 +235,13 @@ function IntakeWorkspace({
   intake,
   members,
   submissionFailureMessage,
+  onSignOut,
 }: {
   team: CurrentTeam
   intake: CurrentIntake
   members: CurrentTeamMember[]
   submissionFailureMessage?: string
+  onSignOut: () => void
 }) {
   const draft = intake.draft
   const previewNovelty = useAction(api.novelty.preview)
@@ -562,6 +572,7 @@ function IntakeWorkspace({
       <IntakeStage
         team={team}
         members={members}
+        onSignOut={onSignOut}
         title={busy ? 'Saving your change…' : 'Confirm your last change.'}
         hint={
           busy
@@ -588,6 +599,7 @@ function IntakeWorkspace({
       <IntakeStage
         team={team}
         members={members}
+        onSignOut={onSignOut}
         title="Applications are closed."
         hint="Your team’s saved work remains available here."
       >
@@ -605,7 +617,7 @@ function IntakeWorkspace({
   // ---- f2 · the idea -------------------------------------------------------
   if (!draft || draft.stage === 'opening' || editingIdea) {
     if (opening === undefined) {
-      return <IntakeStage team={team} members={members} title="Loading…" />
+      return <IntakeStage team={team} members={members} onSignOut={onSignOut} title="Loading…" />
     }
     const initialIdeaMinLength =
       draft?.intakePolicy.initialIdeaMinLength ?? opening.initialIdeaMinLength
@@ -615,6 +627,7 @@ function IntakeWorkspace({
       <IntakeStage
         team={team}
         members={members}
+        onSignOut={onSignOut}
         title={opening.initialPrompt}
         hint={opening.initialHelpText}
         steps={{ total: stepTotal, current: 0 }}
@@ -727,6 +740,7 @@ function IntakeWorkspace({
         <IntakeStage
           team={team}
           members={members}
+          onSignOut={onSignOut}
           title="One moment."
           hint="Preparing one short question from what your team has shared."
         />
@@ -738,6 +752,7 @@ function IntakeWorkspace({
       <IntakeStage
         team={team}
         members={members}
+        onSignOut={onSignOut}
         eyebrow={isLast ? 'last one · then review' : 'asked because of your idea'}
         title={activeFollowUp.question}
         steps={{ total: stepTotal, current: answeredFollowUps + 1 }}
@@ -868,6 +883,7 @@ function IntakeWorkspace({
         <IntakeStage
           team={team}
           members={members}
+          onSignOut={onSignOut}
           title="Putting everything together…"
           hint="Your current team and idea will appear here."
         />
@@ -905,6 +921,7 @@ function IntakeWorkspace({
         <IntakeStage
           team={team}
           members={members}
+          onSignOut={onSignOut}
           title="Ready to submit?"
           steps={{ total: stepTotal, current: stepTotal }}
           width="max-w-[600px]"
@@ -1040,7 +1057,10 @@ function IntakeWorkspace({
 
     // f5 · the proposal, together
     return (
-      <PortalScene tree="left" header={<TeamCluster team={team} members={members} />}>
+      <PortalScene
+        tree="left"
+        header={<TeamCluster team={team} members={members} onSignOut={onSignOut} />}
+      >
         <div className="flex w-full max-w-[760px] flex-col items-center">
           <p className="mb-1.5 font-display text-[17px] italic text-rose-light">
             your proposal, together
