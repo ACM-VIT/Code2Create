@@ -19,7 +19,7 @@ export function validateWebReleaseEnvironment(
   }
 
   if (surface === 'landing') {
-    requiredHttpsUrl(environment, 'VITE_PARTICIPANT_PORTAL_URL')
+    requiredHttpsUrl(environment, 'VITE_EVENT_REGISTRATION_URL')
   } else {
     requiredHttpsUrl(environment, 'VITE_CONVEX_URL')
     requiredHttpsUrl(environment, 'VITE_CONVEX_SITE_URL')

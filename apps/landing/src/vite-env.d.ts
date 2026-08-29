@@ -7,5 +7,5 @@ interface ImportMetaEnv {
   readonly VITE_RELEASE_ID?: string
   readonly VITE_POSTHOG_PROJECT_TOKEN?: string
   readonly VITE_POSTHOG_HOST?: string
-  readonly VITE_PARTICIPANT_PORTAL_URL?: string
+  readonly VITE_EVENT_REGISTRATION_URL?: string
 }
