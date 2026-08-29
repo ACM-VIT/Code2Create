@@ -293,6 +293,208 @@ describe("team roster backfill", () => {
     expect(memberAfter?.id).toBe(leadTeam?.id);
   }, 30_000);
 
+  test("waiting member can see assignees, decline, and create another team", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    await importRows(importer, fixture, {
+      sourceName: "Decline waiting",
+      clientOperationId: "team-roster-import-decline",
+      rows: [
+        {
+          rowNumber: 2,
+          email: "stay-lead@gmail.com",
+          displayName: "Stay Lead",
+          teamName: "Delta",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          email: "leave-member@gmail.com",
+          displayName: "Leave Member",
+          teamName: "Delta",
+          role: "member",
+        },
+      ],
+    });
+    await drainScheduler(backend);
+
+    const member = await provisionParticipant(backend, fixture, {
+      email: "leave-member@gmail.com",
+      googleSubject: "team-roster-decline-member-subject",
+    });
+    expect(member.me.pendingTeam).toMatchObject({
+      teamName: "Delta",
+      role: "member",
+      status: "waiting_for_lead",
+      assignees: [
+        { displayName: "Stay Lead", role: "lead", signedIn: false, isYou: false },
+        { displayName: "Leave Member", role: "member", signedIn: true, isYou: true },
+      ],
+    });
+    const pendingTeam = member.me.pendingTeam;
+    if (!pendingTeam) throw new Error("Waiting member should have a pending assignment.");
+
+    await acceptPolicy(member.person, fixture, "accept-leave-member@gmail.com");
+    await expect(
+      member.person.mutation(api.teams.create, {
+        eventSlug: fixture.eventSlug,
+        name: "Helium",
+        clientOperationId: "team-create-blocked-by-assignment",
+      }),
+    ).rejects.toThrow("Leave the assigned team before creating or joining another.");
+
+    const otherLead = await provisionParticipant(backend, fixture, {
+      email: "other-live-lead@gmail.com",
+      googleSubject: "team-roster-other-live-lead-subject",
+    });
+    await acceptPolicy(otherLead.person, fixture, "accept-other-live-lead@gmail.com");
+    const otherTeam = await otherLead.person.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Neon",
+      clientOperationId: "team-create-neon",
+    });
+    const otherCurrent = await otherLead.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!otherCurrent) throw new Error("Neon team should exist.");
+    await expect(
+      member.person.mutation(api.teams.join, {
+        eventSlug: fixture.eventSlug,
+        code: otherCurrent.publicCode,
+        clientOperationId: "team-join-blocked-by-assignment",
+      }),
+    ).rejects.toThrow("Leave the assigned team before creating or joining another.");
+
+    const declined = await member.person.mutation(api.participants.declineAssignedTeam, {
+      eventSlug: fixture.eventSlug,
+      teamRosterEntryId: pendingTeam.id,
+      expectedVersion: pendingTeam.version,
+      clientOperationId: "team-assignment-decline-member",
+    });
+    expect(declined.status).toBe("revoked");
+    const replayed = await member.person.mutation(api.participants.declineAssignedTeam, {
+      eventSlug: fixture.eventSlug,
+      teamRosterEntryId: pendingTeam.id,
+      expectedVersion: pendingTeam.version,
+      clientOperationId: "team-assignment-decline-member",
+    });
+    expect(replayed).toEqual(declined);
+
+    const afterDecline = await member.person.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(afterDecline?.pendingTeam).toBeNull();
+
+    const created = await member.person.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Helium",
+      clientOperationId: "team-create-after-decline",
+    });
+    expect(created.teamId).toBeTruthy();
+
+    const lead = await provisionParticipant(backend, fixture, {
+      email: "stay-lead@gmail.com",
+      googleSubject: "team-roster-decline-lead-subject",
+    });
+    const leadTeam = await lead.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(leadTeam?.name).toBe("Delta");
+    expect(leadTeam?.activeMemberCount).toBe(1);
+    const memberTeam = await member.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(memberTeam?.name).toBe("Helium");
+    expect(otherTeam.teamId).not.toBe(leadTeam?.id);
+  }, 30_000);
+
+  test("decline rejects another person's entry and a claimed row", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    await importRows(importer, fixture, {
+      sourceName: "Decline guards",
+      clientOperationId: "team-roster-import-decline-guards",
+      rows: [
+        {
+          rowNumber: 2,
+          email: "guard-lead@gmail.com",
+          displayName: "Guard Lead",
+          teamName: "Epsilon",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          email: "guard-member@gmail.com",
+          displayName: "Guard Member",
+          teamName: "Epsilon",
+          role: "member",
+        },
+      ],
+    });
+    await drainScheduler(backend);
+
+    const member = await provisionParticipant(backend, fixture, {
+      email: "guard-member@gmail.com",
+      googleSubject: "team-roster-guard-member-subject",
+    });
+    const leadEntryId = await backend.run(async (ctx) => {
+      const entry = await ctx.db
+        .query("teamRosterEntries")
+        .withIndex("by_event_email_status", (index) =>
+          index
+            .eq("eventId", fixture.eventId)
+            .eq("emailNormalized", "guard-lead@gmail.com")
+            .eq("status", "pending"),
+        )
+        .unique();
+      if (!entry) throw new Error("Lead assignment is missing.");
+      return entry._id;
+    });
+    await expect(
+      member.person.mutation(api.participants.declineAssignedTeam, {
+        eventSlug: fixture.eventSlug,
+        teamRosterEntryId: leadEntryId,
+        expectedVersion: 1,
+        clientOperationId: "team-assignment-decline-other",
+      }),
+    ).rejects.toThrow("You can only leave your own assigned team.");
+
+    const lead = await provisionParticipant(backend, fixture, {
+      email: "guard-lead@gmail.com",
+      googleSubject: "team-roster-guard-lead-subject",
+    });
+    const claimed = await member.person.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(claimed?.pendingTeam).toBeNull();
+    const claimedEntry = await backend.run(async (ctx) => {
+      const entry = await ctx.db
+        .query("teamRosterEntries")
+        .withIndex("by_event_email_status", (index) =>
+          index
+            .eq("eventId", fixture.eventId)
+            .eq("emailNormalized", "guard-member@gmail.com")
+            .eq("status", "claimed"),
+        )
+        .unique();
+      if (!entry) throw new Error("Claimed member assignment is missing.");
+      return entry;
+    });
+    await expect(
+      member.person.mutation(api.participants.declineAssignedTeam, {
+        eventSlug: fixture.eventSlug,
+        teamRosterEntryId: claimedEntry._id,
+        expectedVersion: claimedEntry.version,
+        clientOperationId: "team-assignment-decline-claimed",
+      }),
+    ).rejects.toThrow("You are already on that team. Leave it from the team panel.");
+    expect(lead.me.pendingTeam).toBeNull();
+  }, 30_000);
+
   test("leave keeps the claimed entry and does not re-add the participant", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);

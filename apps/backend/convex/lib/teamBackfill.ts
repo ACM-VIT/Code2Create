@@ -325,6 +325,55 @@ export async function teamRosterPendingEntry(
   return null;
 }
 
+export type PendingTeamAssignee = {
+  displayName: string;
+  role: Doc<"teamRosterEntries">["role"];
+  signedIn: boolean;
+  isYou: boolean;
+};
+
+const maximumPendingAssignees = 16;
+
+export async function pendingTeamAssignees(
+  ctx: MutationCtx | QueryCtx,
+  args: {
+    eventId: Id<"events">;
+    teamName: string;
+    viewerEmailNormalized: string;
+  },
+): Promise<PendingTeamAssignee[]> {
+  const pending = await ctx.db
+    .query("teamRosterEntries")
+    .withIndex("by_event_team_status", (index) =>
+      index
+        .eq("eventId", args.eventId)
+        .eq("teamName", args.teamName)
+        .eq("status", "pending"),
+    )
+    .take(maximumPendingAssignees);
+  const waiting = await ctx.db
+    .query("teamRosterEntries")
+    .withIndex("by_event_team_status", (index) =>
+      index
+        .eq("eventId", args.eventId)
+        .eq("teamName", args.teamName)
+        .eq("status", "waiting_for_lead"),
+    )
+    .take(maximumPendingAssignees);
+  return [...pending, ...waiting]
+    .sort((left, right) => {
+      if (left.role !== right.role) return left.role === "lead" ? -1 : 1;
+      return left.sourceRowNumber - right.sourceRowNumber;
+    })
+    .slice(0, maximumPendingAssignees)
+    .map((entry) => ({
+      displayName: entry.displayName,
+      role: entry.role,
+      signedIn: entry.status === "waiting_for_lead",
+      isYou: entry.emailNormalized === args.viewerEmailNormalized,
+    }));
+}
+
 /**
  * Called at the end of participants.provision: joins the person to their
  * assigned team now that membership and self grants exist. Placement failures

@@ -32,6 +32,7 @@ import {
   loadPublishedParticipantPolicy,
 } from "./lib/participantPolicy";
 import { normalizeCode } from "./lib/strings";
+import { teamRosterPendingEntry } from "./lib/teamBackfill";
 import {
   endActiveTeamMember,
   insertActiveTeamMember,
@@ -361,6 +362,19 @@ async function requireNoActiveTeam(
   }
 }
 
+async function requireNoPendingTeamAssignment(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+  emailNormalized: string,
+) {
+  const entry = await teamRosterPendingEntry(ctx, { eventId, emailNormalized });
+  if (!entry) return;
+  throw new ConvexError({
+    code: "TEAM_ASSIGNMENT_PENDING",
+    message: "Leave the assigned team before creating or joining another.",
+  });
+}
+
 async function existingOperationTeam(
   ctx: MutationCtx,
   eventId: Id<"events">,
@@ -464,6 +478,7 @@ export const create = mutation({
       scopeId: membership._id,
     });
     await requireNoActiveTeam(ctx, event._id, membership._id);
+    await requireNoPendingTeamAssignment(ctx, event._id, person.verifiedEmail);
     const now = Date.now();
     const { teamId, publicCode } = await createFormingTeamWithLead(ctx, {
       event,
@@ -532,6 +547,7 @@ export const join = mutation({
       scopeId: membership._id,
     });
     await requireNoActiveTeam(ctx, event._id, membership._id);
+    await requireNoPendingTeamAssignment(ctx, event._id, person.verifiedEmail);
 
     const team = await ctx.db
       .query("teams")
