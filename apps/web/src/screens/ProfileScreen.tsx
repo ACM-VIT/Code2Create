@@ -36,7 +36,6 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
   const [currentRole, setCurrentRole] = useState(existing?.currentRole ?? '')
   const [registrationNumber, setRegistrationNumber] = useState(existing?.vitRegistrationNumber ?? '')
   const [programme, setProgramme] = useState(existing?.vitProgramme ?? '')
-  const [campus, setCampus] = useState(existing?.vitCampus ?? '')
   const [externalCity, setExternalCity] = useState(existing?.externalCity ?? '')
   const [externalCountry, setExternalCountry] = useState(existing?.externalCountry ?? '')
   const [busy, setBusy] = useState(false)
@@ -56,10 +55,10 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
       await operations.run('profile-save', (clientOperationId) => () => saveProfile({
         eventSlug,
         participantPolicyVersionId: me.participantPolicy.id,
-        fullName,
+        ...(!vitStudent ? { fullName } : {}),
         ...(preferredName ? { preferredName } : {}),
         ...(policy.phoneField !== 'not_collected' && phone ? { phone } : {}),
-        institution,
+        ...(!vitStudent ? { institution } : {}),
         yearOfStudy,
         ...(!vitStudent && yearOfStudy === 'not_applicable' && currentRole ? { currentRole } : {}),
         ...(vitStudent && policy.vitRegistrationNumberField !== 'not_collected' && registrationNumber
@@ -67,9 +66,6 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
           : {}),
         ...(vitStudent && policy.vitProgrammeField !== 'not_collected' && programme
           ? { vitProgramme: programme }
-          : {}),
-        ...(vitStudent && policy.vitCampusField !== 'not_collected' && campus
-          ? { vitCampus: campus }
           : {}),
         ...(!vitStudent && policy.externalCityField !== 'not_collected' && externalCity
           ? { externalCity }
@@ -94,9 +90,15 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
         <h1>A few basics.</h1>
         <form onSubmit={submit} className="form-grid">
           <fieldset disabled={busy || savePending} style={{ display: 'contents' }}>
-          <Field label="Full name">
-            <TextInput required value={fullName} onChange={(event) => setFullName(event.target.value)} />
-          </Field>
+          {vitStudent ? (
+            <Field label="Full name" hint="Verified by your VIT Google account">
+              <TextInput readOnly value={me.person.displayName} />
+            </Field>
+          ) : (
+            <Field label="Full name">
+              <TextInput required value={fullName} onChange={(event) => setFullName(event.target.value)} />
+            </Field>
+          )}
           <Field label="Name we should show" hint="Optional">
             <TextInput value={preferredName} onChange={(event) => setPreferredName(event.target.value)} />
           </Field>
@@ -105,9 +107,15 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
               <TextInput required={policy.phoneField === 'required'} inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} />
             </Field>
           ) : null}
-          <Field label={vitStudent ? 'College or university' : 'College, university, or organisation'}>
-            <TextInput required value={institution} onChange={(event) => setInstitution(event.target.value)} />
-          </Field>
+          {vitStudent ? (
+            <Field label="College or university" hint="Set from your verified VIT email">
+              <TextInput readOnly value="Vellore Institute of Technology" />
+            </Field>
+          ) : (
+            <Field label="College, university, or organisation">
+              <TextInput required value={institution} onChange={(event) => setInstitution(event.target.value)} />
+            </Field>
+          )}
           <Field label="Year of study">
             <Select
               value={yearOfStudy}
@@ -140,11 +148,6 @@ export function ProfileScreen({ me }: { me: ParticipantMe }) {
               {policy.vitProgrammeField !== 'not_collected' ? (
                 <Field label="Programme" {...(policy.vitProgrammeField === 'optional' ? { hint: 'Optional' } : {})}>
                   <TextInput required={policy.vitProgrammeField === 'required'} value={programme} onChange={(event) => setProgramme(event.target.value)} />
-                </Field>
-              ) : null}
-              {policy.vitCampusField !== 'not_collected' ? (
-                <Field label="Campus" {...(policy.vitCampusField === 'optional' ? { hint: 'Optional' } : {})}>
-                  <TextInput required={policy.vitCampusField === 'required'} value={campus} onChange={(event) => setCampus(event.target.value)} />
                 </Field>
               ) : null}
             </>

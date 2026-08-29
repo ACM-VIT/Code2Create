@@ -67,7 +67,7 @@ export function EntryScreen({
             onClick={() => choose('vit_student')}
           >
             <span>VIT student</span>
-            <small>Use your VIT Google account.</small>
+            <small>Only @vitstudent.ac.in Google accounts are accepted.</small>
           </button>
           <button
             type="button"

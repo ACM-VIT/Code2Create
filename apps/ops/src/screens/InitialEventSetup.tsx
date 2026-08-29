@@ -90,7 +90,6 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           phoneField: 'optional',
           vitRegistrationNumberField: 'required',
           vitProgrammeField: 'required',
-          vitCampusField: 'required',
           externalCityField: 'optional',
           externalCountryField: 'required',
           profileNotice:

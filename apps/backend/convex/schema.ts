@@ -282,11 +282,6 @@ export default defineSchema({
       v.literal("optional"),
       v.literal("required"),
     ),
-    vitCampusField: v.union(
-      v.literal("not_collected"),
-      v.literal("optional"),
-      v.literal("required"),
-    ),
     externalCityField: v.union(
       v.literal("not_collected"),
       v.literal("optional"),
@@ -833,7 +828,6 @@ export default defineSchema({
     currentRole: v.optional(v.string()),
     vitRegistrationNumber: v.optional(v.string()),
     vitProgramme: v.optional(v.string()),
-    vitCampus: v.optional(v.string()),
     externalCity: v.optional(v.string()),
     externalCountry: v.optional(v.string()),
     profileVersion: v.number(),

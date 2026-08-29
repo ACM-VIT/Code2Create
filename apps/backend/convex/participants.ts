@@ -34,6 +34,10 @@ import {
   optionalNormalizedText,
 } from "./lib/strings";
 import {
+  isApprovedVitStudentIdentity,
+  vitInstitutionName,
+} from "./lib/vitStudentIdentity";
+import {
   participantClass,
   participantEligibilityStatus,
   participantOnboardingStatus,
@@ -51,7 +55,6 @@ const profileView = v.object({
   currentRole: v.optional(v.string()),
   vitRegistrationNumber: v.optional(v.string()),
   vitProgramme: v.optional(v.string()),
-  vitCampus: v.optional(v.string()),
   externalCity: v.optional(v.string()),
   externalCountry: v.optional(v.string()),
   isComplete: v.boolean(),
@@ -151,7 +154,6 @@ export const me = query({
             ...(profile.vitProgramme !== undefined
               ? { vitProgramme: profile.vitProgramme }
               : {}),
-            ...(profile.vitCampus !== undefined ? { vitCampus: profile.vitCampus } : {}),
             ...(profile.externalCity !== undefined
               ? { externalCity: profile.externalCity }
               : {}),
@@ -181,13 +183,17 @@ export const provision = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     requireRegistrationOpen(event);
     const { person, googleIdentity } = await ensurePerson(ctx);
-    const approvedVitIdentity =
-      googleIdentity.hostedDomain !== undefined &&
-      event.vitEmailDomains.includes(googleIdentity.hostedDomain);
+    const approvedVitIdentity = isApprovedVitStudentIdentity({
+      verifiedEmail: googleIdentity.verifiedEmail,
+      ...(googleIdentity.hostedDomain !== undefined
+        ? { hostedDomain: googleIdentity.hostedDomain }
+        : {}),
+      allowedDomains: event.vitEmailDomains,
+    });
     if (args.participantClass === "vit_student" && !approvedVitIdentity) {
       throw new ConvexError({
         code: "VIT_EMAIL_REQUIRED",
-        message: "VIT Student registration requires Google to verify an approved VIT Workspace account.",
+        message: "VIT student registration requires a verified @vitstudent.ac.in Google Workspace account.",
       });
     }
     const resolvedParticipantClass = approvedVitIdentity
@@ -491,15 +497,14 @@ export const saveProfile = mutation({
   args: {
     eventSlug: v.string(),
     participantPolicyVersionId: v.id("participantPolicyVersions"),
-    fullName: v.string(),
+    fullName: v.optional(v.string()),
     preferredName: v.optional(v.string()),
     phone: v.optional(v.string()),
-    institution: v.string(),
+    institution: v.optional(v.string()),
     yearOfStudy: studyYear,
     currentRole: v.optional(v.string()),
     vitRegistrationNumber: v.optional(v.string()),
     vitProgramme: v.optional(v.string()),
-    vitCampus: v.optional(v.string()),
     externalCity: v.optional(v.string()),
     externalCountry: v.optional(v.string()),
     expectedProfileVersion: v.number(),
@@ -511,15 +516,14 @@ export const saveProfile = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const requestFingerprint = operationFingerprint([
       args.participantPolicyVersionId,
-      args.fullName,
+      args.fullName ?? null,
       args.preferredName ?? null,
       args.phone ?? null,
-      args.institution,
+      args.institution ?? null,
       args.yearOfStudy,
       args.currentRole ?? null,
       args.vitRegistrationNumber ?? null,
       args.vitProgramme ?? null,
-      args.vitCampus ?? null,
       args.externalCity ?? null,
       args.externalCountry ?? null,
       args.expectedProfileVersion,
@@ -566,10 +570,14 @@ export const saveProfile = mutation({
     }
 
     const policy = participantPolicy.normalized;
-    const fullName = normalizedText(args.fullName, "Full name", 2, 100);
+    const fullName = membership.participantClass === "vit_student"
+      ? normalizedText(person.displayName, "Google account name", 2, 100)
+      : normalizedText(args.fullName ?? "", "Full name", 2, 100);
     const preferredName = optionalNormalizedText(args.preferredName, "Preferred name", 60);
     const phone = policyField(args.phone, policy.phoneField, "Phone", 24);
-    const institution = normalizedText(args.institution, "Institution", 2, 160);
+    const institution = membership.participantClass === "vit_student"
+      ? vitInstitutionName
+      : normalizedText(args.institution ?? "", "Institution", 2, 160);
     const currentRole = membership.participantClass === "external_participant"
       ? optionalNormalizedText(args.currentRole, "Current role", 100)
       : undefined;
@@ -599,9 +607,6 @@ export const saveProfile = mutation({
       : undefined;
     const vitProgramme = membership.participantClass === "vit_student"
       ? policyField(args.vitProgramme, policy.vitProgrammeField, "VIT programme", 100)
-      : undefined;
-    const vitCampus = membership.participantClass === "vit_student"
-      ? policyField(args.vitCampus, policy.vitCampusField, "VIT campus", 80)
       : undefined;
     const externalCity = membership.participantClass === "external_participant"
       ? policyField(args.externalCity, policy.externalCityField, "City", 100)
@@ -656,7 +661,6 @@ export const saveProfile = mutation({
         currentRole,
         vitRegistrationNumber,
         vitProgramme,
-        vitCampus,
         externalCity,
         externalCountry,
         profileVersion,
@@ -676,7 +680,6 @@ export const saveProfile = mutation({
         ...(currentRole !== undefined ? { currentRole } : {}),
         ...(vitRegistrationNumber !== undefined ? { vitRegistrationNumber } : {}),
         ...(vitProgramme !== undefined ? { vitProgramme } : {}),
-        ...(vitCampus !== undefined ? { vitCampus } : {}),
         ...(externalCity !== undefined ? { externalCity } : {}),
         ...(externalCountry !== undefined ? { externalCountry } : {}),
         profileVersion,

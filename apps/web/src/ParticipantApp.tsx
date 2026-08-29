@@ -421,10 +421,10 @@ function ProvisionScreen({ publicState }: { publicState: PublicState }) {
       <section className="narrow-panel">
         <p className="eyebrow">{publicState.event?.name ?? 'Code2Create'}</p>
         <h1>Choose your participant type.</h1>
-        <p className="muted">Choose VIT student if you signed in with your VIT email.</p>
+        <p className="muted">VIT students must use their @vitstudent.ac.in Google account.</p>
         <div className="choice-stack">
           <button type="button" className={participantClass === 'vit_student' ? 'choice selected' : 'choice'} onClick={() => choose('vit_student')}>
-            <span>VIT student</span><small>Your VIT email is required.</small>
+            <span>VIT student</span><small>Only @vitstudent.ac.in accounts are accepted.</small>
           </button>
           <button type="button" className={participantClass === 'external_participant' ? 'choice selected' : 'choice'} onClick={() => choose('external_participant')}>
             <span>External participant</span><small>College students and other eligible applicants.</small>
