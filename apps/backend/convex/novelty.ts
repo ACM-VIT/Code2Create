@@ -144,6 +144,23 @@ async function storeTeamIdeaEmbeddings(
   return ideaIds;
 }
 
+async function clearNonIndexableTeamIdeaEmbeddings(
+  ctx: MutationCtx,
+  args: {
+    teamId: Id<"teams">;
+    sourceUpdatedAt: number;
+  },
+) {
+  const existing = await ctx.db
+    .query("noveltyTeamIdeas")
+    .withIndex("by_team", (index) => index.eq("teamId", args.teamId))
+    .collect();
+  const obsoleteIdeas = existing.filter(
+    (idea) => idea.lifecycle !== "editing" || idea.sourceUpdatedAt <= args.sourceUpdatedAt,
+  );
+  for (const idea of obsoleteIdeas) await ctx.db.delete(idea._id);
+}
+
 function readyResult(
   request: Doc<"noveltyPreviewRequests">,
   corpus: Doc<"noveltyCorpusVersions">,
@@ -512,8 +529,14 @@ export const prepareDraftIndex = internalMutation({
     if (
       !draft?.initialIdea
       || noveltyInputFingerprint(draft.initialIdea) !== args.inputFingerprint
-      || containsSensitiveProjectText(draft.initialIdea)
     ) {
+      return { kind: "complete" };
+    }
+    if (containsSensitiveProjectText(draft.initialIdea)) {
+      await clearNonIndexableTeamIdeaEmbeddings(ctx, {
+        teamId: draft.teamId,
+        sourceUpdatedAt: draft.updatedAt,
+      });
       return { kind: "complete" };
     }
     const existing = (await ctx.db
@@ -639,12 +662,18 @@ export const prepareSubmittedProjectIndex = internalMutation({
     if (
       !project
       || noveltyInputFingerprint(project.initialIdea) !== args.inputFingerprint
-      || containsSensitiveProjectText(project.initialIdea)
     ) {
       return { kind: "complete" };
     }
     const team = await ctx.db.get(project.teamId);
     if (!team || team.lockedProjectVersionId !== project._id) return { kind: "complete" };
+    if (containsSensitiveProjectText(project.initialIdea)) {
+      await clearNonIndexableTeamIdeaEmbeddings(ctx, {
+        teamId: project.teamId,
+        sourceUpdatedAt: project.submittedAt,
+      });
+      return { kind: "complete" };
+    }
     const existing = (await ctx.db
       .query("noveltyTeamIdeas")
       .withIndex("by_team", (index) => index.eq("teamId", project.teamId))

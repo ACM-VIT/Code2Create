@@ -21,7 +21,13 @@ import {
   intakePolicyChecksum,
   normalizeIntakePolicy,
 } from "./lib/intakePolicy.ts";
+import {
+  defaultParticipantPolicy,
+  normalizeParticipantPolicy,
+  participantPolicyChecksum,
+} from "./lib/participantPolicy.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
+import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -329,6 +335,167 @@ describe("live novelty", () => {
     });
   });
 
+  test("removes obsolete vectors when the current saved idea is non-indexable", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend);
+    const sensitiveIdea = `${fixture.idea} Contact private-person@example.test for access.`;
+    const sensitiveFingerprint = noveltyInputFingerprint(sensitiveIdea);
+    const newerEditingIdea = `${fixture.idea} A newer live edit is still being written.`;
+    const savedAt = fixture.now + 10;
+    const newerEditingAt = savedAt + 1;
+
+    await backend.run(async (ctx) => {
+      const draft = await ctx.db.get(fixture.projectDraftId);
+      if (!draft) throw new Error("The fixture draft is missing.");
+      await ctx.db.patch(draft._id, {
+        initialIdea: sensitiveIdea,
+        version: draft.version + 1,
+        updatedAt: savedAt,
+      });
+      await ctx.db.insert("noveltyTeamIdeas", {
+        eventId: fixture.eventId,
+        teamId: fixture.teamId,
+        inputFingerprint: noveltyInputFingerprint(fixture.idea),
+        lifecycle: "saved",
+        embedding: [1],
+        sourceUpdatedAt: fixture.now,
+        updatedAt: fixture.now,
+      });
+      await ctx.db.insert("noveltyTeamIdeas", {
+        eventId: fixture.eventId,
+        teamId: fixture.teamId,
+        inputFingerprint: noveltyInputFingerprint(`${fixture.idea} Older live edit.`),
+        lifecycle: "editing",
+        embedding: [1],
+        sourceUpdatedAt: fixture.now + 1,
+        updatedAt: fixture.now + 1,
+      });
+      await ctx.db.insert("noveltyTeamIdeas", {
+        eventId: fixture.eventId,
+        teamId: fixture.teamId,
+        inputFingerprint: noveltyInputFingerprint(newerEditingIdea),
+        lifecycle: "editing",
+        embedding: [1],
+        sourceUpdatedAt: newerEditingAt,
+        updatedAt: newerEditingAt,
+      });
+    });
+
+    await backend.mutation(internal.novelty.prepareDraftIndex, {
+      draftId: fixture.projectDraftId,
+      inputFingerprint: noveltyInputFingerprint(fixture.idea),
+      sourceUpdatedAt: fixture.now,
+    });
+    const beforeCurrentJob = await backend.run((ctx) => ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
+      .collect());
+    expect(beforeCurrentJob).toHaveLength(3);
+
+    await expect(backend.mutation(internal.novelty.prepareDraftIndex, {
+      draftId: fixture.projectDraftId,
+      inputFingerprint: sensitiveFingerprint,
+      sourceUpdatedAt: savedAt,
+    })).resolves.toEqual({ kind: "complete" });
+
+    const remaining = await backend.run((ctx) => ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
+      .collect());
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toMatchObject({
+      inputFingerprint: noveltyInputFingerprint(newerEditingIdea),
+      lifecycle: "editing",
+      sourceUpdatedAt: newerEditingAt,
+    });
+  });
+
+  test("removes obsolete vectors when the current submitted idea is non-indexable", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend);
+    const sensitiveIdea = `${fixture.idea} Call +91 98765 43210 for the private walkthrough.`;
+    const sensitiveFingerprint = noveltyInputFingerprint(sensitiveIdea);
+    const submittedAt = fixture.now + 20;
+    const newerEditingAt = submittedAt + 1;
+    const projectVersionId = await backend.run(async (ctx) => {
+      const projectId = await ctx.db.insert("projectVersions", {
+        eventId: fixture.eventId,
+        teamId: fixture.teamId,
+        version: 1,
+        initialIdea: sensitiveIdea,
+        intakePolicyVersionId: fixture.intakePolicyId,
+        intakeResponses: [],
+        lockedRosterSnapshotId: fixture.submissionAttemptId,
+        lockedMemberCount: 1,
+        lockedLeadMembershipId: fixture.membershipId,
+        freshForEventAttestation: {
+          participantPolicyVersionId: fixture.participantPolicyId,
+          acceptedByMembershipId: fixture.membershipId,
+          acceptedAt: submittedAt,
+        },
+        finalConfirmation: {
+          participantPolicyVersionId: fixture.participantPolicyId,
+          previewedDraftVersion: 1,
+          previewedTeamVersion: 1,
+          confirmedByMembershipId: fixture.membershipId,
+          confirmedAt: submittedAt,
+        },
+        participantPolicyVersionId: fixture.participantPolicyId,
+        admissionPolicyVersionId: fixture.admissionPolicyId,
+        sourceDraftVersion: 1,
+        submittedByMembershipId: fixture.membershipId,
+        submittedAt,
+      });
+      await ctx.db.patch(fixture.teamId, { lockedProjectVersionId: projectId });
+      await ctx.db.insert("noveltyTeamIdeas", {
+        eventId: fixture.eventId,
+        teamId: fixture.teamId,
+        inputFingerprint: noveltyInputFingerprint(fixture.idea),
+        lifecycle: "submitted",
+        embedding: [1],
+        sourceUpdatedAt: fixture.now,
+        updatedAt: fixture.now,
+      });
+      await ctx.db.insert("noveltyTeamIdeas", {
+        eventId: fixture.eventId,
+        teamId: fixture.teamId,
+        inputFingerprint: noveltyInputFingerprint(`${fixture.idea} New live revision.`),
+        lifecycle: "editing",
+        embedding: [1],
+        sourceUpdatedAt: newerEditingAt,
+        updatedAt: newerEditingAt,
+      });
+      return projectId;
+    });
+
+    await backend.mutation(internal.novelty.prepareSubmittedProjectIndex, {
+      projectVersionId,
+      inputFingerprint: noveltyInputFingerprint(fixture.idea),
+      sourceUpdatedAt: fixture.now,
+    });
+    const beforeCurrentJob = await backend.run((ctx) => ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
+      .collect());
+    expect(beforeCurrentJob).toHaveLength(2);
+
+    await expect(backend.mutation(internal.novelty.prepareSubmittedProjectIndex, {
+      projectVersionId,
+      inputFingerprint: sensitiveFingerprint,
+      sourceUpdatedAt: submittedAt,
+    })).resolves.toEqual({ kind: "complete" });
+
+    const remaining = await backend.run((ctx) => ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
+      .collect());
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toMatchObject({
+      lifecycle: "editing",
+      sourceUpdatedAt: newerEditingAt,
+    });
+  });
+
   test("enforces the exact team scope and the published request budget", async () => {
     const wrongScopeBackend = convexTest(schema, modules);
     const wrongScope = await seedFixture(wrongScopeBackend, "other_team");
@@ -535,7 +702,7 @@ async function seedFixture(
       createdAt: now,
       updatedAt: now,
     });
-    await ctx.db.insert("teamMembers", {
+    const teamMemberId = await ctx.db.insert("teamMembers", {
       eventId,
       teamId,
       membershipId,
@@ -565,6 +732,31 @@ async function seedFixture(
       status: "published",
       ...intakePolicy,
       checksum: intakePolicyChecksum(intakePolicy),
+      createdByPersonId: personId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    const participantPolicy = normalizeParticipantPolicy(defaultParticipantPolicy);
+    const participantPolicyId = await ctx.db.insert("participantPolicyVersions", {
+      eventId,
+      version: 1,
+      status: "published",
+      ...participantPolicy,
+      checksum: participantPolicyChecksum(participantPolicy),
+      createdByPersonId: personId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    const admissionPolicyId = await ctx.db.insert("admissionPolicyVersions", {
+      eventId,
+      version: "1",
+      status: "published",
+      aiRecommendationMode: "disabled",
+      minimumHumanReviews: 1,
+      overallParticipantCapacity: 100,
+      criteria: [],
+      decisionReasonCodes: [],
+      checksum: crypto.randomUUID(),
       createdByPersonId: personId,
       createdAt: now,
       publishedAt: now,
@@ -605,6 +797,15 @@ async function seedFixture(
       lastEditedByMembershipId: membershipId,
       updatedAt: now,
     });
+    const submissionAttemptId = await createTestSubmissionSnapshot(ctx, {
+      eventId,
+      teamId,
+      teamMemberIds: [teamMemberId],
+      intakePolicyVersionId: intakePolicyId,
+      participantPolicyVersionId: participantPolicyId,
+      admissionPolicyVersionId: admissionPolicyId,
+      submittedAt: now,
+    });
     await insertPermissionGrant(ctx, {
       eventId,
       personId,
@@ -637,6 +838,11 @@ async function seedFixture(
       eventId,
       personId,
       teamId,
+      membershipId,
+      intakePolicyId,
+      participantPolicyId,
+      admissionPolicyId,
+      submissionAttemptId,
       publishedCorpusId,
       draftCorpusId,
       projectDraftId,
