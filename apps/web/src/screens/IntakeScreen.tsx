@@ -2,8 +2,18 @@ import { api } from '@code2create/backend/api'
 import { useAction, useMutation, useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ErrorNotice, TextArea } from '../components/Form'
 import { EditingPresence } from '../components/EditingPresence'
+import { PortalScene } from '../components/portal/PortalScene'
+import { PetalCard } from '../components/portal/PetalCard'
+import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
+import { Petal, SakuraSteps } from '../components/portal/Petal'
+import { TeamCluster } from '../components/portal/TeamCluster'
+import { initialsOf } from '../components/portal/initials'
+import {
+  PortalCheckRow,
+  PortalError,
+  PortalTextarea,
+} from '../components/portal/PortalField'
 import { useEditingPresence } from '../hooks/useEditingPresence'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -68,41 +78,127 @@ export function IntakeScreen({
   submissionFailureMessage?: string
 }) {
   const intake = useQuery(api.intake.current, { eventSlug })
-  if (intake === undefined) return <p className="muted">Loading your application…</p>
-  if (intake === null) return <ErrorNotice message="Your application is unavailable." />
-  if (!team.canWriteProject) return <ReadOnlyIntake intake={intake} members={members} />
+  if (intake === undefined) {
+    return (
+      <IntakeStage team={team} members={members} title="Loading your application…" />
+    )
+  }
+  if (intake === null) {
+    return (
+      <IntakeStage team={team} members={members} title="Your application is unavailable." />
+    )
+  }
+  if (!team.canWriteProject) {
+    return <ReadOnlyIntake team={team} intake={intake} members={members} />
+  }
   return (
-    <>
-      <ErrorNotice message={submissionFailureMessage ?? null} />
-      <IntakeWorkspace team={team} intake={intake} members={members} />
-    </>
+    <IntakeWorkspace
+      team={team}
+      intake={intake}
+      members={members}
+      {...(submissionFailureMessage === undefined ? {} : { submissionFailureMessage })}
+    />
+  )
+}
+
+/**
+ * The shared stage for every intake step: the night scene, the team cluster in
+ * the corner, an optional petal step counter, a title, and a card.
+ */
+function IntakeStage({
+  team,
+  members,
+  title,
+  eyebrow,
+  hint,
+  steps,
+  children,
+  footer,
+  floating,
+  width = 'max-w-[820px]',
+  titleClass = 'lg:text-[38px]',
+  branch = false,
+}: {
+  team: CurrentTeam
+  members: readonly CurrentTeamMember[]
+  title: string
+  eyebrow?: string
+  hint?: string
+  steps?: { total: number; current: number }
+  children?: ReactNode
+  footer?: ReactNode
+  /** Pinned to the top of the scene, the way the mockup floats the novelty pill. */
+  floating?: ReactNode
+  width?: string
+  titleClass?: string
+  branch?: boolean
+}) {
+  return (
+    <PortalScene
+      tree="left"
+      branch={branch}
+      header={<TeamCluster team={team} members={members} />}
+    >
+      {floating ? (
+        <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
+          {floating}
+        </div>
+      ) : null}
+      <div className={`flex w-full flex-col items-center ${width}`}>
+        {steps ? (
+          <div className="mb-4.5">
+            <SakuraSteps total={steps.total} current={steps.current} />
+          </div>
+        ) : null}
+        {eyebrow ? (
+          <p className="mb-2.5 text-[10.5px] font-semibold tracking-[.14em] text-[rgb(248_248_248/.45)] uppercase">
+            {eyebrow}
+          </p>
+        ) : null}
+        <h1
+          className={`mb-6 max-w-[760px] text-center font-display text-[26px] leading-tight italic text-shadow-[0_4px_30px_rgba(0,0,0,.55)] ${titleClass}`}
+        >
+          {title}
+        </h1>
+        {hint ? (
+          <p className="-mt-3 mb-6 text-[12.5px] text-[rgb(248_248_248/.5)]">{hint}</p>
+        ) : null}
+        {children}
+        {footer}
+      </div>
+    </PortalScene>
+  )
+}
+
+/** The conflict banner shared by the idea and follow-up editors. */
+function ConflictNotice({
+  message,
+  onUseSaved,
+  onKeepMine,
+}: {
+  message: string
+  onUseSaved: () => void
+  onKeepMine: () => void
+}) {
+  return (
+    <div
+      role="status"
+      className="mb-4 rounded-petal-xs border border-petal-edge-soft bg-[rgb(12_0_4/.5)] px-4 py-3"
+    >
+      <p className="text-[12.5px] text-[rgb(248_248_248/.75)]">{message}</p>
+      <div className="mt-2 flex gap-4">
+        <PortalTextButton type="button" onClick={onUseSaved}>
+          Use saved version
+        </PortalTextButton>
+        <PortalTextButton type="button" onClick={onKeepMine}>
+          Keep mine
+        </PortalTextButton>
+      </div>
+    </div>
   )
 }
 
 function ReadOnlyIntake({
-  intake,
-  members,
-}: {
-  intake: CurrentIntake
-  members: CurrentTeamMember[]
-}) {
-  const { editors } = useEditingPresence(false)
-  const draft = intake.draft
-  return (
-    <IntakeFrame label="Project idea">
-      <h1>Project editing is unavailable.</h1>
-      <p className="minimal-step-hint">Your team’s saved work remains here. Another member with project access can continue.</p>
-      <EditingPresence editors={editors ?? []} members={members} />
-      {draft?.initialIdea ? (
-        <div className="submitted-summary">
-          <p className="preserve-lines">{draft.initialIdea}</p>
-        </div>
-      ) : null}
-    </IntakeFrame>
-  )
-}
-
-function IntakeWorkspace({
   team,
   intake,
   members,
@@ -110,6 +206,38 @@ function IntakeWorkspace({
   team: CurrentTeam
   intake: CurrentIntake
   members: CurrentTeamMember[]
+}) {
+  const { editors } = useEditingPresence(false)
+  const draft = intake.draft
+  return (
+    <IntakeStage
+      team={team}
+      members={members}
+      title="Project editing is unavailable."
+      hint="Your team’s saved work remains here. Another member with project access can continue."
+    >
+      <EditingPresence editors={editors ?? []} members={members} />
+      {draft?.initialIdea ? (
+        <PetalCard className="px-8 py-7">
+          <p className="whitespace-pre-line text-[15px] leading-relaxed text-[rgb(248_248_248/.9)]">
+            {draft.initialIdea}
+          </p>
+        </PetalCard>
+      ) : null}
+    </IntakeStage>
+  )
+}
+
+function IntakeWorkspace({
+  team,
+  intake,
+  members,
+  submissionFailureMessage,
+}: {
+  team: CurrentTeam
+  intake: CurrentIntake
+  members: CurrentTeamMember[]
+  submissionFailureMessage?: string
 }) {
   const draft = intake.draft
   const previewNovelty = useAction(api.novelty.preview)
@@ -151,6 +279,9 @@ function IntakeWorkspace({
   const [pendingFollowUp, setPendingFollowUp] = useState<PendingFollowUp | null>(null)
   const [pendingRevisionId, setPendingRevisionId] = useState<string | null>(null)
   const [pendingRevisionKind, setPendingRevisionKind] = useState<'answer' | 'skip' | null>(null)
+  // The mockup splits the old single review screen into reading the proposal
+  // (f5) and confirming the lock (f6).
+  const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [noveltyState, setNoveltyState] = useState<NoveltyState>({ status: 'idle' })
@@ -177,6 +308,7 @@ function IntakeWorkspace({
   const revisionPending = revisionSlot !== null && operations.hasPending(revisionSlot)
   const freshnessPending = operations.hasPending('freshness')
   const submitPending = operations.hasPending('final-submit')
+
   useEffect(() => {
     const remaining = intake.applicationsCloseAt - Date.now()
     if (remaining <= 0) {
@@ -247,12 +379,7 @@ function IntakeWorkspace({
       draft.initialIdea.trim().replace(/\s+/g, ' ') === idea.trim().replace(/\s+/g, ' ')
 
     if (noveltyCorpusVersionId !== null && savedNoveltyScore !== null && savedIdeaMatches) {
-      setNoveltyState({
-        status: 'ready',
-        signal: {
-          score: savedNoveltyScore,
-        },
-      })
+      setNoveltyState({ status: 'ready', signal: { score: savedNoveltyScore } })
       return
     }
 
@@ -281,12 +408,7 @@ function IntakeWorkspace({
             setNoveltyState({ status: 'unavailable' })
             return
           }
-          setNoveltyState({
-            status: 'ready',
-            signal: {
-              score: result.score,
-            },
-          })
+          setNoveltyState({ status: 'ready', signal: { score: result.score } })
         })
         .catch(() => {
           if (noveltySequence.current === sequence) {
@@ -411,165 +533,208 @@ function IntakeWorkspace({
     })
   }
 
+  // Petal steps: the idea, then one petal per follow-up the draft has raised.
+  const followUpCount = draft?.followUps.length ?? 0
+  const stepTotal = Math.max(1 + followUpCount, 1)
+  const answeredFollowUps = draft?.followUps.filter((f) => f.state !== 'active').length ?? 0
+
   if (pendingOperation) {
     return (
-      <IntakeFrame label="Saving">
-        <h1>{busy ? 'Saving your change…' : 'Confirm your last change.'}</h1>
-        <p className="minimal-step-hint">
-          {busy ? 'Keep this page open.' : 'The response was interrupted. Confirm it before continuing.'}
-        </p>
-        <ErrorNotice message={error} />
-        <button
+      <IntakeStage
+        team={team}
+        members={members}
+        title={busy ? 'Saving your change…' : 'Confirm your last change.'}
+        hint={
+          busy
+            ? 'Keep this page open.'
+            : 'The response was interrupted. Confirm it before continuing.'
+        }
+        width="max-w-[600px]"
+      >
+        <PortalError message={error} />
+        <PortalButton
           type="button"
-          className="minimal-continue"
+          className="mt-6"
           disabled={busy}
           onClick={() => confirmPendingOperation(pendingOperation)}
         >
-          {busy ? 'Saving…' : pendingOperation.action} <span aria-hidden="true">→</span>
-        </button>
-      </IntakeFrame>
+          {busy ? 'Saving…' : pendingOperation.action}
+        </PortalButton>
+      </IntakeStage>
     )
   }
 
   if (!applicationsOpen) {
     return (
-      <IntakeFrame label="Project idea">
-        <h1>Applications are closed.</h1>
-        <p className="minimal-step-hint">Your team’s saved work remains available here.</p>
-        {draft?.initialIdea ? <p className="preserve-lines">{draft.initialIdea}</p> : null}
-      </IntakeFrame>
+      <IntakeStage
+        team={team}
+        members={members}
+        title="Applications are closed."
+        hint="Your team’s saved work remains available here."
+      >
+        {draft?.initialIdea ? (
+          <PetalCard className="px-8 py-7">
+            <p className="whitespace-pre-line text-[15px] leading-relaxed text-[rgb(248_248_248/.9)]">
+              {draft.initialIdea}
+            </p>
+          </PetalCard>
+        ) : null}
+      </IntakeStage>
     )
   }
 
+  // ---- f2 · the idea -------------------------------------------------------
   if (!draft || draft.stage === 'opening' || editingIdea) {
     if (opening === undefined) {
-      return <IntakeFrame label="Project idea"><p className="minimal-step-hint">Loading…</p></IntakeFrame>
+      return <IntakeStage team={team} members={members} title="Loading…" />
     }
-    const initialIdeaMinLength = draft?.intakePolicy.initialIdeaMinLength ?? opening.initialIdeaMinLength
-    const initialIdeaMaxLength = draft?.intakePolicy.initialIdeaMaxLength ?? opening.initialIdeaMaxLength
+    const initialIdeaMinLength =
+      draft?.intakePolicy.initialIdeaMinLength ?? opening.initialIdeaMinLength
+    const initialIdeaMaxLength =
+      draft?.intakePolicy.initialIdeaMaxLength ?? opening.initialIdeaMaxLength
     return (
-      <IntakeFrame label="Project idea">
-        <h1>{opening.initialPrompt}</h1>
-        <p className="minimal-step-hint">{opening.initialHelpText}</p>
-        <form onSubmit={submitIdea} className="minimal-textarea-surface">
-          <EditingPresence editors={editors ?? []} members={members} />
-          {ideaConflict ? (
-            <div className="notice" role="status">
-              <p>A teammate saved a newer idea. Your text is still here.</p>
-              <div className="button-row">
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={() => {
-                    const savedValue = draft?.initialIdea ?? ''
-                    setIdea(savedValue)
-                    setIdeaDirty(false)
-                    setIdeaConflict(false)
-                    ideaBase.current = { version: draft?.version ?? 0 }
-                    clearSessionDraft(ideaStorageKey)
-                  }}
-                >
-                  Use saved version
-                </button>
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={() => {
-                    ideaBase.current = { version: draft?.version ?? 0 }
-                    setIdeaConflict(false)
-                    writeVersionedSessionDraft(ideaStorageKey, {
-                      base: String(ideaBase.current.version),
-                      value: idea,
-                    })
-                  }}
-                >
-                  Keep mine
-                </button>
-              </div>
-            </div>
-          ) : null}
-          <NoveltyCounter
+      <IntakeStage
+        team={team}
+        members={members}
+        title={opening.initialPrompt}
+        hint={opening.initialHelpText}
+        steps={{ total: stepTotal, current: 0 }}
+        titleClass="lg:text-[42px]"
+        floating={
+          <NoveltyPill
             state={noveltyState}
             currentLength={normalizedIdeaLength(idea)}
             minimumLength={novelty?.minimumIdeaLength ?? null}
           />
-          <TextArea
-            autoFocus
-            required
-            minLength={initialIdeaMinLength}
-            maxLength={initialIdeaMaxLength}
-            rows={9}
-            disabled={busy}
-            value={idea}
-            onChange={(event) => {
-              const nextIdea = event.currentTarget.value
-              noveltySequence.current += 1
-              setIdea(nextIdea)
-              setIdeaDirty(true)
-              writeVersionedSessionDraft(ideaStorageKey, {
-                base: String(ideaBase.current.version),
-                value: nextIdea,
-              })
-              markEditing('idea')
-              setNoveltyState(
-                novelty && normalizedIdeaLength(nextIdea) >= novelty.minimumIdeaLength
-                  ? { status: 'checking' }
-                  : { status: 'idle' },
-              )
-            }}
-            placeholder="Describe your idea…"
-          />
-          <ErrorNotice message={error} />
-          <div className="minimal-surface-actions">
-            {editingIdea ? (
-              <button
-                type="button"
-                className="minimal-back"
-                disabled={busy}
-                onClick={() => {
-                  setIdea(draft?.initialIdea ?? '')
+        }
+      >
+        <PortalError message={submissionFailureMessage ?? null} />
+        <PetalCard className="px-6 pt-[26px] pb-[18px] lg:px-[30px]">
+          <form onSubmit={submitIdea}>
+            <EditingPresence editors={editors ?? []} members={members} />
+            {ideaConflict ? (
+              <ConflictNotice
+                message="A teammate saved a newer idea. Your text is still here."
+                onUseSaved={() => {
+                  const savedValue = draft?.initialIdea ?? ''
+                  setIdea(savedValue)
                   setIdeaDirty(false)
                   setIdeaConflict(false)
                   ideaBase.current = { version: draft?.version ?? 0 }
                   clearSessionDraft(ideaStorageKey)
-                  stopEditing()
-                  setEditingIdea(false)
-                  setError(null)
                 }}
-              >
-                Cancel
-              </button>
-              ) : <span className="character-count">{idea.length} / {initialIdeaMaxLength}</span>}
-            <span className="minimal-privacy">Do not include private contact details.</span>
-            <button type="submit" className="minimal-continue" disabled={busy || ideaConflict || idea.trim().length < initialIdeaMinLength}>
-              {busy ? 'Saving…' : 'Continue'} <span aria-hidden="true">→</span>
-            </button>
-          </div>
-        </form>
-      </IntakeFrame>
+                onKeepMine={() => {
+                  ideaBase.current = { version: draft?.version ?? 0 }
+                  setIdeaConflict(false)
+                  writeVersionedSessionDraft(ideaStorageKey, {
+                    base: String(ideaBase.current.version),
+                    value: idea,
+                  })
+                }}
+              />
+            ) : null}
+            <PortalTextarea
+              autoFocus
+              required
+              minLength={initialIdeaMinLength}
+              maxLength={initialIdeaMaxLength}
+              rows={7}
+              disabled={busy}
+              value={idea}
+              onChange={(event) => {
+                const nextIdea = event.currentTarget.value
+                noveltySequence.current += 1
+                setIdea(nextIdea)
+                setIdeaDirty(true)
+                writeVersionedSessionDraft(ideaStorageKey, {
+                  base: String(ideaBase.current.version),
+                  value: nextIdea,
+                })
+                markEditing('idea')
+                setNoveltyState(
+                  novelty && normalizedIdeaLength(nextIdea) >= novelty.minimumIdeaLength
+                    ? { status: 'checking' }
+                    : { status: 'idle' },
+                )
+              }}
+              placeholder="Describe your idea…"
+              className="min-h-[180px] border-0 bg-transparent px-0 py-0 text-[17px] leading-[1.7] focus:border-0"
+            />
+            <PortalError message={error} />
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-petal-line pt-3.5">
+              <span className="text-xs text-[rgb(248_248_248/.45)]">
+                {idea.length} / {initialIdeaMaxLength} · do not include private contact details
+              </span>
+              <div className="flex items-center gap-4.5">
+                {editingIdea ? (
+                  <PortalTextButton
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setIdea(draft?.initialIdea ?? '')
+                      setIdeaDirty(false)
+                      setIdeaConflict(false)
+                      ideaBase.current = { version: draft?.version ?? 0 }
+                      clearSessionDraft(ideaStorageKey)
+                      stopEditing()
+                      setEditingIdea(false)
+                      setError(null)
+                    }}
+                  >
+                    cancel
+                  </PortalTextButton>
+                ) : null}
+                <PortalButton
+                  type="submit"
+                  size="sm"
+                  disabled={busy || ideaConflict || idea.trim().length < initialIdeaMinLength}
+                >
+                  {busy ? 'Saving…' : 'Next'}
+                </PortalButton>
+              </div>
+            </div>
+          </form>
+        </PetalCard>
+      </IntakeStage>
     )
   }
 
+  // ---- f3 / f4 · the follow-ups -------------------------------------------
   if (draft.stage === 'follow_up') {
     if (!activeFollowUp) {
       return (
-        <IntakeFrame label="One more question">
-          <h1>One moment.</h1>
-          <p className="minimal-step-hint">Preparing one short question from what your team has shared.</p>
-        </IntakeFrame>
+        <IntakeStage
+          team={team}
+          members={members}
+          title="One moment."
+          hint="Preparing one short question from what your team has shared."
+        />
       )
     }
+    const isLast = answeredFollowUps + 1 >= followUpCount
+    const minLength = draft.intakePolicy.followUpAnswerMinLength
     return (
-      <IntakeFrame label="One more question">
-        <h1>{activeFollowUp.question}</h1>
-        <p className="minimal-step-hint">Keep it short—one or two sentences is plenty.</p>
-        <form onSubmit={submitAnswer} className="minimal-textarea-surface compact-surface">
-          <EditingPresence editors={editors ?? []} members={members} />
-          {followUpConflict ? (
-            <div className="notice" role="status">
-              <p>A teammate saved a newer draft while this answer was unsaved. Your text is still here.</p>
-              <div className="button-row">
-                <button type="button" className="text-button" onClick={() => {
+      <IntakeStage
+        team={team}
+        members={members}
+        eyebrow={isLast ? 'last one · then review' : 'asked because of your idea'}
+        title={activeFollowUp.question}
+        steps={{ total: stepTotal, current: answeredFollowUps + 1 }}
+        footer={
+          answer.trim().length < minLength ? (
+            <p className="mt-5 text-[11.5px] text-[rgb(248_248_248/.4)]">
+              the Next button wakes up when you write something
+            </p>
+          ) : null
+        }
+      >
+        <PetalCard className="px-6 pt-[26px] pb-[18px] lg:px-[30px]">
+          <form onSubmit={submitAnswer}>
+            <EditingPresence editors={editors ?? []} members={members} />
+            {followUpConflict ? (
+              <ConflictNotice
+                message="A teammate saved a newer draft while this answer was unsaved. Your text is still here."
+                onUseSaved={() => {
                   setAnswer('')
                   followUpBase.current = {
                     questionId: activeFollowUp.id,
@@ -577,8 +742,8 @@ function IntakeWorkspace({
                   }
                   setFollowUpConflict(false)
                   clearSessionDraft(`c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`)
-                }}>Use saved version</button>
-                <button type="button" className="text-button" onClick={() => {
+                }}
+                onKeepMine={() => {
                   followUpBase.current = {
                     questionId: activeFollowUp.id,
                     version: draft.version,
@@ -588,83 +753,103 @@ function IntakeWorkspace({
                     `c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`,
                     { base: String(draft.version), value: answer },
                   )
-                }}>Keep mine</button>
+                }}
+              />
+            ) : null}
+            <PortalTextarea
+              autoFocus
+              required
+              minLength={minLength}
+              maxLength={draft.intakePolicy.followUpAnswerMaxLength}
+              rows={6}
+              disabled={busy}
+              value={answer}
+              onChange={(event) => {
+                setAnswer(event.target.value)
+                writeVersionedSessionDraft(
+                  `c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`,
+                  {
+                    base: String(followUpBase.current.version),
+                    value: event.target.value,
+                  },
+                )
+                markEditing('follow_up')
+              }}
+              placeholder="Scope it in a sentence or two…"
+              className="min-h-[174px] border-0 bg-transparent px-0 py-0 text-[16.5px] leading-[1.7] focus:border-0"
+            />
+            <PortalError message={error} />
+            <div className="mt-2.5 flex flex-wrap items-center justify-between gap-3 border-t border-petal-line pt-3">
+              <span className="text-xs text-[rgb(248_248_248/.45)]">
+                {answer.length} / {draft.intakePolicy.followUpAnswerMaxLength} · a sentence or two
+                is plenty
+              </span>
+              <div className="flex items-center gap-4.5">
+                <PortalTextButton
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    ideaBase.current = { version: draft.version }
+                    setIdea(draft.initialIdea ?? '')
+                    setIdeaDirty(false)
+                    setEditingIdea(true)
+                  }}
+                >
+                  edit idea
+                </PortalTextButton>
+                <PortalTextButton
+                  type="button"
+                  disabled={busy || followUpConflict}
+                  onClick={() =>
+                    void run(async () => {
+                      const slot = `follow-up:${activeFollowUp.id}`
+                      if (!operations.hasPending(slot)) {
+                        setPendingFollowUp({ questionId: activeFollowUp.id, kind: 'skip' })
+                      }
+                      await operations.run(slot, (clientOperationId) => () => respondToFollowUp({
+                        eventSlug,
+                        questionId: activeFollowUp.id,
+                        skipped: true,
+                        expectedDraftVersion: followUpBase.current.version,
+                        clientOperationId,
+                      }))
+                      clearSessionDraft(
+                        `c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`,
+                      )
+                      setAnswer('')
+                      setFollowUpConflict(false)
+                      stopEditing()
+                      setPendingFollowUp(null)
+                    })
+                  }
+                >
+                  skip
+                </PortalTextButton>
+                <PortalButton
+                  type="submit"
+                  size="sm"
+                  disabled={busy || followUpConflict || answer.trim().length < minLength}
+                >
+                  {busy ? 'Saving…' : isLast ? 'Review' : 'Next'}
+                </PortalButton>
               </div>
             </div>
-          ) : null}
-          <TextArea
-            autoFocus
-            required
-            minLength={draft.intakePolicy.followUpAnswerMinLength}
-            maxLength={draft.intakePolicy.followUpAnswerMaxLength}
-            rows={6}
-            disabled={busy}
-            value={answer}
-            onChange={(event) => {
-              setAnswer(event.target.value)
-              writeVersionedSessionDraft(
-                `c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`,
-                {
-                  base: String(followUpBase.current.version),
-                  value: event.target.value,
-                },
-              )
-              markEditing('follow_up')
-            }}
-            placeholder="Type your answer…"
-          />
-          <ErrorNotice message={error} />
-          <div className="minimal-surface-actions">
-            <button type="button" className="minimal-back" disabled={busy} onClick={() => {
-              ideaBase.current = { version: draft.version }
-              setIdea(draft.initialIdea ?? '')
-              setIdeaDirty(false)
-              setEditingIdea(true)
-            }}>
-              Edit idea
-            </button>
-            <button
-              type="button"
-              className="minimal-back"
-              disabled={busy || followUpConflict}
-              onClick={() => void run(async () => {
-                const slot = `follow-up:${activeFollowUp.id}`
-                if (!operations.hasPending(slot)) {
-                  setPendingFollowUp({ questionId: activeFollowUp.id, kind: 'skip' })
-                }
-                await operations.run(slot, (clientOperationId) => () => respondToFollowUp({
-                  eventSlug,
-                  questionId: activeFollowUp.id,
-                  skipped: true,
-                  expectedDraftVersion: followUpBase.current.version,
-                  clientOperationId,
-                }))
-                clearSessionDraft(`c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`)
-                setAnswer('')
-                setFollowUpConflict(false)
-                stopEditing()
-                setPendingFollowUp(null)
-              })}
-            >
-              Skip
-            </button>
-            <span className="character-count">{answer.length} / {draft.intakePolicy.followUpAnswerMaxLength}</span>
-            <button type="submit" className="minimal-continue" disabled={busy || followUpConflict || answer.trim().length < draft.intakePolicy.followUpAnswerMinLength}>
-              {busy ? 'Saving…' : 'Continue'} <span aria-hidden="true">→</span>
-            </button>
-          </div>
-        </form>
-      </IntakeFrame>
+          </form>
+        </PetalCard>
+      </IntakeStage>
     )
   }
 
+  // ---- f5 / f6 · review, then confirm --------------------------------------
   if (draft.stage === 'review') {
     if (preview === undefined || preview === null) {
       return (
-        <IntakeFrame label="Final check">
-          <h1>Putting everything together…</h1>
-          <p className="minimal-step-hint">Your current team and idea will appear here.</p>
-        </IntakeFrame>
+        <IntakeStage
+          team={team}
+          members={members}
+          title="Putting everything together…"
+          hint="Your current team and idea will appear here."
+        />
       )
     }
     const confirmationKey = [
@@ -684,171 +869,71 @@ function IntakeWorkspace({
       editors.length === 0 &&
       team.currentRole === 'lead' &&
       team.canSubmitApplication
-    return (
-      <IntakeFrame label="Final check" wide>
-        <h1>Everything look right?</h1>
-        <p className="minimal-step-hint">Submitting locks your current team. The lead can still revise the proposal until the application deadline.</p>
-        <EditingPresence editors={editors ?? []} members={members} />
-        <div className="minimal-review-layout">
-          <div className="minimal-review-card">
-            <div className="review-card-heading">
-              <div>
-                <span>Application preview</span>
-                <strong>{preview.teamName}</strong>
-              </div>
-            </div>
-            <div className="review-grid">
-              <div className="review-block team-review-block">
-                <span className="field-label">Team · {preview.memberCount} {preview.memberCount === 1 ? 'member' : 'members'}</span>
-                <ul className="plain-list">
-                  {preview.members.map((member) => (
-                    <li key={member.membershipId}>
-                      <span>{member.displayName}</span>
-                      <small>
-                        {member.role === 'lead' ? 'Team lead' : 'Member'}
-                        {member.submissionReady ? '' : ' · needs attention before submission'}
-                      </small>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-            <div className="review-block project-review-block">
-              <span className="field-label">Your idea</span>
-              <p className="preserve-lines">{preview.initialIdea}</p>
-              {recoveredFollowUp ? (
-                <div className="notice" role="status">
-                  <p>A teammate answered while you were typing. Your draft is still available.</p>
+
+    const editIdea = () => {
+      const savedIdea = preview.initialIdea ?? ''
+      ideaBase.current = { version: preview.draftVersion }
+      setIdea(savedIdea)
+      setIdeaDirty(false)
+      setEditingIdea(true)
+    }
+
+    // f6 · confirm
+    if (confirming) {
+      return (
+        <IntakeStage
+          team={team}
+          members={members}
+          title="Ready to submit?"
+          steps={{ total: stepTotal, current: stepTotal }}
+          width="max-w-[600px]"
+          titleClass="lg:text-[42px]"
+          branch
+        >
+          <PetalCard className="px-8 pt-7 pb-4">
+            <div className="mb-3.5 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="mb-1 truncate text-[15.5px] font-semibold">{preview.teamName}</p>
+                <p className="text-xs text-[rgb(248_248_248/.5)]">
+                  proposal + {preview.followUps.length}{' '}
+                  {preview.followUps.length === 1 ? 'answer' : 'answers'} ·{' '}
                   <button
                     type="button"
-                    className="text-button"
-                    onClick={() => {
-                      setEditingFollowUpId(recoveredFollowUp.questionId)
-                      setEditedFollowUpAnswer(recoveredFollowUp.answer)
-                      setRevisionBaseVersion(preview.draftVersion)
-                      setRecoveredFollowUp(null)
-                    }}
+                    onClick={() => setConfirming(false)}
+                    className="text-rose-light underline-offset-2 hover:underline"
                   >
-                    Review my draft
+                    review
                   </button>
-                </div>
-              ) : null}
-              {preview.followUps.map((followUp) => (
-                <div className="review-follow-up" key={followUp.id}>
-                  <p className="review-question">{followUp.question}</p>
-                  {editingFollowUpId === followUp.id ? (
-                    <form
-                      className="review-follow-up-editor"
-                      onSubmit={(event) => {
-                        event.preventDefault()
-                        void run(async () => {
-                          const slot = `follow-up-revision:${followUp.id}`
-                          if (!operations.hasPending(slot)) {
-                            setPendingRevisionId(followUp.id)
-                            setPendingRevisionKind('answer')
-                          }
-                          await operations.run(slot, (clientOperationId) => () => reviseFollowUp({
-                              eventSlug,
-                              questionId: followUp.id,
-                              answer: editedFollowUpAnswer,
-                              skipped: false,
-                              expectedDraftVersion: revisionBaseVersion ?? preview.draftVersion,
-                              clientOperationId,
-                            }))
-                          setPendingRevisionId(null)
-                          setPendingRevisionKind(null)
-                          setEditingFollowUpId(null)
-                          setRevisionBaseVersion(null)
-                          stopEditing()
-                        })
-                      }}
-                    >
-                      <TextArea
-                        autoFocus
-                        required
-                        minLength={draft.intakePolicy.followUpAnswerMinLength}
-                        maxLength={draft.intakePolicy.followUpAnswerMaxLength}
-                        rows={4}
-                        disabled={busy}
-                        value={editedFollowUpAnswer}
-                        onChange={(event) => {
-                          setEditedFollowUpAnswer(event.target.value)
-                          markEditing('follow_up')
-                        }}
-                      />
-                      {revisionConflict ? (
-                        <div className="notice" role="status">
-                          <p>A teammate saved a newer answer. Your text is still here.</p>
-                          <div className="button-row">
-                            <button type="button" className="text-button" onClick={() => {
-                              setEditedFollowUpAnswer(followUp.answer ?? '')
-                              setRevisionBaseVersion(preview.draftVersion)
-                            }}>Use saved version</button>
-                            <button type="button" className="text-button" onClick={() => {
-                              setRevisionBaseVersion(preview.draftVersion)
-                            }}>Keep mine</button>
-                          </div>
-                        </div>
-                      ) : null}
-                      <div className="button-row">
-                        <button className="secondary" disabled={busy} type="button" onClick={() => {
-                          setEditingFollowUpId(null)
-                          setRevisionBaseVersion(null)
-                          stopEditing()
-                        }}>Cancel</button>
-                        <button className="secondary" disabled={busy} type="button" onClick={() => void run(async () => {
-                          const slot = `follow-up-revision:${followUp.id}`
-                          if (!operations.hasPending(slot)) {
-                            setPendingRevisionId(followUp.id)
-                            setPendingRevisionKind('skip')
-                          }
-                          await operations.run(slot, (clientOperationId) => () => reviseFollowUp({
-                              eventSlug,
-                              questionId: followUp.id,
-                              skipped: true,
-                              expectedDraftVersion: revisionBaseVersion ?? preview.draftVersion,
-                              clientOperationId,
-                            }))
-                          setPendingRevisionId(null)
-                          setPendingRevisionKind(null)
-                          setEditingFollowUpId(null)
-                          setRevisionBaseVersion(null)
-                          stopEditing()
-                        })}>Skip answer</button>
-                        <button className="primary" disabled={busy || revisionConflict || editedFollowUpAnswer.trim().length < draft.intakePolicy.followUpAnswerMinLength} type="submit">
-                          Save
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <>
-                      <p className="preserve-lines muted">{followUp.skipped ? 'Skipped' : followUp.answer}</p>
-                      <button
-                        className="text-button"
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                          setEditingFollowUpId(followUp.id)
-                          setEditedFollowUpAnswer(followUp.answer ?? '')
-                          setRevisionBaseVersion(preview.draftVersion)
-                        }}
-                      >
-                        Edit answer
-                      </button>
-                    </>
-                  )}
-                </div>
-              ))}
+                </p>
+              </div>
+              <div
+                className="flex flex-none"
+                title={preview.members.map((member) => member.displayName).join(', ')}
+              >
+                {preview.members.map((member, index) => (
+                  <div
+                    key={member.membershipId}
+                    className={`flex size-8 items-center justify-center rounded-full text-[10.5px] font-semibold ${
+                      member.role === 'lead'
+                        ? 'border-[1.5px] border-rose-light bg-avatar-lead'
+                        : 'border-[1.5px] border-[rgb(216_132_162/.7)] bg-avatar'
+                    } ${index > 0 ? '-ml-2' : ''}`}
+                  >
+                    {initialsOf(member.displayName)}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="minimal-confirmation-card">
-            <label className="check-row lock-confirmation">
-              <input
-                type="checkbox"
+
+            <p className="mb-4 border-t border-petal-line pt-4 font-display text-[17px] leading-normal italic text-rose-light">
+              {preview.warning}
+            </p>
+
+            <div className="flex flex-col gap-3">
+              <PortalCheckRow
                 checked={preview.freshnessAttested}
                 disabled={busy}
-                onChange={(event) => {
-                  const accepted = event.target.checked
+                onChange={(accepted) => {
                   void run(async () => {
                     await operations.run('freshness', (clientOperationId) => () => setFreshness({
                       eventSlug,
@@ -858,78 +943,304 @@ function IntakeWorkspace({
                     }))
                   })
                 }}
-              />
-              <span>We will begin project-specific implementation and design after the official start.</span>
-            </label>
-            <label className="check-row lock-confirmation strong-warning">
-              <input
-                type="checkbox"
+              >
+                We will begin project-specific implementation and design after the official start.
+              </PortalCheckRow>
+              <PortalCheckRow
                 checked={confirmedLock}
                 disabled={busy}
-                onChange={(event) => setConfirmedSnapshotKey(event.target.checked ? confirmationKey : null)}
-              />
-              <span>{preview.warning}</span>
-            </label>
+                onChange={(checked) => setConfirmedSnapshotKey(checked ? confirmationKey : null)}
+              >
+                I understand submitting locks the team.
+              </PortalCheckRow>
+            </div>
+
+            {preview.members.some((member) => !member.submissionReady) ? (
+              <p className="mt-4 text-[12.5px] text-rose-light">
+                Needs attention before submission:{' '}
+                {preview.members
+                  .filter((member) => !member.submissionReady)
+                  .map((member) => member.displayName)
+                  .join(', ')}
+              </p>
+            ) : null}
             {preview.blockers.length ? (
-              <ul className="blocker-list">
-                {preview.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+              <ul className="mt-4 list-disc space-y-1 pl-5 text-[12.5px] text-rose-light">
+                {preview.blockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
               </ul>
             ) : null}
-            {team.currentRole !== 'lead' ? <p className="notice">The team lead must submit.</p> : null}
+            {team.currentRole !== 'lead' ? (
+              <p className="mt-4 text-[12.5px] text-rose-light">The team lead must submit.</p>
+            ) : null}
             {team.currentRole === 'lead' && !team.canSubmitApplication ? (
-              <p className="notice">Submission is unavailable. Ask an organizer if this looks wrong.</p>
+              <p className="mt-4 text-[12.5px] text-rose-light">
+                Submission is unavailable. Ask an organizer if this looks wrong.
+              </p>
             ) : null}
             {editors !== undefined && editors.length > 0 ? (
-              <p className="notice">Wait for your teammate’s current edit before submitting.</p>
+              <p className="mt-4 text-[12.5px] text-rose-light">
+                Wait for your teammate’s current edit before submitting.
+              </p>
             ) : null}
-            <ErrorNotice message={error} />
-            <div className="minimal-surface-actions">
-              <button type="button" className="minimal-back" disabled={busy} onClick={() => {
-                const savedIdea = preview.initialIdea ?? ''
-                ideaBase.current = { version: preview.draftVersion }
-                setIdea(savedIdea)
-                setIdeaDirty(false)
-                setEditingIdea(true)
-              }}>Edit idea</button>
-              <button
+            <PortalError message={error ?? submissionFailureMessage ?? null} />
+
+            <div className="mt-4 flex items-center justify-between border-t border-petal-line pt-3.5">
+              <PortalTextButton type="button" disabled={busy} onClick={() => setConfirming(false)}>
+                back
+              </PortalTextButton>
+              <PortalButton
                 type="button"
-                className="minimal-continue"
+                size="sm"
                 disabled={busy || !canSubmit}
                 onClick={() => {
-                  void run(() => operations.run(
-                    'final-submit',
-                    (clientOperationId) => () => submitApplication({
-                      eventSlug,
-                      expectedDraftVersion: preview.draftVersion,
-                      expectedTeamVersion: preview.teamVersion,
-                      participantPolicyVersionId: preview.participantPolicyVersionId,
-                      clientOperationId,
-                    }),
-                  ))
+                  void run(() =>
+                    operations.run(
+                      'final-submit',
+                      (clientOperationId) => () => submitApplication({
+                        eventSlug,
+                        expectedDraftVersion: preview.draftVersion,
+                        expectedTeamVersion: preview.teamVersion,
+                        participantPolicyVersionId: preview.participantPolicyVersionId,
+                        clientOperationId,
+                      }),
+                    ),
+                  )
                 }}
               >
-                {busy ? 'Submitting…' : 'Confirm and submit'} <span aria-hidden="true">→</span>
-              </button>
+                {busy ? 'Submitting…' : 'Submit proposal'}
+              </PortalButton>
             </div>
+          </PetalCard>
+        </IntakeStage>
+      )
+    }
+
+    // f5 · the proposal, together
+    return (
+      <PortalScene tree="left" header={<TeamCluster team={team} members={members} />}>
+        <div className="flex w-full max-w-[760px] flex-col items-center">
+          <p className="mb-1.5 font-display text-[17px] italic text-rose-light">
+            your proposal, together
+          </p>
+          <h1 className="mb-7 text-center font-display text-3xl text-shadow-[0_6px_40px_rgba(0,0,0,.6)] lg:text-[44px]">
+            {preview.teamName}
+          </h1>
+
+          <EditingPresence editors={editors ?? []} members={members} />
+
+          <PetalCard className="px-8 py-6">
+            <ReviewSection label="the idea" onEdit={editIdea} busy={busy}>
+              <p className="whitespace-pre-line">{preview.initialIdea}</p>
+            </ReviewSection>
+
+            {recoveredFollowUp ? (
+              <div
+                role="status"
+                className="mt-4 rounded-petal-xs border border-petal-edge-soft bg-[rgb(12_0_4/.5)] px-4 py-3"
+              >
+                <p className="text-[12.5px] text-[rgb(248_248_248/.75)]">
+                  A teammate answered while you were typing. Your draft is still available.
+                </p>
+                <PortalTextButton
+                  type="button"
+                  className="mt-2"
+                  onClick={() => {
+                    setEditingFollowUpId(recoveredFollowUp.questionId)
+                    setEditedFollowUpAnswer(recoveredFollowUp.answer)
+                    setRevisionBaseVersion(preview.draftVersion)
+                    setRecoveredFollowUp(null)
+                  }}
+                >
+                  Review my draft
+                </PortalTextButton>
+              </div>
+            ) : null}
+
+            {preview.followUps.map((followUp) => (
+              <ReviewSection
+                key={followUp.id}
+                label={followUp.question}
+                busy={busy}
+                {...(editingFollowUpId === followUp.id
+                  ? {}
+                  : {
+                      onEdit: () => {
+                        setEditingFollowUpId(followUp.id)
+                        setEditedFollowUpAnswer(followUp.answer ?? '')
+                        setRevisionBaseVersion(preview.draftVersion)
+                      },
+                    })}
+              >
+                {editingFollowUpId === followUp.id ? (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      void run(async () => {
+                        const slot = `follow-up-revision:${followUp.id}`
+                        if (!operations.hasPending(slot)) {
+                          setPendingRevisionId(followUp.id)
+                          setPendingRevisionKind('answer')
+                        }
+                        await operations.run(slot, (clientOperationId) => () => reviseFollowUp({
+                            eventSlug,
+                            questionId: followUp.id,
+                            answer: editedFollowUpAnswer,
+                            skipped: false,
+                            expectedDraftVersion: revisionBaseVersion ?? preview.draftVersion,
+                            clientOperationId,
+                          }))
+                        setPendingRevisionId(null)
+                        setPendingRevisionKind(null)
+                        setEditingFollowUpId(null)
+                        setRevisionBaseVersion(null)
+                        stopEditing()
+                      })
+                    }}
+                  >
+                    <PortalTextarea
+                      autoFocus
+                      required
+                      minLength={draft.intakePolicy.followUpAnswerMinLength}
+                      maxLength={draft.intakePolicy.followUpAnswerMaxLength}
+                      rows={4}
+                      disabled={busy}
+                      value={editedFollowUpAnswer}
+                      onChange={(event) => {
+                        setEditedFollowUpAnswer(event.target.value)
+                        markEditing('follow_up')
+                      }}
+                    />
+                    {revisionConflict ? (
+                      <ConflictNotice
+                        message="A teammate saved a newer answer. Your text is still here."
+                        onUseSaved={() => {
+                          setEditedFollowUpAnswer(followUp.answer ?? '')
+                          setRevisionBaseVersion(preview.draftVersion)
+                        }}
+                        onKeepMine={() => setRevisionBaseVersion(preview.draftVersion)}
+                      />
+                    ) : null}
+                    <div className="mt-3 flex items-center gap-4">
+                      <PortalTextButton
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setEditingFollowUpId(null)
+                          setRevisionBaseVersion(null)
+                          stopEditing()
+                        }}
+                      >
+                        cancel
+                      </PortalTextButton>
+                      <PortalTextButton
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            const slot = `follow-up-revision:${followUp.id}`
+                            if (!operations.hasPending(slot)) {
+                              setPendingRevisionId(followUp.id)
+                              setPendingRevisionKind('skip')
+                            }
+                            await operations.run(slot, (clientOperationId) => () => reviseFollowUp({
+                                eventSlug,
+                                questionId: followUp.id,
+                                skipped: true,
+                                expectedDraftVersion: revisionBaseVersion ?? preview.draftVersion,
+                                clientOperationId,
+                              }))
+                            setPendingRevisionId(null)
+                            setPendingRevisionKind(null)
+                            setEditingFollowUpId(null)
+                            setRevisionBaseVersion(null)
+                            stopEditing()
+                          })
+                        }
+                      >
+                        skip answer
+                      </PortalTextButton>
+                      <PortalButton
+                        type="submit"
+                        size="sm"
+                        className="ml-auto"
+                        disabled={
+                          busy ||
+                          revisionConflict ||
+                          editedFollowUpAnswer.trim().length <
+                            draft.intakePolicy.followUpAnswerMinLength
+                        }
+                      >
+                        Save
+                      </PortalButton>
+                    </div>
+                  </form>
+                ) : (
+                  <p className="whitespace-pre-line">
+                    {followUp.skipped ? 'Skipped' : followUp.answer}
+                  </p>
+                )}
+              </ReviewSection>
+            ))}
+
+          </PetalCard>
+
+          <PortalError message={error ?? submissionFailureMessage ?? null} />
+
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-5">
+            <PortalButton type="button" disabled={busy} onClick={() => setConfirming(true)}>
+              Continue to submit
+            </PortalButton>
+            <span className="text-xs text-[rgb(248_248_248/.45)]">
+              the next screen locks the team, not the writing
+            </span>
           </div>
         </div>
-      </IntakeFrame>
+      </PortalScene>
     )
   }
 
   return null
 }
 
-function IntakeFrame({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
+/** One labelled, separately-editable block of the review card (mockup f5). */
+function ReviewSection({
+  label,
+  onEdit,
+  busy,
+  children,
+}: {
+  label: string
+  onEdit?: () => void
+  busy: boolean
+  children: ReactNode
+}) {
   return (
-    <section className={wide ? 'minimal-step wide-step' : 'minimal-step'} aria-label={`Application · ${label}`}>
-      <p className="minimal-step-count">{label}</p>
-      {children}
+    <section className="border-b border-petal-line py-4 first:pt-0 last:border-b-0 last:pb-0">
+      <div className="mb-1.5 flex items-baseline justify-between gap-4">
+        <span className="text-[11px] tracking-[.06em] text-[rgb(248_248_248/.45)]">{label}</span>
+        {onEdit ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onEdit}
+            className="flex-none text-[11.5px] text-rose-light underline-offset-2 hover:underline disabled:opacity-50"
+          >
+            edit
+          </button>
+        ) : null}
+      </div>
+      <div className="text-sm leading-relaxed text-[rgb(248_248_248/.9)]">{children}</div>
     </section>
   )
 }
 
-function NoveltyCounter({
+/**
+ * The live novelty read, shown as the floating pill the mockup puts above the
+ * idea card. Reads as "N% distinct" once the idea is long enough to score.
+ */
+function NoveltyPill({
   state,
   currentLength,
   minimumLength,
@@ -939,17 +1250,22 @@ function NoveltyCounter({
   minimumLength: number | null
 }) {
   if (minimumLength === null) return null
-  const value = currentLength < minimumLength || state.status === 'idle'
-    ? '—'
-    : state.status === 'checking'
-      ? '…'
-      : state.status === 'unavailable'
-        ? '—'
-        : String(state.signal.score)
+  const label =
+    currentLength < minimumLength || state.status === 'idle'
+      ? 'keep writing'
+      : state.status === 'checking'
+        ? 'checking…'
+        : state.status === 'unavailable'
+          ? 'novelty unavailable'
+          : `${state.signal.score}% distinct`
   return (
-    <p className="novelty-score" aria-live="polite" aria-label="Live novelty score">
-      <span>Novelty</span>
-      <strong>{value}<small>/100</small></strong>
+    <p
+      aria-live="polite"
+      aria-label="Live novelty score"
+      className="inline-flex items-center gap-1.5 rounded-full border border-[rgb(254_180_203/.45)] bg-[rgb(12_0_4/.55)] px-3.5 py-1.5 text-[11.5px] text-rose-light backdrop-blur-md"
+    >
+      <Petal size={10} />
+      {label}
     </p>
   )
 }

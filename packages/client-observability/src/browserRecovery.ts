@@ -1,0 +1,117 @@
+const automaticReloadGuardKey = 'code2create:chunk-reload'
+const automaticReloadGuardWindowMs = 30_000
+
+type AutomaticReloadAttempt = {
+  href: string
+  attemptedAt: number
+}
+
+const chunkLoadFailurePatterns = [
+  /chunkloaderror/i,
+  /loading (?:css )?chunk [\w-]+ failed/i,
+  /failed to fetch dynamically imported module/i,
+  /error loading dynamically imported module/i,
+  /importing a module script failed/i,
+  /unable to preload css/i,
+]
+
+export function isChunkLoadFailure(error: unknown): boolean {
+  const message = errorMessage(error)
+  return chunkLoadFailurePatterns.some((pattern) => pattern.test(message))
+}
+
+export function automaticChunkReloadIsAvailable(
+  storedAttempt: string | null,
+  href: string,
+  now: number,
+): boolean {
+  const attempt = parseAutomaticReloadAttempt(storedAttempt)
+  return attempt === null || attempt.href !== href || now - attempt.attemptedAt >= automaticReloadGuardWindowMs
+}
+
+/**
+ * Vite emits `vite:preloadError` when a lazy route asset cannot be fetched. A
+ * page reload is required because React.lazy and the browser module loader keep
+ * the rejected import. This installs one guarded recovery for the current URL,
+ * waiting for connectivity when the device is offline.
+ */
+export function installBrowserChunkRecovery(): void {
+  if (typeof window === 'undefined') return
+
+  let waitingForConnectivity = false
+
+  window.addEventListener('vite:preloadError', (event) => {
+    const now = Date.now()
+    const href = window.location.href
+    if (!automaticReloadAvailableInSession(href, now)) return
+
+    if (window.navigator.onLine) {
+      if (!claimAutomaticReload(href, now)) return
+      event.preventDefault()
+      window.location.reload()
+      return
+    }
+
+    event.preventDefault()
+    if (waitingForConnectivity) return
+    waitingForConnectivity = true
+    window.addEventListener(
+      'online',
+      () => {
+        waitingForConnectivity = false
+        const connectedAt = Date.now()
+        const connectedHref = window.location.href
+        if (claimAutomaticReload(connectedHref, connectedAt)) window.location.reload()
+      },
+      { once: true },
+    )
+  })
+}
+
+function automaticReloadAvailableInSession(href: string, now: number): boolean {
+  try {
+    return automaticChunkReloadIsAvailable(window.sessionStorage.getItem(automaticReloadGuardKey), href, now)
+  } catch {
+    return false
+  }
+}
+
+function claimAutomaticReload(href: string, attemptedAt: number): boolean {
+  try {
+    const storedAttempt = window.sessionStorage.getItem(automaticReloadGuardKey)
+    if (!automaticChunkReloadIsAvailable(storedAttempt, href, attemptedAt)) return false
+    window.sessionStorage.setItem(
+      automaticReloadGuardKey,
+      JSON.stringify({ href, attemptedAt } satisfies AutomaticReloadAttempt),
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return `${error.name}: ${error.message}`
+  return typeof error === 'string' ? error : ''
+}
+
+function parseAutomaticReloadAttempt(value: string | null): AutomaticReloadAttempt | null {
+  if (value === null) return null
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'href' in parsed &&
+      typeof parsed.href === 'string' &&
+      'attemptedAt' in parsed &&
+      typeof parsed.attemptedAt === 'number' &&
+      Number.isFinite(parsed.attemptedAt)
+    ) {
+      return { href: parsed.href, attemptedAt: parsed.attemptedAt }
+    }
+    return null
+  } catch {
+    return null
+  }
+}

@@ -10,11 +10,16 @@ import {
   teamRosterCounts,
 } from "./teamRoster";
 
-export type TeamBackfillOutcome =
+type TeamBackfillOutcome =
   | "still_pending"
   | "skipped_has_team"
   | "waiting_for_lead"
   | "claimed";
+
+type TeamBackfillResult = {
+  outcome: TeamBackfillOutcome;
+  claimedCount: number;
+};
 
 function isTeamPlacementFailure(error: unknown): boolean {
   if (!(error instanceof ConvexError)) return false;
@@ -70,23 +75,26 @@ export async function applyTeamRosterEntry(
     event: Doc<"events">;
     entry: Doc<"teamRosterEntries">;
     actorPersonId: Id<"people">;
+    maximumClaims?: number;
   },
-): Promise<TeamBackfillOutcome> {
+): Promise<TeamBackfillResult> {
   const entry = args.entry;
   const now = Date.now();
   const person = await ctx.db
     .query("people")
     .withIndex("by_verified_email", (index) => index.eq("verifiedEmail", entry.emailNormalized))
     .unique();
-  if (!person) return "still_pending";
+  if (!person) return { outcome: "still_pending", claimedCount: 0 };
   const membership = await ctx.db
     .query("eventMemberships")
     .withIndex("by_event_person", (index) =>
       index.eq("eventId", args.event._id).eq("personId", person._id),
     )
     .unique();
-  if (!membership) return "still_pending";
-  if (membership.eligibilityStatus !== "eligible") return "still_pending";
+  if (!membership) return { outcome: "still_pending", claimedCount: 0 };
+  if (membership.eligibilityStatus !== "eligible") {
+    return { outcome: "still_pending", claimedCount: 0 };
+  }
 
   const existingMember = await ctx.db
     .query("teamMembers")
@@ -102,7 +110,7 @@ export async function applyTeamRosterEntry(
       status: "skipped_has_team",
       version: entry.version + 1,
     });
-    return "skipped_has_team";
+    return { outcome: "skipped_has_team", claimedCount: 0 };
   }
 
   try {
@@ -112,9 +120,12 @@ export async function applyTeamRosterEntry(
       membership,
       actorPersonId: args.actorPersonId,
       now,
+      ...(args.maximumClaims === undefined ? {} : { maximumClaims: args.maximumClaims }),
     });
   } catch (error) {
-    if (isTeamPlacementFailure(error)) return "still_pending";
+    if (isTeamPlacementFailure(error)) {
+      return { outcome: "still_pending", claimedCount: 0 };
+    }
     throw error;
   }
 }
@@ -127,8 +138,9 @@ async function placeTeamRosterEntry(
     membership: Doc<"eventMemberships">;
     actorPersonId: Id<"people">;
     now: number;
+    maximumClaims?: number;
   },
-): Promise<TeamBackfillOutcome> {
+): Promise<TeamBackfillResult> {
   const { entry, membership, now } = args;
   const participantPolicy = await loadPublishedParticipantPolicy(ctx, args.event);
 
@@ -136,7 +148,9 @@ async function placeTeamRosterEntry(
     eventId: args.event._id,
     name: entry.teamName,
   });
-  if (activeMatches.length > 1) return "still_pending";
+  if (activeMatches.length > 1) {
+    return { outcome: "still_pending", claimedCount: 0 };
+  }
   const team = activeMatches[0];
 
   if (!team) {
@@ -156,33 +170,36 @@ async function placeTeamRosterEntry(
         claimedTeamId: created.teamId,
         claimedAt: now,
       });
-      await applyFollowingEntries(ctx, {
+      const followerCount = await applyFollowingEntries(ctx, {
         event: args.event,
         teamId: created.teamId,
         teamName: entry.teamName,
         actorPersonId: args.actorPersonId,
         teamMaximumSize: participantPolicy.normalized.teamMaximumSize,
+        maximumClaims: Math.max(0, (args.maximumClaims ?? participantPolicy.normalized.teamMaximumSize) - 1),
       });
-      return "claimed";
+      return { outcome: "claimed", claimedCount: 1 + followerCount };
     }
     await ctx.db.patch(entry._id, {
       status: "waiting_for_lead",
       version: entry.version + 1,
     });
-    return "waiting_for_lead";
+    return { outcome: "waiting_for_lead", claimedCount: 0 };
   }
 
-  if (team.membershipLocked) return "still_pending";
+  if (team.membershipLocked) {
+    return { outcome: "still_pending", claimedCount: 0 };
+  }
   const rosterCounts = teamRosterCounts(team);
   if (rosterCounts.activeMemberCount >= participantPolicy.normalized.teamMaximumSize) {
-    return "still_pending";
+    return { outcome: "still_pending", claimedCount: 0 };
   }
   if (
     !participantPolicy.normalized.mixedParticipantClassesAllowed &&
     rosterCounts.activeMemberCount > 0 &&
     !teamContainsParticipantClass(team, membership.participantClass)
   ) {
-    return "still_pending";
+    return { outcome: "still_pending", claimedCount: 0 };
   }
 
   const role = entry.role;
@@ -197,7 +214,9 @@ async function placeTeamRosterEntry(
       (member) =>
         member.role === "lead" && member.membershipId !== membership._id,
     );
-    if (leadSeatTaken) return "still_pending";
+    if (leadSeatTaken) {
+      return { outcome: "still_pending", claimedCount: 0 };
+    }
   }
 
   const { teamMemberId } = await insertActiveTeamMember(ctx, {
@@ -228,7 +247,7 @@ async function placeTeamRosterEntry(
     claimedTeamId: team._id,
     claimedAt: now,
   });
-  return "claimed";
+  return { outcome: "claimed", claimedCount: 1 };
 }
 
 /**
@@ -244,8 +263,10 @@ async function applyFollowingEntries(
     teamName: string;
     actorPersonId: Id<"people">;
     teamMaximumSize: number;
+    maximumClaims: number;
   },
 ) {
+  if (args.maximumClaims === 0) return 0;
   const followers = await ctx.db
     .query("teamRosterEntries")
     .withIndex("by_event_team_status", (index) =>
@@ -264,25 +285,37 @@ async function applyFollowingEntries(
   const ordered = [...followers, ...waiting].sort(
     (left, right) => left.sourceRowNumber - right.sourceRowNumber,
   );
+  let claimedCount = 0;
   for (const entry of ordered) {
+    if (claimedCount >= args.maximumClaims) break;
     const team = await ctx.db.get(args.teamId);
     if (!team) throw new Error("The backfilled team did not persist.");
     if (teamRosterCounts(team).activeMemberCount >= args.teamMaximumSize) break;
-    await applyTeamRosterEntry(ctx, {
+    const currentEntry = await ctx.db.get(entry._id);
+    if (
+      !currentEntry ||
+      (currentEntry.status !== "pending" && currentEntry.status !== "waiting_for_lead")
+    ) {
+      continue;
+    }
+    const result = await applyTeamRosterEntry(ctx, {
       event: args.event,
-      entry,
+      entry: currentEntry,
       actorPersonId: args.actorPersonId,
+      maximumClaims: 1,
     });
+    claimedCount += result.claimedCount;
   }
+  return claimedCount;
 }
 
 /**
  * Finds the one non-terminal roster entry for a person's email, if any.
  * Import supersede rules keep at most one pending or waiting entry per email.
  */
-export type PendingTeamRosterEntryStatus = "pending" | "waiting_for_lead";
+type PendingTeamRosterEntryStatus = "pending" | "waiting_for_lead";
 
-export type PendingTeamRosterEntry = Omit<
+type PendingTeamRosterEntry = Omit<
   Doc<"teamRosterEntries">,
   "status"
 > & {
@@ -360,18 +393,28 @@ export async function pendingTeamAssignees(
         .eq("status", "waiting_for_lead"),
     )
     .take(maximumPendingAssignees);
-  return [...pending, ...waiting]
+  const entries = [...pending, ...waiting]
     .sort((left, right) => {
       if (left.role !== right.role) return left.role === "lead" ? -1 : 1;
       return left.sourceRowNumber - right.sourceRowNumber;
     })
-    .slice(0, maximumPendingAssignees)
-    .map((entry) => ({
-      displayName: entry.displayName,
-      role: entry.role,
-      signedIn: entry.status === "waiting_for_lead",
-      isYou: entry.emailNormalized === args.viewerEmailNormalized,
-    }));
+    .slice(0, maximumPendingAssignees);
+  return Promise.all(
+    entries.map(async (entry) => {
+      const person = await ctx.db
+        .query("people")
+        .withIndex("by_verified_email", (index) =>
+          index.eq("verifiedEmail", entry.emailNormalized),
+        )
+        .unique();
+      return {
+        displayName: entry.displayName,
+        role: entry.role,
+        signedIn: person !== null,
+        isYou: entry.emailNormalized === args.viewerEmailNormalized,
+      };
+    }),
+  );
 }
 
 /**
@@ -384,7 +427,6 @@ export async function claimPendingTeamRosterEntry(
   args: {
     event: Doc<"events">;
     person: Doc<"people">;
-    membershipId: Id<"eventMemberships">;
   },
 ) {
   const entry = await teamRosterPendingEntry(ctx, {
@@ -393,11 +435,11 @@ export async function claimPendingTeamRosterEntry(
   });
   if (!entry) return "still_pending";
   try {
-    return await applyTeamRosterEntry(ctx, {
+    return (await applyTeamRosterEntry(ctx, {
       event: args.event,
       entry,
       actorPersonId: args.person._id,
-    });
+    })).outcome;
   } catch (error) {
     if (isTeamPlacementFailure(error)) return "still_pending";
     throw error;

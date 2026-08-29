@@ -253,7 +253,6 @@ export const provision = mutation({
       await claimPendingTeamRosterEntry(ctx, {
         event,
         person,
-        membershipId: existingMembership._id,
       });
       return { membershipId: existingMembership._id, created: false };
     }
@@ -408,7 +407,6 @@ export const provision = mutation({
     await claimPendingTeamRosterEntry(ctx, {
       event,
       person,
-      membershipId,
     });
 
     return { membershipId, created: true };

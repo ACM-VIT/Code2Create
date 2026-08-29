@@ -14,6 +14,10 @@ import { ProjectCheckpointsPanel } from '../components/ProjectCheckpointsPanel'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
+import { PortalScene } from '../components/portal/PortalScene'
+import { PetalCard } from '../components/portal/PetalCard'
+import { Petal } from '../components/portal/Petal'
+import { TeamCluster } from '../components/portal/TeamCluster'
 import {
   clearSessionDraft,
   readVersionedSessionDraft,
@@ -100,6 +104,9 @@ const applicationCopy: Record<ApplicationState, {
   },
 }
 
+/** The states the quiet queue screen (mockup f7) covers, before any decision. */
+const QUEUED_STATES: readonly ApplicationState[] = ['submitted', 'under_review', 'needs_information']
+
 export function SubmittedScreen({
   capabilities,
   publicState,
@@ -157,6 +164,7 @@ function SubmittedWorkspace({
   const responsePending = responseAttempt.hasPending('offer-response')
   const [busy, setBusy] = useState<'confirm' | 'decline' | null>(null)
   const [confirmDecline, setConfirmDecline] = useState(false)
+  const [proposalOpen, setProposalOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const event = publicState.event
   const phaseClock = useRef({
@@ -229,6 +237,96 @@ function SubmittedWorkspace({
     } finally {
       setBusy(null)
     }
+  }
+
+  // ---- f7 · the quiet queue state ----------------------------------------
+  // Everything before a decision reads as one still screen; the proposal
+  // editor stays one click away rather than sitting open under the hero.
+  if (!selected && QUEUED_STATES.includes(application.state)) {
+    return (
+      <PortalScene tree="none" header={<TeamCluster team={team} members={members} locked />}>
+        <div className="flex w-full max-w-[760px] flex-col items-center text-center">
+          <div className="mb-5 drop-shadow-[0_0_14px_rgba(254,180,203,.5)]">
+            <Petal size={34} />
+          </div>
+          <h1 className="mb-3.5 font-display text-5xl leading-none text-shadow-[0_8px_50px_rgba(0,0,0,.6)] lg:text-[70px]">
+            {copy.heading}
+          </h1>
+          <p className="mb-8 font-display text-base italic text-rose-light lg:text-[19px]">
+            {application.state === 'needs_information'
+              ? copy.message
+              : `${team.name} is in the review queue`}
+          </p>
+
+          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-[13px] text-[rgb(248_248_248/.65)]">
+            <span>
+              status <span className="text-paper">{copy.status.toLowerCase()}</span>
+            </span>
+            <span aria-hidden className="hidden h-3.5 w-px bg-[rgb(216_132_162/.4)] sm:block" />
+            <span>
+              team <span className="text-rose-light">locked</span>
+            </span>
+            {canEditProposal ? (
+              <>
+                <span aria-hidden className="hidden h-3.5 w-px bg-[rgb(216_132_162/.4)] sm:block" />
+                <span>
+                  editable until{' '}
+                  <span className="text-paper">
+                    {formatEventTime(intake.applicationsCloseAt, event.timezone)}
+                  </span>
+                </span>
+              </>
+            ) : null}
+          </div>
+
+          {application.state === 'needs_information' &&
+          application.informationRequest?.state === 'open' ? (
+            <div className="mt-9 w-full text-left">
+              <PetalCard className="px-7 py-6">
+                <InformationResponsePanel
+                  application={application}
+                  canRespond={intake.currentRole === 'lead' && team.canRespondToInformationRequest}
+                  currentRole={intake.currentRole}
+                  request={application.informationRequest}
+                />
+              </PetalCard>
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={() => setProposalOpen((open) => !open)}
+            className="mt-8 rounded-sm text-[13.5px] text-rose-light underline-offset-4 hover:underline"
+          >
+            {proposalOpen
+              ? 'hide proposal'
+              : canEditProposal
+                ? 'edit proposal'
+                : 'view proposal'}
+          </button>
+
+          {proposalOpen ? (
+            <div className="mt-6 w-full text-left">
+              <PetalCard className="px-7 py-6">
+                <ProposalSummary
+                  application={application}
+                  canEdit={canEditProposal}
+                  intake={intake}
+                  members={members}
+                  timezone={event.timezone}
+                />
+              </PetalCard>
+            </div>
+          ) : null}
+
+          {delivery && deliveryNeedsAttention(delivery.state) ? (
+            <p role="status" className="mt-6 text-[12.5px] text-rose-light">
+              {deliveryStatusCopy[delivery.state]}
+            </p>
+          ) : null}
+        </div>
+      </PortalScene>
+    )
   }
 
   return (

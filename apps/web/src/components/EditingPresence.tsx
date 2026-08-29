@@ -39,8 +39,15 @@ export function EditingPresence({
         : 'editing the proposal'
 
   return (
-    <p className="editing-presence" role="status" aria-live="polite">
-      <span aria-hidden="true" />
+    <p
+      role="status"
+      aria-live="polite"
+      className="mb-3 flex items-center gap-2 text-[11.5px] text-rose-light"
+    >
+      <span
+        aria-hidden="true"
+        className="size-1.5 flex-none animate-dot-pulse rounded-full bg-rose-light"
+      />
       {subject} {uniqueNames.length === 1 ? 'is' : 'are'} {action}…
     </p>
   )

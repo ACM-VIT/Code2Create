@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 
 import Navbar from './components/Navbar.js';
 import Journey from './journey/Journey.js';
@@ -6,8 +6,6 @@ import Petals, { type PetalFieldHandle } from './journey/Petals.js';
 import Footer from './sections/Footer.js';
 
 export default function App() {
-  const [openFaq, setOpenFaq] = useState<string | null>('0-0');
-
   /*
    * One petal field for the whole page. The boughs in the FAQ act and the
    * drift in the footer are the same particles — nothing is emitted at the
@@ -34,11 +32,7 @@ export default function App() {
       <Navbar />
 
       <main id="top">
-        <Journey
-          petalsRef={petalsRef}
-          openFaq={openFaq}
-          onFaqToggle={(id: string) => setOpenFaq((current) => (current === id ? null : id))}
-        />
+        <Journey petalsRef={petalsRef} />
       </main>
 
       <Footer />

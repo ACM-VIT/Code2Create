@@ -288,19 +288,17 @@ const emptyEntryCounts = {
 };
 
 async function eventEntryCounts(ctx: ReadCtx, eventId: Id<"events">) {
-  const [pending, waitingForLead, claimed, skipped, revoked, superseded] = await Promise.all([
+  const [pending, waitingForLead, claimed, skipped] = await Promise.all([
     countTeamRosterEntries(ctx, eventId, "pending"),
     countTeamRosterEntries(ctx, eventId, "waiting_for_lead"),
     countTeamRosterEntries(ctx, eventId, "claimed"),
     countTeamRosterEntries(ctx, eventId, "skipped_has_team"),
-    countTeamRosterEntries(ctx, eventId, "revoked"),
-    countTeamRosterEntries(ctx, eventId, "superseded"),
   ]);
   return {
     waiting: pending + waitingForLead,
     claimed,
     skipped,
-    total: pending + waitingForLead + claimed + skipped + revoked + superseded,
+    total: pending + waitingForLead + claimed + skipped,
   };
 }
 
@@ -528,15 +526,15 @@ export const previewImport = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const readGrantIds = await eventWideGrantIds(ctx, {
+    const importGrantIds = await eventWideGrantIds(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
-      permissionKey: "team.roster.read",
+      permissionKey: "team.roster.import",
     });
-    if (readGrantIds.length === 0) {
+    if (importGrantIds.length === 0) {
       throw new ConvexError({
         code: "ACCESS_DENIED",
-        message: "This account cannot preview a participant team import.",
+        message: "This account cannot import participant teams.",
       });
     }
     const prepared = await prepareTeamRosterPreview(ctx, event, args);
@@ -721,24 +719,34 @@ export const applyImport = internalMutation({
       .filter((entry) => entry.role === "lead" && entry.status === "pending")
       .sort((left, right) => left.sourceRowNumber - right.sourceRowNumber);
     const members = entries
-      .filter((entry) => entry.role === "member" && entry.status === "pending")
+      .filter(
+        (entry) =>
+          entry.role === "member" &&
+          (entry.status === "pending" || entry.status === "waiting_for_lead"),
+      )
       .sort((left, right) => left.sourceRowNumber - right.sourceRowNumber);
     let joinsPerformed = 0;
     let deferredByCap = false;
     for (const entry of [...leads, ...members]) {
-      if (entry.status !== "pending" && entry.status !== "waiting_for_lead") continue;
+      const currentEntry = await ctx.db.get(entry._id);
+      if (
+        !currentEntry ||
+        currentEntry.teamRosterImportId !== teamRosterImport._id ||
+        (currentEntry.status !== "pending" && currentEntry.status !== "waiting_for_lead")
+      ) {
+        continue;
+      }
       if (joinsPerformed >= maximumJoinsPerApplyRun) {
         deferredByCap = true;
         continue;
       }
-      const outcome = await applyTeamRosterEntry(ctx, {
+      const result = await applyTeamRosterEntry(ctx, {
         event,
-        entry,
+        entry: currentEntry,
         actorPersonId: teamRosterImport.createdByPersonId,
+        maximumClaims: maximumJoinsPerApplyRun - joinsPerformed,
       });
-      if (outcome === "claimed") {
-        joinsPerformed += 1;
-      }
+      joinsPerformed += result.claimedCount;
     }
     if (joinsPerformed > 0) {
       await ctx.db.patch(teamRosterImport._id, {

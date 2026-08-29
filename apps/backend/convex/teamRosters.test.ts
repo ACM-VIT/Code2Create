@@ -2,7 +2,7 @@ import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/compon
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test, vi } from "vitest";
 
-import { api, components } from "./_generated/api";
+import { api, components, internal } from "./_generated/api";
 import {
   defaultParticipantPolicy,
   normalizeParticipantPolicy,
@@ -612,6 +612,23 @@ describe("team roster backfill", () => {
     });
 
     await expect(
+      outsider.person.query(api.teamRosters.previewImport, {
+        eventSlug: fixture.eventSlug,
+        sourceName: "Imported teams",
+        rows: [
+          {
+            rowNumber: 2,
+            email: "blocked@gmail.com",
+            displayName: "Blocked Lead",
+            teamName: "Epsilon",
+            role: "lead",
+          },
+        ],
+        reason: "Should not be allowed",
+      }),
+    ).rejects.toThrow("cannot import participant teams");
+
+    await expect(
       outsider.person.mutation(api.teamRosters.confirmImport, {
         eventSlug: fixture.eventSlug,
         sourceName: "Imported teams",
@@ -967,6 +984,76 @@ describe("team roster backfill", () => {
       expect(leads.some((member) => member.membershipId === usurper.membershipId)).toBe(
         false,
       );
+    });
+  }, 30_000);
+
+  test("one apply run claims at most five people and preserves follower outcomes", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const rows: ImportRow[] = [];
+    for (const [teamIndex, teamName] of ["Quartz", "Topaz"].entries()) {
+      for (let memberIndex = 0; memberIndex < 4; memberIndex += 1) {
+        const email = `${teamName.toLowerCase()}-${memberIndex}@gmail.com`;
+        await provisionParticipant(backend, fixture, {
+          email,
+          googleSubject: `team-roster-cap-${teamIndex}-${memberIndex}`,
+        });
+        rows.push({
+          rowNumber: 2 + teamIndex * 4 + memberIndex,
+          email,
+          displayName: `${teamName} ${memberIndex}`,
+          teamName,
+          role: memberIndex === 0 ? "lead" : "member",
+        });
+      }
+    }
+
+    const preview = await importer.person.query(api.teamRosters.previewImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "Bounded import",
+      rows,
+      reason: "Verify bounded roster placement",
+    });
+    const imported = await importer.person.mutation(api.teamRosters.confirmImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "Bounded import",
+      rows,
+      reason: "Verify bounded roster placement",
+      previewChecksum: preview.previewChecksum,
+      clientOperationId: "team-roster-import-bounded",
+    });
+
+    await backend.mutation(internal.teamRosters.applyImport, {
+      teamRosterImportId: imported.teamRosterImportId,
+    });
+    await backend.run(async (ctx) => {
+      const teamRosterImport = await ctx.db.get(imported.teamRosterImportId);
+      expect(teamRosterImport?.appliedNowCount).toBe(5);
+      const entries = await ctx.db
+        .query("teamRosterEntries")
+        .withIndex("by_import_row", (index) =>
+          index.eq("teamRosterImportId", imported.teamRosterImportId),
+        )
+        .collect();
+      expect(entries.filter((entry) => entry.status === "claimed")).toHaveLength(5);
+      expect(entries.filter((entry) => entry.status === "skipped_has_team")).toHaveLength(0);
+    });
+
+    await backend.mutation(internal.teamRosters.applyImport, {
+      teamRosterImportId: imported.teamRosterImportId,
+    });
+    await backend.run(async (ctx) => {
+      const teamRosterImport = await ctx.db.get(imported.teamRosterImportId);
+      expect(teamRosterImport?.appliedNowCount).toBe(8);
+      const entries = await ctx.db
+        .query("teamRosterEntries")
+        .withIndex("by_import_row", (index) =>
+          index.eq("teamRosterImportId", imported.teamRosterImportId),
+        )
+        .collect();
+      expect(entries.every((entry) => entry.status === "claimed")).toBe(true);
     });
   }, 30_000);
 
