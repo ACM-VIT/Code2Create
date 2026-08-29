@@ -8,12 +8,12 @@
  * tablets and phones rather than just scaling it down.
  * ------------------------------------------------------------------ */
 
-/* ~1620vh of travel over the timeline's 249s — the same glide-not-resist
+/* ~1588vh of travel over the timeline's 244s — the same glide-not-resist
    pace as the 146s/1050vh cut; the added length is the schedule act
    running at five times its old scroll span. */
 .journey {
   position: relative;
-  height: 1720vh;
+  height: 1688vh;
 }
 
 .journey__stage {
@@ -217,7 +217,7 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: clamp(150px, 14.7vw, 188px);
+  width: clamp(162px, 15.8vw, 202px);
   aspect-ratio: 188 / 40.23;
   margin-top: clamp(20px, 4.6vh, 42px);
   font-family: var(--font-display);
@@ -240,6 +240,14 @@
 
 .hero-cta:hover {
   filter: drop-shadow(0 0 14px rgba(216, 132, 162, 0.55));
+}
+
+/* Date and venue, quiet under the button. */
+.hero-venue {
+  margin-top: clamp(12px, 2.4vh, 22px);
+  font-family: var(--font-display);
+  font-size: clamp(12px, 1.2vw, 16px);
+  color: rgba(255, 235, 243, 0.82);
 }
 
 /* ------------------------------------------------------------------ *
@@ -330,8 +338,10 @@
    so the longest chapter always ends above the fanned cards below. */
 .chapter__body {
   margin-top: clamp(10px, 2.6vh, 24px);
-  font-size: clamp(9.5px, min(1.05vw, 2.05vh), 13.5px);
-  line-height: 1.4;
+  /* The copy is short now, two brief paragraphs per chapter, so it can afford
+     to be read at a real size and still end well above the fanned cards. */
+  font-size: clamp(11px, min(1.35vw, 2.5vh), 17px);
+  line-height: 1.5;
   color: #fff;
 }
 
@@ -580,15 +590,17 @@
 
 /* The great blossom behind the day card: below the card (12) and the
    bonsai (7), above the sky wash — an ornament, never a curtain. Anchored
-   to the day card's own centre — the card is `left: 12%; width: min(700px,
-   56%)`, so its midline is 12% plus half of that — and sized huge but
-   bounded by the frame. */
+   to the day card's own centre — the card is `left: 12%; width: min(560px,
+   46%)`, so its midline is 12% plus half of that. */
 .rosette {
   position: absolute;
-  left: calc(12% + min(350px, 28%));
+  left: calc(12% + min(280px, 23%));
   top: 50%;
   z-index: 6;
-  width: min(94vh, 56vw);
+  /* Hidden while the act is trialled without the bloom — the routed petal
+     river alone frames the card. Delete this line to bring it back. */
+  display: none;
+  width: min(70vh, 42vw);
   aspect-ratio: 1;
   pointer-events: none;
   will-change: transform, opacity;
@@ -685,11 +697,15 @@
    stacked, so the tallest one sets the height for all of them. */
 .days {
   position: absolute;
-  left: 12%;
-  top: 50%;
+  /* Inside the pocket the petal river loops around: the route runs down the
+     left edge, along the floor and up at ~63% width, so the card sits a
+     little high and right of the frame's centre-left, clear of all three
+     runs. */
+  left: 16%;
+  top: 44%;
   z-index: 12;
   display: grid;
-  width: min(700px, 56%);
+  width: min(560px, 46%);
   transform: translateY(-50%);
 }
 
@@ -699,39 +715,46 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: clamp(24px, 3.8vw, 46px) clamp(24px, 4.2vw, 56px);
+  padding: clamp(20px, 3vw, 36px) clamp(20px, 3.4vw, 44px);
   background: var(--ink);
-  border: 3.862px solid var(--rose);
   border-radius: 21.643px 0 21.643px 0;
   /* Scrubbed through y/opacity the whole act — keep them composited. */
   will-change: transform, opacity;
 }
 
+/* Frameless now, so the type carries the card by itself: brighter, a step
+   larger, and shadowed so drifting petals never sit flush behind a glyph. */
 .day__title {
   font-family: var(--font-display);
   font-weight: 500;
-  font-size: clamp(18px, 2.43vw, 31px);
-  color: var(--rose);
+  font-size: clamp(19px, 2.3vw, 30px);
+  color: var(--rose-light);
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.85);
+  /* A wrapped title breaks into even lines, never an orphaned last word. */
+  text-wrap: balance;
 }
 
 /* The phase's date line, quieter than the title, above the body. */
 .day__when {
   margin-top: clamp(4px, 1vh, 10px);
   font-family: var(--font-display);
-  font-size: clamp(10px, 1.05vw, 14px);
+  font-size: clamp(11px, 1.15vw, 15px);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   text-align: center;
-  color: rgba(255, 235, 243, 0.72);
+  color: rgba(255, 235, 243, 0.92);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.85);
 }
 
 .day__body {
-  margin-top: clamp(8px, 2.4vh, 22px);
+  margin-top: clamp(8px, 2.4vh, 20px);
   font-family: var(--font-display);
-  font-size: clamp(9px, 1.22vw, 15.6px);
-  line-height: 1.32;
+  font-size: clamp(11px, 1.25vw, 16px);
+  line-height: 1.45;
   text-align: center;
   color: #fff;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.85);
+  text-wrap: pretty;
 }
 
 /* ------------------------------------------------------------------ *
@@ -949,6 +972,16 @@
  * ------------------------------------------------------------------ */
 
 @media (max-width: 1100px) {
+  /* The tree is sized off the viewport's width, so on a squarish tablet
+     frame it comes out short and hangs high, crowding the navbar and the
+     emblem. Lower it and hold it to the left so the mark and wordmark get
+     the same clear sky they have on a desktop frame. */
+  .hero-tree {
+    left: -34%;
+    top: 20%;
+    width: 92%;
+  }
+
   .chapters {
     left: 34%;
     width: 60%;
@@ -959,14 +992,17 @@
     width: 34%;
   }
 
+  /* Held inside the petal river's pocket, same as the desktop frame: the
+     stream descends at ~8-11% of the width, so 6% put the card straight
+     under it. */
   .days {
-    left: 6%;
-    width: 46%;
+    left: 16%;
+    width: 44%;
   }
 
-  /* The day card's midline at this breakpoint: 6% + half of 46%. */
+  /* The day card's midline at this breakpoint: 16% + half of 44%. */
   .rosette {
-    left: 29%;
+    left: 38%;
   }
 
   .rope--near {
@@ -975,6 +1011,15 @@
 
   .rope--far {
     right: 26px;
+  }
+}
+
+/* Portrait-ish frames above phone width: the petal route switches to its
+   flat band across ~58-61% of the height (the same h > 1.15w test the
+   canvas uses), so the card moves above the band instead of sitting in it. */
+@media (min-width: 761px) and (max-aspect-ratio: 100/115) {
+  .days {
+    top: 30%;
   }
 }
 
@@ -1003,15 +1048,19 @@
   }
 
   .hero-cta {
-    width: clamp(140px, 44vw, 180px);
+    width: clamp(152px, 48vw, 194px);
     font-size: clamp(12px, 3.6vw, 16px);
+  }
+
+  .hero-venue {
+    font-size: clamp(11px, 3.3vw, 14px);
   }
 
   /* Below the featured card, which sits across the top on a phone; the copy
      has to clear the fan of cards waiting further down. */
   .chapters {
     left: 6%;
-    top: 36.5%;
+    top: 41%;
     width: 88%;
   }
 
@@ -1020,8 +1069,8 @@
   }
 
   .chapter__body {
-    font-size: clamp(9px, 2.5vw, 11px);
-    line-height: 1.32;
+    font-size: clamp(10.5px, 3.1vw, 13.5px);
+    line-height: 1.42;
   }
 
   .lantern__label {

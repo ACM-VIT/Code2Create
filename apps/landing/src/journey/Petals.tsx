@@ -113,11 +113,14 @@ const SLUMP = 0.14;
  */
 /* Both routes begin and end well outside the frame, so neither the mouth nor
    the tail of the stream is ever on screen. */
+/* The climb hugs the right side harder than it used to: the phase card sits
+   inside this loop, and the old climb at ~0.63–0.71 cut into the card's right
+   edge on tablet and small-laptop widths. */
 const PATH_WIDE: readonly Point[] = [
   [-0.08, -0.1], [0.02, 0.14], [0.05, 0.3], [0.075, 0.62], [0.11, 0.8],
-  [0.2, 0.87], [0.34, 0.885], [0.46, 0.885], [0.56, 0.86],
-  [0.63, 0.72], [0.665, 0.45], [0.71, 0.24], [0.79, 0.16],
-  [0.88, 0.14], [1.08, 0.13],
+  [0.2, 0.87], [0.34, 0.885], [0.46, 0.885], [0.6, 0.86],
+  [0.7, 0.72], [0.73, 0.45], [0.77, 0.24], [0.84, 0.16],
+  [0.9, 0.14], [1.08, 0.13],
 ];
 const PATH_NARROW: readonly Point[] = [
   [-0.12, 0.61], [0.2, 0.585], [0.5, 0.58], [0.8, 0.585], [1.12, 0.61],
@@ -274,7 +277,25 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
 
     const buildRoute = () => {
       /* The same breakpoint the CSS re-blocks the phone layout at. */
-      const source = w <= 760 || h > w * 1.15 ? PATH_NARROW : PATH_WIDE;
+      const wide = !(w <= 760 || h > w * 1.15);
+
+      /*
+       * The route is viewport fractions, but the navbar is a fixed pixel band —
+       * on short screens the wide route's high run along the top lands right
+       * behind the translucent pill. Clamp every on-screen control point below
+       * the navbar, with room for the stream's lateral spread and wobble, so
+       * the ribbon rides under the header instead of through it. The first
+       * point stays where it is: it is off screen above, and is what keeps the
+       * mouth of the stream out of frame.
+       */
+      const nav = document.querySelector<HTMLElement>('.navbar');
+      const navBottom = nav ? nav.getBoundingClientRect().bottom : h * 0.1;
+      const spread = Math.min(w, h) * 0.055 + 9;
+      const clearFraction = Math.min(0.45, (navBottom + spread + 48) / h);
+      const source: readonly Point[] = (wide ? PATH_WIDE : PATH_NARROW).map(
+        (pt, i): Point => (i === 0 ? pt : [pt[0], Math.max(pt[1], clearFraction)]),
+      );
+
       /* Catmull-Rom through the control points, so the corners are curves. */
       const pts: Point[] = [];
       for (let i = 0; i < source.length - 1; i += 1) {
@@ -576,7 +597,9 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
            where they appear instead of popping. */
         p.kind = 'path';
         p.t = rand(-0.02, 1.0);
-        p.offset = rand(-1, 1) * Math.min(w, h) * 0.075;
+        /* Kept tight: the ribbon's spread eats into the card's pocket on
+           every side, so it stays narrower than the route's own margins. */
+        p.offset = rand(-1, 1) * Math.min(w, h) * 0.055;
         p.pace = rand(0.000075, 0.00019);
         p.fade = rand(0.45, 0.9);
         p.alpha = seeding ? p.fade : 0;

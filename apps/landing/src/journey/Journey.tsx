@@ -43,43 +43,40 @@ const CHAPTERS = [
     wordmark: true,
     card: 0,
     body: [
-      'Code2Create is ACM-VIT’s flagship 48-hour national hackathon open to participants from colleges across India. C2C is all about pushing boundaries and building innovative projects.',
-      'The event brings together participants to take on real-world challenges, team up with peers, and learn from industry mentors.',
-      'Whether you’re just starting out or chasing your next hackathon prize, C2C is the right event for you.',
-      'Be part of a culture where we don’t just code for the vibes, we code to create.',
+      'Code2Create is ACM-VIT’s flagship 48-hour national hackathon, uniting students across India to build innovative solutions.',
+      'Tackle real-world challenges, collaborate with peers, and learn from industry mentors. Bring your vision, build your skills, and showcase your talent.',
     ],
   },
   {
     title: 'ACM-VIT',
     card: 1,
     body: [
-      'As the official student chapter of the Association for Computing Machinery at VIT Vellore, we’ve been pushing boundaries and challenging conventions since 2009. From research and development to open-source contributions and unorthodox events, we turn ideas into real-world impact.',
-      'We don’t just write code — we ask questions, build with purpose, and learn together. With a culture built on trust and innovation, we’re here to build tools, solve problems, and grow as a community — because technology, at its best, brings people together.',
+      'The official student chapter of the Association for Computing Machinery at VIT Vellore, pushing boundaries and challenging conventions since 2009 through research, open-source work, and unorthodox events.',
+      'Homegrown projects like Conclave, UniPool, ExamCooker, and TAGRED deliver practical, high-impact solutions for our ecosystem, built by a community that grows together.',
     ],
   },
   {
     title: 'ACM',
     card: 2,
     body: [
-      'The Association for Computing Machinery (ACM) is the world’s largest educational and scientific computing society. Since its inception in 1947, ACM has united educators, researchers, and professionals to advance computing as a science and a profession.',
-      'It promotes the highest standards of technical excellence, fosters lifelong learning, and supports career development through a global network of conferences, publications, and professional communities. With a strong commitment to innovation and leadership, ACM continues to shape the future of computing worldwide.',
+      'The Association for Computing Machinery is the world’s largest computing society, uniting over 100,000 educators, researchers, and professionals to advance computing as a science and a profession.',
+      'Through 860 chapters, 38 Special Interest Groups, and the ACM Digital Library, it champions technical excellence, shapes public policy, and honors breakthroughs with the prestigious A.M. Turing Award.',
     ],
   },
   {
     title: 'ACM-W',
     card: 3,
     body: [
-      'ACM-W was created with a simple yet profound mission: to create equal access to opportunities in technology and ensure that everyone, regardless of gender, has the chance to grow in STEM. We believe talent and potential aren’t defined by barriers, but by the right support, mentorship, and exposure.',
-      'As a sister chapter of ACM-VIT, we are a part of a community that values contributions across all computing fields. Through our InspiHER podcast series, blogs, and community stalls, we’ve carved out a space where stories and perspectives are shared and voices in tech are amplified.',
-      'We stand for inclusion, empowerment and growth, encouraging women to take initiative, share their ideas, and thrive in computing fields, shoulder to shoulder with their peers.',
+      'ACM-W at VIT brings together women interested in STEM and innovation, with a welcoming space to learn, connect, and grow through workshops, mentorship, and meaningful conversations.',
+      'We help students discover their strengths, build confidence, and encourage more women to make their mark in STEM.',
     ],
   },
   {
     title: 'VIT',
     card: 4,
     body: [
-      'Founded in 1984, VIT Vellore is one of India’s top engineering institutions, renowned for academic excellence, global outlook, and a strong emphasis on research and innovation. With students from across India and around the world, VIT offers a diverse and inclusive learning environment.',
-      'The university provides world-class infrastructure, experienced faculty, and a wide range of industry-connected programs designed to prepare students for professional success. From pioneering research to impactful engineering projects, VIT empowers students to make meaningful contributions across every field.',
+      'Established in 1984, VIT Vellore stands among India’s premier engineering institutions, recognized for academic distinction, global exposure, and a relentless focus on innovation and research.',
+      'With advanced infrastructure, distinguished educators, and an industry-aligned curriculum, VIT prepares students from across the globe to drive impact in every discipline.',
     ],
   },
 ];
@@ -94,44 +91,44 @@ const TIMELINE_PHASES = [
     line: 'An online idea submission, then a 48-hour offline build at VIT Vellore for the shortlisted teams.',
   },
   {
-    title: 'Idea Submission',
+    title: 'Round 0: Idea Submission',
     when: '31 Aug – 5 Sep 2026 · online',
-    line: 'Pick a problem statement and outline your solution on the portal. External entries close 3 Sep, 11:59 PM IST (earlier, to plan travel) and internal entries close 5 Sep. Shortlisted teams are invited to campus.',
-  },
-  {
-    title: 'Check-In',
-    when: '7 Sep · 2:00 – 3:00 PM IST',
-    line: 'Shortlisted teams report on campus, complete verification, and collect their participation kits.',
+    line: 'Choose a problem statement and submit your solution with implementation details on the portal. External entries close 3 Sep, 11:59 PM IST, leaving time to plan travel; internal entries close 5 Sep. Shortlisted teams are invited to VIT Vellore.',
   },
   {
     title: 'Opening Ceremony',
-    when: '7 Sep · 3:00 – 4:00 PM IST',
-    line: 'Formal inauguration of Code2Create 7.0, with a walkthrough of the rules, evaluation criteria, and the support available through the event.',
+    when: '7 Sep · 2:00 – 3:00 PM IST',
+    line: 'The hackathon opens with the ceremony, followed by a walkthrough of the rules, judging criteria and important event information.',
   },
   {
-    title: 'Hacking Starts',
-    when: '7 Sep, 4:00 PM – 8 Sep, 6:00 AM IST',
-    line: 'Teams translate their submitted ideas into a concrete technical plan and start building. The architecture set up here carries the project through the hackathon.',
+    title: 'Round 1: Ideation & Early Build',
+    when: '7 Sep, 3:00 PM – 8 Sep, 12:00 AM IST',
+    line: 'Teams refine their ideas and start building their initial implementation and designs in preparation for the first review.',
   },
   {
-    title: 'Review 1: Progress Check',
-    when: '8 Sep · 10:00 AM – 1:00 PM IST',
-    line: 'Walk mentors through your approach, early progress, and roadmap. Feedback here course-corrects before the heavier build phases. No team is eliminated.',
+    title: 'Round 2: Progress Review',
+    when: '8 Sep · 1:00 – 5:00 AM IST',
+    line: 'Teams present their idea, progress and implementation plan to mentors and judges and receive feedback.',
   },
   {
-    title: 'Hacking Continues',
-    when: '8 Sep, 2:00 PM – 9 Sep, 1:00 AM IST',
-    line: 'Teams demonstrate working progress and explain their implementation, remaining roadmap, and the overall scope of the solution.',
+    title: 'Round 3: Hacking Session',
+    when: '8 Sep · 8:00 AM – 7:00 PM IST',
+    line: 'Teams continue building and improving their projects based on feedback from the previous review.',
   },
   {
-    title: 'Review 2: Prototype Evaluation',
-    when: '9 Sep · 1:00 – 6:00 AM IST · eliminatory',
-    line: 'Present a functional prototype, demonstrate core features, and address scalability. The highest-performing teams qualify for the final pitch.',
+    title: 'Round 4: Final Review Prep',
+    when: '8 Sep, 9:00 PM – 9 Sep, 12:00 AM IST',
+    line: 'Teams keep working on their projects and prepare their prototype and demo for the final evaluation round.',
   },
   {
-    title: 'Final Pitch & Judging',
-    when: '9 Sep · 10:00 AM – 1:00 PM IST',
-    line: 'Finalists present their completed solutions to the panel. Winners are announced and felicitated at the closing ceremony.',
+    title: 'Round 5: Prototype Evaluation',
+    when: '9 Sep · 1:00 – 5:00 AM IST · eliminatory',
+    line: 'Teams demonstrate a functional prototype, its core features and their overall technical implementation. The highest-performing teams qualify for the final judging round.',
+  },
+  {
+    title: 'Round 6: Final Pitches & Judging',
+    when: '9 Sep · 9:00 AM – 3:00 PM IST',
+    line: 'Finalists complete and deploy their solutions, then present them to the judging panel through a live demo and pitch. Winners are announced and felicitated at the closing ceremony.',
   },
 ];
 
@@ -173,17 +170,17 @@ const FAQ = [
   {
     id: 'team',
     q: 'How many members can constitute a team?',
-    a: 'A team can have 2 to 4 members. Each member signs in to the participant portal and joins the same team.',
+    a: 'There should be a minimum of 2 members and can be up to 5 members in a team. Each member of the team needs to register individually on the Gravitas portal.',
   },
   {
     id: 'stay',
-    q: 'Will there be accommodation for external participants',
+    q: 'Will there be accommodation for external participants?',
     a: 'Yes, we will provide accommodation at VIT.',
   },
   {
     id: 'how',
     q: 'How to register?',
-    a: 'Open the participant portal, sign in with Google, complete your profile, and create or join a team.',
+    a: 'Registration opens soon. Pre-register now for updates.',
   },
   {
     id: 'early',
@@ -198,7 +195,7 @@ const FAQ = [
   {
     id: 'judging',
     q: 'What will be the judging criteria?',
-    a: 'Innovation and creativity, problem relevance, technical complexity, implementation and functionality, user experience, scalability and future scope, presentation and communication, novelty.',
+    a: 'Innovation, relevance to the problem, technical complexity, implementation and functionality, UI/UX, scalability and future scope, novelty and presentation.',
   },
   {
     id: 'benefit',
@@ -604,9 +601,12 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
       const DAY_SLOT = 115 / days.length;
       days.forEach((day, index) => {
         const at = 106 + index * DAY_SLOT;
-        tl.to(day, { autoAlpha: 1, y: 0, duration: DAY_SLOT * 0.45 }, at + 0.35);
+        /* Strictly sequential: the outgoing card is fully gone before the next
+           one starts to rise. Overlapping the two crossfaded a pair of
+           half-opaque boxes over each other, which read as ghosting. */
+        tl.to(day, { autoAlpha: 1, y: 0, duration: DAY_SLOT * 0.3 }, at + 0.35);
         if (index < days.length - 1) {
-          tl.to(day, { autoAlpha: 0, y: -26, duration: DAY_SLOT * 0.5 }, at + DAY_SLOT);
+          tl.to(day, { autoAlpha: 0, y: -26, duration: DAY_SLOT * 0.26 }, at + DAY_SLOT * 0.7);
         }
       });
       tl.to(q('.days'), { autoAlpha: 0, duration: 3 }, 221);
@@ -639,9 +639,10 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
       const FAQ_EXIT = 236;
       const FAQ_ENTRY = 230.5;
 
-      /* L — the FAQ act's scroll span: the shed reaches full at 244, then a
-         short run carries the fall into the footer. */
-      tl.to({}, { duration: 13 }, 236);
+      /* L — the FAQ act's scroll span, ending the moment the shed reaches
+         full at 244: the fall keeps playing into the footer on its own, so
+         holding the timeline open past it only made dead scroll. */
+      tl.to({}, { duration: 8 }, 236);
 
       /* M — the camera tilt. On layouts where the ladder is taller than the
          frame — a phone's single column, a short tablet — the whole act pans
@@ -663,7 +664,7 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
       tl.fromTo(
         [faqBranches, faqShell],
         { y: 0 },
-        { y: () => -faqOverflow(), duration: 11, ease: 'none', immediateRender: false },
+        { y: () => -faqOverflow(), duration: 7.5, ease: 'none', immediateRender: false },
         236.5,
       );
 
@@ -883,8 +884,9 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
           <p className="hero-tagline">Don’t just code for the vibes, Code2Create.</p>
           <a className="hero-cta" href={participantPortalUrl}>
             <img src="/assets/svg/btn-box.svg" alt="" aria-hidden="true" />
-            <span>Apply now</span>
+            <span>Register now</span>
           </a>
+          <p className="hero-venue">7th September, 2026 · Anna Auditorium, VIT Vellore</p>
         </div>
 
         {/* ---------- about chapters ---------- */}
@@ -958,7 +960,7 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
                         </button>
                       </h3>
                       <div className="plank__answer" id={`faq-${item.id}`} data-open={open}>
-                        <p>{item.a ?? 'Answers go live closer to the event — watch this space.'}</p>
+                        <p>{item.a ?? 'Answers go live closer to the event. Watch this space.'}</p>
                       </div>
                     </li>
                   );

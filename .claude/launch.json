@@ -6,6 +6,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "apps/ops", "dev"],
       "port": 5181
+    },
+    {
+      "name": "landing",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "apps/landing", "dev"],
+      "port": 5182
     }
   ]
 }
