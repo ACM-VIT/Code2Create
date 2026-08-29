@@ -428,7 +428,483 @@ describe("team roster backfill", () => {
       }),
     ).rejects.toThrow();
   }, 30_000);
+
+  test("a full team does not block the extra person from signing up", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const packed = await fillTeam(backend, fixture, "Packed", 3);
+
+    const extraIdentity = await signInParticipant(backend, fixture, {
+      email: "extra-full@gmail.com",
+      googleSubject: "team-roster-extra-full-subject",
+    });
+    await importRows(importer, fixture, {
+      sourceName: "Last seat then overflow",
+      clientOperationId: "team-roster-import-overflow",
+      rows: [
+        {
+          rowNumber: 2,
+          email: packed.leadEmail,
+          displayName: "Packed Lead",
+          teamName: "Packed",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          email: extraIdentity.email,
+          displayName: "Extra Person",
+          teamName: "Packed",
+          role: "member",
+        },
+      ],
+    });
+    await drainScheduler(backend);
+
+    const closer = await provisionParticipant(backend, fixture, {
+      email: "seat-closer@gmail.com",
+      googleSubject: "team-roster-seat-closer-subject",
+    });
+    await acceptPolicy(closer.person, fixture, "accept-seat-closer@gmail.com");
+    await closer.person.mutation(api.teams.join, {
+      eventSlug: fixture.eventSlug,
+      code: packed.publicCode,
+      clientOperationId: "team-join-seat-closer",
+    });
+
+    await expect(
+      extraIdentity.person.mutation(api.participants.provision, {
+        eventSlug: fixture.eventSlug,
+        participantClass: "external_participant",
+      }),
+    ).resolves.toMatchObject({ created: true });
+    const extraMe = await extraIdentity.person.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(extraMe?.membership).not.toBeNull();
+    const extraTeam = await extraIdentity.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(extraTeam).toBeNull();
+  }, 30_000);
+
+  test("preview does not say waiting-for-lead when the named team already exists", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const live = await fillTeam(backend, fixture, "Live Alpha", 1);
+    const member = await provisionParticipant(backend, fixture, {
+      email: "ready-member@gmail.com",
+      googleSubject: "team-roster-ready-member-subject",
+    });
+
+    const preview = await importer.person.query(api.teamRosters.previewImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "Existing team",
+      rows: [
+        {
+          rowNumber: 2,
+          email: live.leadEmail,
+          displayName: "Live Lead",
+          teamName: "Live Alpha",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          email: member.me.person.verifiedEmail,
+          displayName: "Ready Member",
+          teamName: "Live Alpha",
+          role: "member",
+        },
+      ],
+      reason: "Committee team assignments",
+    });
+    const memberRow = preview.rows.find((row) => row.email === "ready-member@gmail.com");
+    expect(memberRow?.outcome).not.toBe("waiting_for_lead");
+  }, 30_000);
+
+  test("preview rejects an import that would overflow a live team", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const packed = await fillTeam(backend, fixture, "Overflow", 4);
+
+    await expect(
+      importer.person.query(api.teamRosters.previewImport, {
+        eventSlug: fixture.eventSlug,
+        sourceName: "One too many",
+        rows: [
+          {
+            rowNumber: 2,
+            email: packed.leadEmail,
+            displayName: "Overflow Lead",
+            teamName: "Overflow",
+            role: "lead",
+          },
+          {
+            rowNumber: 3,
+            email: "one-more@gmail.com",
+            displayName: "One More",
+            teamName: "Overflow",
+            role: "member",
+          },
+        ],
+        reason: "Committee team assignments",
+      }),
+    ).rejects.toThrow();
+  }, 30_000);
+
+  test("reused withdrawn names still attach to the live team", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const ghost = await provisionParticipant(backend, fixture, {
+      email: "ghost-alpha@gmail.com",
+      googleSubject: "team-roster-ghost-alpha-subject",
+    });
+    await backend.run(async (ctx) => {
+      for (const code of ["OLD1", "OLD2", "OLD3"] as const) {
+        await ctx.db.insert("teams", {
+          eventId: fixture.eventId,
+          name: "Alpha",
+          publicCode: code,
+          leadMembershipId: ghost.membershipId,
+          status: "withdrawn",
+          activeMemberCount: 0,
+          activeVitMemberCount: 0,
+          activeExternalMemberCount: 0,
+          membershipLocked: false,
+          version: 1,
+          createdAt: fixture.now,
+          updatedAt: fixture.now,
+        });
+      }
+    });
+    const live = await fillTeam(backend, fixture, "Alpha", 1);
+
+    const lateMember = await signInParticipant(backend, fixture, {
+      email: "late-alpha@gmail.com",
+      googleSubject: "team-roster-late-alpha-subject",
+    });
+    await importRows(importer, fixture, {
+      sourceName: "Reuse Alpha",
+      clientOperationId: "team-roster-import-reuse-alpha",
+      rows: [
+        {
+          rowNumber: 2,
+          email: live.leadEmail,
+          displayName: "Live Lead",
+          teamName: "Alpha",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          email: lateMember.email,
+          displayName: "Late Alpha",
+          teamName: "Alpha",
+          role: "member",
+        },
+      ],
+    });
+    await drainScheduler(backend);
+    await lateMember.person.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "external_participant",
+    });
+    const joined = await lateMember.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(joined?.id).toBe(live.teamId);
+    expect(joined?.name).toBe("Alpha");
+  }, 30_000);
+
+  test("revoke stops a pending member from joining later", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    await importRows(importer, fixture, {
+      sourceName: "Revoke member",
+      clientOperationId: "team-roster-import-revoke",
+      rows: [
+        {
+          rowNumber: 2,
+          email: "keep-lead@gmail.com",
+          displayName: "Keep Lead",
+          teamName: "Revoked",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          email: "drop-member@gmail.com",
+          displayName: "Drop Member",
+          teamName: "Revoked",
+          role: "member",
+        },
+      ],
+    });
+    await drainScheduler(backend);
+
+    const listed = await importer.person.query(api.teamRosters.list, {
+      eventSlug: fixture.eventSlug,
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    const dropEntry = listed.page.find((entry) => entry.email === "drop-member@gmail.com");
+    expect(dropEntry?.status).toBe("pending");
+    await importer.person.mutation(api.teamRosters.revoke, {
+      eventSlug: fixture.eventSlug,
+      teamRosterEntryId: dropEntry!.id,
+      expectedVersion: dropEntry!.version,
+      reason: "Wrong person on this team",
+      clientOperationId: "team-roster-revoke-member",
+    });
+
+    const lead = await provisionParticipant(backend, fixture, {
+      email: "keep-lead@gmail.com",
+      googleSubject: "team-roster-keep-lead-subject",
+    });
+    const dropped = await provisionParticipant(backend, fixture, {
+      email: "drop-member@gmail.com",
+      googleSubject: "team-roster-drop-member-subject",
+    });
+    expect(lead.me.pendingTeam).toBeNull();
+    expect(dropped.me.pendingTeam).toBeNull();
+    const droppedTeam = await dropped.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(droppedTeam).toBeNull();
+    const leadTeam = await lead.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(leadTeam?.name).toBe("Revoked");
+    expect(leadTeam?.activeMemberCount).toBe(1);
+  }, 30_000);
+
+  test("already-on-a-team rows are skipped as soon as they are imported", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const busy = await fillTeam(backend, fixture, "Busy", 1);
+
+    await importRows(importer, fixture, {
+      sourceName: "Skip busy",
+      clientOperationId: "team-roster-import-busy-pending",
+      drain: false,
+      rows: [
+        {
+          rowNumber: 2,
+          email: "other-lead@gmail.com",
+          displayName: "Other Lead",
+          teamName: "Other",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          email: busy.leadEmail,
+          displayName: "Busy Lead",
+          teamName: "Other",
+          role: "member",
+        },
+      ],
+    });
+    const listed = await importer.person.query(api.teamRosters.list, {
+      eventSlug: fixture.eventSlug,
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    const busyRow = listed.page.find((entry) => entry.email === busy.leadEmail);
+    expect(busyRow?.status).toBe("skipped_has_team");
+  }, 30_000);
+
+  test("a second lead for a live team is not silently saved as a member", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const live = await fillTeam(backend, fixture, "Crown", 1);
+
+    await importRows(importer, fixture, {
+      sourceName: "Second lead",
+      clientOperationId: "team-roster-import-second-lead",
+      rows: [
+        {
+          rowNumber: 2,
+          email: "usurper@gmail.com",
+          displayName: "Usurper",
+          teamName: "Crown",
+          role: "lead",
+        },
+      ],
+    });
+    await drainScheduler(backend);
+
+    const usurper = await provisionParticipant(backend, fixture, {
+      email: "usurper@gmail.com",
+      googleSubject: "team-roster-usurper-subject",
+    });
+    const usurperTeam = await usurper.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(usurperTeam).toBeNull();
+    const liveTeam = await live.lead.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(liveTeam?.id).toBe(live.teamId);
+    await backend.run(async (ctx) => {
+      const leads = await ctx.db
+        .query("teamMembers")
+        .withIndex("by_team_status", (index) =>
+          index.eq("teamId", live.teamId).eq("status", "active"),
+        )
+        .collect();
+      expect(leads.filter((member) => member.role === "lead")).toHaveLength(1);
+      expect(leads.some((member) => member.membershipId === usurper.membershipId)).toBe(
+        false,
+      );
+    });
+  }, 30_000);
+
+  test("a locked team does not block the imported person from signing up", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const live = await fillTeam(backend, fixture, "Locked", 1);
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(live.teamId, { membershipLocked: true });
+    });
+    const lockedMember = await signInParticipant(backend, fixture, {
+      email: "locked-member@gmail.com",
+      googleSubject: "team-roster-locked-member-subject",
+    });
+    await importRows(importer, fixture, {
+      sourceName: "Locked team",
+      clientOperationId: "team-roster-import-locked",
+      rows: [
+        {
+          rowNumber: 2,
+          email: live.leadEmail,
+          displayName: "Locked Lead",
+          teamName: "Locked",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          email: lockedMember.email,
+          displayName: "Locked Member",
+          teamName: "Locked",
+          role: "member",
+        },
+      ],
+    });
+    await drainScheduler(backend);
+    await expect(
+      lockedMember.person.mutation(api.participants.provision, {
+        eventSlug: fixture.eventSlug,
+        participantClass: "external_participant",
+      }),
+    ).resolves.toMatchObject({ created: true });
+    const me = await lockedMember.person.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(me?.membership).not.toBeNull();
+  }, 30_000);
 });
+
+type ImportRow = {
+  rowNumber: number;
+  email: string;
+  displayName: string;
+  teamName: string;
+  role: "lead" | "member";
+};
+
+async function importRows(
+  importer: Awaited<ReturnType<typeof seedImporter>>,
+  fixture: Awaited<ReturnType<typeof seedEvent>>,
+  args: {
+    sourceName: string;
+    clientOperationId: string;
+    rows: ImportRow[];
+    drain?: boolean;
+  },
+) {
+  const preview = await importer.person.query(api.teamRosters.previewImport, {
+    eventSlug: fixture.eventSlug,
+    sourceName: args.sourceName,
+    rows: args.rows,
+    reason: "Committee team assignments",
+  });
+  await importer.person.mutation(api.teamRosters.confirmImport, {
+    eventSlug: fixture.eventSlug,
+    sourceName: args.sourceName,
+    rows: args.rows,
+    reason: "Committee team assignments",
+    previewChecksum: preview.previewChecksum,
+    clientOperationId: args.clientOperationId,
+  });
+  if (args.drain === false) return;
+}
+
+async function acceptPolicy(
+  person: ReturnType<BackendTest["withIdentity"]>,
+  fixture: Awaited<ReturnType<typeof seedEvent>>,
+  clientOperationId: string,
+) {
+  await person.mutation(api.participants.acceptPolicy, {
+    eventSlug: fixture.eventSlug,
+    participantPolicyVersionId: fixture.policyId,
+    accepted: true,
+    clientOperationId,
+  });
+}
+
+async function fillTeam(
+  backend: BackendTest,
+  fixture: Awaited<ReturnType<typeof seedEvent>>,
+  teamName: string,
+  size: number,
+) {
+  const leadEmail = `${teamName.toLowerCase().replace(/\s+/g, "-")}-lead@gmail.com`;
+  const lead = await provisionParticipant(backend, fixture, {
+    email: leadEmail,
+    googleSubject: `team-roster-${leadEmail}`,
+  });
+  await acceptPolicy(lead.person, fixture, `accept-${leadEmail}`);
+  const created = await lead.person.mutation(api.teams.create, {
+    eventSlug: fixture.eventSlug,
+    name: teamName,
+    clientOperationId: `team-create-${leadEmail}`,
+  });
+  const team = await lead.person.query(api.teams.current, {
+    eventSlug: fixture.eventSlug,
+  });
+  if (!team) throw new Error("fillTeam did not create a team.");
+  for (let index = 1; index < size; index += 1) {
+    const email = `${teamName.toLowerCase().replace(/\s+/g, "-")}-member-${index}@gmail.com`;
+    const member = await provisionParticipant(backend, fixture, {
+      email,
+      googleSubject: `team-roster-${email}`,
+    });
+    await acceptPolicy(member.person, fixture, `accept-${email}`);
+    await member.person.mutation(api.teams.join, {
+      eventSlug: fixture.eventSlug,
+      code: team.publicCode,
+      clientOperationId: `team-join-${email}`,
+    });
+  }
+  return {
+    teamId: created.teamId,
+    publicCode: team.publicCode,
+    leadEmail,
+    leadMembershipId: lead.membershipId,
+    lead,
+  };
+}
 
 async function seedEvent(backend: BackendTest) {
   const now = Date.UTC(2027, 6, 1, 9, 0);
@@ -539,6 +1015,38 @@ async function seedImporter(backend: BackendTest, fixture: Awaited<ReturnType<ty
   };
 }
 
+async function signInParticipant(
+  backend: BackendTest,
+  fixture: Awaited<ReturnType<typeof seedEvent>>,
+  args: {
+    email: string;
+    googleSubject: string;
+    vitHostedDomain?: string;
+  },
+) {
+  const authUserId = await createAuthUser(backend, fixture.now, args.email, args.email);
+  const authSessionId = await createAuthSession(
+    backend,
+    authUserId,
+    fixture.now,
+    `team-roster-${args.googleSubject}-token`,
+  );
+  await seedGoogleIdentity(backend, authUserId, {
+    googleSubject: args.googleSubject,
+    email: args.email,
+    ...(args.vitHostedDomain ? { hostedDomain: args.vitHostedDomain } : {}),
+  });
+  return {
+    email: args.email,
+    authUserId,
+    authSessionId,
+    person: backend.withIdentity({
+      subject: authUserId,
+      sessionId: authSessionId,
+    }),
+  };
+}
+
 async function provisionParticipant(
   backend: BackendTest,
   fixture: Awaited<ReturnType<typeof seedEvent>>,
@@ -548,43 +1056,21 @@ async function provisionParticipant(
     vitHostedDomain?: string;
   },
 ) {
-  const identity = {
-    name: args.email,
-    email: args.email,
-    googleSubject: args.googleSubject,
-    sessionToken: `team-roster-${args.googleSubject}-token`,
-    hostedDomain: args.vitHostedDomain ?? "gmail.com",
-  };
-  const authUserId = await createAuthUser(backend, fixture.now, identity.name, identity.email);
-  const authSessionId = await createAuthSession(
-    backend,
-    authUserId,
-    fixture.now,
-    identity.sessionToken,
-  );
-  await seedGoogleIdentity(backend, authUserId, {
-    googleSubject: args.googleSubject,
-    email: args.email,
-    ...(args.vitHostedDomain ? { hostedDomain: args.vitHostedDomain } : {}),
-  });
-  const person = backend.withIdentity({
-    subject: authUserId,
-    sessionId: authSessionId,
-  });
-  await person.mutation(api.participants.provision, {
+  const identity = await signInParticipant(backend, fixture, args);
+  await identity.person.mutation(api.participants.provision, {
     eventSlug: fixture.eventSlug,
     participantClass: args.vitHostedDomain ? "vit_student" : "external_participant",
   });
-  const me = await person.query(api.participants.me, { eventSlug: fixture.eventSlug });
+  const me = await identity.person.query(api.participants.me, { eventSlug: fixture.eventSlug });
   if (!me?.membership) throw new Error("Provisioning did not create a membership.");
   return {
-    authUserId,
-    authSessionId,
+    authUserId: identity.authUserId,
+    authSessionId: identity.authSessionId,
     personId: me.person.id,
     membershipId: me.membership.id,
     membership: me.membership,
     me,
-    person,
+    person: identity.person,
   };
 }
 
