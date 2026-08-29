@@ -626,6 +626,98 @@ describe("participant onboarding lifecycle", () => {
     });
   }, 10_000);
 
+  test("lets a sole lead withdraw their team and join another", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const host = await seedAdditionalParticipant(backend, fixture);
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    const hostClient = backend.withIdentity({
+      subject: host.authUserId,
+      sessionId: host.authSessionId,
+    });
+
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "sole-lead-policy-acceptance",
+    });
+    await hostClient.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "host-policy-acceptance",
+    });
+
+    const created = await participant.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Solo Circuit",
+      clientOperationId: "sole-lead-create",
+    });
+    const hostTeam = await hostClient.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Host Circuit",
+      clientOperationId: "host-team-create",
+    });
+
+    const currentTeam = await participant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(currentTeam).toMatchObject({
+      id: created.teamId,
+      currentRole: "lead",
+      activeMemberCount: 1,
+      canLeave: true,
+    });
+    if (!currentTeam) throw new Error("The sole lead team view is missing.");
+
+    await participant.mutation(api.teams.leave, {
+      eventSlug: fixture.eventSlug,
+      teamId: created.teamId,
+      expectedTeamVersion: currentTeam.version,
+      clientOperationId: "sole-lead-leave",
+    });
+
+    await backend.run(async (ctx) => {
+      const withdrawn = await ctx.db.get(created.teamId);
+      expect(withdrawn?.status).toBe("withdrawn");
+      expect(withdrawn?.activeMemberCount).toBe(0);
+      const member = await ctx.db
+        .query("teamMembers")
+        .withIndex("by_event_membership_status", (index) =>
+          index
+            .eq("eventId", fixture.eventId)
+            .eq("membershipId", fixture.membershipId)
+            .eq("status", "left"),
+        )
+        .unique();
+      expect(member?.teamId).toBe(created.teamId);
+      expect(member?.role).toBe("lead");
+    });
+    expect(
+      await participant.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).toBeNull();
+
+    const joined = await participant.mutation(api.teams.join, {
+      eventSlug: fixture.eventSlug,
+      code: hostTeam.publicCode,
+      clientOperationId: "sole-lead-rejoin",
+    });
+    expect(joined.teamId).toBe(hostTeam.teamId);
+    expect(
+      await participant.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).toMatchObject({
+      id: hostTeam.teamId,
+      currentRole: "member",
+      activeMemberCount: 2,
+      canLeave: true,
+    });
+  }, 10_000);
+
   test("joins an imported roster team automatically during provision", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
