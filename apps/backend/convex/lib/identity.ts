@@ -9,6 +9,51 @@ type ReadCtx = QueryCtx | MutationCtx;
 
 export const sensitiveCommandSessionMaxAgeMs = 15 * 60 * 1_000;
 
+export async function stagingParticipantAccessAllowed(
+  ctx: ReadCtx,
+  eventId: Doc<"events">["_id"],
+  email: string,
+) {
+  if (process.env.C2C_DEPLOYMENT_ENVIRONMENT?.trim() !== "staging") return true;
+  const emailNormalized = normalizeEmail(email);
+  const [pending, claimed] = await Promise.all([
+    ctx.db
+      .query("rosterEntries")
+      .withIndex("by_event_email_status", (query) =>
+        query
+          .eq("eventId", eventId)
+          .eq("emailNormalized", emailNormalized)
+          .eq("status", "pending"),
+      )
+      .first(),
+    ctx.db
+      .query("rosterEntries")
+      .withIndex("by_event_email_status", (query) =>
+        query
+          .eq("eventId", eventId)
+          .eq("emailNormalized", emailNormalized)
+          .eq("status", "claimed"),
+      )
+      .first(),
+  ]);
+  const now = Date.now();
+  return [pending, claimed].some(
+    (entry) => entry !== null && entry.validFrom <= now && now < entry.validUntil,
+  );
+}
+
+export async function requireStagingParticipantAccess(
+  ctx: ReadCtx,
+  eventId: Doc<"events">["_id"],
+  email: string,
+) {
+  if (await stagingParticipantAccessAllowed(ctx, eventId, email)) return;
+  throw new ConvexError({
+    code: "STAGING_PARTICIPANT_NOT_INVITED",
+    message: "This staging portal is available only to invited testers.",
+  });
+}
+
 export function authSessionCreatedAtMs(value: unknown) {
   if (value instanceof Date) {
     const timestamp = value.getTime();
@@ -282,6 +327,11 @@ export async function requireMembership(
       code: "PARTICIPANT_MEMBERSHIP_REQUIRED",
       message: "An active participant membership is required.",
     });
+  }
+  if (process.env.C2C_DEPLOYMENT_ENVIRONMENT?.trim() === "staging") {
+    const person = await ctx.db.get(personId);
+    if (!person) throw new Error("The participant person does not exist.");
+    await requireStagingParticipantAccess(ctx, eventId, person.verifiedEmail);
   }
   return membership;
 }

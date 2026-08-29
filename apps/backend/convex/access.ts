@@ -18,6 +18,7 @@ import {
   requireEventSubject,
   requireFreshAuthSession,
   sensitiveCommandSessionMaxAgeMs,
+  stagingParticipantAccessAllowed,
 } from "./lib/identity";
 import {
   scorecardScopeMustMatchTarget,
@@ -623,6 +624,7 @@ async function currentCapabilitySubject(ctx: QueryCtx, eventSlug: string) {
     eventId: event._id,
     eventAccessSubjectId: subject._id,
     personId: person._id,
+    emailNormalized: person.verifiedEmail,
   };
 }
 
@@ -631,7 +633,17 @@ export const participantCapabilities = query({
   returns: v.union(v.null(), participantCapabilitiesView),
   handler: async (ctx, args) => {
     const subject = await currentCapabilitySubject(ctx, args.eventSlug);
-    return subject ? resolveParticipantCapabilities(ctx, subject) : null;
+    if (
+      !subject ||
+      !(await stagingParticipantAccessAllowed(
+        ctx,
+        subject.eventId,
+        subject.emailNormalized,
+      ))
+    ) {
+      return null;
+    }
+    return resolveParticipantCapabilities(ctx, subject);
   },
 });
 

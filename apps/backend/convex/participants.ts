@@ -6,10 +6,13 @@ import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
 import {
   ensurePerson,
   findCurrentPerson,
+  requireAuthUser,
   requireCurrentPerson,
   requireEligibleMembership,
   requireEventSubject,
   requireMembership,
+  requireStagingParticipantAccess,
+  stagingParticipantAccessAllowed,
 } from "./lib/identity";
 import {
   addEventSubjectSelfGrants,
@@ -71,6 +74,18 @@ const currentParticipantPolicyView = v.object({
   policy: participantPolicyInput,
 });
 
+export const entryAllowed = query({
+  args: { eventSlug: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const [event, user] = await Promise.all([
+      requireEventBySlug(ctx, args.eventSlug),
+      requireAuthUser(ctx),
+    ]);
+    return stagingParticipantAccessAllowed(ctx, event._id, user.email);
+  },
+});
+
 export const me = query({
   args: { eventSlug: v.string() },
   returns: v.union(
@@ -116,6 +131,9 @@ export const me = query({
     const person = await findCurrentPerson(ctx);
     if (!person) return null;
     const event = await requireEventBySlug(ctx, args.eventSlug);
+    if (!(await stagingParticipantAccessAllowed(ctx, event._id, person.verifiedEmail))) {
+      return null;
+    }
     const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
     const membership = await ctx.db
       .query("eventMemberships")
@@ -223,6 +241,7 @@ export const provision = mutation({
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person, googleIdentity } = await ensurePerson(ctx);
+    await requireStagingParticipantAccess(ctx, event._id, person.verifiedEmail);
     const approvedVitIdentity =
       googleIdentity.hostedDomain !== undefined &&
       event.vitEmailDomains.includes(googleIdentity.hostedDomain);

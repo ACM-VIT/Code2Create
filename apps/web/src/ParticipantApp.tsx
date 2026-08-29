@@ -53,6 +53,7 @@ export function ParticipantApp({
   authClient: Code2CreateAuthClient
 }) {
   const location = useLocation()
+  const entryAllowed = useQuery(api.participants.entryAllowed, { eventSlug })
   const me = useQuery(api.participants.me, { eventSlug })
   const access = useQuery(api.access.participantCapabilities, { eventSlug })
   const hasTeamMembership = access?.hasTeamMembership ?? false
@@ -64,8 +65,26 @@ export function ParticipantApp({
   const teamMembers = usePaginatedQuery(api.teams.members, canReadTeam ? { eventSlug } : 'skip', { initialNumItems: 25 })
   const intakeStatusQuery = useQuery(api.intake.status, canReadTeam ? { eventSlug } : 'skip')
 
-  if (me === undefined || access === undefined) {
+  if (entryAllowed === undefined || me === undefined || access === undefined) {
     return <PortalLoading />
+  }
+  const signOut = () => void authClient.signOut()
+  if (!entryAllowed) {
+    return (
+      <PortalNotice
+        header={(
+          <button
+            type="button"
+            onClick={signOut}
+            className="text-[12px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
+          >
+            Sign out
+          </button>
+        )}
+        title="This account is not on the tester list."
+        body="Use one of the Google accounts invited to staging."
+      />
+    )
   }
   if (canReadTeam && (teamQuery === undefined || intakeStatusQuery === undefined)) {
     return <PortalLoading />
@@ -74,7 +93,6 @@ export function ParticipantApp({
   const team = canReadTeam ? teamQuery ?? null : null
   const intakeStatus = canReadTeam ? intakeStatusQuery ?? null : null
   const teamAccessUnavailable = hasTeamMembership && !canReadTeam
-  const signOut = () => void authClient.signOut()
   const canReadIntegrations = access?.integrations ?? false
   const canReadSupport = access?.supportRead ?? false
   const canCreateSupport = access?.supportCreate ?? false
