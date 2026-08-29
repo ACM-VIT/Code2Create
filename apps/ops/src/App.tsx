@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import { ClientObservabilityIdentity } from '@code2create/client-observability'
 import { type EventStage, eventRoleLabels, eventStageGuidance } from '@code2create/domain'
-import type { Code2CreateAuthClient } from '@code2create/web-auth'
+import { signInWithGooglePopup, type Code2CreateAuthClient } from '@code2create/web-auth'
 import type { FunctionReturnType } from 'convex/server'
 import { AuthLoading, Authenticated, Unauthenticated, useMutation, useQuery } from 'convex/react'
 import { Navigate, Route, Routes } from 'react-router-dom'
@@ -746,7 +746,7 @@ function SignIn({
     setBusy(true)
     setError(null)
     try {
-      const result = await authClient.signIn.popup({ provider: 'google', callbackURL: window.location.href })
+      const result = await signInWithGooglePopup(authClient, window.location.href)
       if (result.error) setError(popupErrorMessage(result.error.code))
     } catch {
       setError(popupErrorMessage(undefined))

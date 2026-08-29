@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Code2CreateAuthClient } from '@code2create/web-auth'
+import { signInWithGooglePopup, type Code2CreateAuthClient } from '@code2create/web-auth'
 import { ErrorNotice } from '../components/Form'
 import type { ParticipantClass, PublicState } from '../types'
 
@@ -41,10 +41,7 @@ export function EntryScreen({
     setBusy(true)
     setError(null)
     try {
-      const result = await authClient.signIn.popup({
-        provider: 'google',
-        callbackURL: window.location.href,
-      })
+      const result = await signInWithGooglePopup(authClient, window.location.href)
       if (result.error) setError(popupErrorMessage(result.error.code))
     } catch {
       setError(popupErrorMessage(undefined))

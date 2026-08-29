@@ -3,7 +3,7 @@ import { verifyGoogleIdToken } from "@better-auth/core/social-providers";
 import { createClient, type GenericCtx } from "@convex-dev/better-auth";
 import { convex, crossDomain } from "@convex-dev/better-auth/plugins";
 import { betterAuth } from "better-auth/minimal";
-import { bearer, oauthPopup } from "better-auth/plugins";
+import { bearer } from "better-auth/plugins";
 
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
@@ -111,9 +111,6 @@ export function createAuth(ctx: GenericCtx<DataModel>) {
       expo(),
       bearer(),
       crossDomain({ siteUrl: participantSiteUrl }),
-      // This must run after crossDomain so its callback completion page is the
-      // final response instead of being replaced by the normal `ott` redirect.
-      oauthPopup(),
       convex({ authConfig }),
     ],
   });
