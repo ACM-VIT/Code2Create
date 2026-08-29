@@ -57,6 +57,7 @@ import {
   storedOperationResult,
   storedOperationVersion,
 } from "./lib/operations";
+import { grantSupremeRolePermissions } from "./lib/rolePermissions";
 import { normalizeEmail, normalizedText } from "./lib/strings";
 import {
   eventRole,
@@ -665,6 +666,65 @@ export const operationsCapabilities = query({
       ...capabilities,
       isSupreme: role?.role === "supreme",
     };
+  },
+});
+
+export const synchronizeSupremePermissions = mutation({
+  args: { eventSlug: v.string() },
+  returns: v.object({
+    createdCount: v.number(),
+    accessVersion: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const role = await ctx.db
+      .query("eventRoles")
+      .withIndex("by_event_person_status", (index) =>
+        index
+          .eq("eventId", event._id)
+          .eq("personId", person._id)
+          .eq("status", "active"),
+      )
+      .unique();
+    if (!role || role.role !== "supreme") {
+      throw new ConvexError({
+        code: "SUPREME_ROLE_REQUIRED",
+        message: "Only a Supreme organizer can synchronize Supreme catalog permissions.",
+      });
+    }
+    const createdCount = await grantSupremeRolePermissions(ctx, {
+      eventId: event._id,
+      personId: person._id,
+      eventAccessSubjectId: subject._id,
+      roleId: role._id,
+      grantedByPersonId: person._id,
+    });
+    let accessVersion = subject.accessVersion;
+    if (createdCount > 0) {
+      const now = Date.now();
+      accessVersion += 1;
+      await ctx.db.patch(subject._id, { accessVersion, updatedAt: now });
+      await writeAuditEvent(ctx, {
+        eventId: event._id,
+        actorPersonId: person._id,
+        permissionKey: "access.roles.assign",
+        grantIds: [],
+        scopeType: "person",
+        scopeId: person._id,
+        action: "access.supreme_permissions_synchronized",
+        targetType: "event_access_subject",
+        targetId: subject._id,
+        previousSummary: JSON.stringify({ role: "supreme" }),
+        nextSummary: JSON.stringify({
+          role: "supreme",
+          createdGrantCount: createdCount,
+        }),
+        reason: "Synchronize Supreme catalog permissions.",
+      });
+    }
+    return { createdCount, accessVersion };
   },
 });
 
