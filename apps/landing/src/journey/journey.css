@@ -712,8 +712,9 @@
   display: grid;
   width: min(560px, 46%);
   transform: translateY(-50%);
-  /* The grid keeps the full card height even while the act is dark, so on a
-     phone this box sits over the hero CTA. It never needs the pointer. */
+  /* Purely presentational: the container is transparent but hit-testable,
+     and on a phone it is bottom-anchored right over the hero's Register
+     button, eating its taps. */
   pointer-events: none;
 }
 

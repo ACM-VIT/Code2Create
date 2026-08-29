@@ -1,42 +1,42 @@
-import { type MouseEvent } from 'react';
+import type { MouseEvent } from 'react';
 
-import { warpToJourney } from '../lib/nav.js';
+import { JOURNEY_STOPS, leapTo } from '../lib/journeyLeap.js';
+import { eventRegistrationUrl } from '../lib/config.js';
 import './footer.css';
 
-interface FooterLink {
-  label: string
-  href: string
-  at?: number
-}
-
-/* Link groups from Figma node 1681:1322, minus the Guests and Timeline
-   columns, which this edition does not carry. Destinations follow the
-   chapter site where a product has no public URL of its own. */
-const groups: { title: string; items: FooterLink[] }[] = [
+/* Three columns, per the Figma frame — but with live destinations: journey
+   leaps for the pinned chapters, real URLs for everything off the page. */
+const groups: {
+  title: string
+  items: { label: string; at?: number; href?: string }[]
+}[] = [
   {
-    title: 'About',
+    title: 'Explore',
     items: [
-      { label: 'c2c', href: '#about', at: 0.14 },
-      { label: 'acm', href: 'https://acmvit.in' },
+      { label: 'About', at: JOURNEY_STOPS.about },
+      { label: 'Stats', at: JOURNEY_STOPS.stats },
+      { label: 'Timeline', at: JOURNEY_STOPS.timeline },
+      { label: 'FAQs', at: JOURNEY_STOPS.faqs },
     ],
   },
   {
-    title: 'Our Products',
+    title: 'Our Projects',
     items: [
-      { label: 'ACMONE', href: 'https://acmvit.in#projects' },
-      { label: 'CLI-RPG', href: 'https://cli-rpg.acmvit.in' },
-      { label: 'EXAMCOOKER', href: 'https://examcooker.acmvit.in' },
-      { label: 'CLITOP', href: 'https://clitop.acmvit.in' },
-      { label: 'LOCALHOST', href: 'https://localhost.acmvit.in' },
-      { label: 'OS', href: 'https://os.acmvit.in' },
-      { label: 'UNIPOOL', href: 'https://unipool.acmvit.in' },
+      { label: 'Conclave', href: 'https://conclave.acmvit.in' },
+      { label: 'UniPool', href: 'https://unipool.in' },
+      { label: 'ExamCooker', href: 'https://examcooker.acmvit.in' },
+      { label: 'TAGRED', href: 'https://github.com/ACM-VIT/TAGRED' },
     ],
   },
   {
-    title: 'Sponsors',
+    title: 'Register',
+    items: [{ label: 'Gravitas portal', href: eventRegistrationUrl }],
+  },
+  {
+    title: 'ACM-VIT',
     items: [
-      { label: 'about w', href: 'https://acmvit.in#acm-w' },
-      { label: 'events', href: 'https://acmvit.in#events' },
+      { label: 'Website', href: 'https://acmvit.in' },
+      { label: 'GitHub', href: 'https://github.com/ACM-VIT' },
     ],
   },
 ];
@@ -51,9 +51,9 @@ const socials = [
 ];
 
 export default function Footer() {
-  const goToChapter = (event: MouseEvent<HTMLAnchorElement>, at: number) => {
+  const jump = (event: MouseEvent<HTMLAnchorElement>, at: number) => {
     event.preventDefault();
-    warpToJourney(at);
+    leapTo(at);
   };
 
   return (
@@ -78,7 +78,7 @@ export default function Footer() {
                           {item.label}
                         </a>
                       ) : (
-                        <a href={item.href} onClick={(event) => goToChapter(event, chapterAt)}>
+                        <a href="#top" onClick={(event) => jump(event, chapterAt)}>
                           {item.label}
                         </a>
                       )}

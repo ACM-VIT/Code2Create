@@ -1,6 +1,13 @@
 import { useEffect, useState, type MouseEvent } from 'react';
 
-import { journeyChapters, warpTo, warpToJourney } from '../lib/nav.js';
+import { JOURNEY_STOPS, leapTo } from '../lib/journeyLeap.js';
+
+const links = [
+  { label: 'About', at: JOURNEY_STOPS.about },
+  { label: 'FAQs', at: JOURNEY_STOPS.faqs },
+  { label: 'Timeline', at: JOURNEY_STOPS.timeline },
+  { label: 'Stats', at: JOURNEY_STOPS.stats },
+];
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
@@ -14,7 +21,7 @@ export default function Navbar() {
   const goTo = (event: MouseEvent<HTMLAnchorElement>, at: number) => {
     event.preventDefault();
     setOpen(false);
-    warpToJourney(at);
+    leapTo(at);
   };
 
   return (
@@ -25,8 +32,7 @@ export default function Navbar() {
           href="#top"
           onClick={(event) => {
             event.preventDefault();
-            window.dispatchEvent(new Event('journey:leap'));
-            warpTo(0);
+            leapTo(0);
           }}
         >
           <img src="/assets/svg/logo.svg" alt="" width="34" height="38" />
@@ -44,7 +50,7 @@ export default function Navbar() {
         </button>
 
         <div className="navbar__links" data-open={open ? 'true' : 'false'}>
-          {journeyChapters.map((link) => (
+          {links.map((link) => (
             <a key={link.label} href="#top" onClick={(event) => goTo(event, link.at)}>
               {link.label}
             </a>
