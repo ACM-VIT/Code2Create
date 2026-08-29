@@ -486,19 +486,25 @@ export function useFallingLadder(
       idle();
     };
 
-    /* Trailing debounce: an opening answer resizes its column on every frame
-       of its 340ms grid transition, and re-measuring against those half-open
-       heights pinned the ropes to positions the layout had already left.
-       One relayout, once the layout has settled. */
+    /* Trailing debounce for window/bough resizes. Accordion height is CSS:
+       observing the columns used to remeasure the ropes against a half-open
+       answer and hitch the ladder mid-tween. Relayout once the grid row has
+       actually finished. */
     let settleTimer: ReturnType<typeof setTimeout> | undefined;
     const relayoutSettled = () => {
       clearTimeout(settleTimer);
       settleTimer = setTimeout(relayout, 160);
     };
 
+    const onAnswerTransition = (event: TransitionEvent) => {
+      if (event.propertyName !== 'grid-template-rows') return;
+      relayout();
+    };
+    const answers = Array.from(stage.querySelectorAll<HTMLElement>('.plank__answer'));
+    answers.forEach((el) => el.addEventListener('transitionend', onAnswerTransition));
+
     const observer = new ResizeObserver(relayoutSettled);
     boughEls.forEach((el) => observer.observe(el));
-    columnEls.forEach((el) => observer.observe(el));
     window.addEventListener('resize', relayoutSettled);
 
     return () => {
@@ -506,6 +512,7 @@ export function useFallingLadder(
       clearTimeout(settleTimer);
       observer.disconnect();
       window.removeEventListener('resize', relayoutSettled);
+      answers.forEach((el) => el.removeEventListener('transitionend', onAnswerTransition));
       cue.current = null;
       probe.current = null;
       clearStyles();

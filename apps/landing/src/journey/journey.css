@@ -943,6 +943,8 @@
 
 .plank__face[aria-expanded='true'] {
   border-radius: 10px 10px 0 0;
+  /* The closed-state drop shadow would sit on the answer as a black seam. */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
 .plank__answer {
@@ -953,8 +955,8 @@
   background-size: cover;
   background-position: center;
   border-radius: 0 0 10px 10px;
-  box-shadow: inset 0 6px 7px rgba(0, 0, 0, 0.25);
-  transition: grid-template-rows 0.34s ease;
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.18);
+  transition: grid-template-rows 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .plank__answer[data-open='false'] {
@@ -965,16 +967,19 @@
   grid-template-rows: 1fr;
 }
 
-.plank__answer p {
+/* Padding lives on the copy, not the grid item — 0fr cannot collapse a
+   child that still has padding, which left a sliver of every answer showing. */
+.plank__answer-clip {
   overflow: hidden;
+  min-height: 0;
+}
+
+.plank__answer p {
   padding-inline: clamp(18px, 3vw, 38px);
+  padding-block: 10px 14px;
   font-size: clamp(9px, 1.17vw, 15px);
   line-height: 1.3;
   color: var(--ink-card);
-}
-
-.plank__answer[data-open='true'] p {
-  padding-block: 10px 14px;
 }
 
 /* ------------------------------------------------------------------ *
