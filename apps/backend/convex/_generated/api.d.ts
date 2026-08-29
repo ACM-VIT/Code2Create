@@ -242,6 +242,7 @@ import type * as synesthesiaConfiguration from "../synesthesiaConfiguration.js";
 import type * as synesthesiaOperations from "../synesthesiaOperations.js";
 import type * as synesthesiaParticipant from "../synesthesiaParticipant.js";
 import type * as system from "../system.js";
+import type * as teamRosters from "../teamRosters.js";
 import type * as teams from "../teams.js";
 import type * as values from "../values.js";
 import type * as workpools from "../workpools.js";
@@ -487,6 +488,7 @@ declare const fullApi: ApiFromModules<{
   synesthesiaOperations: typeof synesthesiaOperations;
   synesthesiaParticipant: typeof synesthesiaParticipant;
   system: typeof system;
+  teamRosters: typeof teamRosters;
   teams: typeof teams;
   values: typeof values;
   workpools: typeof workpools;
