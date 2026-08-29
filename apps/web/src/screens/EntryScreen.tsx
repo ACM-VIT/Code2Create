@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import { ErrorNotice } from '../components/Form'
+import {
+  restrictGoogleAuthorizationToVitStudents,
+  vitStudentEmailDomain,
+} from '../lib/googleAuthorization'
 import type { ParticipantClass, PublicState } from '../types'
 
 export const participantClassStorageKey = 'code2create.participant-class'
@@ -41,11 +45,24 @@ export function EntryScreen({
     setBusy(true)
     setError(null)
     try {
+      const restrictToVitStudents = participantClass === 'vit_student'
       const result = await authClient.signIn.social({
         provider: 'google',
         callbackURL: window.location.href,
+        ...(restrictToVitStudents ? { disableRedirect: true } : {}),
       })
-      if (result.error) setError('Google sign-in could not start. Try again.')
+      if (result.error) {
+        setError('Google sign-in could not start. Try again.')
+        return
+      }
+      if (restrictToVitStudents) {
+        const authorizationUrl = result.data?.url
+        if (!authorizationUrl) {
+          setError('Google sign-in could not start. Try again.')
+          return
+        }
+        window.location.assign(restrictGoogleAuthorizationToVitStudents(authorizationUrl))
+      }
     } catch {
       setError('Google sign-in could not start. Try again.')
     } finally {
@@ -67,7 +84,7 @@ export function EntryScreen({
             onClick={() => choose('vit_student')}
           >
             <span>VIT student</span>
-            <small>Only @vitstudent.ac.in Google accounts are accepted.</small>
+            <small>Only @{vitStudentEmailDomain} Google accounts are accepted.</small>
           </button>
           <button
             type="button"
