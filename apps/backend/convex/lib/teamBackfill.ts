@@ -17,6 +17,30 @@ export type TeamBackfillOutcome =
   | "claimed";
 
 /**
+ * Every non-withdrawn, non-disqualified team with this exact name in the event.
+ * Walks the `by_event_name` index until it is exhausted so older withdrawn
+ * rows cannot hide the live team.
+ */
+export async function activeTeamsWithName(
+  ctx: MutationCtx | QueryCtx,
+  args: {
+    eventId: Id<"events">;
+    name: string;
+  },
+): Promise<Doc<"teams">[]> {
+  const matches: Doc<"teams">[] = [];
+  for await (const candidate of ctx.db
+    .query("teams")
+    .withIndex("by_event_name", (index) =>
+      index.eq("eventId", args.eventId).eq("name", args.name),
+    )) {
+    if (candidate.status === "withdrawn" || candidate.status === "disqualified") continue;
+    matches.push(candidate);
+  }
+  return matches;
+}
+
+/**
  * Places one roster entry's person on their assigned team. The person must
  * already be provisioned; otherwise the entry stays pending. Never moves a
  * person who already has an active team. Policy acceptance is deliberately not
@@ -66,22 +90,17 @@ export async function applyTeamRosterEntry(
 
   const participantPolicy = await loadPublishedParticipantPolicy(ctx, args.event);
 
-  const nameMatches = await ctx.db
-    .query("teams")
-    .withIndex("by_event_name", (index) =>
-      index.eq("eventId", args.event._id).eq("name", entry.teamName),
-    )
-    .take(3);
-  const activeMatches = nameMatches.filter(
-    (candidate) => candidate.status !== "withdrawn" && candidate.status !== "disqualified",
-  );
+  const activeMatches = await activeTeamsWithName(ctx, {
+    eventId: args.event._id,
+    name: entry.teamName,
+  });
   if (activeMatches.length > 1) {
     throw new ConvexError({
       code: "TEAM_NAME_AMBIGUOUS",
       message: "More than one active team uses that name. Rename in the CSV or in the event.",
     });
   }
-  const team = activeMatches.find((candidate) => candidate.name === entry.teamName);
+  const team = activeMatches[0];
 
   if (!team) {
     if (entry.role === "lead") {
