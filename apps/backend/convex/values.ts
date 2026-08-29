@@ -925,6 +925,16 @@ export const rosterEntryStatus = v.union(
   v.literal("expired"),
 );
 
+export const teamRosterEntryStatus = v.union(
+  v.literal("pending"),
+  v.literal("waiting_for_lead"),
+  v.literal("claimed"),
+  v.literal("skipped_has_team"),
+  v.literal("revoked"),
+  v.literal("superseded"),
+);
+export type TeamRosterEntryStatus = Infer<typeof teamRosterEntryStatus>;
+
 export const attentionSeverity = v.union(
   v.literal("critical"),
   v.literal("attention"),

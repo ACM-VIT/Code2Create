@@ -27,12 +27,14 @@
     "@code2create/web-auth": "workspace:*",
     "@convex-dev/better-auth": "^0.12.5",
     "@convex-dev/presence": "0.4.0",
+    "@tailwindcss/vite": "^4.3.3",
     "better-auth": "~1.6.30",
     "convex": "^1.45.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.2"
+    "react-router-dom": "^7.18.2",
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.54.1",

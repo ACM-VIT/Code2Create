@@ -1,16 +1,21 @@
 import { api } from '@code2create/backend/api'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
+import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { TeamPanel } from './components/TeamPanel'
-import { ErrorNotice } from './components/Form'
+import { AccountBadge } from './components/portal/AccountBadge'
+import { PetalCard } from './components/portal/PetalCard'
+import { PortalButton, PortalTextButton } from './components/portal/PortalButton'
+import { PortalError } from './components/portal/PortalField'
+import { PortalScene } from './components/portal/PortalScene'
 import { eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
+import { useOperationRunner } from './lib/operations'
 import { participantClassStorageKey } from './screens/EntryScreen'
+import { DetailsScreen } from './screens/DetailsScreen'
 import { IntakeScreen } from './screens/IntakeScreen'
-import { PolicyConsentScreen } from './screens/PolicyConsentScreen'
-import { ProfileScreen } from './screens/ProfileScreen'
 import { TeamScreen } from './screens/TeamScreen'
 import type { ParticipantClass, PublicState } from './types'
 
@@ -75,116 +80,105 @@ export function ParticipantApp({
   const canCreateSupport = access?.supportCreate ?? false
 
   if (!me?.membership) {
-    return (
-      <>
-        <PortalHeader
-          {...(me
-            ? { name: me.person.displayName, email: me.person.verifiedEmail }
-            : {})}
-          onSignOut={signOut}
-        />
-        <ProvisionScreen publicState={publicState} />
-      </>
-    )
+    return <ProvisionScreen publicState={publicState} onSignOut={signOut} />
   }
+
+  const accountHeader = (
+    <AccountBadge
+      name={me.person.displayName}
+      email={me.person.verifiedEmail}
+      onSignOut={signOut}
+    />
+  )
+  const supportRoute = location.pathname === '/support'
 
   if (hasTeamMembership && canReadTeam && !team) return <PortalLoading />
 
   const hasSubmittedApplication = intakeStatus !== null && intakeStatus.applicationState !== null
   const canContinueWithoutProfileProjection = !canReadProfile && hasSubmittedApplication
+
+  // ---- f0b · details, with policy consent inline ---------------------------
   if (!me.profile?.isComplete && !canContinueWithoutProfileProjection) {
+    if (supportRoute) {
+      return canReadSupport ? <SupportRoute canCreate={canCreateSupport} /> : <Navigate replace to="/" />
+    }
+    if (!canReadProfile) {
+      return <PortalNotice header={accountHeader} title="Profile access is unavailable." body="Your saved profile has not been removed. Ask an organizer to restore profile access before submitting." />
+    }
     const profileKey = `${me.participantPolicy.id}:${me.profile?.profileVersion ?? 0}`
-    const teamContext = team
-      ? <TeamPanel team={team} members={teamMembers.results} rosterStatus={teamMembers.status} loadMore={teamMembers.loadMore} />
-      : teamAccessUnavailable
-        ? <TeamAccessNotice />
-        : null
-    const teamSetup = canJoinTeam ? <TeamScreen embedded /> : <TeamJoinAccessNotice />
-    const profileContext = !canReadProfile
-      ? <ProfileAccessNotice mode="read" />
-      : canWriteProfile
-        ? <ProfileScreen key={profileKey} me={me} />
-        : <ProfileAccessNotice mode="write" />
     return (
-      <>
-        <PortalHeader name={me.person.displayName} email={me.person.verifiedEmail} onSignOut={signOut} showSupport={canReadSupport} />
-        {location.pathname === '/support'
-          ? canReadSupport
-            ? <SupportScreen canCreate={canCreateSupport} />
-            : <Navigate replace to="/" />
-          : !me.participantPolicy.accepted
-            ? teamContext
-              ? (
-                  <div className="portal-grid">
-                    {teamContext}
-                    <PolicyConsentScreen canAccept={canWriteProfile} me={me} />
-                  </div>
-                )
-              : <PolicyConsentScreen canAccept={canWriteProfile} me={me} />
-            : (
-                <div className="portal-grid">
-                  {teamContext ?? teamSetup}
-                  {profileContext}
-                </div>
-              )}
-      </>
+      <DetailsScreen key={profileKey} me={me} canWriteProfile={canWriteProfile} onSignOut={signOut} />
     )
   }
 
   if (teamAccessUnavailable) {
-    return (
-      <>
-        <PortalHeader name={me.person.displayName} email={me.person.verifiedEmail} onSignOut={signOut} showSupport={canReadSupport} />
-        {location.pathname === '/support'
-          ? canReadSupport
-            ? <SupportScreen canCreate={canCreateSupport} />
-            : <Navigate replace to="/" />
-          : (
-              <main className="portal-main">
-                <TeamAccessNotice />
-              </main>
-            )}
-      </>
-    )
+    if (supportRoute) {
+      return canReadSupport ? <SupportRoute canCreate={canCreateSupport} /> : <Navigate replace to="/" />
+    }
+    return <PortalNotice header={accountHeader} title="Team access is unavailable." body="You are still on your team. You cannot create or join another team until an organizer restores access." />
   }
 
+  // ---- f0c · team start ----------------------------------------------------
   if (!team) {
-    return (
-      <>
-        <PortalHeader name={me.person.displayName} email={me.person.verifiedEmail} onSignOut={signOut} showSupport={canReadSupport} />
-        {location.pathname === '/support'
-          ? canReadSupport
-            ? <SupportScreen canCreate={canCreateSupport} />
-            : <Navigate replace to="/" />
-          : canJoinTeam
-            ? <TeamScreen />
-            : (
-                <main className="portal-main">
-                  <TeamJoinAccessNotice />
-                </main>
-              )}
-      </>
-    )
+    if (supportRoute) {
+      return canReadSupport ? <SupportRoute canCreate={canCreateSupport} /> : <Navigate replace to="/" />
+    }
+    if (!canJoinTeam) {
+      return <PortalNotice header={accountHeader} title="Team setup is unavailable." body="This account cannot create or join a team. Ask an organizer to restore team setup access." />
+    }
+    if (me.pendingTeam) {
+      return <PendingTeamScreen header={accountHeader} pendingTeam={me.pendingTeam} />
+    }
+    return <TeamScreen header={accountHeader} />
   }
 
   if (!intakeStatus) return <PortalLoading />
 
   if (intakeStatus.submissionState === 'validating') {
     return (
-      <>
-        <PortalHeader name={me.person.displayName} email={me.person.verifiedEmail} onSignOut={signOut} showSupport={canReadSupport} />
-        <main className="portal-main">
-          <section className="intake-panel">
-            <p className="eyebrow">Final submission</p>
-            <h1>Submitting your idea…</h1>
-            <p className="lead">We are confirming your team and answers. You can leave this page; the result appears here automatically.</p>
-          </section>
-        </main>
-      </>
+      <PortalNotice
+        header={accountHeader}
+        title="Submitting your idea…"
+        body="We are confirming your team and answers. You can leave this page; the result appears here automatically."
+      />
     )
   }
 
   const applicationFlow = intakeStatus.applicationState === null && location.pathname === '/'
+
+  // ---- f1-f6 · the application flow, full-bleed on the night scene ---------
+  if (applicationFlow) {
+    return (
+      <Suspense fallback={<PortalLoading />}>
+        <IntakeScreen
+          team={team}
+          members={teamMembers.results}
+          {...(intakeStatus.submissionFailureMessage === undefined
+            ? {}
+            : { submissionFailureMessage: intakeStatus.submissionFailureMessage })}
+        />
+      </Suspense>
+    )
+  }
+
+  // The queue screen (mockup f7) is a full-bleed night scene, so it renders
+  // outside the panelled shell the post-decision screens still use.
+  const queued =
+    intakeStatus.applicationState !== null &&
+    ['submitted', 'under_review', 'needs_information'].includes(intakeStatus.applicationState)
+  if (queued && location.pathname === '/') {
+    return (
+      <Suspense fallback={<PortalLoading />}>
+        <SubmittedScreen
+          capabilities={access}
+          publicState={publicState}
+          team={team}
+          members={teamMembers.results}
+        />
+      </Suspense>
+    )
+  }
+
   const acceptedFeatures = intakeStatus.applicationState !== null
     ? ['accepted', 'offer_sent', 'confirmed'].includes(intakeStatus.applicationState)
     : false
@@ -222,26 +216,12 @@ export function ParticipantApp({
         name={me.person.displayName}
         email={me.person.verifiedEmail}
         onSignOut={signOut}
-        showNavigation={!applicationFlow}
+        showNavigation
         showIntegrations={acceptedFeatures && canReadIntegrations}
         showMusic={acceptedFeatures}
         showSupport={canReadSupport}
       />
-      {applicationFlow ? (
-        <div className="minimal-application-flow">
-          <details className="minimal-team-access">
-            <summary>
-              <span>Team</span>
-              <strong>{team.name}</strong>
-              <small>{team.activeMemberCount} of {team.teamMaximumSize}</small>
-            </summary>
-            <TeamPanel team={team} members={teamMembers.results} rosterStatus={teamMembers.status} loadMore={teamMembers.loadMore} />
-          </details>
-          <main className="minimal-flow-main">
-            <Suspense fallback={<PortalContentLoading />}>{portalContent}</Suspense>
-          </main>
-        </div>
-      ) : intakeStatus.applicationState !== null ? (
+      {intakeStatus.applicationState !== null ? (
         <div className="participant-home">
           <details className="minimal-team-access submitted-team-access">
             <summary>
@@ -264,6 +244,38 @@ export function ParticipantApp({
         </div>
       )}
     </div>
+  )
+}
+
+function SupportRoute({ canCreate }: { canCreate: boolean }) {
+  return (
+    <div className="portal-shell" data-app-surface="participant">
+      <main className="portal-main">
+        <Suspense fallback={<PortalContentLoading />}>
+          <SupportScreen canCreate={canCreate} />
+        </Suspense>
+      </main>
+    </div>
+  )
+}
+
+/** A single-message stop on the night scene — access gates and waits. */
+function PortalNotice({
+  header,
+  title,
+  body,
+}: {
+  header?: ReactNode
+  title: string
+  body: string
+}) {
+  return (
+    <PortalScene tree="right" {...(header ? { header } : {})}>
+      <PetalCard className="max-w-[560px] px-8 py-7">
+        <h1 className="mb-3 font-display text-2xl italic lg:text-3xl">{title}</h1>
+        <p className="text-[13px] leading-relaxed text-[rgb(248_248_248/.6)]">{body}</p>
+      </PetalCard>
+    </PortalScene>
   )
 }
 
@@ -313,48 +325,100 @@ function PortalHeader({
 
 function PortalLoading() {
   return (
-    <main className="centered-shell">
-      <p className="muted" role="status">Loading your portal…</p>
-    </main>
+    <PortalScene tree="left">
+      <p role="status" className="font-display text-xl italic text-rose-light">
+        Loading your portal…
+      </p>
+    </PortalScene>
+  )
+}
+
+type PendingTeam = NonNullable<FunctionReturnType<typeof api.participants.me>>['pendingTeam']
+
+function PendingTeamScreen({
+  header,
+  pendingTeam,
+}: {
+  header: ReactNode
+  pendingTeam: NonNullable<PendingTeam>
+}) {
+  const declineAssignedTeam = useMutation(api.participants.declineAssignedTeam)
+  const [confirmLeave, setConfirmLeave] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const operations = useOperationRunner()
+  const leavePending = operations.hasPending('team-assignment-leave')
+
+  const leaveAssignment = async () => {
+    setError(null)
+    try {
+      await operations.run('team-assignment-leave', (clientOperationId) => () =>
+        declineAssignedTeam({
+          eventSlug,
+          teamRosterEntryId: pendingTeam.id,
+          expectedVersion: pendingTeam.version,
+          clientOperationId,
+        }),
+      )
+      setConfirmLeave(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    }
+  }
+
+  return (
+    <PortalScene tree="both" header={header}>
+      <PetalCard className="w-full max-w-[600px] px-7 py-7 sm:px-9">
+        <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-rose-light">Your team</p>
+        <h1 className="font-display text-3xl italic">{pendingTeam.teamName}</h1>
+        <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">
+          {pendingTeam.status === 'waiting_for_lead'
+            ? 'Your team lead has not signed in yet. You will join automatically when they do.'
+            : `You will join as ${pendingTeam.role === 'lead' ? 'the lead' : 'a member'} shortly.`}
+        </p>
+        <ul className="mt-6 divide-y divide-white/10">
+          {pendingTeam.assignees.map((assignee, index) => (
+            <li className="flex items-center justify-between gap-4 py-3" key={`${assignee.role}:${index}`}>
+              <span className="text-sm text-[rgb(248_248_248/.86)]">{assignee.displayName}</span>
+              <small className="text-right text-[11px] text-[rgb(248_248_248/.42)]">
+                {assignee.role === 'lead' ? 'Lead' : 'Member'}
+                {assignee.isYou ? ' · You' : ''}
+                {` · ${assignee.signedIn ? 'Signed in' : 'Waiting'}`}
+              </small>
+            </li>
+          ))}
+        </ul>
+        {confirmLeave ? (
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <p className="text-[13px] text-[rgb(248_248_248/.65)]">
+              Leave this assignment? You can create or join another team afterward.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <PortalButton type="button" disabled={leavePending} onClick={() => void leaveAssignment()}>
+                {leavePending ? 'Leaving…' : 'Leave team'}
+              </PortalButton>
+              <PortalTextButton type="button" disabled={leavePending} onClick={() => setConfirmLeave(false)}>
+                Keep assignment
+              </PortalTextButton>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="mt-6 text-[12px] text-[rgb(248_248_248/.4)] underline-offset-4 hover:text-rose-light hover:underline"
+            disabled={leavePending}
+            onClick={() => setConfirmLeave(true)}
+          >
+            Leave assignment
+          </button>
+        )}
+        <PortalError message={error} />
+      </PetalCard>
+    </PortalScene>
   )
 }
 
 function PortalContentLoading() {
   return <p className="muted" role="status">Loading…</p>
-}
-
-function TeamAccessNotice() {
-  return (
-    <section className="intake-panel">
-      <p className="eyebrow">Team</p>
-      <h1>Team access is unavailable.</h1>
-      <p className="lead">You are still on your team. You cannot create or join another team until an organizer restores access.</p>
-    </section>
-  )
-}
-
-function TeamJoinAccessNotice() {
-  return (
-    <section className="intake-panel">
-      <p className="eyebrow">Team</p>
-      <h1>Team setup is unavailable.</h1>
-      <p className="lead">This account cannot create or join a team. Ask an organizer to restore team setup access.</p>
-    </section>
-  )
-}
-
-function ProfileAccessNotice({ mode }: { mode: 'read' | 'write' }) {
-  return (
-    <section className="intake-panel">
-      <p className="eyebrow">Profile</p>
-      <h1>{mode === 'read' ? 'Profile access is unavailable.' : 'Profile changes are unavailable.'}</h1>
-      <p className="lead">
-        {mode === 'read'
-          ? 'Your saved profile has not been removed. Ask an organizer to restore profile access before submitting.'
-          : 'Ask an organizer to restore profile changes before submitting.'}
-      </p>
-    </section>
-  )
 }
 
 function preloadIntegrations() {
@@ -369,7 +433,13 @@ function preloadSupport() {
   void loadSupportScreen()
 }
 
-function ProvisionScreen({ publicState }: { publicState: PublicState }) {
+function ProvisionScreen({
+  publicState,
+  onSignOut,
+}: {
+  publicState: PublicState
+  onSignOut: () => void
+}) {
   const provision = useMutation(api.participants.provision)
   const provisioningRef = useRef(false)
   const attemptedClassRef = useRef<ParticipantClass | null>(null)
@@ -410,38 +480,93 @@ function ProvisionScreen({ publicState }: { publicState: PublicState }) {
 
   if (participantClass && !error) {
     return (
-      <main className="centered-shell">
-        <p className="muted" role="status">Finishing your participant setup…</p>
-      </main>
+      <PortalScene tree="both">
+        <p role="status" className="font-display text-xl italic text-rose-light">
+          Finishing your participant setup…
+        </p>
+      </PortalScene>
     )
   }
 
   return (
-    <main className="centered-shell">
-      <section className="narrow-panel">
-        <p className="eyebrow">{publicState.event?.name ?? 'Code2Create'}</p>
-        <h1>Choose your participant type.</h1>
-        <p className="muted">VIT students must use their @vitstudent.ac.in Google account.</p>
-        <div className="choice-stack">
-          <button type="button" className={participantClass === 'vit_student' ? 'choice selected' : 'choice'} onClick={() => choose('vit_student')}>
-            <span>VIT student</span><small>Only @vitstudent.ac.in accounts are accepted.</small>
-          </button>
-          <button type="button" className={participantClass === 'external_participant' ? 'choice selected' : 'choice'} onClick={() => choose('external_participant')}>
-            <span>External participant</span><small>College students and other eligible applicants.</small>
-          </button>
+    <PortalScene
+      tree="both"
+      header={
+        <button
+          type="button"
+          onClick={onSignOut}
+          className="text-[12px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
+        >
+          Sign out
+        </button>
+      }
+    >
+      <div className="flex w-full max-w-[560px] flex-col items-center text-center">
+        <p className="mb-2 font-display text-[15px] italic text-rose-light">
+          {publicState.event?.name ?? 'Code2Create'}
+        </p>
+        <h1 className="mb-2 font-display text-3xl italic lg:text-[40px]">
+          Choose your participant type.
+        </h1>
+        <p className="mb-7 text-[12.5px] text-[rgb(248_248_248/.5)]">
+          VIT students must use their @vitstudent.ac.in Google account.
+        </p>
+        <div className="mb-6 flex w-full flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4">
+          <ProvisionChoice
+            title="VIT student"
+            detail="Only @vitstudent.ac.in accounts are accepted."
+            selected={participantClass === 'vit_student'}
+            onSelect={() => choose('vit_student')}
+          />
+          <ProvisionChoice
+            title="External participant"
+            detail="College students and other eligible applicants."
+            selected={participantClass === 'external_participant'}
+            onSelect={() => choose('external_participant')}
+          />
         </div>
-        <ErrorNotice message={error} />
+        <PortalError message={error} />
         {participantClass && error ? (
-          <button
+          <PortalButton
             type="button"
-            className="secondary full-width"
+            className="mt-4"
             disabled={busy}
             onClick={() => void provisionParticipant(participantClass)}
           >
             {busy ? 'Checking…' : 'Try again'}
-          </button>
+          </PortalButton>
         ) : null}
-      </section>
-    </main>
+      </div>
+    </PortalScene>
+  )
+}
+
+function ProvisionChoice({
+  title,
+  detail,
+  selected,
+  onSelect,
+}: {
+  title: string
+  detail: string
+  selected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onSelect}
+      className={`w-full rounded-petal-sm px-6 py-5 text-left backdrop-blur-md transition-all hover:-translate-y-0.5 sm:w-[250px] ${
+        selected
+          ? 'border-[1.5px] border-rose-light bg-[linear-gradient(155deg,rgba(255,255,255,.1),rgba(12,0,4,.55)_60%)] shadow-[0_24px_50px_-18px_rgba(0,0,0,.8),0_0_26px_rgba(216,132,162,.25)]'
+          : 'border border-petal-edge-soft bg-[linear-gradient(155deg,rgba(255,255,255,.06),rgba(12,0,4,.48)_60%)] shadow-[0_24px_50px_-18px_rgba(0,0,0,.8)]'
+      }`}
+    >
+      <p className={`mb-1 font-display text-[19px] ${selected ? 'text-rose-light' : 'text-[rgb(248_248_248/.85)]'}`}>
+        {title}
+      </p>
+      <p className="text-xs text-[rgb(248_248_248/.55)]">{detail}</p>
+    </button>
   )
 }

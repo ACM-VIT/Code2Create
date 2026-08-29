@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useRef,
+  useState,
   type ErrorInfo,
   type ReactNode,
 } from 'react'
@@ -15,6 +16,9 @@ import {
   validatePostHogHost,
 } from './environment.ts'
 import { scrubPostHogEvent } from './privacy.ts'
+import { isChunkLoadFailure } from './browserRecovery.ts'
+
+export { installBrowserChunkRecovery } from './browserRecovery.ts'
 
 export type BrowserSurface = 'landing-web' | 'participant-web' | 'operations-web'
 
@@ -47,7 +51,12 @@ export function ClientObservabilityProvider({
   }, [configuration.development, configuration.surface, host, projectToken])
 
   if (!projectToken || !host) {
-    return <LocalErrorBoundary>{children}</LocalErrorBoundary>
+    return (
+      <>
+        <LocalErrorBoundary>{children}</LocalErrorBoundary>
+        <ConnectivityNotice />
+      </>
+    )
   }
 
   const deploymentEnvironment = parseDeploymentEnvironment(configuration.deploymentEnvironment)
@@ -83,10 +92,11 @@ export function ClientObservabilityProvider({
       >
         <PostHogErrorBoundary
           additionalProperties={commonProperties}
-          fallback={<ErrorFallback />}
+          fallback={ErrorFallback}
         >
           {children}
         </PostHogErrorBoundary>
+        <ConnectivityNotice />
       </PostHogProvider>
     </ObservabilityContext.Provider>
   )
@@ -114,11 +124,14 @@ function EnabledIdentity({ distinctId }: { distinctId: string | null }) {
   return null
 }
 
-class LocalErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-  override state = { failed: false }
+class LocalErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: unknown; failed: boolean }
+> {
+  override state = { error: null, failed: false }
 
-  static getDerivedStateFromError() {
-    return { failed: true }
+  static getDerivedStateFromError(error: unknown) {
+    return { error, failed: true }
   }
 
   override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -126,19 +139,108 @@ class LocalErrorBoundary extends Component<{ children: ReactNode }, { failed: bo
   }
 
   override render() {
-    return this.state.failed ? <ErrorFallback /> : this.props.children
+    return this.state.failed ? <ErrorFallback error={this.state.error} /> : this.props.children
   }
 }
 
-function ErrorFallback() {
+function ErrorFallback({ error }: { error: unknown }) {
+  const online = useOnlineStatus()
+  const chunkFailure = isChunkLoadFailure(error)
+
+  useEffect(() => {
+    if (!chunkFailure || online) return
+    const reload = () => window.location.reload()
+    window.addEventListener('online', reload, { once: true })
+    return () => window.removeEventListener('online', reload)
+  }, [chunkFailure, online])
+
+  const title = chunkFailure
+    ? online
+      ? 'This screen didn’t finish loading.'
+      : 'The connection dropped while this screen was loading.'
+    : 'This screen hit an unexpected problem.'
+  const explanation = chunkFailure
+    ? online
+      ? 'The connection is back. Try loading the screen again.'
+      : 'Keep this page open. It will try again automatically when this device reconnects.'
+    : 'Reload once. If it happens again, tell event support what you were trying to open.'
+
   return (
     <main style={{ background: '#0a0a09', color: '#f0eee8', minHeight: '100vh', padding: '15vh 24px' }}>
       <section style={{ margin: '0 auto', maxWidth: 520 }} role="alert">
         <p style={{ color: '#9b9992', margin: '0 0 12px' }}>Code2Create</p>
-        <h1 style={{ fontSize: 28, fontWeight: 500, margin: '0 0 12px' }}>This screen stopped unexpectedly.</h1>
-        <p style={{ color: '#b9b7b0', lineHeight: 1.6 }}>Reload once. If it happens again, tell event support what you were trying to open.</p>
-        <button type="button" onClick={() => window.location.reload()} style={{ marginTop: 16 }}>Reload</button>
+        <h1 style={{ fontSize: 28, fontWeight: 500, margin: '0 0 12px' }}>{title}</h1>
+        <p style={{ color: '#b9b7b0', lineHeight: 1.6 }}>{explanation}</p>
+        <button
+          type="button"
+          disabled={!online}
+          onClick={() => window.location.reload()}
+          style={{ cursor: online ? 'pointer' : 'wait', marginTop: 16 }}
+        >
+          {online ? 'Try again' : 'Waiting for connection…'}
+        </button>
       </section>
     </main>
   )
+}
+
+function ConnectivityNotice() {
+  const online = useOnlineStatus()
+  if (online) return null
+
+  return (
+    <div
+      role="status"
+      aria-label="Connection lost. Live updates will resume automatically."
+      title="Connection lost"
+      style={{
+        alignItems: 'center',
+        background: '#161512',
+        border: '1px solid rgb(240 238 232 / 18%)',
+        borderRadius: 999,
+        boxShadow: '0 6px 24px rgb(0 0 0 / 24%)',
+        color: '#f0eee8',
+        display: 'flex',
+        height: 34,
+        justifyContent: 'center',
+        position: 'fixed',
+        right: 14,
+        top: 14,
+        width: 34,
+        zIndex: 10000,
+      }}
+    >
+      <svg
+        aria-hidden="true"
+        fill="none"
+        height="19"
+        viewBox="0 0 24 24"
+        width="19"
+      >
+        <path d="M4.9 9.8a11.4 11.4 0 0 1 13.7-.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+        <path d="M7.9 13.1a7.2 7.2 0 0 1 7.8-.7" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+        <path d="M10.8 16.4a2.7 2.7 0 0 1 2.4-.1" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+        <path d="M3 3l18 18" stroke="#ef6a5b" strokeLinecap="round" strokeWidth="2.1" />
+      </svg>
+    </div>
+  )
+}
+
+function useOnlineStatus(): boolean {
+  const [online, setOnline] = useState(() =>
+    typeof navigator === 'undefined' ? true : navigator.onLine,
+  )
+
+  useEffect(() => {
+    const markOnline = () => setOnline(true)
+    const markOffline = () => setOnline(false)
+    window.addEventListener('online', markOnline)
+    window.addEventListener('offline', markOffline)
+    return () => {
+      window.removeEventListener('online', markOnline)
+      window.removeEventListener('offline', markOffline)
+    }
+  }, [])
+
+  return online
 }
