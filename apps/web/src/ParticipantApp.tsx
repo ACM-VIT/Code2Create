@@ -354,8 +354,7 @@ function PendingTeamPanel({ pendingTeam }: { pendingTeam: NonNullable<PendingTea
         </p>
       ) : (
         <p className="lead">
-          You&rsquo;ll join {pendingTeam.teamName} as its {pendingTeam.role === 'lead' ? 'lead' : 'member'} when you
-          continue below.
+          You&rsquo;ll join {pendingTeam.teamName} as its {pendingTeam.role === 'lead' ? 'lead' : 'member'} shortly.
         </p>
       )}
     </section>
