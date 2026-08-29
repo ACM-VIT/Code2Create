@@ -189,7 +189,10 @@
   position: absolute;
   left: 50%;
   top: 56%;
-  z-index: 12;
+  /* Above later acts that share the pinned stage. Those layers stay in the
+     layout at opacity 0, and on a phone they sit over this copy — without
+     the extra stacking, Register now is an unclickable ghost. */
+  z-index: 20;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -270,6 +273,7 @@
   background: linear-gradient(180deg, var(--card-from) 0%, var(--card-to) 100%);
   box-shadow: -18px 0 22px rgba(0, 0, 0, 0.32);
   transform-origin: 50% 50%;
+  pointer-events: none;
   will-change: transform, clip-path;
 }
 
@@ -303,6 +307,7 @@
   top: 20%;
   z-index: 12;
   width: min(58%, 720px);
+  pointer-events: none;
 }
 
 .chapter {
@@ -707,6 +712,9 @@
   display: grid;
   width: min(560px, 46%);
   transform: translateY(-50%);
+  /* The grid keeps the full card height even while the act is dark, so on a
+     phone this box sits over the hero CTA. It never needs the pointer. */
+  pointer-events: none;
 }
 
 .day {
@@ -801,6 +809,7 @@
   z-index: 12;
   width: min(100% - 2 * clamp(16px, 4vw, 52px), 1177px);
   transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .faq-columns {
@@ -897,6 +906,7 @@
   position: relative;
   display: flex;
   align-items: center;
+  pointer-events: auto;
   width: 100%;
   min-height: clamp(42px, 7.6vh, 70px);
   padding: 10px clamp(20px, 3.2vw, 40px);
