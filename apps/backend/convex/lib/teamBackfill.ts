@@ -16,6 +16,22 @@ export type TeamBackfillOutcome =
   | "waiting_for_lead"
   | "claimed";
 
+function isTeamPlacementFailure(error: unknown): boolean {
+  if (!(error instanceof ConvexError)) return false;
+  const data = error.data;
+  const code =
+    typeof data === "object" && data !== null && "code" in data && typeof data.code === "string"
+      ? data.code
+      : null;
+  return (
+    code === "TEAM_FULL" ||
+    code === "TEAM_LOCKED" ||
+    code === "MIXED_TEAM_NOT_ALLOWED" ||
+    code === "TEAM_NAME_AMBIGUOUS" ||
+    code === "EVENT_TEAM_LIMIT_REACHED"
+  );
+}
+
 /**
  * Every non-withdrawn, non-disqualified team with this exact name in the event.
  * Walks the `by_event_name` index until it is exhausted so older withdrawn
@@ -45,7 +61,8 @@ export async function activeTeamsWithName(
  * already be provisioned; otherwise the entry stays pending. Never moves a
  * person who already has an active team. Policy acceptance is deliberately not
  * required here: assignment is organizer-driven and consent happens on the
- * participant portal screens.
+ * participant portal screens. Placement failures leave the entry pending
+ * instead of throwing, so signup and import apply can commit around a bad row.
  */
 export async function applyTeamRosterEntry(
   ctx: MutationCtx,
@@ -88,18 +105,38 @@ export async function applyTeamRosterEntry(
     return "skipped_has_team";
   }
 
+  try {
+    return await placeTeamRosterEntry(ctx, {
+      event: args.event,
+      entry,
+      membership,
+      actorPersonId: args.actorPersonId,
+      now,
+    });
+  } catch (error) {
+    if (isTeamPlacementFailure(error)) return "still_pending";
+    throw error;
+  }
+}
+
+async function placeTeamRosterEntry(
+  ctx: MutationCtx,
+  args: {
+    event: Doc<"events">;
+    entry: Doc<"teamRosterEntries">;
+    membership: Doc<"eventMemberships">;
+    actorPersonId: Id<"people">;
+    now: number;
+  },
+): Promise<TeamBackfillOutcome> {
+  const { entry, membership, now } = args;
   const participantPolicy = await loadPublishedParticipantPolicy(ctx, args.event);
 
   const activeMatches = await activeTeamsWithName(ctx, {
     eventId: args.event._id,
     name: entry.teamName,
   });
-  if (activeMatches.length > 1) {
-    throw new ConvexError({
-      code: "TEAM_NAME_AMBIGUOUS",
-      message: "More than one active team uses that name. Rename in the CSV or in the event.",
-    });
-  }
+  if (activeMatches.length > 1) return "still_pending";
   const team = activeMatches[0];
 
   if (!team) {
@@ -135,22 +172,17 @@ export async function applyTeamRosterEntry(
     return "waiting_for_lead";
   }
 
-  if (team.membershipLocked) {
-    throw new ConvexError({ code: "TEAM_LOCKED", message: "That team has already submitted." });
-  }
+  if (team.membershipLocked) return "still_pending";
   const rosterCounts = teamRosterCounts(team);
   if (rosterCounts.activeMemberCount >= participantPolicy.normalized.teamMaximumSize) {
-    throw new ConvexError({ code: "TEAM_FULL", message: "That team is full." });
+    return "still_pending";
   }
   if (
     !participantPolicy.normalized.mixedParticipantClassesAllowed &&
     rosterCounts.activeMemberCount > 0 &&
     !teamContainsParticipantClass(team, membership.participantClass)
   ) {
-    throw new ConvexError({
-      code: "MIXED_TEAM_NOT_ALLOWED",
-      message: "The current participant policy does not allow mixed VIT and external teams.",
-    });
+    return "still_pending";
   }
 
   let role = entry.role;
@@ -295,9 +327,8 @@ export async function teamRosterPendingEntry(
 
 /**
  * Called at the end of participants.provision: joins the person to their
- * assigned team now that membership and self grants exist. TEAM_FULL,
- * MIXED_TEAM_NOT_ALLOWED, and TEAM_LOCKED surface to the client so the
- * organizer can fix the roster and the participant can retry.
+ * assigned team now that membership and self grants exist. Placement failures
+ * leave the roster entry pending so the membership commit is not rolled back.
  */
 export async function claimPendingTeamRosterEntry(
   ctx: MutationCtx,
@@ -312,9 +343,14 @@ export async function claimPendingTeamRosterEntry(
     emailNormalized: args.person.verifiedEmail,
   });
   if (!entry) return "still_pending";
-  return applyTeamRosterEntry(ctx, {
-    event: args.event,
-    entry,
-    actorPersonId: args.person._id,
-  });
+  try {
+    return await applyTeamRosterEntry(ctx, {
+      event: args.event,
+      entry,
+      actorPersonId: args.person._id,
+    });
+  } catch (error) {
+    if (isTeamPlacementFailure(error)) return "still_pending";
+    throw error;
+  }
 }
