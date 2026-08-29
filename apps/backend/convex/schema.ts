@@ -735,6 +735,7 @@ export default defineSchema({
   })
     .index("by_event_email_status", ["eventId", "emailNormalized", "status"])
     .index("by_event_team_status", ["eventId", "teamName", "status"])
+    .index("by_event_status", ["eventId", "status"])
     .index("by_import_row", ["teamRosterImportId", "sourceRowNumber"])
     .index("by_event_created", ["eventId", "createdAt"]),
 
