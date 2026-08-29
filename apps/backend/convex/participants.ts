@@ -33,7 +33,9 @@ import {
   normalizedText,
   optionalNormalizedText,
 } from "./lib/strings";
+import { teamRosterPendingEntry } from "./lib/teamBackfill";
 import {
+  memberRole,
   participantClass,
   participantEligibilityStatus,
   participantOnboardingStatus,
@@ -84,6 +86,14 @@ export const me = query({
           onboardingStatus: participantOnboardingStatus,
         }),
       ),
+      pendingTeam: v.union(
+        v.null(),
+        v.object({
+          teamName: v.string(),
+          role: memberRole,
+          status: v.union(v.literal("pending"), v.literal("waiting_for_lead")),
+        }),
+      ),
       profile: v.union(v.null(), profileView),
       participantPolicy: currentParticipantPolicyView,
     }),
@@ -117,6 +127,17 @@ export const me = query({
           .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
           .unique()
       : null;
+    const pendingEntry = await teamRosterPendingEntry(ctx, {
+      eventId: event._id,
+      emailNormalized: person.verifiedEmail,
+    });
+    const pendingTeam = pendingEntry
+      ? {
+          teamName: pendingEntry.teamName,
+          role: pendingEntry.role,
+          status: pendingEntry.status,
+        }
+      : null;
     return {
       person: {
         id: person._id,
@@ -131,6 +152,7 @@ export const me = query({
             onboardingStatus: membership.onboardingStatus,
           }
         : null,
+      pendingTeam,
       profile: profile && membership
         ? {
             id: profile._id,
