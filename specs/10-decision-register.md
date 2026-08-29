@@ -16,7 +16,7 @@ This file records current decisions only. It does not keep obsolete product path
 | P-008 | One participant can belong to one active team. One active team has exactly one lead. |
 | P-009 | Leadership transfer requires acceptance by the proposed lead. |
 | P-010 | Final submission locks team membership. It does not lock proposal content. |
-| P-011 | The lead can revise submitted proposal content until the authoritative `applicationsCloseAt` deadline. |
+| P-011 | The lead can revise submitted proposal content until the deadline for the team's verified participant class. |
 | P-012 | Every proposal revision creates an immutable version and invalidates stale human-review and AI-admission outputs. |
 | P-013 | Route proposals by current proposal content and reviewer-domain coverage. |
 | P-014 | Git tracked branches remain part of GitHub evidence. Synesthesia music tracks remain part of the music catalog. |
@@ -42,6 +42,8 @@ This file records current decisions only. It does not keep obsolete product path
 | P-034 | Synesthesia is a separate licensed-catalog request, vote, report, moderation, and playback-record system. |
 | P-035 | Support links do not grant access to linked domain records. |
 | P-036 | Protected corrections preserve earlier records and add actor, reason, time, and before/after values. |
+| P-037 | External participants and VIT students have separate application deadlines. The external deadline is no later than the VIT deadline. |
+| P-038 | A team contains only VIT students or only external participants. This rule is not configurable. |
 
 ## 2. Technical decisions
 
@@ -107,8 +109,8 @@ This file records current decisions only. It does not keep obsolete product path
 
 | ID | Decision owner | Required decision |
 | --- | --- | --- |
-| O-001 | Board | Team-size bounds and mixed-team eligibility |
-| O-002 | Board | Authoritative application open and close times |
+| O-001 | Board | Team-size bounds |
+| O-002 | Board | External-participant and VIT-student application deadlines |
 | O-003 | Board and admissions owner | Admission rubric, minimum human reviews, AI-use rule, capacity, waitlist order, offer deadline, and participant-visible reasons |
 | O-004 | Board and participant owner | Profile fields, notices, consent, privacy URL, fresh-project text, and membership-lock warning |
 | O-005 | Board and review owner | Panel size, reviewer eligibility, expertise coverage, review duration, and substitute policy |

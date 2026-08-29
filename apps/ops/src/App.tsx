@@ -672,7 +672,9 @@ function RosterClaim({
         <p className="muted">
           You are listed as {roster.displayName} · {eventRoleLabels[roster.role]} under {roster.email}.
         </p>
-        {roster.bundles.length > 0 ? (
+        {roster.role === 'supreme' ? (
+          <p className="notice">Supreme access includes every event permission.</p>
+        ) : roster.bundles.length > 0 ? (
           <ul className="claim-bundle-list">
             {roster.bundles.map((bundle) => (
               <li key={`${bundle.label}:${bundle.version}`}>{bundle.label}</li>

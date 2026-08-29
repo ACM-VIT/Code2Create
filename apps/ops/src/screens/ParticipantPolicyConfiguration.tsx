@@ -19,6 +19,7 @@ type FieldMode = Policy['phoneField']
 type PolicyOperationResult =
   | FunctionReturnType<typeof api.participantPolicyConfiguration.createDraft>
   | FunctionReturnType<typeof api.participantPolicyConfiguration.publish>
+  | FunctionReturnType<typeof api.participantPolicyConfiguration.updateApplicationDeadlines>
 
 const fieldModes: { value: FieldMode; label: string }[] = [
   { value: 'not_collected', label: 'Do not collect' },
@@ -27,6 +28,11 @@ const fieldModes: { value: FieldMode; label: string }[] = [
 ]
 
 const operationDescriptors = [
+  {
+    slot: 'participant-deadlines-update',
+    title: 'Finish updating the application deadlines',
+    action: 'Confirm earlier update',
+  },
   {
     slot: 'participant-policy-publish',
     title: 'Finish publishing the participant rules',
@@ -47,6 +53,7 @@ export function ParticipantPolicyConfiguration({
   const configuration = useQuery(api.participantPolicyConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.participantPolicyConfiguration.createDraft)
   const publish = useMutation(api.participantPolicyConfiguration.publish)
+  const updateApplicationDeadlines = useMutation(api.participantPolicyConfiguration.updateApplicationDeadlines)
   const operations = useConfigurationOperations<PolicyOperationResult>(operationDescriptors)
   const validation = useQuery(
     api.participantPolicyConfiguration.validateDraft,
@@ -59,9 +66,13 @@ export function ParticipantPolicyConfiguration({
   const [draftReason, setDraftReason] = useState('')
   const [publishReason, setPublishReason] = useState('')
   const [publishArmed, setPublishArmed] = useState(false)
+  const [externalDeadline, setExternalDeadline] = useState<string | null>(null)
+  const [vitDeadline, setVitDeadline] = useState<string | null>(null)
+  const [deadlineReason, setDeadlineReason] = useState('')
   const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('participant-policy-draft')
   const publishPending = operations.hasPending('participant-policy-publish')
+  const deadlinesPending = operations.hasPending('participant-deadlines-update')
 
   useEffect(() => {
     if (!configuration) return
@@ -115,6 +126,33 @@ export function ParticipantPolicyConfiguration({
     }), () => setPublishArmed(false))
   }
 
+  const saveDeadlines = (event: FormEvent) => {
+    event.preventDefault()
+    const externalApplicationsCloseAt = indiaInputToTimestamp(
+      externalDeadline ?? indiaTimestampToInput(
+        configuration.applicationDeadlines.externalApplicationsCloseAt,
+      ),
+    )
+    const vitApplicationsCloseAt = indiaInputToTimestamp(
+      vitDeadline ?? indiaTimestampToInput(
+        configuration.applicationDeadlines.vitApplicationsCloseAt,
+      ),
+    )
+    if (externalApplicationsCloseAt === null || vitApplicationsCloseAt === null) return
+    void operations.run('participant-deadlines-update', (clientOperationId) => () => updateApplicationDeadlines({
+      eventSlug,
+      externalApplicationsCloseAt,
+      vitApplicationsCloseAt,
+      expectedEventVersion: configuration.eventVersion,
+      reason: deadlineReason,
+      clientOperationId,
+    }), () => {
+      setExternalDeadline(null)
+      setVitDeadline(null)
+      setDeadlineReason('')
+    })
+  }
+
   const confirmPendingOperation = () => {
     void operations.retryPending(() => setPublishArmed(false))
   }
@@ -129,10 +167,35 @@ export function ParticipantPolicyConfiguration({
         </div>
       </header>
 
+      <form className="catalog-review" onSubmit={saveDeadlines}>
+        <div className="section-heading">
+          <div><p className="muted">Application window</p><h2>Submission deadlines</h2></div>
+        </div>
+        <div className="intake-policy-grid">
+          <label className="field">
+            <span>External participants · India time</span>
+            <input disabled={deadlinesPending || !configuration.canPublish} required type="datetime-local" value={externalDeadline ?? indiaTimestampToInput(configuration.applicationDeadlines.externalApplicationsCloseAt)} onChange={(event) => setExternalDeadline(event.currentTarget.value)} />
+          </label>
+          <label className="field">
+            <span>VIT students · India time</span>
+            <input disabled={deadlinesPending || !configuration.canPublish} required type="datetime-local" value={vitDeadline ?? indiaTimestampToInput(configuration.applicationDeadlines.vitApplicationsCloseAt)} onChange={(event) => setVitDeadline(event.currentTarget.value)} />
+          </label>
+          <label className="field field-wide">
+            <span>Why this changed</span>
+            <input disabled={deadlinesPending || !configuration.canPublish} minLength={5} required value={deadlineReason} onChange={(event) => setDeadlineReason(event.currentTarget.value)} />
+          </label>
+        </div>
+        {configuration.canPublish ? (
+          <button className="secondary" disabled={busy || deadlineReason.trim().length < 5} type="submit">
+            {deadlinesPending ? 'Confirm earlier update' : 'Update deadlines'}
+          </button>
+        ) : <p className="notice">You can view these deadlines but cannot change them.</p>}
+      </form>
+
       <dl className="catalog-summary">
         <div><dt>Status</dt><dd>Ready</dd></div>
         <div><dt>Team size</dt><dd>{configuration.publishedPolicy.policy.teamMinimumSize}–{configuration.publishedPolicy.policy.teamMaximumSize}</dd></div>
-        <div><dt>Mixed teams</dt><dd>{configuration.publishedPolicy.policy.mixedParticipantClassesAllowed ? 'Allowed' : 'Not allowed'}</dd></div>
+        <div><dt>Team eligibility</dt><dd>VIT and external teams stay separate</dd></div>
       </dl>
 
       {pendingOperation ? (
@@ -207,10 +270,7 @@ export function ParticipantPolicyConfiguration({
                 <span>Maximum members</span>
                 <input required type="number" min={1} max={configuration.participantCapacity} value={policy.teamMaximumSize} onChange={(event) => updatePolicy('teamMaximumSize', event.currentTarget.valueAsNumber)} />
               </label>
-              <label className="check-row field-wide">
-                <input type="checkbox" checked={policy.mixedParticipantClassesAllowed} onChange={(event) => updatePolicy('mixedParticipantClassesAllowed', event.currentTarget.checked)} />
-                <span>Allow VIT students and external participants on the same team</span>
-              </label>
+              <p className="notice field-wide">VIT students and external participants form separate teams.</p>
             </div>
           </PolicySection>
 
@@ -276,6 +336,15 @@ export function ParticipantPolicyConfiguration({
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </section>
   )
+}
+
+function indiaInputToTimestamp(value: string) {
+  const timestamp = Date.parse(`${value}:00+05:30`)
+  return Number.isSafeInteger(timestamp) && timestamp > 0 ? timestamp : null
+}
+
+function indiaTimestampToInput(timestamp: number) {
+  return new Date(timestamp + 5.5 * 60 * 60 * 1_000).toISOString().slice(0, 16)
 }
 
 function FieldModeSelect({

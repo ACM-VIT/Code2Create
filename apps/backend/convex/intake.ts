@@ -8,7 +8,11 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { loadPublishedAdmissionConfiguration } from "./lib/admissionPolicy";
 import { createAdmissionRecommendation } from "./lib/admissionRecommendation";
-import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
+import {
+  applicationsCloseAtFor,
+  requireEventBySlug,
+  requireRegistrationOpen,
+} from "./lib/events";
 import {
   findCurrentPerson,
   requireCurrentPerson,
@@ -241,7 +245,7 @@ export async function currentReadTeamContext(ctx: QueryCtx, eventSlug: string) {
     scopeId: team._id,
   });
   if (readGrantIds.length === 0) return null;
-  return { event, member, team };
+  return { event, membership, member, team };
 }
 
 async function participantApplicationForTeam(
@@ -361,7 +365,7 @@ export const current = query({
   handler: async (ctx, args) => {
     const context = await currentReadTeamContext(ctx, args.eventSlug);
     if (!context) return null;
-    const { event, member, team } = context;
+    const { event, membership, member, team } = context;
     const draft = await ctx.db
       .query("projectDrafts")
       .withIndex("by_team", (index) => index.eq("teamId", team._id))
@@ -424,7 +428,7 @@ export const current = query({
     return {
       teamId: team._id,
       teamVersion: team.version,
-      applicationsCloseAt: event.applicationsCloseAt,
+      applicationsCloseAt: applicationsCloseAtFor(event, membership.participantClass),
       currentRole: member.role,
       draft: visibleDraft,
       application: participantApplication?.view ?? null,
@@ -466,8 +470,12 @@ export const submitted = query({
   handler: async (ctx, args) => {
     const context = await currentReadTeamContext(ctx, args.eventSlug);
     if (!context) return null;
-    const { event, member, team } = context;
+    const { event, membership, member, team } = context;
     const now = Date.now();
+    const applicationsCloseAt = applicationsCloseAtFor(
+      event,
+      membership.participantClass,
+    );
     const participantApplication = await participantApplicationForTeam(ctx, event, team);
     if (!participantApplication) return null;
     const project = await ctx.db.get(
@@ -514,10 +522,10 @@ export const submitted = query({
         followUpAnswerMinLength: normalizedPolicy.followUpAnswerMinLength,
         followUpAnswerMaxLength: normalizedPolicy.followUpAnswerMaxLength,
       },
-      applicationsCloseAt: event.applicationsCloseAt,
+      applicationsCloseAt,
       canEdit:
         member.role === "lead" &&
-        now < event.applicationsCloseAt &&
+        now < applicationsCloseAt &&
         ["submitted", "under_review"].includes(
           participantApplication.application.state,
         ),
@@ -575,7 +583,7 @@ export const reviseSubmission = mutation({
     }
 
     const now = Date.now();
-    if (now >= event.applicationsCloseAt) {
+    if (now >= applicationsCloseAtFor(event, membership.participantClass)) {
       throw new ConvexError({
         code: "APPLICATION_DEADLINE_PASSED",
         message: "The application deadline has passed.",
@@ -1091,7 +1099,7 @@ export const saveInitialIdea = mutation({
       requestFingerprint,
     );
     if (replay) return { draftId: replay._id, draftVersion: replay.version };
-    requireRegistrationOpen(event);
+    requireRegistrationOpen(event, membership.participantClass);
     requireEditableTeam(team);
     const existing = await ctx.db
       .query("projectDrafts")
@@ -1242,7 +1250,7 @@ export const respondToFollowUp = mutation({
       requestFingerprint,
     );
     if (replay) return { draftVersion: replay.version };
-    requireRegistrationOpen(event);
+    requireRegistrationOpen(event, membership.participantClass);
     requireEditableTeam(team);
     const draft = await ctx.db
       .query("projectDrafts")
@@ -1372,7 +1380,7 @@ export const reviseFollowUp = mutation({
       requestFingerprint,
     );
     if (replay) return { draftVersion: replay.version };
-    requireRegistrationOpen(event);
+    requireRegistrationOpen(event, membership.participantClass);
     requireEditableTeam(team);
     const draft = await ctx.db
       .query("projectDrafts")
@@ -1505,7 +1513,7 @@ export const setFreshnessAttestation = mutation({
       requestFingerprint,
     );
     if (replay) return { draftVersion: replay.version };
-    requireRegistrationOpen(event);
+    requireRegistrationOpen(event, membership.participantClass);
     requireEditableTeam(team);
     const draft = await ctx.db
       .query("projectDrafts")
@@ -1675,13 +1683,17 @@ export const submissionPreview = query({
       );
     }
     if (!draft.freshnessAttestedAt) blockers.push("Accept the fresh-project rule.");
-    if (Date.now() >= event.applicationsCloseAt) blockers.push("The application deadline has passed.");
+    const applicationsCloseAt = applicationsCloseAtFor(
+      event,
+      membership.participantClass,
+    );
+    if (Date.now() >= applicationsCloseAt) blockers.push("The application deadline has passed.");
     return {
       teamId: team._id,
       teamName: team.name,
       teamVersion: team.version,
       draftVersion: draft.version,
-      applicationsCloseAt: event.applicationsCloseAt,
+      applicationsCloseAt,
       ...(draft.initialIdea !== undefined ? { initialIdea: draft.initialIdea } : {}),
       followUps: followUps.map(({ question, answer }) => ({
         id: question._id,
@@ -1791,14 +1803,6 @@ export const submit = mutation({
       };
     }
 
-    requireRegistrationOpen(event);
-    if (Date.now() >= event.applicationsCloseAt) {
-      throw new ConvexError({
-        code: "APPLICATION_DEADLINE_PASSED",
-        message: "The application deadline has passed.",
-      });
-    }
-
     const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
     if (participantPolicy.policy._id !== args.participantPolicyVersionId) {
       throw new ConvexError({
@@ -1809,6 +1813,7 @@ export const submit = mutation({
 
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const membership = await requireMembership(ctx, event._id, person._id);
+    requireRegistrationOpen(event, membership.participantClass);
     const member = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>

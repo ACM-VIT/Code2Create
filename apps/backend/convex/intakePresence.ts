@@ -5,7 +5,7 @@ import { components } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { currentReadTeamContext, currentTeamContext } from "./intake";
-import { requireRegistrationOpen } from "./lib/events";
+import { applicationsCloseAtFor, requireRegistrationOpen } from "./lib/events";
 import { requireCurrentPerson } from "./lib/identity";
 import { requirePermission } from "./lib/permissions";
 
@@ -38,7 +38,9 @@ export const heartbeat = mutation({
     const { event, subject, membership, member, team } =
       await currentTeamContext(ctx, args.eventSlug);
     if (args.surface === "proposal_revision") {
-      if (Date.now() >= event.applicationsCloseAt) {
+      if (
+        Date.now() >= applicationsCloseAtFor(event, membership.participantClass)
+      ) {
         throw new ConvexError({
           code: "APPLICATION_DEADLINE_PASSED",
           message: "The application deadline has passed.",
@@ -72,7 +74,7 @@ export const heartbeat = mutation({
         });
       }
     } else {
-      requireRegistrationOpen(event);
+      requireRegistrationOpen(event, membership.participantClass);
       if (team.membershipLocked) {
         throw new ConvexError({
           code: "SUBMISSION_LOCKED",

@@ -452,6 +452,15 @@ function ProvisionScreen({
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const vitOpen = Boolean(
+    publicState.event?.registrationOpen &&
+    publicState.serverNow < publicState.event.applicationsCloseAt,
+  )
+  const externalOpen = Boolean(
+    publicState.event?.registrationOpen &&
+    publicState.serverNow < publicState.event.externalApplicationsCloseAt,
+  )
+  const selectedClassOpen = participantClass === 'vit_student' ? vitOpen : externalOpen
 
   const choose = (value: ParticipantClass) => {
     sessionStorage.setItem(participantClassStorageKey, value)
@@ -477,11 +486,15 @@ function ProvisionScreen({
   }, [provision])
 
   useEffect(() => {
-    if (!participantClass || attemptedClassRef.current === participantClass) return
+    if (
+      !participantClass ||
+      !selectedClassOpen ||
+      attemptedClassRef.current === participantClass
+    ) return
     void provisionParticipant(participantClass)
-  }, [participantClass, provisionParticipant])
+  }, [participantClass, provisionParticipant, selectedClassOpen])
 
-  if (participantClass && !error) {
+  if (participantClass && selectedClassOpen && !error) {
     return (
       <PortalScene tree="both">
         <p role="status" className="font-display text-xl italic text-rose-light">
@@ -518,12 +531,14 @@ function ProvisionScreen({
           <ProvisionChoice
             title="VIT student"
             detail="Only @vitstudent.ac.in accounts are accepted."
+            disabled={!vitOpen}
             selected={participantClass === 'vit_student'}
             onSelect={() => choose('vit_student')}
           />
           <ProvisionChoice
             title="External participant"
-            detail="College students and other eligible applicants."
+            detail={externalOpen ? 'College students and other eligible applicants.' : 'Applications have closed.'}
+            disabled={!externalOpen}
             selected={participantClass === 'external_participant'}
             onSelect={() => choose('external_participant')}
           />
@@ -533,7 +548,7 @@ function ProvisionScreen({
           <PortalButton
             type="button"
             className="mt-4"
-            disabled={busy}
+            disabled={busy || !selectedClassOpen}
             onClick={() => void provisionParticipant(participantClass)}
           >
             {busy ? 'Checking…' : 'Try again'}
@@ -548,19 +563,22 @@ function ProvisionChoice({
   title,
   detail,
   selected,
+  disabled,
   onSelect,
 }: {
   title: string
   detail: string
   selected: boolean
+  disabled: boolean
   onSelect: () => void
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       aria-pressed={selected}
       onClick={onSelect}
-      className={`w-full rounded-petal-sm px-6 py-5 text-left backdrop-blur-md transition-all hover:-translate-y-0.5 sm:w-[250px] ${
+      className={`w-full rounded-petal-sm px-6 py-5 text-left backdrop-blur-md transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 sm:w-[250px] ${
         selected
           ? 'border-[1.5px] border-rose-light bg-[linear-gradient(155deg,rgba(255,255,255,.1),rgba(12,0,4,.55)_60%)] shadow-[0_24px_50px_-18px_rgba(0,0,0,.8),0_0_26px_rgba(216,132,162,.25)]'
           : 'border border-petal-edge-soft bg-[linear-gradient(155deg,rgba(255,255,255,.06),rgba(12,0,4,.48)_60%)] shadow-[0_24px_50px_-18px_rgba(0,0,0,.8)]'

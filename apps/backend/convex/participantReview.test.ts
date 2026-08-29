@@ -716,7 +716,7 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
       label: "QR fixture participant policy",
       teamMinimumSize: 1,
       teamMaximumSize: 4,
-      mixedParticipantClassesAllowed: true,
+      mixedParticipantClassesAllowed: false,
       phoneField: "not_collected",
       vitRegistrationNumberField: "required",
       vitProgrammeField: "not_collected",

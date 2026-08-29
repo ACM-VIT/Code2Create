@@ -464,11 +464,11 @@ export const create = mutation({
       if (!replayTeam) throw new Error("The prior team operation no longer resolves.");
       return { teamId: replayTeam._id, publicCode: replayTeam.publicCode };
     }
-    requireRegistrationOpen(event);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const membership = requireEligibleMembership(
       await requireMembership(ctx, event._id, person._id),
     );
+    requireRegistrationOpen(event, membership.participantClass);
     requireCurrentPolicyAcceptance(membership, participantPolicy.policy);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -533,11 +533,11 @@ export const join = mutation({
       requestFingerprint,
     );
     if (replayTeamId) return { teamId: replayTeamId };
-    requireRegistrationOpen(event);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const membership = requireEligibleMembership(
       await requireMembership(ctx, event._id, person._id),
     );
+    requireRegistrationOpen(event, membership.participantClass);
     requireCurrentPolicyAcceptance(membership, participantPolicy.policy);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -651,9 +651,9 @@ export const leave = mutation({
     );
     if (replayTeamId) return { teamId: replayTeamId };
 
-    requireRegistrationOpen(event);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const membership = await requireMembership(ctx, event._id, person._id);
+    requireRegistrationOpen(event, membership.participantClass);
     const member = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
@@ -789,8 +789,9 @@ export const removeMember = mutation({
     );
     if (replayTeamId) return { teamId: replayTeamId };
 
-    requireRegistrationOpen(event);
     const subject = await requireEventSubject(ctx, event._id, person._id);
+    const membership = await requireMembership(ctx, event._id, person._id);
+    requireRegistrationOpen(event, membership.participantClass);
     const team = await ctx.db.get(args.teamId);
     if (!team || team.eventId !== event._id) {
       throw new ConvexError({ code: "TEAM_NOT_FOUND", message: "That team is not available." });
@@ -919,9 +920,9 @@ export const requestLeadershipTransfer = mutation({
       if (!replayTransfer) throw new Error("The prior leadership transfer no longer resolves.");
       return { transferId: replayTransfer._id, expiresAt: replayTransfer.expiresAt };
     }
-    requireRegistrationOpen(event);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const membership = await requireMembership(ctx, event._id, person._id);
+    requireRegistrationOpen(event, membership.participantClass);
     const member = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
@@ -1040,8 +1041,8 @@ export const respondToLeadershipTransfer = mutation({
       }
       return { state: replayTransfer.state };
     }
-    requireRegistrationOpen(event);
     const membership = await requireMembership(ctx, event._id, person._id);
+    requireRegistrationOpen(event, membership.participantClass);
     const transfer = await ctx.db.get(args.transferId);
     if (
       !transfer ||

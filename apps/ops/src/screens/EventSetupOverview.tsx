@@ -82,7 +82,7 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
           {tabs.showParticipants ? (
             <SetupRow
               detail={participants
-                ? `Teams of ${participants.publishedPolicy.policy.teamMinimumSize}–${participants.publishedPolicy.policy.teamMaximumSize} · ${participants.publishedPolicy.policy.mixedParticipantClassesAllowed ? 'mixed teams allowed' : 'one participant type per team'}`
+                ? `Teams of ${participants.publishedPolicy.policy.teamMinimumSize}–${participants.publishedPolicy.policy.teamMaximumSize} · VIT and external teams stay separate`
                 : 'Loading the participant form…'}
               label="Participant form"
               state={publishedState(participants, Boolean(participants?.draftPolicy))}
