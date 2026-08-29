@@ -12,7 +12,17 @@
       "name": "code2create-landing-staging"
     },
     "production": {
-      "name": "code2create-landing"
+      "name": "code2create-landing",
+      "routes": [
+        {
+          "pattern": "c2c.acmvit.in",
+          "custom_domain": true
+        },
+        {
+          "pattern": "code2create.acmvit.in",
+          "custom_domain": true
+        }
+      ]
     }
   }
 }

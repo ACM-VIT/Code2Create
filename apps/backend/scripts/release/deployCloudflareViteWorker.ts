@@ -39,6 +39,8 @@ export function cloudflareDeployArguments(
     'exec',
     'wrangler',
     'deploy',
+    '--config',
+    'dist/wrangler.json',
     '--name',
     cloudflareWorkerName(baseName, environment),
     '--strict',
