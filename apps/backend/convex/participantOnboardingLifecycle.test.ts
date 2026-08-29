@@ -626,7 +626,7 @@ describe("participant onboarding lifecycle", () => {
     });
   }, 10_000);
 
-  test("lets a sole lead withdraw their team and join another", async () => {
+  test("switches a sole lead to another team transactionally", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const fixture = await seedParticipant(backend);
@@ -675,12 +675,31 @@ describe("participant onboarding lifecycle", () => {
     });
     if (!currentTeam) throw new Error("The sole lead team view is missing.");
 
-    await participant.mutation(api.teams.leave, {
+    await expect(participant.mutation(api.teams.switchTeam, {
       eventSlug: fixture.eventSlug,
-      teamId: created.teamId,
-      expectedTeamVersion: currentTeam.version,
-      clientOperationId: "sole-lead-leave",
+      fromTeamId: created.teamId,
+      expectedFromTeamVersion: currentTeam.version,
+      code: "NOTREAL",
+      clientOperationId: "sole-lead-invalid-switch",
+    })).rejects.toThrow("not active");
+    expect(
+      await participant.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).toMatchObject({
+      id: created.teamId,
+      currentRole: "lead",
+      activeMemberCount: 1,
     });
+
+    const switchRequest = {
+      eventSlug: fixture.eventSlug,
+      fromTeamId: created.teamId,
+      expectedFromTeamVersion: currentTeam.version,
+      code: hostTeam.publicCode,
+      clientOperationId: "sole-lead-switch",
+    } as const;
+    const switched = await participant.mutation(api.teams.switchTeam, switchRequest);
+    expect(switched.teamId).toBe(hostTeam.teamId);
+    await expect(participant.mutation(api.teams.switchTeam, switchRequest)).resolves.toEqual(switched);
 
     await backend.run(async (ctx) => {
       const withdrawn = await ctx.db.get(created.teamId);
@@ -698,16 +717,6 @@ describe("participant onboarding lifecycle", () => {
       expect(member?.teamId).toBe(created.teamId);
       expect(member?.role).toBe("lead");
     });
-    expect(
-      await participant.query(api.teams.current, { eventSlug: fixture.eventSlug }),
-    ).toBeNull();
-
-    const joined = await participant.mutation(api.teams.join, {
-      eventSlug: fixture.eventSlug,
-      code: hostTeam.publicCode,
-      clientOperationId: "sole-lead-rejoin",
-    });
-    expect(joined.teamId).toBe(hostTeam.teamId);
     expect(
       await participant.query(api.teams.current, { eventSlug: fixture.eventSlug }),
     ).toMatchObject({
