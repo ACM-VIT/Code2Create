@@ -8,7 +8,7 @@ export const noveltyEmbeddingDimensions = 1_536;
 export const minimumNoveltyCorpusEntries = 5;
 export const maximumNoveltyCorpusEntries = 300;
 export const noveltyDensityMatchLimit = 50;
-export const noveltyEmbeddingSimilarityScale = 1.2;
+export const noveltyEmbeddingSimilarityScale = 1.35;
 export const noveltyDensitySimilarityPolicy = {
   distinctSimilarityBoundary: 0.6,
   commonSimilarityBoundary: 0.9,
