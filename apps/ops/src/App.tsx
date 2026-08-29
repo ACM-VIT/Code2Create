@@ -91,6 +91,9 @@ const ProjectCheckpointOverview = lazy(() =>
 const Roster = lazy(() =>
   import('./screens/Roster').then((module) => ({ default: module.Roster })),
 )
+const TeamRoster = lazy(() =>
+  import('./screens/TeamRoster').then((module) => ({ default: module.TeamRoster })),
+)
 const PermissionBundles = lazy(() =>
   import('./screens/PermissionBundles').then((module) => ({ default: module.PermissionBundles })),
 )
@@ -200,7 +203,8 @@ function Operations({
   const canInvite = capabilities.invitations
   const canReadBundles = capabilities.bundles
   const canReadRoster = capabilities.roster
-  const canViewAccess = canReadPeople || canInvite || canReadBundles || canReadRoster
+  const canReadTeamRoster = capabilities.teamRoster
+  const canViewAccess = canReadPeople || canInvite || canReadBundles || canReadRoster || canReadTeamRoster
   const canViewIntegrations = capabilities.integrations
   const canViewProjectCheckpoints = capabilities.projectCheckpoints
   const canViewReviews = capabilities.reviews
@@ -576,6 +580,7 @@ function Operations({
                 canBrowsePeople={canBrowsePeople}
                 canReadPeople={canReadPeople}
                 canReadRoster={canReadRoster}
+                canReadTeamRoster={canReadTeamRoster}
                 serverNow={serverNow}
               />
             )}
@@ -597,6 +602,16 @@ function Operations({
             element={(
               <Suspense fallback={<p className="muted">Loading roster…</p>}>
                 <Roster canReadBundles={canReadBundles} />
+              </Suspense>
+            )}
+          />
+        ) : null}
+        {canReadTeamRoster ? (
+          <Route
+            path="/access/team-roster"
+            element={(
+              <Suspense fallback={<p className="muted">Loading participant teams…</p>}>
+                <TeamRoster />
               </Suspense>
             )}
           />
