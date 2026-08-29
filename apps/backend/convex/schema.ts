@@ -585,6 +585,7 @@ export default defineSchema({
     authUserId: v.string(),
     googleSubject: v.string(),
     verifiedEmail: v.string(),
+    displayName: v.string(),
     hostedDomain: v.optional(v.string()),
     tokenIssuedAt: v.number(),
     tokenExpiresAt: v.number(),

@@ -331,7 +331,7 @@ export const provision = mutation({
     }
 
     const vitStudentIdentity = resolvedParticipantClass === "vit_student"
-      ? requireVitStudentProfileIdentity(person.displayName)
+      ? requireVitStudentProfileIdentity(googleIdentity.displayName)
       : null;
 
     const now = Date.now();

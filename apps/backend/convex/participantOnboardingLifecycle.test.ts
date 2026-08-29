@@ -754,6 +754,7 @@ describe("participant onboarding lifecycle", () => {
         authUserId: fixture.authUserId,
         googleSubject: "participant-onboarding-google-subject",
         verifiedEmail: "participant@example.test",
+        displayName: "Aarav Menon",
         tokenIssuedAt: fixture.now,
         tokenExpiresAt: fixture.now + 3_600_000,
         verifiedAt: fixture.now,
@@ -777,6 +778,7 @@ describe("participant onboarding lifecycle", () => {
         authUserId: leadAuthUserId,
         googleSubject: "participant-onboarding-roster-lead-subject",
         verifiedEmail: "roster-lead@example.test",
+        displayName: "Roster Lead",
         tokenIssuedAt: fixture.now,
         tokenExpiresAt: fixture.now + 3_600_000,
         verifiedAt: fixture.now,
@@ -825,7 +827,7 @@ describe("participant onboarding lifecycle", () => {
     });
   }, 10_000);
 
-  test("keeps a provisioned VIT identity stable when the Google display name changes", async () => {
+  test("provisions a VIT identity from the verified Google name instead of the mutable auth name", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const fixture = await seedParticipant(backend);
@@ -847,11 +849,22 @@ describe("participant onboarding lifecycle", () => {
         authUserId,
         googleSubject: "participant-onboarding-vit-subject",
         verifiedEmail: email,
+        displayName: "Example Student 24TST0001",
         hostedDomain: "vitstudent.ac.in",
         tokenIssuedAt: fixture.now,
         tokenExpiresAt: fixture.now + 3_600_000,
         verifiedAt: fixture.now,
       });
+    });
+    await backend.mutation(components.betterAuth.adapter.updateOne, {
+      input: {
+        model: "user",
+        update: {
+          name: "Different Student 24TST9999",
+          updatedAt: fixture.now + 1,
+        },
+        where: [{ field: "_id", operator: "eq", value: authUserId }],
+      },
     });
     const participant = backend.withIdentity({
       subject: authUserId,
@@ -875,6 +888,7 @@ describe("participant onboarding lifecycle", () => {
         yearOfStudy: "third",
       },
     });
+    expect(before?.person.displayName).toBe("Example Student 24TST0001");
 
     await backend.run(async (ctx) => {
       if (!before) throw new Error("The provisioned participant is missing.");

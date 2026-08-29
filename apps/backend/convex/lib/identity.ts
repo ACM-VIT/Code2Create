@@ -247,7 +247,7 @@ export async function ensurePerson(
     const person = await refreshExistingPersonIdentity(ctx, {
       person: existing,
       verifiedEmail,
-      displayName: user.name,
+      displayName: googleIdentity.displayName,
       now,
     });
     return { user, person, googleIdentity };
@@ -281,7 +281,7 @@ export async function ensurePerson(
     authUserId: user._id,
     googleSubject: googleIdentity.googleSubject,
     verifiedEmail,
-    displayName: user.name,
+    displayName: googleIdentity.displayName,
     status: "active",
     createdAt: now,
     updatedAt: now,

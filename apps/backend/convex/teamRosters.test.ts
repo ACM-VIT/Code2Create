@@ -1328,6 +1328,7 @@ async function signInParticipant(
   await seedGoogleIdentity(backend, authUserId, {
     googleSubject: args.googleSubject,
     email: args.email,
+    displayName,
     ...(args.vitHostedDomain ? { hostedDomain: args.vitHostedDomain } : {}),
   });
   return {
@@ -1371,13 +1372,14 @@ async function provisionParticipant(
 async function seedGoogleIdentity(
   backend: BackendTest,
   authUserId: string,
-  args: { googleSubject: string; email: string; hostedDomain?: string },
+  args: { googleSubject: string; email: string; displayName: string; hostedDomain?: string },
 ) {
   await backend.run(async (ctx) => {
     await ctx.db.insert("googleIdentityClaims", {
       authUserId,
       googleSubject: args.googleSubject,
       verifiedEmail: args.email,
+      displayName: args.displayName,
       ...(args.hostedDomain ? { hostedDomain: args.hostedDomain } : {}),
       tokenIssuedAt: Date.now(),
       tokenExpiresAt: Date.now() + 3_600_000,
