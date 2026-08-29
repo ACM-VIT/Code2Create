@@ -22,6 +22,7 @@ export function AccessDirectory({
   canInvite,
   canReadBundles,
   canReadRoster,
+  canReadTeamRoster,
   serverNow,
 }: {
   canBrowsePeople: boolean
@@ -29,6 +30,7 @@ export function AccessDirectory({
   canInvite: boolean
   canReadBundles: boolean
   canReadRoster: boolean
+  canReadTeamRoster: boolean
   serverNow: number
 }) {
   const directory = usePaginatedQuery(
@@ -71,6 +73,9 @@ export function AccessDirectory({
           ) : null}
           {canReadRoster ? (
             <Link className="secondary compact-link" to="/access/roster">Event team</Link>
+          ) : null}
+          {canReadTeamRoster ? (
+            <Link className="secondary compact-link" to="/access/team-roster">Participant teams</Link>
           ) : null}
           {canReadBundles ? (
             <Link className="secondary compact-link" to="/access/bundles">Reusable access</Link>
