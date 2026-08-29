@@ -677,6 +677,11 @@ export const applyImport = internalMutation({
         joinsPerformed += 1;
       }
     }
+    if (joinsPerformed > 0) {
+      await ctx.db.patch(teamRosterImport._id, {
+        appliedNowCount: teamRosterImport.appliedNowCount + joinsPerformed,
+      });
+    }
     if (deferredByCap) {
       await ctx.scheduler.runAfter(0, internal.teamRosters.applyImport, {
         teamRosterImportId: teamRosterImport._id,
