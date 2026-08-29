@@ -289,6 +289,17 @@ describe("intelligence observability", () => {
     expect(requestBodies).toHaveLength(3);
     expect(requestBodies[1]).toBe(requestBodies[0]);
     expect(requestBodies[2]).toBe(requestBodies[0]);
+    const turnLedger = await viewer.query(api.intelligenceObservability.agentRunHistory, {
+      eventSlug: fixture.eventSlug,
+      agent: "operations-copilot",
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    expect(turnLedger.page).toContainEqual(expect.objectContaining({
+      state: "accepted",
+      title: args.message,
+      operationId: args.turnId,
+      instanceId: receipt.conversationId,
+    }));
 
     vi.stubGlobal("fetch", async () =>
       Response.json(
@@ -306,6 +317,16 @@ describe("intelligence observability", () => {
       definitiveConflict = error;
     }
     expect(definitiveConflict).toBeInstanceOf(ConvexError);
+    const fleet = await viewer.query(api.intelligenceObservability.agentFleetStatus, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(fleet.map((agent) => agent.agent)).toEqual([
+      "idea-submission",
+      "operations-episode",
+      "operations-brief",
+      "operations-copilot",
+      "operations-autopilot",
+    ]);
   });
 
 });

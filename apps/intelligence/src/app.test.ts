@@ -10,6 +10,7 @@ import {
 	operationsCopilotIngressSignatureContext,
 	operationsCopilotStreamTicketSignatureContext,
 	operationsEpisodeIngressSignatureContext,
+	ideaIntelligenceIngressSignatureContext,
 	operationsIntelligenceIngressSignatureContext,
 	operationsIntelligenceProtocolVersion,
 	operationsIntelligenceStreamTicketHeaders,
@@ -119,6 +120,7 @@ vi.mock('./agents/operations-autopilot.ts', () => ({
 	OperationsAutopilot: runtime.autopilotAgent,
 }));
 vi.mock('./agents/operations-episode.ts', () => ({ OperationsEpisode: {} }));
+vi.mock('./agents/idea-submission.ts', () => ({ IdeaSubmission: {} }));
 
 import app from './app.ts';
 
@@ -185,6 +187,8 @@ const environment: Cloudflare.Env = {
 	CONVEX_INTELLIGENCE_RECOMMENDATION_URL: 'https://example.test/recommendations',
 	CONVEX_INTELLIGENCE_EPISODE_READ_URL: 'https://example.test/episodes/read',
 	CONVEX_INTELLIGENCE_EPISODE_CALLBACK_URL: 'https://example.test/episodes/callback',
+	CONVEX_INTELLIGENCE_IDEA_READ_URL: 'https://example.test/ideas/read',
+	CONVEX_INTELLIGENCE_IDEA_CALLBACK_URL: 'https://example.test/ideas/callback',
 	CONVEX_INTELLIGENCE_AUTONOMY_CALLBACK_URL: 'https://example.test/autonomy/callback',
 	CONVEX_INTELLIGENCE_AUTONOMY_READ_URL: 'https://example.test/autonomy/reads',
 	CONVEX_INTELLIGENCE_AUTONOMY_WORK_URL: 'https://example.test/autonomy/work',
@@ -433,6 +437,53 @@ describe('operations episode ingress', () => {
 				kind: 'signal',
 				type: 'operations.episode.changed',
 				attributes: { episodeId: 'episode-1', revision: '3' },
+			}),
+		}));
+	});
+});
+
+describe('idea submission ingress', () => {
+	beforeEach(() => {
+		runtime.dispatchBrief.mockReset();
+	});
+
+	test('signals the durable application agent for each frozen content version', async () => {
+		const receipt: DispatchReceipt = {
+			submissionId: 'idea-submission-1',
+			acceptedAt: '2026-08-29T00:00:00.000Z',
+			uid: 'idea-agent-uid',
+		};
+		runtime.dispatchBrief.mockResolvedValueOnce(receipt);
+		const response = await signedIdeaRequest(JSON.stringify({
+			protocolVersion: operationsIntelligenceProtocolVersion,
+			recommendationId: 'recommendation-1',
+				applicationId: 'application-1',
+				eventId: 'event-1',
+				modelId: 'gpt-4.1-mini',
+				promptVersion: 'idea-prompt-v2',
+				schemaVersion: 'idea-schema-v1',
+				evaluationSuiteVersion: 'idea-eval-v1',
+				contentVersion: 2,
+		}));
+
+		expect(response.status).toBe(202);
+		expect(await response.json()).toEqual({
+			state: 'accepted',
+			applicationId: 'application-1',
+			instanceId: 'application-1',
+			submissionId: receipt.submissionId,
+			acceptedAt: receipt.acceptedAt,
+		});
+		expect(runtime.dispatchBrief).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+			id: 'application-1',
+				initialData: expect.objectContaining({
+					applicationId: 'application-1',
+					eventId: 'event-1',
+				}),
+			message: expect.objectContaining({
+				kind: 'signal',
+				type: 'idea.submission.changed',
+				attributes: { recommendationId: 'recommendation-1', contentVersion: '2' },
 			}),
 		}));
 	});
@@ -1025,6 +1076,29 @@ async function signedEpisodeRequest(body: string) {
 	});
 	return app.request(
 		'/v1/operations-episodes',
+		{
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				'x-c2c-timestamp': timestamp,
+				'x-c2c-signature': signature,
+			},
+			body,
+		},
+		environment,
+	);
+}
+
+async function signedIdeaRequest(body: string) {
+	const timestamp = Date.now().toString();
+	const signature = await signServiceBody({
+		context: ideaIntelligenceIngressSignatureContext,
+		secret,
+		timestamp,
+		body,
+	});
+	return app.request(
+		'/v1/idea-submissions',
 		{
 			method: 'POST',
 			headers: {

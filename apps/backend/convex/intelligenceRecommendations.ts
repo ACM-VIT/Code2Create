@@ -5,6 +5,8 @@ import {
   paginationResultValidator,
 } from "convex/server";
 import {
+  admissionIntelligenceReadNames,
+  deriveOperationsCopilotConversationId,
   operationsCopilotRecommendationSignatureContext,
   operationsIntelligenceProtocolVersion,
   operationsIntelligenceReadNames,
@@ -25,6 +27,10 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
+import {
+  loadAdmissionConfigurationVersion,
+  loadPublishedAdmissionConfiguration,
+} from "./lib/admissionPolicy";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { requireIntelligenceHmacSecret } from "./lib/intelligenceServiceConfiguration";
@@ -72,7 +78,7 @@ const supportCategories = [
 
 const citation = z
   .object({
-    read: z.enum(operationsIntelligenceReadNames),
+    read: z.enum([...operationsIntelligenceReadNames, ...admissionIntelligenceReadNames]),
     generatedAt: z.number().int().nonnegative(),
     keys: z.array(z.string().min(1).max(200)).min(1).max(16),
   })
@@ -109,6 +115,13 @@ const proposalArguments = z.discriminatedUnion("kind", [
       kind: z.literal("dismiss_attention_item"),
       itemId: z.string().min(1).max(64),
       expectedItemVersion: z.number().int().positive(),
+      reason: z.string().min(5).max(500),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("set_admission_minimum_human_reviews"),
+      minimumHumanReviews: z.number().int().min(1).max(5),
       reason: z.string().min(5).max(500),
     })
     .strict(),
@@ -270,6 +283,10 @@ function sameArguments(
         left.description === right.description &&
         left.roundId === right.roundId &&
         left.teamId === right.teamId;
+    case "set_admission_minimum_human_reviews":
+      return right.kind === left.kind &&
+        left.minimumHumanReviews === right.minimumHumanReviews &&
+        left.reason === right.reason;
   }
 }
 
@@ -297,6 +314,9 @@ function sameRecommendationEffect(
         left.description === right.description &&
         left.roundId === right.roundId &&
         left.teamId === right.teamId;
+    case "set_admission_minimum_human_reviews":
+      return right.kind === left.kind &&
+        left.minimumHumanReviews === right.minimumHumanReviews;
   }
 }
 
@@ -378,6 +398,11 @@ function citationsSupportProposal(
         entry.read === "operations_attention" && entry.keys.includes(args.itemId),
     );
   }
+  if (args.kind === "set_admission_minimum_human_reviews") {
+    return citations.some(
+      (entry) => entry.read === "admission_cohort" && entry.keys.includes("policy"),
+    );
+  }
   return true;
 }
 
@@ -457,6 +482,39 @@ async function normalizedArguments(
       reason: normalizedText(args.reason, "Dismissal reason", 5, 500),
     };
   }
+  if (args.kind === "set_admission_minimum_human_reviews") {
+    const event = await ctx.db.get(eventId);
+    if (!event) return null;
+    const draftPolicy = await ctx.db
+      .query("admissionPolicyVersions")
+      .withIndex("by_event_status", (index) =>
+        index.eq("eventId", eventId).eq("status", "draft"),
+      )
+      .unique();
+    const base = draftPolicy
+      ? await loadAdmissionConfigurationVersion(ctx, draftPolicy)
+      : await loadPublishedAdmissionConfiguration(ctx, event);
+    const minimumHumanReviews = args.minimumHumanReviews;
+    if (base.configuration.minimumHumanReviews === minimumHumanReviews) return null;
+    const releaseVersion = normalizedText(
+      `ask-${event.version + 1}-${Date.now()}`,
+      "Admission release",
+      1,
+      80,
+    );
+    return {
+      kind: "set_admission_minimum_human_reviews",
+      minimumHumanReviews,
+      releaseVersion,
+      expectedEventVersion: event.version,
+      expectedBasePolicyId: base.policy._id,
+      expectedBasePolicyChecksum: base.policy.checksum,
+      expectedBaseModelConfigId: base.model?._id ?? null,
+      expectedBaseModelChecksum: base.model?.checksum ?? null,
+      baseStatus: draftPolicy ? "draft" : "published",
+      reason: normalizedText(args.reason, "Admission policy reason", 5, 500),
+    };
+  }
   const roundId = args.roundId ? ctx.db.normalizeId("reviewRounds", args.roundId) : undefined;
   if (args.roundId !== undefined) {
     const round = roundId ? await ctx.db.get(roundId) : null;
@@ -511,6 +569,12 @@ function comparableArguments(args: z.infer<typeof proposalArguments>) {
         ),
         ...(args.roundId !== undefined ? { roundId: args.roundId } : {}),
         ...(args.teamId !== undefined ? { teamId: args.teamId } : {}),
+      };
+    case "set_admission_minimum_human_reviews":
+      return {
+        kind: args.kind,
+        minimumHumanReviews: args.minimumHumanReviews,
+        reason: normalizedText(args.reason, "Admission policy reason", 5, 500),
       };
   }
 }
@@ -660,6 +724,13 @@ function recommendationEffectFingerprint(
       return [args.kind, args.itemId, args.expectedItemVersion];
     case "open_support_case":
       return [args.kind, args.category, args.description, args.roundId ?? null, args.teamId ?? null];
+    case "set_admission_minimum_human_reviews":
+      return [
+        args.kind,
+        args.minimumHumanReviews,
+        args.expectedBasePolicyId,
+        args.expectedBasePolicyChecksum,
+      ];
   }
 }
 
@@ -699,6 +770,11 @@ export const proposeFromWorker = internalMutation({
           kind: v.literal("dismiss_attention_item"),
           itemId: v.string(),
           expectedItemVersion: v.number(),
+          reason: v.string(),
+        }),
+        v.object({
+          kind: v.literal("set_admission_minimum_human_reviews"),
+          minimumHumanReviews: v.number(),
           reason: v.string(),
         }),
       ),
@@ -787,7 +863,7 @@ async function requireRecommendationReadAccess(ctx: QueryCtx, eventSlug: string)
     permissionKey: "operations.intelligence.read",
     scopeType: "event",
   });
-  return event;
+  return { event, subject };
 }
 
 function requireRecommendationPageSize(numItems: number) {
@@ -807,7 +883,7 @@ export const proposed = query({
   },
   returns: paginationResultValidator(recommendationView),
   handler: async (ctx, args) => {
-    const event = await requireRecommendationReadAccess(ctx, args.eventSlug);
+    const { event } = await requireRecommendationReadAccess(ctx, args.eventSlug);
     requireRecommendationPageSize(args.paginationOpts.numItems);
     const page = await ctx.db
       .query("intelligenceRecommendations")
@@ -828,7 +904,7 @@ export const settled = query({
   },
   returns: paginationResultValidator(recommendationView),
   handler: async (ctx, args) => {
-    const event = await requireRecommendationReadAccess(ctx, args.eventSlug);
+    const { event } = await requireRecommendationReadAccess(ctx, args.eventSlug);
     requireRecommendationPageSize(args.paginationOpts.numItems);
     const page = await ctx.db
       .query("intelligenceRecommendations")
@@ -848,10 +924,35 @@ export const detail = query({
   },
   returns: v.union(v.null(), recommendationView),
   handler: async (ctx, args) => {
-    const event = await requireRecommendationReadAccess(ctx, args.eventSlug);
+    const { event } = await requireRecommendationReadAccess(ctx, args.eventSlug);
     const row = await ctx.db.get(args.recommendationId);
     if (!row || row.eventId !== event._id) return null;
     return recommendationViewFromDocument(row);
+  },
+});
+
+/** The signed-in operator's private copilot command trail, for inline approval in Ask. */
+export const copilotConversation = query({
+  args: { eventSlug: v.string() },
+  returns: v.array(recommendationView),
+  handler: async (ctx, args) => {
+    const { event, subject } = await requireRecommendationReadAccess(ctx, args.eventSlug);
+    const operatorConversationId = await deriveOperationsCopilotConversationId({
+      secret: requireIntelligenceHmacSecret("INTELLIGENCE_STREAM_SECRET"),
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+    });
+    const rows = await ctx.db
+      .query("intelligenceRecommendations")
+      .withIndex("by_event_copilot_conversation_proposed", (index) =>
+        index
+          .eq("eventId", event._id)
+          .eq("provenance.kind", "copilot")
+          .eq("provenance.conversationId", operatorConversationId),
+      )
+      .order("desc")
+      .take(12);
+    return rows.reverse().map(recommendationViewFromDocument);
   },
 });
 
@@ -962,6 +1063,25 @@ async function requireKindAuthorization(
     });
     return { permissionKey: "support.case.create", grantIds, scopeType: "event" };
   }
+  if (args.kind === "set_admission_minimum_human_reviews") {
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subjectId,
+      permissionKey: "configuration.admission.draft.create",
+      scopeType: "event",
+    });
+    const grantIds = await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subjectId,
+      permissionKey: "configuration.admission.publish",
+      scopeType: "event",
+    });
+    return {
+      permissionKey: "configuration.admission.publish",
+      grantIds,
+      scopeType: "event",
+    };
+  }
   const grantIds = await requirePermission(ctx, {
     eventId: event._id,
     eventAccessSubjectId: subjectId,
@@ -1070,6 +1190,66 @@ async function executeApprovedKind(
       clientOperationId,
     });
     return { targetType: "support_case", targetId: result.id };
+  }
+  if (args.kind === "set_admission_minimum_human_reviews") {
+    const event = await requireEventBySlug(ctx, eventSlug);
+    if (event.version !== args.expectedEventVersion) {
+      throw new ConvexError({
+        code: "EVENT_CONFIGURATION_CHANGED",
+        message: "Event configuration changed after this command was proposed.",
+      });
+    }
+    const basePolicy = await ctx.db.get(args.expectedBasePolicyId);
+    if (
+      !basePolicy ||
+      basePolicy.eventId !== event._id ||
+      basePolicy.status !== args.baseStatus ||
+      basePolicy.checksum !== args.expectedBasePolicyChecksum
+    ) {
+      throw new ConvexError({
+        code: "ADMISSION_CONFIGURATION_CHANGED",
+        message: "The admission policy changed after this command was proposed.",
+      });
+    }
+    const base = await loadAdmissionConfigurationVersion(ctx, basePolicy);
+    if (
+      (base.model?._id ?? null) !== args.expectedBaseModelConfigId ||
+      (base.model?.checksum ?? null) !== args.expectedBaseModelChecksum
+    ) {
+      throw new ConvexError({
+        code: "ADMISSION_CONFIGURATION_CHANGED",
+        message: "The admission model changed after this command was proposed.",
+      });
+    }
+    const configuration = {
+      ...base.configuration,
+      version: args.releaseVersion,
+      minimumHumanReviews: args.minimumHumanReviews,
+      model: base.configuration.model
+        ? { ...base.configuration.model, version: args.releaseVersion }
+        : null,
+    };
+    const draft = await ctx.runMutation(api.admissionPolicyConfiguration.createDraft, {
+      eventSlug,
+      configuration,
+      expectedEventVersion: args.expectedEventVersion,
+      ...(args.baseStatus === "draft"
+        ? { expectedDraftPolicyId: args.expectedBasePolicyId }
+        : {}),
+      reason: args.reason,
+      clientOperationId: `${clientOperationId}:draft`,
+    });
+    const published = await ctx.runMutation(api.admissionPolicyConfiguration.publish, {
+      eventSlug,
+      draftPolicyId: draft.policyVersionId,
+      expectedPolicyChecksum: draft.policyChecksum,
+      expectedModelConfigId: draft.modelConfigVersionId,
+      expectedModelChecksum: draft.modelChecksum,
+      expectedEventVersion: args.expectedEventVersion,
+      reason: args.reason,
+      clientOperationId: `${clientOperationId}:publish`,
+    });
+    return { targetType: "admission_policy", targetId: published.policyVersionId };
   }
   const item = await ctx.db.get(args.itemId);
   if (!item) throw new Error("The recommended attention item no longer resolves.");

@@ -147,6 +147,16 @@ export const submitCopilotTurn = action({
       eventAccessSubjectId: authorization.eventAccessSubjectId,
       eventSlug: authorization.eventSlug,
     });
+    const turnRecordId = await ctx.runMutation(
+      internal.intelligenceObservability.beginCopilotTurn,
+      {
+        eventId: authorization.eventId,
+        eventAccessSubjectId: authorization.eventAccessSubjectId,
+        conversationId: coordinates.conversationId,
+        turnId: input.data.turnId,
+        message: input.data.message,
+      },
+    );
     const body = JSON.stringify({
       protocolVersion: operationsIntelligenceProtocolVersion,
       conversationId: coordinates.conversationId,
@@ -161,51 +171,85 @@ export const submitCopilotTurn = action({
       timestamp,
       body,
     });
-    const response = await fetch(intelligenceWorkerUrl("/v1/operations-copilot/turns"), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-c2c-signature": signature,
-        "x-c2c-timestamp": timestamp,
-      },
-      body,
-      signal: AbortSignal.timeout(20_000),
-    });
-    let responseBody: unknown;
+    let conflictRecorded = false;
     try {
-      responseBody = await readBoundedJsonResponse(response, 8 * 1_024);
-    } catch {
-      throw new Error("The intelligence service returned an invalid response. Retry safely.");
-    }
-    if (response.status === 409) {
-      const conflict = copilotTurnConflict.safeParse(responseBody);
-      if (!conflict.success) {
-        throw new Error("The intelligence service returned an invalid conflict. Retry safely.");
-      }
-      throw new ConvexError({
-        code: "COPILOT_TURN_CONFLICT",
-        message: "That turn ID was already used for different content.",
-        submissionId: conflict.data.submissionId,
+      const response = await fetch(intelligenceWorkerUrl("/v1/operations-copilot/turns"), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-c2c-signature": signature,
+          "x-c2c-timestamp": timestamp,
+        },
+        body,
+        signal: AbortSignal.timeout(20_000),
       });
+      let responseBody: unknown;
+      try {
+        responseBody = await readBoundedJsonResponse(response, 8 * 1_024);
+      } catch {
+        throw new Error("The intelligence service returned an invalid response. Retry safely.");
+      }
+      if (response.status === 409) {
+        const conflict = copilotTurnConflict.safeParse(responseBody);
+        if (!conflict.success) {
+          throw new Error("The intelligence service returned an invalid conflict. Retry safely.");
+        }
+        await ctx.runMutation(
+          internal.intelligenceObservability.markCopilotTurnDeliveryUnknown,
+          {
+            turnRecordId,
+            state: "conflict",
+            failureDetail: "The Worker reported that this turn identity has different content.",
+          },
+        );
+        conflictRecorded = true;
+        throw new ConvexError({
+          code: "COPILOT_TURN_CONFLICT",
+          message: "That turn ID was already used for different content.",
+          submissionId: conflict.data.submissionId,
+        });
+      }
+      if (!response.ok) {
+        throw new Error("The intelligence service could not accept this turn. Retry safely.");
+      }
+      const receipt = copilotTurnReceipt.safeParse(responseBody);
+      if (
+        !receipt.success ||
+        receipt.data.conversationId !== coordinates.conversationId ||
+        receipt.data.instanceId !== coordinates.instanceId
+      ) {
+        throw new Error("The intelligence Worker returned an invalid copilot receipt.");
+      }
+      const acceptedAt = Date.parse(receipt.data.acceptedAt);
+      if (!Number.isFinite(acceptedAt)) {
+        throw new Error("The intelligence Worker returned an invalid acceptance time.");
+      }
+      await ctx.runMutation(internal.intelligenceObservability.acceptCopilotTurn, {
+        turnRecordId,
+        submissionId: receipt.data.submissionId,
+        acceptedAt,
+        deduplicated: receipt.data.deduplicated,
+      });
+      return {
+        conversationId: coordinates.conversationId,
+        instanceId: coordinates.instanceId,
+        submissionId: receipt.data.submissionId,
+        acceptedAt: receipt.data.acceptedAt,
+        deduplicated: receipt.data.deduplicated,
+      };
+    } catch (caught) {
+      await ctx.runMutation(
+        internal.intelligenceObservability.markCopilotTurnDeliveryUnknown,
+        {
+          turnRecordId,
+          state: conflictRecorded ? "conflict" : "delivery_unknown",
+          failureDetail: conflictRecorded
+            ? "The Worker reported that this turn identity has different content."
+            : "Turn delivery did not finish with a verifiable receipt; an idempotent retry is safe.",
+        },
+      );
+      throw caught;
     }
-    if (!response.ok) {
-      throw new Error("The intelligence service could not accept this turn. Retry safely.");
-    }
-    const receipt = copilotTurnReceipt.safeParse(responseBody);
-    if (
-      !receipt.success ||
-      receipt.data.conversationId !== coordinates.conversationId ||
-      receipt.data.instanceId !== coordinates.instanceId
-    ) {
-      throw new Error("The intelligence Worker returned an invalid copilot receipt.");
-    }
-    return {
-      conversationId: coordinates.conversationId,
-      instanceId: coordinates.instanceId,
-      submissionId: receipt.data.submissionId,
-      acceptedAt: receipt.data.acceptedAt,
-      deduplicated: receipt.data.deduplicated,
-    };
   },
 });
 

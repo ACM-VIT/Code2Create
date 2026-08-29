@@ -49,8 +49,6 @@ export const intakePolicyModelInput = v.union(
     redactionVersion: v.string(),
     questionPolicyVersion: v.string(),
     evaluationSuiteVersion: v.string(),
-    maxOutputTokens: v.number(),
-    timeoutMs: v.number(),
   }),
 );
 
@@ -97,8 +95,6 @@ export type IntakePolicyModel =
       redactionVersion: string;
       questionPolicyVersion: string;
       evaluationSuiteVersion: string;
-      maxOutputTokens: number;
-      timeoutMs: number;
     };
 
 export type IntakePolicy = {
@@ -231,8 +227,6 @@ function normalizeModel(model: IntakePolicyModel): IntakePolicyModel {
       1,
       80,
     ),
-    maxOutputTokens: wholeNumber(model.maxOutputTokens, "Maximum output tokens", 200, 1_200),
-    timeoutMs: wholeNumber(model.timeoutMs, "Model timeout", 2_000, 15_000),
   };
 }
 

@@ -12,6 +12,8 @@ export const intelligenceReadName = v.union(
   v.literal("floor_mapping_progress"),
   v.literal("support_load"),
   v.literal("recommendation_history"),
+  v.literal("admission_cohort"),
+  v.literal("admission_submission_search"),
 );
 
 export const intelligenceRecommendationStatus = v.union(
@@ -72,6 +74,18 @@ export const intelligenceRecommendationArguments = v.union(
     kind: v.literal("dismiss_attention_item"),
     itemId: v.id("operationsAttentionItems"),
     expectedItemVersion: v.number(),
+    reason: v.string(),
+  }),
+  v.object({
+    kind: v.literal("set_admission_minimum_human_reviews"),
+    minimumHumanReviews: v.number(),
+    releaseVersion: v.string(),
+    expectedEventVersion: v.number(),
+    expectedBasePolicyId: v.id("admissionPolicyVersions"),
+    expectedBasePolicyChecksum: v.string(),
+    expectedBaseModelConfigId: v.union(v.null(), v.id("admissionModelConfigVersions")),
+    expectedBaseModelChecksum: v.union(v.null(), v.string()),
+    baseStatus: v.union(v.literal("draft"), v.literal("published")),
     reason: v.string(),
   }),
 );

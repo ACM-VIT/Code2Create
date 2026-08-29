@@ -350,7 +350,7 @@ describe("admission cohort query and decisions", () => {
     expect(signed.status).toBe(200);
     const payload = (await signed.json()) as {
       read: string;
-      data: { candidates: { teamName: string; suggestedIn: boolean }[] };
+      data: { candidates: { teamName: string; suggestedIn: boolean; novelty: unknown }[] };
     };
     expect(payload.read).toBe("admission_cohort");
     expect(payload.data.candidates.map((entry) => entry.suggestedIn)).toEqual([
@@ -358,6 +358,7 @@ describe("admission cohort query and decisions", () => {
       false,
       false,
     ]);
+    expect(payload.data.candidates.every((entry) => entry.novelty === null)).toBe(true);
     expect(JSON.stringify(payload)).not.toContain("Cohort Member");
     expect(JSON.stringify(payload)).not.toContain("@example.test");
   });

@@ -242,8 +242,6 @@ export const bootstrapEvent = mutation({
         promptVersion: v.string(),
         schemaVersion: v.string(),
         evaluationSuiteVersion: v.string(),
-        maxOutputTokens: v.number(),
-        timeoutMs: v.number(),
       }),
     ),
     integrationPolicy: v.object({
@@ -291,20 +289,6 @@ export const bootstrapEvent = mutation({
       throw new ConvexError({
         code: "INVALID_ADMISSION_POLICY",
         message: "Admission capacity or minimum human-review coverage is invalid.",
-      });
-    }
-    if (
-      args.admissionModel &&
-      (!Number.isInteger(args.admissionModel.maxOutputTokens) ||
-        args.admissionModel.maxOutputTokens < 300 ||
-        args.admissionModel.maxOutputTokens > 2_000 ||
-        !Number.isInteger(args.admissionModel.timeoutMs) ||
-        args.admissionModel.timeoutMs < 2_000 ||
-        args.admissionModel.timeoutMs > 30_000)
-    ) {
-      throw new ConvexError({
-        code: "INVALID_ADMISSION_MODEL_POLICY",
-        message: "Admission model limits are invalid.",
       });
     }
     const integrationPolicy = normalizeIntegrationPolicy({
@@ -466,8 +450,6 @@ export const bootstrapEvent = mutation({
           1,
           80,
         ),
-        maxOutputTokens: args.admissionModel.maxOutputTokens,
-        timeoutMs: args.admissionModel.timeoutMs,
       };
       admissionModelConfigId = await ctx.db.insert("admissionModelConfigVersions", {
         eventId,

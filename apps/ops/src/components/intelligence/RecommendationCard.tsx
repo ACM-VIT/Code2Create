@@ -425,6 +425,17 @@ function RecommendationCommand({
       </dl>
     )
   }
+  if (command.kind === 'set_admission_minimum_human_reviews') {
+    return (
+      <dl className="criteria-list intelligence-recommendation-command">
+        <CommandField label="New review minimum" value={command.minimumHumanReviews} />
+        <CommandField label="Expected event version" value={command.expectedEventVersion} />
+        <CommandField label="Base admission policy" value={command.expectedBasePolicyId} code />
+        <CommandField label="New release" value={command.releaseVersion} />
+        <CommandField label="Reason" value={command.reason} />
+      </dl>
+    )
+  }
   return (
     <dl className="criteria-list intelligence-recommendation-command">
       <CommandField label="Attention item" value={command.itemId} code />
@@ -455,6 +466,9 @@ function kindLabel(kind: Recommendation['arguments']['kind']) {
   if (kind === 'hold_review_team') return 'Hold a review team'
   if (kind === 'page_reserve_reviewer') return 'Page a reserve reviewer'
   if (kind === 'open_support_case') return 'Open a support case'
+  if (kind === 'set_admission_minimum_human_reviews') {
+    return 'Change the admission human-review minimum'
+  }
   return 'Dismiss an attention item'
 }
 

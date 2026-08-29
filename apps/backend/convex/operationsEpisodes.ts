@@ -4,8 +4,9 @@ import {
 } from "@code2create/domain";
 import { ConvexError, v } from "convex/values";
 
-import type { Doc } from "./_generated/dataModel";
-import { internalMutation, internalQuery, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { DataModel, Doc } from "./_generated/dataModel";
+import { internalMutation, internalQuery, query, type QueryCtx } from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { operationFingerprint } from "./lib/operations";
@@ -17,6 +18,101 @@ import {
   operationsHealthSeverity,
 } from "./lib/operationsIntelligenceValidators";
 import { requirePermission } from "./lib/permissions";
+import { enqueueEpisodeAnalysis } from "./lib/operationsEpisodes";
+import { intelligenceWorkpool } from "./workpools";
+
+const episodeDispatchContext = v.object({
+  episodeId: v.id("operationsIntelligenceEpisodes"),
+  revision: v.number(),
+});
+
+const episodeDispatchRetryDelayMs = 60_000;
+const episodeAnalysisLeaseMs = 70 * 60 * 1_000;
+const minimumPredictionHorizonMs = 5 * 60 * 1_000;
+
+async function authorizedEpisodeFacts(
+  ctx: Pick<QueryCtx, "db">,
+  episodeId: Doc<"operationsIntelligenceEpisodes">["_id"],
+) {
+  const links = await ctx.db
+    .query("operationsIntelligenceEpisodeFacts")
+    .withIndex("by_episode_linked_at", (index) => index.eq("episodeId", episodeId))
+    .order("desc")
+    .take(64);
+  const facts: Doc<"operationsIntelligenceFacts">[] = [];
+  const seen = new Set<string>();
+  for (const link of links) {
+    const fact = await ctx.db.get(link.factId);
+    if (!fact || seen.has(fact.signalKey)) continue;
+    seen.add(fact.signalKey);
+    facts.push(fact);
+    if (facts.length === 16) break;
+  }
+  return facts;
+}
+
+export const episodeDispatchFinished = intelligenceWorkpool.defineOnComplete<
+  DataModel,
+  typeof episodeDispatchContext
+>({
+  context: episodeDispatchContext,
+  handler: async (ctx, { context, result }) => {
+    if (result.kind === "success") return;
+    const episode = await ctx.db.get(context.episodeId);
+    if (
+      !episode ||
+      episode.lifecycle !== "active" ||
+      episode.revision !== context.revision ||
+      episode.analysisState.kind !== "failed"
+    ) return;
+    await ctx.scheduler.runAfter(
+      episodeDispatchRetryDelayMs,
+      internal.operationsEpisodes.retryFailedDispatch,
+      context,
+    );
+  },
+});
+
+export const retryFailedDispatch = internalMutation({
+  args: episodeDispatchContext.fields,
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const episode = await ctx.db.get(args.episodeId);
+    if (
+      !episode ||
+      episode.lifecycle !== "active" ||
+      episode.revision !== args.revision ||
+      episode.analysisState.kind !== "failed"
+    ) return false;
+    await enqueueEpisodeAnalysis(ctx, episode._id, episode.revision);
+    return true;
+  },
+});
+
+export const recoverAcceptedDispatch = internalMutation({
+  args: {
+    episodeId: v.id("operationsIntelligenceEpisodes"),
+    revision: v.number(),
+    submissionId: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const episode = await ctx.db.get(args.episodeId);
+    if (
+      !episode ||
+      episode.lifecycle !== "active" ||
+      episode.revision !== args.revision ||
+      episode.analysisState.kind !== "accepted" ||
+      episode.analysisState.submissionId !== args.submissionId
+    ) return false;
+    await ctx.db.patch(episode._id, {
+      analysisState: { kind: "failed", revision: episode.revision },
+      updatedAt: Date.now(),
+    });
+    await enqueueEpisodeAnalysis(ctx, episode._id, episode.revision);
+    return true;
+  },
+});
 
 const hypothesisInput = v.object({
   stance: operationsEpisodeHypothesisStance,
@@ -253,20 +349,7 @@ export const serviceProjection = internalQuery({
     if (!episode || episode.lifecycle !== "active") return null;
     const event = await ctx.db.get(episode.eventId);
     if (!event || event.status !== "live") return null;
-    const links = await ctx.db
-      .query("operationsIntelligenceEpisodeFacts")
-      .withIndex("by_episode_linked_at", (index) => index.eq("episodeId", episode._id))
-      .order("desc")
-      .take(64);
-    const facts: Doc<"operationsIntelligenceFacts">[] = [];
-    const seen = new Set<string>();
-    for (const link of links) {
-      const fact = await ctx.db.get(link.factId);
-      if (!fact || seen.has(fact.signalKey)) continue;
-      seen.add(fact.signalKey);
-      facts.push(fact);
-      if (facts.length === 16) break;
-    }
+    const facts = await authorizedEpisodeFacts(ctx, episode._id);
     const projection: OperationsEpisodeProjection = {
       protocolVersion: operationsIntelligenceProtocolVersion,
       episodeId: episode._id,
@@ -358,6 +441,15 @@ export const recordDispatchReceipt = internalMutation({
       },
       updatedAt: args.acceptedAt,
     });
+    await ctx.scheduler.runAfter(
+      episodeAnalysisLeaseMs,
+      internal.operationsEpisodes.recoverAcceptedDispatch,
+      {
+        episodeId: episode._id,
+        revision: args.revision,
+        submissionId: args.submissionId,
+      },
+    );
     return true;
   },
 });
@@ -435,20 +527,18 @@ export const recordAnalysis = internalMutation({
     if (
       args.hypotheses.length < 1 ||
       args.hypotheses.length > 3 ||
+      args.hypotheses.filter((hypothesis) => hypothesis.stance === "leading").length !== 1 ||
       args.predictions.length > 3 ||
       args.counterfactuals.length > 3
     ) {
       throw new ConvexError({
         code: "EPISODE_ANALYSIS_INVALID",
-        message: "An analysis requires one to three hypotheses and at most three predictions.",
+        message:
+          "An analysis requires one to three hypotheses, exactly one leading hypothesis, and at most three predictions.",
       });
     }
-    const links = await ctx.db
-      .query("operationsIntelligenceEpisodeFacts")
-      .withIndex("by_episode_linked_at", (index) => index.eq("episodeId", episode._id))
-      .order("desc")
-      .take(128);
-    const allowedFactKeys = new Set(links.map((link) => link.factKey));
+    const allowedFacts = await authorizedEpisodeFacts(ctx, episode._id);
+    const allowedFactKeys = new Set(allowedFacts.map((fact) => fact.factKey));
     const validateEvidence = (factKeys: string[]) => {
       if (factKeys.length < 1 || factKeys.length > 8 || factKeys.some((key) => !allowedFactKeys.has(key))) {
         throw new ConvexError({
@@ -460,6 +550,22 @@ export const recordAnalysis = internalMutation({
     };
     const summary = boundedModelText(args.summary, "Analysis summary", 12, 600);
     const suggestedAction = boundedModelText(args.suggestedAction, "Suggested action", 8, 300);
+    const prohibitedLanguage = /\b(score|scored|points?|ranking|winner|judging|prestige)\b/iu;
+    if ([
+      summary,
+      suggestedAction,
+      ...args.hypotheses.map((hypothesis) => hypothesis.statement),
+      ...args.predictions.map((prediction) => prediction.statement),
+      ...args.counterfactuals.flatMap((counterfactual) => [
+        counterfactual.intervention,
+        counterfactual.rationale,
+      ]),
+    ].some((text) => prohibitedLanguage.test(text))) {
+      throw new ConvexError({
+        code: "EPISODE_ANALYSIS_INVALID",
+        message: "Episode analysis cannot contain scoring, ranking, judging, or prestige claims.",
+      });
+    }
     const confidence = boundedProbability(args.confidence, "Analysis confidence");
     for (let ordinal = 0; ordinal < args.hypotheses.length; ordinal += 1) {
       const hypothesis = args.hypotheses[ordinal];
@@ -480,10 +586,13 @@ export const recordAnalysis = internalMutation({
     for (let ordinal = 0; ordinal < args.predictions.length; ordinal += 1) {
       const prediction = args.predictions[ordinal];
       if (!prediction) continue;
-      if (prediction.horizonAt <= args.completedAt || prediction.horizonAt > maximumHorizon) {
+      if (
+        prediction.horizonAt < args.completedAt + minimumPredictionHorizonMs ||
+        prediction.horizonAt > maximumHorizon
+      ) {
         throw new ConvexError({
           code: "EPISODE_ANALYSIS_INVALID",
-          message: "Prediction horizons must be within the next seven days.",
+          message: "Prediction horizons must be between five minutes and seven days.",
         });
       }
       await ctx.db.insert("operationsIntelligencePredictions", {

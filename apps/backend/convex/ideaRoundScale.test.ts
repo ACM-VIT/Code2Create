@@ -1,6 +1,8 @@
+import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
+import { internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import {
@@ -11,6 +13,7 @@ import {
   defaultParticipantPolicy,
   participantPolicyChecksum,
 } from "./lib/participantPolicy.ts";
+import { createAdmissionRecommendation } from "./lib/admissionRecommendation.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
 import {
   createTestSubmissionSnapshot,
@@ -25,9 +28,15 @@ const teamCount = 300;
 const scCount = 8;
 const jcCount = 24;
 
+function scaleBackend() {
+  const backend = convexTest(schema, modules);
+  workpoolTest.register(backend, "admissionWorkpool");
+  return backend;
+}
+
 describe("idea submission round scale rehearsal", () => {
   test("routes 300 submitted teams through exact SC and JC review scopes", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = scaleBackend();
     const fixture = await seedScaleFixture(backend);
 
     await Promise.all(fixture.applications.map((application, index) =>
@@ -153,6 +162,72 @@ describe("idea submission round scale rehearsal", () => {
     ));
     expect(Math.max(...scWorkloads) - Math.min(...scWorkloads)).toBeLessThanOrEqual(1);
   }, 90_000);
+
+  test("creates and atomically claims one continuous-agent lifecycle for all 300 submissions", async () => {
+    const backend = scaleBackend();
+    const fixture = await seedScaleFixture(backend);
+    const modelConfigId = await backend.run((ctx) => ctx.db.insert(
+      "admissionModelConfigVersions",
+      {
+        eventId: fixture.eventId,
+        admissionPolicyVersionId: fixture.admissionPolicyId,
+        version: "idea-round-agent-scale-v1",
+        modelId: "gpt-4.1-mini",
+        promptVersion: "idea-submission-prompt-v2",
+        schemaVersion: "idea-submission-schema-v1",
+        evaluationSuiteVersion: "idea-submission-eval-v1",
+        status: "published",
+        checksum: "idea-round-agent-scale-model",
+        createdByPersonId: fixture.bootstrapPersonId,
+        createdAt: fixture.now,
+        publishedAt: fixture.now,
+      },
+    ));
+
+    const recommendationIds = await Promise.all(fixture.applications.map((application) =>
+      backend.run(async (ctx) => {
+        const [applicationRow, project, policy, modelConfig] = await Promise.all([
+          ctx.db.get(application.applicationId),
+          ctx.db.get(application.projectVersionId),
+          ctx.db.get(fixture.admissionPolicyId),
+          ctx.db.get(modelConfigId),
+        ]);
+        if (!applicationRow || !project || !policy || !modelConfig) {
+          throw new Error("The continuous-agent scale fixture is incomplete.");
+        }
+        return createAdmissionRecommendation(ctx, {
+          application: applicationRow,
+          project,
+          policy,
+          modelConfig,
+          now: fixture.now,
+        });
+      }),
+    ));
+    expect(new Set(recommendationIds).size).toBe(teamCount);
+
+    const claims = await Promise.all(recommendationIds.map((recommendationId) =>
+      backend.mutation(internal.admissionAgentActions.prepareDispatch, { recommendationId })
+    ));
+    expect(claims.every((claim) => claim !== null)).toBe(true);
+    const duplicateClaims = await Promise.all(recommendationIds.map((recommendationId) =>
+      backend.mutation(internal.admissionAgentActions.prepareDispatch, { recommendationId })
+    ));
+    expect(duplicateClaims.every((claim) => claim === null)).toBe(true);
+
+    const state = await backend.run(async (ctx) => ({
+      recommendations: await ctx.db.query("admissionAIRecommendations").collect(),
+      applications: await ctx.db.query("applications").collect(),
+    }));
+    expect(state.recommendations).toHaveLength(teamCount);
+    expect(state.recommendations.every((recommendation) => (
+      recommendation.state === "pending" &&
+      recommendation.agentDispatchAttemptId !== undefined
+    ))).toBe(true);
+    expect(state.applications.every((application) => (
+      application.aiRecommendationId !== undefined && application.aiDisposition === undefined
+    ))).toBe(true);
+  }, 90_000);
 });
 
 type ScaleReviewer = {
@@ -248,7 +323,10 @@ async function seedScaleFixture(backend: BackendTest) {
       "postgraduate_or_professional",
       "mixed_or_external",
     ] as const;
-    const applications: Array<{ applicationId: Id<"applications"> }> = [];
+    const applications: Array<{
+      applicationId: Id<"applications">;
+      projectVersionId: Id<"projectVersions">;
+    }> = [];
     for (let index = 0; index < teamCount; index += 1) {
       const participant = await insertParticipant(ctx, eventId, participantPolicyId, index, now);
       const teamId = await ctx.db.insert("teams", {
@@ -329,9 +407,17 @@ async function seedScaleFixture(backend: BackendTest) {
         projectVersionId,
         applicationId,
       });
-      applications.push({ applicationId });
+      applications.push({ applicationId, projectVersionId });
     }
-    return { now, eventId, scReviewers, jcReviewers, applications };
+    return {
+      now,
+      eventId,
+      bootstrapPersonId,
+      admissionPolicyId,
+      scReviewers,
+      jcReviewers,
+      applications,
+    };
   });
 }
 

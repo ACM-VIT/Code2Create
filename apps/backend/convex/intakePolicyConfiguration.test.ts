@@ -447,8 +447,6 @@ function assistedPolicy(): IntakePolicy {
       redactionVersion: "test-v1",
       questionPolicyVersion: "test-v1",
       evaluationSuiteVersion: "test-v1",
-      maxOutputTokens: 500,
-      timeoutMs: 8_000,
     },
   };
 }

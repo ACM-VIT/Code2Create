@@ -359,7 +359,10 @@ function AiRecommendation(
       <div className="section-heading">
         <div>
           <h2>AI recommendation</h2>
-          <p className="muted">Input to the human admission decision. Never used in judging.</p>
+          <p className="muted">
+            Prepared automatically by the durable idea agent. Input to the human admission decision;
+            never used in judging.
+          </p>
         </div>
         <span className="state-label">{admissionRecommendationStateLabels[recommendation.state]}</span>
       </div>
@@ -385,6 +388,11 @@ function AiRecommendation(
       {recommendation.concerns.length ? <TextList label="Concerns" values={recommendation.concerns} /> : null}
       {recommendation.proposedQuestions.length ? <TextList label="Questions for humans" values={recommendation.proposedQuestions} /> : null}
       {recommendation.limitations.length ? <TextList label="Limitations" values={recommendation.limitations} /> : null}
+      {recommendation.agentVersion ? (
+        <p className="muted">
+          {recommendation.agentVersion}{recommendation.agentModel ? ` · ${recommendation.agentModel}` : ''}
+        </p>
+      ) : null}
       {rerun ? <AdmissionAnalysisRetry detail={detail} rerun={rerun} /> : null}
     </section>
   )
