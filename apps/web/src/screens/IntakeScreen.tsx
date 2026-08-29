@@ -6,7 +6,7 @@ import { EditingPresence } from '../components/EditingPresence'
 import { PortalScene } from '../components/portal/PortalScene'
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
-import { Petal, SakuraSteps } from '../components/portal/Petal'
+import { SakuraSteps } from '../components/portal/Petal'
 import { TeamCluster } from '../components/portal/TeamCluster'
 import { initialsOf } from '../components/portal/initials'
 import {
@@ -116,7 +116,6 @@ function IntakeStage({
   steps,
   children,
   footer,
-  floating,
   width = 'max-w-[820px]',
   titleClass = 'lg:text-[38px]',
   branch = false,
@@ -129,8 +128,6 @@ function IntakeStage({
   steps?: { total: number; current: number }
   children?: ReactNode
   footer?: ReactNode
-  /** Pinned to the top of the scene, the way the mockup floats the novelty pill. */
-  floating?: ReactNode
   width?: string
   titleClass?: string
   branch?: boolean
@@ -141,11 +138,6 @@ function IntakeStage({
       branch={branch}
       header={<TeamCluster team={team} members={members} />}
     >
-      {floating ? (
-        <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
-          {floating}
-        </div>
-      ) : null}
       <div className={`flex w-full flex-col items-center ${width}`}>
         {steps ? (
           <div className="mb-4.5">
@@ -627,16 +619,17 @@ function IntakeWorkspace({
         hint={opening.initialHelpText}
         steps={{ total: stepTotal, current: 0 }}
         titleClass="lg:text-[42px]"
-        floating={
-          <NoveltyPill
-            state={noveltyState}
-            currentLength={normalizedIdeaLength(idea)}
-            minimumLength={novelty?.minimumIdeaLength ?? null}
-          />
-        }
       >
         <PortalError message={submissionFailureMessage ?? null} />
-        <PetalCard className="px-6 pt-[26px] pb-[18px] lg:px-[30px]">
+        <div className="relative w-full">
+          <div className="pointer-events-none absolute -top-[17px] right-5 z-10 sm:right-7">
+            <NoveltyPill
+              state={noveltyState}
+              currentLength={normalizedIdeaLength(idea)}
+              minimumLength={novelty?.minimumIdeaLength ?? null}
+            />
+          </div>
+          <PetalCard className="px-6 pt-[26px] pb-[18px] lg:px-[30px]">
           <form onSubmit={submitIdea}>
             <EditingPresence editors={editors ?? []} members={members} />
             {ideaConflict ? (
@@ -721,7 +714,8 @@ function IntakeWorkspace({
               </div>
             </div>
           </form>
-        </PetalCard>
+          </PetalCard>
+        </div>
       </IntakeStage>
     )
   }
@@ -1284,14 +1278,13 @@ function NoveltyPill({
         ? 'checking…'
         : state.status === 'unavailable'
           ? 'novelty unavailable'
-          : `${state.signal.score}% distinct`
+          : `${state.signal.score} · distinct`
   return (
     <p
       aria-live="polite"
       aria-label="Live novelty score"
-      className="inline-flex items-center gap-1.5 rounded-full border border-[rgb(254_180_203/.45)] bg-[rgb(12_0_4/.55)] px-3.5 py-1.5 text-[11.5px] text-rose-light backdrop-blur-md"
+      className="inline-flex items-center rounded-[8px] border border-[rgb(254_180_203/.55)] bg-[rgb(20_3_9/.92)] px-3.5 py-1.5 text-[11.5px] font-semibold text-rose-light shadow-[0_8px_22px_rgba(0,0,0,.35)] backdrop-blur-md"
     >
-      <Petal size={10} />
       {label}
     </p>
   )
