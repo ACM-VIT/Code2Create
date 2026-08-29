@@ -101,6 +101,57 @@ export function IntakeScreen({
   )
 }
 
+function IntakeTeamCluster({
+  team,
+  members,
+}: {
+  team: CurrentTeam
+  members: readonly CurrentTeamMember[]
+}) {
+  const leaveTeam = useMutation(api.teams.leave)
+  const operations = useOperationRunner<FunctionReturnType<typeof api.teams.leave>>()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const leavePending = operations.hasPending('team-leave')
+  const leadMustTransfer = team.currentRole === 'lead' && team.activeMemberCount > 1
+
+  const leave = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await operations.run('team-leave', (clientOperationId) => () => leaveTeam({
+        eventSlug,
+        teamId: team.id,
+        expectedTeamVersion: team.version,
+        clientOperationId,
+      }))
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <TeamCluster
+      team={team}
+      members={members}
+      leaveAction={{
+        available: team.canLeave && !leadMustTransfer,
+        ...(leadMustTransfer
+          ? { blockedMessage: 'Transfer leadership before leaving this team.' }
+          : !team.canLeave
+            ? { blockedMessage: 'Leaving this team is unavailable.' }
+            : {}),
+        pending: busy,
+        retrying: leavePending,
+        error,
+        onConfirm: leave,
+      }}
+    />
+  )
+}
+
 /**
  * The shared stage for every intake step: the night scene, the team cluster in
  * the corner, an optional petal step counter, a title, and a card.
@@ -137,7 +188,7 @@ function IntakeStage({
     <PortalScene
       tree="left"
       branch={branch}
-      header={<TeamCluster team={team} members={members} />}
+      header={<IntakeTeamCluster team={team} members={members} />}
     >
       {floating ? (
         <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
@@ -1019,7 +1070,7 @@ function IntakeWorkspace({
 
     // f5 · the proposal, together
     return (
-      <PortalScene tree="left" header={<TeamCluster team={team} members={members} />}>
+      <PortalScene tree="left" header={<IntakeTeamCluster team={team} members={members} />}>
         <div className="flex w-full max-w-[760px] flex-col items-center">
           <p className="mb-1.5 font-display text-[17px] italic text-rose-light">
             your proposal, together
