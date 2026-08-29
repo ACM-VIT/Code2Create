@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 
+import type { Doc } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
@@ -111,6 +112,13 @@ function requireVitStudentProfileIdentity(displayName: string) {
   return identity;
 }
 
+function requirePersistedVitStudentIdentity(membership: Doc<"eventMemberships">) {
+  if (membership.participantClass !== "vit_student" || !membership.vitStudentIdentity) {
+    throw new Error("A VIT student membership is missing its verified identity.");
+  }
+  return membership.vitStudentIdentity;
+}
+
 export const me = query({
   args: { eventSlug: v.string() },
   returns: v.union(
@@ -204,7 +212,7 @@ export const me = query({
               participantClass: membership.participantClass,
               eligibilityStatus: membership.eligibilityStatus,
               onboardingStatus: membership.onboardingStatus,
-              vitStudentIdentity: requireVitStudentProfileIdentity(person.displayName),
+              vitStudentIdentity: requirePersistedVitStudentIdentity(membership),
             }
           : {
               id: membership._id,
@@ -282,10 +290,6 @@ export const provision = mutation({
     const resolvedParticipantClass = approvedVitIdentity
       ? "vit_student"
       : "external_participant";
-    if (resolvedParticipantClass === "vit_student") {
-      requireVitStudentProfileIdentity(person.displayName);
-    }
-
     const existingMembership = await ctx.db
       .query("eventMemberships")
       .withIndex("by_event_person", (index) =>
@@ -305,6 +309,10 @@ export const provision = mutation({
       });
       return { membershipId: existingMembership._id, created: false };
     }
+
+    const vitStudentIdentity = resolvedParticipantClass === "vit_student"
+      ? requireVitStudentProfileIdentity(person.displayName)
+      : null;
 
     const now = Date.now();
     let subject = await ctx.db
@@ -347,6 +355,7 @@ export const provision = mutation({
       personId: person._id,
       eventAccessSubjectId: subject._id,
       participantClass: resolvedParticipantClass,
+      ...(vitStudentIdentity ? { vitStudentIdentity } : {}),
       eligibilityStatus: "eligible",
       onboardingStatus: "profile_required",
       acceptedParticipantPolicyVersionIds: [],
@@ -664,7 +673,7 @@ export const saveProfile = mutation({
 
     const policy = participantPolicy.normalized;
     const vitStudentIdentity = membership.participantClass === "vit_student"
-      ? requireVitStudentProfileIdentity(person.displayName)
+      ? requirePersistedVitStudentIdentity(membership)
       : null;
     const fullName = vitStudentIdentity
       ? vitStudentIdentity.fullName

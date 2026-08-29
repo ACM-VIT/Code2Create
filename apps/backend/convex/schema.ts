@@ -766,6 +766,12 @@ export default defineSchema({
     personId: v.id("people"),
     eventAccessSubjectId: v.id("eventAccessSubjects"),
     participantClass,
+    vitStudentIdentity: v.optional(v.object({
+      fullName: v.string(),
+      registrationNumber: v.string(),
+      programmeCode: v.string(),
+      yearOfStudy: studyYear,
+    })),
     eligibilityStatus: participantEligibilityStatus,
     onboardingStatus: participantOnboardingStatus,
     acceptedParticipantPolicyVersionIds: v.array(v.id("participantPolicyVersions")),
