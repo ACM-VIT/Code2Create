@@ -8,6 +8,7 @@ import { TeamPanel } from './components/TeamPanel'
 import { ErrorNotice } from './components/Form'
 import { eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
+import { useOperationRunner } from './lib/operations'
 import { participantClassStorageKey } from './screens/EntryScreen'
 import { IntakeScreen } from './screens/IntakeScreen'
 import { PolicyConsentScreen } from './screens/PolicyConsentScreen'
@@ -343,21 +344,92 @@ function PortalLoading() {
 type PendingTeam = NonNullable<FunctionReturnType<typeof api.participants.me>>['pendingTeam']
 
 function PendingTeamPanel({ pendingTeam }: { pendingTeam: NonNullable<PendingTeam> }) {
+  const declineAssignedTeam = useMutation(api.participants.declineAssignedTeam)
+  const [confirmLeave, setConfirmLeave] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const operations = useOperationRunner()
+  const leavePending = operations.hasPending('team-assignment-leave')
+
+  const leaveAssignment = async () => {
+    setError(null)
+    try {
+      await operations.run('team-assignment-leave', (clientOperationId) => () =>
+        declineAssignedTeam({
+          eventSlug,
+          teamRosterEntryId: pendingTeam.id,
+          expectedVersion: pendingTeam.version,
+          clientOperationId,
+        }),
+      )
+      setConfirmLeave(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    }
+  }
+
   return (
-    <section className="intake-panel">
-      <p className="eyebrow">Your team</p>
-      <h1>You&rsquo;re assigned to {pendingTeam.teamName}.</h1>
-      {pendingTeam.status === 'waiting_for_lead' ? (
-        <p className="lead">
-          Your team lead has not signed in yet. You can stay on this page; you&rsquo;ll join
-          automatically after they do.
-        </p>
-      ) : (
-        <p className="lead">
-          You&rsquo;ll join {pendingTeam.teamName} as its {pendingTeam.role === 'lead' ? 'lead' : 'member'} shortly.
-        </p>
-      )}
-    </section>
+    <aside className="team-panel" aria-label="Assigned team">
+      <div className="team-panel-heading">
+        <div>
+          <p className="muted">Your team</p>
+          <h2>{pendingTeam.teamName}</h2>
+        </div>
+        <span className="lock-state">Waiting</span>
+      </div>
+      <p className="fine-print">
+        {pendingTeam.status === 'waiting_for_lead'
+          ? 'Your team lead has not signed in yet. You join automatically after they do.'
+          : `You'll join as ${pendingTeam.role === 'lead' ? 'lead' : 'a member'} shortly.`}
+      </p>
+      <ul className="member-list">
+        {pendingTeam.assignees.map((assignee, index) => (
+          <li key={`${assignee.role}:${index}`}>
+            <div>
+              <span>{assignee.displayName}</span>
+              <small>
+                {assignee.role === 'lead' ? 'Team lead' : 'Member'}
+                {assignee.isYou ? ' · You' : ''}
+                {` · ${assignee.signedIn ? 'Signed in' : 'Not signed in yet'}`}
+              </small>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <div className="team-exit">
+        <button
+          type="button"
+          className="text-button quiet-danger"
+          disabled={leavePending}
+          onClick={() => setConfirmLeave(true)}
+        >
+          Leave assignment
+        </button>
+      </div>
+      {confirmLeave ? (
+        <div className="transfer-card action-confirmation">
+          <p>Leave {pendingTeam.teamName}? You can create or join another team after this.</p>
+          <div className="button-row">
+            <button
+              type="button"
+              className="primary compact"
+              disabled={leavePending}
+              onClick={() => void leaveAssignment()}
+            >
+              {leavePending ? 'Confirm earlier leave' : 'Confirm'}
+            </button>
+            <button
+              type="button"
+              className="secondary compact"
+              disabled={leavePending}
+              onClick={() => setConfirmLeave(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+      <ErrorNotice message={error} />
+    </aside>
   )
 }
 
