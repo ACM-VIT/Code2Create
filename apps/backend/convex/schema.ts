@@ -922,7 +922,12 @@ export default defineSchema({
     ),
     joinedAt: v.number(),
     leftAt: v.optional(v.number()),
-    source: v.union(v.literal("created"), v.literal("code"), v.literal("invitation")),
+    source: v.union(
+      v.literal("created"),
+      v.literal("code"),
+      v.literal("invitation"),
+      v.literal("backfill"),
+    ),
   })
     .index("by_team_status", ["teamId", "status"])
     .index("by_event_membership_status", ["eventId", "membershipId", "status"])
