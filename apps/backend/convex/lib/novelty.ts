@@ -8,6 +8,7 @@ export const noveltyEmbeddingDimensions = 1_536;
 export const minimumNoveltyCorpusEntries = 5;
 export const maximumNoveltyCorpusEntries = 300;
 export const noveltyDensityMatchLimit = 50;
+export const noveltyEmbeddingSimilarityScale = 1.2;
 export const noveltyDensitySimilarityPolicy = {
   distinctSimilarityBoundary: 0.6,
   commonSimilarityBoundary: 0.9,
@@ -222,6 +223,13 @@ export function noveltySimilarityWeight(
   if (boundedSimilarity >= policy.commonSimilarityBoundary) return 1;
   const span = policy.commonSimilarityBoundary - policy.distinctSimilarityBoundary;
   return (boundedSimilarity - policy.distinctSimilarityBoundary) / span;
+}
+
+export function noveltyDensitySimilarity(matchSimilarity: number) {
+  if (!Number.isFinite(matchSimilarity)) {
+    throw new Error("Novelty similarity must be finite.");
+  }
+  return Math.max(-1, Math.min(1, matchSimilarity * noveltyEmbeddingSimilarityScale));
 }
 
 export function noveltyLifecycleWeight(lifecycle: NoveltyIdeaLifecycle) {

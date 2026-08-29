@@ -15,6 +15,7 @@ import { requireEventSubject, requireMembership } from "./lib/identity";
 import {
   effectiveSimilarTeams,
   normalizeNoveltyIdea,
+  noveltyDensitySimilarity,
   noveltyBandForScore,
   noveltyDensitySimilarityPolicy,
   noveltyEmbeddingDimensions,
@@ -876,10 +877,13 @@ export const preview = action({
           if (similarity === undefined) {
             throw new Error("Team novelty metadata has no vector similarity.");
           }
-          return { similarity, lifecycle: idea.lifecycle };
+          return {
+            similarity: noveltyDensitySimilarity(similarity),
+            lifecycle: idea.lifecycle,
+          };
         });
       const corpusDensityMatches = corpusMatches.map((match) => ({
-        similarity: match._score,
+        similarity: noveltyDensitySimilarity(match._score),
         lifecycle: "submitted" as const,
       }));
       const densityMatches = [...corpusDensityMatches, ...teamDensityMatches]
