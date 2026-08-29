@@ -30,8 +30,7 @@
   --font-ui: Geist, ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, Menlo, monospace;
 
-  /* The asymmetric petal corner — the portal's most load-bearing shape. */
-  --radius-petal: 26px 5px 26px 5px;
+  /* Smaller asymmetric petal corners used by secondary surfaces and fields. */
   --radius-petal-sm: 20px 4px 20px 4px;
   --radius-petal-xs: 12px 3px 12px 3px;
   --radius-btn: 16px 0 16px 0;
