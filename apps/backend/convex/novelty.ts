@@ -46,6 +46,7 @@ const noveltyIdeaLifecycle = v.union(
 );
 
 const noveltyTeamVectorMatchLimit = 256;
+const noveltyEditingIdeaLifetimeMs = 45_000;
 
 const readyPreview = v.object({
   state: v.literal("ready"),
@@ -114,11 +115,20 @@ async function storeTeamIdeaEmbeddings(
     .query("noveltyTeamIdeas")
     .withIndex("by_team", (index) => index.eq("teamId", args.teamId))
     .collect();
-  if (existing.some((idea) => idea.sourceUpdatedAt > args.sourceUpdatedAt)) {
-    return existing.map((idea) => idea._id);
+  const storesEditingIdea = args.lifecycle === "editing";
+  const sameSourceIdeas = existing.filter(
+    (idea) => (idea.lifecycle === "editing") === storesEditingIdea,
+  );
+  if (sameSourceIdeas.some((idea) => idea.sourceUpdatedAt > args.sourceUpdatedAt)) {
+    return sameSourceIdeas.map((idea) => idea._id);
   }
   const now = Date.now();
-  for (const idea of existing) await ctx.db.delete(idea._id);
+  const obsoleteIdeas = storesEditingIdea
+    ? sameSourceIdeas
+    : existing.filter(
+        (idea) => idea.lifecycle !== "editing" || idea.sourceUpdatedAt <= args.sourceUpdatedAt,
+      );
+  for (const idea of obsoleteIdeas) await ctx.db.delete(idea._id);
   const ideaIds: Id<"noveltyTeamIdeas">[] = [];
   for (const embedding of args.embeddings) {
     ideaIds.push(await ctx.db.insert("noveltyTeamIdeas", {
@@ -403,15 +413,52 @@ export const upsertPreviewTeamIdea = internalMutation({
       .query("projectDrafts")
       .withIndex("by_team", (index) => index.eq("teamId", request.teamId))
       .unique();
+    const lifecycle = draft ? indexedLifecycle(draft, request.inputFingerprint) : "editing";
     const ideaIds = await storeTeamIdeaEmbeddings(ctx, {
       eventId: request.eventId,
       teamId: request.teamId,
       inputFingerprint: request.inputFingerprint,
-      lifecycle: draft ? indexedLifecycle(draft, request.inputFingerprint) : "editing",
+      lifecycle,
       embeddings,
       sourceUpdatedAt: request.requestedAt,
     });
+    if (lifecycle === "editing") {
+      await ctx.scheduler.runAfter(
+        noveltyEditingIdeaLifetimeMs,
+        internal.novelty.expireEditingTeamIdea,
+        {
+          teamId: request.teamId,
+          inputFingerprint: request.inputFingerprint,
+          sourceUpdatedAt: request.requestedAt,
+        },
+      );
+    }
     return { ideaIds };
+  },
+});
+
+export const expireEditingTeamIdea = internalMutation({
+  args: {
+    teamId: v.id("teams"),
+    inputFingerprint: v.string(),
+    sourceUpdatedAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const ideas = await ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_team", (index) => index.eq("teamId", args.teamId))
+      .collect();
+    for (const idea of ideas) {
+      if (
+        idea.lifecycle === "editing"
+        && idea.inputFingerprint === args.inputFingerprint
+        && idea.sourceUpdatedAt === args.sourceUpdatedAt
+      ) {
+        await ctx.db.delete(idea._id);
+      }
+    }
+    return null;
   },
 });
 
@@ -424,14 +471,21 @@ export const readTeamIdeaMetadata = internalQuery({
     id: v.id("noveltyTeamIdeas"),
     teamId: v.id("teams"),
     lifecycle: noveltyIdeaLifecycle,
+    active: v.boolean(),
   })),
   handler: async (ctx, args) => {
     const ideas = await Promise.all(args.ideaIds.map((ideaId) => ctx.db.get(ideaId)));
+    const editingCutoff = Date.now() - noveltyEditingIdeaLifetimeMs;
     return ideas.map((idea, index) => {
       if (!idea || idea.eventId !== args.eventId) {
         throw new Error(`Team novelty vector result ${index + 1} belongs to another event.`);
       }
-      return { id: idea._id, teamId: idea.teamId, lifecycle: idea.lifecycle };
+      return {
+        id: idea._id,
+        teamId: idea.teamId,
+        lifecycle: idea.lifecycle,
+        active: idea.lifecycle !== "editing" || idea.sourceUpdatedAt > editingCutoff,
+      };
     });
   },
 });
@@ -462,10 +516,10 @@ export const prepareDraftIndex = internalMutation({
     ) {
       return { kind: "complete" };
     }
-    const existing = await ctx.db
+    const existing = (await ctx.db
       .query("noveltyTeamIdeas")
       .withIndex("by_team", (index) => index.eq("teamId", draft.teamId))
-      .collect();
+      .collect()).filter((idea) => idea.lifecycle !== "editing");
     const embeddingInputs = noveltyEmbeddingInputs(draft.initialIdea);
     if (
       existing.length === embeddingInputs.length
@@ -591,10 +645,10 @@ export const prepareSubmittedProjectIndex = internalMutation({
     }
     const team = await ctx.db.get(project.teamId);
     if (!team || team.lockedProjectVersionId !== project._id) return { kind: "complete" };
-    const existing = await ctx.db
+    const existing = (await ctx.db
       .query("noveltyTeamIdeas")
       .withIndex("by_team", (index) => index.eq("teamId", project.teamId))
-      .collect();
+      .collect()).filter((idea) => idea.lifecycle !== "editing");
     const embeddingInputs = noveltyEmbeddingInputs(project.initialIdea);
     if (
       existing.length === embeddingInputs.length
@@ -929,7 +983,7 @@ export const preview = action({
         { similarity: number; lifecycle: NoveltyIdeaLifecycle }
       >();
       for (const idea of teamMetadata) {
-        if (idea.teamId === begun.teamId) continue;
+        if (idea.teamId === begun.teamId || !idea.active) continue;
         const rawSimilarity = teamSimilarityById.get(idea.id);
         if (rawSimilarity === undefined) {
           throw new Error("Team novelty metadata has no vector similarity.");

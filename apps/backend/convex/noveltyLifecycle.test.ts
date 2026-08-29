@@ -207,7 +207,7 @@ describe("live novelty", () => {
     expect(draft?.noveltyPreviewRequestId).toBeUndefined();
   });
 
-  test("keeps one density vector per team and tracks saved versus editing ideas", async () => {
+  test("keeps durable and active editing vectors separate for one team", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend);
     const embedding = Array.from({ length: noveltyEmbeddingDimensions }, (_, index) => (
@@ -244,10 +244,88 @@ describe("live novelty", () => {
       .query("noveltyTeamIdeas")
       .withIndex("by_team")
       .collect());
-    expect(indexed).toHaveLength(1);
-    expect(indexed[0]).toMatchObject({
-      inputFingerprint: noveltyInputFingerprint(editingIdea),
-      lifecycle: "editing",
+    expect(indexed).toHaveLength(2);
+    expect(indexed).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        inputFingerprint: noveltyInputFingerprint(fixture.idea),
+        lifecycle: "saved",
+      }),
+      expect.objectContaining({
+        inputFingerprint: noveltyInputFingerprint(editingIdea),
+        lifecycle: "editing",
+      }),
+    ]));
+  });
+
+  test("does not let a newer editing preview suppress durable draft indexing", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend);
+    const savedEmbedding = Array.from(
+      { length: noveltyEmbeddingDimensions },
+      (_, index) => (index === 0 ? 1 : 0),
+    );
+    const editingEmbedding = Array.from(
+      { length: noveltyEmbeddingDimensions },
+      (_, index) => (index === 1 ? 1 : 0),
+    );
+    const editingIdea = `${fixture.idea} The editor contains a temporary alternate workflow.`;
+    const editingFingerprint = noveltyInputFingerprint(editingIdea);
+    const savedAt = fixture.now + 1;
+    const previewedAt = fixture.now + 2;
+    const requestId = await backend.run((ctx) => ctx.db.insert("noveltyPreviewRequests", {
+      eventId: fixture.eventId,
+      teamId: fixture.teamId,
+      personId: fixture.personId,
+      corpusVersionId: fixture.publishedCorpusId,
+      clientRequestId: "novelty-preview-after-save-started",
+      inputFingerprint: editingFingerprint,
+      inputCharacterCount: editingIdea.length,
+      state: "running",
+      requestedAt: previewedAt,
+    }));
+
+    await backend.mutation(internal.novelty.upsertPreviewTeamIdea, {
+      requestId,
+      inputFingerprint: editingFingerprint,
+      embedding: editingEmbedding,
+    });
+    await backend.mutation(internal.novelty.finishDraftIndex, {
+      draftId: fixture.projectDraftId,
+      inputFingerprint: noveltyInputFingerprint(fixture.idea),
+      sourceUpdatedAt: savedAt,
+      embedding: savedEmbedding,
+    });
+
+    const indexed = await backend.run((ctx) => ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
+      .collect());
+    expect(indexed).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        inputFingerprint: noveltyInputFingerprint(fixture.idea),
+        lifecycle: "saved",
+        sourceUpdatedAt: savedAt,
+      }),
+      expect.objectContaining({
+        inputFingerprint: editingFingerprint,
+        lifecycle: "editing",
+        sourceUpdatedAt: previewedAt,
+      }),
+    ]));
+
+    await backend.mutation(internal.novelty.expireEditingTeamIdea, {
+      teamId: fixture.teamId,
+      inputFingerprint: editingFingerprint,
+      sourceUpdatedAt: previewedAt,
+    });
+    const durable = await backend.run((ctx) => ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
+      .collect());
+    expect(durable).toHaveLength(1);
+    expect(durable[0]).toMatchObject({
+      inputFingerprint: noveltyInputFingerprint(fixture.idea),
+      lifecycle: "saved",
     });
   });
 
@@ -556,6 +634,9 @@ async function seedFixture(
     return {
       authUserId,
       eventSlug,
+      eventId,
+      personId,
+      teamId,
       publishedCorpusId,
       draftCorpusId,
       projectDraftId,
