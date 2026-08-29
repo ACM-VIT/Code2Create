@@ -6,12 +6,14 @@ import type { Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import {
   defaultNoveltyPolicy,
+  effectiveSimilarTeams,
   normalizeNoveltyCorpusEntries,
   noveltyBandForScore,
   noveltyEmbeddingDimensions,
   noveltyEmbeddingModel,
   noveltyInputFingerprint,
-  noveltyScoreForSimilarity,
+  noveltyScoreForDensity,
+  noveltySimilarityWeight,
   type NoveltyCorpusEntryInput,
 } from "./lib/novelty.ts";
 import {
@@ -26,13 +28,25 @@ const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 type BackendTest = TestConvex<typeof schema>;
 
 describe("live novelty", () => {
-  test("uses the native OpenAI vector width and stable score boundaries", () => {
+  test("uses weighted team density and the logarithmic novelty curve", () => {
     expect(noveltyEmbeddingModel).toBe("text-embedding-3-small");
     expect(noveltyEmbeddingDimensions).toBe(1_536);
     expect(defaultNoveltyPolicy.embeddingDimensions).toBe(1_536);
-    expect(noveltyScoreForSimilarity(0.56, defaultNoveltyPolicy)).toBe(100);
-    expect(noveltyScoreForSimilarity(0.72, defaultNoveltyPolicy)).toBe(50);
-    expect(noveltyScoreForSimilarity(0.88, defaultNoveltyPolicy)).toBe(0);
+    expect(noveltySimilarityWeight(0.6, defaultNoveltyPolicy)).toBe(0);
+    expect(noveltySimilarityWeight(0.75, defaultNoveltyPolicy)).toBeCloseTo(0.5);
+    expect(noveltySimilarityWeight(0.9, defaultNoveltyPolicy)).toBe(1);
+    expect(effectiveSimilarTeams([
+      { similarity: 0.9, lifecycle: "editing" },
+      { similarity: 0.9, lifecycle: "saved" },
+      { similarity: 0.9, lifecycle: "submitted" },
+      { similarity: 0.59, lifecycle: "submitted" },
+    ], defaultNoveltyPolicy)).toBeCloseTo(2.3);
+    expect(noveltyScoreForDensity(0)).toBe(100);
+    expect(noveltyScoreForDensity(1)).toBe(77);
+    expect(noveltyScoreForDensity(2)).toBe(64);
+    expect(noveltyScoreForDensity(5)).toBe(41);
+    expect(noveltyScoreForDensity(10)).toBe(21);
+    expect(noveltyScoreForDensity(20)).toBe(0);
     expect(noveltyBandForScore(34)).toBe("familiar");
     expect(noveltyBandForScore(35)).toBe("developing");
     expect(noveltyBandForScore(70)).toBe("distinct");
@@ -96,6 +110,8 @@ describe("live novelty", () => {
       state: "succeeded",
       score: 74,
       band: "distinct",
+      effectiveSimilarTeams: 1.1,
+      comparedTeamCount: 2,
       nearestSimilarity: 0.64,
       nearestThemeLabel: "Campus service routing",
       reflectionPrompt: "What happens after a volunteer accepts a request?",
@@ -178,6 +194,8 @@ describe("live novelty", () => {
       state: "succeeded",
       score: 61,
       band: "developing",
+      effectiveSimilarTeams: 2.2,
+      comparedTeamCount: 3,
       nearestSimilarity: 0.69,
       nearestThemeLabel: "Campus service routing",
       reflectionPrompt: "Which request should the system route first?",
@@ -187,6 +205,50 @@ describe("live novelty", () => {
     const draft = await backend.run((ctx) => ctx.db.get(fixture.projectDraftId));
     expect(draft?.noveltyScore).toBeUndefined();
     expect(draft?.noveltyPreviewRequestId).toBeUndefined();
+  });
+
+  test("keeps one density vector per team and tracks saved versus editing ideas", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend);
+    const embedding = Array.from({ length: noveltyEmbeddingDimensions }, (_, index) => (
+      index === 0 ? 1 : 0
+    ));
+    const savedRequest = await backend.mutation(
+      internal.novelty.beginPreview,
+      previewArgs(fixture, "novelty-density-saved", fixture.idea),
+    );
+    if (savedRequest.kind !== "run") throw new Error("The saved idea check did not start.");
+    await backend.mutation(internal.novelty.upsertPreviewTeamIdea, {
+      requestId: savedRequest.requestId,
+      inputFingerprint: savedRequest.inputFingerprint,
+      embedding,
+    });
+    const saved = await backend.run((ctx) => ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_team")
+      .unique());
+    expect(saved).toMatchObject({ lifecycle: "saved" });
+
+    const editingIdea = `${fixture.idea} The team is now exploring a different live workflow.`;
+    const editingRequest = await backend.mutation(
+      internal.novelty.beginPreview,
+      previewArgs(fixture, "novelty-density-editing", editingIdea),
+    );
+    if (editingRequest.kind !== "run") throw new Error("The editing idea check did not start.");
+    await backend.mutation(internal.novelty.upsertPreviewTeamIdea, {
+      requestId: editingRequest.requestId,
+      inputFingerprint: editingRequest.inputFingerprint,
+      embedding,
+    });
+    const indexed = await backend.run((ctx) => ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_team")
+      .collect());
+    expect(indexed).toHaveLength(1);
+    expect(indexed[0]).toMatchObject({
+      inputFingerprint: noveltyInputFingerprint(editingIdea),
+      lifecycle: "editing",
+    });
   });
 
   test("enforces the exact team scope and the published request budget", async () => {

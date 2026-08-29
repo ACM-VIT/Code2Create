@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  effectiveSimilarTeams,
   noveltyEmbeddingDimensions,
-  noveltyScoreForSimilarity,
+  noveltyScoreForDensity,
   validEmbedding,
 } from "./novelty";
 
@@ -69,18 +70,14 @@ describe("novelty scoring", () => {
     expect(cosine(idea, related)).toBeGreaterThan(cosine(idea, unrelated));
   });
 
-  it("does not present a close local-corpus match as fully novel", () => {
-    const idea = testEmbedding(
-      "A road damage reporting tool that follows each pothole from a resident photo through municipal routing, repair assignment, and proof that the road was fixed.",
+  it("penalizes the density of close team ideas instead of only the nearest one", () => {
+    const density = effectiveSimilarTeams(
+      Array.from({ length: 10 }, () => ({ similarity: 0.95, lifecycle: "submitted" } as const)),
+      {
+        distinctSimilarityBoundary: 0.6,
+        commonSimilarityBoundary: 0.9,
+      },
     );
-    const priorProject = testEmbedding(
-      "Residents photograph road damage, route it to a municipal team, and follow repair progress.",
-    );
-    const similarity = cosine(idea, priorProject);
-
-    expect(noveltyScoreForSimilarity(similarity, {
-      distinctSimilarityBoundary: 0.08,
-      commonSimilarityBoundary: 0.34,
-    })).toBeLessThanOrEqual(34);
+    expect(noveltyScoreForDensity(density)).toBeLessThanOrEqual(21);
   });
 });

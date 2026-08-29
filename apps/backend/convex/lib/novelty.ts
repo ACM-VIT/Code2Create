@@ -7,6 +7,18 @@ export const noveltyEmbeddingModel = "text-embedding-3-small" as const;
 export const noveltyEmbeddingDimensions = 1_536;
 export const minimumNoveltyCorpusEntries = 5;
 export const maximumNoveltyCorpusEntries = 200;
+export const noveltyTeamMatchLimit = 50;
+export const noveltyDensitySimilarityPolicy = {
+  distinctSimilarityBoundary: 0.6,
+  commonSimilarityBoundary: 0.9,
+} as const;
+
+export type NoveltyIdeaLifecycle = "editing" | "saved" | "submitted";
+
+export type NoveltyDensityMatch = {
+  similarity: number;
+  lifecycle: NoveltyIdeaLifecycle;
+};
 
 const discouragedReflectionTerms = [
   "admission",
@@ -46,8 +58,7 @@ export const defaultNoveltyPolicy: NoveltyPolicy = {
   minimumIdeaLength: 50,
   debounceMs: 800,
   maximumRequestsPerMinute: 20,
-  distinctSimilarityBoundary: 0.56,
-  commonSimilarityBoundary: 0.88,
+  ...noveltyDensitySimilarityPolicy,
   embeddingModel: noveltyEmbeddingModel,
   embeddingDimensions: noveltyEmbeddingDimensions,
 };
@@ -85,9 +96,12 @@ export function normalizeNoveltyPolicy(input: NoveltyPolicy): NoveltyPolicy {
     input.commonSimilarityBoundary,
     "Common-similarity boundary",
   );
-  if (commonSimilarityBoundary - distinctSimilarityBoundary < 0.1) {
+  if (
+    distinctSimilarityBoundary !== noveltyDensitySimilarityPolicy.distinctSimilarityBoundary
+    || commonSimilarityBoundary !== noveltyDensitySimilarityPolicy.commonSimilarityBoundary
+  ) {
     invalidNoveltyPolicy(
-      "The common-similarity boundary must be at least 0.1 above the distinct boundary.",
+      "Similarity density must start at 0.60 and reach full weight at 0.90.",
     );
   }
   return {
@@ -196,20 +210,44 @@ export function noveltyInputFingerprint(value: string) {
   return fingerprintText(value);
 }
 
-export function noveltyScoreForSimilarity(
-  nearestSimilarity: number,
+export function noveltySimilarityWeight(
+  matchSimilarity: number,
   policy: Pick<NoveltyPolicy, "distinctSimilarityBoundary" | "commonSimilarityBoundary">,
 ) {
-  if (!Number.isFinite(nearestSimilarity)) {
+  if (!Number.isFinite(matchSimilarity)) {
     throw new Error("Novelty similarity must be finite.");
   }
-  const boundedSimilarity = Math.max(-1, Math.min(1, nearestSimilarity));
-  if (boundedSimilarity <= policy.distinctSimilarityBoundary) return 100;
-  if (boundedSimilarity >= policy.commonSimilarityBoundary) return 0;
+  const boundedSimilarity = Math.max(-1, Math.min(1, matchSimilarity));
+  if (boundedSimilarity <= policy.distinctSimilarityBoundary) return 0;
+  if (boundedSimilarity >= policy.commonSimilarityBoundary) return 1;
   const span = policy.commonSimilarityBoundary - policy.distinctSimilarityBoundary;
-  return Math.round(
-    ((policy.commonSimilarityBoundary - boundedSimilarity) / span) * 100,
+  return (boundedSimilarity - policy.distinctSimilarityBoundary) / span;
+}
+
+export function noveltyLifecycleWeight(lifecycle: NoveltyIdeaLifecycle) {
+  if (lifecycle === "editing") return 0.5;
+  if (lifecycle === "saved") return 0.8;
+  return 1;
+}
+
+export function effectiveSimilarTeams(
+  matches: readonly NoveltyDensityMatch[],
+  policy: Pick<NoveltyPolicy, "distinctSimilarityBoundary" | "commonSimilarityBoundary">,
+) {
+  return matches.reduce(
+    (total, match) => total
+      + noveltySimilarityWeight(match.similarity, policy)
+        * noveltyLifecycleWeight(match.lifecycle),
+    0,
   );
+}
+
+export function noveltyScoreForDensity(similarTeams: number) {
+  if (!Number.isFinite(similarTeams) || similarTeams < 0) {
+    throw new Error("Effective similar teams must be a non-negative finite number.");
+  }
+  const score = 100 * (1 - Math.log1p(similarTeams) / Math.log(21));
+  return Math.round(Math.max(0, Math.min(100, score)));
 }
 
 export function noveltyBandForScore(score: number): NoveltyBand {

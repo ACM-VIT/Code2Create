@@ -2,17 +2,28 @@ import OpenAI from "openai";
 import { ConvexError, v, type Infer } from "convex/values";
 
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
-import { action, internalMutation, internalQuery } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import {
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+} from "./_generated/server";
 import { authComponent } from "./auth";
 import { requireEventBySlug } from "./lib/events";
 import { requireEventSubject, requireMembership } from "./lib/identity";
 import {
+  effectiveSimilarTeams,
   normalizeNoveltyIdea,
   noveltyBandForScore,
+  noveltyDensitySimilarityPolicy,
   noveltyEmbeddingDimensions,
+  noveltyEmbeddingModel,
   noveltyInputFingerprint,
-  noveltyScoreForSimilarity,
+  noveltyScoreForDensity,
+  noveltyTeamMatchLimit,
+  type NoveltyIdeaLifecycle,
   validEmbedding,
 } from "./lib/novelty";
 import { requirePermission } from "./lib/permissions";
@@ -24,6 +35,12 @@ const noveltyBand = v.union(
   v.literal("familiar"),
   v.literal("developing"),
   v.literal("distinct"),
+);
+
+const noveltyIdeaLifecycle = v.union(
+  v.literal("editing"),
+  v.literal("saved"),
+  v.literal("submitted"),
 );
 
 const readyPreview = v.object({
@@ -54,6 +71,55 @@ type ReadyPreview = {
   inputFingerprint: string;
 };
 
+function indexedLifecycle(draft: Doc<"projectDrafts">, inputFingerprint: string) {
+  if (
+    draft.initialIdea !== undefined
+    && noveltyInputFingerprint(draft.initialIdea) === inputFingerprint
+  ) {
+    return draft.stage === "submitted" ? "submitted" : "saved";
+  }
+  return "editing";
+}
+
+async function storeTeamIdea(
+  ctx: MutationCtx,
+  args: {
+    eventId: Id<"events">;
+    teamId: Id<"teams">;
+    inputFingerprint: string;
+    lifecycle: NoveltyIdeaLifecycle;
+    embedding: number[];
+    sourceUpdatedAt: number;
+  },
+) {
+  const existing = await ctx.db
+    .query("noveltyTeamIdeas")
+    .withIndex("by_team", (index) => index.eq("teamId", args.teamId))
+    .unique();
+  if (existing && existing.sourceUpdatedAt > args.sourceUpdatedAt) return existing._id;
+  const now = Date.now();
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      eventId: args.eventId,
+      inputFingerprint: args.inputFingerprint,
+      lifecycle: args.lifecycle,
+      embedding: args.embedding,
+      sourceUpdatedAt: args.sourceUpdatedAt,
+      updatedAt: now,
+    });
+    return existing._id;
+  }
+  return ctx.db.insert("noveltyTeamIdeas", {
+    eventId: args.eventId,
+    teamId: args.teamId,
+    inputFingerprint: args.inputFingerprint,
+    lifecycle: args.lifecycle,
+    embedding: args.embedding,
+    sourceUpdatedAt: args.sourceUpdatedAt,
+    updatedAt: now,
+  });
+}
+
 function readyResult(
   request: Doc<"noveltyPreviewRequests">,
   corpus: Doc<"noveltyCorpusVersions">,
@@ -62,6 +128,7 @@ function readyResult(
     request.state !== "succeeded" ||
     request.score === undefined ||
     request.band === undefined ||
+    request.comparedTeamCount === undefined ||
     request.nearestThemeLabel === undefined ||
     request.reflectionPrompt === undefined
   ) {
@@ -73,7 +140,7 @@ function readyResult(
     band: request.band,
     nearestThemeLabel: request.nearestThemeLabel,
     reflectionPrompt: request.reflectionPrompt,
-    comparedProjectCount: corpus.entryCount,
+    comparedProjectCount: request.comparedTeamCount,
     corpusVersion: corpus.version,
     corpusLabel: corpus.label,
     inputFingerprint: request.inputFingerprint,
@@ -85,6 +152,7 @@ const beginPreviewResult = v.union(
   v.object({
     kind: v.literal("run"),
     requestId: v.id("noveltyPreviewRequests"),
+    eventId: v.id("events"),
     teamId: v.id("teams"),
     corpusVersionId: v.id("noveltyCorpusVersions"),
     corpusVersion: v.number(),
@@ -93,8 +161,7 @@ const beginPreviewResult = v.union(
     inputFingerprint: v.string(),
     normalizedIdea: v.string(),
     embeddingModel: v.literal("text-embedding-3-small"),
-    distinctSimilarityBoundary: v.number(),
-    commonSimilarityBoundary: v.number(),
+    cachedEmbedding: v.optional(v.array(v.float64())),
   }),
 );
 type BeginPreviewResult = Infer<typeof beginPreviewResult>;
@@ -227,7 +294,7 @@ export const beginPreview = internalMutation({
     if (
       cached &&
       cached.corpusVersionId === corpus._id &&
-      cached.requestedAt >= now - 30 * 60_000
+      cached.requestedAt >= now - 10_000
     ) {
       const result = readyResult(cached, corpus);
       if (result) return { kind: "complete", result };
@@ -255,9 +322,14 @@ export const beginPreview = internalMutation({
       state: "running",
       requestedAt: now,
     });
+    const indexedIdea = await ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_team", (index) => index.eq("teamId", team._id))
+      .unique();
     return {
       kind: "run",
       requestId,
+      eventId: event._id,
       teamId: team._id,
       corpusVersionId: corpus._id,
       corpusVersion: corpus.version,
@@ -266,8 +338,9 @@ export const beginPreview = internalMutation({
       inputFingerprint,
       normalizedIdea,
       embeddingModel: corpus.embeddingModel,
-      distinctSimilarityBoundary: corpus.distinctSimilarityBoundary,
-      commonSimilarityBoundary: corpus.commonSimilarityBoundary,
+      ...(indexedIdea?.inputFingerprint === inputFingerprint
+        ? { cachedEmbedding: indexedIdea.embedding }
+        : {}),
     };
   },
 });
@@ -299,6 +372,291 @@ export const readMatchMetadata = internalQuery({
   },
 });
 
+export const upsertPreviewTeamIdea = internalMutation({
+  args: {
+    requestId: v.id("noveltyPreviewRequests"),
+    inputFingerprint: v.string(),
+    embedding: v.array(v.float64()),
+  },
+  returns: v.object({ ideaId: v.id("noveltyTeamIdeas") }),
+  handler: async (ctx, args) => {
+    if (!validEmbedding(args.embedding)) {
+      throw new Error("A team idea index requires a valid embedding.");
+    }
+    const request = await ctx.db.get(args.requestId);
+    if (
+      !request
+      || request.state !== "running"
+      || request.inputFingerprint !== args.inputFingerprint
+    ) {
+      throw new Error("The novelty request is no longer indexable.");
+    }
+    const draft = await ctx.db
+      .query("projectDrafts")
+      .withIndex("by_team", (index) => index.eq("teamId", request.teamId))
+      .unique();
+    const ideaId = await storeTeamIdea(ctx, {
+      eventId: request.eventId,
+      teamId: request.teamId,
+      inputFingerprint: request.inputFingerprint,
+      lifecycle: draft ? indexedLifecycle(draft, request.inputFingerprint) : "editing",
+      embedding: args.embedding,
+      sourceUpdatedAt: request.requestedAt,
+    });
+    return { ideaId };
+  },
+});
+
+export const readTeamIdeaMetadata = internalQuery({
+  args: {
+    eventId: v.id("events"),
+    ideaIds: v.array(v.id("noveltyTeamIdeas")),
+  },
+  returns: v.array(v.object({
+    id: v.id("noveltyTeamIdeas"),
+    teamId: v.id("teams"),
+    lifecycle: noveltyIdeaLifecycle,
+  })),
+  handler: async (ctx, args) => {
+    const ideas = await Promise.all(args.ideaIds.map((ideaId) => ctx.db.get(ideaId)));
+    return ideas.map((idea, index) => {
+      if (!idea || idea.eventId !== args.eventId) {
+        throw new Error(`Team novelty vector result ${index + 1} belongs to another event.`);
+      }
+      return { id: idea._id, teamId: idea.teamId, lifecycle: idea.lifecycle };
+    });
+  },
+});
+
+const prepareDraftIndexResult = v.union(
+  v.object({ kind: v.literal("complete") }),
+  v.object({
+    kind: v.literal("run"),
+    normalizedIdea: v.string(),
+    embeddingModel: v.literal("text-embedding-3-small"),
+  }),
+);
+type PrepareDraftIndexResult = Infer<typeof prepareDraftIndexResult>;
+
+export const prepareDraftIndex = internalMutation({
+  args: {
+    draftId: v.id("projectDrafts"),
+    inputFingerprint: v.string(),
+    sourceUpdatedAt: v.number(),
+  },
+  returns: prepareDraftIndexResult,
+  handler: async (ctx, args): Promise<PrepareDraftIndexResult> => {
+    const draft = await ctx.db.get(args.draftId);
+    if (
+      !draft?.initialIdea
+      || noveltyInputFingerprint(draft.initialIdea) !== args.inputFingerprint
+      || containsSensitiveProjectText(draft.initialIdea)
+    ) {
+      return { kind: "complete" };
+    }
+    const existing = await ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_team", (index) => index.eq("teamId", draft.teamId))
+      .unique();
+    if (existing?.inputFingerprint === args.inputFingerprint) {
+      if (existing.sourceUpdatedAt <= args.sourceUpdatedAt) {
+        await ctx.db.patch(existing._id, {
+          lifecycle: indexedLifecycle(draft, args.inputFingerprint),
+          sourceUpdatedAt: args.sourceUpdatedAt,
+          updatedAt: Date.now(),
+        });
+      }
+      return { kind: "complete" };
+    }
+    if (existing && existing.sourceUpdatedAt > args.sourceUpdatedAt) {
+      return { kind: "complete" };
+    }
+    const corpus = draft.noveltyCorpusVersionId
+      ? await ctx.db.get(draft.noveltyCorpusVersionId)
+      : null;
+    if (
+      !corpus
+      || (corpus.status !== "published" && corpus.status !== "superseded")
+      || corpus.importState !== "ready"
+    ) {
+      return { kind: "complete" };
+    }
+    return {
+      kind: "run",
+      normalizedIdea: draft.initialIdea,
+      embeddingModel: corpus.embeddingModel,
+    };
+  },
+});
+
+export const finishDraftIndex = internalMutation({
+  args: {
+    draftId: v.id("projectDrafts"),
+    inputFingerprint: v.string(),
+    sourceUpdatedAt: v.number(),
+    embedding: v.array(v.float64()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (!validEmbedding(args.embedding)) {
+      throw new Error("A saved team idea requires a valid embedding.");
+    }
+    const draft = await ctx.db.get(args.draftId);
+    if (
+      !draft?.initialIdea
+      || noveltyInputFingerprint(draft.initialIdea) !== args.inputFingerprint
+    ) {
+      return null;
+    }
+    await storeTeamIdea(ctx, {
+      eventId: draft.eventId,
+      teamId: draft.teamId,
+      inputFingerprint: args.inputFingerprint,
+      lifecycle: indexedLifecycle(draft, args.inputFingerprint),
+      embedding: args.embedding,
+      sourceUpdatedAt: args.sourceUpdatedAt,
+    });
+    return null;
+  },
+});
+
+export const indexDraftIdea = internalAction({
+  args: {
+    draftId: v.id("projectDrafts"),
+    inputFingerprint: v.string(),
+    sourceUpdatedAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const prepared = await ctx.runMutation(internal.novelty.prepareDraftIndex, args);
+    if (prepared.kind === "complete") return null;
+    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    if (!apiKey) return null;
+    const client = new OpenAI({ apiKey, timeout: 8_000, maxRetries: 0 });
+    try {
+      const response = await client.embeddings.create({
+        model: prepared.embeddingModel,
+        encoding_format: "float",
+        input: prepared.normalizedIdea,
+      });
+      const embedding = response.data[0]?.embedding;
+      if (!embedding || response.data.length !== 1 || !validEmbedding(embedding)) return null;
+      await ctx.runMutation(internal.novelty.finishDraftIndex, { ...args, embedding });
+    } catch {
+      return null;
+    }
+    return null;
+  },
+});
+
+export const prepareSubmittedProjectIndex = internalMutation({
+  args: {
+    projectVersionId: v.id("projectVersions"),
+    inputFingerprint: v.string(),
+    sourceUpdatedAt: v.number(),
+  },
+  returns: prepareDraftIndexResult,
+  handler: async (ctx, args): Promise<PrepareDraftIndexResult> => {
+    const project = await ctx.db.get(args.projectVersionId);
+    if (
+      !project
+      || noveltyInputFingerprint(project.initialIdea) !== args.inputFingerprint
+      || containsSensitiveProjectText(project.initialIdea)
+    ) {
+      return { kind: "complete" };
+    }
+    const team = await ctx.db.get(project.teamId);
+    if (!team || team.lockedProjectVersionId !== project._id) return { kind: "complete" };
+    const existing = await ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_team", (index) => index.eq("teamId", project.teamId))
+      .unique();
+    if (existing?.inputFingerprint === args.inputFingerprint) {
+      if (existing.sourceUpdatedAt <= args.sourceUpdatedAt) {
+        await ctx.db.patch(existing._id, {
+          lifecycle: "submitted",
+          sourceUpdatedAt: args.sourceUpdatedAt,
+          updatedAt: Date.now(),
+        });
+      }
+      return { kind: "complete" };
+    }
+    if (existing && existing.sourceUpdatedAt > args.sourceUpdatedAt) {
+      return { kind: "complete" };
+    }
+    return {
+      kind: "run",
+      normalizedIdea: project.initialIdea,
+      embeddingModel: noveltyEmbeddingModel,
+    };
+  },
+});
+
+export const finishSubmittedProjectIndex = internalMutation({
+  args: {
+    projectVersionId: v.id("projectVersions"),
+    inputFingerprint: v.string(),
+    sourceUpdatedAt: v.number(),
+    embedding: v.array(v.float64()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (!validEmbedding(args.embedding)) {
+      throw new Error("A submitted team idea requires a valid embedding.");
+    }
+    const project = await ctx.db.get(args.projectVersionId);
+    if (!project || noveltyInputFingerprint(project.initialIdea) !== args.inputFingerprint) {
+      return null;
+    }
+    const team = await ctx.db.get(project.teamId);
+    if (!team || team.lockedProjectVersionId !== project._id) return null;
+    await storeTeamIdea(ctx, {
+      eventId: project.eventId,
+      teamId: project.teamId,
+      inputFingerprint: args.inputFingerprint,
+      lifecycle: "submitted",
+      embedding: args.embedding,
+      sourceUpdatedAt: args.sourceUpdatedAt,
+    });
+    return null;
+  },
+});
+
+export const indexSubmittedProjectIdea = internalAction({
+  args: {
+    projectVersionId: v.id("projectVersions"),
+    inputFingerprint: v.string(),
+    sourceUpdatedAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const prepared = await ctx.runMutation(
+      internal.novelty.prepareSubmittedProjectIndex,
+      args,
+    );
+    if (prepared.kind === "complete") return null;
+    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    if (!apiKey) return null;
+    const client = new OpenAI({ apiKey, timeout: 8_000, maxRetries: 0 });
+    try {
+      const response = await client.embeddings.create({
+        model: prepared.embeddingModel,
+        encoding_format: "float",
+        input: prepared.normalizedIdea,
+      });
+      const embedding = response.data[0]?.embedding;
+      if (!embedding || response.data.length !== 1 || !validEmbedding(embedding)) return null;
+      await ctx.runMutation(internal.novelty.finishSubmittedProjectIndex, {
+        ...args,
+        embedding,
+      });
+    } catch {
+      return null;
+    }
+    return null;
+  },
+});
+
 export const finishPreview = internalMutation({
   args: {
     requestId: v.id("noveltyPreviewRequests"),
@@ -310,6 +668,8 @@ export const finishPreview = internalMutation({
     ),
     score: v.optional(v.number()),
     band: v.optional(noveltyBand),
+    effectiveSimilarTeams: v.optional(v.number()),
+    comparedTeamCount: v.optional(v.number()),
     nearestSimilarity: v.optional(v.number()),
     nearestThemeLabel: v.optional(v.string()),
     reflectionPrompt: v.optional(v.string()),
@@ -348,6 +708,8 @@ export const finishPreview = internalMutation({
     if (
       args.score === undefined ||
       args.band === undefined ||
+      args.effectiveSimilarTeams === undefined ||
+      args.comparedTeamCount === undefined ||
       args.nearestSimilarity === undefined ||
       args.nearestThemeLabel === undefined ||
       args.reflectionPrompt === undefined
@@ -358,6 +720,8 @@ export const finishPreview = internalMutation({
       state: "succeeded",
       score: args.score,
       band: args.band,
+      effectiveSimilarTeams: args.effectiveSimilarTeams,
+      comparedTeamCount: args.comparedTeamCount,
       nearestSimilarity: args.nearestSimilarity,
       nearestThemeLabel: args.nearestThemeLabel,
       reflectionPrompt: args.reflectionPrompt,
@@ -394,7 +758,7 @@ export const finishPreview = internalMutation({
       band: args.band,
       nearestThemeLabel: args.nearestThemeLabel,
       reflectionPrompt: args.reflectionPrompt,
-      comparedProjectCount: corpus.entryCount,
+      comparedProjectCount: args.comparedTeamCount,
       corpusVersion: corpus.version,
       corpusLabel: corpus.label,
       inputFingerprint: request.inputFingerprint,
@@ -423,74 +787,115 @@ export const preview = action({
       ...args,
     });
     if (begun.kind === "complete") return begun.result;
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
     const startedAt = Date.now();
-    if (!apiKey) {
-      return ctx.runMutation(internal.novelty.finishPreview, {
+    try {
+      let embedding = begun.cachedEmbedding;
+      let providerRequestId: string | undefined;
+      if (!embedding) {
+        const apiKey = process.env.OPENAI_API_KEY?.trim();
+        if (!apiKey) {
+          return ctx.runMutation(internal.novelty.finishPreview, {
+            requestId: begun.requestId,
+            inputFingerprint: begun.inputFingerprint,
+            state: "unavailable",
+            latencyMs: Date.now() - startedAt,
+            failureCategory: "provider_not_configured",
+          });
+        }
+        const client = new OpenAI({ apiKey, timeout: 8_000, maxRetries: 0 });
+        const response = await client.embeddings.create({
+          model: begun.embeddingModel,
+          encoding_format: "float",
+          input: begun.normalizedIdea,
+        });
+        embedding = response.data[0]?.embedding;
+        providerRequestId = response._request_id ?? undefined;
+        if (
+          !embedding
+          || response.data.length !== 1
+          || !validEmbedding(embedding)
+        ) {
+          throw new Error("The embedding provider returned an invalid idea vector.");
+        }
+      }
+      await ctx.runMutation(internal.novelty.upsertPreviewTeamIdea, {
         requestId: begun.requestId,
         inputFingerprint: begun.inputFingerprint,
-        state: "unavailable",
-        latencyMs: Date.now() - startedAt,
-        failureCategory: "provider_not_configured",
+        embedding,
       });
-    }
-    const client = new OpenAI({ apiKey, timeout: 8_000, maxRetries: 0 });
-    try {
-      const response = await client.embeddings.create({
-        model: begun.embeddingModel,
-        encoding_format: "float",
-        input: begun.normalizedIdea,
-      });
-      const embedding = response.data[0]?.embedding;
-      if (
-        !embedding ||
-        response.data.length !== 1 ||
-        !validEmbedding(embedding)
-      ) {
-        throw new Error("The embedding provider returned an invalid idea vector.");
-      }
-      const matches = await ctx.vectorSearch(
-        "noveltyCorpusEntries",
-        "by_corpus_embedding",
-        {
-          vector: embedding,
-          limit: 3,
-          filter: (filter) => filter.eq("corpusVersionId", begun.corpusVersionId),
-        },
-      );
-      const nearest = matches[0];
+      const [corpusMatches, teamMatches] = await Promise.all([
+        ctx.vectorSearch(
+          "noveltyCorpusEntries",
+          "by_corpus_embedding",
+          {
+            vector: embedding,
+            limit: 3,
+            filter: (filter) => filter.eq("corpusVersionId", begun.corpusVersionId),
+          },
+        ),
+        ctx.vectorSearch(
+          "noveltyTeamIdeas",
+          "by_event_embedding",
+          {
+            vector: embedding,
+            limit: noveltyTeamMatchLimit + 1,
+            filter: (filter) => filter.eq("eventId", begun.eventId),
+          },
+        ),
+      ]);
+      const nearest = corpusMatches[0];
       if (!nearest) {
         return ctx.runMutation(internal.novelty.finishPreview, {
           requestId: begun.requestId,
           inputFingerprint: begun.inputFingerprint,
           state: "unavailable",
-          ...(response._request_id ? { providerRequestId: response._request_id } : {}),
+          ...(providerRequestId ? { providerRequestId } : {}),
           latencyMs: Date.now() - startedAt,
           failureCategory: "corpus_index_empty",
         });
       }
       const metadata = await ctx.runQuery(internal.novelty.readMatchMetadata, {
         corpusVersionId: begun.corpusVersionId,
-        entryIds: matches.map((match) => match._id),
+        entryIds: corpusMatches.map((match) => match._id),
       });
       const nearestMetadata = metadata[0];
       if (!nearestMetadata || nearestMetadata.id !== nearest._id) {
         throw new Error("The nearest novelty result has no approved metadata.");
       }
-      const score = noveltyScoreForSimilarity(nearest._score, {
-        distinctSimilarityBoundary: begun.distinctSimilarityBoundary,
-        commonSimilarityBoundary: begun.commonSimilarityBoundary,
+      const teamMetadata = await ctx.runQuery(internal.novelty.readTeamIdeaMetadata, {
+        eventId: begun.eventId,
+        ideaIds: teamMatches.map((match) => match._id),
       });
+      const teamSimilarity = new Map(
+        teamMatches.map((match) => [match._id, match._score] as const),
+      );
+      const densityMatches = teamMetadata
+        .filter((idea) => idea.teamId !== begun.teamId)
+        .slice(0, noveltyTeamMatchLimit)
+        .map((idea) => {
+          const similarity = teamSimilarity.get(idea.id);
+          if (similarity === undefined) {
+            throw new Error("Team novelty metadata has no vector similarity.");
+          }
+          return { similarity, lifecycle: idea.lifecycle };
+        });
+      const density = effectiveSimilarTeams(
+        densityMatches,
+        noveltyDensitySimilarityPolicy,
+      );
+      const score = noveltyScoreForDensity(density);
       return ctx.runMutation(internal.novelty.finishPreview, {
         requestId: begun.requestId,
         inputFingerprint: begun.inputFingerprint,
         state: "succeeded",
         score,
         band: noveltyBandForScore(score),
+        effectiveSimilarTeams: density,
+        comparedTeamCount: densityMatches.length,
         nearestSimilarity: nearest._score,
         nearestThemeLabel: nearestMetadata.themeLabel,
         reflectionPrompt: nearestMetadata.reflectionPrompt,
-        ...(response._request_id ? { providerRequestId: response._request_id } : {}),
+        ...(providerRequestId ? { providerRequestId } : {}),
         latencyMs: Date.now() - startedAt,
       });
     } catch (error) {

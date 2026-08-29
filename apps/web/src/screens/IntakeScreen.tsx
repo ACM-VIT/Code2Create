@@ -49,6 +49,8 @@ type RecoveredFollowUp = {
   questionId: string
 }
 
+const noveltyRefreshIntervalMs = 15_000
+
 function normalizedIdeaLength(value: string) {
   return value.trim().replace(/\s+/g, ' ').length
 }
@@ -245,30 +247,33 @@ function IntakeWorkspace({
     const savedIdeaMatches =
       draft?.initialIdea !== undefined &&
       draft.initialIdea.trim().replace(/\s+/g, ' ') === idea.trim().replace(/\s+/g, ' ')
+    const hasSavedSignal =
+      noveltyCorpusVersionId !== null && savedNoveltyScore !== null && savedIdeaMatches
 
-    if (noveltyCorpusVersionId !== null && savedNoveltyScore !== null && savedIdeaMatches) {
+    if (hasSavedSignal) {
       setNoveltyState({
         status: 'ready',
         signal: {
           score: savedNoveltyScore,
         },
       })
-      return
     }
 
     if (
-      !ideaEditorOpen ||
       noveltyCorpusVersionId === null ||
       noveltyMinimumIdeaLength === null ||
       noveltyDebounceMs === null ||
-      normalizedIdeaLength(idea) < noveltyMinimumIdeaLength
+      normalizedIdeaLength(idea) < noveltyMinimumIdeaLength ||
+      (!ideaEditorOpen && !savedIdeaMatches)
     ) {
       setNoveltyState({ status: 'idle' })
       return
     }
 
-    setNoveltyState({ status: 'checking' })
-    const timer = window.setTimeout(() => {
+    if (!hasSavedSignal) setNoveltyState({ status: 'checking' })
+    let refreshTimer: number | undefined
+    let cancelled = false
+    const checkNovelty = () => {
       void previewNovelty({
         eventSlug,
         corpusVersionId: noveltyCorpusVersionId,
@@ -278,7 +283,7 @@ function IntakeWorkspace({
         .then((result) => {
           if (noveltySequence.current !== sequence) return
           if (result.state === 'unavailable') {
-            setNoveltyState({ status: 'unavailable' })
+            if (!hasSavedSignal) setNoveltyState({ status: 'unavailable' })
             return
           }
           setNoveltyState({
@@ -289,13 +294,26 @@ function IntakeWorkspace({
           })
         })
         .catch(() => {
-          if (noveltySequence.current === sequence) {
+          if (noveltySequence.current === sequence && !hasSavedSignal) {
             setNoveltyState({ status: 'unavailable' })
           }
         })
-    }, noveltyDebounceMs)
+        .finally(() => {
+          if (!cancelled && noveltySequence.current === sequence) {
+            refreshTimer = window.setTimeout(checkNovelty, noveltyRefreshIntervalMs)
+          }
+        })
+    }
+    const initialTimer = window.setTimeout(
+      checkNovelty,
+      hasSavedSignal ? noveltyRefreshIntervalMs : noveltyDebounceMs,
+    )
 
-    return () => window.clearTimeout(timer)
+    return () => {
+      cancelled = true
+      window.clearTimeout(initialTimer)
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
+    }
   }, [
     draft?.initialIdea,
     idea,

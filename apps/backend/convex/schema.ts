@@ -510,6 +510,26 @@ export default defineSchema({
       filterFields: ["corpusVersionId"],
     }),
 
+  noveltyTeamIdeas: defineTable({
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+    inputFingerprint: v.string(),
+    lifecycle: v.union(
+      v.literal("editing"),
+      v.literal("saved"),
+      v.literal("submitted"),
+    ),
+    embedding: v.array(v.float64()),
+    sourceUpdatedAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_team", ["teamId"])
+    .vectorIndex("by_event_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
+      filterFields: ["eventId"],
+    }),
+
   noveltyPreviewRequests: defineTable({
     eventId: v.id("events"),
     teamId: v.id("teams"),
@@ -521,6 +541,8 @@ export default defineSchema({
     state: noveltyPreviewState,
     score: v.optional(v.number()),
     band: v.optional(noveltyBand),
+    effectiveSimilarTeams: v.optional(v.number()),
+    comparedTeamCount: v.optional(v.number()),
     nearestSimilarity: v.optional(v.number()),
     nearestThemeLabel: v.optional(v.string()),
     reflectionPrompt: v.optional(v.string()),
