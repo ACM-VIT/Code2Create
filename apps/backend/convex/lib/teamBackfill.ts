@@ -185,7 +185,7 @@ async function placeTeamRosterEntry(
     return "still_pending";
   }
 
-  let role = entry.role;
+  const role = entry.role;
   if (role === "lead") {
     const leadMember = await ctx.db
       .query("teamMembers")
@@ -197,7 +197,7 @@ async function placeTeamRosterEntry(
       (member) =>
         member.role === "lead" && member.membershipId !== membership._id,
     );
-    if (leadSeatTaken) role = "member";
+    if (leadSeatTaken) return "still_pending";
   }
 
   const { teamMemberId } = await insertActiveTeamMember(ctx, {
