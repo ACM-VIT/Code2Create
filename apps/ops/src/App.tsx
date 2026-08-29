@@ -5,7 +5,7 @@ import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import type { FunctionReturnType } from 'convex/server'
 import { AuthLoading, Authenticated, Unauthenticated, useMutation, useQuery } from 'convex/react'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import {
   OperationsLayout,
@@ -171,7 +171,14 @@ function Operations({
   const access = useQuery(api.access.operationsCapabilities, { eventSlug })
   const invitation = useQuery(api.accessInvitations.mine, { eventSlug })
   const roster = useQuery(api.rosters.mine, { eventSlug })
+  const synchronizeSupremePermissions = useMutation(api.access.synchronizeSupremePermissions)
+  const supremeSyncStarted = useRef(false)
   const { data: session } = authClient.useSession()
+  useEffect(() => {
+    if (!access?.isSupreme || supremeSyncStarted.current) return
+    supremeSyncStarted.current = true
+    void synchronizeSupremePermissions({ eventSlug })
+  }, [access, synchronizeSupremePermissions])
   if (access === undefined || invitation === undefined || roster === undefined) {
     return <GateBoot status="Loading your event access…" />
   }
