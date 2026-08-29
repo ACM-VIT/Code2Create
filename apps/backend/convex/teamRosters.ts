@@ -22,8 +22,9 @@ import { findOperation, operationFingerprint, recordOperation, storedOperationRe
 import { loadPublishedParticipantPolicy } from "./lib/participantPolicy";
 import type { PermissionKey } from "./lib/permissionCatalog";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
-import { applyTeamRosterEntry } from "./lib/teamBackfill";
 import { normalizeEmail, normalizedText } from "./lib/strings";
+import { activeTeamsWithName, applyTeamRosterEntry } from "./lib/teamBackfill";
+import { teamRosterCounts } from "./lib/teamRoster";
 import { memberRole, teamRosterEntryStatus } from "./values";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -240,6 +241,20 @@ async function pendingEntryForEmail(
     )
     .unique();
 }
+async function liveTeamNamed(
+  ctx: ReadCtx,
+  eventId: Id<"events">,
+  teamName: string,
+) {
+  const activeMatches = await activeTeamsWithName(ctx, { eventId, name: teamName });
+  if (activeMatches.length > 1) {
+    throw new ConvexError({
+      code: "TEAM_NAME_AMBIGUOUS",
+      message: "More than one active team uses that name. Rename in the CSV or in the event.",
+    });
+  }
+  return activeMatches[0] ?? null;
+}
 
 async function prepareTeamRosterPreview(
   ctx: ReadCtx,
@@ -253,17 +268,10 @@ async function prepareTeamRosterPreview(
 ): Promise<TeamRosterPreview> {
   const normalized = normalizeTeamRosterRequest(args);
   const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
-  const rowCountByTeam: Record<string, number> = {};
+  const teamByName = new Map<string, Doc<"teams"> | null>();
   for (const row of normalized.rows) {
-    rowCountByTeam[row.teamName] = (rowCountByTeam[row.teamName] ?? 0) + 1;
-  }
-  for (const [teamName, rowCount] of Object.entries(rowCountByTeam)) {
-    if (rowCount > participantPolicy.normalized.teamMaximumSize) {
-      throw new ConvexError({
-        code: "INVALID_TEAM_ROSTER_TEAM_SIZE",
-        message: `Team ${teamName} lists ${rowCount} people, above this event's maximum of ${participantPolicy.normalized.teamMaximumSize}.`,
-      });
-    }
+    if (teamByName.has(row.teamName)) continue;
+    teamByName.set(row.teamName, await liveTeamNamed(ctx, event._id, row.teamName));
   }
 
   const rows: PreviewRow[] = [];
@@ -272,12 +280,27 @@ async function prepareTeamRosterPreview(
     const priorEntry = await pendingEntryForEmail(ctx, event._id, row.email);
     if (priorEntry) priorEntries.push(priorEntry);
     const state = await personStateForPreview(ctx, event._id, row.email);
+    const liveTeam = teamByName.get(row.teamName) ?? null;
     if (state.activeMember) {
       rows.push({ ...row, outcome: "already_on_team" });
-    } else if (row.role === "member" && state.hasMembership) {
+    } else if (row.role === "member" && state.hasMembership && liveTeam === null) {
       rows.push({ ...row, outcome: "waiting_for_lead" });
     } else {
       rows.push({ ...row, outcome: "pending" });
+    }
+  }
+
+  const teamMaximumSize = participantPolicy.normalized.teamMaximumSize;
+  for (const [teamName, liveTeam] of teamByName) {
+    const incoming = rows.filter(
+      (row) => row.teamName === teamName && row.outcome !== "already_on_team",
+    ).length;
+    const liveCount = liveTeam ? teamRosterCounts(liveTeam).activeMemberCount : 0;
+    if (liveCount + incoming > teamMaximumSize) {
+      throw new ConvexError({
+        code: "INVALID_TEAM_ROSTER_TEAM_SIZE",
+        message: `Team ${teamName} would have ${liveCount + incoming} people, above this event's maximum of ${teamMaximumSize}.`,
+      });
     }
   }
 
