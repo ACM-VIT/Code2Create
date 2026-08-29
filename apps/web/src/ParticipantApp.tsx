@@ -56,7 +56,10 @@ export function ParticipantApp({
   const location = useLocation()
   const navigate = useNavigate()
   const { code: joinCodeParam } = useParams<{ code?: string }>()
-  const [teamSwitchCode, setTeamSwitchCode] = useState<string | null>(null)
+  const [pendingTeamSwitch, setPendingTeamSwitch] = useState<{
+    code: string
+    team: CurrentTeam
+  } | null>(null)
   const entryAllowed = useQuery(api.participants.entryAllowed, { eventSlug })
   const me = useQuery(api.participants.me, { eventSlug })
   const access = useQuery(api.access.participantCapabilities, { eventSlug })
@@ -115,25 +118,25 @@ export function ParticipantApp({
   const supportRoute = location.pathname === '/support'
   const joinCode = joinCodeParam?.trim().toUpperCase() ?? ''
   const finishTeamSwitch = () => {
-    setTeamSwitchCode(null)
+    setPendingTeamSwitch(null)
     navigate('/', { replace: true })
   }
-  const switchCode =
-    teamSwitchCode ??
+  const teamSwitch =
+    pendingTeamSwitch ??
     (team &&
     joinCode.length > 0 &&
     joinCode !== team.publicCode &&
     !team.membershipLocked
-      ? joinCode
+      ? { code: joinCode, team }
       : null)
 
-  if (switchCode !== null) {
+  if (teamSwitch !== null) {
     return (
       <SwitchTeamScreen
         header={accountHeader}
-        team={team}
-        code={switchCode}
-        onStarted={() => setTeamSwitchCode(switchCode)}
+        team={teamSwitch.team}
+        code={teamSwitch.code}
+        onStarted={() => setPendingTeamSwitch(teamSwitch)}
         onFinished={finishTeamSwitch}
         onStay={finishTeamSwitch}
       />
@@ -390,40 +393,32 @@ function SwitchTeamScreen({
   onStay,
 }: {
   header: ReactNode
-  team: CurrentTeam | null
+  team: CurrentTeam
   code: string
   onStarted: () => void
   onFinished: () => void
   onStay: () => void
 }) {
-  const leaveTeam = useMutation(api.teams.leave)
-  const joinTeam = useMutation(api.teams.join)
+  const switchTeam = useMutation(api.teams.switchTeam)
   const [error, setError] = useState<string | null>(null)
   const operations = useOperationRunner()
-  const leavePending = operations.hasPending('team-leave')
-  const joinPending = operations.hasPending('team-join')
-  const busy = leavePending || joinPending
-  const left = team === null
-  const canLeave = team !== null && canLeaveCurrentTeam(team)
-  const needsTransfer = team !== null && team.canLeave && !canLeaveByTeamRule(team)
+  const switchPending = operations.hasPending('team-switch')
+  const canLeave = canLeaveCurrentTeam(team)
+  const needsTransfer = team.canLeave && !canLeaveByTeamRule(team)
 
   const confirmSwitch = async () => {
-    if (team !== null && !canLeave) return
+    if (!switchPending && !canLeave) return
     setError(null)
     onStarted()
     try {
-      if (team !== null) {
-        await operations.run('team-leave', (clientOperationId) => () =>
-          leaveTeam({
-            eventSlug,
-            teamId: team.id,
-            expectedTeamVersion: team.version,
-            clientOperationId,
-          }),
-        )
-      }
-      await operations.run('team-join', (clientOperationId) => () =>
-        joinTeam({ eventSlug, code, clientOperationId }),
+      await operations.run('team-switch', (clientOperationId) => () =>
+        switchTeam({
+          eventSlug,
+          fromTeamId: team.id,
+          expectedFromTeamVersion: team.version,
+          code,
+          clientOperationId,
+        }),
       )
       onFinished()
     } catch (caught) {
@@ -431,24 +426,22 @@ function SwitchTeamScreen({
     }
   }
 
-  const prompt = team === null
-    ? `Join the team ${code}?`
-    : team.activeMemberCount === 1
-      ? `Leave and close ${team.name}, then join the team ${code}?`
-      : `Leave ${team.name} and join the team ${code}?`
+  const prompt = team.activeMemberCount === 1
+    ? `Leave and close ${team.name}, then join the team ${code}?`
+    : `Leave ${team.name} and join the team ${code}?`
 
   return (
     <PortalScene tree="both" header={header}>
       <PetalCard className="w-full max-w-[600px] px-7 py-7 sm:px-9">
         <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-rose-light">Switch team</p>
         <h1 className="font-display text-3xl italic">
-          {team === null ? 'Join this team' : team.name}
+          {team.name}
         </h1>
         {needsTransfer ? (
           <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">
             Transfer leadership before leaving this team.
           </p>
-        ) : team !== null && !canLeave ? (
+        ) : !canLeave ? (
           <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">
             Leaving this team is unavailable.
           </p>
@@ -456,19 +449,13 @@ function SwitchTeamScreen({
           <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">{prompt}</p>
         )}
         <div className="mt-6 flex flex-wrap gap-3">
-          {needsTransfer || (team !== null && !canLeave) ? null : (
+          {!switchPending && (needsTransfer || !canLeave) ? null : (
             <PortalButton type="button" onClick={() => void confirmSwitch()}>
-              {leavePending
-                ? 'Confirm earlier leave'
-                : joinPending
-                  ? 'Confirm earlier join'
-                  : left
-                    ? 'Join'
-                    : 'Leave and join'}
+              {switchPending ? 'Confirm earlier switch' : 'Leave and join'}
             </PortalButton>
           )}
-          <PortalTextButton type="button" disabled={busy} onClick={onStay}>
-            {left ? 'Join later' : 'Stay on this team'}
+          <PortalTextButton type="button" disabled={switchPending} onClick={onStay}>
+            Stay on this team
           </PortalTextButton>
         </div>
         <PortalError message={error} />
