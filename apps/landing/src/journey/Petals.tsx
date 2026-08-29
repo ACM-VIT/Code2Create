@@ -439,20 +439,54 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
     resize();
     window.addEventListener('resize', resize);
 
-    const pointer = { x: -9999, y: -9999, px: -9999, py: -9999, on: false };
-    const onMove = (event: PointerEvent) => {
+    const pointer = { x: -9999, y: -9999, px: -9999, py: -9999, on: false, holding: false };
+    const setPointer = (x: number, y: number, on: boolean) => {
       pointer.px = pointer.x;
       pointer.py = pointer.y;
+      pointer.x = x;
+      pointer.y = y;
+      pointer.on = on;
+    };
+    const onMove = (event: PointerEvent) => {
+      setPointer(event.clientX, event.clientY, true);
+    };
+    const onLeave = () => {
+      if (pointer.holding) return;
+      pointer.on = false;
+    };
+    const onDown = (event: PointerEvent) => {
+      pointer.holding = true;
+      pointer.px = event.clientX;
+      pointer.py = event.clientY;
       pointer.x = event.clientX;
       pointer.y = event.clientY;
       pointer.on = true;
+      if (event.currentTarget instanceof HTMLElement) {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }
     };
-    const onLeave = () => {
+    const onUp = () => {
+      pointer.holding = false;
       pointer.on = false;
     };
+    const onTouchMove = (event: TouchEvent) => {
+      if (!pointer.holding) return;
+      event.preventDefault();
+    };
+
+    const floorHost = floorSelector ? document.querySelector<HTMLElement>(floorSelector) : null;
+    const playEl = floorHost?.querySelector<HTMLElement>('.footer__play') ?? null;
+
     if (interactive) {
       window.addEventListener('pointermove', onMove, { passive: true });
       document.addEventListener('pointerleave', onLeave);
+      if (playEl) {
+        playEl.addEventListener('pointerdown', onDown);
+        playEl.addEventListener('pointerup', onUp);
+        playEl.addEventListener('pointercancel', onUp);
+        playEl.addEventListener('lostpointercapture', onUp);
+        playEl.addEventListener('touchmove', onTouchMove, { passive: false });
+      }
     }
 
     /** Where the drift lives right now, in viewport coordinates. */
@@ -966,6 +1000,13 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       window.removeEventListener('resize', resize);
       window.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerleave', onLeave);
+      if (playEl) {
+        playEl.removeEventListener('pointerdown', onDown);
+        playEl.removeEventListener('pointerup', onUp);
+        playEl.removeEventListener('pointercancel', onUp);
+        playEl.removeEventListener('lostpointercapture', onUp);
+        playEl.removeEventListener('touchmove', onTouchMove);
+      }
     };
   }, [max, interactive, trackSelector, floorSelector, fillSelector]);
 

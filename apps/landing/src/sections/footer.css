@@ -145,6 +145,16 @@
   margin: clamp(28px, 6vh, 60px) auto 0;
 }
 
+/* The pile lives on the footer floor around the wordmark. Captures the
+   gesture so a finger can carve the drift without the page taking the pan. */
+.footer__play {
+  position: absolute;
+  inset: auto 0 0;
+  height: calc(clamp(110px, 20vh, 190px) + 16vw);
+  z-index: 4;
+  touch-action: none;
+}
+
 @media (max-width: 860px) {
   .footer {
     padding-bottom: clamp(90px, 16vh, 150px);

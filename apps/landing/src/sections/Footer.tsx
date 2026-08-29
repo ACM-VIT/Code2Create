@@ -114,6 +114,7 @@ export default function Footer() {
       </p>
 
       <img className="footer__wordmark" src="/assets/svg/wordmark-lg.svg" alt="Code2Create" />
+      <div className="footer__play" aria-hidden="true" />
     </footer>
   );
 }
