@@ -172,6 +172,7 @@ import type * as lib_strings from "../lib/strings.js";
 import type * as lib_supportCases from "../lib/supportCases.js";
 import type * as lib_synesthesia from "../lib/synesthesia.js";
 import type * as lib_synesthesiaVotes from "../lib/synesthesiaVotes.js";
+import type * as lib_teamMembership from "../lib/teamMembership.js";
 import type * as lib_teamRoster from "../lib/teamRoster.js";
 import type * as lib_testSubmissionSnapshot from "../lib/testSubmissionSnapshot.js";
 import type * as lib_venueCheckInLifecycle from "../lib/venueCheckInLifecycle.js";
@@ -415,6 +416,7 @@ declare const fullApi: ApiFromModules<{
   "lib/supportCases": typeof lib_supportCases;
   "lib/synesthesia": typeof lib_synesthesia;
   "lib/synesthesiaVotes": typeof lib_synesthesiaVotes;
+  "lib/teamMembership": typeof lib_teamMembership;
   "lib/teamRoster": typeof lib_teamRoster;
   "lib/testSubmissionSnapshot": typeof lib_testSubmissionSnapshot;
   "lib/venueCheckInLifecycle": typeof lib_venueCheckInLifecycle;
