@@ -7,6 +7,7 @@ import { PortalScene } from '../components/portal/PortalScene'
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { Petal, SakuraSteps } from '../components/portal/Petal'
+import { LeaveTeamControl } from '../components/LeaveTeamControl'
 import { TeamCluster } from '../components/portal/TeamCluster'
 import { initialsOf } from '../components/portal/initials'
 import {
@@ -101,6 +102,22 @@ export function IntakeScreen({
   )
 }
 
+function IntakeTeamCluster({
+  team,
+  members,
+}: {
+  team: CurrentTeam
+  members: readonly CurrentTeamMember[]
+}) {
+  return (
+    <TeamCluster
+      team={team}
+      members={members}
+      actions={<LeaveTeamControl team={team} variant="cluster" />}
+    />
+  )
+}
+
 /**
  * The shared stage for every intake step: the night scene, the team cluster in
  * the corner, an optional petal step counter, a title, and a card.
@@ -137,7 +154,7 @@ function IntakeStage({
     <PortalScene
       tree="left"
       branch={branch}
-      header={<TeamCluster team={team} members={members} />}
+      header={<IntakeTeamCluster team={team} members={members} />}
     >
       {floating ? (
         <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
@@ -1019,7 +1036,7 @@ function IntakeWorkspace({
 
     // f5 · the proposal, together
     return (
-      <PortalScene tree="left" header={<TeamCluster team={team} members={members} />}>
+      <PortalScene tree="left" header={<IntakeTeamCluster team={team} members={members} />}>
         <div className="flex w-full max-w-[760px] flex-col items-center">
           <p className="mb-1.5 font-display text-[17px] italic text-rose-light">
             your proposal, together
