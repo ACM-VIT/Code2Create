@@ -68,6 +68,9 @@ const exactPermissionNames: Readonly<Record<string, string>> = {
   'review.substitute.page': 'Use a reviewer substitute page',
   'review.team_qr.mint': 'Show team judging QR',
   'reviewer.clock_in': 'Check in as a reviewer',
+  'team.roster.read': 'View participant team import',
+  'team.roster.import': 'Import participant teams',
+  'team.roster.revoke': 'Revoke a participant team assignment',
 }
 
 const permissionActionNames: Readonly<Record<string, string>> = {
