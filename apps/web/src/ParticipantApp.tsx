@@ -3,7 +3,7 @@ import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, NavLink, Navigate, useLocation } from 'react-router-dom'
+import { Link, NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { TeamPanel } from './components/TeamPanel'
 import { AccountBadge } from './components/portal/AccountBadge'
 import { PetalCard } from './components/portal/PetalCard'
@@ -13,11 +13,12 @@ import { PortalScene } from './components/portal/PortalScene'
 import { eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
 import { useOperationRunner } from './lib/operations'
+import { canLeaveByTeamRule, canLeaveCurrentTeam } from './lib/teamLeave'
 import { participantClassStorageKey } from './screens/EntryScreen'
 import { DetailsScreen } from './screens/DetailsScreen'
 import { IntakeScreen } from './screens/IntakeScreen'
 import { TeamScreen } from './screens/TeamScreen'
-import type { ParticipantClass, PublicState } from './types'
+import type { CurrentTeam, ParticipantClass, PublicState } from './types'
 
 const loadFigmaCallbackScreen = () => import('./screens/FigmaCallbackScreen')
 const loadGitHubCallbackScreen = () => import('./screens/GitHubCallbackScreen')
@@ -53,6 +54,9 @@ export function ParticipantApp({
   authClient: Code2CreateAuthClient
 }) {
   const location = useLocation()
+  const navigate = useNavigate()
+  const { code: joinCodeParam } = useParams<{ code?: string }>()
+  const [teamSwitchCode, setTeamSwitchCode] = useState<string | null>(null)
   const entryAllowed = useQuery(api.participants.entryAllowed, { eventSlug })
   const me = useQuery(api.participants.me, { eventSlug })
   const access = useQuery(api.access.participantCapabilities, { eventSlug })
@@ -109,6 +113,32 @@ export function ParticipantApp({
     />
   )
   const supportRoute = location.pathname === '/support'
+  const joinCode = joinCodeParam?.trim().toUpperCase() ?? ''
+  const finishTeamSwitch = () => {
+    setTeamSwitchCode(null)
+    navigate('/', { replace: true })
+  }
+  const switchCode =
+    teamSwitchCode ??
+    (team &&
+    joinCode.length > 0 &&
+    joinCode !== team.publicCode &&
+    !team.membershipLocked
+      ? joinCode
+      : null)
+
+  if (switchCode !== null) {
+    return (
+      <SwitchTeamScreen
+        header={accountHeader}
+        team={team}
+        code={switchCode}
+        onStarted={() => setTeamSwitchCode(switchCode)}
+        onFinished={finishTeamSwitch}
+        onStay={finishTeamSwitch}
+      />
+    )
+  }
 
   if (hasTeamMembership && canReadTeam && !team) return <PortalLoading />
 
@@ -347,6 +377,102 @@ function PortalLoading() {
       <p role="status" className="font-display text-xl italic text-rose-light">
         Loading your portal…
       </p>
+    </PortalScene>
+  )
+}
+
+function SwitchTeamScreen({
+  header,
+  team,
+  code,
+  onStarted,
+  onFinished,
+  onStay,
+}: {
+  header: ReactNode
+  team: CurrentTeam | null
+  code: string
+  onStarted: () => void
+  onFinished: () => void
+  onStay: () => void
+}) {
+  const leaveTeam = useMutation(api.teams.leave)
+  const joinTeam = useMutation(api.teams.join)
+  const [error, setError] = useState<string | null>(null)
+  const operations = useOperationRunner()
+  const leavePending = operations.hasPending('team-leave')
+  const joinPending = operations.hasPending('team-join')
+  const busy = leavePending || joinPending
+  const left = team === null
+  const canLeave = team !== null && canLeaveCurrentTeam(team)
+  const needsTransfer = team !== null && team.canLeave && !canLeaveByTeamRule(team)
+
+  const confirmSwitch = async () => {
+    if (team !== null && !canLeave) return
+    setError(null)
+    onStarted()
+    try {
+      if (team !== null) {
+        await operations.run('team-leave', (clientOperationId) => () =>
+          leaveTeam({
+            eventSlug,
+            teamId: team.id,
+            expectedTeamVersion: team.version,
+            clientOperationId,
+          }),
+        )
+      }
+      await operations.run('team-join', (clientOperationId) => () =>
+        joinTeam({ eventSlug, code, clientOperationId }),
+      )
+      onFinished()
+    } catch (caught) {
+      setError(readableError(caught))
+    }
+  }
+
+  const prompt = team === null
+    ? `Join the team ${code}?`
+    : team.activeMemberCount === 1
+      ? `Leave and close ${team.name}, then join the team ${code}?`
+      : `Leave ${team.name} and join the team ${code}?`
+
+  return (
+    <PortalScene tree="both" header={header}>
+      <PetalCard className="w-full max-w-[600px] px-7 py-7 sm:px-9">
+        <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-rose-light">Switch team</p>
+        <h1 className="font-display text-3xl italic">
+          {team === null ? 'Join this team' : team.name}
+        </h1>
+        {needsTransfer ? (
+          <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">
+            Transfer leadership before leaving this team.
+          </p>
+        ) : team !== null && !canLeave ? (
+          <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">
+            Leaving this team is unavailable.
+          </p>
+        ) : (
+          <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">{prompt}</p>
+        )}
+        <div className="mt-6 flex flex-wrap gap-3">
+          {needsTransfer || (team !== null && !canLeave) ? null : (
+            <PortalButton type="button" onClick={() => void confirmSwitch()}>
+              {leavePending
+                ? 'Confirm earlier leave'
+                : joinPending
+                  ? 'Confirm earlier join'
+                  : left
+                    ? 'Join'
+                    : 'Leave and join'}
+            </PortalButton>
+          )}
+          <PortalTextButton type="button" disabled={busy} onClick={onStay}>
+            {left ? 'Join later' : 'Stay on this team'}
+          </PortalTextButton>
+        </div>
+        <PortalError message={error} />
+      </PetalCard>
     </PortalScene>
   )
 }
