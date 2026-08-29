@@ -33,7 +33,7 @@ import {
   normalizedText,
   optionalNormalizedText,
 } from "./lib/strings";
-import { teamRosterPendingEntry } from "./lib/teamBackfill";
+import { claimPendingTeamRosterEntry, teamRosterPendingEntry } from "./lib/teamBackfill";
 import {
   memberRole,
   participantClass,
@@ -229,6 +229,11 @@ export const provision = mutation({
           message: "Participant class is already set. Ask support to correct it.",
         });
       }
+      await claimPendingTeamRosterEntry(ctx, {
+        event,
+        person,
+        membershipId: existingMembership._id,
+      });
       return { membershipId: existingMembership._id, created: false };
     }
 
@@ -378,6 +383,12 @@ export const provision = mutation({
         updatedAt: now,
       });
     }
+
+    await claimPendingTeamRosterEntry(ctx, {
+      event,
+      person,
+      membershipId,
+    });
 
     return { membershipId, created: true };
   },
