@@ -391,12 +391,16 @@ function IntakeWorkspace({
       })
     }
 
+    if (!ideaEditorOpen) {
+      if (!hasSavedSignal) setNoveltyState({ status: 'idle' })
+      return
+    }
+
     if (
       noveltyCorpusVersionId === null ||
       noveltyMinimumIdeaLength === null ||
       noveltyDebounceMs === null ||
-      normalizedIdeaLength(idea) < noveltyMinimumIdeaLength ||
-      (!ideaEditorOpen && !savedIdeaMatches)
+      normalizedIdeaLength(idea) < noveltyMinimumIdeaLength
     ) {
       setNoveltyState({ status: 'idle' })
       return
@@ -433,7 +437,7 @@ function IntakeWorkspace({
     }
     const initialTimer = window.setTimeout(
       checkNovelty,
-      hasSavedSignal ? noveltyRefreshIntervalMs : noveltyDebounceMs,
+      hasSavedSignal ? 0 : noveltyDebounceMs,
     )
 
     return () => {
