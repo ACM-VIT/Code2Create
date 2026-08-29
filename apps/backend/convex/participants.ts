@@ -222,7 +222,6 @@ export const provision = mutation({
   returns: v.object({ membershipId: v.id("eventMemberships"), created: v.boolean() }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
-    requireRegistrationOpen(event);
     const { person, googleIdentity } = await ensurePerson(ctx);
     const approvedVitIdentity =
       googleIdentity.hostedDomain !== undefined &&
@@ -236,6 +235,7 @@ export const provision = mutation({
     const resolvedParticipantClass = approvedVitIdentity
       ? "vit_student"
       : "external_participant";
+    requireRegistrationOpen(event, resolvedParticipantClass);
 
     const existingMembership = await ctx.db
       .query("eventMemberships")
@@ -446,7 +446,6 @@ export const acceptPolicy = mutation({
         participantPolicyVersionId: args.participantPolicyVersionId,
       };
     }
-    requireRegistrationOpen(event);
     if (!args.accepted) {
       throw new ConvexError({
         code: "POLICY_REQUIRED",
@@ -458,6 +457,7 @@ export const acceptPolicy = mutation({
     const membership = requireEligibleMembership(
       await requireMembership(ctx, event._id, person._id),
     );
+    requireRegistrationOpen(event, membership.participantClass);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -591,11 +591,11 @@ export const saveProfile = mutation({
         profileVersion: storedOperationVersion(prior.resultJson, "participant profile"),
       };
     }
-    requireRegistrationOpen(event);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const membership = requireEligibleMembership(
       await requireMembership(ctx, event._id, person._id),
     );
+    requireRegistrationOpen(event, membership.participantClass);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -807,7 +807,7 @@ export const declineAssignedTeam = mutation({
       if (!teamRosterEntryId) throw new Error("The stored team assignment decline is invalid.");
       return { teamRosterEntryId, status: "revoked" as const };
     }
-    requireRegistrationOpen(event);
+    requireRegistrationOpen(event, membership.participantClass);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,

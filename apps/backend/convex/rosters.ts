@@ -41,6 +41,7 @@ import {
   requirePermission,
 } from "./lib/permissions";
 import { selfScopeKind } from "./lib/grantScopes";
+import { grantSupremeRolePermissions } from "./lib/rolePermissions";
 import { normalizeEmail, normalizedText } from "./lib/strings";
 import { eventRoleLabels } from "@code2create/domain";
 
@@ -1445,6 +1446,16 @@ export const claim = mutation({
       }
       totalCreatedGrants += createdCount;
       batchResults.push({ batchId, grantIds, createdCount });
+    }
+
+    if (entry.role === "supreme") {
+      totalCreatedGrants += await grantSupremeRolePermissions(ctx, {
+        eventId: event._id,
+        personId: person._id,
+        eventAccessSubjectId: subject._id,
+        roleId,
+        grantedByPersonId: rosterImport.createdByPersonId,
+      });
     }
 
     const accessChanged =

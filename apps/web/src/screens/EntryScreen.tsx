@@ -22,19 +22,22 @@ function ClassCard({
   title,
   detail,
   selected,
+  disabled,
   onSelect,
 }: {
   title: string
   detail: string
   selected: boolean
+  disabled: boolean
   onSelect: () => void
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       aria-pressed={selected}
       onClick={onSelect}
-      className={`w-full rounded-petal-sm px-6 py-5 text-left backdrop-blur-md transition-all duration-250 hover:-translate-y-0.5 sm:w-[250px] ${
+      className={`w-full rounded-petal-sm px-6 py-5 text-left backdrop-blur-md transition-all duration-250 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 sm:w-[250px] ${
         selected
           ? 'border-[1.5px] border-rose-light bg-[linear-gradient(155deg,rgba(255,255,255,.1),rgba(12,0,4,.55)_60%)] shadow-[0_24px_50px_-18px_rgba(0,0,0,.8),0_0_26px_rgba(216,132,162,.25)]'
           : 'border border-petal-edge-soft bg-[linear-gradient(155deg,rgba(255,255,255,.06),rgba(12,0,4,.48)_60%)] shadow-[0_24px_50px_-18px_rgba(0,0,0,.8)] hover:border-[rgb(254_180_203/.6)]'
@@ -81,6 +84,9 @@ export function EntryScreen({
   }
 
   const eventTitle = splitEventTitle(publicState.event.name)
+  const vitOpen = publicState.event.registrationOpen && publicState.serverNow < publicState.event.applicationsCloseAt
+  const externalOpen = publicState.event.registrationOpen && publicState.serverNow < publicState.event.externalApplicationsCloseAt
+  const selectedClassOpen = participantClass === 'vit_student' ? vitOpen : externalOpen
 
   const choose = (value: ParticipantClass) => {
     sessionStorage.setItem(participantClassStorageKey, value)
@@ -131,12 +137,14 @@ export function EntryScreen({
           <ClassCard
             title="VIT student"
             detail="on-campus, with a VIT ID card"
+            disabled={!vitOpen}
             selected={participantClass === 'vit_student'}
             onSelect={() => choose('vit_student')}
           />
           <ClassCard
             title="external participant"
-            detail="visiting from another campus"
+            detail={externalOpen ? 'visiting from another campus' : 'applications have closed'}
+            disabled={!externalOpen}
             selected={participantClass === 'external_participant'}
             onSelect={() => choose('external_participant')}
           />
@@ -144,7 +152,7 @@ export function EntryScreen({
 
         <PortalButton
           type="button"
-          disabled={!participantClass || busy || !publicState.auth.googleConfigured}
+          disabled={!participantClass || !selectedClassOpen || busy || !publicState.auth.googleConfigured}
           onClick={signIn}
           className="w-full sm:w-auto"
         >

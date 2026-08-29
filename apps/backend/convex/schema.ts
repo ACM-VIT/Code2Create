@@ -244,6 +244,7 @@ export default defineSchema({
     publishedFloorPlanVersionId: v.optional(v.id("floorPlanVersions")),
     publishedIntegrationPolicyId: v.optional(v.id("integrationPolicyVersions")),
     publishedCommunicationsPolicyId: v.optional(v.id("communicationsPolicyVersions")),
+    externalApplicationsCloseAt: v.optional(v.number()),
     applicationsCloseAt: v.number(),
     startsAt: v.optional(v.number()),
     endsAt: v.optional(v.number()),

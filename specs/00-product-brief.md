@@ -54,13 +54,13 @@ The participant portal is a Vite web application. It provides:
 - review history; and
 - Synesthesia music requests and votes.
 
-One published participant-policy version controls profile fields, team bounds, mixed-team eligibility, notices, consent text, and the membership-lock warning. Each participant accepts the exact current version. A later publication does not rewrite an earlier profile, proposal version, or consent record.
+One published participant-policy version controls profile fields, team bounds, notices, consent text, and the membership-lock warning. VIT students and external participants always form separate teams. Each participant accepts the exact current policy version. A later publication does not rewrite an earlier profile, proposal version, or consent record.
 
 The proposal starts with **What is your project about?** The team writes free text. The server stores that text before model work starts. The AI then asks two short, friendly questions. The second follow-up is the third total question in the introduction and cannot be omitted. The AI cannot choose participant state, admission state, review state, or judging state. A published fallback supplies either question when the AI is unavailable.
 
 The live novelty feature is separate from the follow-up-question flow. It shows only one directional number from 0 through 100 above the idea text box. It has no label such as familiar or distinct. It shows no prior-project text, theme, or reflection prompt. A stale or failed request cannot block editing or submission. The number is absent from applications, admission analysis, human admission review, reviewer evidence, judging, awards, and exports.
 
-Final submission locks team membership. It does not lock proposal content. The current team lead can revise the submitted proposal until the event's authoritative `applicationsCloseAt` deadline. Every save creates an immutable proposal version. A revision makes all earlier human-review outputs and AI admission outputs stale. The system must create new review inputs before a human can publish a decision for the revised proposal.
+Final submission locks team membership. It does not lock proposal content. The current team lead can revise the submitted proposal until the deadline for the team's participant class. Every save creates an immutable proposal version. A revision makes all earlier human-review outputs and AI admission outputs stale. The system must create new review inputs before a human can publish a decision for the revised proposal.
 
 ### Reviewer app
 
@@ -201,8 +201,8 @@ The production release must satisfy these outcomes:
 
 Board and the named owners must publish these values before the applicable release gate:
 
-- team-size and mixed-team rules;
-- `applicationsOpenAt` and authoritative `applicationsCloseAt`;
+- team-size rules;
+- the external-participant and VIT-student application deadlines;
 - participant profile fields, notices, and consent text;
 - fresh-project and pre-start-work rules;
 - admission criteria, human-review minimum, model policy, capacity, waitlist order, and offer deadline;

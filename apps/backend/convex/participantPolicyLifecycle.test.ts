@@ -55,6 +55,10 @@ describe("participant policy lifecycle", () => {
       ["vit_student", "external_participant"],
       { ...defaultParticipantPolicy, mixedParticipantClassesAllowed: false },
     )).toBe(false);
+    expect(() => normalizeParticipantPolicy({
+      ...defaultParticipantPolicy,
+      mixedParticipantClassesAllowed: true,
+    })).toThrow("must form separate teams");
     expect(normalizeParticipantPolicy({
       ...defaultParticipantPolicy,
       teamMaximumSize: 24,
@@ -458,7 +462,8 @@ async function seedFixture(
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      externalApplicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,

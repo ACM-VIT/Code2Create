@@ -478,9 +478,9 @@ describe("participant onboarding lifecycle", () => {
         });
       }
       await ctx.db.patch(created.teamId, {
-        activeMemberCount: 5,
+        activeMemberCount: 6,
         activeVitMemberCount: 0,
-        activeExternalMemberCount: 5,
+        activeExternalMemberCount: 6,
       });
     });
     await expect(
@@ -847,7 +847,8 @@ async function seedParticipant(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      externalApplicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,

@@ -1436,7 +1436,7 @@ async function seedLiveReview(backend: BackendTest, fixture: Fixture) {
       label: "Fixture participant policy",
       teamMinimumSize: 1,
       teamMaximumSize: 4,
-      mixedParticipantClassesAllowed: true,
+      mixedParticipantClassesAllowed: false,
       phoneField: "not_collected",
       vitRegistrationNumberField: "required",
       vitProgrammeField: "not_collected",

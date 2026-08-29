@@ -237,6 +237,7 @@ import type * as rosters from "../rosters.js";
 import type * as roundExportActions from "../roundExportActions.js";
 import type * as roundExports from "../roundExports.js";
 import type * as scoreGovernance from "../scoreGovernance.js";
+import type * as stagingSetup from "../stagingSetup.js";
 import type * as support from "../support.js";
 import type * as synesthesiaConfiguration from "../synesthesiaConfiguration.js";
 import type * as synesthesiaOperations from "../synesthesiaOperations.js";
@@ -483,6 +484,7 @@ declare const fullApi: ApiFromModules<{
   roundExportActions: typeof roundExportActions;
   roundExports: typeof roundExports;
   scoreGovernance: typeof scoreGovernance;
+  stagingSetup: typeof stagingSetup;
   support: typeof support;
   synesthesiaConfiguration: typeof synesthesiaConfiguration;
   synesthesiaOperations: typeof synesthesiaOperations;
