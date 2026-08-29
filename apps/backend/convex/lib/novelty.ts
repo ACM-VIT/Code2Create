@@ -216,9 +216,18 @@ export function noveltyInputFingerprint(value: string) {
 }
 
 export function noveltyEmbeddingInputs(value: string) {
-  const normalized = value.trim().replace(/\s+/gu, " ");
+  const segmentSource = value.trim().replace(/\r\n?/gu, "\n");
+  const normalized = segmentSource.replace(/\s+/gu, " ");
   const words = normalized.split(" ");
-  if (words.length <= noveltyEmbeddingChunkWords) return [value];
+  const sentenceChunks = (segmentSource.match(/[^.!?\n]+(?:[.!?]+|\n+|$)/gu) ?? [])
+    .map((sentence) => sentence.trim().replace(/\s+/gu, " "))
+    .filter((sentence) => sentence.split(" ").length >= minimumNoveltySentenceWords);
+  if (words.length <= noveltyEmbeddingChunkWords) {
+    return [
+      value,
+      ...new Set(sentenceChunks.filter((sentence) => sentence !== normalized)),
+    ];
+  }
   const step = noveltyEmbeddingChunkWords - noveltyEmbeddingChunkOverlapWords;
   const finalStart = Math.max(0, words.length - noveltyEmbeddingChunkWords);
   const starts: number[] = [];
@@ -227,9 +236,6 @@ export function noveltyEmbeddingInputs(value: string) {
   const tokenChunks = [...new Set(starts)].map((start) =>
     words.slice(start, start + noveltyEmbeddingChunkWords).join(" "),
   );
-  const sentenceChunks = (normalized.match(/[^.!?]+(?:[.!?]+|$)/gu) ?? [])
-    .map((sentence) => sentence.trim())
-    .filter((sentence) => sentence.split(" ").length >= minimumNoveltySentenceWords);
   const candidates = [...new Set([...sentenceChunks, ...tokenChunks])]
     .filter((chunk) => chunk !== normalized);
   const bounded = candidates.length <= maximumNoveltyEmbeddingChunks
