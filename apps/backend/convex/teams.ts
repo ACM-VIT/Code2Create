@@ -7,8 +7,13 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { advanceAccessVersion } from "./lib/accessVersion";
 import { writeAuditEvent } from "./lib/audit";
+import {
+  addTeamLeadGrants,
+  addTeamMemberGrants,
+  createFormingTeamWithLead,
+  unusedTeamCode,
+} from "./lib/teamMembership";
 import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
 import {
   findCurrentPerson,
@@ -18,17 +23,16 @@ import {
   requireMembership,
 } from "./lib/identity";
 import {
-  insertPermissionGrant,
   matchingPermissionGrantIds,
   requirePermission,
   revokeSourceGrants,
 } from "./lib/permissions";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
-import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits";
 import {
   loadPublishedParticipantPolicy,
 } from "./lib/participantPolicy";
-import { normalizeCode, normalizedText } from "./lib/strings";
+import { normalizeCode } from "./lib/strings";
+import { teamRosterPendingEntry } from "./lib/teamBackfill";
 import {
   endActiveTeamMember,
   insertActiveTeamMember,
@@ -39,28 +43,6 @@ import { memberRole, participantClass, teamStatus } from "./values";
 
 const acceptedTransferState = "accepted" as const;
 const declinedTransferState = "declined" as const;
-const teamMemberPermissionKeys = [
-  "team.read",
-  "team.leave",
-  "team.project.write",
-  "integration.read",
-  "project.checkpoint.read",
-  "team.lead.accept",
-  "floor.team.read",
-  "floor.team_qr.mint",
-  "queue.participant.read",
-  "review.team_qr.mint",
-  "score.feedback.read",
-] as const;
-const teamLeadPermissionKeys = [
-  "team.members.manage",
-  "team.lead.transfer",
-  "application.submit",
-  "application.information.respond",
-  "application.offer.respond",
-  "integration.github.manage",
-  "integration.figma.manage",
-] as const;
 
 const teamView = v.object({
   id: v.id("teams"),
@@ -348,23 +330,6 @@ export const members = query({
   },
 });
 
-function randomTeamCode() {
-  const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-  const bytes = crypto.getRandomValues(new Uint8Array(7));
-  return Array.from(bytes, (byte) => alphabet.charAt(byte % alphabet.length)).join("");
-}
-
-async function unusedTeamCode(ctx: MutationCtx, eventId: Id<"events">) {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const code = randomTeamCode();
-    const match = await ctx.db
-      .query("teams")
-      .withIndex("by_event_code", (index) => index.eq("eventId", eventId).eq("publicCode", code))
-      .unique();
-    if (!match) return code;
-  }
-  throw new Error("Could not allocate a unique team code.");
-}
 
 function requireCurrentPolicyAcceptance(
   membership: Doc<"eventMemberships">,
@@ -397,72 +362,17 @@ async function requireNoActiveTeam(
   }
 }
 
-export async function addTeamMemberGrants(
+async function requireNoPendingTeamAssignment(
   ctx: MutationCtx,
-  args: {
-    event: Doc<"events">;
-    membership: Doc<"eventMemberships">;
-    teamId: Id<"teams">;
-    teamMemberId: Id<"teamMembers">;
-    actorPersonId: Id<"people">;
-    lead: boolean;
-  },
+  eventId: Id<"events">,
+  emailNormalized: string,
 ) {
-  const subject = await ctx.db.get(args.membership.eventAccessSubjectId);
-  if (!subject || subject.status !== "active") throw new Error("Team member subject is not active.");
-  let createdCount = 0;
-  for (const permissionKey of teamMemberPermissionKeys) {
-    const result = await insertPermissionGrant(ctx, {
-      eventId: args.event._id,
-      personId: args.membership.personId,
-      eventAccessSubjectId: subject._id,
-      permissionKey,
-      scopeType: "team",
-      scopeId: args.teamId,
-      sourceType: "team_membership",
-      sourceId: args.teamMemberId,
-      grantedByPersonId: args.actorPersonId,
-      reason: "Active team membership",
-    });
-    if (result.created) createdCount += 1;
-  }
-  if (createdCount > 0) {
-    await advanceAccessVersion(ctx, subject._id, Date.now());
-  }
-  if (!args.lead) return;
-  await addTeamLeadGrants(ctx, args);
-}
-
-async function addTeamLeadGrants(
-  ctx: MutationCtx,
-  args: {
-    event: Doc<"events">;
-    membership: Doc<"eventMemberships">;
-    teamId: Id<"teams">;
-    actorPersonId: Id<"people">;
-  },
-) {
-  const subject = await ctx.db.get(args.membership.eventAccessSubjectId);
-  if (!subject || subject.status !== "active") throw new Error("Team lead subject is not active.");
-  let createdCount = 0;
-  for (const permissionKey of teamLeadPermissionKeys) {
-    const result = await insertPermissionGrant(ctx, {
-      eventId: args.event._id,
-      personId: args.membership.personId,
-      eventAccessSubjectId: subject._id,
-      permissionKey,
-      scopeType: "team",
-      scopeId: args.teamId,
-      sourceType: "team_lead",
-      sourceId: `${args.teamId}:${args.membership._id}`,
-      grantedByPersonId: args.actorPersonId,
-      reason: "Current team lead",
-    });
-    if (result.created) createdCount += 1;
-  }
-  if (createdCount > 0) {
-    await advanceAccessVersion(ctx, subject._id, Date.now());
-  }
+  const entry = await teamRosterPendingEntry(ctx, { eventId, emailNormalized });
+  if (!entry) return;
+  throw new ConvexError({
+    code: "TEAM_ASSIGNMENT_PENDING",
+    message: "Leave the assigned team before creating or joining another.",
+  });
 }
 
 async function existingOperationTeam(
@@ -568,65 +478,15 @@ export const create = mutation({
       scopeId: membership._id,
     });
     await requireNoActiveTeam(ctx, event._id, membership._id);
-    const teamCapacity = await ctx.db
-      .query("teams")
-      .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
-      .take(maximumReviewTeamsPerEvent);
-    if (teamCapacity.length === maximumReviewTeamsPerEvent) {
-      throw new ConvexError({
-        code: "EVENT_TEAM_LIMIT_REACHED",
-        message: `This event can register at most ${maximumReviewTeamsPerEvent} teams.`,
-      });
-    }
-
+    await requireNoPendingTeamAssignment(ctx, event._id, person.verifiedEmail);
     const now = Date.now();
-    const publicCode = await unusedTeamCode(ctx, event._id);
-    const activeVitMemberCount = membership.participantClass === "vit_student" ? 1 : 0;
-    const activeExternalMemberCount =
-      membership.participantClass === "external_participant" ? 1 : 0;
-    const teamId = await ctx.db.insert("teams", {
-      eventId: event._id,
-      name: normalizedText(args.name, "Team name", 2, 60),
-      publicCode,
-      leadMembershipId: membership._id,
-      status: "forming",
-      activeMemberCount: 1,
-      activeVitMemberCount,
-      activeExternalMemberCount,
-      membershipLocked: false,
-      version: 1,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const teamMemberId = await ctx.db.insert("teamMembers", {
-      eventId: event._id,
-      teamId,
-      membershipId: membership._id,
-      role: "lead",
-      status: "active",
-      joinedAt: now,
-      source: "created",
-    });
-    const team = await ctx.db.get(teamId);
-    if (!team) throw new Error("The new team did not persist.");
-    if (
-      team.activeMemberCount !==
-      team.activeVitMemberCount + team.activeExternalMemberCount
-    ) {
-      throw new Error("The new team's roster projection is invalid.");
-    }
-    await addTeamMemberGrants(ctx, {
+    const { teamId, publicCode } = await createFormingTeamWithLead(ctx, {
       event,
       membership,
-      teamId,
-      teamMemberId,
-      actorPersonId: person._id,
-      lead: true,
-    });
-    await ctx.db.patch(membership._id, {
-      onboardingStatus:
-        membership.onboardingStatus === "profile_required" ? "profile_required" : "project_required",
-      updatedAt: now,
+      personId: person._id,
+      name: args.name,
+      joinedAt: now,
+      source: "created",
     });
     await recordOperation(ctx, {
       eventId: event._id,
@@ -687,6 +547,7 @@ export const join = mutation({
       scopeId: membership._id,
     });
     await requireNoActiveTeam(ctx, event._id, membership._id);
+    await requireNoPendingTeamAssignment(ctx, event._id, person.verifiedEmail);
 
     const team = await ctx.db
       .query("teams")

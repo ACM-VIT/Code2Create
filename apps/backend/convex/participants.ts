@@ -34,6 +34,12 @@ import {
   optionalNormalizedText,
 } from "./lib/strings";
 import {
+  claimPendingTeamRosterEntry,
+  pendingTeamAssignees,
+  teamRosterPendingEntry,
+} from "./lib/teamBackfill";
+import {
+  memberRole,
   participantClass,
   participantEligibilityStatus,
   participantOnboardingStatus,
@@ -84,6 +90,24 @@ export const me = query({
           onboardingStatus: participantOnboardingStatus,
         }),
       ),
+      pendingTeam: v.union(
+        v.null(),
+        v.object({
+          id: v.id("teamRosterEntries"),
+          version: v.number(),
+          teamName: v.string(),
+          role: memberRole,
+          status: v.union(v.literal("pending"), v.literal("waiting_for_lead")),
+          assignees: v.array(
+            v.object({
+              displayName: v.string(),
+              role: memberRole,
+              signedIn: v.boolean(),
+              isYou: v.boolean(),
+            }),
+          ),
+        }),
+      ),
       profile: v.union(v.null(), profileView),
       participantPolicy: currentParticipantPolicyView,
     }),
@@ -117,6 +141,24 @@ export const me = query({
           .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
           .unique()
       : null;
+    const pendingEntry = await teamRosterPendingEntry(ctx, {
+      eventId: event._id,
+      emailNormalized: person.verifiedEmail,
+    });
+    const pendingTeam = pendingEntry
+      ? {
+          id: pendingEntry._id,
+          version: pendingEntry.version,
+          teamName: pendingEntry.teamName,
+          role: pendingEntry.role,
+          status: pendingEntry.status,
+          assignees: await pendingTeamAssignees(ctx, {
+            eventId: event._id,
+            teamName: pendingEntry.teamName,
+            viewerEmailNormalized: person.verifiedEmail,
+          }),
+        }
+      : null;
     return {
       person: {
         id: person._id,
@@ -131,6 +173,7 @@ export const me = query({
             onboardingStatus: membership.onboardingStatus,
           }
         : null,
+      pendingTeam,
       profile: profile && membership
         ? {
             id: profile._id,
@@ -207,6 +250,10 @@ export const provision = mutation({
           message: "Participant class is already set. Ask support to correct it.",
         });
       }
+      await claimPendingTeamRosterEntry(ctx, {
+        event,
+        person,
+      });
       return { membershipId: existingMembership._id, created: false };
     }
 
@@ -356,6 +403,11 @@ export const provision = mutation({
         updatedAt: now,
       });
     }
+
+    await claimPendingTeamRosterEntry(ctx, {
+      event,
+      person,
+    });
 
     return { membershipId, created: true };
   },
@@ -717,5 +769,112 @@ export const saveProfile = mutation({
     });
 
     return { profileId, profileVersion };
+  },
+});
+
+export const declineAssignedTeam = mutation({
+  args: {
+    eventSlug: v.string(),
+    teamRosterEntryId: v.id("teamRosterEntries"),
+    expectedVersion: v.number(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({
+    teamRosterEntryId: v.id("teamRosterEntries"),
+    status: v.literal("revoked"),
+  }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const membership = requireEligibleMembership(
+      await requireMembership(ctx, event._id, person._id),
+    );
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
+    const requestFingerprint = operationFingerprint([
+      args.teamRosterEntryId,
+      args.expectedVersion,
+    ]);
+    const prior = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: operationId,
+      commandName: "participants.declineAssignedTeam",
+      requestFingerprint,
+    });
+    if (prior) {
+      const teamRosterEntryId = ctx.db.normalizeId("teamRosterEntries", prior.targetId);
+      if (!teamRosterEntryId) throw new Error("The stored team assignment decline is invalid.");
+      return { teamRosterEntryId, status: "revoked" as const };
+    }
+    requireRegistrationOpen(event);
+    const grantIds = await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "team.join",
+      scopeType: "self",
+      scopeId: membership._id,
+    });
+    const entry = await ctx.db.get("teamRosterEntries", args.teamRosterEntryId);
+    if (!entry || entry.eventId !== event._id) {
+      throw new ConvexError({
+        code: "TEAM_ASSIGNMENT_NOT_FOUND",
+        message: "That team assignment is not available.",
+      });
+    }
+    if (entry.emailNormalized !== person.verifiedEmail) {
+      throw new ConvexError({
+        code: "TEAM_ASSIGNMENT_NOT_YOURS",
+        message: "You can only leave your own assigned team.",
+      });
+    }
+    if (entry.version !== args.expectedVersion) {
+      throw new ConvexError({
+        code: "TEAM_ASSIGNMENT_CHANGED",
+        message: "The team assignment changed. Review it and try again.",
+      });
+    }
+    if (entry.status === "claimed") {
+      throw new ConvexError({
+        code: "TEAM_ASSIGNMENT_ALREADY_JOINED",
+        message: "You are already on that team. Leave it from the team panel.",
+      });
+    }
+    if (entry.status !== "pending" && entry.status !== "waiting_for_lead") {
+      throw new ConvexError({
+        code: "TEAM_ASSIGNMENT_NOT_CURRENT",
+        message: "That team assignment is no longer waiting.",
+      });
+    }
+    const now = Date.now();
+    await ctx.db.patch("teamRosterEntries", entry._id, {
+      status: "revoked",
+      version: entry.version + 1,
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "team.join",
+      grantIds,
+      scopeType: "self",
+      scopeId: membership._id,
+      action: "team.roster_assignment_declined",
+      targetType: "team_roster_entry",
+      targetId: entry._id,
+      previousSummary: JSON.stringify({ status: entry.status, version: entry.version }),
+      nextSummary: JSON.stringify({ status: "revoked", version: entry.version + 1 }),
+      reason: "Participant left the assigned team before it formed",
+    });
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: operationId,
+      commandName: "participants.declineAssignedTeam",
+      requestFingerprint,
+      targetType: "team_roster_entry",
+      targetId: entry._id,
+      createdAt: now,
+    });
+    return { teamRosterEntryId: entry._id, status: "revoked" as const };
   },
 });

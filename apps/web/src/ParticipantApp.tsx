@@ -1,16 +1,18 @@
 import { api } from '@code2create/backend/api'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
+import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { TeamPanel } from './components/TeamPanel'
 import { AccountBadge } from './components/portal/AccountBadge'
 import { PetalCard } from './components/portal/PetalCard'
-import { PortalButton } from './components/portal/PortalButton'
+import { PortalButton, PortalTextButton } from './components/portal/PortalButton'
 import { PortalError } from './components/portal/PortalField'
 import { PortalScene } from './components/portal/PortalScene'
 import { eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
+import { useOperationRunner } from './lib/operations'
 import { participantClassStorageKey } from './screens/EntryScreen'
 import { DetailsScreen } from './screens/DetailsScreen'
 import { IntakeScreen } from './screens/IntakeScreen'
@@ -123,6 +125,9 @@ export function ParticipantApp({
     }
     if (!canJoinTeam) {
       return <PortalNotice header={accountHeader} title="Team setup is unavailable." body="This account cannot create or join a team. Ask an organizer to restore team setup access." />
+    }
+    if (me.pendingTeam) {
+      return <PendingTeamScreen header={accountHeader} pendingTeam={me.pendingTeam} />
     }
     return <TeamScreen header={accountHeader} />
   }
@@ -324,6 +329,90 @@ function PortalLoading() {
       <p role="status" className="font-display text-xl italic text-rose-light">
         Loading your portal…
       </p>
+    </PortalScene>
+  )
+}
+
+type PendingTeam = NonNullable<FunctionReturnType<typeof api.participants.me>>['pendingTeam']
+
+function PendingTeamScreen({
+  header,
+  pendingTeam,
+}: {
+  header: ReactNode
+  pendingTeam: NonNullable<PendingTeam>
+}) {
+  const declineAssignedTeam = useMutation(api.participants.declineAssignedTeam)
+  const [confirmLeave, setConfirmLeave] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const operations = useOperationRunner()
+  const leavePending = operations.hasPending('team-assignment-leave')
+
+  const leaveAssignment = async () => {
+    setError(null)
+    try {
+      await operations.run('team-assignment-leave', (clientOperationId) => () =>
+        declineAssignedTeam({
+          eventSlug,
+          teamRosterEntryId: pendingTeam.id,
+          expectedVersion: pendingTeam.version,
+          clientOperationId,
+        }),
+      )
+      setConfirmLeave(false)
+    } catch (caught) {
+      setError(readableError(caught))
+    }
+  }
+
+  return (
+    <PortalScene tree="both" header={header}>
+      <PetalCard className="w-full max-w-[600px] px-7 py-7 sm:px-9">
+        <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-rose-light">Your team</p>
+        <h1 className="font-display text-3xl italic">{pendingTeam.teamName}</h1>
+        <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">
+          {pendingTeam.status === 'waiting_for_lead'
+            ? 'Your team lead has not signed in yet. You will join automatically when they do.'
+            : `You will join as ${pendingTeam.role === 'lead' ? 'the lead' : 'a member'} shortly.`}
+        </p>
+        <ul className="mt-6 divide-y divide-white/10">
+          {pendingTeam.assignees.map((assignee, index) => (
+            <li className="flex items-center justify-between gap-4 py-3" key={`${assignee.role}:${index}`}>
+              <span className="text-sm text-[rgb(248_248_248/.86)]">{assignee.displayName}</span>
+              <small className="text-right text-[11px] text-[rgb(248_248_248/.42)]">
+                {assignee.role === 'lead' ? 'Lead' : 'Member'}
+                {assignee.isYou ? ' · You' : ''}
+                {` · ${assignee.signedIn ? 'Signed in' : 'Waiting'}`}
+              </small>
+            </li>
+          ))}
+        </ul>
+        {confirmLeave ? (
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <p className="text-[13px] text-[rgb(248_248_248/.65)]">
+              Leave this assignment? You can create or join another team afterward.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <PortalButton type="button" disabled={leavePending} onClick={() => void leaveAssignment()}>
+                {leavePending ? 'Leaving…' : 'Leave team'}
+              </PortalButton>
+              <PortalTextButton type="button" disabled={leavePending} onClick={() => setConfirmLeave(false)}>
+                Keep assignment
+              </PortalTextButton>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="mt-6 text-[12px] text-[rgb(248_248_248/.4)] underline-offset-4 hover:text-rose-light hover:underline"
+            disabled={leavePending}
+            onClick={() => setConfirmLeave(true)}
+          >
+            Leave assignment
+          </button>
+        )}
+        <PortalError message={error} />
+      </PetalCard>
     </PortalScene>
   )
 }

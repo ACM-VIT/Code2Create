@@ -117,6 +117,9 @@ export const permissionCatalog = {
   "access.roster.read": { scopes: ["roster_entry"], eventWide: true },
   "access.roster.import": { scopes: [], eventWide: true },
   "access.roster.revoke": { scopes: ["roster_entry"], eventWide: true },
+  "team.roster.read": { scopes: [], eventWide: true },
+  "team.roster.import": { scopes: [], eventWide: true },
+  "team.roster.revoke": { scopes: [], eventWide: true },
   "access.permission_bundles.read": {
     scopes: ["permission_bundle"],
     eventWide: true,
