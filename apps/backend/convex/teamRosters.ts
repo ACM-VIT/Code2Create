@@ -62,6 +62,13 @@ const previewCounts = v.object({
   waitingForLead: v.number(),
 });
 
+const entryCounts = v.object({
+  waiting: v.number(),
+  claimed: v.number(),
+  skipped: v.number(),
+  total: v.number(),
+});
+
 const previewRowOutcome = v.union(
   v.literal("pending"),
   v.literal("already_on_team"),
@@ -241,6 +248,7 @@ async function pendingEntryForEmail(
     )
     .unique();
 }
+
 async function liveTeamNamed(
   ctx: ReadCtx,
   eventId: Id<"events">,
@@ -254,6 +262,46 @@ async function liveTeamNamed(
     });
   }
   return activeMatches[0] ?? null;
+}
+
+async function countTeamRosterEntries(
+  ctx: ReadCtx,
+  eventId: Id<"events">,
+  status: Doc<"teamRosterEntries">["status"],
+) {
+  let count = 0;
+  for await (const _entry of ctx.db
+    .query("teamRosterEntries")
+    .withIndex("by_event_status", (index) =>
+      index.eq("eventId", eventId).eq("status", status),
+    )) {
+    count += 1;
+  }
+  return count;
+}
+
+const emptyEntryCounts = {
+  waiting: 0,
+  claimed: 0,
+  skipped: 0,
+  total: 0,
+};
+
+async function eventEntryCounts(ctx: ReadCtx, eventId: Id<"events">) {
+  const [pending, waitingForLead, claimed, skipped, revoked, superseded] = await Promise.all([
+    countTeamRosterEntries(ctx, eventId, "pending"),
+    countTeamRosterEntries(ctx, eventId, "waiting_for_lead"),
+    countTeamRosterEntries(ctx, eventId, "claimed"),
+    countTeamRosterEntries(ctx, eventId, "skipped_has_team"),
+    countTeamRosterEntries(ctx, eventId, "revoked"),
+    countTeamRosterEntries(ctx, eventId, "superseded"),
+  ]);
+  return {
+    waiting: pending + waitingForLead,
+    claimed,
+    skipped,
+    total: pending + waitingForLead + claimed + skipped + revoked + superseded,
+  };
 }
 
 function entryStatusForPreviewOutcome(
@@ -364,12 +412,19 @@ export const workspace = query({
     canImport: v.boolean(),
     canRevoke: v.boolean(),
     serverNow: v.number(),
+    entryCounts,
   }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const person = await findCurrentPerson(ctx);
     if (!person) {
-      return { canRead: false, canImport: false, canRevoke: false, serverNow: Date.now() };
+      return {
+        canRead: false,
+        canImport: false,
+        canRevoke: false,
+        serverNow: Date.now(),
+        entryCounts: emptyEntryCounts,
+      };
     }
     const subject = await ctx.db
       .query("eventAccessSubjects")
@@ -378,7 +433,13 @@ export const workspace = query({
       )
       .unique();
     if (!subject || subject.status !== "active") {
-      return { canRead: false, canImport: false, canRevoke: false, serverNow: Date.now() };
+      return {
+        canRead: false,
+        canImport: false,
+        canRevoke: false,
+        serverNow: Date.now(),
+        entryCounts: emptyEntryCounts,
+      };
     }
     const [readGrantIds, importGrantIds, revokeGrantIds] = await Promise.all([
       eventWideGrantIds(ctx, { eventId: event._id, eventAccessSubjectId: subject._id, permissionKey: "team.roster.read" }),
@@ -391,11 +452,13 @@ export const workspace = query({
         message: "This account has no participant team import permission.",
       });
     }
+    const canRead = readGrantIds.length > 0;
     return {
-      canRead: readGrantIds.length > 0,
+      canRead,
       canImport: importGrantIds.length > 0,
       canRevoke: revokeGrantIds.length > 0,
       serverNow: Date.now(),
+      entryCounts: canRead ? await eventEntryCounts(ctx, event._id) : emptyEntryCounts,
     };
   },
 });
