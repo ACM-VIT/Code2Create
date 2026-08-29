@@ -15,9 +15,10 @@ import { requireEventSubject, requireMembership } from "./lib/identity";
 import {
   effectiveSimilarTeams,
   normalizeNoveltyIdea,
-  noveltyDensitySimilarity,
   noveltyBandForScore,
+  noveltyDensitySimilarity,
   noveltyDensitySimilarityPolicy,
+  noveltyEmbeddingInputs,
   noveltyEmbeddingDimensions,
   noveltyEmbeddingModel,
   noveltyInputFingerprint,
@@ -43,6 +44,8 @@ const noveltyIdeaLifecycle = v.union(
   v.literal("saved"),
   v.literal("submitted"),
 );
+
+const noveltyTeamVectorMatchLimit = 256;
 
 const readyPreview = v.object({
   state: v.literal("ready"),
@@ -82,43 +85,53 @@ function indexedLifecycle(draft: Doc<"projectDrafts">, inputFingerprint: string)
   return "editing";
 }
 
-async function storeTeamIdea(
+function orderedEmbeddings(
+  data: readonly { embedding: number[]; index: number }[],
+  expectedCount: number,
+) {
+  const ordered = data.toSorted((left, right) => left.index - right.index);
+  if (
+    ordered.length !== expectedCount
+    || ordered.some((entry, index) => entry.index !== index || !validEmbedding(entry.embedding))
+  ) {
+    return null;
+  }
+  return ordered.map((entry) => entry.embedding);
+}
+
+async function storeTeamIdeaEmbeddings(
   ctx: MutationCtx,
   args: {
     eventId: Id<"events">;
     teamId: Id<"teams">;
     inputFingerprint: string;
     lifecycle: NoveltyIdeaLifecycle;
-    embedding: number[];
+    embeddings: number[][];
     sourceUpdatedAt: number;
   },
 ) {
   const existing = await ctx.db
     .query("noveltyTeamIdeas")
     .withIndex("by_team", (index) => index.eq("teamId", args.teamId))
-    .unique();
-  if (existing && existing.sourceUpdatedAt > args.sourceUpdatedAt) return existing._id;
+    .collect();
+  if (existing.some((idea) => idea.sourceUpdatedAt > args.sourceUpdatedAt)) {
+    return existing.map((idea) => idea._id);
+  }
   const now = Date.now();
-  if (existing) {
-    await ctx.db.patch(existing._id, {
+  for (const idea of existing) await ctx.db.delete(idea._id);
+  const ideaIds: Id<"noveltyTeamIdeas">[] = [];
+  for (const embedding of args.embeddings) {
+    ideaIds.push(await ctx.db.insert("noveltyTeamIdeas", {
       eventId: args.eventId,
+      teamId: args.teamId,
       inputFingerprint: args.inputFingerprint,
       lifecycle: args.lifecycle,
-      embedding: args.embedding,
+      embedding,
       sourceUpdatedAt: args.sourceUpdatedAt,
       updatedAt: now,
-    });
-    return existing._id;
+    }));
   }
-  return ctx.db.insert("noveltyTeamIdeas", {
-    eventId: args.eventId,
-    teamId: args.teamId,
-    inputFingerprint: args.inputFingerprint,
-    lifecycle: args.lifecycle,
-    embedding: args.embedding,
-    sourceUpdatedAt: args.sourceUpdatedAt,
-    updatedAt: now,
-  });
+  return ideaIds;
 }
 
 function readyResult(
@@ -160,9 +173,8 @@ const beginPreviewResult = v.union(
     corpusLabel: v.string(),
     comparedProjectCount: v.number(),
     inputFingerprint: v.string(),
-    normalizedIdea: v.string(),
+    embeddingInputs: v.array(v.string()),
     embeddingModel: v.literal("text-embedding-3-small"),
-    cachedEmbedding: v.optional(v.array(v.float64())),
   }),
 );
 type BeginPreviewResult = Infer<typeof beginPreviewResult>;
@@ -323,10 +335,6 @@ export const beginPreview = internalMutation({
       state: "running",
       requestedAt: now,
     });
-    const indexedIdea = await ctx.db
-      .query("noveltyTeamIdeas")
-      .withIndex("by_team", (index) => index.eq("teamId", team._id))
-      .unique();
     return {
       kind: "run",
       requestId,
@@ -337,11 +345,8 @@ export const beginPreview = internalMutation({
       corpusLabel: corpus.label,
       comparedProjectCount: corpus.entryCount,
       inputFingerprint,
-      normalizedIdea,
+      embeddingInputs: noveltyEmbeddingInputs(normalizedIdea),
       embeddingModel: corpus.embeddingModel,
-      ...(indexedIdea?.inputFingerprint === inputFingerprint
-        ? { cachedEmbedding: indexedIdea.embedding }
-        : {}),
     };
   },
 });
@@ -378,10 +383,12 @@ export const upsertPreviewTeamIdea = internalMutation({
     requestId: v.id("noveltyPreviewRequests"),
     inputFingerprint: v.string(),
     embedding: v.array(v.float64()),
+    segmentEmbeddings: v.optional(v.array(v.array(v.float64()))),
   },
-  returns: v.object({ ideaId: v.id("noveltyTeamIdeas") }),
+  returns: v.object({ ideaIds: v.array(v.id("noveltyTeamIdeas")) }),
   handler: async (ctx, args) => {
-    if (!validEmbedding(args.embedding)) {
+    const embeddings = [args.embedding, ...(args.segmentEmbeddings ?? [])];
+    if (embeddings.some((embedding) => !validEmbedding(embedding))) {
       throw new Error("A team idea index requires a valid embedding.");
     }
     const request = await ctx.db.get(args.requestId);
@@ -396,15 +403,15 @@ export const upsertPreviewTeamIdea = internalMutation({
       .query("projectDrafts")
       .withIndex("by_team", (index) => index.eq("teamId", request.teamId))
       .unique();
-    const ideaId = await storeTeamIdea(ctx, {
+    const ideaIds = await storeTeamIdeaEmbeddings(ctx, {
       eventId: request.eventId,
       teamId: request.teamId,
       inputFingerprint: request.inputFingerprint,
       lifecycle: draft ? indexedLifecycle(draft, request.inputFingerprint) : "editing",
-      embedding: args.embedding,
+      embeddings,
       sourceUpdatedAt: request.requestedAt,
     });
-    return { ideaId };
+    return { ideaIds };
   },
 });
 
@@ -433,7 +440,7 @@ const prepareDraftIndexResult = v.union(
   v.object({ kind: v.literal("complete") }),
   v.object({
     kind: v.literal("run"),
-    normalizedIdea: v.string(),
+    embeddingInputs: v.array(v.string()),
     embeddingModel: v.literal("text-embedding-3-small"),
   }),
 );
@@ -458,18 +465,24 @@ export const prepareDraftIndex = internalMutation({
     const existing = await ctx.db
       .query("noveltyTeamIdeas")
       .withIndex("by_team", (index) => index.eq("teamId", draft.teamId))
-      .unique();
-    if (existing?.inputFingerprint === args.inputFingerprint) {
-      if (existing.sourceUpdatedAt <= args.sourceUpdatedAt) {
-        await ctx.db.patch(existing._id, {
-          lifecycle: indexedLifecycle(draft, args.inputFingerprint),
-          sourceUpdatedAt: args.sourceUpdatedAt,
-          updatedAt: Date.now(),
-        });
+      .collect();
+    const embeddingInputs = noveltyEmbeddingInputs(draft.initialIdea);
+    if (
+      existing.length === embeddingInputs.length
+      && existing.every((idea) => idea.inputFingerprint === args.inputFingerprint)
+    ) {
+      for (const idea of existing) {
+        if (idea.sourceUpdatedAt <= args.sourceUpdatedAt) {
+          await ctx.db.patch(idea._id, {
+            lifecycle: indexedLifecycle(draft, args.inputFingerprint),
+            sourceUpdatedAt: args.sourceUpdatedAt,
+            updatedAt: Date.now(),
+          });
+        }
       }
       return { kind: "complete" };
     }
-    if (existing && existing.sourceUpdatedAt > args.sourceUpdatedAt) {
+    if (existing.some((idea) => idea.sourceUpdatedAt > args.sourceUpdatedAt)) {
       return { kind: "complete" };
     }
     const corpus = draft.noveltyCorpusVersionId
@@ -484,7 +497,7 @@ export const prepareDraftIndex = internalMutation({
     }
     return {
       kind: "run",
-      normalizedIdea: draft.initialIdea,
+      embeddingInputs,
       embeddingModel: corpus.embeddingModel,
     };
   },
@@ -496,10 +509,12 @@ export const finishDraftIndex = internalMutation({
     inputFingerprint: v.string(),
     sourceUpdatedAt: v.number(),
     embedding: v.array(v.float64()),
+    segmentEmbeddings: v.optional(v.array(v.array(v.float64()))),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    if (!validEmbedding(args.embedding)) {
+    const embeddings = [args.embedding, ...(args.segmentEmbeddings ?? [])];
+    if (embeddings.some((embedding) => !validEmbedding(embedding))) {
       throw new Error("A saved team idea requires a valid embedding.");
     }
     const draft = await ctx.db.get(args.draftId);
@@ -509,12 +524,15 @@ export const finishDraftIndex = internalMutation({
     ) {
       return null;
     }
-    await storeTeamIdea(ctx, {
+    if (embeddings.length !== noveltyEmbeddingInputs(draft.initialIdea).length) {
+      throw new Error("A saved team idea has an incomplete embedding set.");
+    }
+    await storeTeamIdeaEmbeddings(ctx, {
       eventId: draft.eventId,
       teamId: draft.teamId,
       inputFingerprint: args.inputFingerprint,
       lifecycle: indexedLifecycle(draft, args.inputFingerprint),
-      embedding: args.embedding,
+      embeddings,
       sourceUpdatedAt: args.sourceUpdatedAt,
     });
     return null;
@@ -537,12 +555,17 @@ export const indexDraftIdea = internalAction({
       const response = await createOpenAiEmbeddings({
         apiKey,
         model: prepared.embeddingModel,
-        input: prepared.normalizedIdea,
-        timeoutMs: 8_000,
+        input: prepared.embeddingInputs,
+        timeoutMs: 12_000,
       });
-      const embedding = response.data[0]?.embedding;
-      if (!embedding || response.data.length !== 1 || !validEmbedding(embedding)) return null;
-      await ctx.runMutation(internal.novelty.finishDraftIndex, { ...args, embedding });
+      const embeddings = orderedEmbeddings(response.data, prepared.embeddingInputs.length);
+      const embedding = embeddings?.[0];
+      if (!embeddings || !embedding) return null;
+      await ctx.runMutation(internal.novelty.finishDraftIndex, {
+        ...args,
+        embedding,
+        segmentEmbeddings: embeddings.slice(1),
+      });
     } catch {
       return null;
     }
@@ -571,23 +594,29 @@ export const prepareSubmittedProjectIndex = internalMutation({
     const existing = await ctx.db
       .query("noveltyTeamIdeas")
       .withIndex("by_team", (index) => index.eq("teamId", project.teamId))
-      .unique();
-    if (existing?.inputFingerprint === args.inputFingerprint) {
-      if (existing.sourceUpdatedAt <= args.sourceUpdatedAt) {
-        await ctx.db.patch(existing._id, {
-          lifecycle: "submitted",
-          sourceUpdatedAt: args.sourceUpdatedAt,
-          updatedAt: Date.now(),
-        });
+      .collect();
+    const embeddingInputs = noveltyEmbeddingInputs(project.initialIdea);
+    if (
+      existing.length === embeddingInputs.length
+      && existing.every((idea) => idea.inputFingerprint === args.inputFingerprint)
+    ) {
+      for (const idea of existing) {
+        if (idea.sourceUpdatedAt <= args.sourceUpdatedAt) {
+          await ctx.db.patch(idea._id, {
+            lifecycle: "submitted",
+            sourceUpdatedAt: args.sourceUpdatedAt,
+            updatedAt: Date.now(),
+          });
+        }
       }
       return { kind: "complete" };
     }
-    if (existing && existing.sourceUpdatedAt > args.sourceUpdatedAt) {
+    if (existing.some((idea) => idea.sourceUpdatedAt > args.sourceUpdatedAt)) {
       return { kind: "complete" };
     }
     return {
       kind: "run",
-      normalizedIdea: project.initialIdea,
+      embeddingInputs,
       embeddingModel: noveltyEmbeddingModel,
     };
   },
@@ -599,10 +628,12 @@ export const finishSubmittedProjectIndex = internalMutation({
     inputFingerprint: v.string(),
     sourceUpdatedAt: v.number(),
     embedding: v.array(v.float64()),
+    segmentEmbeddings: v.optional(v.array(v.array(v.float64()))),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    if (!validEmbedding(args.embedding)) {
+    const embeddings = [args.embedding, ...(args.segmentEmbeddings ?? [])];
+    if (embeddings.some((embedding) => !validEmbedding(embedding))) {
       throw new Error("A submitted team idea requires a valid embedding.");
     }
     const project = await ctx.db.get(args.projectVersionId);
@@ -611,12 +642,15 @@ export const finishSubmittedProjectIndex = internalMutation({
     }
     const team = await ctx.db.get(project.teamId);
     if (!team || team.lockedProjectVersionId !== project._id) return null;
-    await storeTeamIdea(ctx, {
+    if (embeddings.length !== noveltyEmbeddingInputs(project.initialIdea).length) {
+      throw new Error("A submitted team idea has an incomplete embedding set.");
+    }
+    await storeTeamIdeaEmbeddings(ctx, {
       eventId: project.eventId,
       teamId: project.teamId,
       inputFingerprint: args.inputFingerprint,
       lifecycle: "submitted",
-      embedding: args.embedding,
+      embeddings,
       sourceUpdatedAt: args.sourceUpdatedAt,
     });
     return null;
@@ -642,14 +676,16 @@ export const indexSubmittedProjectIdea = internalAction({
       const response = await createOpenAiEmbeddings({
         apiKey,
         model: prepared.embeddingModel,
-        input: prepared.normalizedIdea,
-        timeoutMs: 8_000,
+        input: prepared.embeddingInputs,
+        timeoutMs: 12_000,
       });
-      const embedding = response.data[0]?.embedding;
-      if (!embedding || response.data.length !== 1 || !validEmbedding(embedding)) return null;
+      const embeddings = orderedEmbeddings(response.data, prepared.embeddingInputs.length);
+      const embedding = embeddings?.[0];
+      if (!embeddings || !embedding) return null;
       await ctx.runMutation(internal.novelty.finishSubmittedProjectIndex, {
         ...args,
         embedding,
+        segmentEmbeddings: embeddings.slice(1),
       });
     } catch {
       return null;
@@ -790,60 +826,81 @@ export const preview = action({
     if (begun.kind === "complete") return begun.result;
     const startedAt = Date.now();
     try {
-      let embedding = begun.cachedEmbedding;
-      let providerRequestId: string | undefined;
-      if (!embedding) {
-        const apiKey = process.env.OPENAI_API_KEY?.trim();
-        if (!apiKey) {
-          return ctx.runMutation(internal.novelty.finishPreview, {
-            requestId: begun.requestId,
-            inputFingerprint: begun.inputFingerprint,
-            state: "unavailable",
-            latencyMs: Date.now() - startedAt,
-            failureCategory: "provider_not_configured",
-          });
-        }
-        const response = await createOpenAiEmbeddings({
-          apiKey,
-          model: begun.embeddingModel,
-          input: begun.normalizedIdea,
-          timeoutMs: 8_000,
+      const apiKey = process.env.OPENAI_API_KEY?.trim();
+      if (!apiKey) {
+        return ctx.runMutation(internal.novelty.finishPreview, {
+          requestId: begun.requestId,
+          inputFingerprint: begun.inputFingerprint,
+          state: "unavailable",
+          latencyMs: Date.now() - startedAt,
+          failureCategory: "provider_not_configured",
         });
-        embedding = response.data[0]?.embedding;
-        providerRequestId = response.requestId;
-        if (
-          !embedding
-          || response.data.length !== 1
-          || !validEmbedding(embedding)
-        ) {
-          throw new Error("The embedding provider returned an invalid idea vector.");
-        }
+      }
+      const response = await createOpenAiEmbeddings({
+        apiKey,
+        model: begun.embeddingModel,
+        input: begun.embeddingInputs,
+        timeoutMs: 12_000,
+      });
+      const embeddings = orderedEmbeddings(response.data, begun.embeddingInputs.length);
+      const embedding = embeddings?.[0];
+      const providerRequestId = response.requestId;
+      if (!embeddings || !embedding) {
+        throw new Error("The embedding provider returned an invalid idea vector set.");
       }
       await ctx.runMutation(internal.novelty.upsertPreviewTeamIdea, {
         requestId: begun.requestId,
         inputFingerprint: begun.inputFingerprint,
         embedding,
+        segmentEmbeddings: embeddings.slice(1),
       });
-      const [corpusMatches, teamMatches] = await Promise.all([
-        ctx.vectorSearch(
-          "noveltyCorpusEntries",
-          "by_corpus_embedding",
-          {
-            vector: embedding,
-            limit: noveltyDensityMatchLimit,
-            filter: (filter) => filter.eq("corpusVersionId", begun.corpusVersionId),
-          },
-        ),
-        ctx.vectorSearch(
-          "noveltyTeamIdeas",
-          "by_event_embedding",
-          {
-            vector: embedding,
-            limit: noveltyDensityMatchLimit + 1,
-            filter: (filter) => filter.eq("eventId", begun.eventId),
-          },
-        ),
-      ]);
+      const searchBatches = await Promise.all(embeddings.map(async (segmentEmbedding) => {
+        const [corpusMatches, teamMatches] = await Promise.all([
+          ctx.vectorSearch(
+            "noveltyCorpusEntries",
+            "by_corpus_embedding",
+            {
+              vector: segmentEmbedding,
+              limit: noveltyDensityMatchLimit,
+              filter: (filter) => filter.eq("corpusVersionId", begun.corpusVersionId),
+            },
+          ),
+          ctx.vectorSearch(
+            "noveltyTeamIdeas",
+            "by_event_embedding",
+            {
+              vector: segmentEmbedding,
+              limit: noveltyTeamVectorMatchLimit,
+              filter: (filter) => filter.eq("eventId", begun.eventId),
+            },
+          ),
+        ]);
+        return { corpusMatches, teamMatches };
+      }));
+      const corpusSimilarityById = new Map<Id<"noveltyCorpusEntries">, number>();
+      const teamSimilarityById = new Map<Id<"noveltyTeamIdeas">, number>();
+      for (const batch of searchBatches) {
+        for (const match of batch.corpusMatches) {
+          const current = corpusSimilarityById.get(match._id);
+          if (current === undefined || match._score > current) {
+            corpusSimilarityById.set(match._id, match._score);
+          }
+        }
+        for (const match of batch.teamMatches) {
+          const current = teamSimilarityById.get(match._id);
+          if (current === undefined || match._score > current) {
+            teamSimilarityById.set(match._id, match._score);
+          }
+        }
+      }
+      const corpusMatches = [...corpusSimilarityById]
+        .map(([id, score]) => ({ _id: id, _score: score }))
+        .toSorted((left, right) => right._score - left._score)
+        .slice(0, noveltyDensityMatchLimit);
+      const teamMatches = [...teamSimilarityById]
+        .map(([id, score]) => ({ _id: id, _score: score }))
+        .toSorted((left, right) => right._score - left._score)
+        .slice(0, noveltyTeamVectorMatchLimit);
       const nearest = corpusMatches[0];
       if (!nearest) {
         return ctx.runMutation(internal.novelty.finishPreview, {
@@ -867,21 +924,23 @@ export const preview = action({
         eventId: begun.eventId,
         ideaIds: teamMatches.map((match) => match._id),
       });
-      const teamSimilarity = new Map(
-        teamMatches.map((match) => [match._id, match._score] as const),
-      );
-      const teamDensityMatches = teamMetadata
-        .filter((idea) => idea.teamId !== begun.teamId)
-        .map((idea) => {
-          const similarity = teamSimilarity.get(idea.id);
-          if (similarity === undefined) {
-            throw new Error("Team novelty metadata has no vector similarity.");
-          }
-          return {
-            similarity: noveltyDensitySimilarity(similarity),
-            lifecycle: idea.lifecycle,
-          };
-        });
+      const teamDensityById = new Map<
+        Id<"teams">,
+        { similarity: number; lifecycle: NoveltyIdeaLifecycle }
+      >();
+      for (const idea of teamMetadata) {
+        if (idea.teamId === begun.teamId) continue;
+        const rawSimilarity = teamSimilarityById.get(idea.id);
+        if (rawSimilarity === undefined) {
+          throw new Error("Team novelty metadata has no vector similarity.");
+        }
+        const similarity = noveltyDensitySimilarity(rawSimilarity);
+        const current = teamDensityById.get(idea.teamId);
+        if (!current || similarity > current.similarity) {
+          teamDensityById.set(idea.teamId, { similarity, lifecycle: idea.lifecycle });
+        }
+      }
+      const teamDensityMatches = [...teamDensityById.values()];
       const corpusDensityMatches = corpusMatches.map((match) => ({
         similarity: noveltyDensitySimilarity(match._score),
         lifecycle: "submitted" as const,

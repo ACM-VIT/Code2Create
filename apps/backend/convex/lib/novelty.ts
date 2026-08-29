@@ -9,6 +9,10 @@ export const minimumNoveltyCorpusEntries = 5;
 export const maximumNoveltyCorpusEntries = 300;
 export const noveltyDensityMatchLimit = 50;
 export const noveltyEmbeddingSimilarityScale = 1.35;
+const noveltyEmbeddingChunkWords = 60;
+const noveltyEmbeddingChunkOverlapWords = 15;
+const maximumNoveltyEmbeddingChunks = 18;
+const minimumNoveltySentenceWords = 8;
 export const noveltyDensitySimilarityPolicy = {
   distinctSimilarityBoundary: 0.6,
   commonSimilarityBoundary: 0.9,
@@ -209,6 +213,36 @@ export function normalizeNoveltyIdea(value: string, minimum: number, maximum: nu
 
 export function noveltyInputFingerprint(value: string) {
   return fingerprintText(value);
+}
+
+export function noveltyEmbeddingInputs(value: string) {
+  const normalized = value.trim().replace(/\s+/gu, " ");
+  const words = normalized.split(" ");
+  if (words.length <= noveltyEmbeddingChunkWords) return [value];
+  const step = noveltyEmbeddingChunkWords - noveltyEmbeddingChunkOverlapWords;
+  const finalStart = Math.max(0, words.length - noveltyEmbeddingChunkWords);
+  const starts: number[] = [];
+  for (let start = 0; start < finalStart; start += step) starts.push(start);
+  starts.push(finalStart);
+  const tokenChunks = [...new Set(starts)].map((start) =>
+    words.slice(start, start + noveltyEmbeddingChunkWords).join(" "),
+  );
+  const sentenceChunks = (normalized.match(/[^.!?]+(?:[.!?]+|$)/gu) ?? [])
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.split(" ").length >= minimumNoveltySentenceWords);
+  const candidates = [...new Set([...sentenceChunks, ...tokenChunks])]
+    .filter((chunk) => chunk !== normalized);
+  const bounded = candidates.length <= maximumNoveltyEmbeddingChunks
+    ? candidates
+    : Array.from({ length: maximumNoveltyEmbeddingChunks }, (_, index) => {
+        const candidateIndex = Math.round(
+          index * (candidates.length - 1) / (maximumNoveltyEmbeddingChunks - 1),
+        );
+        const candidate = candidates[candidateIndex];
+        if (!candidate) throw new Error("Novelty embedding chunk selection failed.");
+        return candidate;
+      });
+  return [value, ...new Set(bounded)];
 }
 
 export function noveltySimilarityWeight(
