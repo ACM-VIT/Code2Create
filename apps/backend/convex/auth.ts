@@ -110,8 +110,10 @@ export function createAuth(ctx: GenericCtx<DataModel>) {
     plugins: [
       expo(),
       bearer(),
-      oauthPopup(),
       crossDomain({ siteUrl: participantSiteUrl }),
+      // This must run after crossDomain so its callback completion page is the
+      // final response instead of being replaced by the normal `ott` redirect.
+      oauthPopup(),
       convex({ authConfig }),
     ],
   });
