@@ -35,6 +35,7 @@ import {
 } from "./lib/strings";
 import {
   isApprovedVitStudentIdentity,
+  parseVitStudentGoogleDisplayName,
   vitInstitutionName,
 } from "./lib/vitStudentIdentity";
 import {
@@ -68,6 +69,41 @@ const currentParticipantPolicyView = v.object({
   policy: participantPolicyInput,
 });
 
+const membershipViewFields = {
+  id: v.id("eventMemberships"),
+  eligibilityStatus: participantEligibilityStatus,
+  onboardingStatus: participantOnboardingStatus,
+};
+
+const participantMembershipView = v.union(
+  v.object({
+    ...membershipViewFields,
+    participantClass: v.literal("vit_student"),
+    vitStudentIdentity: v.object({
+      fullName: v.string(),
+      registrationNumber: v.string(),
+      programmeCode: v.string(),
+      yearOfStudy: studyYear,
+    }),
+  }),
+  v.object({
+    ...membershipViewFields,
+    participantClass: v.literal("external_participant"),
+  }),
+);
+
+function requireVitStudentProfileIdentity(displayName: string) {
+  const identity = parseVitStudentGoogleDisplayName(displayName);
+  if (!identity) {
+    throw new ConvexError({
+      code: "VIT_GOOGLE_PROFILE_INVALID",
+      message:
+        "Your VIT Google account name must end with a valid registration number. Ask VIT to correct the Google profile name, then sign in again.",
+    });
+  }
+  return identity;
+}
+
 export const me = query({
   args: { eventSlug: v.string() },
   returns: v.union(
@@ -78,15 +114,7 @@ export const me = query({
         displayName: v.string(),
         verifiedEmail: v.string(),
       }),
-      membership: v.union(
-        v.null(),
-        v.object({
-          id: v.id("eventMemberships"),
-          participantClass,
-          eligibilityStatus: participantEligibilityStatus,
-          onboardingStatus: participantOnboardingStatus,
-        }),
-      ),
+      membership: v.union(v.null(), participantMembershipView),
       profile: v.union(v.null(), profileView),
       participantPolicy: currentParticipantPolicyView,
     }),
@@ -127,12 +155,20 @@ export const me = query({
         verifiedEmail: person.verifiedEmail,
       },
       membership: membership
-        ? {
-            id: membership._id,
-            participantClass: membership.participantClass,
-            eligibilityStatus: membership.eligibilityStatus,
-            onboardingStatus: membership.onboardingStatus,
-          }
+        ? membership.participantClass === "vit_student"
+          ? {
+              id: membership._id,
+              participantClass: membership.participantClass,
+              eligibilityStatus: membership.eligibilityStatus,
+              onboardingStatus: membership.onboardingStatus,
+              vitStudentIdentity: requireVitStudentProfileIdentity(person.displayName),
+            }
+          : {
+              id: membership._id,
+              participantClass: membership.participantClass,
+              eligibilityStatus: membership.eligibilityStatus,
+              onboardingStatus: membership.onboardingStatus,
+            }
         : null,
       profile: profile && membership
         ? {
@@ -199,6 +235,9 @@ export const provision = mutation({
     const resolvedParticipantClass = approvedVitIdentity
       ? "vit_student"
       : "external_participant";
+    if (resolvedParticipantClass === "vit_student") {
+      requireVitStudentProfileIdentity(person.displayName);
+    }
 
     const existingMembership = await ctx.db
       .query("eventMemberships")
@@ -501,10 +540,8 @@ export const saveProfile = mutation({
     preferredName: v.optional(v.string()),
     phone: v.optional(v.string()),
     institution: v.optional(v.string()),
-    yearOfStudy: studyYear,
+    yearOfStudy: v.optional(studyYear),
     currentRole: v.optional(v.string()),
-    vitRegistrationNumber: v.optional(v.string()),
-    vitProgramme: v.optional(v.string()),
     externalCity: v.optional(v.string()),
     externalCountry: v.optional(v.string()),
     expectedProfileVersion: v.number(),
@@ -520,10 +557,8 @@ export const saveProfile = mutation({
       args.preferredName ?? null,
       args.phone ?? null,
       args.institution ?? null,
-      args.yearOfStudy,
+      args.yearOfStudy ?? null,
       args.currentRole ?? null,
-      args.vitRegistrationNumber ?? null,
-      args.vitProgramme ?? null,
       args.externalCity ?? null,
       args.externalCountry ?? null,
       args.expectedProfileVersion,
@@ -570,26 +605,30 @@ export const saveProfile = mutation({
     }
 
     const policy = participantPolicy.normalized;
-    const fullName = membership.participantClass === "vit_student"
-      ? normalizedText(person.displayName, "Google account name", 2, 100)
+    const vitStudentIdentity = membership.participantClass === "vit_student"
+      ? requireVitStudentProfileIdentity(person.displayName)
+      : null;
+    const fullName = vitStudentIdentity
+      ? vitStudentIdentity.fullName
       : normalizedText(args.fullName ?? "", "Full name", 2, 100);
     const preferredName = optionalNormalizedText(args.preferredName, "Preferred name", 60);
     const phone = policyField(args.phone, policy.phoneField, "Phone", 24);
-    const institution = membership.participantClass === "vit_student"
+    const institution = vitStudentIdentity
       ? vitInstitutionName
       : normalizedText(args.institution ?? "", "Institution", 2, 160);
-    const currentRole = membership.participantClass === "external_participant"
-      ? optionalNormalizedText(args.currentRole, "Current role", 100)
-      : undefined;
-    if (membership.participantClass === "vit_student" && args.yearOfStudy === "not_applicable") {
+    const yearOfStudy = vitStudentIdentity?.yearOfStudy ?? args.yearOfStudy;
+    if (!yearOfStudy) {
       throw new ConvexError({
-        code: "VIT_STUDY_YEAR_REQUIRED",
+        code: "STUDY_YEAR_REQUIRED",
         message: "Choose your current year of study.",
       });
     }
+    const currentRole = membership.participantClass === "external_participant"
+      ? optionalNormalizedText(args.currentRole, "Current role", 100)
+      : undefined;
     if (
       membership.participantClass === "external_participant" &&
-      args.yearOfStudy === "not_applicable" &&
+      yearOfStudy === "not_applicable" &&
       currentRole === undefined
     ) {
       throw new ConvexError({
@@ -597,17 +636,14 @@ export const saveProfile = mutation({
         message: "Enter a current role when year of study does not apply.",
       });
     }
-    const vitRegistrationNumber = membership.participantClass === "vit_student"
-      ? policyField(
-          args.vitRegistrationNumber,
-          policy.vitRegistrationNumberField,
-          "VIT registration number",
-          40,
-        )
-      : undefined;
-    const vitProgramme = membership.participantClass === "vit_student"
-      ? policyField(args.vitProgramme, policy.vitProgrammeField, "VIT programme", 100)
-      : undefined;
+    const vitRegistrationNumber =
+      vitStudentIdentity && policy.vitRegistrationNumberField !== "not_collected"
+        ? vitStudentIdentity.registrationNumber
+        : undefined;
+    const vitProgramme =
+      vitStudentIdentity && policy.vitProgrammeField !== "not_collected"
+        ? vitStudentIdentity.programmeCode
+        : undefined;
     const externalCity = membership.participantClass === "external_participant"
       ? policyField(args.externalCity, policy.externalCityField, "City", 100)
       : undefined;
@@ -657,7 +693,7 @@ export const saveProfile = mutation({
         preferredName,
         phone,
         institution,
-        yearOfStudy: args.yearOfStudy,
+        yearOfStudy,
         currentRole,
         vitRegistrationNumber,
         vitProgramme,
@@ -676,7 +712,7 @@ export const saveProfile = mutation({
         ...(preferredName !== undefined ? { preferredName } : {}),
         ...(phone !== undefined ? { phone } : {}),
         institution,
-        yearOfStudy: args.yearOfStudy,
+        yearOfStudy,
         ...(currentRole !== undefined ? { currentRole } : {}),
         ...(vitRegistrationNumber !== undefined ? { vitRegistrationNumber } : {}),
         ...(vitProgramme !== undefined ? { vitProgramme } : {}),
