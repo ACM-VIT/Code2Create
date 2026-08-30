@@ -18,6 +18,7 @@ import { useEditingPresence } from '../hooks/useEditingPresence'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
+import { canLeaveByTeamRule, canLeaveCurrentTeam } from '../lib/teamLeave'
 import {
   clearSessionDraft,
   readVersionedSessionDraft,
@@ -120,7 +121,7 @@ function IntakeTeamCluster({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const leavePending = operations.hasPending('team-leave')
-  const leadMustTransfer = team.currentRole === 'lead' && team.activeMemberCount > 1
+  const leadMustTransfer = team.canLeave && !canLeaveByTeamRule(team)
 
   const leave = async () => {
     setBusy(true)
@@ -145,7 +146,7 @@ function IntakeTeamCluster({
       members={members}
       onSignOut={onSignOut}
       leaveAction={{
-        available: team.canLeave && !leadMustTransfer,
+        available: canLeaveCurrentTeam(team),
         ...(leadMustTransfer
           ? { blockedMessage: 'Transfer leadership before leaving this team.' }
           : !team.canLeave
