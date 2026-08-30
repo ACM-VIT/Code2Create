@@ -149,14 +149,14 @@ describe("intake policy configuration", () => {
     const fixture = await seedFixture(backend, "deterministic");
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: fixture.projectDraftId,
-      modelAvailable: false,
+      providerAvailable: false,
     });
     const first = await currentQuestion(backend, fixture.projectDraftId, 1);
     expect(first.text).toBe(defaultDeterministicIntakePolicy.fallbackQuestions[0]?.text);
     await answerQuestion(backend, fixture, first._id, "Local student teams would use it first.");
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: fixture.projectDraftId,
-      modelAvailable: false,
+      providerAvailable: false,
     });
     const second = await currentQuestion(backend, fixture.projectDraftId, 2);
     expect(second.text).toBe(defaultDeterministicIntakePolicy.fallbackQuestions[1]?.text);
@@ -362,7 +362,7 @@ describe("intake policy configuration", () => {
     const fixture = await seedFixture(backend, "deterministic");
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: fixture.projectDraftId,
-      modelAvailable: false,
+      providerAvailable: false,
     });
     const question = await currentQuestion(backend, fixture.projectDraftId, 1);
     const answerId = await answerQuestion(
@@ -454,7 +454,7 @@ function assistedPolicy(): IntakePolicy {
 async function beginAssisted(backend: BackendTest, draftId: Id<"projectDrafts">) {
   const context = await backend.mutation(
     internal.intelligence.beginIntakeInterpretation,
-    { draftId, modelAvailable: true },
+    { draftId, providerAvailable: true },
   );
   if (!context) throw new Error("The assisted interpretation did not begin.");
   return context;

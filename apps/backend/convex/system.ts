@@ -1,7 +1,7 @@
 import { ConvexError, type Infer, v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import {
   currentAuthSessionFreshness,
@@ -15,6 +15,7 @@ import {
   defaultAdmissionCriteria,
   defaultAdmissionReasonCodes,
 } from "./lib/admissionPolicy";
+import { admissionRecommendationModel } from "./lib/ideaSubmissionAi";
 import {
   communicationsPolicyChecksum,
   communicationsPolicyInput,
@@ -418,9 +419,10 @@ export async function createInitialEvent(
   });
   await ctx.db.patch(eventId, { publishedIntegrationPolicyId: integrationPolicyId });
 
+  const admissionModel = args.admissionModel ?? admissionRecommendationModel;
   const policyPayload = {
     version: admissionPolicyVersion,
-    aiRecommendationMode: args.admissionModel ? "enabled" as const : "disabled" as const,
+    aiRecommendationMode: "enabled" as const,
     minimumHumanReviews: args.admissionMinimumHumanReviews,
     overallParticipantCapacity: args.admissionParticipantCapacity,
     criteria: defaultAdmissionCriteria,
@@ -465,36 +467,31 @@ export async function createInitialEvent(
     version: 1,
     updatedAt: now,
   });
-  let admissionModelConfigId: Id<"admissionModelConfigVersions"> | undefined;
-  if (args.admissionModel) {
-    const modelConfig = {
-      version: normalizedText(args.admissionModel.version, "Admission model version", 1, 80),
-      modelId: normalizedText(args.admissionModel.modelId, "Admission model ID", 2, 120),
-      promptVersion: normalizedText(args.admissionModel.promptVersion, "Prompt version", 1, 80),
-      schemaVersion: normalizedText(args.admissionModel.schemaVersion, "Schema version", 1, 80),
-      evaluationSuiteVersion: normalizedText(
-        args.admissionModel.evaluationSuiteVersion,
-        "Evaluation suite version",
-        1,
-        80,
-      ),
-    };
-    admissionModelConfigId = await ctx.db.insert("admissionModelConfigVersions", {
-      eventId,
-      admissionPolicyVersionId: admissionPolicyId,
-      ...modelConfig,
-      status: "published",
-      checksum: admissionModelConfigurationChecksum(modelConfig),
-      createdByPersonId: person._id,
-      createdAt: now,
-      publishedAt: now,
-    });
-  }
+  const modelConfig = {
+    version: normalizedText(admissionModel.version, "Admission model version", 1, 80),
+    modelId: normalizedText(admissionModel.modelId, "Admission model ID", 2, 120),
+    promptVersion: normalizedText(admissionModel.promptVersion, "Prompt version", 1, 80),
+    schemaVersion: normalizedText(admissionModel.schemaVersion, "Schema version", 1, 80),
+    evaluationSuiteVersion: normalizedText(
+      admissionModel.evaluationSuiteVersion,
+      "Evaluation suite version",
+      1,
+      80,
+    ),
+  };
+  const admissionModelConfigId = await ctx.db.insert("admissionModelConfigVersions", {
+    eventId,
+    admissionPolicyVersionId: admissionPolicyId,
+    ...modelConfig,
+    status: "published",
+    checksum: admissionModelConfigurationChecksum(modelConfig),
+    createdByPersonId: person._id,
+    createdAt: now,
+    publishedAt: now,
+  });
   await ctx.db.patch(eventId, {
     publishedAdmissionPolicyId: admissionPolicyId,
-    ...(admissionModelConfigId !== undefined
-      ? { publishedAdmissionModelConfigId: admissionModelConfigId }
-      : {}),
+    publishedAdmissionModelConfigId: admissionModelConfigId,
   });
 
   const subjectId = await ctx.db.insert("eventAccessSubjects", {

@@ -1669,6 +1669,7 @@ const rerunnableAdmissionRecommendationStates = new Set<
   "rate_limited",
   "failed",
   "stale",
+  "disabled",
 ]);
 
 export function admissionRecommendationCanRerun(

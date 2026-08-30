@@ -1332,9 +1332,7 @@ export const respondToFollowUp = mutation({
       answeredAt: now,
     });
     const needsAnotherInterpretation =
-      question.ordinal < policy.maximumFollowUpCount &&
-      (policy.model.mode === "assisted" ||
-        question.ordinal < policy.deterministicFollowUpCount);
+      question.ordinal < policy.maximumFollowUpCount;
     await ctx.db.patch(draft._id, {
       stage: needsAnotherInterpretation ? "follow_up" : "review",
       version: draftVersion,
@@ -1468,9 +1466,7 @@ export const reviseFollowUp = mutation({
     });
     await replaceIntakeQuestionsAfter(ctx, draft._id, response.question.ordinal);
     const needsAnotherInterpretation =
-      response.question.ordinal < policy.maximumFollowUpCount &&
-      (policy.model.mode === "assisted" ||
-        response.question.ordinal < policy.deterministicFollowUpCount);
+      response.question.ordinal < policy.maximumFollowUpCount;
     const draftVersion = draft.version + 1;
     await ctx.db.patch(draft._id, {
       stage: needsAnotherInterpretation ? "follow_up" : "review",

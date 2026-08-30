@@ -102,6 +102,7 @@ import type * as lib_floor from "../lib/floor.js";
 import type * as lib_githubClient from "../lib/githubClient.js";
 import type * as lib_githubTeamMetrics from "../lib/githubTeamMetrics.js";
 import type * as lib_grantScopes from "../lib/grantScopes.js";
+import type * as lib_ideaSubmissionAi from "../lib/ideaSubmissionAi.js";
 import type * as lib_identity from "../lib/identity.js";
 import type * as lib_intakePolicy from "../lib/intakePolicy.js";
 import type * as lib_intakeQuestions from "../lib/intakeQuestions.js";
@@ -110,6 +111,7 @@ import type * as lib_intelligenceRecommendationValidators from "../lib/intellige
 import type * as lib_intelligenceServiceConfiguration from "../lib/intelligenceServiceConfiguration.js";
 import type * as lib_labelContract from "../lib/labelContract.js";
 import type * as lib_novelty from "../lib/novelty.js";
+import type * as lib_noveltyIndex from "../lib/noveltyIndex.js";
 import type * as lib_openAiEmbeddings from "../lib/openAiEmbeddings.js";
 import type * as lib_operations from "../lib/operations.js";
 import type * as lib_operationsAttention from "../lib/operationsAttention.js";
@@ -351,6 +353,7 @@ declare const fullApi: ApiFromModules<{
   "lib/githubClient": typeof lib_githubClient;
   "lib/githubTeamMetrics": typeof lib_githubTeamMetrics;
   "lib/grantScopes": typeof lib_grantScopes;
+  "lib/ideaSubmissionAi": typeof lib_ideaSubmissionAi;
   "lib/identity": typeof lib_identity;
   "lib/intakePolicy": typeof lib_intakePolicy;
   "lib/intakeQuestions": typeof lib_intakeQuestions;
@@ -359,6 +362,7 @@ declare const fullApi: ApiFromModules<{
   "lib/intelligenceServiceConfiguration": typeof lib_intelligenceServiceConfiguration;
   "lib/labelContract": typeof lib_labelContract;
   "lib/novelty": typeof lib_novelty;
+  "lib/noveltyIndex": typeof lib_noveltyIndex;
   "lib/openAiEmbeddings": typeof lib_openAiEmbeddings;
   "lib/operations": typeof lib_operations;
   "lib/operationsAttention": typeof lib_operationsAttention;

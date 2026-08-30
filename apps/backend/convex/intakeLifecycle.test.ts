@@ -187,7 +187,7 @@ describe("participant intake lifecycle", () => {
 
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: savedIdea.draftId,
-      modelAvailable: false,
+      providerAvailable: false,
     });
     const withQuestion = await participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
@@ -210,7 +210,7 @@ describe("participant intake lifecycle", () => {
     });
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: savedIdea.draftId,
-      modelAvailable: false,
+      providerAvailable: false,
     });
     const withThirdQuestion = await participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,

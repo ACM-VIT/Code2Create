@@ -429,7 +429,7 @@ One team/client-request range makes the public action idempotent. A second use w
 One immutable release owns the complete human admissions contract.
 
 - `eventId`, unique public version label, and `status: draft | published | superseded | retired`;
-- explicit `aiRecommendationMode: enabled | disabled`;
+- the code-owned AI recommendation release marker;
 - minimum human-review count from one through five and a positive whole-number overall participant capacity chosen by operations;
 - one through twelve uniquely keyed criteria, each with a label and complete guidance for `firstYear`, `earlyYear`, `laterYear`, `postgraduateOrProfessional`, and `mixedOrExternal`;
 - four through twenty uniquely keyed human decision reasons, each permitting one or more of `accept | waitlist | decline | needs_information`, with every disposition covered by at least one reason;
@@ -439,13 +439,13 @@ The policy uses different guidance for each experience band. It is the public ad
 
 ### `admissionModelConfigVersions`
 
-The optional model release is a child of exactly one admission-policy version.
+The model release is a code-owned child of exactly one admission-policy version.
 
 - `eventId`, owning `admissionPolicyVersionId`, unique release label, and the same lifecycle status as its policy;
 - approved OpenAI model ID plus prompt, Structured Output schema, and evaluation-suite version labels;
 - checksum, creator/time, and optional publication time.
 
-Draft replacement retires the previous policy and its model together. Publication checks the exact policy/model IDs and checksums, event version, fresh Google session, reason, and idempotent operation ID. One mutation supersedes the prior pair, publishes the new pair or explicit human-only policy, creates its empty overall `admissionCapacityBuckets` row, and moves both event pointers. An enabled policy must have its own matching model; a disabled policy has neither a model row nor model pointer.
+Draft replacement retires the previous policy and its model together. Publication checks the exact policy/model IDs and checksums, event version, fresh Google session, reason, and idempotent operation ID. One mutation supersedes the prior pair, publishes the new pair, creates its empty overall `admissionCapacityBuckets` row, and moves both event pointers. Every new policy has its own matching model; provider failure affects only the advisory result and never blocks human review.
 
 The first validating or finalizing submission attempt, and then the first submitted application, permanently closes admission draft replacement and publication for the event. Submission start pins the published pair on its durable attempt. Successful finalization copies that policy ID to the immutable proposal version and application. A publication and submission race has one serial result.
 
@@ -459,11 +459,11 @@ Participant, admission, intake, novelty, phase, checkpoint, communications, and 
 - novelty import owns corpus safety, native embedding width, complete-set replacement, and similarity boundaries;
 - phase validation owns the five ordered windows;
 - checkpoint validation owns its three ordered definitions and phase references; and
-- admission validation owns complete band guidance, human-review coverage, capacity, human reason coverage, and the optional paired model limits.
+- admission validation owns complete band guidance, human-review coverage, capacity, and human reason coverage; the platform owns the paired model release.
 
 The release suite covers assisted generation, deterministic mode, invalid/refused/timed-out model output, question-policy rejection, one-question early stop, two-question completion, answer revision, late completion, and publication while participants are active. A referenced evaluation-suite version is audit metadata; the application must not claim that publication ran an external suite unless the release record proves it.
 
-Admission publication treats the human policy and optional model as one release. Human review remains available when the policy explicitly disables AI or a configured model later fails.
+Admission publication treats the human policy and its model as one release. Human review remains available when the configured provider later fails.
 
 ### `reviewRounds`
 

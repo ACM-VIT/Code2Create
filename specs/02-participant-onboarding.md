@@ -95,7 +95,7 @@ Each question must:
 - avoid requests for market size, research, metrics, or a full architecture; and
 - offer **Skip**.
 
-The model can generate question text. The server validates the output against the published contract. The model cannot submit, reject, classify, route, or score the team. Each ordinal has a deterministic fallback. Model delay or failure cannot block the proposal.
+When `OPENAI_API_KEY` is configured, the service always attempts to generate the question with the code-owned `gpt-5.6-luna` release. This is a platform capability, not an event-policy switch. The server validates the output against the published question contract. The model cannot submit, reject, classify, route, or score the team. Each ordinal has a reviewed fallback. Missing configuration, delay, or failure cannot block the proposal.
 
 The sequence should clarify:
 
@@ -185,7 +185,7 @@ Each revision:
 6. marks earlier human recommendations and AI admission recommendations stale;
 7. cancels or rebinds active review assignments to the new content version;
 8. leaves the application without a published decision;
-9. queues fresh optional AI analysis; and
+9. queues fresh AI analysis when the provider is configured; and
 10. records actor, time, operation ID, before version, and after version.
 
 The system retains every older proposal version and its review history. No old output can support a new decision.
@@ -194,7 +194,7 @@ At or after `applicationsCloseAt`, the server rejects a revision even if the bro
 
 ## 6. Admission
 
-Each application points to the event's frozen admission-policy version. The admission release contains the criteria, experience-band rule, minimum human review, decision reasons, participant capacity, and either one admission-model release or human-only mode.
+Each application points to the event's frozen admission-policy version. The admission release contains the criteria, experience-band rule, minimum human review, decision reasons, participant capacity, and the code-owned admission-model release. Provider failure leaves human review fully usable; there is no organizer-facing AI toggle.
 
 Organizers can review applications while applications are open. The server does not publish an admission decision until server time reaches `applicationsCloseAt`. This keeps every submitted proposal editable for the complete published application window.
 

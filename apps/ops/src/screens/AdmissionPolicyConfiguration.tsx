@@ -18,7 +18,6 @@ type AdmissionConfiguration = CurrentConfiguration['publishedRelease']['configur
 type Criterion = AdmissionConfiguration['criteria'][number]
 type ReasonCode = AdmissionConfiguration['decisionReasonCodes'][number]
 type AdmissionDecision = ReasonCode['allowedDecisions'][number]
-type ModelConfiguration = NonNullable<AdmissionConfiguration['model']>
 type AdmissionPolicyOperationResult =
   | FunctionReturnType<typeof api.admissionPolicyConfiguration.createDraft>
   | FunctionReturnType<typeof api.admissionPolicyConfiguration.publish>
@@ -251,7 +250,7 @@ export function AdmissionPolicyConfiguration({
       {!operationPending && current.canDraft && !current.publicationLocked ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(current.draftRelease)}
-          description="Capacity, experience-adjusted expectations, decision reasons, and optional AI analysis."
+          description="Capacity, experience-adjusted expectations, and decision reasons."
           title={current.draftRelease ? 'Continue admission-policy draft' : 'Edit admission policy'}
         >
         <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
@@ -356,20 +355,6 @@ export function AdmissionPolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="AI admission recommendation" description="Optional. It never admits, rejects, or writes judging scores.">
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={configuration.model !== null}
-                onChange={(event) => update('model', event.currentTarget.checked ? newModel(configuration.version) : null)}
-              />
-              <span>Prepare a structured recommendation for organizers</span>
-            </label>
-            {configuration.model ? (
-              <ModelEditor model={configuration.model} onChange={(model) => update('model', model)} />
-            ) : null}
-          </PolicySection>
-
           </fieldset>
           <section className="configuration-save">
             <label className="field">
@@ -386,35 +371,6 @@ export function AdmissionPolicyConfiguration({
 
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </section>
-  )
-}
-
-function ModelEditor({
-  model,
-  onChange,
-}: {
-  model: ModelConfiguration
-  onChange: (model: ModelConfiguration) => void
-}) {
-  const update = <Key extends keyof ModelConfiguration>(key: Key, value: ModelConfiguration[Key]) => {
-    onChange({ ...model, [key]: value })
-  }
-  return (
-    <div className="intake-policy-grid">
-      <label className="field">
-        <span>Recommendation model</span>
-        <input required minLength={2} maxLength={120} value={model.modelId} onChange={(event) => update('modelId', event.currentTarget.value)} />
-      </label>
-      <details className="configuration-advanced field-wide">
-        <summary>Advanced model settings</summary>
-        <div className="intake-policy-grid">
-          <label className="field"><span>Model release</span><input required value={model.version} onChange={(event) => update('version', event.currentTarget.value)} /></label>
-          <label className="field"><span>Prompt version</span><input required value={model.promptVersion} onChange={(event) => update('promptVersion', event.currentTarget.value)} /></label>
-          <label className="field"><span>Schema version</span><input required value={model.schemaVersion} onChange={(event) => update('schemaVersion', event.currentTarget.value)} /></label>
-          <label className="field"><span>Evaluation suite</span><input required value={model.evaluationSuiteVersion} onChange={(event) => update('evaluationSuiteVersion', event.currentTarget.value)} /></label>
-        </div>
-      </details>
-    </div>
   )
 }
 
@@ -454,15 +410,5 @@ function newReason(position: number): ReasonCode {
     key: `decision_reason_${position}`,
     label: `Decision reason ${position}`,
     allowedDecisions: ['needs_information'],
-  }
-}
-
-function newModel(policyVersion: string): ModelConfiguration {
-  return {
-    version: `${policyVersion}-model`,
-    modelId: 'gpt-5-mini',
-    promptVersion: 'admission-recommendation-v1',
-    schemaVersion: 'admission-recommendation-v1',
-    evaluationSuiteVersion: 'admission-recommendation-v1',
   }
 }

@@ -111,9 +111,9 @@ Production sends `store: false` and does not use OpenAI Conversations or backgro
 
 ### Admission recommendation contract
 
-Before applications open, operations publishes the complete human rubric together with either one exact model configuration or explicit human-only mode. The pair has one lifecycle: matching draft, validation, publication, supersession, and checksum checks. Publication also creates the policy's empty overall capacity bucket and moves both event pointers in the same Convex mutation. The first application closes later drafts and publication; a submission/publication race resolves to one policy through Convex transaction conflicts.
+Before applications open, operations publishes the complete human rubric. The platform attaches the exact code-owned model configuration. The pair has one lifecycle: matching draft, validation, publication, supersession, and checksum checks. Publication also creates the policy's empty overall capacity bucket and moves both event pointers in the same Convex mutation. The first application closes later drafts and publication; a submission/publication race resolves to one policy through Convex transaction conflicts.
 
-When enabled, admission analysis uses that policy's own model ID, prompt, JSON Schema, evaluation-suite labels, deduplication key, and `admission_ai` Workpool. It runs only after final submission has locked the active member set and created an immutable proposal version. There is no model fallback to a different policy release.
+Admission analysis uses that policy's attached model ID, prompt, JSON Schema, evaluation-suite labels, deduplication key, and `admission_ai` Workpool whenever the provider key is configured. It runs only after final submission has locked the active member set and created an immutable proposal version. There is no model fallback to a different policy release.
 
 The request includes the redacted current proposal, follow-up answers, participant-visible questions, cumulative organizer questions and lead answers, deterministic experience-band key, and published admission criteria. Requested-information entries receive stable source references in request and answer order. The request excludes names, contact and registration data, institution-prestige signals, raw eligibility evidence, human review and decision state, capacity, attendance, GitHub and Figma activity, judging rubrics, scores, and rankings.
 
@@ -772,7 +772,7 @@ Redeploy the last compatible source commit. Additive schema changes stay in plac
 
 ### Novelty and intake model/config
 
-If OpenAI becomes unreliable, remove its environment key through the controlled secret store. Novelty becomes unavailable, intake uses its published deterministic fallback, and admission remains human-only. Leave the published corpus and active draft pins unchanged; do not change vector width or re-embed only part of a corpus. Point new intake sessions to the last published compatible model configuration. Sessions already pinned to a valid older version continue. If a question configuration is unsafe, disable its model path so every affected session uses its already-published deterministic fallback; do not rewrite participant answers.
+If OpenAI becomes unreliable, remove its environment key through the controlled secret store. Novelty becomes unavailable, intake uses its reviewed fallback, and admission remains available for human review without an AI result. Leave the published corpus and active draft pins unchanged; do not change vector width or re-embed only part of a corpus. Roll back the code-owned question release if its prompt or validation is unsafe; do not add an event-level toggle or rewrite participant answers.
 
 ### Data
 
@@ -809,14 +809,14 @@ Intelligence HMAC rotation uses the autonomy kill switch, pauses manual generati
 
 - Production auth callbacks accept only production origins/schemes.
 - The first intake frame is **Hello.**, followed by **What is your project about?**, with one text box and no form, chat, or PPT UI.
-- Every introduction asks exactly two follow-ups: generated questions on the assisted path and published fallbacks in deterministic mode or when model work fails. The second follow-up is the required third total question. Later checkpoints use their own published fixed-question plan.
+- Every introduction asks exactly two follow-ups: generated questions when the provider key exists and reviewed fallbacks when generation is unavailable or invalid. The second follow-up is the required third total question. Later checkpoints use their own published fixed-question plan.
 - Novelty uses one immutable reviewed corpus, native 1,536-value `text-embedding-3-small` output, and a corpus-filtered vector index. The participant sees only the newest complete result; provider failure, sensitive input, duplicate requests, and stale completion leave submission usable and add nothing to application or judging evidence.
 - OpenAI Responses requests set `store: false`, expose no tools, exclude identity/judging fields, and accept only the strict versioned output schema. The embeddings endpoint has no `store` parameter.
 - A timeout, refusal, invalid output, quota error, or disabled model still lets a team finish and submit; a late result cannot replace the visible question.
 - A generated question is short, single-purpose, easy to answer, source/configuration-linked, validated before display, and never treated as a participant answer.
 - Event phase is server-assigned. The freshness attestation remains a separate participant fact. The submitted proposal uses participant-written answers, not generated prose.
 - Final submission requires a current explicit preview of the team and proposal. It atomically writes the application and membership lock. The lead can append immutable proposal versions before `applicationsCloseAt`.
-- Admission configuration publishes one human policy, optional exact model child, and empty capacity bucket atomically. The first validating/finalizing submission attempt freezes the release; every completed application pins the same event policy, and human-only mode requires no placeholder model.
+- Admission configuration publishes one human policy, its code-owned exact model child, and an empty capacity bucket atomically. The first validating/finalizing submission attempt freezes the release, and every completed application pins the same event policy.
 - Admission analysis applies the published deterministic experience band, returns a source-linked non-numeric structure, excludes identity/capacity/human-review/judging inputs, and cannot publish a decision. Human review works when it fails.
 - A holder of `application.ai_recommendation.run` can retry only the current failed or stale analysis during active review. The command keeps the old result, checks current application/recommendation versions, records a reason and audit event, and creates no duplicate on replay. Reading the result still needs `application.ai_recommendation.read`.
 - The intelligence Worker exposes `/health`, strict signed brief/copilot/autonomy ingress and abort/continuation routes, and read-only ticketed sanitized history. It has no Convex credential, raw Flue history route, generic tool, or event command tool.

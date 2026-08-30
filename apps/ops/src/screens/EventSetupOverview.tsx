@@ -93,7 +93,7 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
           {tabs.showIntake ? (
             <SetupRow
               detail={intake
-                ? `${intake.publishedPolicy.policy.model.mode === 'assisted' ? 'AI-supported' : 'Fixed'} follow-up questions after the first idea`
+                ? 'Two generated follow-up questions with reviewed fallbacks'
                 : 'Loading the idea questions…'}
               label="Idea questions"
               state={publishedState(intake, Boolean(intake?.draftPolicy))}

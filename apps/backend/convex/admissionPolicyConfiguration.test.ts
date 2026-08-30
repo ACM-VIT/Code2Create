@@ -14,6 +14,7 @@ import {
   saveAdmissionConfigurationDraft,
   type AdmissionConfiguration,
 } from "./lib/admissionPolicy.ts";
+import { admissionRecommendationModel } from "./lib/ideaSubmissionAi.ts";
 import {
   defaultDeterministicIntakePolicy,
   intakePolicyChecksum,
@@ -146,7 +147,7 @@ describe("admission policy configuration", () => {
     });
     expect(published).toEqual({
       version: "admission-v2",
-      modelVersion: "admission-model-v2",
+      modelVersion: "admission-recommendation-v2",
       capacity: 900,
       oldPolicyStatus: "superseded",
       bucketCapacities: [900, 1_000],
@@ -183,7 +184,7 @@ describe("admission policy configuration", () => {
     expect(afterRejectedPublication?.publishedAdmissionPolicyId).toBe(draft.policyVersionId);
   });
 
-  test("publishing human-only mode removes the prior model pointer", async () => {
+  test("a request to disable recommendations still publishes the code-owned model", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "disable-model");
     const enabledDraft = await backend.run((ctx) => saveAdmissionConfigurationDraft(ctx, {
@@ -215,8 +216,8 @@ describe("admission policy configuration", () => {
       event: eventWithModel,
       draftPolicyId: disabledDraft.policyVersionId,
       expectedPolicyChecksum: disabledDraft.policyChecksum,
-      expectedModelConfigId: null,
-      expectedModelChecksum: null,
+      expectedModelConfigId: disabledDraft.modelConfigVersionId,
+      expectedModelChecksum: disabledDraft.modelChecksum,
       now: fixture.now + 4,
     }));
     const result = await backend.run(async (ctx) => {
@@ -234,9 +235,9 @@ describe("admission policy configuration", () => {
       };
     });
     expect(result).toEqual({
-      eventModelId: undefined,
-      model: null,
-      aiRecommendationMode: "disabled",
+      eventModelId: disabledDraft.modelConfigVersionId,
+      model: admissionRecommendationModel,
+      aiRecommendationMode: "enabled",
       priorModelStatus: "superseded",
     });
   });
