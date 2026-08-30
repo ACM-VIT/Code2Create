@@ -1,4 +1,7 @@
-import { vitHostelResidenceLabels } from "@code2create/domain";
+import {
+  findVitHostelResidenceCatalogEntry,
+  vitHostelResidenceCatalogLabel,
+} from "@code2create/domain";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -22,6 +25,7 @@ import {
   storedOperationVersion,
 } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
+import { loadPublishedParticipantPolicy } from "./lib/participantPolicy";
 import { normalizedText } from "./lib/strings";
 import { appendEmergencyPackReadFactById } from "./lib/operationsAutonomyReadFacts/incidentReadiness";
 import {
@@ -201,10 +205,13 @@ async function buildSnapshot(
   ctx: QueryCtx,
   event: Doc<"events">,
 ) {
-  const { normalized: communicationsPolicy } = await loadPublishedCommunicationsPolicy(
-    ctx,
-    event,
-  );
+  const [
+    { normalized: communicationsPolicy },
+    { normalized: participantPolicy },
+  ] = await Promise.all([
+    loadPublishedCommunicationsPolicy(ctx, event),
+    loadPublishedParticipantPolicy(ctx, event),
+  ]);
   const attendancePlanId = event.publishedAttendancePlanVersionId;
   const floorPlanId = event.publishedFloorPlanVersionId;
   const snapshotAt = Date.now();
@@ -340,7 +347,12 @@ async function buildSnapshot(
           ? { vitRegistrationNumber: profile.vitRegistrationNumber }
           : {}),
         ...(profile?.vitHostelResidence !== undefined
-          ? { vitHostelResidence: vitHostelResidenceLabels[profile.vitHostelResidence] }
+          ? {
+              vitHostelResidence: vitHostelResidenceLabel(
+                participantPolicy.vitHostelResidenceCatalog,
+                profile.vitHostelResidence,
+              ),
+            }
           : {}),
         ...(profile?.vitHostelRoomNumber !== undefined
           ? { vitHostelRoomNumber: profile.vitHostelRoomNumber }
@@ -538,6 +550,18 @@ async function buildSnapshot(
     sessions,
     rounds,
   };
+}
+
+function vitHostelResidenceLabel(
+  catalog: readonly {
+    stableKey: string;
+    label: string;
+    kind: "day_scholar" | "mens" | "ladies";
+  }[],
+  stableKey: string,
+) {
+  const residence = findVitHostelResidenceCatalogEntry(catalog, stableKey);
+  return residence ? vitHostelResidenceCatalogLabel(residence) : stableKey;
 }
 
 export const generationFinished = exportWorkpool.defineOnComplete<

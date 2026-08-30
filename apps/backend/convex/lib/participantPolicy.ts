@@ -1,4 +1,10 @@
-import { isVitHostelBlock } from "@code2create/domain";
+import {
+  defaultVitHostelResidenceCatalog,
+  findVitHostelResidenceCatalogEntry,
+  isVitHostelResidenceCatalogBlock,
+  type VitHostelResidenceCatalogEntry,
+  type VitHostelResidenceKind,
+} from "@code2create/domain";
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";
@@ -16,6 +22,18 @@ export const profileFieldMode = v.union(
 
 export type ProfileFieldMode = "not_collected" | "optional" | "required";
 
+export const vitHostelResidenceKind = v.union(
+  v.literal("day_scholar"),
+  v.literal("mens"),
+  v.literal("ladies"),
+);
+
+export const vitHostelResidenceCatalogEntry = v.object({
+  stableKey: v.string(),
+  label: v.string(),
+  kind: vitHostelResidenceKind,
+});
+
 export const participantPolicyInput = v.object({
   label: v.string(),
   teamMinimumSize: v.number(),
@@ -28,6 +46,7 @@ export const participantPolicyInput = v.object({
   externalCityField: profileFieldMode,
   externalCountryField: profileFieldMode,
   vitHostelDetailsField: profileFieldMode,
+  vitHostelResidenceCatalog: v.array(vitHostelResidenceCatalogEntry),
   profileNotice: v.string(),
   projectTextNotice: v.string(),
   privacyNoticeUrl: v.string(),
@@ -47,6 +66,7 @@ export type ParticipantPolicy = {
   externalCityField: ProfileFieldMode;
   externalCountryField: ProfileFieldMode;
   vitHostelDetailsField: ProfileFieldMode;
+  vitHostelResidenceCatalog: VitHostelResidenceCatalogEntry[];
   profileNotice: string;
   projectTextNotice: string;
   privacyNoticeUrl: string;
@@ -69,6 +89,7 @@ export const defaultParticipantPolicy: ParticipantPolicy = {
   externalCityField: "optional",
   externalCountryField: "required",
   vitHostelDetailsField: "required",
+  vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
   profileNotice:
     "We use these details to establish event eligibility, contact you about operations, and run Code2Create.",
   projectTextNotice:
@@ -102,6 +123,46 @@ function normalizedHttpsUrl(value: string, label: string) {
     invalidPolicy(`${label} must be a complete HTTPS URL without embedded credentials.`);
   }
   return url.toString();
+}
+
+const maximumVitHostelResidenceCount = 64;
+
+function normalizeVitHostelResidenceCatalog(
+  catalog: readonly VitHostelResidenceCatalogEntry[],
+) {
+  if (catalog.length < 2 || catalog.length > maximumVitHostelResidenceCount) {
+    invalidPolicy(
+      `The VIT residence catalogue must contain 2 to ${maximumVitHostelResidenceCount} entries.`,
+    );
+  }
+  const stableKeys = new Set<string>();
+  let dayScholarCount = 0;
+  const normalized = catalog.map((entry, index) => {
+    const stableKey = entry.stableKey.trim().toLowerCase();
+    if (!/^[a-z][a-z0-9_]{1,39}$/.test(stableKey)) {
+      invalidPolicy(
+        `VIT residence ${index + 1} needs a 2 to 40 character lowercase stable key.`,
+      );
+    }
+    if (stableKeys.has(stableKey)) {
+      invalidPolicy(`VIT residence stable key “${stableKey}” is duplicated.`);
+    }
+    stableKeys.add(stableKey);
+    const kind: VitHostelResidenceKind = entry.kind;
+    if (kind === "day_scholar") dayScholarCount += 1;
+    return {
+      stableKey,
+      label: normalizedText(entry.label, `VIT residence ${index + 1} label`, 2, 80),
+      kind,
+    };
+  });
+  if (dayScholarCount !== 1) {
+    invalidPolicy("The VIT residence catalogue must contain exactly one day-scholar entry.");
+  }
+  if (normalized.every((entry) => entry.kind === "day_scholar")) {
+    invalidPolicy("The VIT residence catalogue must contain at least one hostel block.");
+  }
+  return normalized;
 }
 
 export function normalizeParticipantPolicy(input: ParticipantPolicy): ParticipantPolicy {
@@ -146,6 +207,9 @@ export function normalizeParticipantPolicy(input: ParticipantPolicy): Participan
     externalCityField: input.externalCityField,
     externalCountryField: input.externalCountryField,
     vitHostelDetailsField: input.vitHostelDetailsField,
+    vitHostelResidenceCatalog: normalizeVitHostelResidenceCatalog(
+      input.vitHostelResidenceCatalog,
+    ),
     profileNotice: normalizedLongText(input.profileNotice, "Profile notice", 20, 600),
     projectTextNotice: normalizedLongText(
       input.projectTextNotice,
@@ -178,6 +242,7 @@ export function participantPolicyFromDocument(
     externalCityField: policy.externalCityField,
     externalCountryField: policy.externalCountryField,
     vitHostelDetailsField: policy.vitHostelDetailsField,
+    vitHostelResidenceCatalog: policy.vitHostelResidenceCatalog,
     profileNotice: policy.profileNotice,
     projectTextNotice: policy.projectTextNotice,
     privacyNoticeUrl: policy.privacyNoticeUrl,
@@ -272,12 +337,18 @@ function requiredValue(mode: ProfileFieldMode, value: string | undefined) {
 function hostelDetailsComplete(
   profile: Doc<"participantProfiles">,
   mode: ProfileFieldMode,
+  catalog: readonly VitHostelResidenceCatalogEntry[],
 ) {
   if (mode === "not_collected") return true;
   if (profile.vitHostelResidence === undefined) {
     return mode === "optional" && profile.vitHostelRoomNumber === undefined;
   }
-  if (!isVitHostelBlock(profile.vitHostelResidence)) {
+  const residence = findVitHostelResidenceCatalogEntry(
+    catalog,
+    profile.vitHostelResidence,
+  );
+  if (!residence) return false;
+  if (!isVitHostelResidenceCatalogBlock(residence)) {
     return profile.vitHostelRoomNumber === undefined;
   }
   return profile.vitHostelRoomNumber !== undefined;
@@ -305,7 +376,11 @@ export function isProfileCompleteForPolicy(
       requiredValue(policy.vitRegistrationNumberField, profile.vitRegistrationNumber) &&
       requiredValue(policy.vitProgrammeField, profile.vitProgramme) &&
       requiredValue(policy.vitCampusField, profile.vitCampus) &&
-      hostelDetailsComplete(profile, policy.vitHostelDetailsField)
+      hostelDetailsComplete(
+        profile,
+        policy.vitHostelDetailsField,
+        policy.vitHostelResidenceCatalog,
+      )
     );
   }
   return (

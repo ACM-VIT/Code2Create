@@ -1,11 +1,8 @@
 import { api } from '@code2create/backend/api'
 import {
-  findVitHostelResidence,
-  isVitHostelBlock,
-  ladiesHostelResidences,
-  mensHostelResidences,
+  findVitHostelResidenceCatalogEntry,
+  isVitHostelResidenceCatalogBlock,
   studyYearLabels,
-  vitHostelResidenceOptionLabels,
 } from '@code2create/domain'
 import { useMutation } from 'convex/react'
 import { useState, type FormEvent } from 'react'
@@ -26,19 +23,26 @@ import { useOperationRunner } from '../lib/operations'
 import type { ParticipantMe } from '../types'
 
 type StudyYear = NonNullable<ParticipantMe['profile']>['yearOfStudy']
+type HostelCatalog = ParticipantMe['participantPolicy']['policy']['vitHostelResidenceCatalog']
 
-function hostelDetailsPayload(residenceValue: string, roomNumber: string) {
-  const residence = findVitHostelResidence(residenceValue)
+function hostelDetailsPayload(
+  catalog: HostelCatalog,
+  residenceValue: string,
+  roomNumber: string,
+) {
+  const residence = findVitHostelResidenceCatalogEntry(catalog, residenceValue)
   if (!residence) return {}
   return {
-    vitHostelResidence: residence,
-    ...(isVitHostelBlock(residence) && roomNumber ? { vitHostelRoomNumber: roomNumber } : {}),
+    vitHostelResidence: residence.stableKey,
+    ...(isVitHostelResidenceCatalogBlock(residence) && roomNumber
+      ? { vitHostelRoomNumber: roomNumber }
+      : {}),
   }
 }
 
-function hostelBlockSelected(value: string) {
-  const residence = findVitHostelResidence(value)
-  return residence !== null && isVitHostelBlock(residence)
+function hostelBlockSelected(catalog: HostelCatalog, value: string) {
+  const residence = findVitHostelResidenceCatalogEntry(catalog, value)
+  return residence !== null && isVitHostelResidenceCatalogBlock(residence)
 }
 
 function parseStudyYear(value: string): StudyYear | null {
@@ -137,7 +141,11 @@ export function DetailsScreen({
               ? { vitCampus: campus }
               : {}),
             ...(vitStudent && policy.vitHostelDetailsField !== 'not_collected'
-              ? hostelDetailsPayload(hostelResidence, hostelRoomNumber)
+              ? hostelDetailsPayload(
+                  policy.vitHostelResidenceCatalog,
+                  hostelResidence,
+                  hostelRoomNumber,
+                )
               : {}),
             ...(!vitStudent && policy.externalCityField !== 'not_collected' && externalCity
               ? { externalCity }
@@ -356,34 +364,48 @@ export function DetailsScreen({
                               onChange={(event) => {
                                 const nextResidence = event.target.value
                                 setHostelResidence(nextResidence)
-                                const parsed = findVitHostelResidence(nextResidence)
-                                if (!parsed || !isVitHostelBlock(parsed)) {
+                                const parsed = findVitHostelResidenceCatalogEntry(
+                                  policy.vitHostelResidenceCatalog,
+                                  nextResidence,
+                                )
+                                if (!parsed || !isVitHostelResidenceCatalogBlock(parsed)) {
                                   setHostelRoomNumber('')
                                 }
                               }}
                             >
                               <option value="">Select residence</option>
-                              <option value="day_scholar">
-                                {vitHostelResidenceOptionLabels.day_scholar}
-                              </option>
+                              {policy.vitHostelResidenceCatalog
+                                .filter((residence) => residence.kind === 'day_scholar')
+                                .map((residence) => (
+                                  <option key={residence.stableKey} value={residence.stableKey}>
+                                    {residence.label}
+                                  </option>
+                                ))}
                               <optgroup label="Men's hostel">
-                                {mensHostelResidences.map((residence) => (
-                                  <option key={residence} value={residence}>
-                                    {vitHostelResidenceOptionLabels[residence]}
+                                {policy.vitHostelResidenceCatalog
+                                  .filter((residence) => residence.kind === 'mens')
+                                  .map((residence) => (
+                                  <option key={residence.stableKey} value={residence.stableKey}>
+                                    {residence.label}
                                   </option>
                                 ))}
                               </optgroup>
                               <optgroup label="Ladies' hostel">
-                                {ladiesHostelResidences.map((residence) => (
-                                  <option key={residence} value={residence}>
-                                    {vitHostelResidenceOptionLabels[residence]}
+                                {policy.vitHostelResidenceCatalog
+                                  .filter((residence) => residence.kind === 'ladies')
+                                  .map((residence) => (
+                                  <option key={residence.stableKey} value={residence.stableKey}>
+                                    {residence.label}
                                   </option>
                                 ))}
                               </optgroup>
                             </PortalSelect>
                           )}
                         </PortalField>
-                        {hostelBlockSelected(hostelResidence) ? (
+                        {hostelBlockSelected(
+                          policy.vitHostelResidenceCatalog,
+                          hostelResidence,
+                        ) ? (
                           <PortalField label="room number">
                             {(id) => (
                               <PortalInput

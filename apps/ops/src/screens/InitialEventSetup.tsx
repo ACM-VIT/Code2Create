@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { defaultVitHostelResidenceCatalog } from '@code2create/domain'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import { useMutation, useQuery } from 'convex/react'
 import { useState, type FormEvent, type ReactNode } from 'react'
@@ -105,6 +106,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           externalCityField: 'optional',
           externalCountryField: 'required',
           vitHostelDetailsField: 'required',
+          vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
           profileNotice:
             'We use these details to establish event eligibility, contact you about operations, and run Code2Create.',
           projectTextNotice:

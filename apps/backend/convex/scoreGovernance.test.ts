@@ -1,4 +1,5 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
+import { defaultVitHostelResidenceCatalog } from "@code2create/domain";
 import { ConvexError } from "convex/values";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test, vi } from "vitest";
@@ -715,6 +716,7 @@ async function seedCorrectionFixture(backend: BackendTest) {
       externalCityField: "optional",
       externalCountryField: "optional",
       vitHostelDetailsField: "not_collected",
+      vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
       profileNotice: "Correction fixture profile notice",
       projectTextNotice: "Correction fixture project notice",
       privacyNoticeUrl: "https://example.test/privacy",

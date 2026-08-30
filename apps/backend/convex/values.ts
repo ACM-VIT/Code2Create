@@ -1,13 +1,4 @@
-import { vitHostelResidences } from "@code2create/domain";
 import { type Infer, v } from "convex/values";
-
-function requiredLiteralUnion<Value extends string>(values: readonly Value[]) {
-  const first = values[0];
-  if (first === undefined) {
-    throw new Error("A literal union needs at least one value.");
-  }
-  return v.union(v.literal(first), ...values.slice(1).map((value) => v.literal(value)));
-}
 
 export const participantClass = v.union(
   v.literal("vit_student"),
@@ -43,9 +34,6 @@ export const studyYear = v.union(
   v.literal("postgraduate"),
   v.literal("not_applicable"),
 );
-
-export const vitHostelResidence = requiredLiteralUnion(vitHostelResidences);
-export type VitHostelResidence = Infer<typeof vitHostelResidence>;
 
 export const memberRole = v.union(v.literal("lead"), v.literal("member"));
 

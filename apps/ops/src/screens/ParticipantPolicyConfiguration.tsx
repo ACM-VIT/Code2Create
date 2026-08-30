@@ -16,6 +16,7 @@ import {
 type Configuration = FunctionReturnType<typeof api.participantPolicyConfiguration.current>
 type Policy = Configuration['publishedPolicy']['policy']
 type FieldMode = Policy['phoneField']
+type HostelResidence = Policy['vitHostelResidenceCatalog'][number]
 type PolicyOperationResult =
   | FunctionReturnType<typeof api.participantPolicyConfiguration.createDraft>
   | FunctionReturnType<typeof api.participantPolicyConfiguration.publish>
@@ -97,6 +98,33 @@ export function ParticipantPolicyConfiguration({
 
   const updatePolicy = <Key extends keyof Policy>(key: Key, value: Policy[Key]) => {
     setPolicy((current) => current ? { ...current, [key]: value } : current)
+  }
+
+  const updateHostelResidence = (index: number, patch: Partial<HostelResidence>) => {
+    updatePolicy(
+      'vitHostelResidenceCatalog',
+      policy.vitHostelResidenceCatalog.map((residence, residenceIndex) =>
+        residenceIndex === index ? { ...residence, ...patch } : residence,
+      ),
+    )
+  }
+
+  const addHostelResidence = () => {
+    updatePolicy('vitHostelResidenceCatalog', [
+      ...policy.vitHostelResidenceCatalog,
+      {
+        stableKey: nextHostelResidenceKey(policy.vitHostelResidenceCatalog),
+        label: 'New block',
+        kind: 'mens',
+      },
+    ])
+  }
+
+  const removeHostelResidence = (index: number) => {
+    updatePolicy(
+      'vitHostelResidenceCatalog',
+      policy.vitHostelResidenceCatalog.filter((_, residenceIndex) => residenceIndex !== index),
+    )
   }
 
   const saveDraft = (event: FormEvent) => {
@@ -196,6 +224,7 @@ export function ParticipantPolicyConfiguration({
         <div><dt>Status</dt><dd>Ready</dd></div>
         <div><dt>Team size</dt><dd>{configuration.publishedPolicy.policy.teamMinimumSize}–{configuration.publishedPolicy.policy.teamMaximumSize}</dd></div>
         <div><dt>Team eligibility</dt><dd>VIT and external teams stay separate</dd></div>
+        <div><dt>VIT residences</dt><dd>{configuration.publishedPolicy.policy.vitHostelResidenceCatalog.length}</dd></div>
       </dl>
 
       {pendingOperation ? (
@@ -286,6 +315,74 @@ export function ParticipantPolicyConfiguration({
             </div>
           </PolicySection>
 
+          <PolicySection
+            title="VIT residence catalogue"
+            description="Published entries appear in the participant hostel selector. Stable keys are stored on profiles; labels and grouping are participant-facing."
+          >
+            <div className="phase-card-list">
+              {policy.vitHostelResidenceCatalog.map((residence, index) => (
+                <article className="phase-card" key={`${residence.stableKey}:${index}`}>
+                  <header className="configuration-card-heading">
+                    <div>
+                      <span>Residence {index + 1}</span>
+                      <strong>{residence.label || 'Unnamed residence'}</strong>
+                    </div>
+                    {policy.vitHostelResidenceCatalog.length > 2 ? (
+                      <button className="text-button" type="button" onClick={() => removeHostelResidence(index)}>
+                        Remove
+                      </button>
+                    ) : null}
+                  </header>
+                  <div className="intake-policy-grid">
+                    <label className="field">
+                      <span>Stable key</span>
+                      <input
+                        required
+                        minLength={2}
+                        maxLength={40}
+                        pattern="[a-z][a-z0-9_]+"
+                        value={residence.stableKey}
+                        onChange={(event) => updateHostelResidence(index, { stableKey: event.currentTarget.value })}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Participant label</span>
+                      <input
+                        required
+                        minLength={2}
+                        maxLength={80}
+                        value={residence.label}
+                        onChange={(event) => updateHostelResidence(index, { label: event.currentTarget.value })}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Group</span>
+                      <select
+                        value={residence.kind}
+                        onChange={(event) => updateHostelResidence(index, {
+                          kind: readHostelResidenceKind(event.currentTarget.value),
+                        })}
+                      >
+                        <option value="day_scholar">Day scholar</option>
+                        <option value="mens">Men's hostel</option>
+                        <option value="ladies">Ladies' hostel</option>
+                      </select>
+                    </label>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <button
+              className="secondary intake-policy-add"
+              disabled={policy.vitHostelResidenceCatalog.length >= 64}
+              type="button"
+              onClick={addHostelResidence}
+            >
+              Add residence
+            </button>
+            <p className="notice">Keep exactly one day-scholar entry and at least one hostel block.</p>
+          </PolicySection>
+
           <PolicySection title="Participant notice" description="The project-question AI never receives profile fields.">
             <div className="intake-policy-grid">
               <label className="field">
@@ -370,6 +467,20 @@ function FieldModeSelect({
 function readFieldMode(value: string): FieldMode {
   if (value === 'not_collected' || value === 'optional' || value === 'required') return value
   throw new Error('Invalid profile field mode.')
+}
+
+function readHostelResidenceKind(value: string): HostelResidence['kind'] {
+  if (value === 'day_scholar' || value === 'mens' || value === 'ladies') return value
+  throw new Error('Invalid VIT residence group.')
+}
+
+function nextHostelResidenceKey(catalog: Policy['vitHostelResidenceCatalog']) {
+  const stableKeys = new Set(catalog.map((residence) => residence.stableKey))
+  for (let suffix = 1; suffix <= 64; suffix += 1) {
+    const candidate = `residence_${suffix}`
+    if (!stableKeys.has(candidate)) return candidate
+  }
+  throw new Error('The VIT residence catalogue is full.')
 }
 
 function PolicySection({

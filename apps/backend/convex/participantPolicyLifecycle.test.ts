@@ -69,6 +69,34 @@ describe("participant policy lifecycle", () => {
     })).toThrow("positive whole number");
   });
 
+  test("normalizes an Ops-managed VIT residence catalogue", () => {
+    const policy = normalizeParticipantPolicy({
+      ...defaultParticipantPolicy,
+      vitHostelResidenceCatalog: [
+        { stableKey: " day_scholar ", label: " Day scholar ", kind: "day_scholar" },
+        { stableKey: "mh_new_annex", label: " New annex ", kind: "mens" },
+      ],
+    });
+    expect(policy.vitHostelResidenceCatalog).toEqual([
+      { stableKey: "day_scholar", label: "Day scholar", kind: "day_scholar" },
+      { stableKey: "mh_new_annex", label: "New annex", kind: "mens" },
+    ]);
+    expect(() => normalizeParticipantPolicy({
+      ...defaultParticipantPolicy,
+      vitHostelResidenceCatalog: [
+        { stableKey: "day_scholar", label: "Day scholar", kind: "day_scholar" },
+        { stableKey: "day_scholar", label: "Duplicate", kind: "mens" },
+      ],
+    })).toThrow("duplicated");
+    expect(() => normalizeParticipantPolicy({
+      ...defaultParticipantPolicy,
+      vitHostelResidenceCatalog: [
+        { stableKey: "mh_a", label: "A block", kind: "mens" },
+        { stableKey: "lh_a", label: "A block", kind: "ladies" },
+      ],
+    })).toThrow("exactly one day-scholar");
+  });
+
   test("VIT hostel completeness requires a current block and room, or day scholar", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "hostel-complete");

@@ -1,9 +1,9 @@
 import {
-  findVitHostelResidence,
-  isVitHostelBlock,
+  findVitHostelResidenceCatalogEntry,
+  isVitHostelResidenceCatalogBlock,
   isVitHostelRoomNumber,
   normalizeVitHostelRoomNumberInput,
-  type VitHostelResidence,
+  type VitHostelResidenceCatalogEntry,
 } from "@code2create/domain";
 import { ConvexError } from "convex/values";
 
@@ -14,18 +14,19 @@ export function parsedHostelDetails(
   residenceValue: string | undefined,
   roomValue: string | undefined,
   mode: ProfileFieldMode,
+  catalog: readonly VitHostelResidenceCatalogEntry[],
 ) {
   if (participantClass !== "vit_student" || mode === "not_collected") {
     return { vitHostelResidence: undefined, vitHostelRoomNumber: undefined };
   }
-  const vitHostelResidence = parsedHostelResidence(residenceValue);
-  if (mode === "required" && vitHostelResidence === undefined) {
+  const residence = parsedHostelResidence(catalog, residenceValue);
+  if (mode === "required" && residence === undefined) {
     throw new ConvexError({
       code: "PROFILE_FIELD_REQUIRED",
       message: "Hostel residence is required by the current participant policy.",
     });
   }
-  if (vitHostelResidence === undefined) {
+  if (residence === undefined) {
     if (normalizeVitHostelRoomNumberInput(roomValue ?? "")) {
       throw new ConvexError({
         code: "HOSTEL_ROOM_WITHOUT_BLOCK",
@@ -34,14 +35,14 @@ export function parsedHostelDetails(
     }
     return { vitHostelResidence: undefined, vitHostelRoomNumber: undefined };
   }
-  if (!isVitHostelBlock(vitHostelResidence)) {
+  if (!isVitHostelResidenceCatalogBlock(residence)) {
     if (normalizeVitHostelRoomNumberInput(roomValue ?? "")) {
       throw new ConvexError({
         code: "DAY_SCHOLAR_HAS_NO_ROOM",
         message: "Day scholars do not have a hostel room number.",
       });
     }
-    return { vitHostelResidence, vitHostelRoomNumber: undefined };
+    return { vitHostelResidence: residence.stableKey, vitHostelRoomNumber: undefined };
   }
   const vitHostelRoomNumber = parsedHostelRoomNumber(roomValue);
   if (vitHostelRoomNumber === undefined) {
@@ -50,13 +51,16 @@ export function parsedHostelDetails(
       message: "Enter your hostel room number.",
     });
   }
-  return { vitHostelResidence, vitHostelRoomNumber };
+  return { vitHostelResidence: residence.stableKey, vitHostelRoomNumber };
 }
 
-function parsedHostelResidence(value: string | undefined): VitHostelResidence | undefined {
+function parsedHostelResidence(
+  catalog: readonly VitHostelResidenceCatalogEntry[],
+  value: string | undefined,
+) {
   const normalized = value?.trim();
   if (!normalized) return undefined;
-  const residence = findVitHostelResidence(normalized);
+  const residence = findVitHostelResidenceCatalogEntry(catalog, normalized);
   if (!residence) {
     throw new ConvexError({
       code: "INVALID_HOSTEL_RESIDENCE",

@@ -297,6 +297,12 @@ function describeChanges(
     changes.push("Update class-aware profile fields.");
   }
   if (
+    JSON.stringify(published.vitHostelResidenceCatalog) !==
+    JSON.stringify(draft.vitHostelResidenceCatalog)
+  ) {
+    changes.push("Update the VIT residence catalogue.");
+  }
+  if (
     published.label !== draft.label ||
     published.profileNotice !== draft.profileNotice ||
     published.projectTextNotice !== draft.projectTextNotice ||

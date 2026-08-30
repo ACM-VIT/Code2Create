@@ -108,7 +108,6 @@ import {
   venueCheckInStatus,
   venueIdentityCheckMethod,
   venuePresenceState,
-  vitHostelResidence,
 } from "./values";
 import {
   intelligenceRecommendationArguments,
@@ -305,6 +304,15 @@ export default defineSchema({
       v.literal("optional"),
       v.literal("required"),
     ),
+    vitHostelResidenceCatalog: v.array(v.object({
+      stableKey: v.string(),
+      label: v.string(),
+      kind: v.union(
+        v.literal("day_scholar"),
+        v.literal("mens"),
+        v.literal("ladies"),
+      ),
+    })),
     profileNotice: v.string(),
     projectTextNotice: v.string(),
     privacyNoticeUrl: v.string(),
@@ -916,7 +924,7 @@ export default defineSchema({
     vitRegistrationNumber: v.optional(v.string()),
     vitProgramme: v.optional(v.string()),
     vitCampus: v.optional(v.string()),
-    vitHostelResidence: v.optional(vitHostelResidence),
+    vitHostelResidence: v.optional(v.string()),
     vitHostelRoomNumber: v.optional(v.string()),
     externalCity: v.optional(v.string()),
     externalCountry: v.optional(v.string()),

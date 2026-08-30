@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  defaultVitHostelResidenceCatalog,
+  findVitHostelResidenceCatalogEntry,
   findVitHostelResidence,
   isVitHostelBlock,
   isVitHostelRoomNumber,
@@ -10,6 +12,7 @@ import {
   normalizeVitHostelRoomNumberInput,
   vitHostelResidenceKind,
   vitHostelResidenceLabels,
+  vitHostelResidenceCatalogLabel,
   vitHostelResidenceOptionLabels,
   vitHostelResidences,
 } from "./hostel.ts";
@@ -23,6 +26,26 @@ test("the VIT hostel catalog is unique and fully labeled", () => {
     assert.ok(option.length > 0, residence);
     assert.ok(!label.includes("_"), `${residence} still reads as a stored key`);
   }
+});
+
+test("the configurable catalogue defaults to the current hardcoded residences", () => {
+  assert.deepEqual(
+    defaultVitHostelResidenceCatalog.map((entry) => entry.stableKey),
+    vitHostelResidences,
+  );
+  const residence = findVitHostelResidenceCatalogEntry(
+    defaultVitHostelResidenceCatalog,
+    "mh_d_annex",
+  );
+  assert.deepEqual(residence, {
+    stableKey: "mh_d_annex",
+    label: "D annex",
+    kind: "mens",
+  });
+  assert.equal(
+    residence ? vitHostelResidenceCatalogLabel(residence) : null,
+    "Men's hostel · D annex",
+  );
 });
 
 test("the men's hostel catalog matches the current blocks", () => {

@@ -55,7 +55,6 @@ import {
   participantEligibilityStatus,
   participantOnboardingStatus,
   studyYear,
-  vitHostelResidence,
 } from "./values";
 
 const profileView = v.object({
@@ -70,7 +69,7 @@ const profileView = v.object({
   vitRegistrationNumber: v.optional(v.string()),
   vitProgramme: v.optional(v.string()),
   vitCampus: v.optional(v.string()),
-  vitHostelResidence: v.optional(vitHostelResidence),
+  vitHostelResidence: v.optional(v.string()),
   vitHostelRoomNumber: v.optional(v.string()),
   externalCity: v.optional(v.string()),
   externalCountry: v.optional(v.string()),
@@ -811,6 +810,7 @@ export const saveProfile = mutation({
       args.vitHostelResidence,
       args.vitHostelRoomNumber,
       policy.vitHostelDetailsField,
+      policy.vitHostelResidenceCatalog,
     );
     const externalCity = membership.participantClass === "external_participant"
       ? policyField(args.externalCity, policy.externalCityField, "City", 100)

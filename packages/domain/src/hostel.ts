@@ -43,6 +43,12 @@ export type LadiesHostelResidence = (typeof ladiesHostelResidences)[number];
 export type VitHostelResidence = (typeof vitHostelResidences)[number];
 export type VitHostelResidenceKind = "day_scholar" | "mens" | "ladies";
 
+export type VitHostelResidenceCatalogEntry = {
+  stableKey: string;
+  label: string;
+  kind: VitHostelResidenceKind;
+};
+
 export const vitHostelResidenceLabels: Record<VitHostelResidence, string> = {
   day_scholar: "Day scholar",
   mh_a: "Men's hostel · A block",
@@ -107,6 +113,13 @@ export const vitHostelResidenceOptionLabels: Record<VitHostelResidence, string> 
   lh_s: "S block",
 };
 
+export const defaultVitHostelResidenceCatalog: VitHostelResidenceCatalogEntry[] =
+  vitHostelResidences.map((stableKey) => ({
+    stableKey,
+    label: vitHostelResidenceOptionLabels[stableKey],
+    kind: vitHostelResidenceKind(stableKey),
+  }));
+
 export function findVitHostelResidence(value: string): VitHostelResidence | null {
   return vitHostelResidences.find((residence) => residence === value) ?? null;
 }
@@ -121,6 +134,27 @@ export function vitHostelResidenceKind(
 
 export function isVitHostelBlock(residence: VitHostelResidence) {
   return residence !== "day_scholar";
+}
+
+export function findVitHostelResidenceCatalogEntry(
+  catalog: readonly VitHostelResidenceCatalogEntry[],
+  value: string,
+) {
+  return catalog.find((entry) => entry.stableKey === value) ?? null;
+}
+
+export function isVitHostelResidenceCatalogBlock(
+  entry: VitHostelResidenceCatalogEntry,
+) {
+  return entry.kind !== "day_scholar";
+}
+
+export function vitHostelResidenceCatalogLabel(
+  entry: VitHostelResidenceCatalogEntry,
+) {
+  if (entry.kind === "mens") return `Men's hostel · ${entry.label}`;
+  if (entry.kind === "ladies") return `Ladies' hostel · ${entry.label}`;
+  return entry.label;
 }
 
 export function normalizeVitHostelRoomNumberInput(value: string) {
