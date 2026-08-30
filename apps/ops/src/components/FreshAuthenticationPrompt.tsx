@@ -1,5 +1,5 @@
 import { api } from '@code2create/backend/api'
-import type { Code2CreateAuthClient } from '@code2create/web-auth'
+import { signInWithGooglePopup, type Code2CreateAuthClient } from '@code2create/web-auth'
 import { useQuery } from 'convex/react'
 import { useEffect, useState } from 'react'
 
@@ -36,10 +36,7 @@ function FreshAuthenticationDialog({
     setBusy(true)
     setError(null)
     try {
-      const result = await authClient.signIn.popup({
-        provider: 'google',
-        callbackURL: window.location.href,
-      })
+      const result = await signInWithGooglePopup(authClient, window.location.href)
       if (result.error) {
         setError(popupErrorMessage(result.error.code))
         return

@@ -1,5 +1,4 @@
 import { convexClient, crossDomainClient } from '@convex-dev/better-auth/client/plugins'
-import { oauthPopupClient } from 'better-auth/client/plugins'
 import { createAuthClient } from 'better-auth/react'
 import { ConvexProviderWithAuth, type ConvexReactClient } from 'convex/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -10,11 +9,14 @@ import {
   selectTransferCredential,
   type TransferCredential,
 } from './one-time-token'
+import { readAuthPopupNonce, signalAuthPopupCompletion } from './popup'
+
+export { signInWithGooglePopup, type AuthPopupErrorCode } from './popup'
 
 export function createCode2CreateAuthClient(baseURL: string) {
   return createAuthClient({
     baseURL,
-    plugins: [convexClient(), crossDomainClient(), oauthPopupClient()],
+    plugins: [convexClient(), crossDomainClient()],
   })
 }
 
@@ -95,6 +97,7 @@ export function Code2CreateAuthProvider({
 
 function useOneTimeToken(authClient: Code2CreateAuthClient) {
   const credential = useRef<TransferCredential | null>(readTransferCredential())
+  const popupNonce = useRef(readAuthPopupNonce())
   const inFlight = useRef(false)
   const [state, setState] = useState<TransferState>(credential.current ? 'working' : 'idle')
 
@@ -122,6 +125,7 @@ function useOneTimeToken(authClient: Code2CreateAuthClient) {
         removeOneTimeToken: removeOneTimeTokenFromUrl,
       })
       credential.current = null
+      if (popupNonce.current) signalAuthPopupCompletion(popupNonce.current)
       setState('idle')
     } catch {
       setState('failed')
@@ -172,8 +176,9 @@ function readTransferCredential(): TransferCredential | null {
 
 function removeOneTimeTokenFromUrl() {
   const url = new URL(window.location.href)
-  if (!url.searchParams.has('ott')) return
+  if (!url.searchParams.has('ott') && !url.searchParams.has('authPopup')) return
   url.searchParams.delete('ott')
+  url.searchParams.delete('authPopup')
   window.history.replaceState({}, '', url)
 }
 
