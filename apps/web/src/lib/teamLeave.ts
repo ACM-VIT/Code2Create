@@ -11,9 +11,3 @@ export function canLeaveByTeamRule(team: Pick<TeamLeaveRule, 'currentRole' | 'ac
 export function canLeaveCurrentTeam(team: TeamLeaveRule) {
   return team.canLeave && canLeaveByTeamRule(team)
 }
-
-export function leaveTeamPrompt(activeMemberCount: number) {
-  return activeMemberCount === 1
-    ? 'Leave and close this team?'
-    : 'Leave this team? You can create or join another before submissions close.'
-}

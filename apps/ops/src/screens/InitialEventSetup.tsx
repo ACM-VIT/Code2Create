@@ -5,18 +5,24 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import {
+  indiaDateTimeToTimestamp,
+  optionalIndiaDateTimeToTimestamp,
+} from '../lib/indiaDateTime'
 
 export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthClient }) {
   const eligibility = useQuery(api.system.bootstrapEligibility, { eventSlug })
   const bootstrap = useMutation(api.system.bootstrapEvent)
   const [eventName, setEventName] = useState('Code2Create 7.0')
-  const [startsAtLocal, setStartsAtLocal] = useState('')
-  const [endsAtLocal, setEndsAtLocal] = useState('')
+  const [startsAtLocal, setStartsAtLocal] = useState('2026-09-07T14:00')
+  const [endsAtLocal, setEndsAtLocal] = useState('2026-09-09T15:00')
   const [externalApplicationsCloseAtLocal, setExternalApplicationsCloseAtLocal] = useState('')
   const [vitApplicationsCloseAtLocal, setVitApplicationsCloseAtLocal] = useState('')
-  const [venueName, setVenueName] = useState('VIT Chennai')
-  const [venueAddress, setVenueAddress] = useState('')
-  const [discordUrl, setDiscordUrl] = useState('')
+  const [venueName, setVenueName] = useState('Anna Auditorium, VIT Vellore')
+  const [venueAddress, setVenueAddress] = useState(
+    'Anna Auditorium, VIT Vellore, Vellore, Tamil Nadu 632014',
+  )
+  const [discordUrl, setDiscordUrl] = useState('https://discord.gg/code2create')
   const [vitEmailDomain, setVitEmailDomain] = useState('vitstudent.ac.in')
   const [privacyNoticeUrl, setPrivacyNoticeUrl] = useState('https://code2create.in/privacy')
   const [teamMinimumSize, setTeamMinimumSize] = useState('2')
@@ -26,8 +32,8 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
   const [requiredGitHubTopic, setRequiredGitHubTopic] = useState('code2create-7-0')
   const [maximumGitHubRepositories, setMaximumGitHubRepositories] = useState('10')
   const [maximumFigmaFiles, setMaximumFigmaFiles] = useState('10')
-  const [githubFreezeAtLocal, setGithubFreezeAtLocal] = useState('')
-  const [figmaFreezeAtLocal, setFigmaFreezeAtLocal] = useState('')
+  const [githubFreezeAtLocal, setGithubFreezeAtLocal] = useState('2026-09-09T15:00')
+  const [figmaFreezeAtLocal, setFigmaFreezeAtLocal] = useState('2026-09-09T15:00')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -319,15 +325,6 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
       </section>
     </main>
   )
-}
-
-function indiaDateTimeToTimestamp(value: string) {
-  const timestamp = Date.parse(`${value}:00+05:30`)
-  return Number.isSafeInteger(timestamp) && timestamp > 0 ? timestamp : null
-}
-
-function optionalIndiaDateTimeToTimestamp(value: string) {
-  return value ? indiaDateTimeToTimestamp(value) : undefined
 }
 
 function CenteredStatus({ children }: { children: ReactNode }) {

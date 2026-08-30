@@ -690,10 +690,25 @@ describe("participant onboarding lifecycle", () => {
       activeMemberCount: 1,
     });
 
-    const switchRequest = {
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(created.teamId, { version: currentTeam.version + 1 });
+    });
+    await expect(participant.mutation(api.teams.switchTeam, {
       eventSlug: fixture.eventSlug,
       fromTeamId: created.teamId,
       expectedFromTeamVersion: currentTeam.version,
+      code: hostTeam.publicCode,
+      clientOperationId: "sole-lead-stale-switch",
+    })).rejects.toThrow("changed");
+    const refreshedTeam = await participant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!refreshedTeam) throw new Error("The refreshed sole-lead team view is missing.");
+
+    const switchRequest = {
+      eventSlug: fixture.eventSlug,
+      fromTeamId: created.teamId,
+      expectedFromTeamVersion: refreshedTeam.version,
       code: hostTeam.publicCode,
       clientOperationId: "sole-lead-switch",
     } as const;
@@ -855,6 +870,7 @@ describe("participant onboarding lifecycle", () => {
         authUserId: fixture.authUserId,
         googleSubject: "participant-onboarding-google-subject",
         verifiedEmail: "participant@example.test",
+        displayName: "Aarav Menon",
         tokenIssuedAt: fixture.now,
         tokenExpiresAt: fixture.now + 3_600_000,
         verifiedAt: fixture.now,
@@ -878,6 +894,7 @@ describe("participant onboarding lifecycle", () => {
         authUserId: leadAuthUserId,
         googleSubject: "participant-onboarding-roster-lead-subject",
         verifiedEmail: "roster-lead@example.test",
+        displayName: "Roster Lead",
         tokenIssuedAt: fixture.now,
         tokenExpiresAt: fixture.now + 3_600_000,
         verifiedAt: fixture.now,
@@ -925,6 +942,131 @@ describe("participant onboarding lifecycle", () => {
       expect(memberRows[0]?.source).toBe("backfill");
     });
   }, 10_000);
+
+  test("provisions a VIT identity from the verified Google name instead of the mutable auth name", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const email = "identity-check@vitstudent.ac.in";
+    const authUserId = await createAuthUser(
+      backend,
+      fixture.now,
+      "Example Student 24TST0001",
+      email,
+    );
+    const authSessionId = await createAuthSession(
+      backend,
+      authUserId,
+      fixture.now,
+      "participant-onboarding-vit-session",
+    );
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("googleIdentityClaims", {
+        authUserId,
+        googleSubject: "participant-onboarding-vit-subject",
+        verifiedEmail: email,
+        displayName: "Example Student 24TST0001",
+        hostedDomain: "vitstudent.ac.in",
+        tokenIssuedAt: fixture.now,
+        tokenExpiresAt: fixture.now + 3_600_000,
+        verifiedAt: fixture.now,
+      });
+    });
+    await backend.mutation(components.betterAuth.adapter.updateOne, {
+      input: {
+        model: "user",
+        update: {
+          name: "Different Student 24TST9999",
+          updatedAt: fixture.now + 1,
+        },
+        where: [{ field: "_id", operator: "eq", value: authUserId }],
+      },
+    });
+    const participant = backend.withIdentity({
+      subject: authUserId,
+      sessionId: authSessionId,
+    });
+
+    const provisioned = await participant.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "vit_student",
+    });
+    const before = await participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(before?.membership).toMatchObject({
+      id: provisioned.membershipId,
+      participantClass: "vit_student",
+      vitStudentIdentity: {
+        fullName: "Example Student",
+        registrationNumber: "24TST0001",
+        programmeCode: "TST",
+        yearOfStudy: "third",
+      },
+    });
+    expect(before?.person.displayName).toBe("Example Student 24TST0001");
+
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(provisioned.membershipId, { vitStudentIdentity: undefined });
+    });
+    await expect(participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      membership: {
+        id: provisioned.membershipId,
+        vitStudentIdentity: {
+          registrationNumber: "24TST0001",
+        },
+      },
+    });
+    await expect(participant.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "vit_student",
+    })).resolves.toEqual({ membershipId: provisioned.membershipId, created: false });
+    await backend.run(async (ctx) => {
+      const repaired = await ctx.db.get(provisioned.membershipId);
+      expect(repaired?.vitStudentIdentity?.registrationNumber).toBe("24TST0001");
+    });
+
+    await backend.run(async (ctx) => {
+      if (!before) throw new Error("The provisioned participant is missing.");
+      await ctx.db.patch(before.person.id, {
+        displayName: "Updated Google Name",
+        updatedAt: fixture.now + 1,
+      });
+    });
+
+    await expect(participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      membership: {
+        id: provisioned.membershipId,
+        vitStudentIdentity: {
+          registrationNumber: "24TST0001",
+        },
+      },
+    });
+
+    await backend.run(async (ctx) => {
+      const googleIdentity = await ctx.db
+        .query("googleIdentityClaims")
+        .withIndex("by_auth_user", (index) => index.eq("authUserId", authUserId))
+        .unique();
+      if (!googleIdentity) throw new Error("The VIT Google identity is missing.");
+      await Promise.all([
+        ctx.db.patch(provisioned.membershipId, { vitStudentIdentity: undefined }),
+        ctx.db.patch(googleIdentity._id, { displayName: "Example Student" }),
+      ]);
+    });
+    await expect(participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      membership: {
+        id: provisioned.membershipId,
+        vitStudentIdentity: null,
+      },
+    });
+  });
 });
 
 async function seedParticipant(backend: BackendTest) {

@@ -112,11 +112,13 @@ export function SubmittedScreen({
   publicState,
   team,
   members,
+  onSignOut,
 }: {
   capabilities: ParticipantCapabilities
   publicState: PublicState
   team: CurrentTeam
   members: CurrentTeamMember[]
+  onSignOut: () => void
 }) {
   const intake = useQuery(api.intake.submitted, { eventSlug })
   if (intake === undefined) return <p className="muted">Loading your application…</p>
@@ -130,6 +132,7 @@ export function SubmittedScreen({
       intake={intake}
       team={team}
       members={members}
+      onSignOut={onSignOut}
     />
   )
 }
@@ -140,12 +143,14 @@ function SubmittedWorkspace({
   intake,
   team,
   members,
+  onSignOut,
 }: {
   capabilities: ParticipantCapabilities
   publicState: PublicState
   intake: SubmittedIntake
   team: CurrentTeam
   members: CurrentTeamMember[]
+  onSignOut: () => void
 }) {
   const application = intake.application
   const copy = applicationCopy[application.state]
@@ -244,7 +249,10 @@ function SubmittedWorkspace({
   // editor stays one click away rather than sitting open under the hero.
   if (!selected && QUEUED_STATES.includes(application.state)) {
     return (
-      <PortalScene tree="none" header={<TeamCluster team={team} members={members} locked />}>
+      <PortalScene
+        tree="none"
+        header={<TeamCluster team={team} members={members} locked onSignOut={onSignOut} />}
+      >
         <div className="flex w-full max-w-[760px] flex-col items-center text-center">
           <div className="mb-5 drop-shadow-[0_0_14px_rgba(254,180,203,.5)]">
             <Petal size={34} />
@@ -687,11 +695,12 @@ function ProposalSummary({
               value={draft.initialIdea}
               disabled={busy || pending}
               onChange={(event) => {
+                const value = event.currentTarget.value
                 setDraft((current) => ({
                   ...current,
-                  initialIdea: event.currentTarget.value,
+                  initialIdea: value,
                 }))
-                const nextDraft = { ...draft, initialIdea: event.currentTarget.value }
+                const nextDraft = { ...draft, initialIdea: value }
                 writeVersionedSessionDraft(proposalStorageKey, {
                   base: proposalEditBaseFingerprint(editBase.current),
                   value: serializeProposalDraft(nextDraft),
@@ -712,11 +721,12 @@ function ProposalSummary({
                   value={draft.responses[index]?.answer ?? ''}
                   disabled={busy || pending || draft.responses[index]?.skipped}
                   onChange={(event) => {
+                    const value = event.currentTarget.value
                     setDraft((current) => ({
                       ...current,
                       responses: current.responses.map((item, itemIndex) => (
                         itemIndex === index
-                          ? { ...item, answer: event.currentTarget.value }
+                          ? { ...item, answer: value }
                           : item
                       )),
                     }))
@@ -724,7 +734,7 @@ function ProposalSummary({
                       ...draft,
                       responses: draft.responses.map((item, itemIndex) => (
                         itemIndex === index
-                          ? { ...item, answer: event.currentTarget.value }
+                          ? { ...item, answer: value }
                           : item
                       )),
                     }
@@ -743,11 +753,12 @@ function ProposalSummary({
                   checked={draft.responses[index]?.skipped ?? false}
                   disabled={busy || pending}
                   onChange={(event) => {
+                    const checked = event.currentTarget.checked
                     setDraft((current) => ({
                       ...current,
                       responses: current.responses.map((item, itemIndex) => (
                         itemIndex === index
-                          ? { ...item, skipped: event.currentTarget.checked }
+                          ? { ...item, skipped: checked }
                           : item
                       )),
                     }))
@@ -755,7 +766,7 @@ function ProposalSummary({
                       ...draft,
                       responses: draft.responses.map((item, itemIndex) => (
                         itemIndex === index
-                          ? { ...item, skipped: event.currentTarget.checked }
+                          ? { ...item, skipped: checked }
                           : item
                       )),
                     }
@@ -941,14 +952,17 @@ function InformationResponsePanel({
                 maxLength={1200}
                 disabled={responsePending}
                 value={draft.answers[index]?.answer ?? ''}
-                onChange={(event) => setDraft((current) => ({
-                  ...current,
-                  answers: current.answers.map((answer, answerIndex) => (
-                    answerIndex === index
-                      ? { ...answer, answer: event.currentTarget.value }
-                      : answer
-                  )),
-                }))}
+                onChange={(event) => {
+                  const value = event.currentTarget.value
+                  setDraft((current) => ({
+                    ...current,
+                    answers: current.answers.map((answer, answerIndex) => (
+                      answerIndex === index
+                        ? { ...answer, answer: value }
+                        : answer
+                    )),
+                  }))
+                }}
               />
             </label>
           ))}

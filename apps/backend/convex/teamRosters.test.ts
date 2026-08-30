@@ -34,7 +34,7 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "lead@vitstudent.ac.in",
+          email: "lead@example.test",
           displayName: "Lead Person",
           teamName: "Alpha",
           role: "lead",
@@ -57,7 +57,7 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "lead@vitstudent.ac.in",
+          email: "lead@example.test",
           displayName: "Lead Person",
           teamName: "Alpha",
           role: "lead",
@@ -79,9 +79,8 @@ describe("team roster backfill", () => {
     await drainScheduler(backend);
 
     const lead = await provisionParticipant(backend, fixture, {
-      email: "lead@vitstudent.ac.in",
+      email: "lead@example.test",
       googleSubject: "team-roster-lead-subject",
-      vitHostedDomain: "vitstudent.ac.in",
     });
     expect(lead.me.pendingTeam).toBeNull();
     expect(lead.membership.onboardingStatus).toBe("profile_required");
@@ -224,7 +223,7 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "late-lead@vitstudent.ac.in",
+          email: "late-lead@example.test",
           displayName: "Late Lead",
           teamName: "Gamma",
           role: "lead",
@@ -245,7 +244,7 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "late-lead@vitstudent.ac.in",
+          email: "late-lead@example.test",
           displayName: "Late Lead",
           teamName: "Gamma",
           role: "lead",
@@ -278,9 +277,8 @@ describe("team roster backfill", () => {
     expect(memberTeam).toBeNull();
 
     const lead = await provisionParticipant(backend, fixture, {
-      email: "late-lead@vitstudent.ac.in",
+      email: "late-lead@example.test",
       googleSubject: "team-roster-late-lead-subject",
-      vitHostedDomain: "vitstudent.ac.in",
     });
     const leadTeam = await lead.person.query(api.teams.current, {
       eventSlug: fixture.eventSlug,
@@ -1220,13 +1218,19 @@ async function seedEvent(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
+      externalApplicationsCloseAt: Date.now() + 86_400_000,
       applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: ownerId,
       version: 1,
       createdAt: now,
       updatedAt: now,
     });
-    const policy = normalizeParticipantPolicy(defaultParticipantPolicy);
+    const policy = normalizeParticipantPolicy({
+      ...defaultParticipantPolicy,
+      teamMinimumSize: 1,
+      teamMaximumSize: 4,
+      mixedParticipantClassesAllowed: false,
+    });
     const policyId = await ctx.db.insert("participantPolicyVersions", {
       eventId,
       version: 1,
@@ -1313,7 +1317,8 @@ async function signInParticipant(
     vitHostedDomain?: string;
   },
 ) {
-  const authUserId = await createAuthUser(backend, fixture.now, args.email, args.email);
+  const displayName = args.vitHostedDomain ? "VIT Student 24TST0001" : args.email;
+  const authUserId = await createAuthUser(backend, fixture.now, displayName, args.email);
   const authSessionId = await createAuthSession(
     backend,
     authUserId,
@@ -1323,6 +1328,7 @@ async function signInParticipant(
   await seedGoogleIdentity(backend, authUserId, {
     googleSubject: args.googleSubject,
     email: args.email,
+    displayName,
     ...(args.vitHostedDomain ? { hostedDomain: args.vitHostedDomain } : {}),
   });
   return {
@@ -1366,13 +1372,14 @@ async function provisionParticipant(
 async function seedGoogleIdentity(
   backend: BackendTest,
   authUserId: string,
-  args: { googleSubject: string; email: string; hostedDomain?: string },
+  args: { googleSubject: string; email: string; displayName: string; hostedDomain?: string },
 ) {
   await backend.run(async (ctx) => {
     await ctx.db.insert("googleIdentityClaims", {
       authUserId,
       googleSubject: args.googleSubject,
       verifiedEmail: args.email,
+      displayName: args.displayName,
       ...(args.hostedDomain ? { hostedDomain: args.hostedDomain } : {}),
       tokenIssuedAt: Date.now(),
       tokenExpiresAt: Date.now() + 3_600_000,

@@ -22,7 +22,7 @@ const team: ClusterTeam = {
   publicCode: 'C2C-PCRN',
   activeMemberCount: 4,
   teamMaximumSize: 4,
-  currentMembershipId: 'm1',
+  currentMembershipId: 'm2',
 }
 
 const members: ClusterMember[] = [
@@ -32,7 +32,19 @@ const members: ClusterMember[] = [
   { teamMemberId: '4', membershipId: 'm4', role: 'member', displayName: 'Dev Patel' },
 ]
 
-const cluster = <TeamCluster team={team} members={members} />
+const cluster = (
+  <TeamCluster
+    team={team}
+    members={members}
+    leaveAction={{
+      available: true,
+      pending: false,
+      retrying: false,
+      error: null,
+      onConfirm: async () => undefined,
+    }}
+  />
+)
 const account = (
   <AccountBadge name="Ananya Iyer" email="ananya@vitstudent.ac.in" detail="VIT student" />
 )

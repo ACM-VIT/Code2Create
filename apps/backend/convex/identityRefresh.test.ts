@@ -72,8 +72,16 @@ describe("existing person identity refresh", () => {
     const stored = await backend.run(async (ctx) => ({
       person: await ctx.db.get(ids.personId),
       subjects: await Promise.all(ids.subjectIds.map((subjectId) => ctx.db.get(subjectId))),
+      claim: await ctx.db
+        .query("googleIdentityClaims")
+        .withIndex("by_auth_user", (query) => query.eq("authUserId", ids.authUserId))
+        .unique(),
     }));
     expect(stored.person).toMatchObject({
+      verifiedEmail: "new@example.test",
+      displayName: "New name",
+    });
+    expect(stored.claim).toMatchObject({
       verifiedEmail: "new@example.test",
       displayName: "New name",
     });

@@ -56,10 +56,7 @@ export function ParticipantApp({
   const location = useLocation()
   const navigate = useNavigate()
   const { code: joinCodeParam } = useParams<{ code?: string }>()
-  const [pendingTeamSwitch, setPendingTeamSwitch] = useState<{
-    code: string
-    team: CurrentTeam
-  } | null>(null)
+  const [pendingTeamSwitchCode, setPendingTeamSwitchCode] = useState<string | null>(null)
   const entryAllowed = useQuery(api.participants.entryAllowed, { eventSlug })
   const me = useQuery(api.participants.me, { eventSlug })
   const access = useQuery(api.access.participantCapabilities, { eventSlug })
@@ -107,6 +104,26 @@ export function ParticipantApp({
   if (!me?.membership) {
     return <ProvisionScreen publicState={publicState} onSignOut={signOut} />
   }
+  if (
+    me.membership.participantClass === 'vit_student' &&
+    me.membership.vitStudentIdentity === null
+  ) {
+    return (
+      <PortalNotice
+        header={(
+          <button
+            type="button"
+            onClick={signOut}
+            className="text-[12px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
+          >
+            Sign out
+          </button>
+        )}
+        title="Verify your VIT account again."
+        body="Sign out, then continue with Google. Your saved profile, team, and proposal stay unchanged."
+      />
+    )
+  }
 
   const accountHeader = (
     <AccountBadge
@@ -118,17 +135,17 @@ export function ParticipantApp({
   const supportRoute = location.pathname === '/support'
   const joinCode = joinCodeParam?.trim().toUpperCase() ?? ''
   const finishTeamSwitch = () => {
-    setPendingTeamSwitch(null)
+    setPendingTeamSwitchCode(null)
     navigate('/', { replace: true })
   }
+  const requestedTeamSwitchCode = pendingTeamSwitchCode ?? joinCode
   const teamSwitch =
-    pendingTeamSwitch ??
-    (team &&
-    joinCode.length > 0 &&
-    joinCode !== team.publicCode &&
+    team &&
+    requestedTeamSwitchCode.length > 0 &&
+    requestedTeamSwitchCode !== team.publicCode &&
     !team.membershipLocked
-      ? { code: joinCode, team }
-      : null)
+      ? { code: requestedTeamSwitchCode, team }
+      : null
 
   if (teamSwitch !== null) {
     return (
@@ -136,7 +153,7 @@ export function ParticipantApp({
         header={accountHeader}
         team={teamSwitch.team}
         code={teamSwitch.code}
-        onStarted={() => setPendingTeamSwitch(teamSwitch)}
+        onStarted={() => setPendingTeamSwitchCode(teamSwitch.code)}
         onFinished={finishTeamSwitch}
         onStay={finishTeamSwitch}
       />
@@ -204,6 +221,7 @@ export function ParticipantApp({
         <IntakeScreen
           team={team}
           members={teamMembers.results}
+          onSignOut={signOut}
           {...(intakeStatus.submissionFailureMessage === undefined
             ? {}
             : { submissionFailureMessage: intakeStatus.submissionFailureMessage })}
@@ -225,6 +243,7 @@ export function ParticipantApp({
           publicState={publicState}
           team={team}
           members={teamMembers.results}
+          onSignOut={signOut}
         />
       </Suspense>
     )
@@ -247,11 +266,12 @@ export function ParticipantApp({
       : location.pathname === '/integrations'
         ? canOpenIntegrations ? <IntegrationsScreen /> : <Navigate replace to="/" />
         : intakeStatus.applicationState !== null
-          ? <SubmittedScreen capabilities={access} publicState={publicState} team={team} members={teamMembers.results} />
+          ? <SubmittedScreen capabilities={access} publicState={publicState} team={team} members={teamMembers.results} onSignOut={signOut} />
           : (
               <IntakeScreen
                 team={team}
                 members={teamMembers.results}
+                onSignOut={signOut}
                 {...(intakeStatus.submissionFailureMessage === undefined
                   ? {}
                   : { submissionFailureMessage: intakeStatus.submissionFailureMessage })}
@@ -653,12 +673,12 @@ function ProvisionScreen({
           Choose your participant type.
         </h1>
         <p className="mb-7 text-[12.5px] text-[rgb(248_248_248/.5)]">
-          Choose VIT student if you signed in with your VIT email.
+          VIT students must use their @vitstudent.ac.in Google account.
         </p>
         <div className="mb-6 flex w-full flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4">
           <ProvisionChoice
             title="VIT student"
-            detail="Your VIT email is required."
+            detail="Only @vitstudent.ac.in accounts are accepted."
             disabled={!vitOpen}
             selected={participantClass === 'vit_student'}
             onSelect={() => choose('vit_student')}

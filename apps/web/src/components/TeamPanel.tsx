@@ -7,15 +7,14 @@ import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
 import type { CurrentTeam, CurrentTeamMember } from '../types'
 import { ErrorNotice } from './Form'
-import { LeaveTeamControl } from './LeaveTeamControl'
 
-type PendingRemove = {
-  teamMemberId: CurrentTeamMember['teamMemberId']
-  displayName: string
-}
+type PendingAction =
+  | { kind: 'leave' }
+  | { kind: 'remove'; teamMemberId: CurrentTeamMember['teamMemberId']; displayName: string }
 type TeamOperationResult =
   | FunctionReturnType<typeof api.teams.requestLeadershipTransfer>
   | FunctionReturnType<typeof api.teams.respondToLeadershipTransfer>
+  | FunctionReturnType<typeof api.teams.leave>
   | FunctionReturnType<typeof api.teams.removeMember>
 
 export function TeamPanel({
@@ -31,9 +30,10 @@ export function TeamPanel({
 }) {
   const requestTransfer = useMutation(api.teams.requestLeadershipTransfer)
   const respondToTransfer = useMutation(api.teams.respondToLeadershipTransfer)
+  const leaveTeam = useMutation(api.teams.leave)
   const removeMember = useMutation(api.teams.removeMember)
   const [busyMemberId, setBusyMemberId] = useState<string | null>(null)
-  const [pendingRemove, setPendingRemove] = useState<PendingRemove | null>(null)
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   const [transferTargetId, setTransferTargetId] = useState<string | null>(null)
   const [pendingTransferResponse, setPendingTransferResponse] = useState<boolean | null>(null)
   const [copied, setCopied] = useState(false)
@@ -42,8 +42,10 @@ export function TeamPanel({
   const operations = useOperationRunner<TeamOperationResult>()
   const transferPending = operations.hasPending('lead-transfer')
   const responsePending = operations.hasPending('lead-transfer-response')
+  const leavePending = operations.hasPending('team-leave')
   const removePending = operations.hasPending('team-member-remove')
-  const operationPending = transferPending || responsePending || removePending
+  const actionPending = leavePending || removePending
+  const operationPending = transferPending || responsePending || actionPending
 
   useEffect(() => {
     if (
@@ -113,26 +115,33 @@ export function TeamPanel({
     }
   }
 
-  const confirmPendingRemove = async () => {
-    if (!removePending && !pendingRemove) return
-    if (!pendingRemove) return
-    setBusyMemberId(pendingRemove.teamMemberId)
+  const confirmPendingAction = async () => {
+    if (!actionPending && !pendingAction) return
+    if (!pendingAction) return
+    const busyId = pendingAction.kind === 'leave' ? team.currentMembershipId : pendingAction.teamMemberId
+    setBusyMemberId(busyId)
     setError(null)
     try {
-      await operations.run('team-member-remove', (clientOperationId) => () => removeMember({
-        eventSlug,
-        teamId: team.id,
-        targetTeamMemberId: pendingRemove.teamMemberId,
-        expectedTeamVersion: team.version,
-        clientOperationId,
-      }))
-      setPendingRemove(null)
+      if (pendingAction.kind === 'leave') {
+        await operations.run('team-leave', (clientOperationId) => () => leaveTeam({ eventSlug, teamId: team.id, expectedTeamVersion: team.version, clientOperationId }))
+      } else {
+        await operations.run('team-member-remove', (clientOperationId) => () => removeMember({
+            eventSlug,
+            teamId: team.id,
+            targetTeamMemberId: pendingAction.teamMemberId,
+            expectedTeamVersion: team.version,
+            clientOperationId,
+          }))
+      }
+      setPendingAction(null)
     } catch (caught) {
       setError(readableError(caught))
     } finally {
       setBusyMemberId(null)
     }
   }
+
+  const canLeaveByTeamRule = team.currentRole === 'member' || team.activeMemberCount === 1
 
   return (
     <aside className="team-panel" aria-label="Team">
@@ -189,7 +198,7 @@ export function TeamPanel({
                       disabled={
                         busyMemberId !== null ||
                         responsePending ||
-                        removePending ||
+                        actionPending ||
                         (transferPending && transferTargetId !== member.membershipId)
                       }
                       onClick={() => transfer(member.membershipId)}
@@ -205,7 +214,8 @@ export function TeamPanel({
                       className="text-button quiet-danger"
                       disabled={busyMemberId !== null || operationPending}
                       onClick={() =>
-                        setPendingRemove({
+                        setPendingAction({
+                          kind: 'remove',
                           teamMemberId: member.teamMemberId,
                           displayName: member.displayName,
                         })
@@ -238,7 +248,7 @@ export function TeamPanel({
             <button
               type="button"
               className="primary compact"
-              disabled={busyMemberId !== null || transferPending || removePending || (responsePending && pendingTransferResponse !== true)}
+              disabled={busyMemberId !== null || transferPending || actionPending || (responsePending && pendingTransferResponse !== true)}
               onClick={() => respond(true)}
             >
               {responsePending && pendingTransferResponse === true ? 'Confirm earlier acceptance' : 'Accept'}
@@ -246,7 +256,7 @@ export function TeamPanel({
             <button
               type="button"
               className="secondary compact"
-              disabled={busyMemberId !== null || transferPending || removePending || (responsePending && pendingTransferResponse !== false)}
+              disabled={busyMemberId !== null || transferPending || actionPending || (responsePending && pendingTransferResponse !== false)}
               onClick={() => respond(false)}
             >
               {responsePending && pendingTransferResponse === false ? 'Confirm earlier decline' : 'Decline'}
@@ -260,28 +270,43 @@ export function TeamPanel({
       ) : null}
 
       {!team.membershipLocked ? (
-        <LeaveTeamControl
-          team={team}
-          variant="panel"
-          disabled={operationPending || busyMemberId !== null}
-        />
+        <div className="team-exit">
+          {team.canLeave && canLeaveByTeamRule ? (
+            <button
+              type="button"
+              className="text-button quiet-danger"
+              disabled={operationPending || busyMemberId !== null}
+              onClick={() => setPendingAction({ kind: 'leave' })}
+            >
+              Leave team
+            </button>
+          ) : team.canLeave ? (
+            <p className="fine-print">Transfer leadership before leaving.</p>
+          ) : (
+            <p className="fine-print">Leaving this team is unavailable.</p>
+          )}
+        </div>
       ) : null}
 
-      {pendingRemove ? (
+      {pendingAction ? (
         <div className="transfer-card action-confirmation">
           <p>
-            {`Remove ${pendingRemove.displayName}? Their access ends and the join code will change.`}
+            {pendingAction.kind === 'remove'
+              ? `Remove ${pendingAction.displayName}? Their access ends and the join code will change.`
+              : team.activeMemberCount === 1
+                ? 'Leave and close this team?'
+                : 'Leave this team? You can create or join another before submissions close.'}
           </p>
           <div className="button-row">
             <button
               type="button"
               className="primary compact"
               disabled={busyMemberId !== null || transferPending || responsePending}
-              onClick={() => void confirmPendingRemove()}
+              onClick={confirmPendingAction}
             >
               {busyMemberId !== null
                 ? 'Working…'
-                : removePending
+                : actionPending
                   ? 'Confirm earlier action'
                   : 'Confirm'}
             </button>
@@ -289,7 +314,7 @@ export function TeamPanel({
               type="button"
               className="secondary compact"
               disabled={busyMemberId !== null || operationPending}
-              onClick={() => setPendingRemove(null)}
+              onClick={() => setPendingAction(null)}
             >
               Cancel
             </button>

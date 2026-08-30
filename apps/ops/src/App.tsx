@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import { ClientObservabilityIdentity } from '@code2create/client-observability'
 import { type EventStage, eventRoleLabels, eventStageGuidance } from '@code2create/domain'
-import type { Code2CreateAuthClient } from '@code2create/web-auth'
+import { signInWithGooglePopup, type Code2CreateAuthClient } from '@code2create/web-auth'
 import type { FunctionReturnType } from 'convex/server'
 import { AuthLoading, Authenticated, Unauthenticated, useMutation, useQuery } from 'convex/react'
 import { Navigate, Route, Routes } from 'react-router-dom'
@@ -770,14 +770,21 @@ function SignIn({
     setBusy(true)
     setError(null)
     try {
-      const result = await authClient.signIn.social({ provider: 'google', callbackURL: window.location.href })
-      if (result.error) setError('Google sign-in could not be completed. Try again.')
+      const result = await signInWithGooglePopup(authClient, window.location.href)
+      if (result.error) setError(popupErrorMessage(result.error.code))
     } catch {
-      setError('Google sign-in could not be completed. Try again.')
+      setError(popupErrorMessage(undefined))
     } finally {
       setBusy(false)
     }
   }
+
+function popupErrorMessage(code: string | undefined) {
+  if (code === 'POPUP_BLOCKED') return 'Allow pop-ups for this site, then try again.'
+  if (code === 'POPUP_CLOSED') return 'Google sign-in was closed before it finished.'
+  if (code === 'POPUP_TIMEOUT') return 'Google sign-in took too long. Try again.'
+  return 'Google sign-in could not be completed. Try again.'
+}
   return (
     <Gate
       error={error}

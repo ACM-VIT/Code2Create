@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { canLeaveByTeamRule, canLeaveCurrentTeam, leaveTeamPrompt } from './teamLeave.ts'
+import { canLeaveByTeamRule, canLeaveCurrentTeam } from './teamLeave.ts'
 
 test('lets a sole lead or any member leave', () => {
   assert.equal(canLeaveByTeamRule({ currentRole: 'lead', activeMemberCount: 1 }), true)
@@ -17,9 +17,4 @@ test('still requires the leave grant', () => {
     canLeaveCurrentTeam({ canLeave: true, currentRole: 'lead', activeMemberCount: 1 }),
     true,
   )
-})
-
-test('names sole-member leave as closing the team', () => {
-  assert.equal(leaveTeamPrompt(1), 'Leave and close this team?')
-  assert.match(leaveTeamPrompt(2), /create or join another/)
 })
