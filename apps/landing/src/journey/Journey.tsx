@@ -36,8 +36,8 @@ gsap.registerPlugin(useGSAP, ScrollTrigger);
 /* Each About chapter is fronted by one of the five cards. */
 const CHAPTERS = [
   /* Cards are dealt in fan order: each chapter lifts the next card from the
-     left, so the hand empties leftmost to rightmost — the 10 for C2C, the
-     ace for ACM-VIT, the king for ACM, the queen for ACM-W, the jack for
+     left, so the hand empties leftmost to rightmost — the ace for C2C, the
+     king for ACM-VIT, the queen for ACM, the jack for ACM-W, and the 10 for
      VIT. */
   {
     title: 'Code2Create',
