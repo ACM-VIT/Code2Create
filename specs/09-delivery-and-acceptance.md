@@ -34,7 +34,7 @@ Deliver:
 - team create and join;
 - team leadership transfer;
 - free-text proposal intake;
-- one or two friendly AI follow-up questions;
+- two friendly AI follow-up questions;
 - deterministic fallback questions;
 - the live novelty number above the idea text box;
 - final preview and membership lock;
@@ -246,7 +246,7 @@ Test:
 - realtime team updates;
 - leadership transfer;
 - free-text proposal flow;
-- one or two follow-up questions;
+- two follow-up questions, including the required third total question;
 - novelty number position above the idea box;
 - no novelty label, theme, or prompt;
 - final membership-lock preview;

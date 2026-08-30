@@ -1,3 +1,2 @@
-# Local service values are injected by vite.config.ts from
-# scripts/local-development.mjs. The model uses Wrangler's remote Workers AI
-# binding, so local development has no model API key to copy here.
+# Local service values and OPENAI_API_KEY are injected by vite.config.ts from
+# scripts/local-development.mjs and the ignored repository-root .env.local.

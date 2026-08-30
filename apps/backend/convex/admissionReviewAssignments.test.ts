@@ -478,7 +478,7 @@ async function seedAssignmentFixture(backend: BackendTest) {
       initialIdeaMaxLength: 1_000,
       followUpAnswerMinLength: 1,
       followUpAnswerMaxLength: 500,
-      minimumFollowUpCount: 1,
+      minimumFollowUpCount: 2,
       maximumFollowUpCount: 2,
       deterministicFollowUpCount: 1,
       questionMaxLength: 160,

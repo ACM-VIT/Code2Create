@@ -6,9 +6,9 @@ The participant selects **VIT Student** or **External Participant**. The next ac
 
 A returning participant goes to the first unfinished task.
 
-The event publishes one authoritative `applicationsOpenAt` time and one authoritative `applicationsCloseAt` time. The server uses these times for every participant write. The browser clock is not authoritative.
+The event publishes one authoritative `externalApplicationsCloseAt` time and one authoritative VIT `applicationsCloseAt` time. The external deadline is no later than the VIT deadline. The server uses the deadline for the verified participant class. The browser clock is not authoritative.
 
-Before `applicationsCloseAt`, an eligible participant can accept policy, update a profile, change an unlocked team, edit a proposal, answer an intake follow-up, and submit. At or after the deadline, the server rejects new onboarding, submission, and participant-initiated proposal revision. A later organizer-requested admission-information response remains available to the locked lead. A retry with an operation ID that committed before the deadline returns the original result.
+Before the applicable deadline, an eligible participant can accept policy, update a profile, change an unlocked team, edit a proposal, answer an intake follow-up, and submit. At or after that deadline, the server rejects new onboarding, submission, and participant-initiated proposal revision for that class. A later organizer-requested admission-information response remains available to the locked lead. A retry with an operation ID that committed before the applicable deadline returns the original result.
 
 ## 2. Participant profile
 
@@ -26,7 +26,9 @@ A VIT student can also provide a registration number, programme, and campus. An 
 
 The participant policy marks phone, VIT registration number, programme, campus, city, and country as `not_collected | optional | required`. Full name, institution, and year or current role are required. Sensitive eligibility, dietary, and accessibility facts use protected evidence or support routes. No profile or contact field enters proposal AI input.
 
-One immutable participant-policy version owns profile fields, team bounds, mixed-team rules, notices, the privacy URL, the fresh-project acknowledgement, and the membership-lock warning. Each participant accepts the exact current version. A later publication does not edit an earlier profile or consent record.
+One immutable participant-policy version owns profile fields, team bounds, notices, the privacy URL, the fresh-project acknowledgement, and the membership-lock warning. VIT students and external participants always form separate teams. Each participant accepts the exact current version. A later publication does not edit an earlier profile or consent record.
+
+The event stores one deadline for external participants and one later or equal deadline for VIT students. Profile, team, idea, submission, and proposal-revision writes use the deadline for the signed-in participant's verified class. A team has one class, so every member sees the same deadline. Saved work remains readable after that deadline.
 
 ## 3. Team formation
 
@@ -45,7 +47,7 @@ The server checks these facts in the join transaction:
 - The participant is not in another active team.
 - The target team is active, unlocked, and below capacity.
 - The invitation is current.
-- The resulting team complies with the mixed-team rule.
+- Every active member has the same verified participant class.
 
 ### Membership changes
 
@@ -74,7 +76,7 @@ The accepted privacy notice explains that proposal text can be sent to OpenAI fo
 
 ### Follow-up questions
 
-After the first answer, the AI asks one or two friendly questions. The questions appear one at a time. The system can stop after one question when the proposal is clear enough.
+After the first answer, the AI asks two friendly questions. They appear one at a time. The second follow-up is the third total question and must appear before final review. If an AI request fails or returns invalid output, the system uses that ordinal's published fallback question.
 
 Each question must:
 
@@ -294,7 +296,7 @@ The participant cannot control playback or queue order. A music action cannot ch
 - The server rejects proposal writes at or after `applicationsCloseAt`.
 - Every proposal save creates or advances an immutable version without deleting history.
 - A revision invalidates stale human and AI admission outputs.
-- The intake asks one or two friendly questions and works without OpenAI.
+- The intake asks two friendly questions and works without OpenAI through published fallback questions.
 - The novelty feature shows only one number above the idea text box.
 - The novelty feature never blocks save or submission and never enters admission or judging.
 - Proposal routing uses the current proposal and reviewer-domain coverage.

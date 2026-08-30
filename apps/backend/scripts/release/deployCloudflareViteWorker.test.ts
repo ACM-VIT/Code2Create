@@ -30,6 +30,8 @@ test('builds an explicit Wrangler deployment command', () => {
       'exec',
       'wrangler',
       'deploy',
+      '--config',
+      'dist/wrangler.json',
       '--name',
       'code2create-operations-staging',
       '--strict',

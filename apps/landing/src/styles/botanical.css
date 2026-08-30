@@ -1,0 +1,298 @@
+/* Plant + blossom styling, ported from the C2C-Design-test prototype. */
+.plant-shell {
+  position: absolute;
+  z-index: 3;
+  right: clamp(6vw, 10vw, 190px);
+  bottom: clamp(76px, 9vh, 100px);
+  width: clamp(340px, 30vw, 480px);
+  height: clamp(480px, 68vh, 680px);
+}
+
+/* The static plate under the blossoms. Kept out of the animated SVG so the
+   bloom's per-frame repaints never touch it; stacked between the pot shadow
+   and the vectors, exactly where the in-SVG <image> used to paint. */
+.plant-base {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  filter: contrast(1.035) saturate(1.045);
+}
+
+.plant-svg {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  shape-rendering: geometricPrecision;
+  user-select: none;
+}
+
+.pedicel-canopy,
+.blossom-canopy {
+  isolation: isolate;
+}
+
+.blossom-motion {
+  transform-box: view-box;
+  transform-origin: 0 0;
+  will-change: transform, opacity;
+}
+
+/* No SVG filter here: a feDropShadow on a head whose petals morph every
+   scrubbed frame re-rasterizes sixteen filter regions per frame, and at this
+   render size the shadow it bought was under a pixel. */
+.flower-head {
+  transform-box: view-box;
+  transform-origin: 0 0;
+  will-change: transform, opacity;
+}
+
+.pedicel-system {
+  transform-box: fill-box;
+  transform-origin: 0 0;
+}
+
+.branch-collar {
+  fill: #4b3022;
+  stroke: rgba(34, 20, 14, 0.9);
+  stroke-width: 0.55;
+  vector-effect: non-scaling-stroke;
+}
+
+.flower-pedicel-shadow,
+.flower-pedicel {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.flower-pedicel-ribbon {
+  fill: url(#pedicelTint);
+  stroke: rgba(58, 34, 24, 0.72);
+  stroke-width: 0.38;
+  vector-effect: non-scaling-stroke;
+}
+
+.flower-pedicel-shadow {
+  stroke: rgba(48, 29, 21, 0.92);
+  stroke-width: 2.55;
+}
+
+.flower-pedicel {
+  stroke: url(#pedicelTint);
+  stroke-width: 1.38;
+}
+
+.petal-plane,
+.heart-motion {
+  transform-box: view-box;
+  transform-origin: 0 0;
+}
+
+.petal-far .bloom-petal {
+  opacity: 0.88;
+}
+
+.petal-near .bloom-petal {
+  opacity: 0.98;
+}
+
+.bloom-petal {
+  stroke: rgba(255, 246, 248, 0.48);
+  stroke-width: 0.32;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.petal-front {
+  fill: url(#petalFront);
+}
+
+.petal-mid {
+  fill: url(#petalMid);
+}
+
+.petal-back {
+  fill: url(#petalBack);
+}
+
+.petal-sheen {
+  fill: url(#petalSheen);
+  opacity: 0.62;
+  mix-blend-mode: screen;
+}
+
+.petal-fold {
+  fill: url(#petalFold);
+  mix-blend-mode: multiply;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+
+.petal-vein {
+  fill: none;
+  stroke: rgba(146, 46, 84, 0.76);
+  stroke-width: 0.54;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.petal-cleft {
+  fill: none;
+  stroke: rgba(153, 57, 92, 0.72);
+  stroke-width: 0.62;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.bloom-bud {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.bloom-bud .bud-core {
+  fill: url(#budTint);
+  stroke: rgba(110, 31, 58, 0.68);
+  stroke-width: 0.48;
+}
+
+.white-tip-cap {
+  transform-box: fill-box;
+  transform-origin: 50% 82%;
+}
+
+.white-tip {
+  fill: url(#whiteTipTint);
+  stroke: rgba(255, 249, 249, 0.76);
+  stroke-width: 0.42;
+  vector-effect: non-scaling-stroke;
+}
+
+.white-tip-seam {
+  fill: none;
+  stroke: rgba(184, 83, 116, 0.72);
+  stroke-width: 0.34;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.sepal-ring {
+  transform-box: fill-box;
+  transform-origin: 50% 65%;
+}
+
+.sepal-ring path {
+  fill: #ad3f60;
+  stroke: rgba(92, 27, 48, 0.76);
+  stroke-width: 0.34;
+  vector-effect: non-scaling-stroke;
+}
+
+.bloom-bud .bud-glint {
+  fill: none;
+  stroke: rgba(255, 244, 246, 0.72);
+  stroke-width: 0.48;
+  stroke-linecap: round;
+}
+
+.flower-heart path {
+  fill: none;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.flower-heart,
+.heart-motion,
+.nectar-plane {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.nectar-shadow {
+  fill: rgba(107, 35, 59, 0.78);
+  stroke: rgba(237, 158, 177, 0.66);
+  stroke-width: 0.42;
+  vector-effect: non-scaling-stroke;
+}
+
+.stamen-filament {
+  stroke: #b74772;
+  stroke-width: 0.82;
+}
+
+.stamen-anther {
+  fill: #ffd35b;
+  stroke: rgba(111, 68, 13, 0.86);
+  stroke-width: 0.36;
+  vector-effect: non-scaling-stroke;
+}
+
+.pistil-style {
+  stroke: #eed57b;
+  stroke-width: 0.86;
+}
+
+.pistil-tip {
+  fill: #fff0a6;
+  stroke: rgba(137, 88, 18, 0.86);
+  stroke-width: 0.38;
+  vector-effect: non-scaling-stroke;
+}
+
+/* These used to carry a 0.7px drop-shadow glow each — sub-pixel at the
+   plant's on-screen scale, but two hundred odd filtered elements repainted
+   on every scrubbed frame. The bright fills carry the glint on their own. */
+
+.nectar-gland {
+  fill: #efbd4a;
+  stroke: rgba(109, 65, 15, 0.72);
+  stroke-width: 0.28;
+  vector-effect: non-scaling-stroke;
+}
+
+.flower-centre {
+  fill: url(#flowerCore);
+  stroke: rgba(255, 224, 154, 0.82);
+  stroke-width: 0.58;
+}
+
+.flower-centre-light {
+  fill: rgba(255, 240, 185, 0.9);
+}
+
+.plant-aura {
+  position: absolute;
+  z-index: 0;
+  top: 17%;
+  left: 50%;
+  width: 77%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 227, 230, calc(0.15 + var(--bloom) * 0.1)) 0%, rgba(212, 112, 146, 0.08) 33%, transparent 70%);
+  filter: blur(14px);
+  transform: translateX(-50%) scale(calc(0.84 + var(--bloom) * 0.18));
+}
+
+.plant-shadow {
+  position: absolute;
+  z-index: 1;
+  right: 24%;
+  bottom: -1%;
+  left: 24%;
+  height: 5.5%;
+  border-radius: 50%;
+  background: rgba(5, 2, 3, 0.84);
+  filter: blur(10px);
+  transform: scaleX(0.94);
+}
+

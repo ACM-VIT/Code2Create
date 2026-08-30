@@ -1,5 +1,9 @@
 import { api } from '@code2create/backend/api'
-import { applicationStateLabels, type ApplicationState } from '@code2create/domain'
+import {
+  admissionRecommendationStateLabels,
+  applicationStateLabels,
+  type ApplicationState,
+} from '@code2create/domain'
 import { usePaginatedQuery, useQuery } from 'convex/react'
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
@@ -106,6 +110,9 @@ function ApplicationList() {
             </div>
             <div className="queue-meta">
               <span>{countLabel(application.completedReviewCount, 'review')} · {application.assignedReviewCount} assigned</span>
+              {application.aiState ? (
+                <span>Idea agent · {admissionRecommendationStateLabels[application.aiState]}</span>
+              ) : null}
             </div>
           </Link>
         ))}

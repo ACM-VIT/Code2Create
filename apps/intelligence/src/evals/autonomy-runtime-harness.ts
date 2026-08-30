@@ -21,7 +21,7 @@ import {
 	autonomyHypothesisSynthesisResultSchema,
 	autonomySynthesisResultSchema,
 } from '../lib/autonomyProtocol.ts';
-import { intelligenceWorkersAiModelId } from '../lib/workersAi.ts';
+import { operationsIntelligenceModelId } from '../lib/model.ts';
 import { resetAutonomyEvaluationArtifacts } from './autonomy-artifacts.ts';
 import {
 	autonomyEvaluationInjection,
@@ -120,9 +120,9 @@ function inlineJson(text: string, label: string): unknown {
 
 class ScriptedAutonomyProvider {
 	readonly faux = fauxProvider({
-		provider: 'cloudflare',
+		provider: 'openai',
 		models: [{
-			id: intelligenceWorkersAiModelId,
+			id: operationsIntelligenceModelId,
 			name: 'Deterministic operations-autonomy evaluation',
 			reasoning: true,
 		}],

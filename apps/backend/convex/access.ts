@@ -18,6 +18,7 @@ import {
   requireEventSubject,
   requireFreshAuthSession,
   sensitiveCommandSessionMaxAgeMs,
+  stagingParticipantAccessAllowed,
 } from "./lib/identity";
 import {
   scorecardScopeMustMatchTarget,
@@ -57,6 +58,7 @@ import {
   storedOperationResult,
   storedOperationVersion,
 } from "./lib/operations";
+import { grantSupremeRolePermissions } from "./lib/rolePermissions";
 import { normalizeEmail, normalizedText } from "./lib/strings";
 import {
   eventRole,
@@ -133,11 +135,13 @@ const reviewerCapabilitiesView = v.object({
 });
 
 const operationsCapabilitiesView = v.object({
+  isSupreme: v.boolean(),
   admissions: v.boolean(),
   applicationRead: v.boolean(),
   applicationReviewRead: v.boolean(),
   attendance: v.boolean(),
   attendanceSetup: v.boolean(),
+  teamRoster: v.boolean(),
   roster: v.boolean(),
   projectCheckpoints: v.boolean(),
   reviews: v.boolean(),
@@ -468,6 +472,7 @@ async function resolveOperationsCapabilities(
     attendance,
     attendanceSetup,
     roster,
+    teamRoster,
     projectCheckpoints,
     reviews,
     scores,
@@ -512,6 +517,7 @@ async function resolveOperationsCapabilities(
     anyOf(attendanceWorkspacePermissions),
     anyOf(["configuration.manage", "attendance.plan.publish"]),
     any("access.roster.read"),
+    any("team.roster.read"),
     any("project.checkpoint.read"),
     any("round.read"),
     any("score.completeness.read"),
@@ -559,6 +565,7 @@ async function resolveOperationsCapabilities(
     attendance,
     attendanceSetup,
     roster,
+    teamRoster,
     projectCheckpoints,
     reviews,
     scores,
@@ -617,6 +624,7 @@ async function currentCapabilitySubject(ctx: QueryCtx, eventSlug: string) {
     eventId: event._id,
     eventAccessSubjectId: subject._id,
     personId: person._id,
+    emailNormalized: person.verifiedEmail,
   };
 }
 
@@ -625,7 +633,17 @@ export const participantCapabilities = query({
   returns: v.union(v.null(), participantCapabilitiesView),
   handler: async (ctx, args) => {
     const subject = await currentCapabilitySubject(ctx, args.eventSlug);
-    return subject ? resolveParticipantCapabilities(ctx, subject) : null;
+    if (
+      !subject ||
+      !(await stagingParticipantAccessAllowed(
+        ctx,
+        subject.eventId,
+        subject.emailNormalized,
+      ))
+    ) {
+      return null;
+    }
+    return resolveParticipantCapabilities(ctx, subject);
   },
 });
 
@@ -643,7 +661,82 @@ export const operationsCapabilities = query({
   returns: v.union(v.null(), operationsCapabilitiesView),
   handler: async (ctx, args) => {
     const subject = await currentCapabilitySubject(ctx, args.eventSlug);
-    return subject ? resolveOperationsCapabilities(ctx, subject) : null;
+    if (!subject) return null;
+    const [capabilities, role] = await Promise.all([
+      resolveOperationsCapabilities(ctx, subject),
+      ctx.db
+        .query("eventRoles")
+        .withIndex("by_event_person_status", (index) =>
+          index
+            .eq("eventId", subject.eventId)
+            .eq("personId", subject.personId)
+            .eq("status", "active"),
+        )
+        .unique(),
+    ]);
+    return {
+      ...capabilities,
+      isSupreme: role?.role === "supreme",
+    };
+  },
+});
+
+export const synchronizeSupremePermissions = mutation({
+  args: { eventSlug: v.string() },
+  returns: v.object({
+    createdCount: v.number(),
+    accessVersion: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const role = await ctx.db
+      .query("eventRoles")
+      .withIndex("by_event_person_status", (index) =>
+        index
+          .eq("eventId", event._id)
+          .eq("personId", person._id)
+          .eq("status", "active"),
+      )
+      .unique();
+    if (!role || role.role !== "supreme") {
+      throw new ConvexError({
+        code: "SUPREME_ROLE_REQUIRED",
+        message: "Only a Supreme organizer can synchronize Supreme catalog permissions.",
+      });
+    }
+    const createdCount = await grantSupremeRolePermissions(ctx, {
+      eventId: event._id,
+      personId: person._id,
+      eventAccessSubjectId: subject._id,
+      roleId: role._id,
+      grantedByPersonId: person._id,
+    });
+    let accessVersion = subject.accessVersion;
+    if (createdCount > 0) {
+      const now = Date.now();
+      accessVersion += 1;
+      await ctx.db.patch(subject._id, { accessVersion, updatedAt: now });
+      await writeAuditEvent(ctx, {
+        eventId: event._id,
+        actorPersonId: person._id,
+        permissionKey: "access.roles.assign",
+        grantIds: [],
+        scopeType: "person",
+        scopeId: person._id,
+        action: "access.supreme_permissions_synchronized",
+        targetType: "event_access_subject",
+        targetId: subject._id,
+        previousSummary: JSON.stringify({ role: "supreme" }),
+        nextSummary: JSON.stringify({
+          role: "supreme",
+          createdGrantCount: createdCount,
+        }),
+        reason: "Synchronize Supreme catalog permissions.",
+      });
+    }
+    return { createdCount, accessVersion };
   },
 });
 

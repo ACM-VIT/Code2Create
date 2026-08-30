@@ -18,6 +18,9 @@ export const healthRoutes = new Hono<{ Bindings: Cloudflare.Env }>();
 
 healthRoutes.get('/health', (context) => {
 	try {
+		if (context.env.OPENAI_API_KEY.trim().length === 0) {
+			throw new Error('OPENAI_API_KEY is unavailable.');
+		}
 		for (const [value, name] of [
 			[context.env.INTELLIGENCE_INGRESS_SECRET, 'INTELLIGENCE_INGRESS_SECRET'],
 			[context.env.INTELLIGENCE_CALLBACK_SECRET, 'INTELLIGENCE_CALLBACK_SECRET'],
@@ -29,6 +32,10 @@ healthRoutes.get('/health', (context) => {
 			[context.env.CONVEX_INTELLIGENCE_CALLBACK_URL, 'Convex intelligence callback'],
 			[context.env.CONVEX_INTELLIGENCE_READ_URL, 'Convex intelligence read'],
 			[context.env.CONVEX_INTELLIGENCE_RECOMMENDATION_URL, 'Convex recommendation'],
+			[context.env.CONVEX_INTELLIGENCE_EPISODE_READ_URL, 'Convex episode read'],
+			[context.env.CONVEX_INTELLIGENCE_EPISODE_CALLBACK_URL, 'Convex episode callback'],
+			[context.env.CONVEX_INTELLIGENCE_IDEA_READ_URL, 'Convex idea read'],
+			[context.env.CONVEX_INTELLIGENCE_IDEA_CALLBACK_URL, 'Convex idea callback'],
 			[context.env.CONVEX_INTELLIGENCE_AUTONOMY_CALLBACK_URL, 'Convex autonomy callback'],
 			[context.env.CONVEX_INTELLIGENCE_AUTONOMY_READ_URL, 'Convex autonomy read'],
 			[context.env.CONVEX_INTELLIGENCE_AUTONOMY_WORK_URL, 'Convex autonomy work authorization'],
@@ -38,9 +45,6 @@ healthRoutes.get('/health', (context) => {
 				'Convex autonomy recommendation evidence',
 			],
 		] as const) serviceUrl(value, name);
-		if (typeof context.env.AI.run !== 'function') {
-			throw new Error('The Workers AI binding is unavailable.');
-		}
 		return context.json({ ok: true });
 	} catch {
 		return context.json({ ok: false }, 503);

@@ -1,13 +1,6 @@
 declare namespace Cloudflare {
-	type IntelligenceAiModels = {
-		'@cf/moonshotai/kimi-k2.6': {
-			inputs: Record<string, unknown>;
-			postProcessedOutputs: Record<string, unknown>;
-		};
-	};
-
 	interface Env {
-		AI: Ai<IntelligenceAiModels>;
+		OPENAI_API_KEY: string;
 		FLUE_OPERATIONS_AUTOPILOT_AGENT: {
 			getByName(runId: string): {
 				requestAutonomyArtifactPurge(): Promise<void>;
@@ -23,6 +16,10 @@ declare namespace Cloudflare {
 		CONVEX_INTELLIGENCE_CALLBACK_URL: string;
 		CONVEX_INTELLIGENCE_READ_URL: string;
 		CONVEX_INTELLIGENCE_RECOMMENDATION_URL: string;
+		CONVEX_INTELLIGENCE_EPISODE_READ_URL: string;
+		CONVEX_INTELLIGENCE_EPISODE_CALLBACK_URL: string;
+		CONVEX_INTELLIGENCE_IDEA_READ_URL: string;
+		CONVEX_INTELLIGENCE_IDEA_CALLBACK_URL: string;
 		CONVEX_INTELLIGENCE_AUTONOMY_CALLBACK_URL: string;
 		CONVEX_INTELLIGENCE_AUTONOMY_READ_URL: string;
 		CONVEX_INTELLIGENCE_AUTONOMY_WORK_URL: string;

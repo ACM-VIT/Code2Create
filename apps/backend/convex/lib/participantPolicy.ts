@@ -56,9 +56,9 @@ export const freshProjectAttestation =
 
 export const defaultParticipantPolicy: ParticipantPolicy = {
   label: "Participant policy · 1",
-  teamMinimumSize: 1,
-  teamMaximumSize: 4,
-  mixedParticipantClassesAllowed: true,
+  teamMinimumSize: 2,
+  teamMaximumSize: 5,
+  mixedParticipantClassesAllowed: false,
   phoneField: "optional",
   vitRegistrationNumberField: "required",
   vitProgrammeField: "required",
@@ -106,6 +106,9 @@ export function normalizeParticipantPolicy(input: ParticipantPolicy): Participan
   if (teamMaximumSize < teamMinimumSize) {
     invalidPolicy("Maximum team size cannot be smaller than minimum team size.");
   }
+  if (input.mixedParticipantClassesAllowed) {
+    invalidPolicy("VIT students and external participants must form separate teams.");
+  }
   const freshAttestation = normalizedLongText(
     input.freshProjectAttestation,
     "Fresh-project attestation",
@@ -131,7 +134,7 @@ export function normalizeParticipantPolicy(input: ParticipantPolicy): Participan
     label: normalizedText(input.label, "Policy label", 3, 80),
     teamMinimumSize,
     teamMaximumSize,
-    mixedParticipantClassesAllowed: input.mixedParticipantClassesAllowed,
+    mixedParticipantClassesAllowed: false,
     phoneField: input.phoneField,
     vitRegistrationNumberField: input.vitRegistrationNumberField,
     vitProgrammeField: input.vitProgrammeField,
@@ -211,23 +214,12 @@ export async function loadPublishedParticipantCapacity(ctx: ReadCtx, event: Doc<
 export async function participantPolicyPublicationIssue(
   ctx: ReadCtx,
   event: Doc<"events">,
-  previous: ParticipantPolicy,
   candidate: ParticipantPolicy,
 ) {
   const participantCapacity = await loadPublishedParticipantCapacity(ctx, event);
   if (candidate.teamMaximumSize > participantCapacity) {
     return `Maximum team size cannot exceed the published participant capacity of ${participantCapacity}.`;
   }
-  const restrictsParticipantClasses =
-    previous.mixedParticipantClassesAllowed && !candidate.mixedParticipantClassesAllowed;
-  if (
-    candidate.teamMinimumSize <= previous.teamMinimumSize &&
-    candidate.teamMaximumSize >= previous.teamMaximumSize &&
-    !restrictsParticipantClasses
-  ) {
-    return null;
-  }
-
   const teams = await ctx.db
     .query("teams")
     .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
@@ -258,7 +250,6 @@ export async function participantPolicyPublicationIssue(
       return `Team “${team.name}” has fewer than ${candidate.teamMinimumSize} active members. Complete its roster before publishing this team-size limit.`;
     }
     if (
-      restrictsParticipantClasses &&
       team.activeVitMemberCount > 0 &&
       team.activeExternalMemberCount > 0
     ) {
@@ -404,7 +395,6 @@ export async function publishParticipantPolicy(
   const publicationIssue = await participantPolicyPublicationIssue(
     ctx,
     args.event,
-    previousNormalized,
     normalized,
   );
   if (publicationIssue) {

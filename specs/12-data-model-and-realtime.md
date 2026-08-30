@@ -295,7 +295,7 @@ Completeness is derived against an exact policy version; it is not stored as a b
 ### `events`
 
 - name, slug, timezone;
-- authoritative `applicationsOpenAt` and `applicationsCloseAt`, check-in windows, and event window;
+- authoritative `externalApplicationsCloseAt` and VIT `applicationsCloseAt`, check-in windows, and event window;
 - status;
 - active participant, admission, communications, attendance, integration, security, retention, and Synesthesia configuration IDs;
 - published event-phase-schedule, project-checkpoint-plan, atomic intake-policy, novelty-corpus, admission-policy, and admission-model-configuration version IDs;
@@ -311,15 +311,15 @@ One immutable registration and team-policy release.
 
 - `eventId`, monotonic numeric version, and `status: draft | published | superseded | retired`;
 - participant-facing label;
-- positive whole-number team minimum/maximum chosen by operations, with the maximum no greater than the current published admission participant capacity, and whether VIT/external mixed teams are allowed;
+- positive whole-number team minimum/maximum chosen by operations, with the maximum no greater than the current published admission participant capacity;
 - `not_collected | optional | required` modes for phone, VIT registration number, VIT programme, VIT campus, external city, and external country;
 - profile-use notice, project-text processing notice, and credential-free HTTPS privacy-notice URL;
 - the fixed fresh-project acknowledgment and a bounded final warning that states that team membership locks;
 - checksum, creator/time, and optional publication time.
 
-One event has at most one draft and one published row. Draft replacement is optimistic and retires the previous draft. Publication revalidates the complete content, admission capacity, exact draft/checksum/event version, recent Google session, and reason. When the minimum increases, maximum decreases, or mixed teams become disallowed, the same transaction reads the bounded non-withdrawn event-team set and enough indexed active-member rows to prove every roster conforms. Withdrawn teams are history and do not block a future policy. An incompatible current roster blocks publication, and a concurrent join conflicts with that proof. A valid publication supersedes the old row and moves `events.publishedParticipantPolicyId` in the same transaction. `events` no longer duplicates team-size, warning, or participant-policy strings.
+One event has at most one draft and one published row. Draft replacement is optimistic and retires the previous draft. Publication revalidates the complete content, admission capacity, exact draft/checksum/event version, recent Google session, and reason. When the minimum increases or maximum decreases, the same transaction reads the bounded non-withdrawn event-team set and enough indexed active-member rows to prove every roster conforms. Withdrawn teams are history and do not block a future policy. An incompatible current roster blocks publication, and a concurrent join conflicts with that proof. A valid publication supersedes the old row and moves `events.publishedParticipantPolicyId` in the same transaction. `events` no longer duplicates team-size, warning, or participant-policy strings.
 
-Event memberships retain the exact policy IDs that their owner accepted. Participant reads derive current completeness from membership acceptance, the published policy, and saved profile fields. An eligible participant can create or join a team after accepting the current publication even when the profile is incomplete. Join also checks capacity and the mixed-class rule. Final preview returns the exact policy ID and warning. Submission rechecks that ID, every active member's acceptance and complete profile, team bounds, mixed-class rule, draft, lead, and `applicationsCloseAt` in one transaction. It then pins the policy ID in the proposal snapshot and membership lock.
+Event memberships retain the exact policy IDs that their owner accepted. Participant reads derive current completeness from membership acceptance, the published policy, and saved profile fields. An eligible participant can create or join a team after accepting the current publication even when the profile is incomplete. Join also checks capacity and requires every active member to have the same verified class. Final preview returns the exact policy ID, warning, and class-specific deadline. Submission rechecks that ID, every active member's acceptance and complete profile, team bounds, single-class roster, draft, lead, and applicable deadline in one transaction. It then pins the policy ID in the proposal snapshot and membership lock.
 
 ### `communicationsPolicyVersions`
 
@@ -372,7 +372,7 @@ One immutable version owns the complete pre-event introduction contract. These v
 - exactly two ordered fallback questions with text, purpose, and `short | medium` answer length;
 - required prohibited wording plus optional additional blocked terms;
 - zero to twenty reviewed common-idea patterns `{ stableKey, description, supportiveQuestionGuidance }`;
-- model contract `{ mode: deterministic }` or `{ mode: assisted, modelId, systemInstruction, instructionVersion, schemaVersion, redactionVersion, questionPolicyVersion, evaluationSuiteVersion, maxOutputTokens, timeoutMs }`;
+- model contract `{ mode: deterministic }` or `{ mode: assisted, modelId, systemInstruction, instructionVersion, schemaVersion, redactionVersion, questionPolicyVersion, evaluationSuiteVersion }`;
 - checksum, creator, creation time, and optional publication time.
 
 `events.publishedIntakePolicyId` points to the one published version. At most one draft exists. Saving a changed complete draft retires the previous draft; publishing requires that exact draft ID and checksum, the current event version, a recent Google session, and a reason. It marks the old published row `superseded` and moves the event pointer in the same transaction. A participant draft pins the published ID when the first idea is saved and never adopts a later publication.
@@ -432,14 +432,13 @@ The optional model release is a child of exactly one admission-policy version.
 
 - `eventId`, owning `admissionPolicyVersionId`, unique release label, and the same lifecycle status as its policy;
 - approved OpenAI model ID plus prompt, Structured Output schema, and evaluation-suite version labels;
-- maximum output tokens from 300 through 2,000 and hard timeout from two through thirty seconds;
 - checksum, creator/time, and optional publication time.
 
 Draft replacement retires the previous policy and its model together. Publication checks the exact policy/model IDs and checksums, event version, fresh Google session, reason, and idempotent operation ID. One mutation supersedes the prior pair, publishes the new pair or explicit human-only policy, creates its empty overall `admissionCapacityBuckets` row, and moves both event pointers. An enabled policy must have its own matching model; a disabled policy has neither a model row nor model pointer.
 
 The first validating or finalizing submission attempt, and then the first submitted application, permanently closes admission draft replacement and publication for the event. Submission start pins the published pair on its durable attempt. Successful finalization copies that policy ID to the immutable proposal version and application. A publication and submission race has one serial result.
 
-The separately reviewed runtime contract still enforces `store: false`, no tools or background response, closed recommendation and criterion enums, source references, bounded explanations/questions, prohibited identity/prestige/judging inputs, and human review on every provider failure. The version labels identify that approved contract; they are not a claim that an evaluation suite ran unless release evidence records that run.
+The durable Flue runtime has no operator-configured model-call timeout or output-token ceiling. Exact accepted-submission leases recover interrupted work without making the recommendation terminal. The separately reviewed runtime contract enforces a closed recommendation schema, exact criterion coverage, authorized source references, bounded explanations/questions, prohibited identity/prestige/judging language, actual model provenance, and human review on every provider failure. The version labels identify that approved contract; they are not a claim that an evaluation suite ran unless release evidence records that run.
 
 ### Configuration publication checks
 
@@ -2351,7 +2350,7 @@ Requires event-scoped `emergency_pack.read` and returns at most the ten newest p
 
 ### `participant.intake`
 
-Returns the current fixed or generated prompt and accepted answer, save, or skip state. It also returns phase and checkpoint progress, the live team roster, lead and invite capability, membership-lock state, freshness attestation, proposal preview, current immutable proposal version, authoritative application deadline, and next allowed action. It returns the latest novelty number only when the stored fingerprint matches the saved idea. It never returns an embedding, similarity, corpus entry, theme, prompt, provider request ID, system instruction, another team's text, or model diagnostics.
+Returns the current fixed or generated prompt and accepted answer, save, or skip state. It also returns phase and checkpoint progress, the live team roster, lead and invite capability, membership-lock state, freshness attestation, proposal preview, current immutable proposal version, deadline for the team's verified class, and next allowed action. It returns the latest novelty number only when the stored fingerprint matches the saved idea. It never returns an embedding, similarity, corpus entry, theme, prompt, provider request ID, system instruction, another team's text, or model diagnostics.
 
 ### `noveltyConfiguration.current`
 
@@ -2411,7 +2410,7 @@ One server-owned action reads current operational parents and compound event/sta
 
 Requires event-scoped `event.lifecycle.read`. It returns the current event status/version, whether the caller independently holds `event.lifecycle.manage`, and only the legal next transitions. Each next transition contains its current setup blockers as stable keys and product labels. It returns no participant, application, review, or score record.
 
-`eventLifecycle.transition` requires `event.lifecycle.manage`, a Google session created within 15 minutes, the exact current event version, a reason, and an idempotent operation ID. It rechecks the transition path and blockers in the write transaction. It then increments the event version and records the authorizing grants and before and after states. The applications-open and applications-closed display follows server time and the published application window. Participant profile, team, intake, submission, and revision mutations recheck `applicationsOpenAt` and `applicationsCloseAt` after operation replay and before new work. Leaving `live` also disables the autonomy scheduler, revokes its active run, persists Worker abort intent, and starts resumable inbox cleanup.
+`eventLifecycle.transition` requires `event.lifecycle.manage`, a Google session created within 15 minutes, the exact current event version, a reason, and an idempotent operation ID. It rechecks the transition path and blockers in the write transaction. It then increments the event version and records the authorizing grants and before and after states. The applications-open and applications-closed display follows server time and the two published class deadlines. Participant profile, team, intake, submission, and revision mutations resolve the verified class and recheck its deadline after operation replay and before new work. Leaving `live` also disables the autonomy scheduler, revokes its active run, persists Worker abort intent, and starts resumable inbox cleanup.
 
 ### `operationsIntelligence.latest`
 
@@ -2850,7 +2849,7 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - One team/checkpoint key has at most one immutable submission. It records the accepted schedule/window, due/close boundary, timing, source draft version, and actor.
 - Participant checkpoint submission never creates or changes queue, team-round, review, evidence-provider, evaluation, or score state. Late or missing is context, not an automatic penalty.
 - A review evidence transaction pins only a checkpoint submission that already existed at its capture time; reviewer reads and verified exports follow that exact ID after later team or provider changes.
-- Every introduction asks one or two follow-ups and terminates through valid generated questions or deterministic fallbacks. Later checkpoints use their separately published fixed questions and do not reuse this route.
+- Every introduction asks exactly two follow-ups and terminates through valid generated questions or published deterministic fallbacks. Later checkpoints use their separately published fixed questions and do not reuse this route.
 - A novelty corpus publishes only from one complete 5–200-entry ready set whose embeddings are finite native 1,536-value `text-embedding-3-small` outputs. Draft, entry replacement, publication, and read fail independently without their exact event grants.
 - A novelty request stores no raw idea, performs no provider call for sensitive-looking text, applies the event's exact team rate limit, and returns only one whole-number result.
 - A repeated preview ID cannot create another row or name different text. Provider failure leaves intake usable. A completion attaches only while the saved idea fingerprint and pinned corpus match.
@@ -2861,10 +2860,10 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - A participant cannot hold two active team memberships.
 - One active team has exactly one lead; an accepted transfer atomically moves role/grants, and no ordinary transfer can run after final submission.
 - Final submission explicitly confirms and atomically starts a durable membership freeze for one exact draft, roster projection, and lead. Bounded resumable mutations materialize the exact active-member rows before the application exists. Stale previews and later ordinary membership commands fail.
-- The current lead can append immutable proposal versions before `applicationsCloseAt`. Each revision advances the current content pointer and invalidates stale human and AI output. The member snapshot remains locked.
+- The current lead can append immutable proposal versions before the deadline for the team's verified class. Each revision advances the current content pointer and invalidates stale human and AI output. The member snapshot remains locked.
 - Participant-policy read, draft, validation, and publication fail independently. Two writers from one observed draft state leave one current draft; stale publication changes neither policy pointer nor event version.
 - Publishing a participant policy edits no membership or profile. Completeness is derived from the current immutable version. Consent appends that exact version to the event membership once. A participant must accept it before saving a profile, creating or joining a team, or submitting the project.
-- Team creation, joins, leaves, and removals load the current participant policy inside their transaction and maintain authoritative class-aware counts on the team root. Roster UI reads paginate independently of the configured maximum. Creation and join require eligibility plus current acceptance, but they do not require profile completion. Submission start pins that policy and validates root counts. Its bounded roster materializer enforces complete class-aware profiles, exact counts, team bounds, and mixed-class eligibility before pinning the policy ID in the immutable proposal version and membership lock.
+- Team creation, joins, leaves, and removals load the current participant policy inside their transaction and maintain authoritative class-aware counts on the team root. Roster UI reads paginate independently of the configured maximum. Creation and join require eligibility plus current acceptance, but they do not require profile completion. They reject any roster that would contain both participant classes. Submission start pins that policy and validates root counts. Its bounded roster materializer enforces complete class-aware profiles, exact counts, team bounds, and one verified class before pinning the policy ID in the immutable proposal version and membership lock.
 - Admission-policy read, draft, validation, and publication fail independently. A complete policy and its optional model replace and publish together; two competing draft saves leave one current pair, and a stale publication changes neither event pointer nor capacity.
 - Publication creates one zero-reserved overall capacity bucket for the exact policy and atomically moves the policy/model pointers. An enabled policy always has one matching model child; disabled mode has no model pointer and never blocks human review.
 - The first application submission freezes the event's admission release. A concurrent publication either commits first and becomes the application's pin or loses without changing any policy, model, capacity, project, or application row.

@@ -15,8 +15,63 @@ import {
   signServiceBody,
   verifyServiceBody,
 } from "./intelligence.ts";
+import { intelligenceAgentDefinition } from "./intelligenceAgents.ts";
+import {
+  ideaIntelligenceAnalysisPolicyViolation,
+  type IdeaIntelligenceAnalysis,
+} from "./ideaIntelligence.ts";
 
 const signingSecret = "s".repeat(32);
+
+const validIdeaAnalysis: IdeaIntelligenceAnalysis = {
+  recommendation: "needs_information",
+  criterionAssessments: [
+    {
+      criterionKey: "problem_clarity",
+      assessment: "partly_meets",
+      sourceRefs: ["initial_idea"],
+    },
+  ],
+  strengths: ["The proposal identifies a concrete operational problem."],
+  concerns: ["The user validation approach is not yet described."],
+  proposedQuestions: ["How will the team validate the need with intended users?"],
+  confidence: "medium",
+  limitations: ["Only the submitted project answers were available."],
+};
+
+test("idea analysis policy accepts only exact, grounded, non-scoring output", () => {
+  const context = {
+    criterionKeys: ["problem_clarity"],
+    sourceRefs: ["initial_idea"],
+  };
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({ analysis: validIdeaAnalysis, ...context }),
+    null,
+  );
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: {
+        ...validIdeaAnalysis,
+        criterionAssessments: [{
+          ...validIdeaAnalysis.criterionAssessments[0]!,
+          sourceRefs: ["invented_source"],
+        }],
+      },
+      ...context,
+    }),
+    "evidence_mismatch",
+  );
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: {
+        ...validIdeaAnalysis,
+        strengths: ["This proposal deserves a high score."],
+      },
+      ...context,
+    }),
+    "prohibited_language",
+  );
+});
 
 test("service signing measures multibyte secrets in UTF-8 bytes", async () => {
   const secret = "é".repeat(16);
@@ -118,4 +173,21 @@ test("brief tickets cannot carry copilot conversation coordinates", () => {
     operationsBriefStreamTicketSignatureContext,
     operationsCopilotStreamTicketSignatureContext,
   );
+});
+
+test("the copilot release uses one generalized command protocol without per-request skills", () => {
+  const copilot = intelligenceAgentDefinition("operations-copilot");
+  const systemPrompt = copilot.prompts.find((prompt) => prompt.name === "System prompt")?.text;
+  assert.equal(copilot.version, "operations-copilot-v5");
+  assert.ok(systemPrompt);
+  assert.match(systemPrompt, /first call inspect_event_commands/u);
+  assert.match(systemPrompt, /only write is propose_event_command/u);
+  assert.match(systemPrompt, /Never invent a command or argument/u);
+  assert.match(systemPrompt, /current grants, fresh authentication, lifecycle locks/u);
+  assert.doesNotMatch(systemPrompt, /manage-admission-policy/u);
+  assert.doesNotMatch(systemPrompt, /minimumHumanReviews/u);
+  assert.doesNotMatch(systemPrompt, /under \d+ words|at most \d+ total tool calls/u);
+  assert.match(systemPrompt, /do not impose an artificial response, token, turn, or tool-call ceiling/u);
+  assert.ok(copilot.tools.includes("scoped event-command catalog"));
+  assert.ok(copilot.tools.includes("propose_event_command"));
 });

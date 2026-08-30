@@ -103,6 +103,7 @@ import {
   synesthesiaWindowKind,
   synesthesiaWindowStatus,
   teamRoundState,
+  teamRosterEntryStatus,
   teamStatus,
   venueCheckInStatus,
   venueIdentityCheckMethod,
@@ -140,8 +141,17 @@ import {
   operationsBriefPriority,
   operationsHealthArea,
   operationsHealthSeverity,
+  operationsHealthSignalKey,
   operationsHealthSnapshot,
 } from "./lib/operationsIntelligenceValidators";
+import {
+  operationsEpisodeAnalysisState,
+  operationsEpisodeExpectedState,
+  operationsEpisodeHypothesisStance,
+  operationsEpisodeLifecycle,
+  operationsEpisodePredictionOutcome,
+  operationsEpisodeState,
+} from "./lib/operationsEpisodeValidators";
 
 const attendanceRollCallCounts = v.object({
   expected: v.number(),
@@ -234,6 +244,7 @@ export default defineSchema({
     publishedFloorPlanVersionId: v.optional(v.id("floorPlanVersions")),
     publishedIntegrationPolicyId: v.optional(v.id("integrationPolicyVersions")),
     publishedCommunicationsPolicyId: v.optional(v.id("communicationsPolicyVersions")),
+    externalApplicationsCloseAt: v.optional(v.number()),
     applicationsCloseAt: v.number(),
     startsAt: v.optional(v.number()),
     endsAt: v.optional(v.number()),
@@ -414,8 +425,6 @@ export default defineSchema({
         redactionVersion: v.string(),
         questionPolicyVersion: v.string(),
         evaluationSuiteVersion: v.string(),
-        maxOutputTokens: v.number(),
-        timeoutMs: v.number(),
       }),
     ),
     checksum: v.string(),
@@ -523,6 +532,10 @@ export default defineSchema({
     nearestThemeLabel: v.optional(v.string()),
     reflectionPrompt: v.optional(v.string()),
     providerRequestId: v.optional(v.string()),
+    agentOperationId: v.optional(v.string()),
+    agentOutputChecksum: v.optional(v.string()),
+    agentVersion: v.optional(v.string()),
+    agentModel: v.optional(v.string()),
     latencyMs: v.optional(v.number()),
     failureCategory: v.optional(v.string()),
     requestedAt: v.number(),
@@ -682,6 +695,50 @@ export default defineSchema({
     .index("by_event_status_created", ["eventId", "status", "createdAt"])
     .index("by_import_row", ["rosterImportId", "sourceRowNumber"])
     .index("by_claimed_person", ["eventId", "claimedByPersonId"]),
+
+  teamRosterImports: defineTable({
+    eventId: v.id("events"),
+    sourceName: v.string(),
+    sourceFileName: v.optional(v.string()),
+    previewChecksum: v.string(),
+    rowCount: v.number(),
+    createdCount: v.number(),
+    replacedCount: v.number(),
+    unchangedCount: v.number(),
+    alreadyOnTeamCount: v.number(),
+    waitingForLeadCount: v.number(),
+    appliedNowCount: v.number(),
+    reason: v.string(),
+    authorizingGrantIds: v.array(v.id("permissionGrants")),
+    createdByPersonId: v.id("people"),
+    clientOperationId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_event_created", ["eventId", "createdAt"])
+    .index("by_event_operation", ["eventId", "clientOperationId"]),
+
+  teamRosterEntries: defineTable({
+    eventId: v.id("events"),
+    teamRosterImportId: v.id("teamRosterImports"),
+    sourceRowNumber: v.number(),
+    emailNormalized: v.string(),
+    displayName: v.string(),
+    teamName: v.string(),
+    role: memberRole,
+    status: teamRosterEntryStatus,
+    version: v.number(),
+    createdByPersonId: v.id("people"),
+    createdAt: v.number(),
+    claimedByMembershipId: v.optional(v.id("eventMemberships")),
+    claimedTeamId: v.optional(v.id("teams")),
+    claimedAt: v.optional(v.number()),
+    supersededByEntryId: v.optional(v.id("teamRosterEntries")),
+  })
+    .index("by_event_email_status", ["eventId", "emailNormalized", "status"])
+    .index("by_event_team_status", ["eventId", "teamName", "status"])
+    .index("by_event_status", ["eventId", "status"])
+    .index("by_import_row", ["teamRosterImportId", "sourceRowNumber"])
+    .index("by_event_created", ["eventId", "createdAt"]),
 
   eventMemberships: defineTable({
     eventId: v.id("events"),
@@ -851,6 +908,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_event_code", ["eventId", "publicCode"])
+    .index("by_event_name", ["eventId", "name"])
     .index("by_event_status", ["eventId", "status"]),
 
   teamMembers: defineTable({
@@ -866,7 +924,12 @@ export default defineSchema({
     ),
     joinedAt: v.number(),
     leftAt: v.optional(v.number()),
-    source: v.union(v.literal("created"), v.literal("code"), v.literal("invitation")),
+    source: v.union(
+      v.literal("created"),
+      v.literal("code"),
+      v.literal("invitation"),
+      v.literal("backfill"),
+    ),
   })
     .index("by_team_status", ["teamId", "status"])
     .index("by_event_membership_status", ["eventId", "membershipId", "status"])
@@ -1893,12 +1956,20 @@ export default defineSchema({
     confidence: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"))),
     limitations: v.array(v.string()),
     providerRequestId: v.optional(v.string()),
+    agentOperationId: v.optional(v.string()),
+    agentOutputChecksum: v.optional(v.string()),
+    agentVersion: v.optional(v.string()),
+    agentModel: v.optional(v.string()),
+    agentDispatchAttemptId: v.optional(v.string()),
+    agentSubmissionId: v.optional(v.string()),
+    agentAcceptedAt: v.optional(v.number()),
     latencyMs: v.optional(v.number()),
     failureCategory: v.optional(v.string()),
     createdAt: v.number(),
     completedAt: v.optional(v.number()),
   })
     .index("by_application_created", ["applicationId", "createdAt"])
+    .index("by_event_created", ["eventId", "createdAt"])
     .index("by_event_state_created", ["eventId", "state", "createdAt"]),
 
   admissionPolicyVersions: defineTable({
@@ -1949,8 +2020,6 @@ export default defineSchema({
     promptVersion: v.string(),
     schemaVersion: v.string(),
     evaluationSuiteVersion: v.string(),
-    maxOutputTokens: v.number(),
-    timeoutMs: v.number(),
     status: v.union(
       v.literal("draft"),
       v.literal("published"),
@@ -4314,6 +4383,137 @@ export default defineSchema({
     staleAt: v.number(),
   }).index("by_event", ["eventId"]),
 
+  /** Append-only, redacted observations that form the intelligence world model. */
+  operationsIntelligenceFacts: defineTable({
+    eventId: v.id("events"),
+    factKey: v.string(),
+    source: v.literal("operations_health"),
+    correlationKey: v.string(),
+    signalKey: operationsHealthSignalKey,
+    area: operationsHealthArea,
+    severity: operationsHealthSeverity,
+    title: v.string(),
+    detail: v.string(),
+    owner: v.string(),
+    nextAction: v.string(),
+    count: v.number(),
+    atLeast: v.boolean(),
+    occurredAt: v.number(),
+    observedAt: v.number(),
+    checksum: v.string(),
+  })
+    .index("by_event_fact_key", ["eventId", "factKey"])
+    .index("by_event_correlation_observed_at", [
+      "eventId",
+      "correlationKey",
+      "observedAt",
+    ]),
+
+  /** A durable situation assembled from related facts; identities are never people. */
+  operationsIntelligenceEpisodes: defineTable({
+    eventId: v.id("events"),
+    correlationKey: v.string(),
+    lifecycle: operationsEpisodeLifecycle,
+    state: operationsEpisodeState,
+    severity: operationsHealthSeverity,
+    title: v.string(),
+    summary: v.string(),
+    owner: v.string(),
+    nextAction: v.string(),
+    firstObservedAt: v.number(),
+    lastObservedAt: v.number(),
+    clearPassCount: v.number(),
+    factCount: v.number(),
+    signalCount: v.number(),
+    relevanceScore: v.number(),
+    confidence: v.number(),
+    observationChecksum: v.string(),
+    revision: v.number(),
+    analysisState: operationsEpisodeAnalysisState,
+    analysisSummary: v.optional(v.string()),
+    suggestedAction: v.optional(v.string()),
+    analysisOperationId: v.optional(v.string()),
+    analysisChecksum: v.optional(v.string()),
+    analysisAgentVersion: v.optional(v.string()),
+    analysisModel: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_event_updated_at", ["eventId", "updatedAt"])
+    .index("by_event_lifecycle_relevance", ["eventId", "lifecycle", "relevanceScore"])
+    .index("by_event_correlation_lifecycle", [
+      "eventId",
+      "correlationKey",
+      "lifecycle",
+    ])
+    .index("by_analysis_kind_updated_at", ["analysisState.kind", "updatedAt"]),
+
+  operationsIntelligenceEpisodeFacts: defineTable({
+    eventId: v.id("events"),
+    episodeId: v.id("operationsIntelligenceEpisodes"),
+    factId: v.id("operationsIntelligenceFacts"),
+    factKey: v.string(),
+    linkedAt: v.number(),
+  })
+    .index("by_episode_fact_key", ["episodeId", "factKey"])
+    .index("by_episode_linked_at", ["episodeId", "linkedAt"]),
+
+  operationsIntelligenceHypotheses: defineTable({
+    eventId: v.id("events"),
+    episodeId: v.id("operationsIntelligenceEpisodes"),
+    analysisRevision: v.number(),
+    ordinal: v.number(),
+    stance: operationsEpisodeHypothesisStance,
+    statement: v.string(),
+    confidence: v.number(),
+    evidenceFactKeys: v.array(v.string()),
+    createdAt: v.number(),
+  }).index("by_episode_revision_ordinal", ["episodeId", "analysisRevision", "ordinal"]),
+
+  operationsIntelligenceCounterfactuals: defineTable({
+    eventId: v.id("events"),
+    episodeId: v.id("operationsIntelligenceEpisodes"),
+    analysisRevision: v.number(),
+    ordinal: v.number(),
+    intervention: v.string(),
+    expectedState: operationsEpisodeExpectedState,
+    probability: v.number(),
+    rationale: v.string(),
+    evidenceFactKeys: v.array(v.string()),
+    createdAt: v.number(),
+  }).index("by_episode_revision_ordinal", ["episodeId", "analysisRevision", "ordinal"]),
+
+  operationsIntelligencePredictions: defineTable({
+    eventId: v.id("events"),
+    episodeId: v.id("operationsIntelligenceEpisodes"),
+    analysisRevision: v.number(),
+    ordinal: v.number(),
+    statement: v.string(),
+    expectedState: operationsEpisodeExpectedState,
+    probability: v.number(),
+    horizonAt: v.number(),
+    evidenceFactKeys: v.array(v.string()),
+    outcome: operationsEpisodePredictionOutcome,
+    createdAt: v.number(),
+  })
+    .index("by_episode_revision_ordinal", ["episodeId", "analysisRevision", "ordinal"])
+    .index("by_outcome_kind_horizon_at", ["outcome.kind", "horizonAt"])
+    .index("by_event_outcome_kind_horizon_at", ["eventId", "outcome.kind", "horizonAt"]),
+
+  operationsIntelligenceOutcomes: defineTable({
+    eventId: v.id("events"),
+    episodeId: v.id("operationsIntelligenceEpisodes"),
+    predictionId: v.optional(v.id("operationsIntelligencePredictions")),
+    kind: v.union(
+      v.literal("episode_resolved"),
+      v.literal("prediction_confirmed"),
+      v.literal("prediction_disconfirmed"),
+      v.literal("prediction_expired"),
+    ),
+    summary: v.string(),
+    observedAt: v.number(),
+  }).index("by_episode_observed_at", ["episodeId", "observedAt"]),
+
   operationsIntelligenceBriefs: defineTable({
     eventId: v.id("events"),
     requestedByPersonId: v.id("people"),
@@ -4349,6 +4549,29 @@ export default defineSchema({
   })
     .index("by_event_requested", ["eventId", "requestedAt"])
     .index("by_event_state_updated", ["eventId", "state", "updatedAt"]),
+
+  /** Authoritative ingress ledger for every operator-to-copilot turn. */
+  operationsCopilotTurns: defineTable({
+    eventId: v.id("events"),
+    eventAccessSubjectId: v.id("eventAccessSubjects"),
+    conversationId: v.string(),
+    turnId: v.string(),
+    message: v.string(),
+    state: v.union(
+      v.literal("pending"),
+      v.literal("accepted"),
+      v.literal("delivery_unknown"),
+      v.literal("conflict"),
+    ),
+    submissionId: v.optional(v.string()),
+    acceptedAt: v.optional(v.number()),
+    deduplicated: v.optional(v.boolean()),
+    failureDetail: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_event_created", ["eventId", "createdAt"])
+    .index("by_subject_turn", ["eventAccessSubjectId", "turnId"]),
 
   operationsAutonomyPolicyVersions: defineTable({
     eventId: v.id("events"),

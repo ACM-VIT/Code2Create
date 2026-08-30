@@ -15,32 +15,6 @@ index 33bee3895e9240ff9a4838886ff81368072d3b1d..98afa8d2f0739947f155b37a9fe2d68b
  		hookState,
  		rerender,
  		output: outputChannel,
-diff --git a/dist/cloudflare/workers-ai-provider.mjs b/dist/cloudflare/workers-ai-provider.mjs
-index acfc3f9038ddcc1923a3e6c6d123c12fab747ee1..8a9add2c0537023b3231c06dbc73780d9e3cc94a 100644
---- a/dist/cloudflare/workers-ai-provider.mjs
-+++ b/dist/cloudflare/workers-ai-provider.mjs
-@@ -221,7 +221,7 @@ function* parseSseEvents(block) {
- 	try {
- 		yield JSON.parse(data);
- 	} catch {
--		console.error(`Workers AI: dropping unparseable SSE data payload: ${data.slice(0, 200)}`);
-+		console.error("Workers AI: dropping an unparseable SSE data payload.");
- 	}
- }
- function isAbortError(error) {
-@@ -740,11 +740,8 @@ function normalizeAnthropicGatewayPayload(payload) {
- }
- async function assertSuccessfulBindingResponse(response) {
- 	if (response.ok) return;
--	const body = await safeReadText(response);
- 	throw new CloudflareAIBindingError({
--		status: response.status,
--		statusText: response.statusText,
--		body
-+		status: response.status
- 	});
- }
- function pickReasoning(delta) {
 diff --git a/dist/dispatch-nU3cIlT-.mjs b/dist/dispatch-nU3cIlT-.mjs
 index c661b214b2c1e0e33c5fe696e23f44e3ac96a474..fdec545fcdbe4851f3eb6e7e176ea981c0eb1af3 100644
 --- a/dist/dispatch-nU3cIlT-.mjs

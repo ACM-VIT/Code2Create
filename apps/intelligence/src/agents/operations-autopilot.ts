@@ -1,6 +1,10 @@
 'use agent';
 
-import { operationsIntelligenceProtocolVersion } from '@code2create/domain';
+import {
+	intelligenceAgentDefinition,
+	operationsAutopilotSystemPromptSections,
+	operationsIntelligenceProtocolVersion,
+} from '@code2create/domain';
 import {
 	defineTool,
 	useAgentFinish,
@@ -34,7 +38,7 @@ import {
 	runAutonomyWorkItem,
 } from '../lib/autonomyOrchestration.ts';
 import type { AutonomyLifecycleEvent } from '../lib/autonomyLifecycle.ts';
-import { operationsIntelligenceModel } from '../lib/workersAi.ts';
+import { operationsIntelligenceModel } from '../lib/model.ts';
 import { autonomyOperationId } from '../lib/autonomyOperationId.ts';
 import {
 	cloudflareAutonomyArtifactStore,
@@ -44,7 +48,7 @@ import { classifyAutonomyShellSettlement } from '../lib/autonomyShell.ts';
 import { admissionControllerForRun } from '../lib/autonomyAdmissionController.ts';
 
 export const operationsAutopilotModel = operationsIntelligenceModel;
-export const operationsAutopilotAgentVersion = 'operations-autopilot-v2';
+export const operationsAutopilotAgentVersion = intelligenceAgentDefinition('operations-autopilot').version;
 
 const completedOutputSchema = v.strictObject({
 	completed: v.literal(true),
@@ -238,10 +242,8 @@ export function OperationsAutopilot() {
 	});
 
 	return [
-		'# Autonomous operations controller',
-		'Call run_autonomy_work_item exactly once with no arguments.',
-		'Do not answer with prose or call any other tool. Trusted code owns planning, exhaustive paging, investigation, criticism, publication, and continuation.',
-		`Run identity: ${input.runId}. Work item: ${currentWorkItemId}. Protocol: ${operationsIntelligenceProtocolVersion}.`,
+		...operationsAutopilotSystemPromptSections,
+		`Frozen run identity: run=${input.runId}; workItem=${currentWorkItemId}; event=${input.eventSlug}; policyVersion=${input.policy.policyVersionId}; sourceChecksum=${input.source.sourceChecksum}; protocol=${operationsIntelligenceProtocolVersion}.`,
 	].join('\n\n');
 }
 

@@ -1,6 +1,6 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest, type TestConvex } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { api, components } from "./_generated/api";
 import {
@@ -10,6 +10,10 @@ import {
 } from "./lib/participantPolicy.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
 import schema from "./schema.ts";
+
+process.env.AUTH_SITE_URL = "http://localhost:3211";
+process.env.PARTICIPANT_SITE_URL = "http://localhost:4173";
+process.env.OPERATIONS_SITE_URL = "http://localhost:4174";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 const betterAuthModules = import.meta.glob(
@@ -474,9 +478,9 @@ describe("participant onboarding lifecycle", () => {
         });
       }
       await ctx.db.patch(created.teamId, {
-        activeMemberCount: 5,
+        activeMemberCount: 6,
         activeVitMemberCount: 0,
-        activeExternalMemberCount: 5,
+        activeExternalMemberCount: 6,
       });
     });
     await expect(
@@ -621,6 +625,205 @@ describe("participant onboarding lifecycle", () => {
       expect(newLeadGrants[0]?.scopeId).toBe(created.teamId);
     });
   }, 10_000);
+
+  test("joins an imported roster team automatically during provision", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const importerAuthUserId = await createAuthUser(
+      backend,
+      fixture.now,
+      "Roster Organizer",
+      "roster-organizer@example.test",
+    );
+    const importerAuthSessionId = await createAuthSession(
+      backend,
+      importerAuthUserId,
+      fixture.now,
+      "participant-onboarding-roster-organizer-session",
+    );
+    await backend.run(async (ctx) => {
+      const importerPersonId = await ctx.db.insert("people", {
+        authUserId: importerAuthUserId,
+        googleSubject: "participant-onboarding-roster-organizer-subject",
+        verifiedEmail: "roster-organizer@example.test",
+        displayName: "Roster Organizer",
+        status: "active",
+        createdAt: fixture.now,
+        updatedAt: fixture.now,
+      });
+      const importerSubjectId = await ctx.db.insert("eventAccessSubjects", {
+        eventId: fixture.eventId,
+        personId: importerPersonId,
+        emailNormalized: "roster-organizer@example.test",
+        displayName: "Roster Organizer",
+        status: "active",
+        linkedBy: "participant_provisioning",
+        accessVersion: 1,
+        createdAt: fixture.now,
+        updatedAt: fixture.now,
+      });
+      for (const permissionKey of [
+        "team.roster.read",
+        "team.roster.import",
+        "team.roster.revoke",
+      ] as const) {
+        await insertPermissionGrant(ctx, {
+          eventId: fixture.eventId,
+          personId: importerPersonId,
+          eventAccessSubjectId: importerSubjectId,
+          permissionKey,
+          scopeType: "event",
+          sourceType: "manual",
+          sourceId: importerSubjectId,
+          reason: "Participant onboarding roster fixture",
+        });
+      }
+    });
+    const importer = backend.withIdentity({
+      subject: importerAuthUserId,
+      sessionId: importerAuthSessionId,
+    });
+
+    const preview = await importer.query(api.teamRosters.previewImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "Imported teams",
+      rows: [
+        {
+          rowNumber: 2,
+          email: "roster-lead@example.test",
+          displayName: "Roster Lead",
+          teamName: "Backfill Team",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          email: "participant@example.test",
+          displayName: "Aarav Menon",
+          teamName: "Backfill Team",
+          role: "member",
+        },
+      ],
+      reason: "Committee team assignments",
+    });
+    await importer.mutation(api.teamRosters.confirmImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "Imported teams",
+      rows: [
+        {
+          rowNumber: 2,
+          email: "roster-lead@example.test",
+          displayName: "Roster Lead",
+          teamName: "Backfill Team",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          email: "participant@example.test",
+          displayName: "Aarav Menon",
+          teamName: "Backfill Team",
+          role: "member",
+        },
+      ],
+      reason: "Committee team assignments",
+      previewChecksum: preview.previewChecksum,
+      clientOperationId: "onboarding-roster-import-once",
+    });
+    vi.useFakeTimers();
+    try {
+      await backend.finishAllScheduledFunctions(() => vi.runAllTimers());
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    const beforeProvision = await participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(beforeProvision?.pendingTeam).toMatchObject({
+      teamName: "Backfill Team",
+      role: "member",
+      status: "waiting_for_lead",
+    });
+
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("googleIdentityClaims", {
+        authUserId: fixture.authUserId,
+        googleSubject: "participant-onboarding-google-subject",
+        verifiedEmail: "participant@example.test",
+        tokenIssuedAt: fixture.now,
+        tokenExpiresAt: fixture.now + 3_600_000,
+        verifiedAt: fixture.now,
+      });
+    });
+
+    const leadAuthUserId = await createAuthUser(
+      backend,
+      fixture.now,
+      "Roster Lead",
+      "roster-lead@example.test",
+    );
+    const leadAuthSessionId = await createAuthSession(
+      backend,
+      leadAuthUserId,
+      fixture.now,
+      "participant-onboarding-roster-lead-session",
+    );
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("googleIdentityClaims", {
+        authUserId: leadAuthUserId,
+        googleSubject: "participant-onboarding-roster-lead-subject",
+        verifiedEmail: "roster-lead@example.test",
+        tokenIssuedAt: fixture.now,
+        tokenExpiresAt: fixture.now + 3_600_000,
+        verifiedAt: fixture.now,
+      });
+    });
+    const lead = backend.withIdentity({
+      subject: leadAuthUserId,
+      sessionId: leadAuthSessionId,
+    });
+    await lead.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "external_participant",
+    });
+    const leadTeam = await lead.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(leadTeam?.name).toBe("Backfill Team");
+    expect(leadTeam?.activeMemberCount).toBe(2);
+
+    const afterLeadProvision = await participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(afterLeadProvision?.pendingTeam).toBeNull();
+
+    await participant.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "external_participant",
+    });
+    const memberTeam = await participant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(memberTeam?.id).toBe(leadTeam?.id);
+    await backend.run(async (ctx) => {
+      const memberRows = await ctx.db
+        .query("teamMembers")
+        .withIndex("by_event_membership_status", (index) =>
+          index
+            .eq("eventId", fixture.eventId)
+            .eq("membershipId", fixture.membershipId)
+            .eq("status", "active"),
+        )
+        .collect();
+      expect(memberRows).toHaveLength(1);
+      expect(memberRows[0]?.role).toBe("member");
+      expect(memberRows[0]?.source).toBe("backfill");
+    });
+  }, 10_000);
 });
 
 async function seedParticipant(backend: BackendTest) {
@@ -644,7 +847,8 @@ async function seedParticipant(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      externalApplicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,

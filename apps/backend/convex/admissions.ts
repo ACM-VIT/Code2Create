@@ -501,6 +501,8 @@ export const detail = query({
           proposedQuestions: v.array(v.string()),
           confidence: v.optional(v.string()),
           limitations: v.array(v.string()),
+          agentVersion: v.optional(v.string()),
+          agentModel: v.optional(v.string()),
         }),
       ),
       aiRecommendationVisible: v.boolean(),
@@ -818,6 +820,12 @@ export const detail = query({
               ? { confidence: recommendation.confidence }
               : {}),
             limitations: recommendation.limitations,
+            ...(recommendation.agentVersion !== undefined
+              ? { agentVersion: recommendation.agentVersion }
+              : {}),
+            ...(recommendation.agentModel !== undefined
+              ? { agentModel: recommendation.agentModel }
+              : {}),
           }
         : null,
       aiRecommendationVisible: canReadAiRecommendation,

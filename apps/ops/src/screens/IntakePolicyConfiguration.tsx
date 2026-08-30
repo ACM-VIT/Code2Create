@@ -56,8 +56,6 @@ const assistedModelTemplate: AssistedModel = {
   redactionVersion: 'intake-redaction-v1',
   questionPolicyVersion: 'intake-question-policy-v1',
   evaluationSuiteVersion: 'intake-evaluation-v1',
-  maxOutputTokens: 600,
-  timeoutMs: 8_000,
 }
 
 export function IntakePolicyConfiguration({
@@ -289,13 +287,10 @@ export function IntakePolicyConfiguration({
               <NumberField label="Question maximum · characters" min={40} max={140} value={policy.questionMaxLength} onChange={(value) => updatePolicy('questionMaxLength', value)} />
               <label className="field">
                 <span>Fixed-question count</span>
-                <select value={policy.deterministicFollowUpCount} onChange={(event) => updatePolicy('deterministicFollowUpCount', parseFollowUpCount(event.target.value))}>
-                  <option value={1}>One</option>
-                  <option value={2}>Two</option>
-                </select>
+                <input disabled value="Two" />
               </label>
             </div>
-            <p className="muted intake-policy-note">Assisted intake never asks more than two questions.</p>
+            <p className="muted intake-policy-note">Every introduction asks two follow-up questions. Assisted mode writes them from the team’s current answers.</p>
           </PolicySection>
 
           <PolicySection title="Question goals" description="Assisted questions use one of these reviewed goals.">
@@ -402,8 +397,6 @@ export function IntakePolicyConfiguration({
                   <label className="field"><span>Redaction version</span><input required spellCheck={false} value={policy.model.redactionVersion} onChange={(event) => updateAssistedModel({ redactionVersion: event.target.value })} /></label>
                   <label className="field"><span>Question-policy version</span><input required spellCheck={false} value={policy.model.questionPolicyVersion} onChange={(event) => updateAssistedModel({ questionPolicyVersion: event.target.value })} /></label>
                   <label className="field"><span>Evaluation-suite version</span><input required spellCheck={false} value={policy.model.evaluationSuiteVersion} onChange={(event) => updateAssistedModel({ evaluationSuiteVersion: event.target.value })} /></label>
-                  <NumberField label="Output-token limit" min={200} max={1200} value={policy.model.maxOutputTokens} onChange={(value) => updateAssistedModel({ maxOutputTokens: value })} />
-                  <NumberField label="Timeout in milliseconds" min={2000} max={15000} value={policy.model.timeoutMs} onChange={(value) => updateAssistedModel({ timeoutMs: value })} />
                 </div>
               </details>
             ) : null}
@@ -488,12 +481,6 @@ function parseAnswerLength(value: string): AnswerLength {
   const length = answerLengthOptions.find((candidate) => candidate === value)
   if (!length) throw new Error('The selected answer length is invalid.')
   return length
-}
-
-function parseFollowUpCount(value: string): 1 | 2 {
-  if (value === '1') return 1
-  if (value === '2') return 2
-  throw new Error('The selected question count is invalid.')
 }
 
 function parseModelMode(value: string): Policy['model']['mode'] {

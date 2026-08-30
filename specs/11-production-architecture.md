@@ -15,7 +15,7 @@
 | Live novelty signal | OpenAI `text-embedding-3-small` at its native 1,536 dimensions plus a corpus-filtered Convex vector index; one atomic response per debounced preview |
 | Project-intake interpretation | OpenAI Responses API with strict Structured Outputs, called only from a Convex action |
 | Admission analysis | A separate OpenAI Structured Outputs contract, configuration, and bounded Convex action; human decisions remain authoritative |
-| Durable intelligence | Flue on a separate Vite-built Cloudflare Worker, Cloudflare Workers AI, and one Durable Object agent instance per job identity; Convex remains authoritative |
+| Durable intelligence | Flue on a separate Vite-built Cloudflare Worker, OpenAI Responses, and one Durable Object agent instance per job identity; Convex remains authoritative |
 | External job control | `@convex-dev/workpool` with separate bounded intake, admission-analysis, intelligence-dispatch, GitHub, Figma, and export pools; short participant-email sends use claimed Convex scheduler actions |
 | Provider integrations | GitHub App installation tokens/webhooks and Figma OAuth/Webhooks V2 |
 | Participant status email | Cloudflare Email Sending REST API, lifecycle Event Subscription to Queues, a small HMAC bridge Worker, and Cloudflare Email Routing for the approved inbound support alias; generic text links back to authenticated portal state |
@@ -69,7 +69,7 @@ Cloudflare update Worker <--> private R2 ---+
 
 Convex -- signed frozen projection --> Flue intelligence Worker
 Convex <-- signed validated callback -- Flue intelligence Worker
-Flue intelligence Worker --> Cloudflare Workers AI
+Flue intelligence Worker --> OpenAI Responses API
 
 Convex scheduled action --> APNs / FCM --> reviewer device
 Convex scheduled action --> voice Worker/provider --> reviewer phone
@@ -367,7 +367,7 @@ The requested flow is:
 1. `operationsIntelligence.request` checks event-scoped `operations.intelligence.generate`, deduplicates the client operation, rejects a second active event brief, inserts the pending record, enqueues a Workpool action, and schedules the ten-minute terminal deadline.
 2. The action reads the same bounded internal health projection used by the dashboard, stores that projection and its SHA-256 checksum together, then signs the exact JSON body and millisecond timestamp with `INTELLIGENCE_INGRESS_SECRET`.
 3. The Worker verifies content type, byte limit, five-minute request age, HMAC context, and strict protocol shape before dispatch. The Convex brief ID is the create-only Flue instance ID, so a retry returns `already_exists` instead of submitting the model again.
-4. `OperationsBrief` uses the environment's Workers AI binding. Its sole durable write tool posts one strictly shaped result to the configured Convex callback. The Worker exposes only a capability-protected read stream for the exact run; it exposes no raw agent router, Convex token, or domain-action tool.
+4. `OperationsBrief` uses Flue's pinned OpenAI Responses provider. Its sole durable write tool posts one strictly shaped result to the configured Convex callback. The Worker exposes only a capability-protected read stream for the exact run; it exposes no raw agent router, Convex token, or domain-action tool.
 5. The callback signs a different context with `INTELLIGENCE_CALLBACK_SECRET`. Convex verifies the raw body before parsing, rechecks protocol/source identity and every cited signal, requires each priority's owner and next action to come from the same cited frozen signal, and lets only the first matching callback or timeout settle the brief.
 6. `operationsIntelligence.latest` publishes only the validated result to a caller with independent `operations.intelligence.read` permission.
 
@@ -522,9 +522,9 @@ Full Figma JSON, captured previews, protected attendance/round exports, and emer
 
 ### Web
 
-Cloudflare deploys `apps/web` and `apps/ops` as separate Workers static-asset applications. Both use the official Vite plugin and `single-page-application` not-found handling. Wrangler environments use staging names for rehearsal and unsuffixed names for production.
+Cloudflare deploys `apps/landing`, `apps/web`, and `apps/ops` as separate Workers static-asset applications. The public landing page sends applicants to the configured participant-portal origin and does not read private event data. All three use the official Vite plugin and `single-page-application` not-found handling. Wrangler environments use staging names for rehearsal and unsuffixed names for production.
 
-`apps/intelligence` is another Vite-built Worker, not a static user surface. Its HTTP shell delegates signed autonomy admission, continuation, and abort to `src/routes/autonomyRoutes.ts`; separate `src/lib/autonomy*.ts` modules own fencing, transport, exhaustive traversal, orchestration, investigation, reduction, evidence, finalization, and artifact persistence. Wrangler creates the Flue Durable Object namespaces, the run-keyed autonomy admission-fence namespace, and the Workers AI binding under `code2create-intelligence-staging` or `code2create-intelligence`. The staging Worker points only to staging Convex endpoints and uses staging-only HMAC secrets. It exposes `/health`; signed service ingress for briefs, copilot turns, autonomy admission, continuation, and abort; and capability-protected sanitized history/long-poll routes. It never exposes the raw Flue agent router, a browser mutation or attachment route, prompts, reasoning, metadata, or tool arguments/results.
+`apps/intelligence` is another Vite-built Worker, not a static user surface. Its HTTP shell delegates signed autonomy admission, continuation, and abort to `src/routes/autonomyRoutes.ts`; separate `src/lib/autonomy*.ts` modules own fencing, transport, exhaustive traversal, orchestration, investigation, reduction, evidence, finalization, and artifact persistence. Wrangler creates the Flue Durable Object namespaces and the run-keyed autonomy admission-fence namespace under `code2create-intelligence-staging` or `code2create-intelligence`. Flue calls OpenAI Responses with the Worker's encrypted `OPENAI_API_KEY`. The staging Worker points only to staging Convex endpoints and uses staging-only HMAC secrets. It exposes `/health`; signed service ingress for briefs, copilot turns, autonomy admission, continuation, and abort; and capability-protected sanitized history/long-poll routes. It never exposes the raw Flue agent router, a browser mutation or attachment route, prompts, reasoning, metadata, or tool arguments/results.
 
 Cloudflare Workers Builds connects each staging Worker to the repository's `staging` branch and each production Worker to `main`. Each Worker owns one application root, validates its browser build values when applicable, derives the release ID from Cloudflare's commit SHA, and runs its checked-in strict Wrangler deployment. Non-production branch builds are disabled. GitHub Actions verifies the repository but does not deploy Workers.
 
@@ -557,7 +557,7 @@ Before a binary for a new runtime reaches a phone, release operations publishes 
 | Convex environment | Better Auth secret, Google secret, OpenAI API key, GitHub App private key and webhook secret, Figma client secret, token-encryption key, attendance-key wrapping key, Firebase service account, APNs private key and identifiers, Cloudflare Email settings and event HMAC, voice Worker URL and callback HMAC, S3 restricted credential, intelligence Worker URL, and separate intelligence HMAC secrets |
 | Cloudflare build environment | Public Convex query/auth URLs, event slug, PostHog project token/ingest host, and build-only source-map upload credentials; no provider private key or handbook Markdown |
 | Update Worker environment | Environment-specific admin token; the private R2 bucket is a binding and the update signing key is absent |
-| Intelligence Worker environment | Workers AI binding, autonomy admission-fence namespace, exact Ops origin, exact Convex brief/autonomy callback, read, work-authorization, recommendation, and recommendation-evidence URLs, plus four HMAC secrets for ingress, callback/recommendation delivery, read/work authorization, and browser stream capabilities; no Convex service credential or event provider secret |
+| Intelligence Worker environment | Encrypted `OPENAI_API_KEY`, autonomy admission-fence namespace, exact Ops origin, exact Convex brief/autonomy callback, read, work-authorization, recommendation, and recommendation-evidence URLs, plus four HMAC secrets for ingress, callback/recommendation delivery, read/work authorization, and browser stream capabilities; no Convex service credential |
 | Email Worker environment | Exact Convex email-event callback URL, sending domain, verified Email Routing forward destination, and email-event HMAC secret; no Convex service credential or Cloudflare Email Sending API token |
 | Voice Worker environment | Public Worker origin, approved Twilio credential and sending number, Sarvam synthesis key, request HMAC, and callback HMAC; no Convex service credential, broad event credential, purpose decision, or proposal data |
 | Controlled mobile release machine | Update private key and publisher token, Android keystore/passwords, Firebase `google-services.json`, Apple signing/provisioning keychain, public backend/auth/update URLs, app identifiers, and PostHog symbol-upload credentials |
@@ -646,7 +646,7 @@ Business history stays in domain records and audit events. PostHog is not the ju
 - Autonomy-policy read, draft, validation, publication, and kill authority fail independently. Concurrent evaluation coalesces only exact duplicate work; distinct signal episodes, schedule slots, and manual requests remain durably queued and eventually execute without a cognitive quota.
 - An answer is durable before model work begins; OpenAI failure follows the configured fallback path and cannot block submission.
 - A novelty preview uses the native 1,536-value `text-embedding-3-small` output and a corpus-filtered vector search. A stale response cannot attach to newer text, a duplicate request cannot create a second row, sensitive-looking input creates no request, and every failure leaves intake usable.
-- A successful introduction contains one or two follow-ups; each is short, single-purpose, immutable, and tied to the source/configuration versions that produced it.
+- A successful introduction contains exactly two follow-ups; each is short, single-purpose, immutable, and tied to the source/configuration versions that produced it.
 - Model output cannot call a mutation, select a phase, accept the freshness attestation, change a participant answer, publish a proposal, or reach judging data.
 - Final submission starts with one optimistic transaction over the previewed draft, authoritative roster counts, and lead. That transaction locks membership and creates a durable attempt. Bounded idempotent mutations then materialize the immutable member snapshot and finalize the application. A concurrent pre-lock change forces a new preview. A failed materialization unlocks membership and preserves a bounded failure reason.
 - The current lead can revise proposal content before the server deadline. Each revision appends an immutable version and invalidates stale human and AI outputs.

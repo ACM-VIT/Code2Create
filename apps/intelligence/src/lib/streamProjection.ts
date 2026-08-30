@@ -235,6 +235,8 @@ const publicToolNames = new Set([
 	'activate_skill',
 	'publish_operations_brief',
 	'propose_recommendation',
+	'inspect_event_commands',
+	'propose_event_command',
 	'read_admission_cohort',
 	'read_attendance_counts',
 	'read_floor_mapping_progress',

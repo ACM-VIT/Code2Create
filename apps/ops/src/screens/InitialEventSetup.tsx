@@ -12,14 +12,15 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
   const [eventName, setEventName] = useState('Code2Create 7.0')
   const [startsAtLocal, setStartsAtLocal] = useState('')
   const [endsAtLocal, setEndsAtLocal] = useState('')
-  const [applicationsCloseAtLocal, setApplicationsCloseAtLocal] = useState('')
+  const [externalApplicationsCloseAtLocal, setExternalApplicationsCloseAtLocal] = useState('')
+  const [vitApplicationsCloseAtLocal, setVitApplicationsCloseAtLocal] = useState('')
   const [venueName, setVenueName] = useState('VIT Chennai')
   const [venueAddress, setVenueAddress] = useState('')
   const [discordUrl, setDiscordUrl] = useState('')
   const [vitEmailDomain, setVitEmailDomain] = useState('vitstudent.ac.in')
   const [privacyNoticeUrl, setPrivacyNoticeUrl] = useState('https://code2create.in/privacy')
-  const [teamMinimumSize, setTeamMinimumSize] = useState('1')
-  const [teamMaximumSize, setTeamMaximumSize] = useState('4')
+  const [teamMinimumSize, setTeamMinimumSize] = useState('2')
+  const [teamMaximumSize, setTeamMaximumSize] = useState('5')
   const [participantCapacity, setParticipantCapacity] = useState('1000')
   const [integrationPolicyVersion, setIntegrationPolicyVersion] = useState('integrations-v1')
   const [requiredGitHubTopic, setRequiredGitHubTopic] = useState('code2create-7-0')
@@ -56,12 +57,15 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
     event.preventDefault()
     const startsAt = indiaDateTimeToTimestamp(startsAtLocal)
     const endsAt = indiaDateTimeToTimestamp(endsAtLocal)
-    const applicationsCloseAt = indiaDateTimeToTimestamp(applicationsCloseAtLocal)
+    const externalApplicationsCloseAt = indiaDateTimeToTimestamp(externalApplicationsCloseAtLocal)
+    const applicationsCloseAt = indiaDateTimeToTimestamp(vitApplicationsCloseAtLocal)
     if (
       startsAt === null ||
       endsAt === null ||
+      externalApplicationsCloseAt === null ||
       applicationsCloseAt === null ||
       endsAt <= startsAt ||
+      externalApplicationsCloseAt > applicationsCloseAt ||
       applicationsCloseAt > startsAt
     ) {
       setError('Choose a valid application deadline, event start, and event end.')
@@ -80,13 +84,14 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
         eventSlug,
         eventName,
         timezone: 'Asia/Kolkata',
+        externalApplicationsCloseAt,
         applicationsCloseAt,
         vitEmailDomains: [vitEmailDomain],
         participantPolicy: {
           label: 'Participant policy · 1',
           teamMinimumSize: Number(teamMinimumSize),
           teamMaximumSize: Number(teamMaximumSize),
-          mixedParticipantClassesAllowed: true,
+          mixedParticipantClassesAllowed: false,
           phoneField: 'optional',
           vitRegistrationNumberField: 'required',
           vitProgrammeField: 'required',
@@ -114,7 +119,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           initialIdeaMaxLength: 4_000,
           followUpAnswerMinLength: 5,
           followUpAnswerMaxLength: 1_200,
-          minimumFollowUpCount: 1,
+          minimumFollowUpCount: 2,
           maximumFollowUpCount: 2,
           deterministicFollowUpCount: 2,
           questionMaxLength: 140,
@@ -212,8 +217,12 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
                 <input required minLength={3} maxLength={80} value={eventName} onChange={(event) => setEventName(event.currentTarget.value)} />
               </label>
               <label className="field">
-                <span>Applications close · India time</span>
-                <input required type="datetime-local" value={applicationsCloseAtLocal} onChange={(event) => setApplicationsCloseAtLocal(event.currentTarget.value)} />
+                <span>External applications close · India time</span>
+                <input required type="datetime-local" value={externalApplicationsCloseAtLocal} onChange={(event) => setExternalApplicationsCloseAtLocal(event.currentTarget.value)} />
+              </label>
+              <label className="field">
+                <span>VIT applications close · India time</span>
+                <input required type="datetime-local" value={vitApplicationsCloseAtLocal} onChange={(event) => setVitApplicationsCloseAtLocal(event.currentTarget.value)} />
               </label>
               <label className="field">
                 <span>Starts · India time</span>

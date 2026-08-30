@@ -1,0 +1,373 @@
+/* ------------------------------------------------------------------ *
+ * Code2Create 2026 — design tokens taken from the Figma file
+ * "Code2Create-2026 / RSVP Final Screens".
+ * ------------------------------------------------------------------ */
+
+:root {
+  /* Palette */
+  --ink: #0c0004;
+  --ink-card: #0c0104;
+  --rose: #d884a2;
+  --rose-light: #feb4cb;
+  --rose-deep: #a04263;
+  --blush: #e3a9bf;
+  --card-from: #915a6e;
+  --card-to: #d884a2;
+  --paper: #f8f8f8;
+  --paper-warm: #fefdfe;
+
+  /* Section backdrops. Figma keeps the gradient stops past 100% so the
+     rose never fully lands inside the frame. */
+  --sky-low: linear-gradient(
+    180deg,
+    var(--ink) 70.914%,
+    var(--rose-deep) 115.27%,
+    var(--blush) 141.75%
+  );
+  --sky-high: linear-gradient(
+    180deg,
+    var(--ink) 53.04%,
+    var(--rose-deep) 118.58%,
+    var(--blush) 141.75%
+  );
+
+  /* Type. Recoleta Alt and Canela are licensed faces used in the Figma
+     source; Fraunces and Playfair Display stand in for them here. */
+  --font-display: 'Fraunces', 'Recoleta Alt', ui-serif, Georgia, serif;
+  --font-body: 'Do Hyeon', 'Trebuchet MS', sans-serif;
+  --font-numeral: 'Playfair Display', 'Canela', ui-serif, Georgia, serif;
+  --font-ui: 'Geist', ui-sans-serif, system-ui, sans-serif;
+
+  /* The 1280px Figma artboard, expressed as a scalable unit so that
+     absolutely-placed artwork keeps its proportions. */
+  --frame: 1280;
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  /* The journey is a tall scrub track; a scrollbar reporting that is only a
+     distraction from a page meant to read as one continuous scene. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+/* The nav warp: the scene blurs out, the jump lands instantly behind the
+   veil, and it blurs back in. The navbar itself stays crisp. */
+.journey__stage,
+.petals,
+.footer {
+  transition: filter 0.24s ease;
+}
+
+html.nav-warp .journey__stage,
+html.nav-warp .petals,
+html.nav-warp .footer {
+  filter: blur(18px);
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* NB: no `overflow-x: hidden` on html/body — it would turn the root into a
+   scroll container and break the timeline's sticky scene. Each section
+   clips its own artwork instead. */
+
+body {
+  min-height: 100vh;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-body);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--rose-light);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ *
+ * Section shell
+ * ------------------------------------------------------------------ */
+
+.section {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.section--low {
+  background: var(--sky-low);
+}
+
+.section--high {
+  background: var(--sky-high);
+}
+
+/* Artwork layers never take pointer events or get read out. */
+.art {
+  position: absolute;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+
+.shell {
+  position: relative;
+  z-index: 2;
+  width: min(100% - 2 * clamp(20px, 4vw, 52px), 1177px);
+  margin-inline: auto;
+}
+
+/* ------------------------------------------------------------------ *
+ * Navbar  (Figma 1808:2814 — 1177×75, 2px #d884a2, rgba(0,0,0,.25))
+ * ------------------------------------------------------------------ */
+
+.navbar {
+  position: fixed;
+  inset: clamp(10px, 2.4vh, 20px) 0 auto;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  padding-inline: clamp(12px, 4vw, 52px);
+}
+
+.navbar__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: min(100%, 1177px);
+  height: clamp(48px, 5.2vw, 64px);
+  padding-inline: clamp(14px, 2.8vw, 38px);
+  background: rgba(0, 0, 0, 0.25);
+  border: 2px solid var(--rose);
+  border-radius: 30px 5px 30px 5px;
+  /* Prefixed forms come from the Lightning CSS targets in vite.config.ts —
+     hand-writing -webkit- here makes the minifier drop the standard one.
+     8px, not more: the stage repaints under this bar on every scrubbed
+     frame, and the re-blur cost grows with the radius. */
+  backdrop-filter: blur(8px);
+}
+
+.navbar__brand {
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 0.9vw, 13px);
+  min-width: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(12px, 1.05vw, 15px);
+  white-space: nowrap;
+  color: var(--paper);
+}
+
+.navbar__brand img {
+  width: clamp(24px, 2.2vw, 30px);
+  height: auto;
+  filter: drop-shadow(0.635px 0.635px 0.317px rgba(0, 0, 0, 0.25));
+}
+
+.navbar__links {
+  display: flex;
+  align-items: center;
+  gap: clamp(16px, 4.4vw, 62px);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(12px, 1.05vw, 15px);
+  white-space: nowrap;
+  color: var(--paper);
+}
+
+.navbar__links a {
+  position: relative;
+  padding-block: 4px;
+  transition: color 0.25s ease;
+}
+
+.navbar__links a::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 1.5px;
+  background: var(--rose);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.28s ease;
+}
+
+.navbar__links a:hover {
+  color: var(--rose-light);
+}
+
+.navbar__links a:hover::after {
+  transform: scaleX(1);
+}
+
+.navbar__toggle {
+  display: none;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+}
+
+.navbar__toggle span {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: var(--paper);
+  box-shadow: 0 -6px 0 var(--paper), 0 6px 0 var(--paper);
+}
+
+@media (max-width: 780px) {
+  .navbar__links {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 18px;
+    width: min(240px, 70vw);
+    padding: 20px 24px;
+    background: rgba(12, 0, 4, 0.94);
+    border: 2px solid var(--rose);
+    border-radius: 20px 5px 20px 5px;
+    backdrop-filter: blur(8px);
+  }
+
+  .navbar__links[data-open='false'] {
+    display: none;
+  }
+
+  .navbar__toggle {
+    display: flex;
+  }
+
+  .navbar__inner {
+    position: relative;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Falling petals / drifting lanterns
+ * ------------------------------------------------------------------ */
+
+.drift {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.drift__petal {
+  position: absolute;
+  top: -8%;
+  width: 12px;
+  height: 12px;
+  background: var(--rose-light);
+  border-radius: 76% 24% 70% 30% / 60% 55% 45% 40%;
+  opacity: 0.75;
+  animation: petal-fall linear infinite;
+}
+
+.drift__lantern {
+  position: absolute;
+  bottom: -22%;
+  width: 46px;
+  animation: lantern-rise linear infinite;
+}
+
+@keyframes petal-fall {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  100% {
+    transform: translate3d(var(--drift, 60px), 118vh, 0) rotate(540deg);
+  }
+}
+
+@keyframes lantern-rise {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(-4deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  88% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate3d(var(--drift, -50px), -132vh, 0) rotate(6deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .drift__petal,
+  .drift__lantern {
+    animation: none;
+  }
+
+  .drift {
+    display: none;
+  }
+}

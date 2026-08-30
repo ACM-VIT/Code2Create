@@ -75,9 +75,13 @@ export async function createAdmissionRecommendation(
   if (args.modelConfig) {
     await admissionWorkpool.enqueueAction(
       ctx,
-      internal.admissionIntelligence.generate,
+      internal.admissionAgentActions.dispatchRecommendation,
       { recommendationId },
-      { retry: false },
+      {
+        retry: true,
+        onComplete: internal.admissionIntelligence.agentDispatchFinished,
+        context: recommendationId,
+      },
     );
   }
   return recommendationId;

@@ -58,7 +58,7 @@ describe("admission policy configuration", () => {
     });
   });
 
-  test("requires complete year bands, decision coverage, and bounded model settings", () => {
+  test("requires complete year bands, decision coverage, and bounded model metadata", () => {
     const valid = configuration("admission-v2", 900, true);
     expect(normalizeAdmissionConfiguration(valid).criteria).toHaveLength(4);
     expect(() => normalizeAdmissionConfiguration({
@@ -76,8 +76,8 @@ describe("admission policy configuration", () => {
     })).toThrow("permit accept");
     expect(() => normalizeAdmissionConfiguration({
       ...valid,
-      model: valid.model ? { ...valid.model, timeoutMs: 31_000 } : null,
-    })).toThrow("Model timeout");
+      model: valid.model ? { ...valid.model, modelId: "x" } : null,
+    })).toThrow("Admission model ID");
   });
 
   test("allows one competing complete draft from the same observed state", async () => {
@@ -295,8 +295,6 @@ function configuration(
           promptVersion: "admission-recommendation-v2",
           schemaVersion: "admission-recommendation-v1",
           evaluationSuiteVersion: "admission-eval-v2",
-          maxOutputTokens: 1_200,
-          timeoutMs: 15_000,
         }
       : null,
   };

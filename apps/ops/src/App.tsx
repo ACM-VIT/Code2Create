@@ -5,7 +5,7 @@ import { signInWithGooglePopup, type Code2CreateAuthClient } from '@code2create/
 import type { FunctionReturnType } from 'convex/server'
 import { AuthLoading, Authenticated, Unauthenticated, useMutation, useQuery } from 'convex/react'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import {
   OperationsLayout,
@@ -91,6 +91,9 @@ const ProjectCheckpointOverview = lazy(() =>
 const Roster = lazy(() =>
   import('./screens/Roster').then((module) => ({ default: module.Roster })),
 )
+const TeamRoster = lazy(() =>
+  import('./screens/TeamRoster').then((module) => ({ default: module.TeamRoster })),
+)
 const PermissionBundles = lazy(() =>
   import('./screens/PermissionBundles').then((module) => ({ default: module.PermissionBundles })),
 )
@@ -168,7 +171,14 @@ function Operations({
   const access = useQuery(api.access.operationsCapabilities, { eventSlug })
   const invitation = useQuery(api.accessInvitations.mine, { eventSlug })
   const roster = useQuery(api.rosters.mine, { eventSlug })
+  const synchronizeSupremePermissions = useMutation(api.access.synchronizeSupremePermissions)
+  const supremeSyncStarted = useRef(false)
   const { data: session } = authClient.useSession()
+  useEffect(() => {
+    if (!access?.isSupreme || supremeSyncStarted.current) return
+    supremeSyncStarted.current = true
+    void synchronizeSupremePermissions({ eventSlug })
+  }, [access, synchronizeSupremePermissions])
   if (access === undefined || invitation === undefined || roster === undefined) {
     return <GateBoot status="Loading your event access…" />
   }
@@ -200,7 +210,8 @@ function Operations({
   const canInvite = capabilities.invitations
   const canReadBundles = capabilities.bundles
   const canReadRoster = capabilities.roster
-  const canViewAccess = canReadPeople || canInvite || canReadBundles || canReadRoster
+  const canReadTeamRoster = capabilities.teamRoster
+  const canViewAccess = canReadPeople || canInvite || canReadBundles || canReadRoster || canReadTeamRoster
   const canViewIntegrations = capabilities.integrations
   const canViewProjectCheckpoints = capabilities.projectCheckpoints
   const canViewReviews = capabilities.reviews
@@ -576,6 +587,7 @@ function Operations({
                 canBrowsePeople={canBrowsePeople}
                 canReadPeople={canReadPeople}
                 canReadRoster={canReadRoster}
+                canReadTeamRoster={canReadTeamRoster}
                 serverNow={serverNow}
               />
             )}
@@ -597,6 +609,16 @@ function Operations({
             element={(
               <Suspense fallback={<p className="muted">Loading roster…</p>}>
                 <Roster canReadBundles={canReadBundles} />
+              </Suspense>
+            )}
+          />
+        ) : null}
+        {canReadTeamRoster ? (
+          <Route
+            path="/access/team-roster"
+            element={(
+              <Suspense fallback={<p className="muted">Loading participant teams…</p>}>
+                <TeamRoster />
               </Suspense>
             )}
           />
@@ -650,7 +672,9 @@ function RosterClaim({
         <p className="muted">
           You are listed as {roster.displayName} · {eventRoleLabels[roster.role]} under {roster.email}.
         </p>
-        {roster.bundles.length > 0 ? (
+        {roster.role === 'supreme' ? (
+          <p className="notice">Supreme access includes every event permission.</p>
+        ) : roster.bundles.length > 0 ? (
           <ul className="claim-bundle-list">
             {roster.bundles.map((bundle) => (
               <li key={`${bundle.label}:${bundle.version}`}>{bundle.label}</li>

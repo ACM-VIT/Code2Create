@@ -1,12 +1,20 @@
 import { httpRouter } from "convex/server";
 
 import { admissionIntelligenceReadEndpoint } from "./admissionCohort";
+import {
+  ideaIntelligenceCallbackEndpoint,
+  ideaIntelligenceReadEndpoint,
+} from "./admissionAgentHttp";
 import { authComponent, createAuth } from "./auth";
 import { figmaWebhook } from "./figmaWebhook";
 import { githubWebhook } from "./githubWebhook";
 import { intelligenceReadEndpoint } from "./intelligenceReads";
 import { intelligenceRecommendationWebhook } from "./intelligenceRecommendations";
 import { operationsIntelligenceWebhook } from "./operationsIntelligenceWebhook";
+import {
+  operationsEpisodeCallbackEndpoint,
+  operationsEpisodeReadEndpoint,
+} from "./operationsEpisodeHttp";
 import { outboundCallEvent } from "./outboundCallEvent";
 import {
   autonomyCallbackEndpoint,
@@ -44,6 +52,16 @@ http.route({
   path: "/intelligence/operations-briefs/callback",
   method: "POST",
   handler: operationsIntelligenceWebhook,
+});
+http.route({
+  path: "/intelligence/operations-episodes/read",
+  method: "POST",
+  handler: operationsEpisodeReadEndpoint,
+});
+http.route({
+  path: "/intelligence/operations-episodes/callback",
+  method: "POST",
+  handler: operationsEpisodeCallbackEndpoint,
 });
 http.route({
   path: "/intelligence/operations-reads",
@@ -84,6 +102,16 @@ http.route({
   path: "/intelligence/admission-reads",
   method: "POST",
   handler: admissionIntelligenceReadEndpoint,
+});
+http.route({
+  path: "/intelligence/idea-submissions/read",
+  method: "POST",
+  handler: ideaIntelligenceReadEndpoint,
+});
+http.route({
+  path: "/intelligence/idea-submissions/callback",
+  method: "POST",
+  handler: ideaIntelligenceCallbackEndpoint,
 });
 
 export default http;

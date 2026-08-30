@@ -132,7 +132,7 @@ An authorized operator can retry the current `refused`, `invalid`, `timed_out`, 
 
 ## 3. Durable intelligence Worker
 
-The separate `apps/intelligence` package uses Flue on Cloudflare and is built through Vite. Its agents use the Cloudflare Workers AI binding, so the Worker holds no third-party model key. The brief, copilot, and autonomous-operations agents each pin an explicit model and agent version in source. A model, prompt, skill, tool, provider, or redaction change increments the affected agent version and passes its deterministic contract, privacy, adversarial, and live-provider evaluations before deployment.
+The separate `apps/intelligence` package uses Flue on Cloudflare and is built through Vite. Its agents use Flue's OpenAI Responses provider with the environment's encrypted `OPENAI_API_KEY`. The backend and intelligence Worker use the same environment key. The brief, copilot, and autonomous-operations agents each pin an explicit model and agent version in source. A model, prompt, skill, tool, provider, or redaction change increments the affected agent version and passes its deterministic contract, privacy, adversarial, and live-provider evaluations before deployment.
 
 The public application never receives the service HMACs. Convex authorizes the operator and issues a short-lived, route-bound stream capability. Browser `GET | HEAD` routes expose only sanitized Flue history, updates, and long-poll responses for the exact brief, copilot conversation, or autonomy run. Public SSE is rejected so an expired capability cannot leave an indefinite stream open. The projection keeps visible copilot operator/assistant text, generic reasoning lifecycle, fixed allowlisted tool names, duration, and status. Brief and autonomy traces omit all model prose. Every projection removes prompts, system text, reasoning text, tool arguments/results/errors, raw provider metadata, identities, files, secrets, and hidden data. Complete sanitized history remains cursor-pageable after reconnect; a small transport page is never treated as the whole trace.
 
@@ -144,7 +144,7 @@ The autonomy allowlist is the complete evidence scope, not a menu the model may 
 
 The autonomous agent has no generic mutation tool and no unattended execution mode. It can create only a typed recommendation that the published policy permits. Consequential effects still use a human-confirmed permissioned mutation with current versions. The kill switch, policy replacement, owner revocation, or event-state change cancels the authoritative run and schedules an idempotent abort. Admission and continuation requests expire after 30 seconds. A durable Worker run fence prevents delayed work from creating a submission after cancellation, including when no Flue instance existed at abort time.
 
-All service requests use a strict closed schema, bounded body, canonical JSON, a millisecond timestamp within five minutes, and route-specific HMAC context. Ingress, callback/recommendation delivery, redacted reads/work authorization, and browser streams use independent environment-specific secrets of at least 32 UTF-8 bytes. Neither side logs a signed body, signature, provider body, prompt, or raw model/tool content. Cloudflare tracing keeps content capture disabled. A privacy patch to the pinned Flue runtime makes malformed Workers AI stream errors content-free and lets the private router project a bounded native history before serialization; the frozen install verifies that patch.
+All service requests use a strict closed schema, bounded body, canonical JSON, a millisecond timestamp within five minutes, and route-specific HMAC context. Ingress, callback/recommendation delivery, redacted reads/work authorization, and browser streams use independent environment-specific secrets of at least 32 UTF-8 bytes. Neither side logs a signed body, signature, provider body, prompt, or raw model/tool content. Cloudflare tracing keeps content capture disabled. A patch to the pinned Flue runtime lets the private router project a bounded native history before serialization; the frozen install verifies that patch.
 
 Every product-terminal, canceled, or revoked autonomy path durably schedules an idempotent purge of the private read-page, target, cursor, digest, finding, candidate, hypothesis, support, and root-membership artifacts before terminal settlement or abort acknowledgement. The run Durable Object completes deletion independently; a recoverable provider or transport interruption remains nonterminal and retains those artifacts for continuation. The admission fence keeps exact replay receipts without a timer only while the run remains active. Its terminal-callback outbox atomically persists the strict callback and wakeup, pre-arms each retry before external I/O, and closes the fence only after Convex accepts or exactly replays the callback. Terminal settlement or a recorded abort deletes admission and pending rows in bounded pages and leaves the durable run-bound closed tombstone that makes later admission impossible. Native Flue history, sanitized public lifecycle history, and server-side sealed evidence follow their separately approved restricted trace or audit periods.
 
@@ -152,7 +152,7 @@ Staging and production require these paired values:
 
 - Convex: `INTELLIGENCE_WORKER_URL`, `INTELLIGENCE_INGRESS_SECRET`, `INTELLIGENCE_CALLBACK_SECRET`, `INTELLIGENCE_READ_SECRET`, and `INTELLIGENCE_STREAM_SECRET`;
 - Worker: the matching four secrets plus exact brief/autonomy callback, read, work-authorization, recommendation, and recommendation-evidence URLs;
-- Worker binding: `AI`.
+- Worker secret: `OPENAI_API_KEY`.
 
 Every configured service URL is a canonical HTTPS origin/endpoint outside loopback development. Development, staging, and production never share a URL or secret. The Worker has no Convex deployment credential and cannot bypass the signed, run-scoped routes. New intelligence jobs follow the same rule: one strict versioned input, closed reads/tools/output, explicit authority owner, durable idempotent identity, complete cursor traversal, defined retention, sanitized observable lifecycle, and no broad service credential or consequential command.
 
@@ -434,7 +434,7 @@ The delivery record distinguishes pending, sending, retry-wait, provider-accepte
 
 One Cloudflare Email Sending Event Subscription per environment publishes delivered, deferred, bounced, failed, rejected, and complained events to an environment-specific Queue. `apps/email` validates the event schema and sending domain. It strips content/SMTP detail and signs the normalized callback. It posts the callback to `<CONVEX_SITE_URL>/communications/cloudflare-email/events`. Callback failures retry and then enter the configured DLQ. Convex verifies the context-separated HMAC and age. It deduplicates by Cloudflare event ID and orders by provider time plus event ID. Hard bounce, provider suppression, or complaint disables the exact destination. A soft exhausted bounce does not disable the destination. A receipt does not prove that the participant read or accepted anything. The system does not consume open/click events. Discord is the primary accepted-team community/support destination. It is not the sole official decision channel.
 
-The repository creates both Queue resources through `pnpm --filter @code2create/email queue:create:<environment>`. The checked Wrangler `4.120.0` CLI cannot create an `email.sending` Event Subscription because it does not expose that source. Cloudflare's Queues dashboard is therefore the supported creation path. The release owner must select the exact sending domain and all six events. `pnpm --filter @code2create/email subscription:list:<environment>` verifies the resulting subscription through Wrangler. The owner must recheck the current CLI before each initial environment setup. Do not use another event source as a fallback.
+The repository creates both Queue resources through `pnpm --filter @code2create/email queue:create:<environment>`. Wrangler creates the staging `email.sending` Event Subscription through `pnpm --filter @code2create/email subscription:create:staging`. The command fixes the exact sending domain and all six lifecycle events. `pnpm --filter @code2create/email subscription:list:<environment>` verifies the resulting subscription. Do not use another event source as a fallback.
 
 A manual retry creates a new append-only delivery only from the latest definitively failed attempt. Exact-person `communications.delivery.manage`, current versions/application/email, a reason, and a Google session created within the last 15 minutes must pass first. `unknown` has no retry path until provider reconciliation. Disabling an address suppresses queued work. It does not claim that an already sending provider request was canceled.
 
@@ -593,7 +593,7 @@ If VIT policy requires another provider/region, replace this decision before pro
 | Convex | developer deployment | rehearsal deployment | production deployment |
 | Better Auth | dev secret/clients | staging secret/clients | production secret/clients |
 | OpenAI | dev project/key and synthetic corpus/input | staging project/key, approved staging novelty corpus, and intake/admission evals | production project/key, published privacy-reviewed novelty corpus, and separately published intake/admission model configs |
-| Intelligence | local Flue Worker, synthetic aggregate snapshots, exact local service URLs, and four development HMAC domains | `code2create-intelligence-staging`, staging Workers AI binding, exact staging Convex service URLs, and four staging-only HMAC domains | `code2create-intelligence`, approved Workers AI model, exact production Convex service URLs, and four production-only HMAC domains |
+| Intelligence | local Flue Worker, repository development OpenAI key, synthetic aggregate snapshots, exact local service URLs, and four development HMAC domains | `code2create-intelligence-staging`, encrypted staging OpenAI key, exact staging Convex service URLs, and four staging-only HMAC domains | `code2create-intelligence`, encrypted production OpenAI key, approved pinned OpenAI model, exact production Convex service URLs, and four production-only HMAC domains |
 | Event app | local development build/scheme with synthetic barcode fixtures | locally signed build, staging update Worker/R2 bucket, representative VIT IDs, and rehearsal scanners | locally signed production build, production update Worker/R2 bucket, and provisioned scanner/reviewer fleet |
 | GitHub | dev App | staging App/test repos | production App/team repos |
 | Figma | dev OAuth/webhook/test files | staging OAuth/webhook/test files | approved production OAuth App and webhook endpoint |
@@ -615,11 +615,11 @@ The complete pull-request gate must run:
 2. formatting, lint, and TypeScript;
 3. domain/unit tests;
 4. Convex schema/function tests;
-5. production builds for the participant and operations Vite applications plus the intelligence, update, email, and voice Workers;
-6. intelligence protocol/permission/race tests and a strict Wrangler dry-run with the Workers AI and Durable Object bindings;
+5. production builds for the landing, participant, and operations Vite applications plus the intelligence, update, email, and voice Workers;
+6. intelligence protocol/permission/race tests and a strict Wrangler dry-run with the OpenAI secret and Durable Object bindings;
 7. Expo export/config validation plus update-Worker dry-run build and protocol/concurrency tests;
 8. Playwright against an isolated seeded deployment;
-9. OpenAI embedding-width, corpus, race, Responses, and fallback fixtures; Workers AI and Flue contracts; email, call, GitHub, and Figma webhook fixtures;
+9. OpenAI embedding-width, corpus, race, Responses, fallback, and Flue provider contracts; email, call, GitHub, and Figma webhook fixtures;
 10. secret scan.
 
 The checked-in `Product checks` workflow uses a pinned TruffleHog scan and a frozen pnpm install. It runs on pull requests and pushes to `staging` and `main`. It runs repository lint, type checks, domain and Convex tests, service protocol tests, autonomy-boundary evaluation, all Vite builds, and all Worker builds. It also validates public Expo configuration and exports the iOS and Android JavaScript bundles with non-secret fixtures. GitHub Actions verifies releases. It does not deploy a Cloudflare Worker and holds no Cloudflare, mobile, or update-signing credential.
@@ -649,6 +649,7 @@ Each Worker connects separately to `ACM-VIT/Code2Create`. This preserves indepen
 
 | Staging Worker | Root directory | Build command | Deploy command |
 | --- | --- | --- | --- |
+| `code2create-landing-staging` | `apps/landing` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 | `code2create-participant-staging` | `apps/web` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 | `code2create-operations-staging` | `apps/ops` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 | `code2create-intelligence-staging` | `apps/intelligence` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
@@ -658,10 +659,11 @@ Each Worker connects separately to `ACM-VIT/Code2Create`. This preserves indepen
 
 Every staging build sets `NODE_VERSION=24.18.0` and `PNPM_VERSION=11.18.0`. Cloudflare supplies `WORKERS_CI`, `WORKERS_CI_BRANCH`, and `WORKERS_CI_COMMIT_SHA`. Cloudflare's production-branch setting owns the branch boundary. The environment-specific package commands set `CLOUDFLARE_ENV` and `VITE_DEPLOYMENT_ENVIRONMENT`, and the Vite deployments use `WORKERS_CI_COMMIT_SHA` as `VITE_RELEASE_ID`. Do not create user-defined copies of the `WORKERS_CI_*` values.
 
-The two browser applications use these additional build values:
+The three browser applications use these additional build values:
 
 | Application | Plain build variables | Secret build variables |
 | --- | --- | --- |
+| Landing | `VITE_EVENT_REGISTRATION_URL`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY` |
 | Participant | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY` |
 | Operations | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY` |
 
@@ -669,7 +671,7 @@ The remaining Workers need only the common build-tool versions. Their operationa
 
 | Worker | Wrangler-owned bindings and plain runtime values | Runtime secrets |
 | --- | --- | --- |
-| Intelligence | Workers AI, admission-fence Durable Object, exact Ops origin, and exact Convex callback/read/work/recommendation URLs | `INTELLIGENCE_INGRESS_SECRET`, `INTELLIGENCE_CALLBACK_SECRET`, `INTELLIGENCE_READ_SECRET`, `INTELLIGENCE_STREAM_SECRET`; the URLs and Ops origin may also be stored as encrypted Worker secrets |
+| Intelligence | OpenAI Responses, admission-fence Durable Object, exact Ops origin, and exact Convex callback/read/work/recommendation URLs | `OPENAI_API_KEY`, `INTELLIGENCE_INGRESS_SECRET`, `INTELLIGENCE_CALLBACK_SECRET`, `INTELLIGENCE_READ_SECRET`, `INTELLIGENCE_STREAM_SECRET`; the URLs and Ops origin may also be stored as encrypted Worker secrets |
 | Updates | staging R2 bucket and `UPDATE_CHANNEL=staging` | `C2C_UPDATES_ADMIN_TOKEN` |
 | Email | staging Queue consumer and dead-letter Queue | `CONVEX_EMAIL_EVENT_CALLBACK_URL`, `EMAIL_EVENT_CALLBACK_SECRET`, `EMAIL_ROUTING_ADDRESS`, `EMAIL_ROUTING_FORWARD_TO`, `EMAIL_SENDING_DOMAIN` |
 | Voice | outbound-call Durable Object and staging `PUBLIC_BASE_URL` | `OUTBOUND_CALL_REQUEST_SECRET`, `OUTBOUND_CALL_EVENT_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `SARVAM_API_KEY` |
@@ -687,9 +689,9 @@ Before the first deployment in an environment, release operations generates four
 Release order is:
 
 1. deploy the tested Convex functions containing the semantic autonomy inbox, operation receipts, continuation/abort outboxes, callback, redacted paged-read boundary, work-authorization boundary, recommendation boundary, stream-ticket actions, and manual-brief state machine;
-2. configure the matching Worker callback/read/work/recommendation/recommendation-evidence URLs, exact operations origin, Workers AI binding, and all four Worker HMAC secrets;
+2. configure the matching Worker callback/read/work/recommendation/recommendation-evidence URLs, exact operations origin, encrypted `OPENAI_API_KEY`, and all four Worker HMAC secrets;
 3. deploy the exact intelligence Worker build through `pnpm --filter @code2create/intelligence deploy:built` with `CLOUDFLARE_ENV` and the release ID;
-4. verify `GET /health`, Worker name/environment, Workers AI binding, and Durable Object migration;
+4. verify `GET /health`, Worker name/environment, OpenAI readiness, and Durable Object migration;
 5. configure the matching Convex Worker URL and all four Convex HMAC secrets;
 6. use a synthetic event and explicitly granted operator to request one brief, observe one callback, open its sanitized paged trace, submit one copilot turn through Convex, observe its assistant/tool lifecycle, and verify that exact retries do not start duplicate work; and
 7. publish an enabled staging autonomy policy under the four exact configuration grants; create distinct synthetic signal changes plus scheduled and manual work while one run is active; verify durable serial draining, a multi-page/multi-submission continuation, exact citation provenance, one human-approved typed recommendation, complete sanitized history after reconnect, transient retry, and an immediate reasoned kill/abort before disabling the policy again.
@@ -731,7 +733,7 @@ The ordered review-queue aggregate has no compatibility or backfill path. Its fi
 4. Create staged Cloudflare deployments for all three web applications and the intelligence Worker; run deep-link, auth-origin, permission, asset, health, signed-ingress, and callback checks.
 5. Promote the tested Cloudflare deployments without changing the environment pairings.
 6. If needed, publish a same-runtime JavaScript update from a clean commit through the signed local publisher only after the identical commit passes against the staging update service and fleet.
-7. Verify one synthetic novelty preview against the published native-width corpus. Verify one OpenAI interpretation/fallback and one bounded Workers AI operations brief. Verify one enrolled VIT ID barcode and one QR attendance transition. Verify GitHub/Figma callbacks, one test push, export bucket write, PostHog release, and dashboard release IDs.
+7. Verify one synthetic novelty preview against the published native-width corpus. Verify one OpenAI interpretation/fallback and one bounded OpenAI/Flue operations brief. Verify one enrolled VIT ID barcode and one QR attendance transition. Verify GitHub/Figma callbacks, one test push, export bucket write, PostHog release, and dashboard release IDs.
 8. Record the release in event configuration.
 
 Do not change native dependencies, auth callback shape, rubric calculation, or destructive schema during a live round.
@@ -807,7 +809,7 @@ Intelligence HMAC rotation uses the autonomy kill switch, pauses manual generati
 
 - Production auth callbacks accept only production origins/schemes.
 - The first intake frame is **Hello.**, followed by **What is your project about?**, with one text box and no form, chat, or PPT UI.
-- Every introduction asks one or two follow-ups: generated questions on the assisted path and published fallbacks in deterministic mode or when model work fails. Later checkpoints use their own published fixed-question plan.
+- Every introduction asks exactly two follow-ups: generated questions on the assisted path and published fallbacks in deterministic mode or when model work fails. The second follow-up is the required third total question. Later checkpoints use their own published fixed-question plan.
 - Novelty uses one immutable reviewed corpus, native 1,536-value `text-embedding-3-small` output, and a corpus-filtered vector index. The participant sees only the newest complete result; provider failure, sensitive input, duplicate requests, and stale completion leave submission usable and add nothing to application or judging evidence.
 - OpenAI Responses requests set `store: false`, expose no tools, exclude identity/judging fields, and accept only the strict versioned output schema. The embeddings endpoint has no `store` parameter.
 - A timeout, refusal, invalid output, quota error, or disabled model still lets a team finish and submit; a late result cannot replace the visible question.
@@ -826,7 +828,7 @@ Intelligence HMAC rotation uses the autonomy kill switch, pauses manual generati
 - The autonomous agent can create only policy-allowed typed recommendations. It cannot execute a materially consequential command; approval rechecks the deciding human's exact permission and the frozen target version.
 - The sanitized replayable trace exposes generic model/tool lifecycle and allowed visible copilot text without prompt, system, reasoning, tool arguments/results/errors, raw provider content, identity, or secret leakage.
 - Killing, superseding, revoking the owner, or leaving live operation cancels the authoritative run and retries the exact Worker abort until acknowledged. A late read, proposal, callback, or continuation cannot revive it.
-- Workers AI/Flue failure leaves the ordinary event-health query and every participant, admission, attendance, queue, review, score, access, incident, and Synesthesia command available.
+- OpenAI/Flue failure leaves the ordinary event-health query and every participant, admission, attendance, queue, review, score, access, incident, and Synesthesia command available.
 - GitHub App permission screen contains no write/admin permission.
 - A team can add repositories from different App installations and give each a required kind, purpose, branch/root, and order.
 - Retrying one repository or Figma-file add with the same operation ID and participant input returns the original binding before provider I/O. A newer repository head, Figma version, or published integration policy cannot turn that retry into a different request or create another baseline artifact.
@@ -880,7 +882,6 @@ Current milestone note: the metadata scheduler, exact provider retry gate, separ
 - [Flue routing](https://flueframework.com/docs/guide/routing/)
 - [Flue agent API](https://flueframework.com/docs/reference/agent-api/)
 - [Flue tools](https://flueframework.com/docs/guide/tools/)
-- [Cloudflare Workers AI bindings](https://developers.cloudflare.com/workers-ai/configuration/bindings/)
 - [Expo development builds](https://docs.expo.dev/develop/development-builds/introduction/)
 - [Expo Camera barcode scanning](https://docs.expo.dev/versions/latest/sdk/camera/)
 - [GitHub App permissions](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app)

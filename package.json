@@ -19,15 +19,18 @@
     "dev:intelligence": "pnpm --filter @code2create/intelligence dev",
     "dev:email": "pnpm --filter @code2create/email dev",
     "dev:voice": "pnpm --filter @code2create/voice dev",
+    "dev:landing": "pnpm --filter @code2create/landing dev",
     "dev:trailer": "pnpm --filter @code2create/trailer dev",
     "render:trailer": "pnpm --filter @code2create/trailer render",
     "test:e2e:release": "pnpm --filter @code2create/e2e test:release",
+    "test:idea-round-release": "pnpm --filter @code2create/backend test:idea-round-release && pnpm --filter @code2create/intelligence test && pnpm --filter @code2create/intelligence eval",
     "check:fixtures:staging": "pnpm --filter @code2create/backend browser-fixtures:check:staging",
     "check:providers:staging": "pnpm --filter @code2create/backend providers:check:staging",
     "attendance:badges": "pnpm --filter @code2create/web badges:generate",
-    "build": "pnpm --filter @code2create/web --filter @code2create/ops --filter @code2create/updates --filter @code2create/intelligence --filter @code2create/email --filter @code2create/voice build",
+    "build": "pnpm --filter @code2create/web --filter @code2create/ops --filter @code2create/landing --filter @code2create/updates --filter @code2create/intelligence --filter @code2create/email --filter @code2create/voice build",
     "build:web": "pnpm --filter @code2create/web build",
     "build:ops": "pnpm --filter @code2create/ops build",
+    "build:landing": "pnpm --filter @code2create/landing build",
     "recovery:backup": "pnpm --filter @code2create/backend recovery:backup",
     "recovery:rehearse": "pnpm --filter @code2create/backend recovery:rehearse",
     "test": "pnpm --filter './apps/**' --filter './packages/**' --if-present test",
@@ -39,6 +42,6 @@
     "check:release": "pnpm audit:dependencies && pnpm check:product && pnpm test && pnpm build && pnpm --filter @code2create/intelligence deploy:check && pnpm --filter @code2create/reviewer export:check"
   },
   "devDependencies": {
-    "@posthog/cli": "^0.15.1"
+    "@posthog/cli": "^0.16.0"
   }
 }

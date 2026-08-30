@@ -28,16 +28,16 @@
   },
   "dependencies": {
     "mime": "^4.1.0",
-    "structured-headers": "^2.0.0",
+    "structured-headers": "^2.0.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260804.1",
+    "@cloudflare/workers-types": "^5.20260828.1",
     "@expo/multipart-body-parser": "^2.0.0",
-    "@types/node": "^24.13.3",
-    "oxlint": "^1.75.0",
-    "typescript": "~6.0.3",
-    "vitest": "4.1.10",
-    "wrangler": "^4.120.0"
+    "@types/node": "^26.4.0",
+    "oxlint": "^1.80.0",
+    "typescript": "~7.0.2",
+    "vitest": "4.1.11",
+    "wrangler": "^4.127.1"
   }
 }

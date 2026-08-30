@@ -6,23 +6,44 @@ import { lazy, Suspense } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { eventSlug } from './lib/config'
 import { EntryScreen } from './screens/EntryScreen'
+import { PortalScene } from './components/portal/PortalScene'
 import './App.css'
 
 const ParticipantApp = lazy(() =>
   import('./ParticipantApp').then((module) => ({ default: module.ParticipantApp })),
 )
 
+// Dev-only screen switcher. `import.meta.env.DEV` is statically false in a
+// production build, so the ternary collapses and the chunk is never emitted.
+const ScreenGallery = import.meta.env.DEV
+  ? lazy(() => import('./dev/ScreenGallery').then((module) => ({ default: module.ScreenGallery })))
+  : null
+
 export default function App({ authClient }: { authClient: Code2CreateAuthClient }) {
   const { data: session } = authClient.useSession()
   const publicState = useQuery(api.system.getPublicState, { eventSlug })
 
+  // Mounted outside the loading guard so the gallery is reachable even when the
+  // backend is unreachable — which is when reviewing screens matters most.
+  const gallery = ScreenGallery ? (
+    <Suspense fallback={null}>
+      <ScreenGallery />
+    </Suspense>
+  ) : null
+
   if (publicState === undefined) {
-    return <LoadingScreen />
+    return (
+      <>
+        {gallery}
+        <LoadingScreen />
+      </>
+    )
   }
 
   return (
     <>
       <ClientObservabilityIdentity distinctId={session?.user.id ?? null} />
+      {gallery}
       <AuthLoading>
         <LoadingScreen />
       </AuthLoading>
@@ -45,10 +66,10 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
 
 function LoadingScreen() {
   return (
-    <main className="centered-shell">
-      <p className="muted" role="status">
+    <PortalScene tree="both">
+      <p role="status" className="font-display text-xl italic text-rose-light">
         Loading…
       </p>
-    </main>
+    </PortalScene>
   )
 }

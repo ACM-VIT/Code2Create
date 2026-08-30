@@ -1,16 +1,17 @@
-import OpenAI from "openai";
+import { ideaIntelligenceAnalysisPolicyViolation } from "@code2create/domain";
 import { v, type Infer } from "convex/values";
-import { z } from "zod";
 
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
-import { internalAction, internalMutation } from "./_generated/server";
+import type { DataModel, Doc } from "./_generated/dataModel";
+import { internalMutation } from "./_generated/server";
 import { admissionGuidanceForBand, admissionInputFingerprint } from "./lib/admission";
-import { redactProjectText } from "./lib/projectText";
+import { operationFingerprint } from "./lib/operations";
 import { appendAdmissionJobReadFactById } from "./lib/operationsAutonomyReadFacts/admissionJobs";
 import { admissionDecision, admissionExperienceBand, criterionAssessment } from "./values";
+import { admissionWorkpool } from "./workpools";
 
 const sourceRef = v.string();
+const agentDispatchRetryDelayMs = 60_000;
 
 type SourceRef = Infer<typeof sourceRef>;
 
@@ -19,8 +20,9 @@ const recommendationContext = v.object({
   applicationId: v.id("applications"),
   sourceInputFingerprint: v.string(),
   modelId: v.string(),
-  maxOutputTokens: v.number(),
-  timeoutMs: v.number(),
+  promptVersion: v.string(),
+  schemaVersion: v.string(),
+  evaluationSuiteVersion: v.string(),
   experienceBand: admissionExperienceBand,
   initialIdea: v.string(),
   intakeResponses: v.array(
@@ -87,37 +89,15 @@ export function admissionInformationSources(
   );
 }
 
-const modelOutputSchema = z
-  .object({
-    recommendation: z.enum(["accept", "waitlist", "decline", "needs_information"]),
-    criterionAssessments: z
-      .array(
-        z
-          .object({
-            criterionKey: z.string().min(1).max(80),
-            assessment: z.enum(["meets", "partly_meets", "not_yet_clear"]),
-            sourceRefs: z.array(z.string().min(1).max(80)).min(1).max(2),
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(12),
-    strengths: z.array(z.string().min(3).max(180)).max(3),
-    concerns: z.array(z.string().min(3).max(180)).max(3),
-    proposedQuestions: z.array(z.string().min(8).max(180)).max(2),
-    confidence: z.enum(["low", "medium", "high"]),
-    limitations: z.array(z.string().min(3).max(180)).max(3),
-  })
-  .strict();
-
-type ModelOutput = z.infer<typeof modelOutputSchema>;
-
 export const beginRecommendation = internalMutation({
   args: { recommendationId: v.id("admissionAIRecommendations") },
   returns: v.union(v.null(), recommendationContext),
   handler: async (ctx, args): Promise<RecommendationContext | null> => {
     const recommendation = await ctx.db.get(args.recommendationId);
-    if (!recommendation || recommendation.state !== "pending") return null;
+    if (
+      !recommendation ||
+      (recommendation.state !== "pending" && recommendation.state !== "running")
+    ) return null;
     const [application, project, policy, modelConfig] = await Promise.all([
       ctx.db.get(recommendation.applicationId),
       ctx.db.get(recommendation.projectVersionId),
@@ -182,15 +162,18 @@ export const beginRecommendation = internalMutation({
       }
       return null;
     }
-    await ctx.db.patch(recommendation._id, { state: "running" });
-    await appendAdmissionJobReadFactById(ctx, recommendation._id, Date.now());
+    if (recommendation.state === "pending") {
+      await ctx.db.patch(recommendation._id, { state: "running" });
+      await appendAdmissionJobReadFactById(ctx, recommendation._id, Date.now());
+    }
     return {
       recommendationId: recommendation._id,
       applicationId: application._id,
       sourceInputFingerprint: fingerprint,
       modelId: modelConfig.modelId,
-      maxOutputTokens: modelConfig.maxOutputTokens,
-      timeoutMs: modelConfig.timeoutMs,
+      promptVersion: modelConfig.promptVersion,
+      schemaVersion: modelConfig.schemaVersion,
+      evaluationSuiteVersion: modelConfig.evaluationSuiteVersion,
       experienceBand: application.experienceBand,
       initialIdea: project.initialIdea,
       intakeResponses: project.intakeResponses.map((response) => ({
@@ -224,6 +207,96 @@ const completionState = v.union(
   v.literal("disabled"),
 );
 
+export const agentDispatchFinished = admissionWorkpool.defineOnComplete<
+  DataModel,
+  typeof sourceRef
+>({
+  context: sourceRef,
+  handler: async (ctx, { context: recommendationIdValue, result }) => {
+    if (result.kind === "success") return;
+    const recommendationId = ctx.db.normalizeId(
+      "admissionAIRecommendations",
+      recommendationIdValue,
+    );
+    if (!recommendationId) return;
+    const recommendation = await ctx.db.get(recommendationId);
+    if (
+      !recommendation ||
+      recommendation.state !== "pending" ||
+      recommendation.agentDispatchAttemptId ||
+      recommendation.agentSubmissionId
+    ) return;
+    await ctx.db.patch(recommendation._id, {
+      limitations: ["The idea agent dispatch is retrying; human review remains available."],
+      failureCategory: "agent_dispatch_retry",
+    });
+    await ctx.scheduler.runAfter(
+      agentDispatchRetryDelayMs,
+      internal.admissionIntelligence.retryAgentDispatch,
+      { recommendationId: recommendation._id },
+    );
+  },
+});
+
+export const retryAgentDispatch = internalMutation({
+  args: { recommendationId: v.id("admissionAIRecommendations") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const recommendation = await ctx.db.get(args.recommendationId);
+    if (
+      !recommendation ||
+      recommendation.state !== "pending" ||
+      recommendation.agentDispatchAttemptId ||
+      recommendation.agentSubmissionId
+    ) return false;
+    await admissionWorkpool.enqueueAction(
+      ctx,
+      internal.admissionAgentActions.dispatchRecommendation,
+      { recommendationId: recommendation._id },
+      {
+        retry: true,
+        onComplete: internal.admissionIntelligence.agentDispatchFinished,
+        context: recommendation._id,
+      },
+    );
+    return true;
+  },
+});
+
+export const recoverAgentRecommendation = internalMutation({
+  args: {
+    recommendationId: v.id("admissionAIRecommendations"),
+    submissionId: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const recommendation = await ctx.db.get(args.recommendationId);
+    if (
+      !recommendation ||
+      (recommendation.state !== "pending" && recommendation.state !== "running") ||
+      recommendation.agentSubmissionId !== args.submissionId
+    ) return false;
+    await ctx.db.patch(recommendation._id, {
+      state: "pending",
+      agentSubmissionId: undefined,
+      agentAcceptedAt: undefined,
+      limitations: ["The durable idea agent is recovering an interrupted analysis."],
+      failureCategory: "agent_analysis_recovered",
+    });
+    await admissionWorkpool.enqueueAction(
+      ctx,
+      internal.admissionAgentActions.dispatchRecommendation,
+      { recommendationId: recommendation._id },
+      {
+        retry: true,
+        onComplete: internal.admissionIntelligence.agentDispatchFinished,
+        context: recommendation._id,
+      },
+    );
+    return true;
+  },
+});
+
 export const finishRecommendation = internalMutation({
   args: {
     recommendationId: v.id("admissionAIRecommendations"),
@@ -243,13 +316,36 @@ export const finishRecommendation = internalMutation({
     confidence: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"))),
     limitations: v.array(v.string()),
     providerRequestId: v.optional(v.string()),
+    operationId: v.optional(v.string()),
+    agentVersion: v.optional(v.string()),
+    agentModel: v.optional(v.string()),
     latencyMs: v.optional(v.number()),
     failureCategory: v.optional(v.string()),
   },
-  returns: v.null(),
+  returns: v.union(v.literal("accepted"), v.literal("already_exists"), v.literal("stale")),
   handler: async (ctx, args) => {
     const recommendation = await ctx.db.get(args.recommendationId);
-    if (!recommendation || recommendation.state !== "running") return null;
+    const agentOutputChecksum = args.operationId
+      ? operationFingerprint([
+          args.sourceInputFingerprint,
+          args.state,
+          args.recommendation ?? null,
+          JSON.stringify(args.criterionAssessments),
+          JSON.stringify(args.strengths),
+          JSON.stringify(args.concerns),
+          JSON.stringify(args.proposedQuestions),
+          args.confidence ?? null,
+          JSON.stringify(args.limitations),
+          args.agentVersion ?? null,
+          args.agentModel ?? null,
+        ])
+      : undefined;
+    if (
+      recommendation?.agentOperationId !== undefined &&
+      args.operationId === recommendation.agentOperationId &&
+      agentOutputChecksum === recommendation.agentOutputChecksum
+    ) return "already_exists";
+    if (!recommendation || recommendation.state !== "running") return "stale";
     const application = await ctx.db.get(recommendation.applicationId);
     if (
       !application ||
@@ -266,7 +362,7 @@ export const finishRecommendation = internalMutation({
       if (application?.aiRecommendationId === recommendation._id) {
         await ctx.db.patch(application._id, { aiDisposition: "stale" });
       }
-      return null;
+      return "stale";
     }
     let state = args.state;
     if (state === "succeeded") {
@@ -274,10 +370,7 @@ export const finishRecommendation = internalMutation({
         ctx.db.get(recommendation.admissionPolicyVersionId),
         ctx.db.get(recommendation.projectVersionId),
       ]);
-      const expectedKeys = new Set(policy?.criteria.map((criterion) => criterion.criterionKey) ?? []);
-      const actualKeys = new Set(
-        args.criterionAssessments.map((assessment) => assessment.criterionKey),
-      );
+      const expectedKeys = policy?.criteria.map((criterion) => criterion.criterionKey) ?? [];
       const validProjectResponses = project
         ? validSubmittedIntakeResponses(project.intakeResponses)
         : false;
@@ -296,21 +389,26 @@ export const finishRecommendation = internalMutation({
           availableSourceRefs.add(response.sourceRef);
         }
       }
-      const valid = Boolean(
-        args.recommendation &&
-          args.confidence &&
-          project?.eventId === recommendation.eventId &&
-          validProjectResponses &&
-          expectedKeys.size > 0 &&
-          actualKeys.size === args.criterionAssessments.length &&
-          actualKeys.size === expectedKeys.size &&
-          [...expectedKeys].every((key) => actualKeys.has(key)) &&
-          args.criterionAssessments.every((assessment) =>
-            assessment.sourceRefs.length >= 1 &&
-            assessment.sourceRefs.length <= 2 &&
-            assessment.sourceRefs.every((source) => availableSourceRefs.has(source)),
-          ),
-      );
+      const policyViolation = args.recommendation && args.confidence
+        ? ideaIntelligenceAnalysisPolicyViolation({
+            analysis: {
+              recommendation: args.recommendation,
+              criterionAssessments: args.criterionAssessments,
+              strengths: args.strengths,
+              concerns: args.concerns,
+              proposedQuestions: args.proposedQuestions,
+              confidence: args.confidence,
+              limitations: args.limitations,
+            },
+            criterionKeys: expectedKeys,
+            sourceRefs: [...availableSourceRefs],
+          })
+        : "shape_mismatch";
+      const valid =
+        project?.eventId === recommendation.eventId &&
+        validProjectResponses &&
+        expectedKeys.length > 0 &&
+        policyViolation === null;
       if (!valid) state = "invalid";
     }
     const succeeded = state === "succeeded";
@@ -324,6 +422,13 @@ export const finishRecommendation = internalMutation({
       confidence: succeeded ? args.confidence : undefined,
       limitations: args.limitations,
       providerRequestId: args.providerRequestId,
+      agentOperationId: args.operationId,
+      agentOutputChecksum,
+      agentVersion: args.agentVersion,
+      agentModel: args.agentModel,
+      agentDispatchAttemptId: undefined,
+      agentSubmissionId: undefined,
+      agentAcceptedAt: undefined,
       latencyMs: args.latencyMs,
       failureCategory:
         args.state === "succeeded" && !succeeded
@@ -336,229 +441,6 @@ export const finishRecommendation = internalMutation({
       aiRecommendationId: recommendation._id,
       aiDisposition: succeeded ? undefined : "unavailable",
     });
-    return null;
-  },
-});
-
-function validateModelOutput(output: ModelOutput, context: RecommendationContext) {
-  const expectedKeys = new Set(context.criteria.map((criterion) => criterion.criterionKey));
-  const actualKeys = new Set(
-    output.criterionAssessments.map((assessment) => assessment.criterionKey),
-  );
-  const availableSourceRefs = new Set([
-    "initial_idea",
-    ...context.intakeResponses
-      .filter((response) => !response.skipped && response.answer !== undefined)
-      .map((response) => response.sourceRef),
-    ...context.informationResponses.map((response) => response.sourceRef),
-  ]);
-  if (
-    actualKeys.size !== output.criterionAssessments.length ||
-    actualKeys.size !== expectedKeys.size ||
-    [...expectedKeys].some((key) => !actualKeys.has(key)) ||
-    output.criterionAssessments.some((assessment) =>
-      assessment.sourceRefs.some((source) => !availableSourceRefs.has(source)),
-    )
-  ) {
-    return null;
-  }
-  const blocked = /\b(score|scored|points?|ranking|winner|judging|judge score|prestige)\b/iu;
-  if (
-    [...output.strengths, ...output.concerns, ...output.proposedQuestions, ...output.limitations].some(
-      (text) => blocked.test(text),
-    )
-  ) {
-    return null;
-  }
-  return output;
-}
-
-function parseModelOutput(value: string) {
-  try {
-    const decoded = modelOutputSchema.safeParse(JSON.parse(value));
-    return decoded.success ? decoded.data : null;
-  } catch {
-    return null;
-  }
-}
-
-export const generate = internalAction({
-  args: { recommendationId: v.id("admissionAIRecommendations") },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const context: RecommendationContext | null = await ctx.runMutation(
-      internal.admissionIntelligence.beginRecommendation,
-      args,
-    );
-    if (!context) return null;
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
-    if (!apiKey) {
-      await ctx.runMutation(internal.admissionIntelligence.finishRecommendation, {
-        recommendationId: context.recommendationId,
-        sourceInputFingerprint: context.sourceInputFingerprint,
-        state: "disabled",
-        criterionAssessments: [],
-        strengths: [],
-        concerns: [],
-        proposedQuestions: [],
-        limitations: ["The admission model is not configured in this environment."],
-        failureCategory: "api_key_not_configured",
-      });
-      return null;
-    }
-    const client = new OpenAI({
-      apiKey,
-      timeout: context.timeoutMs,
-      maxRetries: 0,
-    });
-    const startedAt = Date.now();
-    try {
-      const availableSourceRefs = [
-        "initial_idea",
-        ...context.intakeResponses
-          .filter((response) => !response.skipped && response.answer !== undefined)
-          .map((response) => response.sourceRef),
-        ...context.informationResponses.map((response) => response.sourceRef),
-      ];
-      const response = await client.responses.create({
-        model: context.modelId,
-        store: false,
-        max_output_tokens: context.maxOutputTokens,
-        instructions:
-          "You produce a structured recommendation for initial hackathon admission review, never a final decision and never a hackathon judging assessment. Apply only the supplied year-adjusted policy guidance. First-year expectations are intentionally welcoming. Use only the supplied project answers. Do not infer from names, institution, prestige, identity, capacity, novelty, prior outcomes, or human reviews. Do not use numeric scores, rankings, or judging language. Every criterion assessment must cite an available source reference. Human reviewers retain accept, waitlist, decline, and needs-information authority.",
-        input: JSON.stringify({
-          experienceBand: context.experienceBand,
-          criteria: context.criteria,
-          projectAnswers: [
-            { sourceRef: "initial_idea", answer: redactProjectText(context.initialIdea) },
-            ...context.intakeResponses.map((response) => ({
-              sourceRef: response.sourceRef,
-              question: response.question,
-              ...(response.answer !== undefined
-                ? { answer: redactProjectText(response.answer) }
-                : {}),
-              skipped: response.skipped,
-            })),
-            ...context.informationResponses.map((response) => ({
-              sourceRef: response.sourceRef,
-              question: response.question,
-              answer: redactProjectText(response.answer),
-            })),
-          ],
-        }),
-        text: {
-          format: {
-            type: "json_schema",
-            name: "code2create_admission_recommendation",
-            strict: true,
-            schema: {
-              type: "object",
-              properties: {
-                recommendation: {
-                  type: "string",
-                  enum: ["accept", "waitlist", "decline", "needs_information"],
-                },
-                criterionAssessments: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      criterionKey: { type: "string" },
-                      assessment: {
-                        type: "string",
-                        enum: ["meets", "partly_meets", "not_yet_clear"],
-                      },
-                      sourceRefs: {
-                        type: "array",
-                        items: {
-                          type: "string",
-                          enum: availableSourceRefs,
-                        },
-                        minItems: 1,
-                        maxItems: 2,
-                      },
-                    },
-                    required: ["criterionKey", "assessment", "sourceRefs"],
-                    additionalProperties: false,
-                  },
-                },
-                strengths: { type: "array", items: { type: "string" }, maxItems: 3 },
-                concerns: { type: "array", items: { type: "string" }, maxItems: 3 },
-                proposedQuestions: {
-                  type: "array",
-                  items: { type: "string" },
-                  maxItems: 2,
-                },
-                confidence: { type: "string", enum: ["low", "medium", "high"] },
-                limitations: { type: "array", items: { type: "string" }, maxItems: 3 },
-              },
-              required: [
-                "recommendation",
-                "criterionAssessments",
-                "strengths",
-                "concerns",
-                "proposedQuestions",
-                "confidence",
-                "limitations",
-              ],
-              additionalProperties: false,
-            },
-          },
-        },
-      });
-      const parsed = parseModelOutput(response.output_text);
-      const output = parsed ? validateModelOutput(parsed, context) : null;
-      if (!output) {
-        await ctx.runMutation(internal.admissionIntelligence.finishRecommendation, {
-          recommendationId: context.recommendationId,
-          sourceInputFingerprint: context.sourceInputFingerprint,
-          state: "invalid",
-          criterionAssessments: [],
-          strengths: [],
-          concerns: [],
-          proposedQuestions: [],
-          limitations: ["The model output did not match the published admission schema."],
-          ...(response._request_id ? { providerRequestId: response._request_id } : {}),
-          latencyMs: Date.now() - startedAt,
-          failureCategory: "invalid_or_disallowed_output",
-        });
-        return null;
-      }
-      await ctx.runMutation(internal.admissionIntelligence.finishRecommendation, {
-        recommendationId: context.recommendationId,
-        sourceInputFingerprint: context.sourceInputFingerprint,
-        state: "succeeded",
-        recommendation: output.recommendation,
-        criterionAssessments: output.criterionAssessments,
-        strengths: output.strengths,
-        concerns: output.concerns,
-        proposedQuestions: output.proposedQuestions,
-        confidence: output.confidence,
-        limitations: output.limitations,
-        ...(response._request_id ? { providerRequestId: response._request_id } : {}),
-        latencyMs: Date.now() - startedAt,
-      });
-    } catch (error) {
-      const status = error instanceof OpenAI.APIError ? error.status : undefined;
-      const state =
-        status === 429
-          ? "rate_limited"
-          : error instanceof OpenAI.APIConnectionTimeoutError
-            ? "timed_out"
-            : "failed";
-      await ctx.runMutation(internal.admissionIntelligence.finishRecommendation, {
-        recommendationId: context.recommendationId,
-        sourceInputFingerprint: context.sourceInputFingerprint,
-        state,
-        criterionAssessments: [],
-        strengths: [],
-        concerns: [],
-        proposedQuestions: [],
-        limitations: ["No AI recommendation is available; human review remains required."],
-        latencyMs: Date.now() - startedAt,
-        failureCategory: status ? `provider_http_${status}` : "provider_request_failed",
-      });
-    }
-    return null;
+    return "accepted";
   },
 });

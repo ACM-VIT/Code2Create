@@ -9,17 +9,17 @@
     "./privacy": "./src/privacy.ts"
   },
   "scripts": {
-    "test": "node --test src/privacy.test.ts",
+    "test": "node --test src/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@posthog/react": "^1.10.5",
-    "posthog-js": "^1.420.0",
+    "posthog-js": "^1.422.1",
     "react": "^19.2.8"
   },
   "devDependencies": {
-    "@types/node": "^24.13.3",
+    "@types/node": "^26.4.0",
     "@types/react": "^19.2.18",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   }
 }

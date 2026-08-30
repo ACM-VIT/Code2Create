@@ -7,6 +7,10 @@ import {
 } from '../../../scripts/local-development.mjs'
 
 test('local intelligence uses one localhost-only signed service boundary', () => {
+	assert.equal(
+		localIntelligenceWorkerEnvironment.OPENAI_API_KEY,
+		localConvexEnvironment.OPENAI_API_KEY,
+	)
   assert.equal(localConvexEnvironment.C2C_DEPLOYMENT_ENVIRONMENT, 'development')
   assert.ok(localConvexEnvironment.BETTER_AUTH_SECRET.length >= 32)
   assert.equal(
@@ -60,4 +64,12 @@ test('local intelligence uses one localhost-only signed service boundary', () =>
   )
   assert.equal(recommendationUrl.origin, 'http://127.0.0.1:3211')
   assert.equal(recommendationUrl.pathname, '/intelligence/operations-recommendations')
+  const ideaReadUrl = new URL(
+    localIntelligenceWorkerEnvironment.CONVEX_INTELLIGENCE_IDEA_READ_URL,
+  )
+  assert.equal(ideaReadUrl.pathname, '/intelligence/idea-submissions/read')
+  const ideaCallbackUrl = new URL(
+    localIntelligenceWorkerEnvironment.CONVEX_INTELLIGENCE_IDEA_CALLBACK_URL,
+  )
+  assert.equal(ideaCallbackUrl.pathname, '/intelligence/idea-submissions/callback')
 })

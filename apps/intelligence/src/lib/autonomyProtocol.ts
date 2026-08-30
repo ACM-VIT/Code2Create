@@ -17,7 +17,7 @@ import {
 import * as v from 'valibot';
 
 import {
-	copilotRecommendationArgumentsSchema,
+	autonomyRecommendationArgumentsSchema,
 	operationsHealthSnapshotSchema,
 	platformReadSchemas,
 } from '../protocol.ts';
@@ -290,7 +290,7 @@ export const autonomyCandidateRecommendationSchema = v.strictObject({
 		v.minLength(1),
 		v.maxLength(8),
 	),
-	arguments: copilotRecommendationArgumentsSchema,
+	arguments: autonomyRecommendationArgumentsSchema,
 	supportRecordIds: v.optional(v.pipe(
 		v.array(evidenceRecordId),
 		v.minLength(1),

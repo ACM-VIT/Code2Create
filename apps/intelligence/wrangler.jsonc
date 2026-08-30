@@ -5,7 +5,6 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"workers_dev": true,
 	"preview_urls": false,
-	"ai": { "binding": "AI", "remote": true },
 	"durable_objects": {
 		"bindings": [{
 			"name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",
@@ -17,12 +16,13 @@
 		{ "tag": "v1", "new_sqlite_classes": ["FlueOperationsBriefAgent"] },
 		{ "tag": "v2", "new_sqlite_classes": ["FlueOperationsCopilotAgent"] },
 		{ "tag": "v3", "new_sqlite_classes": ["FlueOperationsAutopilotAgent"] },
-		{ "tag": "v4", "new_sqlite_classes": ["OperationsAutonomyAdmissionFence"] }
+		{ "tag": "v4", "new_sqlite_classes": ["OperationsAutonomyAdmissionFence"] },
+		{ "tag": "v5", "new_sqlite_classes": ["FlueOperationsEpisodeAgent"] },
+		{ "tag": "v6", "new_sqlite_classes": ["FlueIdeaSubmissionAgent"] }
 	],
 	"env": {
 		"staging": {
 			"name": "code2create-intelligence-staging",
-			"ai": { "binding": "AI" },
 			"durable_objects": {
 				"bindings": [{
 					"name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",
@@ -32,7 +32,6 @@
 		},
 		"production": {
 			"name": "code2create-intelligence",
-			"ai": { "binding": "AI" },
 			"durable_objects": {
 				"bindings": [{
 					"name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",
