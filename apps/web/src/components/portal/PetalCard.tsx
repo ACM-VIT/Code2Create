@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 /**
- * The portal's one surface: a translucent petal-cornered card lit from
+ * The portal's one surface: a translucent rounded translucent card lit from
  * underneath. Everything the participant reads or types sits on one of these.
  */
 export function PetalCard({
@@ -22,7 +22,7 @@ export function PetalCard({
         />
       ) : null}
       <div
-        className={`relative rounded-tl-[36px] rounded-tr-[8px] rounded-br-[64px] rounded-bl-[8px] border border-petal-edge bg-[linear-gradient(155deg,rgba(255,255,255,.09),rgba(12,0,4,.5)_55%,rgba(160,66,99,.2))] shadow-[0_36px_70px_-22px_rgba(0,0,0,.85),inset_0_1px_0_rgba(255,255,255,.16)] backdrop-blur-md ${className}`}
+        className={`relative rounded-petal border border-petal-edge bg-[linear-gradient(155deg,rgba(255,255,255,.09),rgba(12,0,4,.5)_55%,rgba(160,66,99,.2))] shadow-[0_36px_70px_-22px_rgba(0,0,0,.85),inset_0_1px_0_rgba(255,255,255,.16)] backdrop-blur-md ${className}`}
       >
         {children}
       </div>

@@ -10,8 +10,8 @@ import { PortalError } from '../components/portal/PortalField'
 import type { ParticipantClass, PublicState } from '../types'
 
 /**
- * The mockup renders the edition ("7.0") in rose italic beside the name. The
- * event name already carries it, so split the trailing version off instead of
+ * The mockup renders the edition ("7.0") in rose beside the name. The event
+ * name already carries it, so split the trailing version off instead of
  * appending one.
  */
 function splitEventTitle(name: string): { name: string; edition: string | null } {
@@ -55,7 +55,7 @@ function ClassCard({
       }`}
     >
       <p
-        className={`mb-1 font-display text-[19px] ${
+        className={`mb-1 font-display font-light tracking-[-.01em] text-[19px] ${
           selected ? 'text-rose-light' : 'text-[rgb(248_248_248/.85)]'
         }`}
       >
@@ -84,8 +84,8 @@ export function EntryScreen({
     return (
       <PortalScene tree="both">
         <div className="text-center">
-          <p className="mb-2 font-display text-[19px] italic text-rose-light">Code2Create</p>
-          <h1 className="mb-4 font-display text-5xl leading-none">Event setup is not complete</h1>
+          <p className="mb-2 font-ui font-normal text-[19px] text-rose-light">Code2Create</p>
+          <h1 className="mb-4 font-display font-light tracking-[-.01em] text-5xl leading-none">Event setup is not complete</h1>
           <p className="text-[13px] text-[rgb(248_248_248/.5)]">
             An organizer with event setup access needs to finish setup.
           </p>
@@ -127,19 +127,35 @@ export function EntryScreen({
 
   return (
     <PortalScene tree="both" logo="none">
+      {/* The organising club's mark, top-left — the portal's only ACM branding. */}
+      <a
+        href="https://acmvit.in"
+        target="_blank"
+        rel="noreferrer"
+        className="absolute top-7 left-6 z-[6] opacity-85 transition-opacity hover:opacity-100 lg:top-9 lg:left-11"
+      >
+        <img src="/assets/acm-mark.svg" alt="ACM-VIT" className="size-8 lg:size-9" />
+      </a>
       <div className="flex w-full max-w-[640px] flex-col items-center text-center">
         <img
           src="/assets/logo.svg"
           alt="Code2Create"
           className="mb-3.5 w-11 drop-shadow-[0_0_20px_rgba(216,132,162,.55)] lg:mb-[18px] lg:w-[52px]"
         />
-        <p className="mb-2 font-display text-[15px] italic text-rose-light lg:text-[19px]">
+        <p className="mb-2 font-ui font-normal text-[15px] text-rose-light lg:text-[19px]">
           welcome to
         </p>
-        <h1 className="mb-8 font-display text-[40px] leading-none text-shadow-[0_8px_50px_rgba(0,0,0,.6)] lg:mb-10 lg:text-[76px]">
-          {eventTitle.name}
+        {/* The landing page's lettered wordmark, with the edition beside it. */}
+        <h1 className="mb-8 flex items-baseline justify-center gap-3 lg:mb-10 lg:gap-4">
+          <img
+            src="/assets/wordmark.svg"
+            alt={eventTitle.name}
+            className="h-9 w-auto drop-shadow-[0_8px_50px_rgba(0,0,0,.6)] sm:h-12 lg:h-[68px]"
+          />
           {eventTitle.edition ? (
-            <> <span className="italic text-rose-light">{eventTitle.edition}</span></>
+            <span className="font-display font-light tracking-[-.01em] text-[34px] leading-none text-rose-light lg:text-[64px]">
+              {eventTitle.edition}
+            </span>
           ) : null}
         </h1>
 
@@ -166,6 +182,7 @@ export function EntryScreen({
 
         <PortalButton
           type="button"
+          variant="solid"
           disabled={!participantClass || !selectedClassOpen || busy || !publicState.auth.googleConfigured}
           onClick={signIn}
           className="w-full sm:w-auto"

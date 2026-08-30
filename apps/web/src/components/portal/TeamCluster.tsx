@@ -147,7 +147,7 @@ export function TeamCluster({
             />
           ))}
         </div>
-        <p className="mt-2 font-display text-[13.5px] italic text-rose-light">
+        <p className="mt-2 font-ui font-normal text-[13.5px] text-rose-light">
           {team.name}{locked ? ' · locked' : ''}
         </p>
       </button>
@@ -165,7 +165,7 @@ export function TeamCluster({
       {open ? (
         <div className="absolute right-0 top-[92px] z-10 w-[300px] rounded-petal-sm border border-[rgb(254_180_203/.6)] bg-[linear-gradient(155deg,rgba(255,255,255,.1),rgba(12,0,4,.72)_55%,rgba(160,66,99,.22))] px-5 py-4 text-left shadow-[0_30px_60px_-18px_rgba(0,0,0,.9),0_0_34px_rgba(216,132,162,.22)] backdrop-blur-lg">
           <div className="mb-3 flex items-baseline justify-between">
-            <span className="font-display text-base italic text-rose-light">{team.name}</span>
+            <span className="font-ui font-normal text-base text-rose-light">{team.name}</span>
             <span className="text-[10.5px] font-semibold tracking-[.14em] text-[rgb(248_248_248/.5)] uppercase">
               {team.activeMemberCount} of {team.teamMaximumSize}
             </span>
@@ -184,7 +184,7 @@ export function TeamCluster({
                     <div
                       className={`text-[10.5px] ${
                         member.role === 'lead' || isYou
-                          ? 'font-display italic text-rose-light'
+                          ? 'font-ui font-normal text-rose-light'
                           : 'text-[rgb(248_248_248/.5)]'
                       }`}
                     >

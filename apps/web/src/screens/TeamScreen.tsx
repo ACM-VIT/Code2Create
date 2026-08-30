@@ -33,7 +33,7 @@ function TeamCard({
     >
       <div className="mb-3">{icon}</div>
       <p
-        className={`mb-1.5 font-display text-[21px] ${
+        className={`mb-1.5 font-display font-light tracking-[-.01em] text-[21px] ${
           featured ? 'text-rose-light' : 'text-[rgb(248_248_248/.85)]'
         }`}
       >
@@ -117,7 +117,7 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
   return (
     <PortalScene tree="left" {...(header ? { header } : {})}>
       <div className="flex w-full max-w-[660px] flex-col items-center text-center">
-        <h1 className="mb-2 font-display text-3xl italic text-shadow-[0_4px_30px_rgba(0,0,0,.55)] lg:text-[42px]">
+        <h1 className="mb-2 font-display font-normal tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_rgba(0,0,0,.55)] lg:text-[42px]">
           Find your people.
         </h1>
         <p className="mb-8 text-[12.5px] text-[rgb(248_248_248/.5)]">
@@ -129,7 +129,7 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
             featured
             icon={<Petal size={26} />}
             title="Create a team"
-            detail="you become the lead · you get a code and a link to share"
+            detail="you become the lead"
           >
             {naming ? (
               <form onSubmit={create}>

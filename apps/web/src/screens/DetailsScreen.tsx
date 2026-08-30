@@ -143,7 +143,7 @@ export function DetailsScreen({
     return (
       <PortalScene tree="right" header={header}>
         <PetalCard className="max-w-[560px] px-8 py-7">
-          <h1 className="mb-3 font-display text-3xl italic">Profile editing is unavailable.</h1>
+          <h1 className="mb-3 font-display font-light tracking-[-.01em] text-3xl">Profile editing is unavailable.</h1>
           <p className="text-[13px] text-[rgb(248_248_248/.6)]">
             Ask an organizer if this looks wrong.
           </p>
@@ -155,12 +155,9 @@ export function DetailsScreen({
   return (
     <PortalScene tree="right" header={header}>
       <div className="flex w-full max-w-[640px] flex-col items-center">
-        <h1 className="mb-2 text-center font-display text-3xl italic text-shadow-[0_4px_30px_rgba(0,0,0,.55)] lg:text-[40px]">
+        <h1 className="mb-7 text-center font-display font-normal tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_rgba(0,0,0,.55)] lg:text-[40px]">
           A few details, once.
         </h1>
-        <p className="mb-7 text-[12.5px] text-[rgb(248_248_248/.5)]">
-          only what Google can’t tell us
-        </p>
 
         <PetalCard className="px-6 pt-6 pb-4 lg:px-[30px]">
           <form onSubmit={submit}>

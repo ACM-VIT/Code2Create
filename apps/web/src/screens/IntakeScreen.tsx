@@ -6,8 +6,8 @@ import { EditingPresence } from '../components/EditingPresence'
 import { PortalScene } from '../components/portal/PortalScene'
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
-import { SakuraSteps } from '../components/portal/Petal'
-import { TeamCluster } from '../components/portal/TeamCluster'
+import { Petal, SakuraSteps } from '../components/portal/Petal'
+import { LiveTeamCluster } from '../components/portal/LiveTeamCluster'
 import { initialsOf } from '../components/portal/initials'
 import {
   PortalCheckRow,
@@ -15,10 +15,11 @@ import {
   PortalTextarea,
 } from '../components/portal/PortalField'
 import { useEditingPresence } from '../hooks/useEditingPresence'
+import { markSglangInterludeSeen, sglangInterludeSeen } from '../lib/sglangNote'
+import { SglangInterlude } from './SglangInterlude'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
-import { canLeaveByTeamRule, canLeaveCurrentTeam } from '../lib/teamLeave'
 import {
   clearSessionDraft,
   readVersionedSessionDraft,
@@ -107,60 +108,6 @@ export function IntakeScreen({
   )
 }
 
-function IntakeTeamCluster({
-  team,
-  members,
-  onSignOut,
-}: {
-  team: CurrentTeam
-  members: readonly CurrentTeamMember[]
-  onSignOut: () => void
-}) {
-  const leaveTeam = useMutation(api.teams.leave)
-  const operations = useOperationRunner<FunctionReturnType<typeof api.teams.leave>>()
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const leavePending = operations.hasPending('team-leave')
-  const leadMustTransfer = team.canLeave && !canLeaveByTeamRule(team)
-
-  const leave = async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      await operations.run('team-leave', (clientOperationId) => () => leaveTeam({
-        eventSlug,
-        teamId: team.id,
-        expectedTeamVersion: team.version,
-        clientOperationId,
-      }))
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <TeamCluster
-      team={team}
-      members={members}
-      onSignOut={onSignOut}
-      leaveAction={{
-        available: canLeaveCurrentTeam(team),
-        ...(leadMustTransfer
-          ? { blockedMessage: 'Transfer leadership before leaving this team.' }
-          : !team.canLeave
-            ? { blockedMessage: 'Leaving this team is unavailable.' }
-            : {}),
-        pending: busy,
-        retrying: leavePending,
-        error,
-        onConfirm: leave,
-      }}
-    />
-  )
-}
-
 /**
  * The shared stage for every intake step: the night scene, the team cluster in
  * the corner, an optional petal step counter, a title, and a card.
@@ -169,9 +116,10 @@ function IntakeStage({
   team,
   members,
   title,
-  eyebrow,
   hint,
   steps,
+  presence,
+  topCenter,
   children,
   footer,
   width = 'max-w-[820px]',
@@ -182,9 +130,12 @@ function IntakeStage({
   team: CurrentTeam
   members: readonly CurrentTeamMember[]
   title: string
-  eyebrow?: string
   hint?: string
   steps?: { total: number; current: number }
+  /** The centred live-presence line the mockup puts between title and card. */
+  presence?: ReactNode
+  /** Floats at the top centre of the scene — the novelty pill's home. */
+  topCenter?: ReactNode
   children?: ReactNode
   footer?: ReactNode
   width?: string
@@ -196,27 +147,28 @@ function IntakeStage({
     <PortalScene
       tree="left"
       branch={branch}
-      header={<IntakeTeamCluster team={team} members={members} onSignOut={onSignOut} />}
+      header={<LiveTeamCluster team={team} members={members} onSignOut={onSignOut} />}
     >
+      {topCenter ? (
+        <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
+          {topCenter}
+        </div>
+      ) : null}
       <div className={`flex w-full flex-col items-center ${width}`}>
         {steps ? (
           <div className="mb-4.5">
             <SakuraSteps total={steps.total} current={steps.current} />
           </div>
         ) : null}
-        {eyebrow ? (
-          <p className="mb-2.5 text-[10.5px] font-semibold tracking-[.14em] text-[rgb(248_248_248/.45)] uppercase">
-            {eyebrow}
-          </p>
-        ) : null}
         <h1
-          className={`mb-6 max-w-[760px] text-center font-display text-[26px] leading-tight italic text-shadow-[0_4px_30px_rgba(0,0,0,.55)] ${titleClass}`}
+          className={`mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight text-shadow-[0_4px_30px_rgba(0,0,0,.55)] ${titleClass}`}
         >
           {title}
         </h1>
         {hint ? (
           <p className="-mt-3 mb-6 text-[12.5px] text-[rgb(248_248_248/.5)]">{hint}</p>
         ) : null}
+        {presence}
         {children}
         {footer}
       </div>
@@ -334,13 +286,14 @@ function IntakeWorkspace({
   const [editedFollowUpAnswer, setEditedFollowUpAnswer] = useState('')
   const [revisionBaseVersion, setRevisionBaseVersion] = useState<number | null>(null)
   const [editingIdea, setEditingIdea] = useState(false)
-  const [confirmedSnapshotKey, setConfirmedSnapshotKey] = useState<string | null>(null)
   const [pendingFollowUp, setPendingFollowUp] = useState<PendingFollowUp | null>(null)
   const [pendingRevisionId, setPendingRevisionId] = useState<string | null>(null)
   const [pendingRevisionKind, setPendingRevisionKind] = useState<'answer' | 'skip' | null>(null)
   // The mockup splits the old single review screen into reading the proposal
-  // (f5) and confirming the lock (f6).
+  // (f5) and confirming the lock (f6), with the one-time SGLang note (fs)
+  // between them.
   const [confirming, setConfirming] = useState(false)
+  const [showingSglangNote, setShowingSglangNote] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [noveltyState, setNoveltyState] = useState<NoveltyState>({ status: 'idle' })
@@ -352,6 +305,10 @@ function IntakeWorkspace({
   const operations = useOperationRunner<IntakeOperationResult>()
   const ideaEditorOpen = !draft || draft.stage === 'opening' || editingIdea
   const { editors, markEditing, stopEditing } = useEditingPresence(team.canWriteProject)
+  const closeDateLabel = new Date(intake.applicationsCloseAt).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  })
 
   const novelty = draft?.novelty ?? opening?.novelty ?? null
   const noveltyCorpusVersionId = novelty?.corpusVersionId ?? null
@@ -687,19 +644,19 @@ function IntakeWorkspace({
         hint={opening.initialHelpText}
         steps={{ total: stepTotal, current: 0 }}
         titleClass="lg:text-[42px]"
+        presence={<EditingPresence editors={editors ?? []} members={members} />}
+        topCenter={
+          <NoveltyPill
+            state={noveltyState}
+            currentLength={normalizedIdeaLength(idea)}
+            minimumLength={novelty?.minimumIdeaLength ?? null}
+          />
+        }
       >
         <PortalError message={submissionFailureMessage ?? null} />
         <div className="relative w-full">
-          <div className="pointer-events-none absolute -top-[17px] right-5 z-10 sm:right-7">
-            <NoveltyPill
-              state={noveltyState}
-              currentLength={normalizedIdeaLength(idea)}
-              minimumLength={novelty?.minimumIdeaLength ?? null}
-            />
-          </div>
           <PetalCard className="px-6 pt-[26px] pb-[18px] lg:px-[30px]">
           <form onSubmit={submitIdea}>
-            <EditingPresence editors={editors ?? []} members={members} />
             {ideaConflict ? (
               <ConflictNotice
                 message="A teammate saved a newer idea. Your text is still here."
@@ -751,7 +708,12 @@ function IntakeWorkspace({
             <PortalError message={error} />
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-petal-line pt-3.5">
               <span className="text-xs text-[rgb(248_248_248/.45)]">
-                {idea.length} / {initialIdeaMaxLength} · do not include private contact details
+                {idea.length > initialIdeaMaxLength * 0.8
+                  ? `${idea.length} / ${initialIdeaMaxLength}`
+                  : ideaDirty
+                    ? 'unsaved changes'
+                    : `saved · editable until ${closeDateLabel}`}
+                {' '}· no private contact details
               </span>
               <div className="flex items-center gap-4.5">
                 {editingIdea ? (
@@ -808,20 +770,12 @@ function IntakeWorkspace({
         team={team}
         members={members}
         onSignOut={onSignOut}
-        eyebrow={isLast ? 'last one · then review' : 'asked because of your idea'}
         title={activeFollowUp.question}
         steps={{ total: stepTotal, current: answeredFollowUps + 1 }}
-        footer={
-          answer.trim().length < minLength ? (
-            <p className="mt-5 text-[11.5px] text-[rgb(248_248_248/.4)]">
-              the Next button wakes up when you write something
-            </p>
-          ) : null
-        }
+        presence={<EditingPresence editors={editors ?? []} members={members} />}
       >
         <PetalCard className="px-6 pt-[26px] pb-[18px] lg:px-[30px]">
           <form onSubmit={submitAnswer}>
-            <EditingPresence editors={editors ?? []} members={members} />
             {followUpConflict ? (
               <ConflictNotice
                 message="A teammate saved a newer draft while this answer was unsaved. Your text is still here."
@@ -872,8 +826,11 @@ function IntakeWorkspace({
             <PortalError message={error} />
             <div className="mt-2.5 flex flex-wrap items-center justify-between gap-3 border-t border-petal-line pt-3">
               <span className="text-xs text-[rgb(248_248_248/.45)]">
-                {answer.length} / {draft.intakePolicy.followUpAnswerMaxLength} · a sentence or two
-                is plenty
+                {answer.length > draft.intakePolicy.followUpAnswerMaxLength * 0.8
+                  ? `${answer.length} / ${draft.intakePolicy.followUpAnswerMaxLength}`
+                  : answer.trim()
+                    ? 'autosaves as you type'
+                    : 'a sentence or two is plenty'}
               </span>
               <div className="flex items-center gap-4.5">
                 <PortalTextButton
@@ -944,19 +901,12 @@ function IntakeWorkspace({
         />
       )
     }
-    const confirmationKey = [
-      preview.participantPolicyVersionId,
-      preview.teamVersion,
-      preview.draftVersion,
-    ].join(':')
-    const confirmedLock = confirmedSnapshotKey === confirmationKey
     const revisionConflict =
       editingFollowUpId !== null &&
       revisionBaseVersion !== null &&
       revisionBaseVersion !== preview.draftVersion
     const canSubmit =
       preview.blockers.length === 0 &&
-      confirmedLock &&
       editors !== undefined &&
       editors.length === 0 &&
       team.currentRole === 'lead' &&
@@ -968,6 +918,19 @@ function IntakeWorkspace({
       setIdea(savedIdea)
       setIdeaDirty(false)
       setEditingIdea(true)
+    }
+
+    // fs · the SGLang note, once, on the way to confirm
+    if (showingSglangNote) {
+      return (
+        <SglangInterlude
+          onContinue={() => {
+            markSglangInterludeSeen()
+            setShowingSglangNote(false)
+            setConfirming(true)
+          }}
+        />
+      )
     }
 
     // f6 · confirm
@@ -984,41 +947,66 @@ function IntakeWorkspace({
           branch
         >
           <PetalCard className="px-8 pt-7 pb-4">
-            <div className="mb-3.5 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="mb-1 truncate text-[15.5px] font-semibold">{preview.teamName}</p>
-                <p className="text-xs text-[rgb(248_248_248/.5)]">
-                  proposal + {preview.followUps.length}{' '}
-                  {preview.followUps.length === 1 ? 'answer' : 'answers'} ·{' '}
-                  <button
-                    type="button"
-                    onClick={() => setConfirming(false)}
-                    className="text-rose-light underline-offset-2 hover:underline"
-                  >
-                    review
-                  </button>
-                </p>
-              </div>
-              <div
-                className="flex flex-none"
-                title={preview.members.map((member) => member.displayName).join(', ')}
-              >
-                {preview.members.map((member, index) => (
-                  <div
-                    key={member.membershipId}
-                    className={`flex size-8 items-center justify-center rounded-full text-[10.5px] font-semibold ${
-                      member.role === 'lead'
-                        ? 'border-[1.5px] border-rose-light bg-avatar-lead'
-                        : 'border-[1.5px] border-[rgb(216_132_162/.7)] bg-avatar'
-                    } ${index > 0 ? '-ml-2' : ''}`}
-                  >
-                    {initialsOf(member.displayName)}
-                  </div>
-                ))}
+            <div className="mb-3.5">
+              <p className="mb-1 truncate text-left text-[15.5px] font-semibold">
+                {preview.teamName}{' '}
+                <span className="font-normal text-[rgb(248_248_248/.55)]">
+                  · proposal + {preview.followUps.length}{' '}
+                  {preview.followUps.length === 1 ? 'answer' : 'answers'}
+                </span>
+              </p>
+              <p className="mb-4 text-left text-xs text-[rgb(248_248_248/.5)]">
+                <button
+                  type="button"
+                  onClick={() => setConfirming(false)}
+                  className="text-rose-light underline-offset-2 hover:underline"
+                >
+                  review
+                </button>
+              </p>
+              <div className="flex gap-2 border-t border-petal-line pt-4">
+                {preview.members.map((member) => {
+                  const lead = member.role === 'lead'
+                  const you = member.membershipId === team.currentMembershipId
+                  return (
+                    <div key={member.membershipId} className="flex-1 text-center">
+                      <div
+                        className={`relative mx-auto flex size-[52px] items-center justify-center rounded-full text-sm font-semibold ${
+                          lead
+                            ? 'border-2 border-rose-light bg-avatar-lead shadow-[0_0_16px_rgba(254,180,203,.45)]'
+                            : 'border-[1.5px] border-[rgb(216_132_162/.7)] bg-avatar'
+                        }`}
+                      >
+                        {initialsOf(member.displayName)}
+                        {lead ? (
+                          <span className="absolute -top-1 -right-[3px]">
+                            <Petal size={14} />
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-[7px] mb-px truncate text-xs font-semibold">
+                        {member.displayName.split(/\s+/)[0]}
+                      </p>
+                      <p
+                        className={`text-[10px] ${
+                          lead || you ? 'text-rose-light' : 'text-[rgb(248_248_248/.5)]'
+                        }`}
+                      >
+                        {lead && you
+                          ? 'lead · you'
+                          : lead
+                            ? 'lead'
+                            : member.submissionReady
+                              ? 'ready'
+                              : 'needs attention'}
+                      </p>
+                    </div>
+                  )
+                })}
               </div>
             </div>
 
-            <p className="mb-4 border-t border-petal-line pt-4 font-display text-[17px] leading-normal italic text-rose-light">
+            <p className="mb-4 border-t border-petal-line pt-4 text-left font-ui text-[17px] leading-normal text-rose-light">
               {preview.warning}
             </p>
 
@@ -1037,14 +1025,7 @@ function IntakeWorkspace({
                   })
                 }}
               >
-                We will begin project-specific implementation and design after the official start.
-              </PortalCheckRow>
-              <PortalCheckRow
-                checked={confirmedLock}
-                disabled={busy}
-                onChange={(checked) => setConfirmedSnapshotKey(checked ? confirmationKey : null)}
-              >
-                I understand submitting locks the team.
+                We build only after kickoff.
               </PortalCheckRow>
             </div>
 
@@ -1114,13 +1095,13 @@ function IntakeWorkspace({
     return (
       <PortalScene
         tree="left"
-        header={<IntakeTeamCluster team={team} members={members} onSignOut={onSignOut} />}
+        header={<LiveTeamCluster team={team} members={members} onSignOut={onSignOut} />}
       >
         <div className="flex w-full max-w-[760px] flex-col items-center">
-          <p className="mb-1.5 font-display text-[17px] italic text-rose-light">
+          <p className="mb-1.5 font-ui font-normal text-[17px] text-rose-light">
             your proposal, together
           </p>
-          <h1 className="mb-7 text-center font-display text-3xl text-shadow-[0_6px_40px_rgba(0,0,0,.6)] lg:text-[44px]">
+          <h1 className="mb-6 text-center font-display font-light tracking-[-.01em] text-3xl text-shadow-[0_6px_40px_rgba(0,0,0,.6)] lg:text-[44px]">
             {preview.teamName}
           </h1>
 
@@ -1284,12 +1265,22 @@ function IntakeWorkspace({
 
           <PortalError message={error ?? submissionFailureMessage ?? null} />
 
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-5">
-            <PortalButton type="button" disabled={busy} onClick={() => setConfirming(true)}>
+          <div className="mt-8 flex flex-col items-center gap-3">
+            <PortalButton
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                if (sglangInterludeSeen()) {
+                  setConfirming(true)
+                  return
+                }
+                setShowingSglangNote(true)
+              }}
+            >
               Continue to submit
             </PortalButton>
             <span className="text-xs text-[rgb(248_248_248/.45)]">
-              the next screen locks the team, not the writing
+              locks the team, not the writing
             </span>
           </div>
         </div>

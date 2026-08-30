@@ -42,11 +42,11 @@ export function EditingPresence({
     <p
       role="status"
       aria-live="polite"
-      className="mb-3 flex items-center gap-2 text-[11.5px] text-rose-light"
+      className="-mt-1.5 mb-4.5 flex items-center justify-center gap-1.5 text-[11.5px] text-rose-light"
     >
       <span
         aria-hidden="true"
-        className="size-1.5 flex-none animate-dot-pulse rounded-full bg-rose-light"
+        className="size-[5px] flex-none animate-dot-pulse rounded-full bg-rose-light"
       />
       {subject} {uniqueNames.length === 1 ? 'is' : 'are'} {action}…
     </p>

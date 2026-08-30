@@ -16,7 +16,10 @@ import { useOperationRunner } from './lib/operations'
 import { canLeaveByTeamRule, canLeaveCurrentTeam } from './lib/teamLeave'
 import { participantClassStorageKey } from './screens/EntryScreen'
 import { DetailsScreen } from './screens/DetailsScreen'
+import { HomeScreen } from './screens/HomeScreen'
+import { MoreScreen } from './screens/MoreScreen'
 import { IntakeScreen } from './screens/IntakeScreen'
+import { TeamLobbyScreen } from './screens/TeamLobbyScreen'
 import { TeamScreen } from './screens/TeamScreen'
 import type { CurrentTeam, ParticipantClass, PublicState } from './types'
 
@@ -212,10 +215,45 @@ export function ParticipantApp({
     )
   }
 
-  const applicationFlow = intakeStatus.applicationState === null && location.pathname === '/'
+  const acceptedPortal = intakeStatus.applicationState !== null
+    ? ['accepted', 'offer_sent', 'confirmed'].includes(intakeStatus.applicationState)
+    : false
 
-  // ---- f1-f6 · the application flow, full-bleed on the night scene ---------
-  if (applicationFlow) {
+  // ---- f12 · everything else, one quiet list -------------------------------
+  if (location.pathname === '/more') {
+    return (
+      <MoreScreen
+        me={me}
+        capabilities={access}
+        showIntegrations={acceptedPortal && canReadIntegrations}
+        showMusic={acceptedPortal}
+        onSignOut={signOut}
+      />
+    )
+  }
+  if (location.pathname === '/more/profile') {
+    return <DetailsScreen me={me} canWriteProfile={canWriteProfile} onSignOut={signOut} />
+  }
+
+  // ---- f10 · the squad lobby, any time a team exists -----------------------
+  if (location.pathname === '/team') {
+    return (
+      <TeamLobbyScreen
+        team={team}
+        members={teamMembers.results}
+        rosterStatus={teamMembers.status}
+        loadMore={teamMembers.loadMore}
+        locked={intakeStatus.applicationState !== null || team.membershipLocked}
+        onSignOut={signOut}
+      />
+    )
+  }
+
+  // ---- f1-f6 · home, then the writing flow, full-bleed on the night scene --
+  if (intakeStatus.applicationState === null && location.pathname === '/') {
+    return <HomeScreen team={team} members={teamMembers.results} onSignOut={signOut} />
+  }
+  if (intakeStatus.applicationState === null && location.pathname === '/write') {
     return (
       <Suspense fallback={<PortalLoading />}>
         <IntakeScreen
@@ -249,10 +287,39 @@ export function ParticipantApp({
     )
   }
 
-  const acceptedFeatures = intakeStatus.applicationState !== null
-    ? ['accepted', 'offer_sent', 'confirmed'].includes(intakeStatus.applicationState)
-    : false
+  const acceptedFeatures = acceptedPortal
   const canOpenIntegrations = acceptedFeatures && canReadIntegrations
+
+  // ---- f11 · connected tools, full-bleed on the scene ----------------------
+  if (location.pathname === '/integrations') {
+    if (!canOpenIntegrations) return <Navigate replace to="/" />
+    return (
+      <Suspense fallback={<PortalLoading />}>
+        <IntegrationsScreen teamName={team.name} onSignOut={signOut} />
+      </Suspense>
+    )
+  }
+
+  // ---- f8 / f9 / closed states, full-bleed ---------------------------------
+  if (
+    intakeStatus.applicationState !== null &&
+    !['/integrations/github/callback', '/integrations/figma/callback', '/support', '/music'].includes(
+      location.pathname,
+    )
+  ) {
+    return (
+      <Suspense fallback={<PortalLoading />}>
+        <SubmittedScreen
+          capabilities={access}
+          publicState={publicState}
+          team={team}
+          members={teamMembers.results}
+          onSignOut={signOut}
+        />
+      </Suspense>
+    )
+  }
+
   const portalContent = location.pathname === '/integrations/github/callback'
     ? canOpenIntegrations ? <GitHubCallbackScreen /> : <Navigate replace to="/" />
       : location.pathname === '/integrations/figma/callback'
@@ -263,11 +330,7 @@ export function ParticipantApp({
           : <Navigate replace to="/" />
       : location.pathname === '/music'
         ? acceptedFeatures ? <SynesthesiaScreen /> : <Navigate replace to="/" />
-      : location.pathname === '/integrations'
-        ? canOpenIntegrations ? <IntegrationsScreen /> : <Navigate replace to="/" />
-        : intakeStatus.applicationState !== null
-          ? <SubmittedScreen capabilities={access} publicState={publicState} team={team} members={teamMembers.results} onSignOut={signOut} />
-          : (
+        : (
               <IntakeScreen
                 team={team}
                 members={teamMembers.results}
@@ -343,7 +406,7 @@ function PortalNotice({
   return (
     <PortalScene tree="right" {...(header ? { header } : {})}>
       <PetalCard className="max-w-[560px] px-8 py-7">
-        <h1 className="mb-3 font-display text-2xl italic lg:text-3xl">{title}</h1>
+        <h1 className="mb-3 font-display font-light tracking-[-.01em] text-2xl lg:text-3xl">{title}</h1>
         <p className="text-[13px] leading-relaxed text-[rgb(248_248_248/.6)]">{body}</p>
       </PetalCard>
     </PortalScene>
@@ -397,7 +460,7 @@ function PortalHeader({
 function PortalLoading() {
   return (
     <PortalScene tree="left">
-      <p role="status" className="font-display text-xl italic text-rose-light">
+      <p role="status" className="font-ui font-normal text-xl text-rose-light">
         Loading your portal…
       </p>
     </PortalScene>
@@ -454,7 +517,7 @@ function SwitchTeamScreen({
     <PortalScene tree="both" header={header}>
       <PetalCard className="w-full max-w-[600px] px-7 py-7 sm:px-9">
         <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-rose-light">Switch team</p>
-        <h1 className="font-display text-3xl italic">
+        <h1 className="font-display font-light tracking-[-.01em] text-3xl">
           {team.name}
         </h1>
         {needsTransfer ? (
@@ -520,7 +583,7 @@ function PendingTeamScreen({
     <PortalScene tree="both" header={header}>
       <PetalCard className="w-full max-w-[600px] px-7 py-7 sm:px-9">
         <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-rose-light">Your team</p>
-        <h1 className="font-display text-3xl italic">{pendingTeam.teamName}</h1>
+        <h1 className="font-display font-light tracking-[-.01em] text-3xl">{pendingTeam.teamName}</h1>
         <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">
           {pendingTeam.status === 'waiting_for_lead'
             ? 'Your team lead has not signed in yet. You will join automatically when they do.'
@@ -645,7 +708,7 @@ function ProvisionScreen({
   if (participantClass && selectedClassOpen && !error) {
     return (
       <PortalScene tree="both">
-        <p role="status" className="font-display text-xl italic text-rose-light">
+        <p role="status" className="font-ui font-normal text-xl text-rose-light">
           Finishing your participant setup…
         </p>
       </PortalScene>
@@ -666,10 +729,10 @@ function ProvisionScreen({
       }
     >
       <div className="flex w-full max-w-[560px] flex-col items-center text-center">
-        <p className="mb-2 font-display text-[15px] italic text-rose-light">
+        <p className="mb-2 font-ui font-normal text-[15px] text-rose-light">
           {publicState.event?.name ?? 'Code2Create'}
         </p>
-        <h1 className="mb-2 font-display text-3xl italic lg:text-[40px]">
+        <h1 className="mb-2 font-display font-light tracking-[-.01em] text-3xl lg:text-[40px]">
           Choose your participant type.
         </h1>
         <p className="mb-7 text-[12.5px] text-[rgb(248_248_248/.5)]">
@@ -732,7 +795,7 @@ function ProvisionChoice({
           : 'border border-petal-edge-soft bg-[linear-gradient(155deg,rgba(255,255,255,.06),rgba(12,0,4,.48)_60%)] shadow-[0_24px_50px_-18px_rgba(0,0,0,.8)]'
       }`}
     >
-      <p className={`mb-1 font-display text-[19px] ${selected ? 'text-rose-light' : 'text-[rgb(248_248_248/.85)]'}`}>
+      <p className={`mb-1 font-display font-light tracking-[-.01em] text-[19px] ${selected ? 'text-rose-light' : 'text-[rgb(248_248_248/.85)]'}`}>
         {title}
       </p>
       <p className="text-xs text-[rgb(248_248_248/.55)]">{detail}</p>

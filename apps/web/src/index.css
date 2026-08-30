@@ -26,15 +26,17 @@
   --color-petal-edge: rgb(254 180 203 / 0.55);
   --color-petal-edge-soft: rgb(216 132 162 / 0.4);
 
-  --font-display: "DM Serif Display", ui-serif, Georgia, serif;
-  --font-ui: Geist, ui-sans-serif, system-ui, sans-serif;
+  --font-display: Poppins, ui-sans-serif, system-ui, sans-serif;
+  --font-ui: Poppins, ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, Menlo, monospace;
 
-  /* Smaller asymmetric petal corners used by secondary surfaces and fields. */
-  --radius-petal-sm: 20px 4px 20px 4px;
-  --radius-petal-xs: 12px 3px 12px 3px;
-  --radius-btn: 16px 0 16px 0;
-  --radius-btn-sm: 12px 0 12px 0;
+  /* The updated mockup rounds every corner symmetrically: cards 18/16,
+     fields 10, buttons 12/10. */
+  --radius-petal: 18px;
+  --radius-petal-sm: 16px;
+  --radius-petal-xs: 10px;
+  --radius-btn: 12px;
+  --radius-btn-sm: 10px;
 
   --animate-petal-fall: c2cfall 9s linear infinite;
   --animate-petal-pulse: c2cpulse 1.1s steps(2) infinite;
@@ -61,6 +63,12 @@
     0%   { transform: translate(-18px, 13px) rotate(-25deg); opacity: 0; }
     20%  { opacity: .34; }
     100% { transform: translate(190px, -18px) rotate(210deg); opacity: 0; }
+  }
+  @keyframes c2crise {
+    0%   { transform: translate(0, 40px) rotate(-4deg); opacity: 0; }
+    12%  { opacity: .95; }
+    88%  { opacity: .9; }
+    100% { transform: translate(-46px, -780px) rotate(6deg); opacity: 0; }
   }
   @keyframes c2csway {
     0%, 100% { transform: rotate(-.5deg); }
@@ -108,8 +116,6 @@
 }
 
 .portal-primary-button:hover:not(:disabled) {
-  border-color: #feb4cb;
-  filter: brightness(1.08);
   transform: translateY(-2px);
   box-shadow: 0 14px 28px -10px rgb(0 0 0 / .78), 0 0 22px rgb(216 132 162 / .24);
 }

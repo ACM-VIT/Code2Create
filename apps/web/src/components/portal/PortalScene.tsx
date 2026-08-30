@@ -47,6 +47,7 @@ export function PortalScene({
   tree = 'left',
   branch = false,
   logo = 'corner',
+  backdrop,
 }: {
   children: ReactNode
   header?: ReactNode
@@ -54,6 +55,8 @@ export function PortalScene({
   branch?: boolean
   /** f0a centres its own large mark in the copy instead of the corner one. */
   logo?: 'corner' | 'none'
+  /** A full-bleed live layer under the artwork — the home screen's GPU sky. */
+  backdrop?: ReactNode
 }) {
   const showLeftTree = tree === 'left' || tree === 'both'
   const showRightTree = tree === 'right' || tree === 'both'
@@ -107,6 +110,7 @@ export function PortalScene({
       onMouseMove={onMove}
       className="relative flex min-h-dvh flex-col overflow-hidden bg-[linear-gradient(180deg,#0c0004_44%,#220913_70%,#713047_116%,#a04263_144%,#e3a9bf_176%)] font-ui text-paper"
     >
+      {backdrop}
       {/* Hills sit furthest back, bleeding past both edges so the band never
           shows a seam on narrow viewports. */}
       <div

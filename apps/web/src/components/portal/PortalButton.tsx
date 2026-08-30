@@ -1,22 +1,38 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
-const base =
-  'portal-primary-button inline-flex items-center justify-center gap-2.5 rounded-btn border-[2.5px] border-rose bg-ink font-ui font-semibold tracking-[.02em] text-paper-warm shadow-[0_10px_24px_-10px_rgba(0,0,0,.7)] disabled:cursor-not-allowed disabled:border-[rgb(216_132_162/.35)] disabled:text-[rgb(254_253_254/.4)] disabled:opacity-70'
-
-const sizes = {
-  md: 'px-9 py-3.5 text-[15px]',
-  sm: 'px-8 py-2.5 text-sm',
+// The updated mockup's two button shapes: an outline that fills rose with ink
+// text on hover (the workhorse), and a solid rose slab for the biggest CTAs.
+// The design paints solid-button labels rose-light on rose (~1.5:1); the
+// mockup's own filled hover state uses ink, so solid labels follow that.
+const variants = {
+  outline:
+    'border-[1.5px] border-rose bg-transparent text-rose-light hover:bg-rose hover:text-ink disabled:border-2 disabled:border-[rgb(216_132_162/.35)] disabled:bg-transparent disabled:text-[rgb(216_132_162/.5)]',
+  solid:
+    'border-0 bg-rose text-ink shadow-[0_10px_24px_-12px_rgba(216,132,162,.55)] hover:brightness-105 disabled:opacity-50',
 } as const
 
-/** The bordered slab button — the portal's only primary action shape. */
+const sizes = {
+  md: 'rounded-btn px-9 py-3.5 text-[15px] tracking-[.02em]',
+  sm: 'rounded-btn px-8 py-[11px] text-sm tracking-[.03em]',
+  xs: 'rounded-btn-sm px-[18px] py-2 text-[11.5px] tracking-[.01em]',
+} as const
+
 export function PortalButton({
   children,
   size = 'md',
+  variant = 'outline',
   className = '',
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { children: ReactNode; size?: keyof typeof sizes }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  children: ReactNode
+  size?: keyof typeof sizes
+  variant?: keyof typeof variants
+}) {
   return (
-    <button {...props} className={`${base} ${sizes[size]} ${className}`}>
+    <button
+      {...props}
+      className={`portal-primary-button inline-flex items-center justify-center gap-2.5 font-ui font-semibold transition-[background,color] duration-250 disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]} ${className}`}
+    >
       {children}
     </button>
   )

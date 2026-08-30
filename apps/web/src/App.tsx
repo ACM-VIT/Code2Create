@@ -67,7 +67,7 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
 function LoadingScreen() {
   return (
     <PortalScene tree="both">
-      <p role="status" className="font-display text-xl italic text-rose-light">
+      <p role="status" className="font-ui font-normal text-xl text-rose-light">
         Loading…
       </p>
     </PortalScene>

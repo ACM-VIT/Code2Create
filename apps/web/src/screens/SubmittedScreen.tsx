@@ -1,7 +1,8 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 
 import type { CurrentTeam, CurrentTeamMember, PublicState, SubmittedIntake } from '../types'
 import { AttendancePanel } from '../components/AttendancePanel'
@@ -18,6 +19,9 @@ import { PortalScene } from '../components/portal/PortalScene'
 import { PetalCard } from '../components/portal/PetalCard'
 import { Petal } from '../components/portal/Petal'
 import { TeamCluster } from '../components/portal/TeamCluster'
+import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
+import { PortalError } from '../components/portal/PortalField'
+import { initialsOf } from '../components/portal/initials'
 import {
   clearSessionDraft,
   readVersionedSessionDraft,
@@ -211,8 +215,6 @@ function SubmittedWorkspace({
   const currentPhase = event.phases.find(
     (phase) => phase.startsAt <= phaseTime && phaseTime < phase.endsAt,
   )
-  const nextPhase = event.phases.find((phase) => phase.startsAt > phaseTime)
-  const visiblePhase = currentPhase ?? nextPhase
   const eventIsLive = confirmed && currentPhase !== undefined
   const canEditProposal = intake.canEdit && phaseTime < intake.applicationsCloseAt
 
@@ -257,10 +259,10 @@ function SubmittedWorkspace({
           <div className="mb-5 drop-shadow-[0_0_14px_rgba(254,180,203,.5)]">
             <Petal size={34} />
           </div>
-          <h1 className="mb-3.5 font-display text-5xl leading-none text-shadow-[0_8px_50px_rgba(0,0,0,.6)] lg:text-[70px]">
+          <h1 className="mb-3.5 font-display font-light tracking-[-.01em] text-5xl leading-none text-shadow-[0_8px_50px_rgba(0,0,0,.6)] lg:text-[70px]">
             {copy.heading}
           </h1>
-          <p className="mb-8 font-display text-base italic text-rose-light lg:text-[19px]">
+          <p className="mb-8 font-ui font-normal text-base text-rose-light lg:text-[19px]">
             {application.state === 'needs_information'
               ? copy.message
               : `${team.name} is in the review queue`}
@@ -337,197 +339,510 @@ function SubmittedWorkspace({
     )
   }
 
-  return (
-    <section className="intake-panel submitted-panel">
-      {eventIsLive ? (
-        <header className="participant-now">
-          <p className="eyebrow">Now</p>
-          <h1>{currentPhase.displayName}</h1>
-          <p className="lead">{currentPhase.description}</p>
-          <div className="participant-now-meta">
-            <span>Confirmed</span>
-            <time>Ends {formatEventTime(currentPhase.endsAt, event.timezone)}</time>
-          </div>
-        </header>
-      ) : (
-        <>
-          <p className="eyebrow">{copy.status}</p>
-          <h1>{copy.heading}</h1>
-          <p className="lead">{copy.message}</p>
-          {communications ? (
-            <dl className="detail-list">
-              <div><dt>Venue</dt><dd>{communications.venueName}</dd></div>
-              <div><dt>Starts</dt><dd>{formatEventTime(communications.startsAt, event.timezone)}</dd></div>
-            </dl>
-          ) : null}
-        </>
-      )}
-      {application.state === 'needs_information' && application.informationRequest?.state === 'open' ? (
-        <InformationResponsePanel
-          application={application}
-          canRespond={intake.currentRole === 'lead' && team.canRespondToInformationRequest}
-          currentRole={intake.currentRole}
-          request={application.informationRequest}
-        />
-      ) : null}
-      {application.state === 'offer_sent' && application.currentOffer ? (
-        <div className="offer-response" aria-live="polite">
-          <h2>Confirm your place</h2>
-          <p>
-            This offer covers your locked team. It expires on{' '}
-            <strong>{formatEventTime(application.currentOffer.expiresAt, event.timezone)}</strong>.
-          </p>
-          {intake.currentRole === 'lead' && team.canRespondToOffer ? (
-            confirmDecline ? (
-              <div className="offer-actions">
-                <p>Declining releases the whole team’s places. You cannot undo this in the portal.</p>
-                <button type="button" className="secondary" disabled={busy !== null || responsePending} onClick={() => setConfirmDecline(false)}>Keep offer</button>
-                <button type="button" className="secondary danger-confirm" disabled={busy !== null || pendingResponse === 'confirm'} onClick={() => void respond('decline')}>
-                  {busy === 'decline' ? 'Declining…' : pendingResponse === 'decline' ? 'Confirm earlier decline' : 'Decline for team'}
-                </button>
-              </div>
-            ) : (
-              <div className="offer-actions">
-                <button type="button" className="primary" disabled={busy !== null || pendingResponse === 'decline'} onClick={() => void respond('confirm')}>
-                  {busy === 'confirm' ? 'Confirming…' : pendingResponse === 'confirm' ? 'Confirm earlier response' : 'Confirm for team'}
-                </button>
-                <button type="button" className="text-button" disabled={busy !== null || responsePending} onClick={() => setConfirmDecline(true)}>Decline offer</button>
-              </div>
-            )
-          ) : intake.currentRole !== 'lead' ? (
-            <p className="fine-print">Your team lead must confirm for the team.</p>
-          ) : (
-            <p className="fine-print">Offer response is unavailable. Ask an organizer if this looks wrong.</p>
-          )}
-          {error ? <p className="notice error" role="alert">{error}</p> : null}
+  const proposalToggle = (
+    <>
+      <button
+        type="button"
+        onClick={() => setProposalOpen((open) => !open)}
+        className="mt-8 rounded-sm text-[13.5px] text-rose-light underline-offset-4 hover:underline"
+      >
+        {proposalOpen ? 'hide proposal' : canEditProposal ? 'edit proposal' : 'view proposal'}
+      </button>
+      {proposalOpen ? (
+        <div className="mt-6 w-full text-left">
+          <PetalCard className="px-7 py-6">
+            <ProposalSummary
+              application={application}
+              canEdit={canEditProposal}
+              intake={intake}
+              members={members}
+              timezone={event.timezone}
+            />
+          </PetalCard>
         </div>
       ) : null}
-      {selected && visiblePhase && !eventIsLive ? (
-        <section className="event-phase-status">
-          <p className="eyebrow">{currentPhase ? 'Current phase' : 'Next phase'}</p>
-          <div>
-            <h2>{visiblePhase.displayName}</h2>
-            <time>
-              {currentPhase ? 'Ends' : 'Starts'} {formatEventTime(
-                currentPhase ? visiblePhase.endsAt : visiblePhase.startsAt,
-                event.timezone,
-              )}
-            </time>
-          </div>
-          <p>{visiblePhase.description}</p>
-        </section>
-      ) : null}
-      {eventIsLive ? (
-        <EventTools capabilities={capabilities} timezone={event.timezone} />
-      ) : null}
-      {selected && communications ? (
-        <AcceptedTeamDetails
-          communications={communications}
-          compact={eventIsLive}
-          heading={confirmed ? 'Event details' : 'Next steps'}
-          timezone={event.timezone}
-        />
-      ) : null}
-      {confirmed && !eventIsLive ? (
-        <EventTools capabilities={capabilities} timezone={event.timezone} />
-      ) : null}
-      <ProposalSummary
-        application={application}
-        canEdit={canEditProposal}
-        intake={intake}
-        members={members}
-        timezone={event.timezone}
-      />
       {delivery && deliveryNeedsAttention(delivery.state) ? (
-        <p className="notice error" role="status">{deliveryStatusCopy[delivery.state]}</p>
-      ) : null}
-    </section>
-  )
-}
-
-function EventTools({
-  capabilities,
-  timezone,
-}: {
-  capabilities: ParticipantCapabilities
-  timezone: string
-}) {
-  return (
-    <div className="event-tools">
-      {capabilities?.attendance ? <AttendancePanel /> : null}
-      {capabilities?.floor ? <TeamLocationPanel /> : null}
-      {capabilities?.projectCheckpoints ? (
-        <ProjectCheckpointsPanel timezone={timezone} />
-      ) : null}
-      {capabilities?.reviewQueue ? <ReviewQueuePanel /> : null}
-      {capabilities?.scoreFeedback ? <ReleasedFeedbackPanel /> : null}
-    </div>
-  )
-}
-
-function AcceptedTeamDetails({
-  communications,
-  compact,
-  heading,
-  timezone,
-}: {
-  communications: ParticipantCommunications
-  compact: boolean
-  heading: string
-  timezone: string
-}) {
-  const discordIsNextStep = communications.nextSteps.some(
-    (step) => step.actionUrl === communications.discordUrl,
-  )
-  const content = (
-    <>
-      {communications.venueAddress ? (
-        <p>
-          {communications.venueAddress}
-          {communications.venueMapUrl ? (
-            <> · <a href={communications.venueMapUrl} target="_blank" rel="noreferrer">Map</a></>
-          ) : null}
+        <p role="status" className="mt-6 text-[12.5px] text-rose-light">
+          {deliveryStatusCopy[delivery.state]}
         </p>
-      ) : null}
-      <ol>
-        {communications.nextSteps.map((step) => (
-          <li key={step.stableKey}>
-            <strong>{step.title}</strong>
-            <span>{step.detail}</span>
-            {step.dueAt ? <time>By {formatEventTime(step.dueAt, timezone)}</time> : null}
-            {step.actionUrl ? (
-              <a href={step.actionUrl} target="_blank" rel="noreferrer">
-                {step.actionUrl === communications.discordUrl ? 'Open Discord' : 'Open'}
-              </a>
-            ) : null}
-          </li>
-        ))}
-      </ol>
-      {!discordIsNextStep ? (
-        <a className="primary link-button" href={communications.discordUrl} target="_blank" rel="noreferrer">
-          {communications.discordLabel}
-        </a>
       ) : null}
     </>
   )
 
-  if (compact) {
+  // ---- f9 · event live: one reactive bento --------------------------------
+  if (eventIsLive) {
     return (
-      <details className="accepted-next-steps accepted-next-steps-compact">
-        <summary>
-          <span>{heading}</span>
-          <small>{communications.venueName} · arrival and Discord</small>
-        </summary>
-        <div className="accepted-next-steps-body">{content}</div>
-      </details>
+      <EventLiveScene
+        team={team}
+        members={members}
+        communications={communications ?? null}
+        event={event}
+        currentPhase={currentPhase}
+        phaseTime={phaseTime}
+        onSignOut={onSignOut}
+        proposalToggle={proposalToggle}
+      />
     )
   }
 
+  // ---- f8 · selected: lanterns rise, the ticket ---------------------------
+  if (selected) {
+    const offer = application.currentOffer
+    const canRespond =
+      application.state === 'offer_sent' &&
+      offer !== null &&
+      intake.currentRole === 'lead' &&
+      team.canRespondToOffer
+    return (
+      <PortalScene
+        tree="none"
+        header={<LockedHeader team={team} onSignOut={onSignOut} />}
+        backdrop={
+          <div aria-hidden className="pointer-events-none absolute inset-0 z-[2]">
+            <img
+              src="/assets/lantern-1.svg"
+              alt=""
+              className="absolute bottom-[-60px] left-[16%] w-[42px]"
+              style={{ animation: 'c2crise 16s linear -2s infinite' }}
+            />
+            <img
+              src="/assets/lantern-2.svg"
+              alt=""
+              className="absolute right-[19%] bottom-[-60px] w-8"
+              style={{ animation: 'c2crise 20s linear -11s infinite' }}
+            />
+          </div>
+        }
+      >
+        <div className="flex w-full max-w-[760px] flex-col items-center text-center">
+          <p className="mb-2.5 font-ui text-lg text-rose-light text-shadow-[0_2px_14px_rgba(0,0,0,.6)] lg:text-xl">
+            {copy.status} for {event.name}
+          </p>
+          <h1 className="mb-9 font-display font-light tracking-[-.01em] text-6xl leading-[.96] text-shadow-[0_0_60px_rgba(254,180,203,.3),0_10px_50px_rgba(0,0,0,.6)] lg:mb-[42px] lg:text-[92px]">
+            {confirmed ? 'You’re confirmed.' : 'You’re in.'}
+          </h1>
+
+          <PetalCard className="flex flex-col sm:flex-row">
+            <div className="grid flex-1 grid-cols-1 gap-4 px-7 py-[22px] sm:grid-cols-3 sm:gap-0">
+              <div className="sm:border-r sm:border-[rgb(216_132_162/.35)] sm:pr-5">
+                <p className="mb-1 text-[10.5px] font-semibold tracking-[.14em] text-[rgb(248_248_248/.5)] uppercase">
+                  venue
+                </p>
+                <p className="m-0 font-display font-light tracking-[-.01em] text-[16.5px] leading-[1.3]">
+                  {communications?.venueName ?? 'announced with your offer'}
+                </p>
+              </div>
+              <div className="sm:border-r sm:border-[rgb(216_132_162/.35)] sm:px-5">
+                <p className="mb-1 text-[10.5px] font-semibold tracking-[.14em] text-[rgb(248_248_248/.5)] uppercase">
+                  when
+                </p>
+                <p className="m-0 font-display font-light tracking-[-.01em] text-[16.5px] leading-[1.3]">
+                  {communications
+                    ? `${formatEventTime(communications.startsAt, event.timezone)} – ${formatEventTime(communications.endsAt, event.timezone)}`
+                    : '—'}
+                </p>
+              </div>
+              <div className="sm:pl-5">
+                <p className="mb-1 text-[10.5px] font-semibold tracking-[.14em] text-[rgb(248_248_248/.5)] uppercase">
+                  {confirmed ? 'status' : 'confirm by'}
+                </p>
+                <p className="m-0 font-display font-light tracking-[-.01em] text-[16.5px] leading-[1.3] text-rose-light">
+                  {confirmed
+                    ? 'place held'
+                    : offer
+                      ? formatEventTime(offer.expiresAt, event.timezone)
+                      : 'offer on its way'}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-none items-center justify-center gap-3 border-t-2 border-dashed border-[rgb(216_132_162/.55)] px-5 py-4 sm:w-[140px] sm:flex-col sm:gap-[7px] sm:border-t-0 sm:border-l-2">
+              <div className="flex size-12 -rotate-4 items-center justify-center rounded-[10px] bg-rose text-[15px] font-bold text-ink shadow-[0_8px_20px_rgba(0,0,0,.5)]">
+                C2C
+              </div>
+              <p className="m-0 text-[11px] text-[rgb(248_248_248/.6)]">
+                admits {team.activeMemberCount === 1 ? 'one' : team.activeMemberCount}
+              </p>
+            </div>
+          </PetalCard>
+
+          {communications?.nextSteps.length ? (
+            <div className="mt-7 w-full max-w-[560px] text-left">
+              {communications.nextSteps.map((step) => (
+                <div
+                  key={step.stableKey}
+                  className="flex items-baseline justify-between gap-4 border-b border-petal-line py-2.5 last:border-b-0"
+                >
+                  <div>
+                    <p className="m-0 text-[13px] font-semibold">
+                      {step.actionUrl ? (
+                        <a
+                          href={step.actionUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-paper underline-offset-4 hover:text-rose-light hover:underline"
+                        >
+                          {step.title}
+                        </a>
+                      ) : (
+                        step.title
+                      )}
+                    </p>
+                    <p className="m-0 text-xs text-[rgb(248_248_248/.55)]">{step.detail}</p>
+                  </div>
+                  {step.dueAt ? (
+                    <span className="flex-none text-[11px] text-rose-light">
+                      {formatEventTime(step.dueAt, event.timezone)}
+                    </span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="mt-9 flex flex-col items-center gap-3.5 lg:mt-[42px]">
+            {canRespond ? (
+              confirmDecline ? (
+                <div className="flex flex-col items-center gap-3">
+                  <p className="m-0 max-w-[420px] text-[12.5px] text-[rgb(248_248_248/.7)]">
+                    Declining releases the whole team’s places. You cannot undo this in the portal.
+                  </p>
+                  <div className="flex items-center gap-4">
+                    <PortalButton
+                      type="button"
+                      size="sm"
+                      disabled={busy !== null || responsePending}
+                      onClick={() => setConfirmDecline(false)}
+                    >
+                      Keep offer
+                    </PortalButton>
+                    <PortalTextButton
+                      type="button"
+                      disabled={busy !== null || pendingResponse === 'confirm'}
+                      onClick={() => void respond('decline')}
+                    >
+                      {busy === 'decline'
+                        ? 'Declining…'
+                        : pendingResponse === 'decline'
+                          ? 'confirm earlier decline'
+                          : 'decline for team'}
+                    </PortalTextButton>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <PortalButton
+                    type="button"
+                    disabled={busy !== null || pendingResponse === 'decline'}
+                    onClick={() => void respond('confirm')}
+                  >
+                    {busy === 'confirm'
+                      ? 'Confirming…'
+                      : pendingResponse === 'confirm'
+                        ? 'Confirm earlier response'
+                        : 'Confirm your spot'}
+                  </PortalButton>
+                  <PortalTextButton
+                    type="button"
+                    disabled={busy !== null || responsePending}
+                    onClick={() => setConfirmDecline(true)}
+                  >
+                    decline offer
+                  </PortalTextButton>
+                </>
+              )
+            ) : application.state === 'offer_sent' && intake.currentRole !== 'lead' ? (
+              <p className="m-0 text-[12.5px] text-[rgb(248_248_248/.6)]">
+                Your team lead confirms for the team
+                {offer ? ` · by ${formatEventTime(offer.expiresAt, event.timezone)}` : ''}.
+              </p>
+            ) : null}
+            {communications?.discordUrl ? (
+              <a
+                href={communications.discordUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[13.5px] text-rose-light underline-offset-4 hover:underline"
+              >
+                {communications.discordLabel || 'join the Discord'} →
+              </a>
+            ) : null}
+          </div>
+
+          <PortalError message={error} />
+          {proposalToggle}
+        </div>
+      </PortalScene>
+    )
+  }
+
+  // ---- closed states: declined, waitlisted, expired, withdrawn ------------
   return (
-    <section className="accepted-next-steps">
-      <h2>{heading}</h2>
-      {content}
-    </section>
+    <PortalScene tree="none" header={<LockedHeader team={team} onSignOut={onSignOut} />}>
+      <div className="flex w-full max-w-[760px] flex-col items-center text-center">
+        <div className="mb-5 drop-shadow-[0_0_14px_rgba(254,180,203,.5)]">
+          <Petal size={34} />
+        </div>
+        <h1 className="mb-3.5 font-display font-light tracking-[-.01em] text-5xl leading-none text-shadow-[0_8px_50px_rgba(0,0,0,.6)] lg:text-[64px]">
+          {copy.heading}
+        </h1>
+        <p className="mb-6 max-w-[520px] font-ui text-base text-rose-light lg:text-[19px]">
+          {copy.message}
+        </p>
+        <p className="m-0 text-[13px] text-[rgb(248_248_248/.65)]">
+          status <span className="text-paper">{copy.status.toLowerCase()}</span>
+        </p>
+        {proposalToggle}
+      </div>
+    </PortalScene>
+  )
+}
+
+
+/** The quiet top-right header once the team is locked. */
+function LockedHeader({ team, onSignOut }: { team: CurrentTeam; onSignOut: () => void }) {
+  return (
+    <div className="flex flex-col items-end gap-1 text-right">
+      <p className="m-0 font-ui text-[13.5px] text-rose-light">{team.name} · locked</p>
+      <button
+        type="button"
+        onClick={onSignOut}
+        className="text-[11.5px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
+      >
+        sign out
+      </button>
+    </div>
+  )
+}
+
+function BentoBlock({
+  title,
+  meta,
+  summary,
+  children,
+  defaultOpen = false,
+}: {
+  title: string
+  meta?: string
+  summary: ReactNode
+  children?: ReactNode
+  defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  const expandable = children !== undefined
+  return (
+    <div
+      className={`rounded-petal-sm border border-[rgb(254_180_203/.45)] bg-[linear-gradient(155deg,rgba(255,255,255,.08),rgba(12,0,4,.52)_60%)] px-[22px] py-[18px] shadow-[0_24px_50px_-18px_rgba(0,0,0,.8),inset_0_1px_0_rgba(255,255,255,.12)] backdrop-blur-[14px] transition-all duration-250 ${
+        expandable ? 'cursor-pointer hover:-translate-y-[3px] hover:border-[rgb(254_180_203/.8)]' : ''
+      }`}
+      {...(expandable
+        ? {
+            role: 'button',
+            tabIndex: 0,
+            onClick: () => setOpen((value) => !value),
+            onKeyDown: (event: React.KeyboardEvent) => {
+              if (event.key !== 'Enter' && event.key !== ' ') return
+              event.preventDefault()
+              setOpen((value) => !value)
+            },
+          }
+        : {})}
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="font-ui text-base text-rose-light">{title}</span>
+        <span className="text-[11px] text-[rgb(248_248_248/.45)]">
+          {meta ?? (expandable ? (open ? 'tap to close' : 'tap to open') : '')}
+        </span>
+      </div>
+      <div className="mt-2 text-sm text-[rgb(248_248_248/.85)]">{summary}</div>
+      {expandable && open ? (
+        <div className="mt-3.5 cursor-auto" onClick={(event) => event.stopPropagation()}>
+          {children}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Mockup f9: the live-event home — one reactive bento. Blocks open in place;
+ * the existing tool panels render inside their blocks.
+ */
+function EventLiveScene({
+  team,
+  members,
+  communications,
+  event,
+  currentPhase,
+  phaseTime,
+  onSignOut,
+  proposalToggle,
+}: {
+  team: CurrentTeam
+  members: CurrentTeamMember[]
+  communications: ParticipantCommunications | null
+  event: NonNullable<PublicState['event']>
+  currentPhase: NonNullable<PublicState['event']>['phases'][number]
+  phaseTime: number
+  onSignOut: () => void
+  proposalToggle: ReactNode
+}) {
+  const capabilities = useQuery(api.access.participantCapabilities, { eventSlug })
+  const nextPhase = event.phases.find((phase) => phase.startsAt > phaseTime)
+  const latestStep = communications?.nextSteps[0]
+  return (
+    <PortalScene tree="none" header={<LockedHeader team={team} onSignOut={onSignOut} />}>
+      <div className="w-full max-w-[1048px] pt-2 pb-10 lg:pt-6">
+        <p className="mb-2 flex items-center gap-2 font-ui text-base text-rose-light">
+          <span aria-hidden className="inline-block size-[7px] animate-dot-pulse rounded-full bg-rose-light" />
+          {currentPhase.displayName.toLowerCase()} · ends{' '}
+          {formatEventTime(currentPhase.endsAt, event.timezone)}
+        </p>
+        <h1 className="mb-7 font-display font-light tracking-[-.01em] text-4xl leading-none text-shadow-[0_8px_50px_rgba(0,0,0,.6)] lg:text-[46px]">
+          {nextPhase
+            ? `${nextPhase.displayName} at ${formatEventTime(nextPhase.startsAt, event.timezone)}.`
+            : currentPhase.description}
+        </h1>
+
+        <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {capabilities?.floor ? (
+            <BentoBlock title="your hall" summary="your table cluster and location QR">
+              <TeamLocationPanel />
+            </BentoBlock>
+          ) : null}
+          {capabilities?.reviewQueue ? (
+            <BentoBlock title="review queue" summary="where your team stands">
+              <ReviewQueuePanel />
+            </BentoBlock>
+          ) : null}
+          <BentoBlock
+            title="schedule"
+            {...(nextPhase
+              ? { meta: `next ${formatEventTime(nextPhase.startsAt, event.timezone)}` }
+              : {})}
+            summary={currentPhase.description}
+          >
+            <div className="flex flex-col">
+              {event.phases.map((phase) => {
+                const now = phase.startsAt <= phaseTime && phaseTime < phase.endsAt
+                const past = phase.endsAt <= phaseTime
+                return (
+                  <div
+                    key={phase.phaseKey}
+                    className="flex justify-between gap-3 border-b border-[rgb(216_132_162/.2)] py-2 text-xs last:border-b-0"
+                  >
+                    <span
+                      className={
+                        now
+                          ? 'text-rose-light'
+                          : past
+                            ? 'text-[rgb(248_248_248/.55)]'
+                            : 'text-[rgb(248_248_248/.75)]'
+                      }
+                    >
+                      {phase.displayName}
+                      {past ? ' ✓' : ''}
+                    </span>
+                    <span className={now ? 'text-rose-light' : 'text-[rgb(248_248_248/.5)]'}>
+                      {formatEventTime(phase.startsAt, event.timezone)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </BentoBlock>
+          {capabilities?.projectCheckpoints || capabilities?.integrations ? (
+            <BentoBlock title="connect tools" summary="repos, Figma, and checkpoints">
+              {capabilities?.projectCheckpoints ? (
+                <ProjectCheckpointsPanel timezone={event.timezone} />
+              ) : null}
+              {capabilities?.integrations ? (
+                <p className="mt-3 mb-0 text-xs">
+                  <Link to="/integrations" className="text-rose-light underline-offset-4 hover:underline">
+                    manage repos + Figma →
+                  </Link>
+                </p>
+              ) : null}
+            </BentoBlock>
+          ) : null}
+          <BentoBlock
+            title="squad"
+            meta={`${team.activeMemberCount} of ${team.teamMaximumSize} · locked`}
+            summary={
+              <span className="mt-1 flex">
+                {members.slice(0, 6).map((member, index) => (
+                  <span
+                    key={member.teamMemberId}
+                    title={member.displayName}
+                    className={`flex size-[30px] items-center justify-center rounded-full text-[10px] font-semibold ${
+                      member.role === 'lead'
+                        ? 'border-[1.5px] border-rose-light bg-avatar-lead'
+                        : 'border-[1.5px] border-[rgb(216_132_162/.7)] bg-avatar'
+                    } ${index > 0 ? '-ml-2' : ''}`}
+                  >
+                    {initialsOf(member.displayName)}
+                  </span>
+                ))}
+              </span>
+            }
+          >
+            <div className="flex flex-col">
+              {members.map((member) => (
+                <div
+                  key={member.teamMemberId}
+                  className="flex justify-between gap-3 border-b border-[rgb(216_132_162/.2)] py-[7px] text-xs last:border-b-0"
+                >
+                  <span>
+                    {member.displayName}
+                    {member.role === 'lead' ? (
+                      <span className="ml-1.5 text-[11px] text-rose-light">lead</span>
+                    ) : null}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </BentoBlock>
+          {capabilities?.attendance ? (
+            <BentoBlock title="my pass" summary="check-in QR and attendance">
+              <AttendancePanel />
+            </BentoBlock>
+          ) : null}
+          {capabilities?.scoreFeedback ? (
+            <BentoBlock title="feedback" summary="released review feedback">
+              <ReleasedFeedbackPanel />
+            </BentoBlock>
+          ) : null}
+          {latestStep ? (
+            <BentoBlock title="from organizers" summary={`“${latestStep.title}” · ${latestStep.detail}`} />
+          ) : null}
+          <BentoBlock
+            title="help"
+            summary={
+              <span className="flex gap-[18px] pt-1 text-[13px]">
+                {communications?.discordUrl ? (
+                  <a
+                    href={communications.discordUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-rose-light"
+                  >
+                    Discord
+                  </a>
+                ) : null}
+                {capabilities?.supportRead ? (
+                  <Link to="/support" className="text-rose-light">
+                    support
+                  </Link>
+                ) : null}
+                <Link to="/more" className="text-rose-light">
+                  more
+                </Link>
+              </span>
+            }
+          />
+        </div>
+        <div className="text-center">{proposalToggle}</div>
+      </div>
+    </PortalScene>
   )
 }
 
