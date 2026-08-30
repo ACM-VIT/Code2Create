@@ -34,7 +34,7 @@ Create a separate OpenAI API project and restricted service key for development,
 
 ### Live novelty embeddings
 
-The participant novelty signal uses `POST /v1/embeddings` with `text-embedding-3-small`, `encoding_format: float`, and no `dimensions` override. The contract is exactly one finite 1,536-value vector per input. Corpus import may send one bounded ordered batch; participant preview sends one normalized idea. The endpoint returns one JSON result rather than a partial-vector stream, so the browser debounces requests and displays only the newest complete response.
+The participant novelty signal uses `POST /v1/embeddings` with `text-embedding-3-small`, `encoding_format: float`, and no `dimensions` override. The contract is exactly one finite 1,536-value vector per ordered input. Corpus import may send one bounded ordered batch. Participant preview sends the normalized complete idea and bounded segments in one ordered request, then stores only the complete-idea vector for the team lifecycle. The endpoint returns one JSON result rather than a partial-vector stream, so the browser debounces requests and displays only the newest complete response.
 
 The production corpus contains 5 to 200 privacy-reviewed, non-identifying past-project summaries. Operations imports a complete draft under `configuration.novelty.entries.write`. Every vector must validate before one transaction replaces the set. A separate fresh-authenticated publication moves the event pointer. Development uses synthetic entries. Staging uses an approved non-production corpus. Production uses the reviewed event corpus. Environments do not share a key or corpus ID.
 

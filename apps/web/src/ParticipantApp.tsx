@@ -100,6 +100,26 @@ export function ParticipantApp({
   if (!me?.membership) {
     return <ProvisionScreen publicState={publicState} onSignOut={signOut} />
   }
+  if (
+    me.membership.participantClass === 'vit_student' &&
+    me.membership.vitStudentIdentity === null
+  ) {
+    return (
+      <PortalNotice
+        header={(
+          <button
+            type="button"
+            onClick={signOut}
+            className="text-[12px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
+          >
+            Sign out
+          </button>
+        )}
+        title="Verify your VIT account again."
+        body="Sign out, then continue with Google. Your saved profile, team, and proposal stay unchanged."
+      />
+    )
+  }
 
   const accountHeader = (
     <AccountBadge
@@ -171,6 +191,7 @@ export function ParticipantApp({
         <IntakeScreen
           team={team}
           members={teamMembers.results}
+          onSignOut={signOut}
           {...(intakeStatus.submissionFailureMessage === undefined
             ? {}
             : { submissionFailureMessage: intakeStatus.submissionFailureMessage })}
@@ -192,6 +213,7 @@ export function ParticipantApp({
           publicState={publicState}
           team={team}
           members={teamMembers.results}
+          onSignOut={signOut}
         />
       </Suspense>
     )
@@ -214,11 +236,12 @@ export function ParticipantApp({
       : location.pathname === '/integrations'
         ? canOpenIntegrations ? <IntegrationsScreen /> : <Navigate replace to="/" />
         : intakeStatus.applicationState !== null
-          ? <SubmittedScreen capabilities={access} publicState={publicState} team={team} members={teamMembers.results} />
+          ? <SubmittedScreen capabilities={access} publicState={publicState} team={team} members={teamMembers.results} onSignOut={signOut} />
           : (
               <IntakeScreen
                 team={team}
                 members={teamMembers.results}
+                onSignOut={signOut}
                 {...(intakeStatus.submissionFailureMessage === undefined
                   ? {}
                   : { submissionFailureMessage: intakeStatus.submissionFailureMessage })}
@@ -540,12 +563,12 @@ function ProvisionScreen({
           Choose your participant type.
         </h1>
         <p className="mb-7 text-[12.5px] text-[rgb(248_248_248/.5)]">
-          Choose VIT student if you signed in with your VIT email.
+          VIT students must use their @vitstudent.ac.in Google account.
         </p>
         <div className="mb-6 flex w-full flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4">
           <ProvisionChoice
             title="VIT student"
-            detail="Your VIT email is required."
+            detail="Only @vitstudent.ac.in accounts are accepted."
             disabled={!vitOpen}
             selected={participantClass === 'vit_student'}
             onSelect={() => choose('vit_student')}

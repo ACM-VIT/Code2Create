@@ -1,5 +1,7 @@
 import { ConvexError, v } from "convex/values";
 
+import type { Doc } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
@@ -36,6 +38,11 @@ import {
   normalizedText,
   optionalNormalizedText,
 } from "./lib/strings";
+import {
+  isApprovedVitStudentIdentity,
+  parseVitStudentGoogleDisplayName,
+  vitInstitutionName,
+} from "./lib/vitStudentIdentity";
 import {
   claimPendingTeamRosterEntry,
   pendingTeamAssignees,
@@ -74,6 +81,101 @@ const currentParticipantPolicyView = v.object({
   policy: participantPolicyInput,
 });
 
+const membershipViewFields = {
+  id: v.id("eventMemberships"),
+  eligibilityStatus: participantEligibilityStatus,
+  onboardingStatus: participantOnboardingStatus,
+};
+
+const participantMembershipView = v.union(
+  v.object({
+    ...membershipViewFields,
+    participantClass: v.literal("vit_student"),
+    vitStudentIdentity: v.union(
+      v.null(),
+      v.object({
+        fullName: v.string(),
+        registrationNumber: v.string(),
+        programmeCode: v.string(),
+        yearOfStudy: studyYear,
+      }),
+    ),
+  }),
+  v.object({
+    ...membershipViewFields,
+    participantClass: v.literal("external_participant"),
+  }),
+);
+
+function vitIdentityReferenceYear(event: Doc<"events">) {
+  const referenceAt = event.startsAt ?? event.applicationsCloseAt;
+  return Number(new Intl.DateTimeFormat("en", {
+    timeZone: event.timezone,
+    year: "numeric",
+  }).format(new Date(referenceAt)));
+}
+
+function requireVitStudentProfileIdentity(
+  displayName: string,
+  event: Doc<"events">,
+) {
+  const identity = parseVitStudentGoogleDisplayName(
+    displayName,
+    vitIdentityReferenceYear(event),
+  );
+  if (!identity) {
+    throw new ConvexError({
+      code: "VIT_GOOGLE_PROFILE_INVALID",
+      message:
+        "Your VIT Google account name must end with a valid registration number. Ask VIT to correct the Google profile name, then sign in again.",
+    });
+  }
+  return identity;
+}
+
+async function readVitStudentIdentity(
+  ctx: QueryCtx | MutationCtx,
+  event: Doc<"events">,
+  person: Doc<"people">,
+  membership: Doc<"eventMemberships">,
+) {
+  if (membership.participantClass !== "vit_student") {
+    throw new Error("A non-VIT membership cannot have a VIT student identity.");
+  }
+  if (membership.vitStudentIdentity) return membership.vitStudentIdentity;
+  const googleIdentity = await ctx.db
+    .query("googleIdentityClaims")
+    .withIndex("by_auth_user", (index) => index.eq("authUserId", person.authUserId))
+    .unique();
+  if (!googleIdentity?.displayName) return null;
+  return parseVitStudentGoogleDisplayName(
+    googleIdentity.displayName,
+    vitIdentityReferenceYear(event),
+  );
+}
+
+async function repairVitStudentIdentity(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  person: Doc<"people">,
+  membership: Doc<"eventMemberships">,
+) {
+  const identity = await readVitStudentIdentity(ctx, event, person, membership);
+  if (!identity) {
+    throw new ConvexError({
+      code: "GOOGLE_IDENTITY_REFRESH_REQUIRED",
+      message: "Sign out and complete Google authentication again before continuing.",
+    });
+  }
+  if (!membership.vitStudentIdentity) {
+    await ctx.db.patch(membership._id, {
+      vitStudentIdentity: identity,
+      updatedAt: Date.now(),
+    });
+  }
+  return identity;
+}
+
 export const entryAllowed = query({
   args: { eventSlug: v.string() },
   returns: v.boolean(),
@@ -96,15 +198,7 @@ export const me = query({
         displayName: v.string(),
         verifiedEmail: v.string(),
       }),
-      membership: v.union(
-        v.null(),
-        v.object({
-          id: v.id("eventMemberships"),
-          participantClass,
-          eligibilityStatus: participantEligibilityStatus,
-          onboardingStatus: participantOnboardingStatus,
-        }),
-      ),
+      membership: v.union(v.null(), participantMembershipView),
       pendingTeam: v.union(
         v.null(),
         v.object({
@@ -159,6 +253,22 @@ export const me = query({
           .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
           .unique()
       : null;
+    const visibleMembership = membership?.participantClass === "vit_student"
+      ? {
+          id: membership._id,
+          participantClass: membership.participantClass,
+          eligibilityStatus: membership.eligibilityStatus,
+          onboardingStatus: membership.onboardingStatus,
+          vitStudentIdentity: await readVitStudentIdentity(ctx, event, person, membership),
+        }
+      : membership
+        ? {
+            id: membership._id,
+            participantClass: membership.participantClass,
+            eligibilityStatus: membership.eligibilityStatus,
+            onboardingStatus: membership.onboardingStatus,
+          }
+        : null;
     const pendingEntry = await teamRosterPendingEntry(ctx, {
       eventId: event._id,
       emailNormalized: person.verifiedEmail,
@@ -183,14 +293,7 @@ export const me = query({
         displayName: person.displayName,
         verifiedEmail: person.verifiedEmail,
       },
-      membership: membership
-        ? {
-            id: membership._id,
-            participantClass: membership.participantClass,
-            eligibilityStatus: membership.eligibilityStatus,
-            onboardingStatus: membership.onboardingStatus,
-          }
-        : null,
+      membership: visibleMembership,
       pendingTeam,
       profile: profile && membership
         ? {
@@ -212,7 +315,9 @@ export const me = query({
             ...(profile.vitProgramme !== undefined
               ? { vitProgramme: profile.vitProgramme }
               : {}),
-            ...(profile.vitCampus !== undefined ? { vitCampus: profile.vitCampus } : {}),
+            ...(profile.vitCampus !== undefined
+              ? { vitCampus: profile.vitCampus }
+              : {}),
             ...(profile.externalCity !== undefined
               ? { externalCity: profile.externalCity }
               : {}),
@@ -242,13 +347,17 @@ export const provision = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person, googleIdentity } = await ensurePerson(ctx);
     await requireStagingParticipantAccess(ctx, event._id, person.verifiedEmail);
-    const approvedVitIdentity =
-      googleIdentity.hostedDomain !== undefined &&
-      event.vitEmailDomains.includes(googleIdentity.hostedDomain);
+    const approvedVitIdentity = isApprovedVitStudentIdentity({
+      verifiedEmail: googleIdentity.verifiedEmail,
+      ...(googleIdentity.hostedDomain !== undefined
+        ? { hostedDomain: googleIdentity.hostedDomain }
+        : {}),
+      allowedDomains: event.vitEmailDomains,
+    });
     if (args.participantClass === "vit_student" && !approvedVitIdentity) {
       throw new ConvexError({
         code: "VIT_EMAIL_REQUIRED",
-        message: "VIT Student registration requires Google to verify an approved VIT Workspace account.",
+        message: "VIT student registration requires a verified @vitstudent.ac.in Google Workspace account.",
       });
     }
     const resolvedParticipantClass = approvedVitIdentity
@@ -269,12 +378,19 @@ export const provision = mutation({
           message: "Participant class is already set. Ask support to correct it.",
         });
       }
+      if (existingMembership.participantClass === "vit_student") {
+        await repairVitStudentIdentity(ctx, event, person, existingMembership);
+      }
       await claimPendingTeamRosterEntry(ctx, {
         event,
         person,
       });
       return { membershipId: existingMembership._id, created: false };
     }
+
+    const vitStudentIdentity = resolvedParticipantClass === "vit_student"
+      ? requireVitStudentProfileIdentity(googleIdentity.displayName, event)
+      : null;
 
     const now = Date.now();
     let subject = await ctx.db
@@ -317,6 +433,7 @@ export const provision = mutation({
       personId: person._id,
       eventAccessSubjectId: subject._id,
       participantClass: resolvedParticipantClass,
+      ...(vitStudentIdentity ? { vitStudentIdentity } : {}),
       eligibilityStatus: "eligible",
       onboardingStatus: "profile_required",
       acceptedParticipantPolicyVersionIds: [],
@@ -562,14 +679,12 @@ export const saveProfile = mutation({
   args: {
     eventSlug: v.string(),
     participantPolicyVersionId: v.id("participantPolicyVersions"),
-    fullName: v.string(),
+    fullName: v.optional(v.string()),
     preferredName: v.optional(v.string()),
     phone: v.optional(v.string()),
-    institution: v.string(),
-    yearOfStudy: studyYear,
+    institution: v.optional(v.string()),
+    yearOfStudy: v.optional(studyYear),
     currentRole: v.optional(v.string()),
-    vitRegistrationNumber: v.optional(v.string()),
-    vitProgramme: v.optional(v.string()),
     vitCampus: v.optional(v.string()),
     externalCity: v.optional(v.string()),
     externalCountry: v.optional(v.string()),
@@ -582,14 +697,12 @@ export const saveProfile = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const requestFingerprint = operationFingerprint([
       args.participantPolicyVersionId,
-      args.fullName,
+      args.fullName ?? null,
       args.preferredName ?? null,
       args.phone ?? null,
-      args.institution,
-      args.yearOfStudy,
+      args.institution ?? null,
+      args.yearOfStudy ?? null,
       args.currentRole ?? null,
-      args.vitRegistrationNumber ?? null,
-      args.vitProgramme ?? null,
       args.vitCampus ?? null,
       args.externalCity ?? null,
       args.externalCountry ?? null,
@@ -637,22 +750,30 @@ export const saveProfile = mutation({
     }
 
     const policy = participantPolicy.normalized;
-    const fullName = normalizedText(args.fullName, "Full name", 2, 100);
+    const vitStudentIdentity = membership.participantClass === "vit_student"
+      ? await repairVitStudentIdentity(ctx, event, person, membership)
+      : null;
+    const fullName = vitStudentIdentity
+      ? vitStudentIdentity.fullName
+      : normalizedText(args.fullName ?? "", "Full name", 2, 100);
     const preferredName = optionalNormalizedText(args.preferredName, "Preferred name", 60);
     const phone = policyField(args.phone, policy.phoneField, "Phone", 24);
-    const institution = normalizedText(args.institution, "Institution", 2, 160);
-    const currentRole = membership.participantClass === "external_participant"
-      ? optionalNormalizedText(args.currentRole, "Current role", 100)
-      : undefined;
-    if (membership.participantClass === "vit_student" && args.yearOfStudy === "not_applicable") {
+    const institution = vitStudentIdentity
+      ? vitInstitutionName
+      : normalizedText(args.institution ?? "", "Institution", 2, 160);
+    const yearOfStudy = vitStudentIdentity?.yearOfStudy ?? args.yearOfStudy;
+    if (!yearOfStudy) {
       throw new ConvexError({
-        code: "VIT_STUDY_YEAR_REQUIRED",
+        code: "STUDY_YEAR_REQUIRED",
         message: "Choose your current year of study.",
       });
     }
+    const currentRole = membership.participantClass === "external_participant"
+      ? optionalNormalizedText(args.currentRole, "Current role", 100)
+      : undefined;
     if (
       membership.participantClass === "external_participant" &&
-      args.yearOfStudy === "not_applicable" &&
+      yearOfStudy === "not_applicable" &&
       currentRole === undefined
     ) {
       throw new ConvexError({
@@ -660,17 +781,14 @@ export const saveProfile = mutation({
         message: "Enter a current role when year of study does not apply.",
       });
     }
-    const vitRegistrationNumber = membership.participantClass === "vit_student"
-      ? policyField(
-          args.vitRegistrationNumber,
-          policy.vitRegistrationNumberField,
-          "VIT registration number",
-          40,
-        )
-      : undefined;
-    const vitProgramme = membership.participantClass === "vit_student"
-      ? policyField(args.vitProgramme, policy.vitProgrammeField, "VIT programme", 100)
-      : undefined;
+    const vitRegistrationNumber =
+      vitStudentIdentity && policy.vitRegistrationNumberField !== "not_collected"
+        ? vitStudentIdentity.registrationNumber
+        : undefined;
+    const vitProgramme =
+      vitStudentIdentity && policy.vitProgrammeField !== "not_collected"
+        ? vitStudentIdentity.programmeCode
+        : undefined;
     const vitCampus = membership.participantClass === "vit_student"
       ? policyField(args.vitCampus, policy.vitCampusField, "VIT campus", 80)
       : undefined;
@@ -723,7 +841,7 @@ export const saveProfile = mutation({
         preferredName,
         phone,
         institution,
-        yearOfStudy: args.yearOfStudy,
+        yearOfStudy,
         currentRole,
         vitRegistrationNumber,
         vitProgramme,
@@ -743,7 +861,7 @@ export const saveProfile = mutation({
         ...(preferredName !== undefined ? { preferredName } : {}),
         ...(phone !== undefined ? { phone } : {}),
         institution,
-        yearOfStudy: args.yearOfStudy,
+        yearOfStudy,
         ...(currentRole !== undefined ? { currentRole } : {}),
         ...(vitRegistrationNumber !== undefined ? { vitRegistrationNumber } : {}),
         ...(vitProgramme !== undefined ? { vitProgramme } : {}),

@@ -110,6 +110,7 @@ import type * as lib_intelligenceRecommendationValidators from "../lib/intellige
 import type * as lib_intelligenceServiceConfiguration from "../lib/intelligenceServiceConfiguration.js";
 import type * as lib_labelContract from "../lib/labelContract.js";
 import type * as lib_novelty from "../lib/novelty.js";
+import type * as lib_openAiEmbeddings from "../lib/openAiEmbeddings.js";
 import type * as lib_operations from "../lib/operations.js";
 import type * as lib_operationsAttention from "../lib/operationsAttention.js";
 import type * as lib_operationsAttentionDetectors from "../lib/operationsAttentionDetectors.js";
@@ -177,6 +178,7 @@ import type * as lib_teamMembership from "../lib/teamMembership.js";
 import type * as lib_teamRoster from "../lib/teamRoster.js";
 import type * as lib_testSubmissionSnapshot from "../lib/testSubmissionSnapshot.js";
 import type * as lib_venueCheckInLifecycle from "../lib/venueCheckInLifecycle.js";
+import type * as lib_vitStudentIdentity from "../lib/vitStudentIdentity.js";
 import type * as manualReviewRecordActions from "../manualReviewRecordActions.js";
 import type * as manualReviewRecords from "../manualReviewRecords.js";
 import type * as novelty from "../novelty.js";
@@ -357,6 +359,7 @@ declare const fullApi: ApiFromModules<{
   "lib/intelligenceServiceConfiguration": typeof lib_intelligenceServiceConfiguration;
   "lib/labelContract": typeof lib_labelContract;
   "lib/novelty": typeof lib_novelty;
+  "lib/openAiEmbeddings": typeof lib_openAiEmbeddings;
   "lib/operations": typeof lib_operations;
   "lib/operationsAttention": typeof lib_operationsAttention;
   "lib/operationsAttentionDetectors": typeof lib_operationsAttentionDetectors;
@@ -424,6 +427,7 @@ declare const fullApi: ApiFromModules<{
   "lib/teamRoster": typeof lib_teamRoster;
   "lib/testSubmissionSnapshot": typeof lib_testSubmissionSnapshot;
   "lib/venueCheckInLifecycle": typeof lib_venueCheckInLifecycle;
+  "lib/vitStudentIdentity": typeof lib_vitStudentIdentity;
   manualReviewRecordActions: typeof manualReviewRecordActions;
   manualReviewRecords: typeof manualReviewRecords;
   novelty: typeof novelty;

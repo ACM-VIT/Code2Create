@@ -517,6 +517,26 @@ export default defineSchema({
       filterFields: ["corpusVersionId"],
     }),
 
+  noveltyTeamIdeas: defineTable({
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+    inputFingerprint: v.string(),
+    lifecycle: v.union(
+      v.literal("editing"),
+      v.literal("saved"),
+      v.literal("submitted"),
+    ),
+    embedding: v.array(v.float64()),
+    sourceUpdatedAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_team", ["teamId"])
+    .vectorIndex("by_event_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
+      filterFields: ["eventId"],
+    }),
+
   noveltyPreviewRequests: defineTable({
     eventId: v.id("events"),
     teamId: v.id("teams"),
@@ -528,6 +548,8 @@ export default defineSchema({
     state: noveltyPreviewState,
     score: v.optional(v.number()),
     band: v.optional(noveltyBand),
+    effectiveSimilarTeams: v.optional(v.number()),
+    comparedTeamCount: v.optional(v.number()),
     nearestSimilarity: v.optional(v.number()),
     nearestThemeLabel: v.optional(v.string()),
     reflectionPrompt: v.optional(v.string()),
@@ -542,6 +564,7 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_team_requested", ["teamId", "requestedAt"])
+    .index("by_team_state_requested", ["teamId", "state", "requestedAt"])
     .index("by_team_fingerprint_requested", ["teamId", "inputFingerprint", "requestedAt"])
     .index("by_team_client_request", ["teamId", "clientRequestId"])
     .index("by_event_state_requested", ["eventId", "state", "requestedAt"]),
@@ -563,6 +586,7 @@ export default defineSchema({
     authUserId: v.string(),
     googleSubject: v.string(),
     verifiedEmail: v.string(),
+    displayName: v.optional(v.string()),
     hostedDomain: v.optional(v.string()),
     tokenIssuedAt: v.number(),
     tokenExpiresAt: v.number(),
@@ -745,6 +769,12 @@ export default defineSchema({
     personId: v.id("people"),
     eventAccessSubjectId: v.id("eventAccessSubjects"),
     participantClass,
+    vitStudentIdentity: v.optional(v.object({
+      fullName: v.string(),
+      registrationNumber: v.string(),
+      programmeCode: v.string(),
+      yearOfStudy: studyYear,
+    })),
     eligibilityStatus: participantEligibilityStatus,
     onboardingStatus: participantOnboardingStatus,
     acceptedParticipantPolicyVersionIds: v.array(v.id("participantPolicyVersions")),

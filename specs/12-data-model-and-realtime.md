@@ -401,7 +401,16 @@ Only one draft and one published row may exist per event. Draft creation require
 - one finite 1,536-value embedding produced by `text-embedding-3-small`;
 - creation time.
 
-A corpus contains 5 to 200 entries. Source keys are unique. Source years cannot be later than the current server year. Summaries are bounded and non-identifying. The importer checks contact, identifier, and credential patterns before provider work. It embeds the complete normalized set without a dimensions override. It validates each provider result and replaces all child rows in one transaction. A partial provider batch never becomes a ready corpus.
+A corpus contains 5 to 300 entries. Source keys are unique. Source years cannot be later than the current server year. Summaries are bounded and non-identifying. The importer checks contact, identifier, and credential patterns before provider work. It embeds the complete normalized set without a dimensions override. It validates each provider result and replaces all child rows in one transaction. A partial provider batch never becomes a ready corpus.
+
+### `noveltyTeamIdeas`
+
+- `eventId`, `teamId`, and input fingerprint;
+- lifecycle `editing | saved | submitted`;
+- one finite native 1,536-value complete-idea embedding;
+- source update time and index update time.
+
+The table stores no raw idea. One team has at most one current row for editing and one current durable row for saved or submitted text. Segment embeddings exist only in the active provider response and retrieval request; they do not become team rows. Editing rows expire after the short live-edit window. If retrieval sees both rows, the durable row is authoritative and the editing row does not add or replace that team's density contribution. An authoritative idea change deletes all older rows and makes running preview requests stale in the same transaction. Provider failure after that transaction leaves no current replacement row and therefore cannot preserve an obsolete idea in density results.
 
 ### `noveltyPreviewRequests`
 
@@ -411,7 +420,9 @@ A corpus contains 5 to 200 entries. Source keys are unique. Source years cannot 
 - optional whole-number score and internal nearest similarity;
 - optional provider request ID, latency, non-sensitive failure category, and request/completion time.
 
-One team/client-request range makes the public action idempotent. A second use with different input fails. A successful same-team/corpus/fingerprint row may be reused for 30 minutes, and a bounded team/time range enforces the published minute limit. A sensitive-looking idea returns unavailable before a request row or provider call exists. Only a current successful request may be copied onto the mutable project draft; preview rows never become application, admission, review, or score evidence.
+One team/client-request range makes the public action idempotent. A second use with different input fails. A successful same-team/corpus/fingerprint row may be reused for 30 seconds, which is longer than the editor's 15-second refresh interval, and a bounded team/time range enforces the published minute limit. A sensitive-looking idea returns unavailable before a request row or provider call exists. Only a current successful request may be copied onto the mutable project draft; preview rows never become application, admission, review, or score evidence.
+
+`noveltyPreviewRequests.by_team_state_requested` lets an accepted idea edit invalidate only that team's running requests without a table scan. A late action cannot store a team vector from a stale request.
 
 ### `admissionPolicyVersions`
 
@@ -2068,7 +2079,10 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `noveltyCorpusVersions.by_event_version` | Allocate and inspect immutable corpus history |
 | `noveltyCorpusEntries.by_corpus_source` | Enforce one curated source key inside a corpus and replace its bounded set |
 | `noveltyCorpusEntries.by_corpus_embedding` | Search native 1,536-value vectors inside one pinned corpus |
+| `noveltyTeamIdeas.by_team` | Replace or invalidate one team's bounded current novelty rows without scanning the event |
+| `noveltyTeamIdeas.by_event_embedding` | Search current complete-idea vectors inside one event without exposing another team's text |
 | `noveltyPreviewRequests.by_team_requested` | Enforce the bounded per-team request rate and inspect recent work |
+| `noveltyPreviewRequests.by_team_state_requested` | Invalidate one team's running previews in the same transaction as an accepted idea edit |
 | `noveltyPreviewRequests.by_team_fingerprint_requested` | Reuse one recent successful comparison for unchanged team text |
 | `noveltyPreviewRequests.by_team_client_request` | Resolve one idempotent participant preview request |
 | `noveltyPreviewRequests.by_event_state_requested` | Read bounded aggregate provider health without project text |
@@ -2788,7 +2802,7 @@ Board must set exact periods. The schema supports separate policies:
 - attendance credential records, short-lived QR tokens and staffed resolutions, raw scan attempts, accepted presence events, intervals, derived results, roll calls, identifiable exports, and restricted emergency packs as separate retention classes;
 - floor plans, team-location history, short-lived team QR digests, and mapping claims as separate retention classes;
 - intake answer versions, generated questions, model interpretations, submitted proposal versions, team checkpoint drafts, and immutable checkpoint submissions;
-- immutable curated novelty corpus versions/entries and short-lived novelty preview request metadata as separate retention classes; preview rows contain no raw idea, while copied draft signals expire with the mutable draft;
+- immutable curated novelty corpus versions/entries, short-lived novelty preview request metadata, and no-text team-density vectors as separate retention classes; preview and team-density rows contain no raw idea, editing vectors expire quickly, obsolete durable vectors are deleted when accepted text changes, and copied draft signals expire with the mutable draft;
 - admission AI recommendations, human application reviews/decisions, and their policy/source links as separate retention classes;
 - participant notification content/delivery metadata and disabled destinations;
 - provider credentials;
@@ -2850,9 +2864,11 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - Participant checkpoint submission never creates or changes queue, team-round, review, evidence-provider, evaluation, or score state. Late or missing is context, not an automatic penalty.
 - A review evidence transaction pins only a checkpoint submission that already existed at its capture time; reviewer reads and verified exports follow that exact ID after later team or provider changes.
 - Every introduction asks exactly two follow-ups and terminates through valid generated questions or published deterministic fallbacks. Later checkpoints use their separately published fixed questions and do not reuse this route.
-- A novelty corpus publishes only from one complete 5–200-entry ready set whose embeddings are finite native 1,536-value `text-embedding-3-small` outputs. Draft, entry replacement, publication, and read fail independently without their exact event grants.
+- A novelty corpus publishes only from one complete 5–300-entry ready set whose embeddings are finite native 1,536-value `text-embedding-3-small` outputs. Draft, entry replacement, publication, and read fail independently without their exact event grants.
 - A novelty request stores no raw idea, performs no provider call for sensitive-looking text, applies the event's exact team rate limit, and returns only one whole-number result.
 - A repeated preview ID cannot create another row or name different text. Provider failure leaves intake usable. A completion attaches only while the saved idea fingerprint and pinned corpus match.
+- A changed saved or submitted idea invalidates older team vectors and running previews in its accepting transaction. Provider failure cannot keep the previous idea searchable, and an older action cannot reinsert it.
+- Segment retrieval stores at most one complete-idea row per team lifecycle. Repeated segment hits and editing/durable rows collapse to one strongest match per team before density is calculated.
 - Novelty number and similarity are absent from proposal versions, admission-model input, human admission evidence, review evidence, judging records, and score exports.
 - A model result with unknown IDs, stale answers, invalid schema, a repeated/compound/overlong/prohibited question, refusal, or late completion changes no authoritative project field or visible prompt.
 - Every submitted follow-up snapshot retains its immutable question ID, ordinal, wording, purpose, source, and participant answer or skipped state.

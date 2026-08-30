@@ -1,5 +1,9 @@
 import { useState } from 'react'
 import { signInWithGooglePopup, type Code2CreateAuthClient } from '@code2create/web-auth'
+import {
+  restrictGoogleAuthorizationToVitStudents,
+  vitStudentEmailDomain,
+} from '../lib/googleAuthorization'
 import { PortalScene } from '../components/portal/PortalScene'
 import { PortalButton } from '../components/portal/PortalButton'
 import { PortalError } from '../components/portal/PortalField'
@@ -106,7 +110,13 @@ export function EntryScreen({
     setBusy(true)
     setError(null)
     try {
-      const result = await signInWithGooglePopup(authClient, window.location.href)
+      const result = await signInWithGooglePopup(
+        authClient,
+        window.location.href,
+        participantClass === 'vit_student'
+          ? restrictGoogleAuthorizationToVitStudents
+          : undefined,
+      )
       if (result.error) setError(popupErrorMessage(result.error.code))
     } catch {
       setError(popupErrorMessage(undefined))
@@ -137,19 +147,19 @@ export function EntryScreen({
           className="mb-7 flex w-full flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4"
           role="group"
           aria-label="Participant type"
-        >
-          <ClassCard
-            title="VIT student"
-            detail="on-campus, with a VIT ID card"
-            disabled={!vitOpen}
-            selected={participantClass === 'vit_student'}
+          >
+            <ClassCard
+              title="VIT student"
+              detail={`only @${vitStudentEmailDomain} Google accounts are accepted`}
+              disabled={!vitOpen}
+              selected={participantClass === 'vit_student'}
             onSelect={() => choose('vit_student')}
           />
-          <ClassCard
-            title="external participant"
-            detail={externalOpen ? 'visiting from another campus' : 'applications have closed'}
-            disabled={!externalOpen}
-            selected={participantClass === 'external_participant'}
+            <ClassCard
+              title="external participant"
+              detail={externalOpen ? 'use your regular Google account' : 'applications have closed'}
+              disabled={!externalOpen}
+              selected={participantClass === 'external_participant'}
             onSelect={() => choose('external_participant')}
           />
         </div>

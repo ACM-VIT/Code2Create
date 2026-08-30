@@ -6,7 +6,7 @@ import { EditingPresence } from '../components/EditingPresence'
 import { PortalScene } from '../components/portal/PortalScene'
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
-import { Petal, SakuraSteps } from '../components/portal/Petal'
+import { SakuraSteps } from '../components/portal/Petal'
 import { TeamCluster } from '../components/portal/TeamCluster'
 import { initialsOf } from '../components/portal/initials'
 import {
@@ -59,6 +59,8 @@ type RecoveredFollowUp = {
   questionId: string
 }
 
+const noveltyRefreshIntervalMs = 15_000
+
 function normalizedIdeaLength(value: string) {
   return value.trim().replace(/\s+/g, ' ').length
 }
@@ -72,30 +74,33 @@ export function IntakeScreen({
   team,
   members,
   submissionFailureMessage,
+  onSignOut,
 }: {
   team: CurrentTeam
   members: CurrentTeamMember[]
   submissionFailureMessage?: string
+  onSignOut: () => void
 }) {
   const intake = useQuery(api.intake.current, { eventSlug })
   if (intake === undefined) {
     return (
-      <IntakeStage team={team} members={members} title="Loading your application…" />
+      <IntakeStage team={team} members={members} onSignOut={onSignOut} title="Loading your application…" />
     )
   }
   if (intake === null) {
     return (
-      <IntakeStage team={team} members={members} title="Your application is unavailable." />
+      <IntakeStage team={team} members={members} onSignOut={onSignOut} title="Your application is unavailable." />
     )
   }
   if (!team.canWriteProject) {
-    return <ReadOnlyIntake team={team} intake={intake} members={members} />
+    return <ReadOnlyIntake team={team} intake={intake} members={members} onSignOut={onSignOut} />
   }
   return (
     <IntakeWorkspace
       team={team}
       intake={intake}
       members={members}
+      onSignOut={onSignOut}
       {...(submissionFailureMessage === undefined ? {} : { submissionFailureMessage })}
     />
   )
@@ -104,9 +109,11 @@ export function IntakeScreen({
 function IntakeTeamCluster({
   team,
   members,
+  onSignOut,
 }: {
   team: CurrentTeam
   members: readonly CurrentTeamMember[]
+  onSignOut: () => void
 }) {
   const leaveTeam = useMutation(api.teams.leave)
   const operations = useOperationRunner<FunctionReturnType<typeof api.teams.leave>>()
@@ -136,6 +143,7 @@ function IntakeTeamCluster({
     <TeamCluster
       team={team}
       members={members}
+      onSignOut={onSignOut}
       leaveAction={{
         available: team.canLeave && !leadMustTransfer,
         ...(leadMustTransfer
@@ -165,10 +173,10 @@ function IntakeStage({
   steps,
   children,
   footer,
-  floating,
   width = 'max-w-[820px]',
   titleClass = 'lg:text-[38px]',
   branch = false,
+  onSignOut,
 }: {
   team: CurrentTeam
   members: readonly CurrentTeamMember[]
@@ -178,23 +186,17 @@ function IntakeStage({
   steps?: { total: number; current: number }
   children?: ReactNode
   footer?: ReactNode
-  /** Pinned to the top of the scene, the way the mockup floats the novelty pill. */
-  floating?: ReactNode
   width?: string
   titleClass?: string
   branch?: boolean
+  onSignOut: () => void
 }) {
   return (
     <PortalScene
       tree="left"
       branch={branch}
-      header={<IntakeTeamCluster team={team} members={members} />}
+      header={<IntakeTeamCluster team={team} members={members} onSignOut={onSignOut} />}
     >
-      {floating ? (
-        <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
-          {floating}
-        </div>
-      ) : null}
       <div className={`flex w-full flex-col items-center ${width}`}>
         {steps ? (
           <div className="mb-4.5">
@@ -253,10 +255,12 @@ function ReadOnlyIntake({
   team,
   intake,
   members,
+  onSignOut,
 }: {
   team: CurrentTeam
   intake: CurrentIntake
   members: CurrentTeamMember[]
+  onSignOut: () => void
 }) {
   const { editors } = useEditingPresence(false)
   const draft = intake.draft
@@ -264,6 +268,7 @@ function ReadOnlyIntake({
     <IntakeStage
       team={team}
       members={members}
+      onSignOut={onSignOut}
       title="Project editing is unavailable."
       hint="Your team’s saved work remains here. Another member with project access can continue."
     >
@@ -284,11 +289,13 @@ function IntakeWorkspace({
   intake,
   members,
   submissionFailureMessage,
+  onSignOut,
 }: {
   team: CurrentTeam
   intake: CurrentIntake
   members: CurrentTeamMember[]
   submissionFailureMessage?: string
+  onSignOut: () => void
 }) {
   const draft = intake.draft
   const previewNovelty = useAction(api.novelty.preview)
@@ -428,14 +435,24 @@ function IntakeWorkspace({
     const savedIdeaMatches =
       draft?.initialIdea !== undefined &&
       draft.initialIdea.trim().replace(/\s+/g, ' ') === idea.trim().replace(/\s+/g, ' ')
+    const hasSavedSignal =
+      noveltyCorpusVersionId !== null && savedNoveltyScore !== null && savedIdeaMatches
 
-    if (noveltyCorpusVersionId !== null && savedNoveltyScore !== null && savedIdeaMatches) {
-      setNoveltyState({ status: 'ready', signal: { score: savedNoveltyScore } })
+    if (hasSavedSignal) {
+      setNoveltyState({
+        status: 'ready',
+        signal: {
+          score: savedNoveltyScore,
+        },
+      })
+    }
+
+    if (!ideaEditorOpen) {
+      if (!hasSavedSignal) setNoveltyState({ status: 'idle' })
       return
     }
 
     if (
-      !ideaEditorOpen ||
       noveltyCorpusVersionId === null ||
       noveltyMinimumIdeaLength === null ||
       noveltyDebounceMs === null ||
@@ -445,8 +462,10 @@ function IntakeWorkspace({
       return
     }
 
-    setNoveltyState({ status: 'checking' })
-    const timer = window.setTimeout(() => {
+    if (!hasSavedSignal) setNoveltyState({ status: 'checking' })
+    let refreshTimer: number | undefined
+    let cancelled = false
+    const checkNovelty = () => {
       void previewNovelty({
         eventSlug,
         corpusVersionId: noveltyCorpusVersionId,
@@ -456,19 +475,32 @@ function IntakeWorkspace({
         .then((result) => {
           if (noveltySequence.current !== sequence) return
           if (result.state === 'unavailable') {
-            setNoveltyState({ status: 'unavailable' })
+            if (!hasSavedSignal) setNoveltyState({ status: 'unavailable' })
             return
           }
           setNoveltyState({ status: 'ready', signal: { score: result.score } })
         })
         .catch(() => {
-          if (noveltySequence.current === sequence) {
+          if (noveltySequence.current === sequence && !hasSavedSignal) {
             setNoveltyState({ status: 'unavailable' })
           }
         })
-    }, noveltyDebounceMs)
+        .finally(() => {
+          if (!cancelled && noveltySequence.current === sequence) {
+            refreshTimer = window.setTimeout(checkNovelty, noveltyRefreshIntervalMs)
+          }
+        })
+    }
+    const initialTimer = window.setTimeout(
+      checkNovelty,
+      hasSavedSignal ? 0 : noveltyDebounceMs,
+    )
 
-    return () => window.clearTimeout(timer)
+    return () => {
+      cancelled = true
+      window.clearTimeout(initialTimer)
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
+    }
   }, [
     draft?.initialIdea,
     idea,
@@ -594,6 +626,7 @@ function IntakeWorkspace({
       <IntakeStage
         team={team}
         members={members}
+        onSignOut={onSignOut}
         title={busy ? 'Saving your change…' : 'Confirm your last change.'}
         hint={
           busy
@@ -620,6 +653,7 @@ function IntakeWorkspace({
       <IntakeStage
         team={team}
         members={members}
+        onSignOut={onSignOut}
         title="Applications are closed."
         hint="Your team’s saved work remains available here."
       >
@@ -637,7 +671,7 @@ function IntakeWorkspace({
   // ---- f2 · the idea -------------------------------------------------------
   if (!draft || draft.stage === 'opening' || editingIdea) {
     if (opening === undefined) {
-      return <IntakeStage team={team} members={members} title="Loading…" />
+      return <IntakeStage team={team} members={members} onSignOut={onSignOut} title="Loading…" />
     }
     const initialIdeaMinLength =
       draft?.intakePolicy.initialIdeaMinLength ?? opening.initialIdeaMinLength
@@ -647,20 +681,22 @@ function IntakeWorkspace({
       <IntakeStage
         team={team}
         members={members}
+        onSignOut={onSignOut}
         title={opening.initialPrompt}
         hint={opening.initialHelpText}
         steps={{ total: stepTotal, current: 0 }}
         titleClass="lg:text-[42px]"
-        floating={
-          <NoveltyPill
-            state={noveltyState}
-            currentLength={normalizedIdeaLength(idea)}
-            minimumLength={novelty?.minimumIdeaLength ?? null}
-          />
-        }
       >
         <PortalError message={submissionFailureMessage ?? null} />
-        <PetalCard className="px-6 pt-[26px] pb-[18px] lg:px-[30px]">
+        <div className="relative w-full">
+          <div className="pointer-events-none absolute -top-[17px] right-5 z-10 sm:right-7">
+            <NoveltyPill
+              state={noveltyState}
+              currentLength={normalizedIdeaLength(idea)}
+              minimumLength={novelty?.minimumIdeaLength ?? null}
+            />
+          </div>
+          <PetalCard className="px-6 pt-[26px] pb-[18px] lg:px-[30px]">
           <form onSubmit={submitIdea}>
             <EditingPresence editors={editors ?? []} members={members} />
             {ideaConflict ? (
@@ -745,7 +781,8 @@ function IntakeWorkspace({
               </div>
             </div>
           </form>
-        </PetalCard>
+          </PetalCard>
+        </div>
       </IntakeStage>
     )
   }
@@ -757,6 +794,7 @@ function IntakeWorkspace({
         <IntakeStage
           team={team}
           members={members}
+          onSignOut={onSignOut}
           title="One moment."
           hint="Preparing one short question from what your team has shared."
         />
@@ -768,6 +806,7 @@ function IntakeWorkspace({
       <IntakeStage
         team={team}
         members={members}
+        onSignOut={onSignOut}
         eyebrow={isLast ? 'last one · then review' : 'asked because of your idea'}
         title={activeFollowUp.question}
         steps={{ total: stepTotal, current: answeredFollowUps + 1 }}
@@ -898,6 +937,7 @@ function IntakeWorkspace({
         <IntakeStage
           team={team}
           members={members}
+          onSignOut={onSignOut}
           title="Putting everything together…"
           hint="Your current team and idea will appear here."
         />
@@ -935,6 +975,7 @@ function IntakeWorkspace({
         <IntakeStage
           team={team}
           members={members}
+          onSignOut={onSignOut}
           title="Ready to submit?"
           steps={{ total: stepTotal, current: stepTotal }}
           width="max-w-[600px]"
@@ -1070,7 +1111,10 @@ function IntakeWorkspace({
 
     // f5 · the proposal, together
     return (
-      <PortalScene tree="left" header={<IntakeTeamCluster team={team} members={members} />}>
+      <PortalScene
+        tree="left"
+        header={<IntakeTeamCluster team={team} members={members} onSignOut={onSignOut} />}
+      >
         <div className="flex w-full max-w-[760px] flex-col items-center">
           <p className="mb-1.5 font-display text-[17px] italic text-rose-light">
             your proposal, together
@@ -1308,14 +1352,13 @@ function NoveltyPill({
         ? 'checking…'
         : state.status === 'unavailable'
           ? 'novelty unavailable'
-          : `${state.signal.score}% distinct`
+          : `${state.signal.score} · distinct`
   return (
     <p
       aria-live="polite"
       aria-label="Live novelty score"
-      className="inline-flex items-center gap-1.5 rounded-full border border-[rgb(254_180_203/.45)] bg-[rgb(12_0_4/.55)] px-3.5 py-1.5 text-[11.5px] text-rose-light backdrop-blur-md"
+      className="inline-flex items-center rounded-[8px] border border-[rgb(254_180_203/.55)] bg-[rgb(20_3_9/.92)] px-3.5 py-1.5 text-[11.5px] font-semibold text-rose-light shadow-[0_8px_22px_rgba(0,0,0,.35)] backdrop-blur-md"
     >
-      <Petal size={10} />
       {label}
     </p>
   )

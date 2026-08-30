@@ -67,11 +67,13 @@ export function TeamCluster({
   team,
   members,
   locked = false,
+  onSignOut,
   leaveAction,
 }: {
   team: ClusterTeam
   members: readonly ClusterMember[]
   locked?: boolean
+  onSignOut?: () => void
   leaveAction?: TeamClusterLeaveAction
 }) {
   // Hover previews the roster; a click (or keyboard focus) pins it open so it
@@ -149,6 +151,16 @@ export function TeamCluster({
           {team.name}{locked ? ' · locked' : ''}
         </p>
       </button>
+
+      {onSignOut ? (
+        <button
+          type="button"
+          onClick={onSignOut}
+          className="mt-1 text-[11.5px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
+        >
+          sign out
+        </button>
+      ) : null}
 
       {open ? (
         <div className="absolute right-0 top-[92px] z-10 w-[300px] rounded-petal-sm border border-[rgb(254_180_203/.6)] bg-[linear-gradient(155deg,rgba(255,255,255,.1),rgba(12,0,4,.72)_55%,rgba(160,66,99,.22))] px-5 py-4 text-left shadow-[0_30px_60px_-18px_rgba(0,0,0,.9),0_0_34px_rgba(216,132,162,.22)] backdrop-blur-lg">

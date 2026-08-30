@@ -67,7 +67,11 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
     const source = configuration.draftCorpus ?? configuration.publishedCorpus
     const sourceKey = source ? `${source.id}:${source.revision}` : 'defaults'
     if (sourceKey === loadedSource) return
-    setPolicy({ ...(source?.policy ?? defaults) })
+    setPolicy({
+      ...(source?.policy ?? defaults),
+      distinctSimilarityBoundary: defaults.distinctSimilarityBoundary,
+      commonSimilarityBoundary: defaults.commonSimilarityBoundary,
+    })
     setEntriesText(JSON.stringify(source?.entries ?? exampleEntries(), null, 2))
     setLoadedSource(sourceKey)
     setPublishArmed(false)
@@ -224,7 +228,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
       {!operationPending && configuration.canDraft ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(draft)}
-          description="Participant label, feedback timing, and uniqueness thresholds."
+          description="Participant label and feedback timing. Density uses the event-wide 0.60–0.90 similarity scale."
           title={draft ? 'Continue idea-originality draft' : 'Edit idea originality'}
         >
         <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
@@ -246,8 +250,6 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
               <NumberField label="Start feedback after · characters" min={30} max={200} step={1} value={policy.minimumIdeaLength} onChange={(value) => updatePolicy('minimumIdeaLength', value)} />
               <NumberField label="Pause after typing · milliseconds" min={400} max={2_000} step={50} value={policy.debounceMs} onChange={(value) => updatePolicy('debounceMs', value)} />
               <NumberField label="Maximum checks per team · per minute" min={5} max={60} step={1} value={policy.maximumRequestsPerMinute} onChange={(value) => updatePolicy('maximumRequestsPerMinute', value)} />
-              <NumberField label="Very different at" min={-1} max={1} step={0.01} value={policy.distinctSimilarityBoundary} onChange={(value) => updatePolicy('distinctSimilarityBoundary', value)} />
-              <NumberField label="Familiar at" min={-1} max={1} step={0.01} value={policy.commonSimilarityBoundary} onChange={(value) => updatePolicy('commonSimilarityBoundary', value)} />
             </div>
           </details>
           </fieldset>

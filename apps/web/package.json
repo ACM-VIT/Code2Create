@@ -16,7 +16,7 @@
     "deploy": "pnpm build:release && pnpm deploy:built",
     "deploy:built": "node ../backend/scripts/release/webEnvironment.ts participant deploy && node ../backend/scripts/release/deployCloudflareViteWorker.ts code2create-participant",
     "lint": "oxlint",
-    "test": "node --experimental-strip-types --test scripts/generateAttendanceBadges.test.ts src/lib/errors.test.ts src/lib/operations.test.ts src/lib/sessionDraft.test.ts src/lib/time.test.ts",
+    "test": "node --experimental-strip-types --test scripts/generateAttendanceBadges.test.ts src/lib/errors.test.ts src/lib/googleAuthorization.test.ts src/lib/operations.test.ts src/lib/sessionDraft.test.ts src/lib/time.test.ts",
     "typecheck": "tsc -b",
     "preview": "vite preview"
   },

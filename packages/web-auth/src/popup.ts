@@ -10,6 +10,8 @@ const authPopupTimeoutMs = 5 * 60 * 1_000
 export async function signInWithGooglePopup(
   authClient: Code2CreateAuthClient,
   callbackURL: string,
+  transformAuthorizationUrl: (authorizationUrl: string) => string = (authorizationUrl) =>
+    authorizationUrl,
 ): Promise<{ error: { code: AuthPopupErrorCode } | null }> {
   const popup = window.open('about:blank', authPopupWindowName, centeredPopupFeatures())
   if (!popup) return { error: { code: 'POPUP_BLOCKED' } }
@@ -31,7 +33,7 @@ export async function signInWithGooglePopup(
       completionAbort.abort()
       return { error: { code: 'POPUP_SIGN_IN_FAILED' } }
     }
-    popup.location.assign(authorizationURL)
+    popup.location.assign(transformAuthorizationUrl(authorizationURL))
   } catch {
     completionAbort.abort()
     return { error: { code: 'POPUP_SIGN_IN_FAILED' } }

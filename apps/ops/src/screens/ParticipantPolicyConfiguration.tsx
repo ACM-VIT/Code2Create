@@ -274,7 +274,7 @@ export function ParticipantPolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Profile fields" description="Full name, institution, and year or current role are always required.">
+          <PolicySection title="Profile fields" description="VIT names and institution come from the verified student account; campus is supplied by the participant.">
             <div className="intake-policy-grid">
               <FieldModeSelect label="Phone" value={policy.phoneField} onChange={(value) => updatePolicy('phoneField', value)} />
               <FieldModeSelect label="VIT registration number" value={policy.vitRegistrationNumberField} onChange={(value) => updatePolicy('vitRegistrationNumberField', value)} />
