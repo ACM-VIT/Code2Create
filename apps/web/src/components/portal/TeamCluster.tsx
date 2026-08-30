@@ -119,8 +119,13 @@ export function TeamCluster({
         if (movingLeaveFlowFocus.current) return
         const nextTarget = event.relatedTarget
         if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return
+
+        if (confirmingLeave) {
+          closeLeaveConfirmation()
+          return
+        }
+
         setPinned(false)
-        setConfirmingLeave(false)
       }}
     >
       <button
