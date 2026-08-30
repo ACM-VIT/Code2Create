@@ -6,7 +6,11 @@ import {
   permissionCatalog,
   type PermissionKey,
 } from "./permissionCatalog";
-import { insertPermissionGrant } from "./permissions";
+import {
+  currentSourceGrants,
+  insertPermissionGrantGroup,
+  type PermissionGrantPlan,
+} from "./permissions";
 
 export const supremeSelfPermissionKeys: readonly PermissionKey[] = Object.keys(
   permissionCatalog,
@@ -27,35 +31,68 @@ export async function grantSupremeRolePermissions(
     grantedByPersonId: Id<"people">;
   },
 ) {
-  let createdCount = 0;
-  for (const permissionKey of eventOwnerPermissionKeys) {
-    const result = await insertPermissionGrant(ctx, {
-      eventId: args.eventId,
-      personId: args.personId,
-      eventAccessSubjectId: args.eventAccessSubjectId,
+  const plannedGrants: PermissionGrantPlan[] = [
+    ...eventOwnerPermissionKeys.map((permissionKey) => ({
       permissionKey,
-      scopeType: "event",
-      sourceType: "role_template",
-      sourceId: args.roleId,
-      grantedByPersonId: args.grantedByPersonId,
-      reason: "Supreme role authority",
-    });
-    if (result.created) createdCount += 1;
-  }
-  for (const permissionKey of supremeSelfPermissionKeys) {
-    const result = await insertPermissionGrant(ctx, {
-      eventId: args.eventId,
-      personId: args.personId,
-      eventAccessSubjectId: args.eventAccessSubjectId,
+      scopeType: "event" as const,
+    })),
+    ...supremeSelfPermissionKeys.map((permissionKey) => ({
       permissionKey,
-      scopeType: "self",
+      scopeType: "self" as const,
       scopeId: args.eventAccessSubjectId,
-      sourceType: "role_template",
-      sourceId: args.roleId,
-      grantedByPersonId: args.grantedByPersonId,
-      reason: "Supreme role authority",
+    })),
+  ];
+  const currentGrants = await currentSourceGrants(ctx, {
+    eventId: args.eventId,
+    sourceType: "role_template",
+    sourceId: args.roleId,
+  });
+  const currentGrantKeys = new Set<string>();
+  for (const grant of currentGrants) {
+    if (!isPermissionKey(grant.permissionKey)) {
+      throw new Error("A Supreme role template contains an unknown permission.");
+    }
+    if (
+      grant.personId !== args.personId ||
+      grant.eventAccessSubjectId !== args.eventAccessSubjectId
+    ) {
+      throw new Error("A Supreme role template targets the wrong event account.");
+    }
+    const key = permissionGrantKey({
+      permissionKey: grant.permissionKey,
+      scopeType: grant.scopeType,
+      scopeId: grant.scopeId,
     });
-    if (result.created) createdCount += 1;
+    if (currentGrantKeys.has(key)) {
+      throw new Error("A Supreme role template owns duplicate permission scopes.");
+    }
+    currentGrantKeys.add(key);
   }
-  return createdCount;
+  const missingGrants = plannedGrants.filter(
+    (grant) => !currentGrantKeys.has(permissionGrantKey(grant)),
+  );
+  if (missingGrants.length === 0) return 0;
+  const result = await insertPermissionGrantGroup(ctx, {
+    eventId: args.eventId,
+    personId: args.personId,
+    eventAccessSubjectId: args.eventAccessSubjectId,
+    sourceType: "role_template",
+    sourceId: args.roleId,
+    grantedByPersonId: args.grantedByPersonId,
+    reason: "Supreme role authority",
+    grants: missingGrants,
+  });
+  return result.createdCount;
+}
+
+function permissionGrantKey(grant: {
+  permissionKey: PermissionKey;
+  scopeType: PermissionGrantPlan["scopeType"];
+  scopeId?: string | undefined;
+}) {
+  return JSON.stringify([
+    grant.permissionKey,
+    grant.scopeType,
+    grant.scopeType === "event" ? null : grant.scopeId,
+  ]);
 }

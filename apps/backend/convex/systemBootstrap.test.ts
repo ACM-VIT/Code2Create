@@ -527,6 +527,16 @@ async function seedSupremeOrganizer(
     role: "supreme",
   });
   await backend.run(async (ctx) => {
+    const assignerKey = crypto.randomUUID();
+    const assignedByPersonId = await ctx.db.insert("people", {
+      authUserId: `assigner-${assignerKey}`,
+      googleSubject: `google:assigner-${assignerKey}`,
+      verifiedEmail: `assigner-${assignerKey}@example.test`,
+      displayName: "Original role assigner",
+      status: "active",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
     for (const permissionKey of eventOwnerPermissionKeys) {
       if (omitted.has(permissionKey)) continue;
       await insertPermissionGrant(ctx, {
@@ -537,7 +547,7 @@ async function seedSupremeOrganizer(
         scopeType: "event",
         sourceType: "role_template",
         sourceId: seeded.roleId,
-        grantedByPersonId: seeded.personId,
+        grantedByPersonId: assignedByPersonId,
         reason: "Supreme role authority",
       });
     }
