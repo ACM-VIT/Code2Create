@@ -52,14 +52,80 @@
     0%, 100% { opacity: 1; }
     50%      { opacity: .35; }
   }
-  @keyframes c2cburst {
-    0%   { transform: translate(0, 0) rotate(0); opacity: .95; }
-    100% { transform: translate(var(--bx), var(--by)) rotate(260deg); opacity: 0; }
+  @keyframes c2ccursorfall {
+    0%   { transform: translate(-50%, -35%) rotate(var(--cursor-start)); opacity: 0; }
+    14%  { opacity: .28; }
+    72%  { opacity: .18; }
+    100% { transform: translate(calc(-50% + var(--cursor-drift)), var(--cursor-fall)) rotate(var(--cursor-end)); opacity: 0; }
+  }
+  @keyframes c2cbuttonpetals {
+    0%   { transform: translate(-18px, 13px) rotate(-25deg); opacity: 0; }
+    20%  { opacity: .34; }
+    100% { transform: translate(190px, -18px) rotate(210deg); opacity: 0; }
   }
   @keyframes c2csway {
     0%, 100% { transform: rotate(-.5deg); }
     50%      { transform: rotate(.7deg); }
   }
+}
+
+.cursor-petal {
+  animation: c2ccursorfall 1.8s cubic-bezier(.2, .58, .32, 1) forwards;
+  box-shadow: 0 0 5px rgb(254 180 203 / .16);
+}
+
+.portal-primary-button {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  transition: border-color 320ms ease, box-shadow 320ms ease, filter 320ms ease, transform 320ms ease;
+}
+
+.portal-primary-button::before,
+.portal-primary-button::after {
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  content: "";
+}
+
+.portal-primary-button::before {
+  inset: -45% -25%;
+  background: linear-gradient(110deg, transparent 28%, rgb(254 180 203 / .14) 49%, transparent 70%);
+  opacity: 0;
+  transform: translateX(-34%) rotate(-5deg);
+  transition: opacity 320ms ease, transform 520ms ease;
+}
+
+.portal-primary-button::after {
+  top: 45%;
+  left: 10%;
+  width: 7px;
+  height: 7px;
+  border-radius: 76% 24% 70% 30% / 60% 55% 45% 40%;
+  background: #feb4cb;
+  box-shadow: 24px -9px 0 -1px rgb(216 132 162 / .75), 47px 7px 0 -2px rgb(254 180 203 / .65);
+  opacity: 0;
+}
+
+.portal-primary-button:hover:not(:disabled) {
+  border-color: #feb4cb;
+  filter: brightness(1.08);
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px -10px rgb(0 0 0 / .78), 0 0 22px rgb(216 132 162 / .24);
+}
+
+.portal-primary-button:hover:not(:disabled)::before {
+  opacity: 1;
+  transform: translateX(34%) rotate(-5deg);
+}
+
+.portal-primary-button:hover:not(:disabled)::after {
+  animation: c2cbuttonpetals 900ms ease-out both;
+}
+
+.portal-primary-button:active:not(:disabled) {
+  transform: translateY(1px) scale(.99);
 }
 
 /* Tailwind's preflight is off, so bare buttons would keep the user-agent's

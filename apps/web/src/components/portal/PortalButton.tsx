@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
 const base =
-  'inline-flex items-center justify-center gap-2.5 rounded-btn border-[2.5px] border-rose bg-ink font-ui font-semibold tracking-[.02em] text-paper-warm shadow-[0_10px_24px_-10px_rgba(0,0,0,.7)] transition-[filter,transform] duration-300 hover:brightness-125 active:translate-y-px disabled:cursor-not-allowed disabled:border-[rgb(216_132_162/.35)] disabled:text-[rgb(254_253_254/.4)] disabled:opacity-70 disabled:hover:brightness-100'
+  'portal-primary-button inline-flex items-center justify-center gap-2.5 rounded-btn border-[2.5px] border-rose bg-ink font-ui font-semibold tracking-[.02em] text-paper-warm shadow-[0_10px_24px_-10px_rgba(0,0,0,.7)] disabled:cursor-not-allowed disabled:border-[rgb(216_132_162/.35)] disabled:text-[rgb(254_253_254/.4)] disabled:opacity-70'
 
 const sizes = {
   md: 'px-9 py-3.5 text-[15px]',

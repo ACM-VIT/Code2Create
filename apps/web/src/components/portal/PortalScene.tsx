@@ -1,38 +1,36 @@
-import { useCallback, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { Petals, PETAL_RADIUS } from './Petals'
 
 type TreePlacement = 'left' | 'right' | 'both' | 'none'
 
-type Burst = { id: number; x: number; y: number }
+type CursorPetal = { id: number; x: number; y: number; variant: number }
 
-/** The mockup's burst: nine petals thrown out radially, fading over 1.4s. */
-function BurstLayer({ bursts }: { bursts: readonly Burst[] }) {
+/** A restrained trail: one tiny blossom petal occasionally falls from the pointer. */
+function CursorPetalLayer({ petals }: { petals: readonly CursorPetal[] }) {
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 z-[4]">
-      {bursts.flatMap((burst) =>
-        Array.from({ length: 9 }, (_, index) => {
-          const angle = (index / 9) * Math.PI * 2 + (burst.id % 7) * 0.3
-          const distance = 55 + (index % 3) * 34
-          const size = 9 + (index % 3) * 4
-          return (
-            <span
-              key={`${burst.id}-${index}`}
-              className="absolute block"
-              style={{
-                left: `${burst.x}px`,
-                top: `${burst.y}px`,
-                width: `${size}px`,
-                height: `${size}px`,
-                background: index % 2 ? '#feb4cb' : '#d884a2',
-                borderRadius: PETAL_RADIUS,
-                ['--bx' as string]: `${Math.cos(angle) * distance}px`,
-                ['--by' as string]: `${Math.sin(angle) * distance * 0.7 + 46}px`,
-                animation: 'c2cburst 1.4s ease-out forwards',
-              }}
-            />
-          )
-        }),
-      )}
+    <div aria-hidden className="cursor-petal-layer pointer-events-none absolute inset-0 z-[4] overflow-hidden">
+      {petals.map((petal) => {
+        const size = 5 + (petal.variant % 3)
+        const drift = (petal.variant % 2 === 0 ? 1 : -1) * (12 + (petal.variant % 3) * 5)
+        return (
+          <span
+            key={petal.id}
+            className="cursor-petal absolute block"
+            style={{
+              left: `${petal.x}px`,
+              top: `${petal.y}px`,
+              width: `${size}px`,
+              height: `${size}px`,
+              background: petal.variant % 2 ? '#feb4cb' : '#d884a2',
+              borderRadius: PETAL_RADIUS,
+              ['--cursor-drift' as string]: `${drift}px`,
+              ['--cursor-fall' as string]: `${58 + (petal.variant % 4) * 9}px`,
+              ['--cursor-start' as string]: `${petal.variant * 31}deg`,
+              ['--cursor-end' as string]: `${210 + petal.variant * 37}deg`,
+            }}
+          />
+        )
+      })}
     </div>
   )
 }
@@ -41,7 +39,7 @@ function BurstLayer({ bursts }: { bursts: readonly Burst[] }) {
  * The night-hanami stage every portal screen sits on: the rose horizon
  * gradient, the hills band, the swaying tree line, drifting petals, and the
  * vignette that keeps the centre legible. The artwork tracks the pointer at
- * three depths and throws a petal burst where the backdrop is clicked.
+ * three depths while a very light petal trail falls from pointer movement.
  */
 export function PortalScene({
   children,
@@ -60,32 +58,43 @@ export function PortalScene({
   const showLeftTree = tree === 'left' || tree === 'both'
   const showRightTree = tree === 'right' || tree === 'both'
   const [pointer, setPointer] = useState({ x: 0, y: 0 })
-  const [bursts, setBursts] = useState<readonly Burst[]>([])
-  const burstId = useRef(0)
+  const [cursorPetals, setCursorPetals] = useState<readonly CursorPetal[]>([])
+  const cursorPetalId = useRef(0)
+  const lastCursorPetal = useRef({ at: 0, x: -100, y: -100 })
+  const cursorPetalTimers = useRef(new Set<number>())
+
+  useEffect(() => () => {
+    for (const timer of cursorPetalTimers.current) window.clearTimeout(timer)
+    cursorPetalTimers.current.clear()
+  }, [])
 
   const onMove = useCallback((event: MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
     setPointer({
-      x: ((event.clientX - rect.left) / rect.width - 0.5) * 2,
-      y: ((event.clientY - rect.top) / rect.height - 0.5) * 2,
+      x: (x / rect.width - 0.5) * 2,
+      y: (y / rect.height - 0.5) * 2,
     })
-  }, [])
 
-  const onClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
-    // Only the backdrop throws petals; clicks on controls belong to them.
-    if ((event.target as HTMLElement).closest('button, a, input, textarea, select, label')) return
-    const rect = event.currentTarget.getBoundingClientRect()
-    burstId.current += 1
-    const burst = {
-      id: burstId.current,
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    }
-    setBursts((current) => [...current.slice(-3), burst])
-    window.setTimeout(
-      () => setBursts((current) => current.filter((item) => item.id !== burst.id)),
-      1500,
-    )
+    const now = performance.now()
+    const last = lastCursorPetal.current
+    const travelled = Math.hypot(x - last.x, y - last.y)
+    if (
+      now - last.at < 105 ||
+      travelled < 16 ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) return
+
+    cursorPetalId.current += 1
+    const petal = { id: cursorPetalId.current, x, y, variant: cursorPetalId.current % 8 }
+    lastCursorPetal.current = { at: now, x, y }
+    setCursorPetals((current) => [...current.slice(-9), petal])
+    const timer = window.setTimeout(() => {
+      setCursorPetals((current) => current.filter((item) => item.id !== petal.id))
+      cursorPetalTimers.current.delete(timer)
+    }, 1_850)
+    cursorPetalTimers.current.add(timer)
   }, [])
 
   const treeShift = `translate(${pointer.x * -16}px, ${pointer.y * -9}px)`
@@ -96,8 +105,7 @@ export function PortalScene({
     <div
       data-portal-scene
       onMouseMove={onMove}
-      onClick={onClick}
-      className="relative flex min-h-dvh flex-col overflow-hidden bg-[linear-gradient(180deg,#0c0004_58%,#7c3350_118%,#a04263_138%,#e3a9bf_172%)] font-ui text-paper"
+      className="relative flex min-h-dvh flex-col overflow-hidden bg-[linear-gradient(180deg,#0c0004_44%,#220913_70%,#713047_116%,#a04263_144%,#e3a9bf_176%)] font-ui text-paper"
     >
       {/* Hills sit furthest back, bleeding past both edges so the band never
           shows a seam on narrow viewports. */}
@@ -163,7 +171,7 @@ export function PortalScene({
         {children}
       </main>
 
-      <BurstLayer bursts={bursts} />
+      <CursorPetalLayer petals={cursorPetals} />
 
       <div
         aria-hidden
