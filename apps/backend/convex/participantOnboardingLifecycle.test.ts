@@ -891,6 +891,28 @@ describe("participant onboarding lifecycle", () => {
     expect(before?.person.displayName).toBe("Example Student 24TST0001");
 
     await backend.run(async (ctx) => {
+      await ctx.db.patch(provisioned.membershipId, { vitStudentIdentity: undefined });
+    });
+    await expect(participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      membership: {
+        id: provisioned.membershipId,
+        vitStudentIdentity: {
+          registrationNumber: "24TST0001",
+        },
+      },
+    });
+    await expect(participant.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "vit_student",
+    })).resolves.toEqual({ membershipId: provisioned.membershipId, created: false });
+    await backend.run(async (ctx) => {
+      const repaired = await ctx.db.get(provisioned.membershipId);
+      expect(repaired?.vitStudentIdentity?.registrationNumber).toBe("24TST0001");
+    });
+
+    await backend.run(async (ctx) => {
       if (!before) throw new Error("The provisioned participant is missing.");
       await ctx.db.patch(before.person.id, {
         displayName: "Updated Google Name",
@@ -908,10 +930,26 @@ describe("participant onboarding lifecycle", () => {
         },
       },
     });
-    await expect(participant.mutation(api.participants.provision, {
+
+    await backend.run(async (ctx) => {
+      const googleIdentity = await ctx.db
+        .query("googleIdentityClaims")
+        .withIndex("by_auth_user", (index) => index.eq("authUserId", authUserId))
+        .unique();
+      if (!googleIdentity) throw new Error("The VIT Google identity is missing.");
+      await Promise.all([
+        ctx.db.patch(provisioned.membershipId, { vitStudentIdentity: undefined }),
+        ctx.db.patch(googleIdentity._id, { displayName: "Example Student" }),
+      ]);
+    });
+    await expect(participant.query(api.participants.me, {
       eventSlug: fixture.eventSlug,
-      participantClass: "vit_student",
-    })).resolves.toEqual({ membershipId: provisioned.membershipId, created: false });
+    })).resolves.toMatchObject({
+      membership: {
+        id: provisioned.membershipId,
+        vitStudentIdentity: null,
+      },
+    });
   });
 });
 

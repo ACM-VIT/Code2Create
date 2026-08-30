@@ -564,6 +564,7 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_team_requested", ["teamId", "requestedAt"])
+    .index("by_team_state_requested", ["teamId", "state", "requestedAt"])
     .index("by_team_fingerprint_requested", ["teamId", "inputFingerprint", "requestedAt"])
     .index("by_team_client_request", ["teamId", "clientRequestId"])
     .index("by_event_state_requested", ["eventId", "state", "requestedAt"]),
@@ -585,7 +586,7 @@ export default defineSchema({
     authUserId: v.string(),
     googleSubject: v.string(),
     verifiedEmail: v.string(),
-    displayName: v.string(),
+    displayName: v.optional(v.string()),
     hostedDomain: v.optional(v.string()),
     tokenIssuedAt: v.number(),
     tokenExpiresAt: v.number(),

@@ -116,7 +116,19 @@ export async function requireVerifiedGoogleIdentity(ctx: ReadCtx) {
       message: "Sign out and complete Google authentication again before continuing.",
     });
   }
-  return { user, googleIdentity };
+  if (!googleIdentity.displayName) {
+    throw new ConvexError({
+      code: "GOOGLE_IDENTITY_REFRESH_REQUIRED",
+      message: "Sign out and complete Google authentication again before continuing.",
+    });
+  }
+  return {
+    user,
+    googleIdentity: {
+      ...googleIdentity,
+      displayName: googleIdentity.displayName,
+    },
+  };
 }
 
 export async function requireFreshAuthSession(
@@ -221,7 +233,7 @@ export async function ensurePerson(
 ): Promise<{
   user: Awaited<ReturnType<typeof requireAuthUser>>;
   person: Doc<"people">;
-  googleIdentity: Doc<"googleIdentityClaims">;
+  googleIdentity: Awaited<ReturnType<typeof requireVerifiedGoogleIdentity>>["googleIdentity"];
 }> {
   const { user, googleIdentity } = await requireVerifiedGoogleIdentity(ctx);
   const existing = await ctx.db

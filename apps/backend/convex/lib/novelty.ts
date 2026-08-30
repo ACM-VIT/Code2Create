@@ -25,6 +25,10 @@ export type NoveltyDensityMatch = {
   lifecycle: NoveltyIdeaLifecycle;
 };
 
+export type TeamNoveltyDensityMatch<TeamId> = NoveltyDensityMatch & {
+  teamId: TeamId;
+};
+
 const discouragedReflectionTerms = [
   "admission",
   "bad idea",
@@ -288,6 +292,29 @@ export function effectiveSimilarTeams(
         * noveltyLifecycleWeight(match.lifecycle),
     0,
   );
+}
+
+export function strongestNoveltyMatchPerTeam<TeamId>(
+  matches: readonly TeamNoveltyDensityMatch<TeamId>[],
+) {
+  const strongest = new Map<TeamId, NoveltyDensityMatch>();
+  for (const match of matches) {
+    const current = strongest.get(match.teamId);
+    if (
+      !current
+      || noveltyLifecycleWeight(match.lifecycle) > noveltyLifecycleWeight(current.lifecycle)
+      || (
+        noveltyLifecycleWeight(match.lifecycle) === noveltyLifecycleWeight(current.lifecycle)
+        && match.similarity > current.similarity
+      )
+    ) {
+      strongest.set(match.teamId, {
+        similarity: match.similarity,
+        lifecycle: match.lifecycle,
+      });
+    }
+  }
+  return strongest;
 }
 
 export function noveltyScoreForDensity(similarTeams: number) {

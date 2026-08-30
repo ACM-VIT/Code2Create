@@ -100,6 +100,26 @@ export function ParticipantApp({
   if (!me?.membership) {
     return <ProvisionScreen publicState={publicState} onSignOut={signOut} />
   }
+  if (
+    me.membership.participantClass === 'vit_student' &&
+    me.membership.vitStudentIdentity === null
+  ) {
+    return (
+      <PortalNotice
+        header={(
+          <button
+            type="button"
+            onClick={signOut}
+            className="text-[12px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
+          >
+            Sign out
+          </button>
+        )}
+        title="Verify your VIT account again."
+        body="Sign out, then continue with Google. Your saved profile, team, and proposal stay unchanged."
+      />
+    )
+  }
 
   const accountHeader = (
     <AccountBadge

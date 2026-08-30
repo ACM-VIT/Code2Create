@@ -24,9 +24,11 @@ import {
   noveltyInputFingerprint,
   noveltyScoreForDensity,
   noveltyDensityMatchLimit,
+  strongestNoveltyMatchPerTeam,
   type NoveltyIdeaLifecycle,
   validEmbedding,
 } from "./lib/novelty";
+import { invalidateTeamNoveltyIndex } from "./lib/noveltyIndex";
 import { requirePermission } from "./lib/permissions";
 import { requirePinnedIntakePolicy, requirePublishedIntakePolicy } from "./lib/intakePolicy";
 import { containsSensitiveProjectText } from "./lib/projectText";
@@ -47,6 +49,7 @@ const noveltyIdeaLifecycle = v.union(
 
 const noveltyTeamVectorMatchLimit = 256;
 const noveltyEditingIdeaLifetimeMs = 45_000;
+const noveltyPreviewCacheLifetimeMs = 30_000;
 
 const readyPreview = v.object({
   state: v.literal("ready"),
@@ -80,7 +83,7 @@ function indexedLifecycle(draft: Doc<"projectDrafts">, inputFingerprint: string)
   if (
     draft.initialIdea !== undefined
     && noveltyInputFingerprint(draft.initialIdea) === inputFingerprint
-  ) {
+) {
     return draft.stage === "submitted" ? "submitted" : "saved";
   }
   return "editing";
@@ -111,6 +114,8 @@ async function storeTeamIdeaEmbeddings(
     sourceUpdatedAt: number;
   },
 ) {
+  const embedding = args.embeddings[0];
+  if (!embedding) throw new Error("A team idea requires its complete-project embedding.");
   const existing = await ctx.db
     .query("noveltyTeamIdeas")
     .withIndex("by_team", (index) => index.eq("teamId", args.teamId))
@@ -129,36 +134,16 @@ async function storeTeamIdeaEmbeddings(
         (idea) => idea.lifecycle !== "editing" || idea.sourceUpdatedAt <= args.sourceUpdatedAt,
       );
   for (const idea of obsoleteIdeas) await ctx.db.delete(idea._id);
-  const ideaIds: Id<"noveltyTeamIdeas">[] = [];
-  for (const embedding of args.embeddings) {
-    ideaIds.push(await ctx.db.insert("noveltyTeamIdeas", {
-      eventId: args.eventId,
-      teamId: args.teamId,
-      inputFingerprint: args.inputFingerprint,
-      lifecycle: args.lifecycle,
-      embedding,
-      sourceUpdatedAt: args.sourceUpdatedAt,
-      updatedAt: now,
-    }));
-  }
-  return ideaIds;
-}
-
-async function clearNonIndexableTeamIdeaEmbeddings(
-  ctx: MutationCtx,
-  args: {
-    teamId: Id<"teams">;
-    sourceUpdatedAt: number;
-  },
-) {
-  const existing = await ctx.db
-    .query("noveltyTeamIdeas")
-    .withIndex("by_team", (index) => index.eq("teamId", args.teamId))
-    .collect();
-  const obsoleteIdeas = existing.filter(
-    (idea) => idea.lifecycle !== "editing" || idea.sourceUpdatedAt <= args.sourceUpdatedAt,
-  );
-  for (const idea of obsoleteIdeas) await ctx.db.delete(idea._id);
+  const ideaId = await ctx.db.insert("noveltyTeamIdeas", {
+    eventId: args.eventId,
+    teamId: args.teamId,
+    inputFingerprint: args.inputFingerprint,
+    lifecycle: args.lifecycle,
+    embedding,
+    sourceUpdatedAt: args.sourceUpdatedAt,
+    updatedAt: now,
+  });
+  return [ideaId];
 }
 
 function readyResult(
@@ -334,7 +319,7 @@ export const beginPreview = internalMutation({
     if (
       cached &&
       cached.corpusVersionId === corpus._id &&
-      cached.requestedAt >= now - 10_000
+      cached.requestedAt >= now - noveltyPreviewCacheLifetimeMs
     ) {
       const result = readyResult(cached, corpus);
       if (result) return { kind: "complete", result };
@@ -533,7 +518,7 @@ export const prepareDraftIndex = internalMutation({
       return { kind: "complete" };
     }
     if (containsSensitiveProjectText(draft.initialIdea)) {
-      await clearNonIndexableTeamIdeaEmbeddings(ctx, {
+      await invalidateTeamNoveltyIndex(ctx, {
         teamId: draft.teamId,
         sourceUpdatedAt: draft.updatedAt,
       });
@@ -545,7 +530,7 @@ export const prepareDraftIndex = internalMutation({
       .collect()).filter((idea) => idea.lifecycle !== "editing");
     const embeddingInputs = noveltyEmbeddingInputs(draft.initialIdea);
     if (
-      existing.length === embeddingInputs.length
+      existing.length === 1
       && existing.every((idea) => idea.inputFingerprint === args.inputFingerprint)
     ) {
       for (const idea of existing) {
@@ -668,7 +653,7 @@ export const prepareSubmittedProjectIndex = internalMutation({
     const team = await ctx.db.get(project.teamId);
     if (!team || team.lockedProjectVersionId !== project._id) return { kind: "complete" };
     if (containsSensitiveProjectText(project.initialIdea)) {
-      await clearNonIndexableTeamIdeaEmbeddings(ctx, {
+      await invalidateTeamNoveltyIndex(ctx, {
         teamId: project.teamId,
         sourceUpdatedAt: project.submittedAt,
       });
@@ -680,7 +665,7 @@ export const prepareSubmittedProjectIndex = internalMutation({
       .collect()).filter((idea) => idea.lifecycle !== "editing");
     const embeddingInputs = noveltyEmbeddingInputs(project.initialIdea);
     if (
-      existing.length === embeddingInputs.length
+      existing.length === 1
       && existing.every((idea) => idea.inputFingerprint === args.inputFingerprint)
     ) {
       for (const idea of existing) {
@@ -1007,10 +992,11 @@ export const preview = action({
         eventId: begun.eventId,
         ideaIds: teamMatches.map((match) => match._id),
       });
-      const teamDensityById = new Map<
-        Id<"teams">,
-        { similarity: number; lifecycle: NoveltyIdeaLifecycle }
-      >();
+      const teamDensityCandidates: Array<{
+        teamId: Id<"teams">;
+        similarity: number;
+        lifecycle: NoveltyIdeaLifecycle;
+      }> = [];
       for (const idea of teamMetadata) {
         if (idea.teamId === begun.teamId || !idea.active) continue;
         const rawSimilarity = teamSimilarityById.get(idea.id);
@@ -1018,11 +1004,13 @@ export const preview = action({
           throw new Error("Team novelty metadata has no vector similarity.");
         }
         const similarity = noveltyDensitySimilarity(rawSimilarity);
-        const current = teamDensityById.get(idea.teamId);
-        if (!current || similarity > current.similarity) {
-          teamDensityById.set(idea.teamId, { similarity, lifecycle: idea.lifecycle });
-        }
+        teamDensityCandidates.push({
+          teamId: idea.teamId,
+          similarity,
+          lifecycle: idea.lifecycle,
+        });
       }
+      const teamDensityById = strongestNoveltyMatchPerTeam(teamDensityCandidates);
       const teamDensityMatches = [...teamDensityById.values()];
       const corpusDensityMatches = corpusMatches.map((match) => ({
         similarity: noveltyDensitySimilarity(match._score),

@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
@@ -90,12 +91,15 @@ const participantMembershipView = v.union(
   v.object({
     ...membershipViewFields,
     participantClass: v.literal("vit_student"),
-    vitStudentIdentity: v.object({
-      fullName: v.string(),
-      registrationNumber: v.string(),
-      programmeCode: v.string(),
-      yearOfStudy: studyYear,
-    }),
+    vitStudentIdentity: v.union(
+      v.null(),
+      v.object({
+        fullName: v.string(),
+        registrationNumber: v.string(),
+        programmeCode: v.string(),
+        yearOfStudy: studyYear,
+      }),
+    ),
   }),
   v.object({
     ...membershipViewFields,
@@ -103,8 +107,22 @@ const participantMembershipView = v.union(
   }),
 );
 
-function requireVitStudentProfileIdentity(displayName: string) {
-  const identity = parseVitStudentGoogleDisplayName(displayName);
+function vitIdentityReferenceYear(event: Doc<"events">) {
+  const referenceAt = event.startsAt ?? event.applicationsCloseAt;
+  return Number(new Intl.DateTimeFormat("en", {
+    timeZone: event.timezone,
+    year: "numeric",
+  }).format(new Date(referenceAt)));
+}
+
+function requireVitStudentProfileIdentity(
+  displayName: string,
+  event: Doc<"events">,
+) {
+  const identity = parseVitStudentGoogleDisplayName(
+    displayName,
+    vitIdentityReferenceYear(event),
+  );
   if (!identity) {
     throw new ConvexError({
       code: "VIT_GOOGLE_PROFILE_INVALID",
@@ -115,11 +133,47 @@ function requireVitStudentProfileIdentity(displayName: string) {
   return identity;
 }
 
-function requirePersistedVitStudentIdentity(membership: Doc<"eventMemberships">) {
-  if (membership.participantClass !== "vit_student" || !membership.vitStudentIdentity) {
-    throw new Error("A VIT student membership is missing its verified identity.");
+async function readVitStudentIdentity(
+  ctx: QueryCtx | MutationCtx,
+  event: Doc<"events">,
+  person: Doc<"people">,
+  membership: Doc<"eventMemberships">,
+) {
+  if (membership.participantClass !== "vit_student") {
+    throw new Error("A non-VIT membership cannot have a VIT student identity.");
   }
-  return membership.vitStudentIdentity;
+  if (membership.vitStudentIdentity) return membership.vitStudentIdentity;
+  const googleIdentity = await ctx.db
+    .query("googleIdentityClaims")
+    .withIndex("by_auth_user", (index) => index.eq("authUserId", person.authUserId))
+    .unique();
+  if (!googleIdentity?.displayName) return null;
+  return parseVitStudentGoogleDisplayName(
+    googleIdentity.displayName,
+    vitIdentityReferenceYear(event),
+  );
+}
+
+async function repairVitStudentIdentity(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  person: Doc<"people">,
+  membership: Doc<"eventMemberships">,
+) {
+  const identity = await readVitStudentIdentity(ctx, event, person, membership);
+  if (!identity) {
+    throw new ConvexError({
+      code: "GOOGLE_IDENTITY_REFRESH_REQUIRED",
+      message: "Sign out and complete Google authentication again before continuing.",
+    });
+  }
+  if (!membership.vitStudentIdentity) {
+    await ctx.db.patch(membership._id, {
+      vitStudentIdentity: identity,
+      updatedAt: Date.now(),
+    });
+  }
+  return identity;
 }
 
 export const entryAllowed = query({
@@ -199,6 +253,22 @@ export const me = query({
           .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
           .unique()
       : null;
+    const visibleMembership = membership?.participantClass === "vit_student"
+      ? {
+          id: membership._id,
+          participantClass: membership.participantClass,
+          eligibilityStatus: membership.eligibilityStatus,
+          onboardingStatus: membership.onboardingStatus,
+          vitStudentIdentity: await readVitStudentIdentity(ctx, event, person, membership),
+        }
+      : membership
+        ? {
+            id: membership._id,
+            participantClass: membership.participantClass,
+            eligibilityStatus: membership.eligibilityStatus,
+            onboardingStatus: membership.onboardingStatus,
+          }
+        : null;
     const pendingEntry = await teamRosterPendingEntry(ctx, {
       eventId: event._id,
       emailNormalized: person.verifiedEmail,
@@ -223,22 +293,7 @@ export const me = query({
         displayName: person.displayName,
         verifiedEmail: person.verifiedEmail,
       },
-      membership: membership
-        ? membership.participantClass === "vit_student"
-          ? {
-              id: membership._id,
-              participantClass: membership.participantClass,
-              eligibilityStatus: membership.eligibilityStatus,
-              onboardingStatus: membership.onboardingStatus,
-              vitStudentIdentity: requirePersistedVitStudentIdentity(membership),
-            }
-          : {
-              id: membership._id,
-              participantClass: membership.participantClass,
-              eligibilityStatus: membership.eligibilityStatus,
-              onboardingStatus: membership.onboardingStatus,
-            }
-        : null,
+      membership: visibleMembership,
       pendingTeam,
       profile: profile && membership
         ? {
@@ -323,6 +378,9 @@ export const provision = mutation({
           message: "Participant class is already set. Ask support to correct it.",
         });
       }
+      if (existingMembership.participantClass === "vit_student") {
+        await repairVitStudentIdentity(ctx, event, person, existingMembership);
+      }
       await claimPendingTeamRosterEntry(ctx, {
         event,
         person,
@@ -331,7 +389,7 @@ export const provision = mutation({
     }
 
     const vitStudentIdentity = resolvedParticipantClass === "vit_student"
-      ? requireVitStudentProfileIdentity(googleIdentity.displayName)
+      ? requireVitStudentProfileIdentity(googleIdentity.displayName, event)
       : null;
 
     const now = Date.now();
@@ -693,7 +751,7 @@ export const saveProfile = mutation({
 
     const policy = participantPolicy.normalized;
     const vitStudentIdentity = membership.participantClass === "vit_student"
-      ? requirePersistedVitStudentIdentity(membership)
+      ? await repairVitStudentIdentity(ctx, event, person, membership)
       : null;
     const fullName = vitStudentIdentity
       ? vitStudentIdentity.fullName

@@ -16,6 +16,7 @@ import {
   noveltySimilarityWeight,
   type NoveltyCorpusEntryInput,
 } from "./lib/novelty.ts";
+import { invalidateTeamNoveltyIndex } from "./lib/noveltyIndex.ts";
 import {
   defaultDeterministicIntakePolicy,
   intakePolicyChecksum,
@@ -228,6 +229,7 @@ describe("live novelty", () => {
       requestId: savedRequest.requestId,
       inputFingerprint: savedRequest.inputFingerprint,
       embedding,
+      segmentEmbeddings: [embedding, embedding],
     });
     const saved = await backend.run((ctx) => ctx.db
       .query("noveltyTeamIdeas")
@@ -245,6 +247,7 @@ describe("live novelty", () => {
       requestId: editingRequest.requestId,
       inputFingerprint: editingRequest.inputFingerprint,
       embedding,
+      segmentEmbeddings: [embedding, embedding],
     });
     const indexed = await backend.run((ctx) => ctx.db
       .query("noveltyTeamIdeas")
@@ -261,6 +264,53 @@ describe("live novelty", () => {
         lifecycle: "editing",
       }),
     ]));
+  });
+
+  test("invalidates old vectors and in-flight previews before an idea changes", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend);
+    const request = await backend.mutation(
+      internal.novelty.beginPreview,
+      previewArgs(fixture, "novelty-before-idea-change", fixture.idea),
+    );
+    if (request.kind !== "run") throw new Error("The novelty request did not start.");
+    const embedding = Array.from({ length: noveltyEmbeddingDimensions }, (_, index) => (
+      index === 0 ? 1 : 0
+    ));
+
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("noveltyTeamIdeas", {
+        eventId: fixture.eventId,
+        teamId: fixture.teamId,
+        inputFingerprint: noveltyInputFingerprint(fixture.idea),
+        lifecycle: "saved",
+        embedding,
+        sourceUpdatedAt: fixture.now,
+        updatedAt: fixture.now,
+      });
+      await invalidateTeamNoveltyIndex(ctx, {
+        teamId: fixture.teamId,
+        sourceUpdatedAt: Number.MAX_SAFE_INTEGER,
+      });
+    });
+
+    const state = await backend.run(async (ctx) => ({
+      ideas: await ctx.db
+        .query("noveltyTeamIdeas")
+        .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
+        .collect(),
+      request: await ctx.db.get(request.requestId),
+    }));
+    expect(state.ideas).toEqual([]);
+    expect(state.request).toMatchObject({
+      state: "stale",
+      failureCategory: "idea_changed",
+    });
+    await expect(backend.mutation(internal.novelty.upsertPreviewTeamIdea, {
+      requestId: request.requestId,
+      inputFingerprint: request.inputFingerprint,
+      embedding,
+    })).rejects.toThrow("no longer indexable");
   });
 
   test("does not let a newer editing preview suppress durable draft indexing", async () => {

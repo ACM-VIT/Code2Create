@@ -22,7 +22,11 @@ All participants provide:
 - an approved contact route when policy permits it; and
 - required policy and consent versions.
 
-A VIT student can also provide a registration number, programme, and campus. An external participant can also provide city and country.
+A VIT participant must authenticate with a current `@vitstudent.ac.in` Google Workspace identity. The server verifies both the email domain and Google's hosted-domain claim. The verified Google display name must end with the participant's registration number. The configured event start year, not a release-year constant, determines first through fourth year and `fifth_or_later`. A returning membership that predates this identity snapshot is repaired idempotently from the verified Google identity during provisioning or profile save.
+
+Google identity claims are authentication evidence, not configurable profile fields. The profile policy controls whether registration number and programme are copied into the participant profile and shown outside the participant's own identity screen. It does not claim that the Google identity provider omitted those values. Authentication evidence never enters proposal, novelty, admission, review, or judging model input.
+
+A VIT student can also provide a campus when policy permits it. An external participant can also provide city and country.
 
 The participant policy marks phone, VIT registration number, programme, campus, city, and country as `not_collected | optional | required`. Full name, institution, and year or current role are required. Sensitive eligibility, dietary, and accessibility facts use protected evidence or support routes. No profile or contact field enters proposal AI input.
 
@@ -111,7 +115,7 @@ The event policy can permit general libraries, frameworks, public data, APIs, pr
 
 ### Live novelty number
 
-The live novelty number appears only above the idea text box. The feature returns one whole number from `0` through `100`. A larger number means the current text is less similar to the nearest entry in the approved corpus.
+The live novelty number appears only above the idea text box. The feature returns one whole number from `0` through `100`. A larger number means fewer close ideas exist in the approved corpus and current event idea pool. The number is a relative drafting signal, not a claim of objective originality.
 
 The participant view shows:
 
@@ -128,13 +132,17 @@ The participant view must not show:
 - a blocking warning; or
 - a claim that the number measures objective originality.
 
-The browser waits for the published debounce, initially 800 ms. It requests one embedding for the current normalized idea. Each browser request has an increasing sequence. Only the newest request can update the displayed number. The server also checks the input fingerprint, team, draft, and corpus version.
+The browser waits for the published debounce, initially 800 ms. It requests embeddings for the complete normalized idea and a bounded set of its segments. Segments improve retrieval for an idea with several distinct parts. They are not stored as separate team candidates. Each browser request has an increasing sequence. Only the newest request can update the displayed number. The server also checks the input fingerprint, team, draft, and corpus version.
 
-The first release uses `text-embedding-3-small` at its native 1,536 dimensions. One corpus version must use one model and one vector width. The approved corpus contains 5 to 200 non-identifying curator summaries. Participants never receive a corpus entry.
+The first release uses `text-embedding-3-small` at its native 1,536 dimensions. One corpus version must use one model and one vector width. The approved corpus contains 5 to 300 non-identifying curator summaries. Participants never receive a corpus entry or another team's text.
+
+Density uses at most the fifty strongest distinct corpus or team matches. A current team contributes at most one stored full-idea vector for live editing and one for its durable saved or submitted idea. Editing vectors have a short lifetime and lower weight. Saved vectors have lower weight than submitted vectors. Several retrieval hits for one team count once. When both transient and durable rows are retrieved, the durable saved or submitted row is authoritative for that team. The logarithmic mapping reaches `100` with no effective close matches and bottoms out at `0` once the effective density reaches twenty.
+
+Changing a saved or submitted idea invalidates every older team vector and any running preview in the same Convex transaction that accepts the new text. Replacement indexing runs afterward. A missing key, timeout, rate limit, malformed provider response, or other indexing failure can make the signal unavailable, but it cannot leave the previous idea active in the comparison pool. An older in-flight preview cannot reinsert its vector after the idea changes.
 
 The server does not request an embedding when the text contains a detected email, phone number, registration number, credential, or secret. Provider, rate-limit, index, and network failures set the feature to unavailable. They do not block save, revision, or submission.
 
-Novelty request records store an input fingerprint and character count. They do not store another copy of proposal text. The novelty number and similarity values are absent from proposal versions, applications, admission input, human review, reviewer evidence, queues, judging, awards, and exports.
+Novelty request records store an input fingerprint and character count. They do not store another copy of proposal text. Team-density rows store a fingerprint, lifecycle, one full-idea vector, and timestamps; they store no raw idea. The novelty number and similarity values are absent from proposal versions, applications, admission input, human review, reviewer evidence, queues, judging, awards, and exports.
 
 ## 5. Proposal versions and final submission
 

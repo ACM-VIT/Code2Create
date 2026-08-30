@@ -35,6 +35,7 @@ import {
 } from "./lib/participantPolicy";
 import { normalizeEmail, normalizedLongText } from "./lib/strings";
 import { noveltyInputFingerprint } from "./lib/novelty";
+import { invalidateTeamNoveltyIndex } from "./lib/noveltyIndex";
 import {
   intakePolicyChecksum,
   intakePolicyFromDocument,
@@ -739,6 +740,11 @@ export const reviseSubmission = mutation({
       return result;
     }
 
+    await invalidateTeamNoveltyIndex(ctx, {
+      teamId: team._id,
+      sourceUpdatedAt: now,
+    });
+
     const [admissionConfiguration, activeReviews, activeAssignments, priorRecommendation] =
       await Promise.all([
         loadPublishedAdmissionConfiguration(ctx, event),
@@ -1137,6 +1143,10 @@ export const saveInitialIdea = mutation({
       return { draftId: existing._id, draftVersion: existing.version };
     }
     const draftVersion = (existing?.version ?? 0) + 1;
+    await invalidateTeamNoveltyIndex(ctx, {
+      teamId: team._id,
+      sourceUpdatedAt: now,
+    });
     let draftId: Id<"projectDrafts">;
     if (existing) {
       await replaceCurrentIntakeQuestions(ctx, existing._id);

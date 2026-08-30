@@ -51,6 +51,16 @@ Deliver:
 
 Exit when two participant classes can form a valid team, transfer leadership, submit, revise before the deadline, receive a current-version human decision, and reload the same state on another device. Repeat the flow with OpenAI disabled.
 
+The participant release test also proves these boundaries:
+
+- a VIT membership created before the verified identity snapshot remains readable and repairs idempotently;
+- the configured event year accepts first through fourth year and current fifth-or-later registration cohorts without a release-year table;
+- changing idea text removes older saved, submitted, and editing vectors before replacement provider work;
+- a timeout, missing key, rate limit, or invalid embedding after an edit leaves novelty unavailable and never keeps the previous idea active;
+- an in-flight preview for older text settles stale and cannot reinsert a vector;
+- segment retrieval stores one complete-idea vector per lifecycle and repeated hits from one team count once; and
+- synthetic density cases cover no close teams, a small cluster, a common cluster, and hundreds of teams while submission remains available.
+
 ## 4. Slice 2: attendance and location
 
 Deliver:

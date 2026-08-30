@@ -74,7 +74,8 @@ export function DetailsScreen({
   const vitStudentIdentity = membership.participantClass === 'vit_student'
     ? membership.vitStudentIdentity
     : null
-  const vitStudent = vitStudentIdentity !== null
+  const vitStudent = membership.participantClass === 'vit_student'
+  if (vitStudent && !vitStudentIdentity) return null
   const policy = me.participantPolicy.policy
   const policyAlreadyAccepted = me.participantPolicy.accepted
   const disabled = busy || savePending
@@ -165,7 +166,7 @@ export function DetailsScreen({
           <form onSubmit={submit}>
             <fieldset disabled={disabled} className="contents">
               <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
-                {vitStudent ? (
+                {vitStudentIdentity ? (
                   <PortalField label="full name" hint="verified by your VIT Google account">
                     {(id) => <PortalInput id={id} readOnly value={vitStudentIdentity.fullName} />}
                   </PortalField>
@@ -209,7 +210,7 @@ export function DetailsScreen({
                   </PortalField>
                 ) : null}
 
-                {vitStudent ? (
+                {vitStudentIdentity ? (
                   <PortalField label="college or university" hint="verified from your VIT account">
                     {(id) => <PortalInput id={id} readOnly value="Vellore Institute of Technology" />}
                   </PortalField>
@@ -226,7 +227,7 @@ export function DetailsScreen({
                   </PortalField>
                 )}
 
-                {vitStudent ? (
+                {vitStudentIdentity ? (
                   <PortalField label="year of study" hint="derived from your registration number">
                     {(id) => (
                       <PortalInput
@@ -272,7 +273,7 @@ export function DetailsScreen({
                   </PortalField>
                 ) : null}
 
-                {vitStudent ? (
+                {vitStudentIdentity ? (
                   <>
                     {policy.vitRegistrationNumberField !== 'not_collected' ? (
                       <PortalField

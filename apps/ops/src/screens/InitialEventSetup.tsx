@@ -5,6 +5,10 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import {
+  indiaDateTimeToTimestamp,
+  optionalIndiaDateTimeToTimestamp,
+} from '../lib/indiaDateTime'
 
 export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthClient }) {
   const eligibility = useQuery(api.system.bootstrapEligibility, { eventSlug })
@@ -12,12 +16,8 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
   const [eventName, setEventName] = useState('Code2Create 7.0')
   const [startsAtLocal, setStartsAtLocal] = useState('2026-09-07T14:00')
   const [endsAtLocal, setEndsAtLocal] = useState('2026-09-09T15:00')
-  const [externalApplicationsCloseAtLocal, setExternalApplicationsCloseAtLocal] = useState(
-    '2026-09-05T23:59',
-  )
-  const [vitApplicationsCloseAtLocal, setVitApplicationsCloseAtLocal] = useState(
-    '2026-09-05T23:59',
-  )
+  const [externalApplicationsCloseAtLocal, setExternalApplicationsCloseAtLocal] = useState('')
+  const [vitApplicationsCloseAtLocal, setVitApplicationsCloseAtLocal] = useState('')
   const [venueName, setVenueName] = useState('Anna Auditorium, VIT Vellore')
   const [venueAddress, setVenueAddress] = useState(
     'Anna Auditorium, VIT Vellore, Vellore, Tamil Nadu 632014',
@@ -325,15 +325,6 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
       </section>
     </main>
   )
-}
-
-function indiaDateTimeToTimestamp(value: string) {
-  const timestamp = Date.parse(`${value}:00+05:30`)
-  return Number.isSafeInteger(timestamp) && timestamp > 0 ? timestamp : null
-}
-
-function optionalIndiaDateTimeToTimestamp(value: string) {
-  return value ? indiaDateTimeToTimestamp(value) : undefined
 }
 
 function CenteredStatus({ children }: { children: ReactNode }) {

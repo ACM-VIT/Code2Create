@@ -80,6 +80,8 @@ This file records current decisions only. It does not keep obsolete product path
 | T-029 | Use two-person verification for paper score recovery and final round exports. | A protected manual source needs independent confirmation. |
 | T-030 | Run operations intelligence outside the authority boundary. | It can observe and recommend, but a human command makes effects. |
 | T-031 | Deploy staging Workers from `staging` and production Workers from `main` through separate Cloudflare Workers Builds connections. | Branch identity, Worker runtime configuration, deployment history, and rollback stay exact for each surface. |
+| T-032 | Derive a VIT participant's study year from the verified registration number and configured event start year. | A release-year prefix table would reject valid later cohorts and fifth-year participants. |
+| T-033 | Invalidate older team novelty vectors and running previews in the same transaction that accepts changed idea text. | Provider failure or late completion cannot leave an obsolete idea active in the density pool. |
 
 ## 3. Required concurrency rules
 
@@ -92,6 +94,7 @@ This file records current decisions only. It does not keep obsolete product path
 | Proposal revision and AI completion | The old AI result settles as stale and cannot attach to the new version. |
 | Proposal revision and deadline | The server-time order decides. No write commits at or after `applicationsCloseAt`. |
 | Two proposal saves | One expected version wins. The loser reloads current state. |
+| Idea edit and novelty completion | The accepted edit marks the older request stale and removes older team vectors. A late action cannot restore them. |
 | Two repository reorders | One complete ordered set wins. The loser reloads. |
 | Attendance scan and session close | The transaction order decides against the authoritative session boundary. |
 | Duplicate attendance scans | One accepted fact produces one resulting state transition. |

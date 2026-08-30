@@ -4,6 +4,7 @@ import {
   effectiveSimilarTeams,
   noveltyEmbeddingDimensions,
   noveltyScoreForDensity,
+  strongestNoveltyMatchPerTeam,
   validEmbedding,
 } from "./novelty";
 
@@ -79,5 +80,34 @@ describe("novelty scoring", () => {
       },
     );
     expect(noveltyScoreForDensity(density)).toBeLessThanOrEqual(21);
+  });
+
+  it("counts hundreds of teams once when retrieval returns repeated candidates", () => {
+    const candidates = Array.from({ length: 350 }, (_, teamIndex) =>
+      Array.from({ length: 3 }, (_, candidateIndex) => ({
+        teamId: `team-${teamIndex}`,
+        similarity: candidateIndex === 0 ? 0.95 : 0.7 + candidateIndex * 0.05,
+        lifecycle: candidateIndex === 0 ? "editing" as const : "saved" as const,
+      }))
+    ).flat();
+
+    const strongest = strongestNoveltyMatchPerTeam(candidates);
+
+    expect(strongest.size).toBe(350);
+    expect(strongest.get("team-0")?.similarity).toBeCloseTo(0.8);
+    expect(strongest.get("team-0")?.lifecycle).toBe("saved");
+  });
+
+  it("keeps the signal informative across practical crowd sizes", () => {
+    const scenarios = [
+      { similarTeams: 0, expectedScore: 100 },
+      { similarTeams: 2, expectedScore: 64 },
+      { similarTeams: 10, expectedScore: 21 },
+      { similarTeams: 50, expectedScore: 0 },
+    ] as const;
+
+    for (const scenario of scenarios) {
+      expect(noveltyScoreForDensity(scenario.similarTeams)).toBe(scenario.expectedScore);
+    }
   });
 });
