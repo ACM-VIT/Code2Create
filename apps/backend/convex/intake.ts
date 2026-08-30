@@ -34,6 +34,8 @@ import {
   participantPolicyFromDocument,
 } from "./lib/participantPolicy";
 import { normalizeEmail, normalizedLongText } from "./lib/strings";
+import { noveltyInputFingerprint } from "./lib/novelty";
+import { invalidateTeamNoveltyIndex } from "./lib/noveltyIndex";
 import {
   intakePolicyChecksum,
   intakePolicyFromDocument,
@@ -738,6 +740,11 @@ export const reviseSubmission = mutation({
       return result;
     }
 
+    await invalidateTeamNoveltyIndex(ctx, {
+      teamId: team._id,
+      sourceUpdatedAt: now,
+    });
+
     const [admissionConfiguration, activeReviews, activeAssignments, priorRecommendation] =
       await Promise.all([
         loadPublishedAdmissionConfiguration(ctx, event),
@@ -819,6 +826,11 @@ export const reviseSubmission = mutation({
       completedReviewCount: 0,
       contentVersion: nextContentVersion,
       version: application.version + 1,
+    });
+    await ctx.scheduler.runAfter(0, internal.novelty.indexSubmittedProjectIdea, {
+      projectVersionId,
+      inputFingerprint: noveltyInputFingerprint(initialIdea),
+      sourceUpdatedAt: now,
     });
     const [updatedApplication, updatedProject] = await Promise.all([
       ctx.db.get(application._id),
@@ -1114,6 +1126,11 @@ export const saveInitialIdea = mutation({
     if (
       existing?.initialIdea === idea
     ) {
+      await ctx.scheduler.runAfter(0, internal.novelty.indexDraftIdea, {
+        draftId: existing._id,
+        inputFingerprint: noveltyInputFingerprint(idea),
+        sourceUpdatedAt: now,
+      });
       await recordDraftOperation(ctx, {
         eventId: event._id,
         personId: person._id,
@@ -1126,6 +1143,10 @@ export const saveInitialIdea = mutation({
       return { draftId: existing._id, draftVersion: existing.version };
     }
     const draftVersion = (existing?.version ?? 0) + 1;
+    await invalidateTeamNoveltyIndex(ctx, {
+      teamId: team._id,
+      sourceUpdatedAt: now,
+    });
     let draftId: Id<"projectDrafts">;
     if (existing) {
       await replaceCurrentIntakeQuestions(ctx, existing._id);
@@ -1167,6 +1188,12 @@ export const saveInitialIdea = mutation({
       promptKey: "initial_idea",
       value: idea,
       clientOperationId: args.clientOperationId,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.novelty.indexDraftIdea, {
+      draftId,
+      inputFingerprint: noveltyInputFingerprint(idea),
+      sourceUpdatedAt: now,
     });
 
     await intakeWorkpool.enqueueAction(
@@ -2288,6 +2315,11 @@ export const finalizeSubmission = internalMutation({
       stage: "submitted",
       version: draft.version + 1,
       updatedAt: now,
+    });
+    await ctx.scheduler.runAfter(0, internal.novelty.indexDraftIdea, {
+      draftId: draft._id,
+      inputFingerprint: noveltyInputFingerprint(draft.initialIdea),
+      sourceUpdatedAt: now,
     });
     await ctx.db.patch(attempt._id, {
       state: "complete",

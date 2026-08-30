@@ -21,7 +21,7 @@ export function AccountBadge({
       <div className="flex size-[34px] flex-none items-center justify-center rounded-full border-2 border-rose-light bg-avatar-lead text-[11px] font-semibold">
         {initialsOf(name)}
       </div>
-      <p className="hidden text-[12.5px] text-[rgb(248_248_248/.6)] sm:block">
+      <p className="m-0 hidden min-h-[34px] items-center text-[12.5px] leading-none text-[rgb(248_248_248/.6)] sm:flex">
         {email ?? name}
         {detail ? <span className="text-rose-light"> · {detail}</span> : null}
       </p>

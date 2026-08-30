@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { studyYearLabels } from '@code2create/domain'
 import { useMutation } from 'convex/react'
 import { useState, type FormEvent } from 'react'
 import { PortalScene } from '../components/portal/PortalScene'
@@ -59,10 +60,6 @@ export function DetailsScreen({
   const [institution, setInstitution] = useState(existing?.institution ?? '')
   const [yearOfStudy, setYearOfStudy] = useState(existing?.yearOfStudy ?? 'first')
   const [currentRole, setCurrentRole] = useState(existing?.currentRole ?? '')
-  const [registrationNumber, setRegistrationNumber] = useState(
-    existing?.vitRegistrationNumber ?? '',
-  )
-  const [programme, setProgramme] = useState(existing?.vitProgramme ?? '')
   const [campus, setCampus] = useState(existing?.vitCampus ?? '')
   const [externalCity, setExternalCity] = useState(existing?.externalCity ?? '')
   const [externalCountry, setExternalCountry] = useState(existing?.externalCountry ?? '')
@@ -74,7 +71,11 @@ export function DetailsScreen({
   const acceptPending = operations.hasPending('participant-policy-accept')
 
   if (!membership) return null
+  const vitStudentIdentity = membership.participantClass === 'vit_student'
+    ? membership.vitStudentIdentity
+    : null
   const vitStudent = membership.participantClass === 'vit_student'
+  if (vitStudent && !vitStudentIdentity) return null
   const policy = me.participantPolicy.policy
   const policyAlreadyAccepted = me.participantPolicy.accepted
   const disabled = busy || savePending
@@ -102,21 +103,12 @@ export function DetailsScreen({
           saveProfile({
             eventSlug,
             participantPolicyVersionId: me.participantPolicy.id,
-            fullName,
+            ...(!vitStudent ? { fullName } : {}),
             ...(preferredName ? { preferredName } : {}),
             ...(policy.phoneField !== 'not_collected' && phone ? { phone } : {}),
-            institution,
-            yearOfStudy,
+            ...(!vitStudent ? { institution, yearOfStudy } : {}),
             ...(!vitStudent && yearOfStudy === 'not_applicable' && currentRole
               ? { currentRole }
-              : {}),
-            ...(vitStudent &&
-            policy.vitRegistrationNumberField !== 'not_collected' &&
-            registrationNumber
-              ? { vitRegistrationNumber: registrationNumber }
-              : {}),
-            ...(vitStudent && policy.vitProgrammeField !== 'not_collected' && programme
-              ? { vitProgramme: programme }
               : {}),
             ...(vitStudent && policy.vitCampusField !== 'not_collected' && campus
               ? { vitCampus: campus }
@@ -174,16 +166,22 @@ export function DetailsScreen({
           <form onSubmit={submit}>
             <fieldset disabled={disabled} className="contents">
               <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
-                <PortalField label="full name">
-                  {(id) => (
-                    <PortalInput
-                      id={id}
-                      required
-                      value={fullName}
-                      onChange={(event) => setFullName(event.target.value)}
-                    />
-                  )}
-                </PortalField>
+                {vitStudentIdentity ? (
+                  <PortalField label="full name" hint="verified by your VIT Google account">
+                    {(id) => <PortalInput id={id} readOnly value={vitStudentIdentity.fullName} />}
+                  </PortalField>
+                ) : (
+                  <PortalField label="full name">
+                    {(id) => (
+                      <PortalInput
+                        id={id}
+                        required
+                        value={fullName}
+                        onChange={(event) => setFullName(event.target.value)}
+                      />
+                    )}
+                  </PortalField>
+                )}
                 <PortalField label="preferred name" hint="optional">
                   {(id) => (
                     <PortalInput
@@ -212,39 +210,55 @@ export function DetailsScreen({
                   </PortalField>
                 ) : null}
 
-                <PortalField
-                  label={vitStudent ? 'college or university' : 'college, university, or organisation'}
-                >
-                  {(id) => (
-                    <PortalInput
-                      id={id}
-                      required
-                      value={institution}
-                      onChange={(event) => setInstitution(event.target.value)}
-                    />
-                  )}
-                </PortalField>
+                {vitStudentIdentity ? (
+                  <PortalField label="college or university" hint="verified from your VIT account">
+                    {(id) => <PortalInput id={id} readOnly value="Vellore Institute of Technology" />}
+                  </PortalField>
+                ) : (
+                  <PortalField label="college, university, or organisation">
+                    {(id) => (
+                      <PortalInput
+                        id={id}
+                        required
+                        value={institution}
+                        onChange={(event) => setInstitution(event.target.value)}
+                      />
+                    )}
+                  </PortalField>
+                )}
 
-                <PortalField label="year of study">
-                  {(id) => (
-                    <PortalSelect
-                      id={id}
-                      value={yearOfStudy}
-                      onChange={(event) => {
-                        const nextYear = parseStudyYear(event.target.value)
-                        if (nextYear) setYearOfStudy(nextYear)
-                      }}
-                    >
-                      <option value="first">First year</option>
-                      <option value="second">Second year</option>
-                      <option value="third">Third year</option>
-                      <option value="fourth">Fourth year</option>
-                      <option value="fifth_or_later">Fifth year or later</option>
-                      <option value="postgraduate">Postgraduate</option>
-                      {!vitStudent ? <option value="not_applicable">Not a student</option> : null}
-                    </PortalSelect>
-                  )}
-                </PortalField>
+                {vitStudentIdentity ? (
+                  <PortalField label="year of study" hint="derived from your registration number">
+                    {(id) => (
+                      <PortalInput
+                        id={id}
+                        readOnly
+                        value={studyYearLabels[vitStudentIdentity.yearOfStudy]}
+                      />
+                    )}
+                  </PortalField>
+                ) : (
+                  <PortalField label="year of study">
+                    {(id) => (
+                      <PortalSelect
+                        id={id}
+                        value={yearOfStudy}
+                        onChange={(event) => {
+                          const nextYear = parseStudyYear(event.target.value)
+                          if (nextYear) setYearOfStudy(nextYear)
+                        }}
+                      >
+                        <option value="first">First year</option>
+                        <option value="second">Second year</option>
+                        <option value="third">Third year</option>
+                        <option value="fourth">Fourth year</option>
+                        <option value="fifth_or_later">Fifth year or later</option>
+                        <option value="postgraduate">Postgraduate</option>
+                        <option value="not_applicable">Not a student</option>
+                      </PortalSelect>
+                    )}
+                  </PortalField>
+                )}
 
                 {!vitStudent && yearOfStudy === 'not_applicable' ? (
                   <PortalField label="current role">
@@ -259,37 +273,33 @@ export function DetailsScreen({
                   </PortalField>
                 ) : null}
 
-                {vitStudent ? (
+                {vitStudentIdentity ? (
                   <>
                     {policy.vitRegistrationNumberField !== 'not_collected' ? (
                       <PortalField
                         label="registration number"
-                        {...(policy.vitRegistrationNumberField === 'optional'
-                          ? { hint: 'optional' }
-                          : {})}
+                        hint="verified from your VIT Google account"
                       >
                         {(id) => (
                           <PortalInput
                             id={id}
                             className="font-mono"
-                            required={policy.vitRegistrationNumberField === 'required'}
-                            value={registrationNumber}
-                            onChange={(event) => setRegistrationNumber(event.target.value)}
+                            readOnly
+                            value={vitStudentIdentity.registrationNumber}
                           />
                         )}
                       </PortalField>
                     ) : null}
                     {policy.vitProgrammeField !== 'not_collected' ? (
                       <PortalField
-                        label="programme"
-                        {...(policy.vitProgrammeField === 'optional' ? { hint: 'optional' } : {})}
+                        label="programme code"
+                        hint="derived from your registration number"
                       >
                         {(id) => (
                           <PortalInput
                             id={id}
-                            required={policy.vitProgrammeField === 'required'}
-                            value={programme}
-                            onChange={(event) => setProgramme(event.target.value)}
+                            readOnly
+                            value={vitStudentIdentity.programmeCode}
                           />
                         )}
                       </PortalField>

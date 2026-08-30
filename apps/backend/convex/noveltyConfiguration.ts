@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import { ConvexError, v, type Infer } from "convex/values";
 import { z } from "zod";
 
@@ -36,6 +35,7 @@ import {
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
+import { createOpenAiEmbeddings, OpenAiEmbeddingError } from "./lib/openAiEmbeddings";
 
 const noveltyPolicyInput = v.object({
   label: v.string(),
@@ -754,12 +754,12 @@ export const replaceEntries = action({
       });
     }
     const startedAt = Date.now();
-    const client = new OpenAI({ apiKey, timeout: 15_000, maxRetries: 0 });
     try {
-      const response = await client.embeddings.create({
+      const response = await createOpenAiEmbeddings({
+        apiKey,
         model: begun.model,
-        encoding_format: "float",
         input: begun.entries.map((entry) => `${entry.themeLabel}\n${entry.summary}`),
+        timeoutMs: 15_000,
       });
       const ordered = response.data.toSorted((left, right) => left.index - right.index);
       if (
@@ -775,7 +775,7 @@ export const replaceEntries = action({
         requestFingerprint: begun.requestFingerprint,
         reason: begun.reason,
         clientOperationId: args.clientOperationId,
-        ...(response._request_id ? { providerRequestId: response._request_id } : {}),
+        ...(response.requestId ? { providerRequestId: response.requestId } : {}),
         latencyMs: Date.now() - startedAt,
         entries: begun.entries.map((entry, index) => {
           const embedding = ordered[index]?.embedding;
@@ -784,12 +784,12 @@ export const replaceEntries = action({
         }),
       });
     } catch (error) {
-      const status = error instanceof OpenAI.APIError ? error.status : undefined;
+      const status = error instanceof OpenAiEmbeddingError ? error.status : undefined;
       const failureCategory = status === 429
         ? "provider_rate_limited"
         : status
           ? `provider_http_${status}`
-          : error instanceof OpenAI.APIConnectionTimeoutError
+          : error instanceof OpenAiEmbeddingError && error.timedOut
             ? "provider_timed_out"
             : "provider_request_failed";
       await ctx.runMutation(internal.noveltyConfiguration.failEntryImport, {

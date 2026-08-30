@@ -68,6 +68,7 @@ export const recordVerifiedGoogleIdentity = internalMutation({
     const values = {
       googleSubject: args.googleSubject,
       verifiedEmail,
+      displayName,
       ...(hostedDomain !== undefined ? { hostedDomain } : {}),
       tokenIssuedAt: args.tokenIssuedAt,
       tokenExpiresAt: args.tokenExpiresAt,

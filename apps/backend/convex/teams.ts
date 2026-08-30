@@ -629,6 +629,224 @@ export const join = mutation({
   },
 });
 
+export const switchTeam = mutation({
+  args: {
+    eventSlug: v.string(),
+    fromTeamId: v.id("teams"),
+    expectedFromTeamVersion: v.number(),
+    code: v.string(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({ teamId: v.id("teams") }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
+    const { person } = await requireCurrentPerson(ctx);
+    const code = normalizeCode(args.code);
+    const requestFingerprint = operationFingerprint([
+      args.fromTeamId,
+      args.expectedFromTeamVersion,
+      code,
+    ]);
+    const replayTeamId = await existingOperationTeam(
+      ctx,
+      event._id,
+      person._id,
+      args.clientOperationId,
+      "team.switch",
+      requestFingerprint,
+    );
+    if (replayTeamId) return { teamId: replayTeamId };
+
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const membership = requireEligibleMembership(
+      await requireMembership(ctx, event._id, person._id),
+    );
+    requireRegistrationOpen(event, membership.participantClass);
+    requireCurrentPolicyAcceptance(membership, participantPolicy.policy);
+    const joinGrantIds = await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "team.join",
+      scopeType: "self",
+      scopeId: membership._id,
+    });
+    await requireNoPendingTeamAssignment(ctx, event._id, person.verifiedEmail);
+
+    const currentMember = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_event_membership_status", (index) =>
+        index
+          .eq("eventId", event._id)
+          .eq("membershipId", membership._id)
+          .eq("status", "active"),
+      )
+      .unique();
+    if (!currentMember || currentMember.teamId !== args.fromTeamId) {
+      throw new ConvexError({ code: "NOT_ON_TEAM", message: "You are not on that team." });
+    }
+    const fromTeam = await ctx.db.get(args.fromTeamId);
+    if (!fromTeam || fromTeam.eventId !== event._id) {
+      throw new ConvexError({ code: "TEAM_NOT_FOUND", message: "That team is not available." });
+    }
+    if (fromTeam.membershipLocked) {
+      throw new ConvexError({ code: "TEAM_LOCKED", message: "Team membership is locked." });
+    }
+    if (fromTeam.version !== args.expectedFromTeamVersion) {
+      throw new ConvexError({
+        code: "TEAM_CHANGED",
+        message: "The team changed. Review it and try again.",
+      });
+    }
+    const leaveGrantIds = await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "team.leave",
+      scopeType: "team",
+      scopeId: fromTeam._id,
+    });
+    const fromCounts = teamRosterCounts(fromTeam);
+    if (currentMember.role === "lead" && fromCounts.activeMemberCount > 1) {
+      throw new ConvexError({
+        code: "TRANSFER_LEADERSHIP_FIRST",
+        message: "Transfer leadership before leaving this team.",
+      });
+    }
+
+    const toTeam = await ctx.db
+      .query("teams")
+      .withIndex("by_event_code", (index) =>
+        index.eq("eventId", event._id).eq("publicCode", code),
+      )
+      .unique();
+    if (!toTeam || toTeam.status === "withdrawn" || toTeam.status === "disqualified") {
+      throw new ConvexError({ code: "TEAM_NOT_FOUND", message: "That team code is not active." });
+    }
+    if (toTeam._id === fromTeam._id) {
+      throw new ConvexError({ code: "ALREADY_ON_TEAM", message: "You are already on that team." });
+    }
+    if (toTeam.membershipLocked) {
+      throw new ConvexError({ code: "TEAM_LOCKED", message: "That team has already submitted." });
+    }
+    const toCounts = teamRosterCounts(toTeam);
+    if (toCounts.activeMemberCount >= participantPolicy.normalized.teamMaximumSize) {
+      throw new ConvexError({ code: "TEAM_FULL", message: "That team is full." });
+    }
+    if (
+      !participantPolicy.normalized.mixedParticipantClassesAllowed &&
+      toCounts.activeMemberCount > 0 &&
+      !teamContainsParticipantClass(toTeam, membership.participantClass)
+    ) {
+      throw new ConvexError({
+        code: "MIXED_TEAM_NOT_ALLOWED",
+        message: "The current participant policy does not allow mixed VIT and external teams.",
+      });
+    }
+
+    const now = Date.now();
+    const withdrawFromTeam = fromCounts.activeMemberCount === 1;
+    await endActiveTeamMember(ctx, {
+      team: fromTeam,
+      teamMember: currentMember,
+      membership,
+      status: "left",
+      leftAt: now,
+    });
+    await ctx.db.patch(fromTeam._id, {
+      ...(withdrawFromTeam ? { status: "withdrawn" as const } : {}),
+      version: fromTeam.version + 1,
+      updatedAt: now,
+    });
+    await cancelPendingLeadershipTransfers(ctx, {
+      teamId: fromTeam._id,
+      decidedByPersonId: person._id,
+      decidedAt: now,
+    });
+    await revokeSourceGrants(ctx, {
+      eventId: event._id,
+      sourceType: "team_membership",
+      sourceId: currentMember._id,
+      revokedByPersonId: person._id,
+      reason: "Participant switched teams",
+    });
+    if (currentMember.role === "lead") {
+      await revokeSourceGrants(ctx, {
+        eventId: event._id,
+        sourceType: "team_lead",
+        sourceId: `${fromTeam._id}:${membership._id}`,
+        revokedByPersonId: person._id,
+        reason: "Sole team lead switched teams",
+      });
+    }
+
+    const { teamMemberId } = await insertActiveTeamMember(ctx, {
+      team: toTeam,
+      membership,
+      role: "member",
+      joinedAt: now,
+      source: "code",
+    });
+    await addTeamMemberGrants(ctx, {
+      event,
+      membership,
+      teamId: toTeam._id,
+      teamMemberId,
+      actorPersonId: person._id,
+      lead: false,
+    });
+    await cancelPendingLeadershipTransfers(ctx, {
+      teamId: toTeam._id,
+      decidedByPersonId: person._id,
+      decidedAt: now,
+    });
+    await ctx.db.patch(toTeam._id, { version: toTeam.version + 1, updatedAt: now });
+    await ctx.db.patch(membership._id, {
+      onboardingStatus:
+        membership.onboardingStatus === "profile_required" ? "profile_required" : "project_required",
+      updatedAt: now,
+    });
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "team.switch",
+      requestFingerprint,
+      targetType: "team",
+      targetId: toTeam._id,
+      createdAt: now,
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "team.leave",
+      grantIds: leaveGrantIds,
+      scopeType: "team",
+      scopeId: fromTeam._id,
+      action: withdrawFromTeam ? "team.withdrawn" : "team.member_left",
+      targetType: "team_member",
+      targetId: currentMember._id,
+      previousSummary: JSON.stringify({ memberCount: fromCounts.activeMemberCount }),
+      nextSummary: JSON.stringify({ memberCount: fromCounts.activeMemberCount - 1 }),
+      reason: "Participant switched teams",
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "team.join",
+      grantIds: joinGrantIds,
+      scopeType: "self",
+      scopeId: membership._id,
+      action: "team.member_joined",
+      targetType: "team",
+      targetId: toTeam._id,
+      previousSummary: JSON.stringify({ memberCount: toCounts.activeMemberCount }),
+      nextSummary: JSON.stringify({ memberCount: toCounts.activeMemberCount + 1 }),
+      reason: "Participant switched teams with a team code",
+    });
+    return { teamId: toTeam._id };
+  },
+});
+
 export const leave = mutation({
   args: {
     eventSlug: v.string(),

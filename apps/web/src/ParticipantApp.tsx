@@ -3,7 +3,7 @@ import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, NavLink, Navigate, useLocation } from 'react-router-dom'
+import { Link, NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { TeamPanel } from './components/TeamPanel'
 import { AccountBadge } from './components/portal/AccountBadge'
 import { PetalCard } from './components/portal/PetalCard'
@@ -13,11 +13,12 @@ import { PortalScene } from './components/portal/PortalScene'
 import { eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
 import { useOperationRunner } from './lib/operations'
+import { canLeaveByTeamRule, canLeaveCurrentTeam } from './lib/teamLeave'
 import { participantClassStorageKey } from './screens/EntryScreen'
 import { DetailsScreen } from './screens/DetailsScreen'
 import { IntakeScreen } from './screens/IntakeScreen'
 import { TeamScreen } from './screens/TeamScreen'
-import type { ParticipantClass, PublicState } from './types'
+import type { CurrentTeam, ParticipantClass, PublicState } from './types'
 
 const loadFigmaCallbackScreen = () => import('./screens/FigmaCallbackScreen')
 const loadGitHubCallbackScreen = () => import('./screens/GitHubCallbackScreen')
@@ -53,6 +54,9 @@ export function ParticipantApp({
   authClient: Code2CreateAuthClient
 }) {
   const location = useLocation()
+  const navigate = useNavigate()
+  const { code: joinCodeParam } = useParams<{ code?: string }>()
+  const [pendingTeamSwitchCode, setPendingTeamSwitchCode] = useState<string | null>(null)
   const entryAllowed = useQuery(api.participants.entryAllowed, { eventSlug })
   const me = useQuery(api.participants.me, { eventSlug })
   const access = useQuery(api.access.participantCapabilities, { eventSlug })
@@ -100,6 +104,26 @@ export function ParticipantApp({
   if (!me?.membership) {
     return <ProvisionScreen publicState={publicState} onSignOut={signOut} />
   }
+  if (
+    me.membership.participantClass === 'vit_student' &&
+    me.membership.vitStudentIdentity === null
+  ) {
+    return (
+      <PortalNotice
+        header={(
+          <button
+            type="button"
+            onClick={signOut}
+            className="text-[12px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
+          >
+            Sign out
+          </button>
+        )}
+        title="Verify your VIT account again."
+        body="Sign out, then continue with Google. Your saved profile, team, and proposal stay unchanged."
+      />
+    )
+  }
 
   const accountHeader = (
     <AccountBadge
@@ -109,6 +133,32 @@ export function ParticipantApp({
     />
   )
   const supportRoute = location.pathname === '/support'
+  const joinCode = joinCodeParam?.trim().toUpperCase() ?? ''
+  const finishTeamSwitch = () => {
+    setPendingTeamSwitchCode(null)
+    navigate('/', { replace: true })
+  }
+  const requestedTeamSwitchCode = pendingTeamSwitchCode ?? joinCode
+  const teamSwitch =
+    team &&
+    requestedTeamSwitchCode.length > 0 &&
+    requestedTeamSwitchCode !== team.publicCode &&
+    !team.membershipLocked
+      ? { code: requestedTeamSwitchCode, team }
+      : null
+
+  if (teamSwitch !== null) {
+    return (
+      <SwitchTeamScreen
+        header={accountHeader}
+        team={teamSwitch.team}
+        code={teamSwitch.code}
+        onStarted={() => setPendingTeamSwitchCode(teamSwitch.code)}
+        onFinished={finishTeamSwitch}
+        onStay={finishTeamSwitch}
+      />
+    )
+  }
 
   if (hasTeamMembership && canReadTeam && !team) return <PortalLoading />
 
@@ -171,6 +221,7 @@ export function ParticipantApp({
         <IntakeScreen
           team={team}
           members={teamMembers.results}
+          onSignOut={signOut}
           {...(intakeStatus.submissionFailureMessage === undefined
             ? {}
             : { submissionFailureMessage: intakeStatus.submissionFailureMessage })}
@@ -192,6 +243,7 @@ export function ParticipantApp({
           publicState={publicState}
           team={team}
           members={teamMembers.results}
+          onSignOut={signOut}
         />
       </Suspense>
     )
@@ -214,11 +266,12 @@ export function ParticipantApp({
       : location.pathname === '/integrations'
         ? canOpenIntegrations ? <IntegrationsScreen /> : <Navigate replace to="/" />
         : intakeStatus.applicationState !== null
-          ? <SubmittedScreen capabilities={access} publicState={publicState} team={team} members={teamMembers.results} />
+          ? <SubmittedScreen capabilities={access} publicState={publicState} team={team} members={teamMembers.results} onSignOut={signOut} />
           : (
               <IntakeScreen
                 team={team}
                 members={teamMembers.results}
+                onSignOut={signOut}
                 {...(intakeStatus.submissionFailureMessage === undefined
                   ? {}
                   : { submissionFailureMessage: intakeStatus.submissionFailureMessage })}
@@ -347,6 +400,86 @@ function PortalLoading() {
       <p role="status" className="font-display text-xl italic text-rose-light">
         Loading your portal…
       </p>
+    </PortalScene>
+  )
+}
+
+function SwitchTeamScreen({
+  header,
+  team,
+  code,
+  onStarted,
+  onFinished,
+  onStay,
+}: {
+  header: ReactNode
+  team: CurrentTeam
+  code: string
+  onStarted: () => void
+  onFinished: () => void
+  onStay: () => void
+}) {
+  const switchTeam = useMutation(api.teams.switchTeam)
+  const [error, setError] = useState<string | null>(null)
+  const operations = useOperationRunner()
+  const switchPending = operations.hasPending('team-switch')
+  const canLeave = canLeaveCurrentTeam(team)
+  const needsTransfer = team.canLeave && !canLeaveByTeamRule(team)
+
+  const confirmSwitch = async () => {
+    if (!switchPending && !canLeave) return
+    setError(null)
+    onStarted()
+    try {
+      await operations.run('team-switch', (clientOperationId) => () =>
+        switchTeam({
+          eventSlug,
+          fromTeamId: team.id,
+          expectedFromTeamVersion: team.version,
+          code,
+          clientOperationId,
+        }),
+      )
+      onFinished()
+    } catch (caught) {
+      setError(readableError(caught))
+    }
+  }
+
+  const prompt = team.activeMemberCount === 1
+    ? `Leave and close ${team.name}, then join the team ${code}?`
+    : `Leave ${team.name} and join the team ${code}?`
+
+  return (
+    <PortalScene tree="both" header={header}>
+      <PetalCard className="w-full max-w-[600px] px-7 py-7 sm:px-9">
+        <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-rose-light">Switch team</p>
+        <h1 className="font-display text-3xl italic">
+          {team.name}
+        </h1>
+        {needsTransfer ? (
+          <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">
+            Transfer leadership before leaving this team.
+          </p>
+        ) : !canLeave ? (
+          <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">
+            Leaving this team is unavailable.
+          </p>
+        ) : (
+          <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">{prompt}</p>
+        )}
+        <div className="mt-6 flex flex-wrap gap-3">
+          {!switchPending && (needsTransfer || !canLeave) ? null : (
+            <PortalButton type="button" onClick={() => void confirmSwitch()}>
+              {switchPending ? 'Confirm earlier switch' : 'Leave and join'}
+            </PortalButton>
+          )}
+          <PortalTextButton type="button" disabled={switchPending} onClick={onStay}>
+            Stay on this team
+          </PortalTextButton>
+        </div>
+        <PortalError message={error} />
+      </PetalCard>
     </PortalScene>
   )
 }
@@ -540,12 +673,12 @@ function ProvisionScreen({
           Choose your participant type.
         </h1>
         <p className="mb-7 text-[12.5px] text-[rgb(248_248_248/.5)]">
-          Choose VIT student if you signed in with your VIT email.
+          VIT students must use their @vitstudent.ac.in Google account.
         </p>
         <div className="mb-6 flex w-full flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4">
           <ProvisionChoice
             title="VIT student"
-            detail="Your VIT email is required."
+            detail="Only @vitstudent.ac.in accounts are accepted."
             disabled={!vitOpen}
             selected={participantClass === 'vit_student'}
             onSelect={() => choose('vit_student')}

@@ -504,6 +504,7 @@ async function createGoogleIdentity(backend: BackendTest, email: string) {
       authUserId,
       googleSubject: `google:${email}`,
       verifiedEmail: email,
+      displayName: "Event owner",
       tokenIssuedAt: now - 1_000,
       tokenExpiresAt: now + 60 * 60 * 1_000,
       verifiedAt: now,
