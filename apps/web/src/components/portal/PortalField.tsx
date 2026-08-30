@@ -83,7 +83,6 @@ export function PortalCheckRow({
         checked={checked}
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
-        className="mt-0.5 accent-rose"
       />
       <span>{children}</span>
     </label>
