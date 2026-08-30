@@ -274,6 +274,73 @@ describe("intake policy configuration", () => {
     ]);
   });
 
+  test("a provider transport failure immediately publishes the deterministic fallback", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, "assisted");
+    vi.stubEnv("OPENAI_API_KEY", "intake-provider-test-key");
+    vi.stubGlobal("fetch", async () => {
+      throw new TypeError("The provider connection is unavailable.");
+    });
+
+    await backend.action(internal.intelligence.interpretIdea, {
+      draftId: fixture.projectDraftId,
+    });
+
+    const question = await currentQuestion(backend, fixture.projectDraftId, 1);
+    const interpretation = await backend.run((ctx) => ctx.db
+      .query("intakeInterpretations")
+      .withIndex("by_draft_created", (index) => index.eq("draftId", fixture.projectDraftId))
+      .unique());
+    expect(question).toMatchObject({
+      source: "fallback",
+      text: defaultDeterministicIntakePolicy.fallbackQuestions[0]?.text,
+    });
+    expect(interpretation).toMatchObject({
+      state: "failed",
+      failureCategory: "provider_request_failed",
+    });
+  });
+
+  test("the settlement deadline publishes one fallback and rejects a late provider result", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, "assisted");
+    const context = await beginAssisted(backend, fixture.projectDraftId);
+
+    await backend.mutation(internal.intelligence.expireIntakeInterpretation, {
+      interpretationId: context.interpretationId,
+      inputFingerprint: context.inputFingerprint,
+    });
+    await backend.mutation(internal.intelligence.finishIntakeInterpretation, {
+      interpretationId: context.interpretationId,
+      inputFingerprint: context.inputFingerprint,
+      state: "succeeded",
+      coveragePurposeKeys: ["user"],
+      nextQuestionText: "Who would use this project first?",
+      nextQuestionPurposeKey: "user",
+      nextQuestionAnswerLength: "short",
+      nextQuestionSourceAnswerVersionIds: [fixture.initialAnswerId],
+      stopReason: "needs_question",
+      latencyMs: 16_000,
+    });
+
+    const result = await backend.run(async (ctx) => ({
+      interpretation: await ctx.db.get(context.interpretationId),
+      questions: await ctx.db
+        .query("intakeGeneratedQuestions")
+        .withIndex("by_draft_ordinal", (index) => index.eq("draftId", fixture.projectDraftId))
+        .collect(),
+    }));
+    expect(result.interpretation).toMatchObject({
+      state: "timed_out",
+      failureCategory: "settlement_deadline_exceeded",
+    });
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0]).toMatchObject({
+      source: "fallback",
+      validationCategory: "published_fallback",
+    });
+  });
+
   test("a premature assisted stop cannot omit the third total question", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "assisted");

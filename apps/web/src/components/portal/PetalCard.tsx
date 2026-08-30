@@ -18,11 +18,11 @@ export function PetalCard({
       {glow ? (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-[15%] bottom-[-28px] h-14 bg-[radial-gradient(ellipse,rgba(216,132,162,.4),transparent_70%)] blur-[26px]"
+          className="pointer-events-none absolute inset-x-[15%] bottom-[-28px] h-14 bg-[radial-gradient(ellipse,var(--petal-card-glow),transparent_70%)] blur-[26px]"
         />
       ) : null}
       <div
-        className={`relative rounded-petal border border-petal-edge bg-[linear-gradient(155deg,rgba(255,255,255,.09),rgba(12,0,4,.5)_55%,rgba(160,66,99,.2))] shadow-[0_36px_70px_-22px_rgba(0,0,0,.85),inset_0_1px_0_rgba(255,255,255,.16)] backdrop-blur-md ${className}`}
+        className={`relative rounded-petal border border-petal-edge bg-[image:var(--petal-card-bg)] shadow-[0_36px_70px_-22px_var(--shade-2),inset_0_1px_0_var(--card-topline)] backdrop-blur-md ${className}`}
       >
         {children}
       </div>

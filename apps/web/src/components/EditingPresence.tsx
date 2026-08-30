@@ -35,8 +35,8 @@ export function EditingPresence({
     : sharedSurface === 'follow_up'
       ? 'answering a question'
       : sharedSurface === 'proposal_revision'
-        ? 'updating the proposal'
-        : 'editing the proposal'
+        ? 'updating the submission'
+        : 'editing the submission'
 
   return (
     <p

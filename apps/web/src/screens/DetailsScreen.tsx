@@ -144,7 +144,7 @@ export function DetailsScreen({
       <PortalScene tree="right" header={header}>
         <PetalCard className="max-w-[560px] px-8 py-7">
           <h1 className="mb-3 font-display font-light tracking-[-.01em] text-3xl">Profile editing is unavailable.</h1>
-          <p className="text-[13px] text-[rgb(248_248_248/.6)]">
+          <p className="text-[13px] text-fg/60">
             Ask an organizer if this looks wrong.
           </p>
         </PetalCard>
@@ -155,7 +155,7 @@ export function DetailsScreen({
   return (
     <PortalScene tree="right" header={header}>
       <div className="flex w-full max-w-[640px] flex-col items-center">
-        <h1 className="mb-7 text-center font-display font-normal tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_rgba(0,0,0,.55)] lg:text-[40px]">
+        <h1 className="mb-7 text-center font-display font-normal tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_var(--scene-text-glow)] lg:text-[40px]">
           A few details, once.
         </h1>
 
@@ -164,7 +164,7 @@ export function DetailsScreen({
             <fieldset disabled={disabled} className="contents">
               <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
                 {vitStudentIdentity ? (
-                  <PortalField label="full name" hint="verified by your VIT Google account">
+                  <PortalField label="full name" hint="verified">
                     {(id) => <PortalInput id={id} readOnly value={vitStudentIdentity.fullName} />}
                   </PortalField>
                 ) : (
@@ -208,7 +208,7 @@ export function DetailsScreen({
                 ) : null}
 
                 {vitStudentIdentity ? (
-                  <PortalField label="college or university" hint="verified from your VIT account">
+                  <PortalField label="college or university" hint="verified">
                     {(id) => <PortalInput id={id} readOnly value="Vellore Institute of Technology" />}
                   </PortalField>
                 ) : (
@@ -225,7 +225,7 @@ export function DetailsScreen({
                 )}
 
                 {vitStudentIdentity ? (
-                  <PortalField label="year of study" hint="derived from your registration number">
+                  <PortalField label="year of study" hint="auto">
                     {(id) => (
                       <PortalInput
                         id={id}
@@ -275,7 +275,7 @@ export function DetailsScreen({
                     {policy.vitRegistrationNumberField !== 'not_collected' ? (
                       <PortalField
                         label="registration number"
-                        hint="verified from your VIT Google account"
+                        hint="verified"
                       >
                         {(id) => (
                           <PortalInput
@@ -290,7 +290,7 @@ export function DetailsScreen({
                     {policy.vitProgrammeField !== 'not_collected' ? (
                       <PortalField
                         label="programme code"
-                        hint="derived from your registration number"
+                        hint="auto"
                       >
                         {(id) => (
                           <PortalInput
@@ -359,18 +359,26 @@ export function DetailsScreen({
                   disabled={policyAlreadyAccepted || disabled}
                   onChange={setAccepted}
                 >
-                  I accept the participant policy and the{' '}
+                  I accept the{' '}
                   <a
                     href={policy.privacyNoticeUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-rose-light underline-offset-2 hover:underline"
+                    className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"
+                  >
+                    participant policy
+                  </a>{' '}
+                  and the{' '}
+                  <a
+                    href={policy.privacyNoticeUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"
                   >
                     privacy notice
-                  </a>{' '}
-                  · {policy.projectTextNotice}
+                  </a>
                 </PortalCheckRow>
-                <p className="mt-2 pl-6 text-[11.5px] text-[rgb(248_248_248/.45)]">
+                <p className="mt-2 pl-6 text-[11.5px] text-fg/45">
                   {policy.profileNotice}
                 </p>
               </div>
@@ -379,7 +387,7 @@ export function DetailsScreen({
             <PortalError message={error} />
 
             <div className="mt-3.5 flex items-center justify-between border-t border-petal-line pt-3.5">
-              <span className="text-xs text-[rgb(248_248_248/.45)]">
+              <span className="text-xs text-fg/45">
                 {savePending ? 'confirming your earlier save' : 'saved when you continue'}
               </span>
               <PortalButton type="submit" size="sm" disabled={disabled || !accepted}>

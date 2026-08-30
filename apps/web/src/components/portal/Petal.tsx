@@ -7,9 +7,18 @@ export function Petal({ size = 14, state = 'done' }: { size?: number; state?: Pe
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
       {state === 'todo' ? (
-        <path d={PETAL_PATH} fill="none" stroke="rgb(216 132 162 / .6)" strokeWidth="1.6" />
+        <path
+          d={PETAL_PATH}
+          fill="none"
+          stroke="var(--color-rose)"
+          strokeOpacity=".6"
+          strokeWidth="1.6"
+        />
       ) : (
-        <path d={PETAL_PATH} fill={state === 'current' ? '#d884a2' : '#feb4cb'}>
+        <path
+          d={PETAL_PATH}
+          fill={state === 'current' ? 'var(--color-petal-b)' : 'var(--color-petal-a)'}
+        >
           {state === 'current' ? (
             <animate attributeName="opacity" values="1;.45;1" dur="2.2s" repeatCount="indefinite" />
           ) : null}

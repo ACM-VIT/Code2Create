@@ -1200,7 +1200,11 @@ export const saveInitialIdea = mutation({
       ctx,
       internal.intelligence.interpretIdea,
       { draftId },
-      { retry: false },
+      {
+        retry: false,
+        onComplete: internal.intelligence.intakeGenerationFinished,
+        context: { draftId, draftVersion },
+      },
     );
     await recordDraftOperation(ctx, {
       eventId: event._id,
@@ -1344,7 +1348,11 @@ export const respondToFollowUp = mutation({
         ctx,
         internal.intelligence.interpretIdea,
         { draftId: draft._id },
-        { retry: false },
+        {
+          retry: false,
+          onComplete: internal.intelligence.intakeGenerationFinished,
+          context: { draftId: draft._id, draftVersion },
+        },
       );
     }
     await recordDraftOperation(ctx, {
@@ -1479,7 +1487,11 @@ export const reviseFollowUp = mutation({
         ctx,
         internal.intelligence.interpretIdea,
         { draftId: draft._id },
-        { retry: false },
+        {
+          retry: false,
+          onComplete: internal.intelligence.intakeGenerationFinished,
+          context: { draftId: draft._id, draftVersion },
+        },
       );
     }
     await recordDraftOperation(ctx, {

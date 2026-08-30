@@ -1,4 +1,6 @@
 export const ideaQuestionModelId = "gpt-5.6-luna";
+export const ideaQuestionProviderTimeoutMs = 12_000;
+export const ideaQuestionSettlementDeadlineMs = 15_000;
 
 export const ideaQuestionSystemInstruction = `You write one short follow-up question for a hackathon team's project introduction.
 

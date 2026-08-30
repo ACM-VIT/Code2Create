@@ -2,8 +2,9 @@ import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
+import type { DataModel, Doc } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
+import type { TableNamesInDataModel } from "convex/server";
 import { operationFingerprint } from "./lib/operations";
 import { normalizeEmail, normalizedText } from "./lib/strings";
 import { bootstrapEventInput, createInitialEvent } from "./system";
@@ -24,6 +25,14 @@ function requireStagingDeployment() {
       message: "Staging setup can run only on the staging deployment.",
     });
   }
+}
+
+async function deleteAllFromTable<
+  TableName extends TableNamesInDataModel<DataModel>,
+>(ctx: MutationCtx, table: TableName) {
+  const documents = await ctx.db.query(table).collect();
+  for (const document of documents) await ctx.db.delete(document._id);
+  return documents.length;
 }
 
 async function stagingActor(ctx: MutationCtx) {
@@ -286,5 +295,120 @@ export const addSupremeTesters = internalMutation({
       testers: normalizedTesters(args.supremeTesters),
     });
     return { eventId: event._id, createdTesterRosterEntries };
+  },
+});
+
+export const resetParticipantTestingData = internalMutation({
+  args: { eventSlug: v.string() },
+  returns: v.object({
+    deletedDocuments: v.number(),
+    deletedParticipantPermissionGrants: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    requireStagingDeployment();
+    const event = await ctx.db
+      .query("events")
+      .withIndex("by_slug", (index) => index.eq("slug", args.eventSlug.trim()))
+      .unique();
+    if (!event) {
+      throw new ConvexError({
+        code: "STAGING_EVENT_NOT_FOUND",
+        message: "The staging event does not exist.",
+      });
+    }
+
+    const participantPermissionGrants = (
+      await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_person_status", (index) => index.eq("eventId", event._id))
+        .collect()
+    ).filter(
+      (grant) =>
+        grant.sourceType === "participant_membership" ||
+        grant.sourceType === "team_membership" ||
+        grant.sourceType === "team_lead" ||
+        grant.sourceType === "application_assignment" ||
+        grant.sourceType === "panel_assignment" ||
+        grant.sourceType === "reserve_assignment" ||
+        grant.sourceType === "page_assignment" ||
+        grant.sourceType === "station_assignment",
+    );
+
+    for (const grant of participantPermissionGrants) await ctx.db.delete(grant._id);
+
+    const deletedCounts = await Promise.all([
+      deleteAllFromTable(ctx, "participantNotificationProviderEvents"),
+      deleteAllFromTable(ctx, "participantNotificationDeliveries"),
+      deleteAllFromTable(ctx, "participantNotificationDestinations"),
+      deleteAllFromTable(ctx, "outboundCallProviderEvents"),
+      deleteAllFromTable(ctx, "outboundCallDeliveries"),
+      deleteAllFromTable(ctx, "outboundCallConsents"),
+      deleteAllFromTable(ctx, "admissionCapacityReservations"),
+      deleteAllFromTable(ctx, "admissionOffers"),
+      deleteAllFromTable(ctx, "admissionInformationRequests"),
+      deleteAllFromTable(ctx, "admissionHumanReviews"),
+      deleteAllFromTable(ctx, "admissionAIRecommendations"),
+      deleteAllFromTable(ctx, "admissionReviewAssignments"),
+      deleteAllFromTable(ctx, "applications"),
+      deleteAllFromTable(ctx, "reviewEvaluations"),
+      deleteAllFromTable(ctx, "reviewAssignments"),
+      deleteAllFromTable(ctx, "reviewPresence"),
+      deleteAllFromTable(ctx, "reviewParticipantAvailabilityWaivers"),
+      deleteAllFromTable(ctx, "reviewTeamQrTokens"),
+      deleteAllFromTable(ctx, "teamRoundStates"),
+      deleteAllFromTable(ctx, "scorecardCorrectionCases"),
+      deleteAllFromTable(ctx, "scorecardVersions"),
+      deleteAllFromTable(ctx, "scorecards"),
+      deleteAllFromTable(ctx, "teamCheckpointSubmissions"),
+      deleteAllFromTable(ctx, "teamCheckpointDrafts"),
+      deleteAllFromTable(ctx, "figmaWebhookDeliveries"),
+      deleteAllFromTable(ctx, "figmaSnapshotActivity"),
+      deleteAllFromTable(ctx, "figmaNodeFacts"),
+      deleteAllFromTable(ctx, "figmaVersionFacts"),
+      deleteAllFromTable(ctx, "figmaFileSnapshots"),
+      deleteAllFromTable(ctx, "figmaFileMetrics"),
+      deleteAllFromTable(ctx, "figmaFileBindings"),
+      deleteAllFromTable(ctx, "figmaPreviewSets"),
+      deleteAllFromTable(ctx, "figmaSetupIntents"),
+      deleteAllFromTable(ctx, "figmaCredentialConnections"),
+      deleteAllFromTable(ctx, "figmaOAuthCredentials"),
+      deleteAllFromTable(ctx, "githubWebhookDeliveries"),
+      deleteAllFromTable(ctx, "githubPushEvents"),
+      deleteAllFromTable(ctx, "githubRepositorySnapshots"),
+      deleteAllFromTable(ctx, "githubRepositoryMetrics"),
+      deleteAllFromTable(ctx, "githubRepositoryBindings"),
+      deleteAllFromTable(ctx, "githubTeamMetrics"),
+      deleteAllFromTable(ctx, "githubSetupIntents"),
+      deleteAllFromTable(ctx, "githubInstallationConnections"),
+      deleteAllFromTable(ctx, "integrationArtifacts"),
+      deleteAllFromTable(ctx, "floorMappingClaims"),
+      deleteAllFromTable(ctx, "floorTeamQrTokens"),
+      deleteAllFromTable(ctx, "teamFloorLocations"),
+      deleteAllFromTable(ctx, "noveltyPreviewRequests"),
+      deleteAllFromTable(ctx, "noveltyTeamIdeas"),
+      deleteAllFromTable(ctx, "intakeInterpretations"),
+      deleteAllFromTable(ctx, "intakeGeneratedQuestions"),
+      deleteAllFromTable(ctx, "intakeAnswerVersions"),
+      deleteAllFromTable(ctx, "projectVersions"),
+      deleteAllFromTable(ctx, "projectDrafts"),
+      deleteAllFromTable(ctx, "teamSubmissionMembers"),
+      deleteAllFromTable(ctx, "teamSubmissionAttempts"),
+      deleteAllFromTable(ctx, "teamLeadershipTransfers"),
+      deleteAllFromTable(ctx, "teamMembers"),
+      deleteAllFromTable(ctx, "teams"),
+      deleteAllFromTable(ctx, "teamRosterEntries"),
+      deleteAllFromTable(ctx, "teamRosterImports"),
+      deleteAllFromTable(ctx, "participantProfiles"),
+      deleteAllFromTable(ctx, "eventMemberships"),
+    ]);
+
+    const deletedOperationResults = await deleteAllFromTable(ctx, "operationResults");
+
+    return {
+      deletedDocuments:
+        deletedCounts.reduce((total, count) => total + count, 0) +
+        deletedOperationResults,
+      deletedParticipantPermissionGrants: participantPermissionGrants.length,
+    };
   },
 });

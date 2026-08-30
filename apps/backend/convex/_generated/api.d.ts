@@ -62,6 +62,7 @@ import type * as intakePresence from "../intakePresence.js";
 import type * as integrationOperations from "../integrationOperations.js";
 import type * as integrationPolicyConfiguration from "../integrationPolicyConfiguration.js";
 import type * as intelligence from "../intelligence.js";
+import type * as intelligenceActions from "../intelligenceActions.js";
 import type * as intelligenceObservability from "../intelligenceObservability.js";
 import type * as intelligenceReads from "../intelligenceReads.js";
 import type * as intelligenceRecommendations from "../intelligenceRecommendations.js";
@@ -313,6 +314,7 @@ declare const fullApi: ApiFromModules<{
   integrationOperations: typeof integrationOperations;
   integrationPolicyConfiguration: typeof integrationPolicyConfiguration;
   intelligence: typeof intelligence;
+  intelligenceActions: typeof intelligenceActions;
   intelligenceObservability: typeof intelligenceObservability;
   intelligenceReads: typeof intelligenceReads;
   intelligenceRecommendations: typeof intelligenceRecommendations;

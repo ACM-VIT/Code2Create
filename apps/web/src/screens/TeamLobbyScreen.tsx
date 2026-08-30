@@ -7,7 +7,7 @@ import { Petal } from '../components/portal/Petal'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { PortalError } from '../components/portal/PortalField'
 import { PortalScene } from '../components/portal/PortalScene'
-import { initialsOf } from '../components/portal/initials'
+import { Flower } from '../components/portal/FlowerAvatar'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
@@ -130,13 +130,13 @@ export function TeamLobbyScreen({
       tree="right"
       header={
         <div className="flex flex-col items-end gap-1">
-          <p className="m-0 font-ui text-[13.5px] text-[rgb(254_180_203/.8)]">
+          <p className="m-0 font-ui text-[13.5px] text-rose-light/80">
             {team.activeMemberCount} of {team.teamMaximumSize} seats
           </p>
           <button
             type="button"
             onClick={onSignOut}
-            className="text-[11.5px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
+            className="text-[11.5px] text-fg/45 transition-colors hover:text-rose-light"
           >
             sign out
           </button>
@@ -144,14 +144,13 @@ export function TeamLobbyScreen({
       }
     >
       <div className="flex w-full max-w-[860px] flex-col items-center text-center">
-        <p className="mb-2 font-ui text-lg text-rose-light">your squad</p>
-        <h1 className="mb-11 font-display font-light tracking-[-.01em] text-4xl text-shadow-[0_6px_40px_rgba(0,0,0,.6)] lg:text-[54px]">
+        <h1 className="mb-11 font-display font-light tracking-[-.01em] text-4xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[54px]">
           {team.name}
         </h1>
 
         {transferInbound ? (
-          <div className="mb-8 w-full max-w-[520px] rounded-petal-sm border border-petal-edge bg-[rgb(12_0_4/.6)] px-6 py-4 backdrop-blur-md">
-            <p className="mb-3 text-[13px] text-[rgb(248_248_248/.85)]">
+          <div className="mb-8 w-full max-w-[520px] rounded-petal-sm border border-petal-edge bg-wash/60 px-6 py-4 backdrop-blur-md">
+            <p className="mb-3 text-[13px] text-fg/85">
               You’ve been asked to lead {team.name}.
             </p>
             <div className="flex justify-center gap-3">
@@ -164,7 +163,7 @@ export function TeamLobbyScreen({
             </div>
           </div>
         ) : currentTransfer ? (
-          <p className="mb-8 text-[12.5px] text-[rgb(248_248_248/.55)]">
+          <p className="mb-8 text-[12.5px] text-fg/55">
             Waiting for{' '}
             {members.find((member) => member.membershipId === currentTransfer.toMembershipId)
               ?.displayName ?? 'a teammate'}{' '}
@@ -192,11 +191,11 @@ export function TeamLobbyScreen({
                   }}
                   className={`relative mx-auto flex size-[72px] items-center justify-center rounded-full text-xl font-semibold transition-all duration-250 lg:size-[88px] lg:text-2xl ${
                     lead
-                      ? 'border-[2.5px] border-rose-light bg-avatar-lead shadow-[0_0_26px_rgba(254,180,203,.5),0_14px_30px_rgba(0,0,0,.6)]'
-                      : 'border-2 border-[rgb(216_132_162/.7)] bg-avatar shadow-[0_14px_30px_rgba(0,0,0,.6)]'
+                      ? 'border-[2.5px] border-ring-lead bg-avatar-lead shadow-[0_0_26px_var(--avatar-glow),0_14px_30px_var(--shade-1)]'
+                      : 'border-2 border-rose/70 bg-avatar shadow-[0_14px_30px_var(--shade-1)]'
                   } ${pickable ? 'cursor-pointer hover:-translate-y-1 hover:border-rose-light' : 'cursor-default'}`}
                 >
-                  {initialsOf(member.displayName)}
+                  <Flower seed={member.membershipId} lead={lead} size={38} />
                   {lead ? (
                     <span className="absolute -top-1.5 -right-1">
                       <Petal size={20} />
@@ -208,7 +207,7 @@ export function TeamLobbyScreen({
                 </p>
                 <p
                   className={`m-0 text-[11.5px] ${
-                    lead || you ? 'text-rose-light' : 'text-[rgb(248_248_248/.5)]'
+                    lead || you ? 'text-rose-light' : 'text-fg/50'
                   }`}
                 >
                   {[lead ? 'lead' : null, you ? 'you' : null].filter(Boolean).join(' · ') ||
@@ -219,11 +218,11 @@ export function TeamLobbyScreen({
           })}
           {Array.from({ length: openSeats }, (_, index) => (
             <div key={`open-${index}`} className="w-[104px] lg:w-[120px]">
-              <div className="mx-auto flex size-[72px] items-center justify-center rounded-full border-2 border-dashed border-[rgb(216_132_162/.55)] bg-[rgb(42_14_24/.4)] text-xl font-semibold text-[rgb(248_248_248/.4)] lg:size-[88px]">
+              <div className="mx-auto flex size-[72px] items-center justify-center rounded-full border-2 border-dashed border-rose/55 bg-avatar/40 text-xl font-semibold text-fg/40 lg:size-[88px]">
                 ·
               </div>
-              <p className="mt-3 mb-0.5 text-sm font-semibold text-[rgb(248_248_248/.5)]">open</p>
-              <p className="m-0 text-[11.5px] text-[rgb(248_248_248/.4)]">share the code</p>
+              <p className="mt-3 mb-0.5 text-sm font-semibold text-fg/50">open</p>
+              <p className="m-0 text-[11.5px] text-fg/40">share the code</p>
             </div>
           ))}
         </div>
@@ -246,8 +245,8 @@ export function TeamLobbyScreen({
         ) : null}
 
         {mode === 'leave' ? (
-          <div className="mb-6 w-full max-w-[420px] rounded-petal-sm border border-petal-edge-soft bg-[rgb(12_0_4/.6)] px-6 py-4 backdrop-blur-md">
-            <p className="mb-3 text-[13px] text-[rgb(248_248_248/.85)]">
+          <div className="mb-6 w-full max-w-[420px] rounded-petal-sm border border-petal-edge-soft bg-wash/60 px-6 py-4 backdrop-blur-md">
+            <p className="mb-3 text-[13px] text-fg/85">
               {team.activeMemberCount === 1
                 ? `Leave and close ${team.name}?`
                 : `Leave ${team.name}?`}
@@ -264,22 +263,22 @@ export function TeamLobbyScreen({
         ) : null}
 
         {!locked ? (
-          <div className="flex items-center gap-3.5 rounded-petal-sm border border-petal-edge bg-[linear-gradient(155deg,rgba(255,255,255,.09),rgba(12,0,4,.5)_55%)] px-6 py-3 shadow-[0_24px_50px_-18px_rgba(0,0,0,.8)] backdrop-blur-md">
+          <div className="flex items-center gap-3.5 rounded-petal-sm border border-petal-edge bg-[image:var(--tile-bg-active)] px-6 py-3 shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-md">
             <span className="font-mono text-[17px] tracking-[.14em] text-rose-light lg:text-[19px]">
               {team.publicCode}
             </span>
-            <span aria-hidden className="h-[18px] w-px bg-[rgb(216_132_162/.4)]" />
+            <span aria-hidden className="h-[18px] w-px bg-rose/40" />
             <button
               type="button"
               onClick={() => void copyCode(team.publicCode)}
-              className="text-[13px] text-paper transition-colors hover:text-rose-light"
+              className="text-[13px] text-fg transition-colors hover:text-rose-light"
             >
               {copied ? 'copied' : 'copy'}
             </button>
             <button
               type="button"
               onClick={() => void copyCode(joinLink)}
-              className="text-[13px] text-paper transition-colors hover:text-rose-light"
+              className="text-[13px] text-fg transition-colors hover:text-rose-light"
             >
               share link
             </button>
@@ -309,7 +308,7 @@ export function TeamLobbyScreen({
         ) : null}
 
         <PortalError message={error} />
-        <p className="mt-4.5 text-[11.5px] text-[rgb(248_248_248/.4)]">
+        <p className="mt-4.5 text-[11.5px] text-fg/40">
           {locked ? 'membership locked at submission' : 'editable until you submit'} ·{' '}
           <Link to="/" className="text-rose-light">
             back home

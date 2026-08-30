@@ -7,8 +7,8 @@ import { PortalScene } from '../components/portal/PortalScene'
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { Petal, SakuraSteps } from '../components/portal/Petal'
-import { LiveTeamCluster } from '../components/portal/LiveTeamCluster'
-import { initialsOf } from '../components/portal/initials'
+import { TeamCluster } from '../components/portal/TeamCluster'
+import { Flower } from '../components/portal/FlowerAvatar'
 import {
   PortalCheckRow,
   PortalError,
@@ -147,7 +147,7 @@ function IntakeStage({
     <PortalScene
       tree="left"
       branch={branch}
-      header={<LiveTeamCluster team={team} members={members} onSignOut={onSignOut} />}
+      header={<TeamCluster team={team} members={members} onSignOut={onSignOut} />}
     >
       {topCenter ? (
         <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
@@ -161,12 +161,12 @@ function IntakeStage({
           </div>
         ) : null}
         <h1
-          className={`mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight text-shadow-[0_4px_30px_rgba(0,0,0,.55)] ${titleClass}`}
+          className={`mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight text-shadow-[0_4px_30px_var(--scene-text-glow)] ${titleClass}`}
         >
           {title}
         </h1>
         {hint ? (
-          <p className="-mt-3 mb-6 text-[12.5px] text-[rgb(248_248_248/.5)]">{hint}</p>
+          <p className="-mt-3 mb-6 text-[12.5px] text-fg/50">{hint}</p>
         ) : null}
         {presence}
         {children}
@@ -189,9 +189,9 @@ function ConflictNotice({
   return (
     <div
       role="status"
-      className="mb-4 rounded-petal-xs border border-petal-edge-soft bg-[rgb(12_0_4/.5)] px-4 py-3"
+      className="mb-4 rounded-petal-xs border border-petal-edge-soft bg-wash/50 px-4 py-3"
     >
-      <p className="text-[12.5px] text-[rgb(248_248_248/.75)]">{message}</p>
+      <p className="text-[12.5px] text-fg/75">{message}</p>
       <div className="mt-2 flex gap-4">
         <PortalTextButton type="button" onClick={onUseSaved}>
           Use saved version
@@ -228,7 +228,7 @@ function ReadOnlyIntake({
       <EditingPresence editors={editors ?? []} members={members} />
       {draft?.initialIdea ? (
         <PetalCard className="px-8 py-7">
-          <p className="whitespace-pre-line text-[15px] leading-relaxed text-[rgb(248_248_248/.9)]">
+          <p className="whitespace-pre-line text-[15px] leading-relaxed text-fg/90">
             {draft.initialIdea}
           </p>
         </PetalCard>
@@ -617,7 +617,7 @@ function IntakeWorkspace({
       >
         {draft?.initialIdea ? (
           <PetalCard className="px-8 py-7">
-            <p className="whitespace-pre-line text-[15px] leading-relaxed text-[rgb(248_248_248/.9)]">
+            <p className="whitespace-pre-line text-[15px] leading-relaxed text-fg/90">
               {draft.initialIdea}
             </p>
           </PetalCard>
@@ -707,7 +707,7 @@ function IntakeWorkspace({
             />
             <PortalError message={error} />
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-petal-line pt-3.5">
-              <span className="text-xs text-[rgb(248_248_248/.45)]">
+              <span className="text-xs text-fg/45">
                 {idea.length > initialIdeaMaxLength * 0.8
                   ? `${idea.length} / ${initialIdeaMaxLength}`
                   : ideaDirty
@@ -825,7 +825,7 @@ function IntakeWorkspace({
             />
             <PortalError message={error} />
             <div className="mt-2.5 flex flex-wrap items-center justify-between gap-3 border-t border-petal-line pt-3">
-              <span className="text-xs text-[rgb(248_248_248/.45)]">
+              <span className="text-xs text-fg/45">
                 {answer.length > draft.intakePolicy.followUpAnswerMaxLength * 0.8
                   ? `${answer.length} / ${draft.intakePolicy.followUpAnswerMaxLength}`
                   : answer.trim()
@@ -950,12 +950,12 @@ function IntakeWorkspace({
             <div className="mb-3.5">
               <p className="mb-1 truncate text-left text-[15.5px] font-semibold">
                 {preview.teamName}{' '}
-                <span className="font-normal text-[rgb(248_248_248/.55)]">
-                  · proposal + {preview.followUps.length}{' '}
+                <span className="font-normal text-fg/55">
+                  · idea + {preview.followUps.length}{' '}
                   {preview.followUps.length === 1 ? 'answer' : 'answers'}
                 </span>
               </p>
-              <p className="mb-4 text-left text-xs text-[rgb(248_248_248/.5)]">
+              <p className="mb-4 text-left text-xs text-fg/50">
                 <button
                   type="button"
                   onClick={() => setConfirming(false)}
@@ -973,11 +973,11 @@ function IntakeWorkspace({
                       <div
                         className={`relative mx-auto flex size-[52px] items-center justify-center rounded-full text-sm font-semibold ${
                           lead
-                            ? 'border-2 border-rose-light bg-avatar-lead shadow-[0_0_16px_rgba(254,180,203,.45)]'
-                            : 'border-[1.5px] border-[rgb(216_132_162/.7)] bg-avatar'
+                            ? 'border-2 border-ring-lead bg-avatar-lead shadow-[0_0_16px_var(--avatar-glow)]'
+                            : 'border-[1.5px] border-rose/70 bg-avatar'
                         }`}
                       >
-                        {initialsOf(member.displayName)}
+                        <Flower seed={member.membershipId} lead={lead} size={26} />
                         {lead ? (
                           <span className="absolute -top-1 -right-[3px]">
                             <Petal size={14} />
@@ -989,7 +989,7 @@ function IntakeWorkspace({
                       </p>
                       <p
                         className={`text-[10px] ${
-                          lead || you ? 'text-rose-light' : 'text-[rgb(248_248_248/.5)]'
+                          lead || you ? 'text-rose-light' : 'text-fg/50'
                         }`}
                       >
                         {lead && you
@@ -1083,7 +1083,7 @@ function IntakeWorkspace({
                   )
                 }}
               >
-                {busy ? 'Submitting…' : 'Submit proposal'}
+                {busy ? 'Submitting…' : 'Submit'}
               </PortalButton>
             </div>
           </PetalCard>
@@ -1095,13 +1095,10 @@ function IntakeWorkspace({
     return (
       <PortalScene
         tree="left"
-        header={<LiveTeamCluster team={team} members={members} onSignOut={onSignOut} />}
+        header={<TeamCluster team={team} members={members} onSignOut={onSignOut} />}
       >
         <div className="flex w-full max-w-[760px] flex-col items-center">
-          <p className="mb-1.5 font-ui font-normal text-[17px] text-rose-light">
-            your proposal, together
-          </p>
-          <h1 className="mb-6 text-center font-display font-light tracking-[-.01em] text-3xl text-shadow-[0_6px_40px_rgba(0,0,0,.6)] lg:text-[44px]">
+          <h1 className="mb-6 text-center font-display font-light tracking-[-.01em] text-3xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[44px]">
             {preview.teamName}
           </h1>
 
@@ -1115,9 +1112,9 @@ function IntakeWorkspace({
             {recoveredFollowUp ? (
               <div
                 role="status"
-                className="mt-4 rounded-petal-xs border border-petal-edge-soft bg-[rgb(12_0_4/.5)] px-4 py-3"
+                className="mt-4 rounded-petal-xs border border-petal-edge-soft bg-wash/50 px-4 py-3"
               >
-                <p className="text-[12.5px] text-[rgb(248_248_248/.75)]">
+                <p className="text-[12.5px] text-fg/75">
                   A teammate answered while you were typing. Your draft is still available.
                 </p>
                 <PortalTextButton
@@ -1279,7 +1276,7 @@ function IntakeWorkspace({
             >
               Continue to submit
             </PortalButton>
-            <span className="text-xs text-[rgb(248_248_248/.45)]">
+            <span className="text-xs text-fg/45">
               locks the team, not the writing
             </span>
           </div>
@@ -1306,7 +1303,7 @@ function ReviewSection({
   return (
     <section className="border-b border-petal-line py-4 first:pt-0 last:border-b-0 last:pb-0">
       <div className="mb-1.5 flex items-baseline justify-between gap-4">
-        <span className="text-[11px] tracking-[.06em] text-[rgb(248_248_248/.45)]">{label}</span>
+        <span className="text-[11px] tracking-[.06em] text-fg/45">{label}</span>
         {onEdit ? (
           <button
             type="button"
@@ -1318,7 +1315,7 @@ function ReviewSection({
           </button>
         ) : null}
       </div>
-      <div className="text-sm leading-relaxed text-[rgb(248_248_248/.9)]">{children}</div>
+      <div className="text-sm leading-relaxed text-fg/90">{children}</div>
     </section>
   )
 }
@@ -1349,7 +1346,7 @@ function NoveltyPill({
     <p
       aria-live="polite"
       aria-label="Live novelty score"
-      className="inline-flex items-center rounded-[8px] border border-[rgb(254_180_203/.55)] bg-[rgb(20_3_9/.92)] px-3.5 py-1.5 text-[11.5px] font-semibold text-rose-light shadow-[0_8px_22px_rgba(0,0,0,.35)] backdrop-blur-md"
+      className="inline-flex items-center rounded-[8px] border border-rose-light/55 bg-wash/92 px-3.5 py-1.5 text-[11.5px] font-semibold text-rose-light shadow-[0_8px_22px_var(--shade-1)] backdrop-blur-md"
     >
       {label}
     </p>

@@ -83,7 +83,7 @@ export function ParticipantApp({
           <button
             type="button"
             onClick={signOut}
-            className="text-[12px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
+            className="text-[12px] text-fg/45 transition-colors hover:text-rose-light"
           >
             Sign out
           </button>
@@ -117,7 +117,7 @@ export function ParticipantApp({
           <button
             type="button"
             onClick={signOut}
-            className="text-[12px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
+            className="text-[12px] text-fg/45 transition-colors hover:text-rose-light"
           >
             Sign out
           </button>
@@ -407,7 +407,7 @@ function PortalNotice({
     <PortalScene tree="right" {...(header ? { header } : {})}>
       <PetalCard className="max-w-[560px] px-8 py-7">
         <h1 className="mb-3 font-display font-light tracking-[-.01em] text-2xl lg:text-3xl">{title}</h1>
-        <p className="text-[13px] leading-relaxed text-[rgb(248_248_248/.6)]">{body}</p>
+        <p className="text-[13px] leading-relaxed text-fg/60">{body}</p>
       </PetalCard>
     </PortalScene>
   )
@@ -521,15 +521,15 @@ function SwitchTeamScreen({
           {team.name}
         </h1>
         {needsTransfer ? (
-          <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">
+          <p className="mt-3 text-[13px] leading-relaxed text-fg/58">
             Transfer leadership before leaving this team.
           </p>
         ) : !canLeave ? (
-          <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">
+          <p className="mt-3 text-[13px] leading-relaxed text-fg/58">
             Leaving this team is unavailable.
           </p>
         ) : (
-          <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">{prompt}</p>
+          <p className="mt-3 text-[13px] leading-relaxed text-fg/58">{prompt}</p>
         )}
         <div className="mt-6 flex flex-wrap gap-3">
           {!switchPending && (needsTransfer || !canLeave) ? null : (
@@ -584,16 +584,16 @@ function PendingTeamScreen({
       <PetalCard className="w-full max-w-[600px] px-7 py-7 sm:px-9">
         <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-rose-light">Your team</p>
         <h1 className="font-display font-light tracking-[-.01em] text-3xl">{pendingTeam.teamName}</h1>
-        <p className="mt-3 text-[13px] leading-relaxed text-[rgb(248_248_248/.58)]">
+        <p className="mt-3 text-[13px] leading-relaxed text-fg/58">
           {pendingTeam.status === 'waiting_for_lead'
             ? 'Your team lead has not signed in yet. You will join automatically when they do.'
             : `You will join as ${pendingTeam.role === 'lead' ? 'the lead' : 'a member'} shortly.`}
         </p>
-        <ul className="mt-6 divide-y divide-white/10">
+        <ul className="m-0 mt-6 list-none divide-y divide-fg/10 p-0">
           {pendingTeam.assignees.map((assignee, index) => (
             <li className="flex items-center justify-between gap-4 py-3" key={`${assignee.role}:${index}`}>
-              <span className="text-sm text-[rgb(248_248_248/.86)]">{assignee.displayName}</span>
-              <small className="text-right text-[11px] text-[rgb(248_248_248/.42)]">
+              <span className="text-sm text-fg/86">{assignee.displayName}</span>
+              <small className="text-right text-[11px] text-fg/42">
                 {assignee.role === 'lead' ? 'Lead' : 'Member'}
                 {assignee.isYou ? ' · You' : ''}
                 {` · ${assignee.signedIn ? 'Signed in' : 'Waiting'}`}
@@ -602,8 +602,8 @@ function PendingTeamScreen({
           ))}
         </ul>
         {confirmLeave ? (
-          <div className="mt-6 border-t border-white/10 pt-5">
-            <p className="text-[13px] text-[rgb(248_248_248/.65)]">
+          <div className="mt-6 border-t border-fg/10 pt-5">
+            <p className="text-[13px] text-fg/65">
               Leave this assignment? You can create or join another team afterward.
             </p>
             <div className="mt-4 flex flex-wrap gap-3">
@@ -618,7 +618,7 @@ function PendingTeamScreen({
         ) : (
           <button
             type="button"
-            className="mt-6 text-[12px] text-[rgb(248_248_248/.4)] underline-offset-4 hover:text-rose-light hover:underline"
+            className="mt-6 text-[12px] text-fg/40 underline-offset-4 hover:text-rose-light hover:underline"
             disabled={leavePending}
             onClick={() => setConfirmLeave(true)}
           >
@@ -722,7 +722,7 @@ function ProvisionScreen({
         <button
           type="button"
           onClick={onSignOut}
-          className="text-[12px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
+          className="text-[12px] text-fg/45 transition-colors hover:text-rose-light"
         >
           Sign out
         </button>
@@ -735,7 +735,7 @@ function ProvisionScreen({
         <h1 className="mb-2 font-display font-light tracking-[-.01em] text-3xl lg:text-[40px]">
           Choose your participant type.
         </h1>
-        <p className="mb-7 text-[12.5px] text-[rgb(248_248_248/.5)]">
+        <p className="mb-7 text-[12.5px] text-fg/50">
           VIT students must use their @vitstudent.ac.in Google account.
         </p>
         <div className="mb-6 flex w-full flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4">
@@ -791,14 +791,14 @@ function ProvisionChoice({
       onClick={onSelect}
       className={`w-full rounded-petal-sm px-6 py-5 text-left backdrop-blur-md transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 sm:w-[250px] ${
         selected
-          ? 'border-[1.5px] border-rose-light bg-[linear-gradient(155deg,rgba(255,255,255,.1),rgba(12,0,4,.55)_60%)] shadow-[0_24px_50px_-18px_rgba(0,0,0,.8),0_0_26px_rgba(216,132,162,.25)]'
-          : 'border border-petal-edge-soft bg-[linear-gradient(155deg,rgba(255,255,255,.06),rgba(12,0,4,.48)_60%)] shadow-[0_24px_50px_-18px_rgba(0,0,0,.8)]'
+          ? 'border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] shadow-[0_24px_50px_-18px_var(--shade-2),0_0_26px_var(--glow-rose-soft)]'
+          : 'border border-petal-edge-soft bg-[image:var(--tile-bg)] shadow-[0_24px_50px_-18px_var(--shade-2)]'
       }`}
     >
-      <p className={`mb-1 font-display font-light tracking-[-.01em] text-[19px] ${selected ? 'text-rose-light' : 'text-[rgb(248_248_248/.85)]'}`}>
+      <p className={`mb-1 font-display font-light tracking-[-.01em] text-[19px] ${selected ? 'text-rose-light' : 'text-fg/85'}`}>
         {title}
       </p>
-      <p className="text-xs text-[rgb(248_248_248/.55)]">{detail}</p>
+      <p className="text-xs text-fg/55">{detail}</p>
     </button>
   )
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { DaybreakToggle } from './DaybreakToggle'
 import { Petals, PETAL_RADIUS } from './Petals'
 
 type TreePlacement = 'left' | 'right' | 'both' | 'none'
@@ -21,7 +22,7 @@ function CursorPetalLayer({ petals }: { petals: readonly CursorPetal[] }) {
               top: `${petal.y}px`,
               width: `${size}px`,
               height: `${size}px`,
-              background: petal.variant % 2 ? '#feb4cb' : '#d884a2',
+              background: petal.variant % 2 ? 'var(--color-petal-a)' : 'var(--color-petal-b)',
               borderRadius: PETAL_RADIUS,
               ['--cursor-drift' as string]: `${drift}px`,
               ['--cursor-fall' as string]: `${58 + (petal.variant % 4) * 9}px`,
@@ -108,7 +109,7 @@ export function PortalScene({
     <div
       data-portal-scene
       onMouseMove={onMove}
-      className="relative flex min-h-dvh flex-col overflow-hidden bg-[linear-gradient(180deg,#0c0004_44%,#220913_70%,#713047_116%,#a04263_144%,#e3a9bf_176%)] font-ui text-paper"
+      className="relative flex min-h-dvh flex-col overflow-hidden bg-wash bg-[image:var(--scene-sky)] font-ui text-fg"
     >
       {backdrop}
       {/* Hills sit furthest back, bleeding past both edges so the band never
@@ -121,7 +122,7 @@ export function PortalScene({
           src="/assets/hills-band.webp"
           alt=""
           aria-hidden
-          className="w-[160%] max-w-none opacity-40 sm:w-full"
+          className="w-[160%] max-w-none opacity-[var(--scene-hills-opacity)] [filter:var(--scene-hills-filter)] sm:w-full"
         />
       </div>
 
@@ -131,7 +132,7 @@ export function PortalScene({
             src="/assets/tree.webp"
             alt=""
             aria-hidden
-            className="absolute bottom-[-30px] left-[-130px] w-[430px] origin-[42%_96%] animate-sway brightness-[.72] saturate-[.92] lg:left-[-150px] lg:w-[740px]"
+            className="absolute bottom-[-30px] left-[-130px] w-[430px] origin-[42%_96%] animate-sway [filter:var(--scene-tree-filter)] lg:left-[-150px] lg:w-[740px]"
           />
         ) : null}
         {showRightTree ? (
@@ -139,7 +140,7 @@ export function PortalScene({
             src="/assets/tree.webp"
             alt=""
             aria-hidden
-            className="absolute right-[-140px] bottom-[-30px] hidden w-[600px] origin-[58%_96%] -scale-x-100 animate-sway brightness-[.55] saturate-[.8] lg:block lg:right-[-170px]"
+            className="absolute right-[-140px] bottom-[-30px] hidden w-[600px] origin-[58%_96%] -scale-x-100 animate-sway [filter:var(--scene-tree-far-filter)] lg:block lg:right-[-170px]"
             style={{ animationDuration: '11s' }}
           />
         ) : null}
@@ -151,7 +152,7 @@ export function PortalScene({
           alt=""
           aria-hidden
           style={{ transform: branchShift }}
-          className="pointer-events-none absolute top-[-16px] left-[-70px] z-[1] hidden w-[500px] brightness-[.85] lg:block"
+          className="pointer-events-none absolute top-[-16px] left-[-70px] z-[1] hidden w-[500px] [filter:var(--scene-branch-filter)] lg:block"
         />
       ) : null}
 
@@ -163,12 +164,15 @@ export function PortalScene({
           <img
             src="/assets/logo.svg"
             alt="Code2Create"
-            className="pointer-events-auto w-[26px] drop-shadow-[0_0_14px_rgba(216,132,162,.5)] lg:w-[30px]"
+            className="pointer-events-auto w-[52px] drop-shadow-[0_0_14px_var(--logo-glow)] lg:w-[60px]"
           />
         ) : (
           <span />
         )}
-        {header ? <div className="pointer-events-auto">{header}</div> : null}
+        <div className="pointer-events-auto flex items-start gap-2.5">
+          {header}
+          <DaybreakToggle />
+        </div>
       </header>
 
       <main className="relative z-[3] flex flex-1 flex-col items-center justify-center px-5 pt-28 pb-16 lg:px-12">
@@ -179,7 +183,7 @@ export function PortalScene({
 
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 z-[5] bg-[radial-gradient(ellipse_at_50%_32%,transparent_46%,rgba(6,0,2,.48)_100%)]"
+        className="pointer-events-none absolute inset-0 z-[5] bg-[image:var(--scene-vignette)]"
       />
     </div>
   )

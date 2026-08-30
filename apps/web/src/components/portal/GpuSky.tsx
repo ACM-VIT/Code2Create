@@ -1,9 +1,12 @@
 import { useEffect, useRef } from 'react'
+import { usePortalTheme } from '../../lib/portalTheme'
 
-// The f1 night-sky shader from the mockup, verbatim: drifting fbm cloud
-// colour, a slow aurora band, and twinkling stars.
+// The f1 sky shader from the mockup: drifting fbm cloud colour, a slow
+// aurora band, and twinkling stars. `day` blends the night palette into
+// first light — stars fade, the aurora warms into a sun haze — and the
+// tick loop eases it, so toggling the theme plays an actual sunrise.
 const SKY_SHADER = /* wgsl */ `
-struct U { t: f32, w: f32, h: f32, pad: f32 }
+struct U { t: f32, w: f32, h: f32, day: f32 }
 @group(0) @binding(0) var<uniform> u: U;
 fn hash2(p: vec2f) -> vec2f {
   var q = vec2f(dot(p, vec2f(127.1, 311.7)), dot(p, vec2f(269.5, 183.3)));
@@ -28,24 +31,31 @@ fn fbm(p: vec2f) -> f32 {
 @fragment fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
   let uv = fc.xy / vec2f(u.w, u.h);
   let t = u.t;
-  let ink = vec3f(.047, 0., .016);
-  let deep = vec3f(.627, .259, .388);
-  let blush = vec3f(.89, .663, .749);
+  let day = u.day;
+  let ink = mix(vec3f(.047, 0., .016), vec3f(.80, .76, .89), day);
+  let deep = mix(vec3f(.627, .259, .388), vec3f(.96, .82, .80), day);
+  let blush = mix(vec3f(.89, .663, .749), vec3f(1., .93, .78), day);
   let n = fbm(uv * 3. + vec2f(t * .015, -t * .01));
   var col = mix(ink, deep, smoothstep(.62, 1.55, uv.y + n * .22));
   col = mix(col, blush, smoothstep(1.05, 1.9, uv.y + n * .3));
   let band = exp(-abs(uv.y - (.42 + .09 * sin(uv.x * 2.6 + t * .12) + .1 * n)) * 5.5);
-  col += vec3f(.85, .52, .64) * band * (.10 + .08 * fbm(uv * 5. + t * .03));
+  let bandCol = mix(vec3f(.85, .52, .64), vec3f(1., .72, .42), day);
+  col += bandCol * band * (.10 + .08 * fbm(uv * 5. + t * .03)) * (1. + day * .9);
+  col = mix(col, vec3f(1., .87, .68), day * smoothstep(.55, 1.35, uv.y + n * .2) * .45);
   let g = uv * vec2f(140., 88.);
   let cell = floor(g); let h = hash2(cell);
-  let star = smoothstep(.997, 1., h.x) * (.55 + .45 * sin(t * (1. + h.y * 2.) + h.y * 20.));
+  let star = smoothstep(.997, 1., h.x) * (.55 + .45 * sin(t * (1. + h.y * 2.) + h.y * 20.)) * (1. - day);
   col += vec3f(1., .95, .97) * star * smoothstep(.75, .15, uv.y);
   let d = distance(fract(g) - .5, vec2f(0.));
   col += vec3f(1., .8, .87) * star * smoothstep(.5, .0, d) * .6;
   return vec4f(col, 1.);
 }`
 
-async function startSky(canvas: HTMLCanvasElement, stopped: { current: boolean }) {
+async function startSky(
+  canvas: HTMLCanvasElement,
+  stopped: { current: boolean },
+  dayTarget: { readonly current: number },
+) {
   const gpu = navigator.gpu
   if (!gpu) return
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
@@ -80,6 +90,11 @@ async function startSky(canvas: HTMLCanvasElement, stopped: { current: boolean }
       entries: [{ binding: 0, resource: { buffer: uniforms } }],
     })
     const startedAt = performance.now()
+    // Mounting lands directly in the current light; only a live toggle
+    // eases `day` toward its target, playing the sunrise (or nightfall).
+    // Eased against wall-clock time so the dawn takes ~1.5s at any frame rate.
+    let day = dayTarget.current
+    let lastFrameAt = startedAt
     const tick = () => {
       if (stopped.current || !canvas.isConnected) {
         device.destroy()
@@ -91,10 +106,14 @@ async function startSky(canvas: HTMLCanvasElement, stopped: { current: boolean }
         canvas.width = width
         canvas.height = height
       }
+      const frameAt = performance.now()
+      const dt = Math.min((frameAt - lastFrameAt) / 1000, 0.1)
+      lastFrameAt = frameAt
+      day += (dayTarget.current - day) * Math.min(1, dt * 3.2)
       device.queue.writeBuffer(
         uniforms,
         0,
-        new Float32Array([(performance.now() - startedAt) / 1000, canvas.width, canvas.height, 0]),
+        new Float32Array([(performance.now() - startedAt) / 1000, canvas.width, canvas.height, day]),
       )
       const encoder = device.createCommandEncoder()
       const pass = encoder.beginRenderPass({
@@ -127,12 +146,18 @@ async function startSky(canvas: HTMLCanvasElement, stopped: { current: boolean }
  */
 export function GpuSky() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const theme = usePortalTheme()
+  const dayTarget = useRef(theme === 'daybreak' ? 1 : 0)
+
+  useEffect(() => {
+    dayTarget.current = theme === 'daybreak' ? 1 : 0
+  }, [theme])
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const stopped = { current: false }
-    void startSky(canvas, stopped)
+    void startSky(canvas, stopped, dayTarget)
     return () => {
       stopped.current = true
     }

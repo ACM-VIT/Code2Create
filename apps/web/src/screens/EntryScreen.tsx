@@ -9,17 +9,6 @@ import { PortalButton } from '../components/portal/PortalButton'
 import { PortalError } from '../components/portal/PortalField'
 import type { ParticipantClass, PublicState } from '../types'
 
-/**
- * The mockup renders the edition ("7.0") in rose beside the name. The event
- * name already carries it, so split the trailing version off instead of
- * appending one.
- */
-function splitEventTitle(name: string): { name: string; edition: string | null } {
-  const match = /^(.*?)\s+(v?\d+(?:\.\d+)*)$/.exec(name.trim())
-  if (!match?.[1] || !match[2]) return { name: name.trim(), edition: null }
-  return { name: match[1], edition: match[2] }
-}
-
 export const participantClassStorageKey = 'code2create.participant-class'
 
 function popupErrorMessage(code: string | undefined) {
@@ -50,18 +39,18 @@ function ClassCard({
       onClick={onSelect}
       className={`w-full rounded-petal-sm px-6 py-5 text-left backdrop-blur-md transition-all duration-250 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 sm:w-[250px] ${
         selected
-          ? 'border-[1.5px] border-rose-light bg-[linear-gradient(155deg,rgba(255,255,255,.1),rgba(12,0,4,.55)_60%)] shadow-[0_24px_50px_-18px_rgba(0,0,0,.8),0_0_26px_rgba(216,132,162,.25)]'
-          : 'border border-petal-edge-soft bg-[linear-gradient(155deg,rgba(255,255,255,.06),rgba(12,0,4,.48)_60%)] shadow-[0_24px_50px_-18px_rgba(0,0,0,.8)] hover:border-[rgb(254_180_203/.6)]'
+          ? 'border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] shadow-[0_24px_50px_-18px_var(--shade-2),0_0_26px_var(--glow-rose-soft)]'
+          : 'border border-petal-edge-soft bg-[image:var(--tile-bg)] shadow-[0_24px_50px_-18px_var(--shade-2)] hover:border-ring-lead/70'
       }`}
     >
       <p
         className={`mb-1 font-display font-light tracking-[-.01em] text-[19px] ${
-          selected ? 'text-rose-light' : 'text-[rgb(248_248_248/.85)]'
+          selected ? 'text-rose-light' : 'text-fg/85'
         }`}
       >
         {title}
       </p>
-      <p className="text-xs text-[rgb(248_248_248/.55)]">{detail}</p>
+      <p className="text-xs text-fg/55">{detail}</p>
     </button>
   )
 }
@@ -86,7 +75,7 @@ export function EntryScreen({
         <div className="text-center">
           <p className="mb-2 font-ui font-normal text-[19px] text-rose-light">Code2Create</p>
           <h1 className="mb-4 font-display font-light tracking-[-.01em] text-5xl leading-none">Event setup is not complete</h1>
-          <p className="text-[13px] text-[rgb(248_248_248/.5)]">
+          <p className="text-[13px] text-fg/50">
             An organizer with event setup access needs to finish setup.
           </p>
         </div>
@@ -94,7 +83,6 @@ export function EntryScreen({
     )
   }
 
-  const eventTitle = splitEventTitle(publicState.event.name)
   const vitOpen = publicState.event.registrationOpen && publicState.serverNow < publicState.event.applicationsCloseAt
   const externalOpen = publicState.event.registrationOpen && publicState.serverNow < publicState.event.externalApplicationsCloseAt
   const selectedClassOpen = participantClass === 'vit_student' ? vitOpen : externalOpen
@@ -134,29 +122,25 @@ export function EntryScreen({
         rel="noreferrer"
         className="absolute top-7 left-6 z-[6] opacity-85 transition-opacity hover:opacity-100 lg:top-9 lg:left-11"
       >
-        <img src="/assets/acm-mark.svg" alt="ACM-VIT" className="size-8 lg:size-9" />
+        <img
+          src="/assets/acm-mark.svg"
+          alt="ACM-VIT"
+          className="size-8 [filter:var(--mark-filter)] lg:size-9"
+        />
       </a>
       <div className="flex w-full max-w-[640px] flex-col items-center text-center">
         <img
           src="/assets/logo.svg"
           alt="Code2Create"
-          className="mb-3.5 w-11 drop-shadow-[0_0_20px_rgba(216,132,162,.55)] lg:mb-[18px] lg:w-[52px]"
+          className="mb-3.5 w-11 drop-shadow-[0_0_20px_var(--logo-glow)] lg:mb-[18px] lg:w-[52px]"
         />
-        <p className="mb-2 font-ui font-normal text-[15px] text-rose-light lg:text-[19px]">
-          welcome to
-        </p>
-        {/* The landing page's lettered wordmark, with the edition beside it. */}
-        <h1 className="mb-8 flex items-baseline justify-center gap-3 lg:mb-10 lg:gap-4">
+        {/* The landing page's lettered wordmark. */}
+        <h1 className="mb-8 flex justify-center lg:mb-10">
           <img
             src="/assets/wordmark.svg"
-            alt={eventTitle.name}
-            className="h-9 w-auto drop-shadow-[0_8px_50px_rgba(0,0,0,.6)] sm:h-12 lg:h-[68px]"
+            alt={publicState.event.name}
+            className="h-9 w-auto [filter:var(--wordmark-filter)] sm:h-12 lg:h-[68px]"
           />
-          {eventTitle.edition ? (
-            <span className="font-display font-light tracking-[-.01em] text-[34px] leading-none text-rose-light lg:text-[64px]">
-              {eventTitle.edition}
-            </span>
-          ) : null}
         </h1>
 
         <div
@@ -182,7 +166,6 @@ export function EntryScreen({
 
         <PortalButton
           type="button"
-          variant="solid"
           disabled={!participantClass || !selectedClassOpen || busy || !publicState.auth.googleConfigured}
           onClick={signIn}
           className="w-full sm:w-auto"
@@ -213,9 +196,6 @@ export function EntryScreen({
           </p>
         ) : null}
         <PortalError message={error} />
-        <p className="mt-4 text-[11.5px] text-[rgb(248_248_248/.4)]">
-          the server verifies your account class · nothing else to type yet
-        </p>
       </div>
     </PortalScene>
   )

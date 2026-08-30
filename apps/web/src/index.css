@@ -7,6 +7,12 @@
  * Night-hanami portal tokens — from Claude Design "Portal Mockups"
  * (t11 f0a-f7). Palette is shared with apps/landing's base.css so the
  * landing page and the portal read as one event.
+ *
+ * The portal paints the same scene in two lights. 'night' (these values)
+ * is the default; the daybreak override block further down repaints every
+ * token for first light. Screens never hardcode a side: they read `fg`
+ * (what you read), `wash` (the ground and its glass), the rose family,
+ * and the --scene-* / --shade-* / --glow-* vars.
  * ------------------------------------------------------------------ */
 @theme {
   --color-ink: #0c0004;
@@ -19,6 +25,22 @@
   --color-paper-warm: #fefdfe;
   --color-avatar: #2a0e18;
   --color-avatar-lead: #3a1522;
+
+  /* Semantic sides of the scene: fg is what you read, wash is the ground
+     every glass surface is mixed from. At night they equal paper and ink;
+     at daybreak they trade places (plum ink on morning paper). */
+  --color-fg: #f8f8f8;
+  --color-wash: #0c0004;
+
+  /* The falling petals — lit blush at night, deeper rose against the
+     pale daybreak sky. */
+  --color-petal-a: #feb4cb;
+  --color-petal-b: #d884a2;
+
+  /* The emphasis ring — lead avatars and selected cards. Night uses the
+     bright rose; daybreak softens to a mid rose so the ring doesn't read
+     as a black outline. */
+  --color-ring-lead: #feb4cb;
 
   /* Petal-card washes and hairlines. The mockup builds every surface from
      a white-to-ink gradient over a translucent rose edge. */
@@ -59,11 +81,6 @@
     72%  { opacity: .18; }
     100% { transform: translate(calc(-50% + var(--cursor-drift)), var(--cursor-fall)) rotate(var(--cursor-end)); opacity: 0; }
   }
-  @keyframes c2cbuttonpetals {
-    0%   { transform: translate(-18px, 13px) rotate(-25deg); opacity: 0; }
-    20%  { opacity: .34; }
-    100% { transform: translate(190px, -18px) rotate(210deg); opacity: 0; }
-  }
   @keyframes c2crise {
     0%   { transform: translate(0, 40px) rotate(-4deg); opacity: 0; }
     12%  { opacity: .95; }
@@ -76,61 +93,122 @@
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * Scene atmosphere — the composite values (sky, shadows, glows, image
+ * grades) that can't be a single color token. Night is the default;
+ * the daybreak block below repaints them all.
+ * ------------------------------------------------------------------ */
+:root {
+  --scene-sky: linear-gradient(180deg, #0c0004 44%, #220913 70%, #713047 116%, #a04263 144%, #e3a9bf 176%);
+  --scene-vignette: radial-gradient(ellipse at 50% 32%, transparent 46%, rgb(6 0 2 / .48) 100%);
+  --scene-tree-filter: brightness(.72) saturate(.92);
+  --scene-tree-far-filter: brightness(.55) saturate(.8);
+  --scene-hills-filter: none;
+  --scene-hills-opacity: .4;
+  --scene-branch-filter: brightness(.85);
+  /* Titles float off the sky: an ink halo at night, a light haze at dawn. */
+  --scene-text-glow: rgb(0 0 0 / .55);
+  /* The wordmark keeps its white lettering in both lights — only its
+     shadow changes (ink at night, a rose bloom at dawn). The small partner
+     marks are also white SVGs; those daybreak re-inks in plum. */
+  --wordmark-filter: drop-shadow(0 8px 50px rgb(0 0 0 / .6));
+  --mark-filter: none;
+
+  /* Depth shadows (1 soft, 2 strong) and the rose glows that become warm
+     sunlight at daybreak. */
+  --shade-1: rgb(0 0 0 / .55);
+  --shade-2: rgb(0 0 0 / .8);
+  --glow-rose: rgb(254 180 203 / .5);
+  --glow-rose-soft: rgb(216 132 162 / .25);
+  /* The C2C logo's lantern halo. Only night needs it; on the pale daybreak
+     sky the self-coloured mark sits clean, and a halo reads as a smudge. */
+  --logo-glow: rgb(216 132 162 / .5);
+  /* Avatar blooms are tinted for dark circles; daybreak deepens them so
+     they hold contrast on the light ones. The lead ring's halo follows the
+     same rule — lantern-pink at night, a quiet rose at dawn. */
+  --flower-filter: none;
+  --avatar-glow: rgb(254 180 203 / .5);
+  --card-topline: rgb(255 255 255 / .16);
+
+  /* Glass surfaces: the petal card, the quiet tiles, the roster popover,
+     and the under-card glow. */
+  --petal-card-bg: linear-gradient(155deg, rgb(255 255 255 / .09), rgb(12 0 4 / .5) 55%, rgb(160 66 99 / .2));
+  --petal-card-glow: rgb(216 132 162 / .4);
+  --tile-bg: linear-gradient(155deg, rgb(255 255 255 / .07), rgb(12 0 4 / .48) 60%);
+  --tile-bg-active: linear-gradient(155deg, rgb(255 255 255 / .1), rgb(12 0 4 / .55) 60%);
+  /* The SGLang note's backdrop — the one screen off the painted scene.
+     Ink with the faintest rose breath at night; morning light falling on
+     warm paper at daybreak. */
+  --note-bg: radial-gradient(ellipse 90% 45% at 50% -8%, rgb(58 21 34 / .55), transparent 60%), linear-gradient(180deg, #0c0004, #130409);
+  --roster-bg: linear-gradient(155deg, rgb(255 255 255 / .1), rgb(12 0 4 / .72) 55%, rgb(160 66 99 / .22));
+  --confirm-bg: linear-gradient(155deg, rgb(255 255 255 / .08), rgb(12 0 4 / .78) 62%);
+}
+
+/* ------------------------------------------------------------------ *
+ * Daybreak — the same garden at first light. Lilac left over from the
+ * night at the top of the sky, blush in the middle, pale gold on the
+ * horizon; plum ink on morning-mist glass; every rose glow turns to
+ * early sunlight.
+ * ------------------------------------------------------------------ */
+:root[data-theme='daybreak'] {
+  --color-fg: #33101f;
+  --color-wash: #fff8f2;
+  --color-rose: #b7527b;
+  --color-rose-light: #96375c;
+  --color-rose-deep: #83304f;
+  --color-blush: #c97795;
+  --color-avatar: #f9e3ea;
+  --color-avatar-lead: #fdf0f4;
+  --color-petal-a: #cd7395;
+  --color-petal-b: #a94d72;
+  --color-ring-lead: #c26787;
+  --color-petal-line: rgb(150 55 92 / .25);
+  --color-petal-edge: rgb(169 77 114 / .5);
+  --color-petal-edge-soft: rgb(169 77 114 / .35);
+
+  --scene-sky: linear-gradient(180deg, #cfc5e4 0%, #e5ccdb 36%, #f4d5d0 64%, #fbdfc0 90%, #fff1d8 112%);
+  --scene-vignette: radial-gradient(ellipse at 50% 30%, transparent 50%, rgb(255 234 214 / .5) 100%);
+  --scene-tree-filter: brightness(1.04) saturate(1.04);
+  --scene-tree-far-filter: brightness(1.08) saturate(.82) opacity(.9);
+  --scene-hills-filter: sepia(.25) hue-rotate(-15deg) brightness(1.6) saturate(.7);
+  --scene-hills-opacity: .3;
+  --scene-branch-filter: brightness(1.03) saturate(1.02);
+  --scene-text-glow: rgb(255 243 230 / .9);
+  --wordmark-filter: drop-shadow(0 8px 40px rgb(131 48 79 / .45));
+  --mark-filter: brightness(0) saturate(100%) invert(12%) sepia(24%) saturate(1900%) hue-rotate(305deg) brightness(1.05);
+
+  --shade-1: rgb(146 84 96 / .22);
+  --shade-2: rgb(146 84 96 / .32);
+  --glow-rose: rgb(255 178 122 / .55);
+  --glow-rose-soft: rgb(255 199 153 / .5);
+  --logo-glow: transparent;
+  --flower-filter: saturate(1.45) brightness(.72);
+  --avatar-glow: rgb(194 103 135 / .3);
+  --card-topline: rgb(255 255 255 / .9);
+
+  /* Effectively solid panels: any real translucency lets the sky's warm
+     horizon band show through and read as a stain on the card. */
+  --petal-card-bg: linear-gradient(160deg, rgb(255 255 255 / .98), rgb(255 248 243 / .96) 55%, rgb(252 238 242 / .96));
+  --petal-card-glow: rgb(255 183 120 / .6);
+  --tile-bg: linear-gradient(160deg, rgb(255 255 255 / .97), rgb(255 248 243 / .94) 60%);
+  --tile-bg-active: linear-gradient(160deg, #ffffff, #fff4ee 60%);
+  --note-bg: radial-gradient(ellipse 90% 45% at 50% -8%, rgb(238 205 219 / .8), transparent 60%), linear-gradient(180deg, #f9ecee, #fff3e3);
+  --roster-bg: linear-gradient(160deg, rgb(255 255 255 / .98), rgb(255 248 243 / .97) 55%, rgb(253 242 246 / .97));
+  --confirm-bg: linear-gradient(160deg, rgb(255 255 255 / .99), rgb(255 246 240 / .98) 62%);
+}
+
+/* The theme toggle crossfades the whole page; slow the default down to a
+   gentle dawn. Reduced motion never enters a view transition (portalTheme
+   swaps instantly), so no override is needed here. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: .55s;
+  animation-timing-function: ease;
+}
+
 .cursor-petal {
   animation: c2ccursorfall 1.8s cubic-bezier(.2, .58, .32, 1) forwards;
-  box-shadow: 0 0 5px rgb(254 180 203 / .16);
-}
-
-.portal-primary-button {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  transition: border-color 320ms ease, box-shadow 320ms ease, filter 320ms ease, transform 320ms ease;
-}
-
-.portal-primary-button::before,
-.portal-primary-button::after {
-  position: absolute;
-  z-index: -1;
-  pointer-events: none;
-  content: "";
-}
-
-.portal-primary-button::before {
-  inset: -45% -25%;
-  background: linear-gradient(110deg, transparent 28%, rgb(254 180 203 / .14) 49%, transparent 70%);
-  opacity: 0;
-  transform: translateX(-34%) rotate(-5deg);
-  transition: opacity 320ms ease, transform 520ms ease;
-}
-
-.portal-primary-button::after {
-  top: 45%;
-  left: 10%;
-  width: 7px;
-  height: 7px;
-  border-radius: 76% 24% 70% 30% / 60% 55% 45% 40%;
-  background: #feb4cb;
-  box-shadow: 24px -9px 0 -1px rgb(216 132 162 / .75), 47px 7px 0 -2px rgb(254 180 203 / .65);
-  opacity: 0;
-}
-
-.portal-primary-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 14px 28px -10px rgb(0 0 0 / .78), 0 0 22px rgb(216 132 162 / .24);
-}
-
-.portal-primary-button:hover:not(:disabled)::before {
-  opacity: 1;
-  transform: translateX(34%) rotate(-5deg);
-}
-
-.portal-primary-button:hover:not(:disabled)::after {
-  animation: c2cbuttonpetals 900ms ease-out both;
-}
-
-.portal-primary-button:active:not(:disabled) {
-  transform: translateY(1px) scale(.99);
+  box-shadow: 0 0 5px var(--glow-rose-soft);
 }
 
 /* Tailwind's preflight is off, so bare buttons would keep the user-agent's
@@ -181,6 +259,28 @@
   --danger: #c9827c;
   --danger-border: #694643;
   --warn: #baa571;
+  --primary-hover: #fff;
+}
+
+/* The panelled shell's semantic set at daybreak: warm paper instead of
+   near-black, the same green accent pulled darker for contrast. */
+:root[data-theme='daybreak'] {
+  color: #2b1420;
+  background: #f6eeeb;
+  --background: #f6eeeb;
+  --surface: #fdf8f6;
+  --surface-raised: #ffffff;
+  --text: #2b1420;
+  --muted: #79606c;
+  --faint: #a18c96;
+  --border: #e3cfd4;
+  --border-strong: #c2a3ad;
+  --accent: #3f7458;
+  --accent-soft: #e2efe6;
+  --danger: #a4524b;
+  --danger-border: #d3a49e;
+  --warn: #86713f;
+  --primary-hover: #46243a;
 }
 
 * {
