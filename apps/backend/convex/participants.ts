@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
@@ -162,12 +162,42 @@ async function repairVitStudentIdentity(
     });
   }
   if (!membership.vitStudentIdentity) {
+    await requireAvailableVitRegistrationNumber(ctx, {
+      eventId: event._id,
+      registrationNumber: identity.registrationNumber,
+      membershipId: membership._id,
+    });
     await ctx.db.patch(membership._id, {
       vitStudentIdentity: identity,
       updatedAt: Date.now(),
     });
   }
   return identity;
+}
+
+async function requireAvailableVitRegistrationNumber(
+  ctx: MutationCtx,
+  args: {
+    eventId: Id<"events">;
+    registrationNumber: string;
+    membershipId?: Id<"eventMemberships">;
+  },
+) {
+  const matches = await ctx.db
+    .query("eventMemberships")
+    .withIndex("by_event_vit_registration", (index) =>
+      index
+        .eq("eventId", args.eventId)
+        .eq("vitStudentIdentity.registrationNumber", args.registrationNumber),
+    )
+    .take(2);
+  if (matches.some((candidate) => candidate._id !== args.membershipId)) {
+    throw new ConvexError({
+      code: "VIT_REGISTRATION_NUMBER_IN_USE",
+      message:
+        "That VIT registration number is already linked to another event account. Ask support to resolve the duplicate identity.",
+    });
+  }
 }
 
 export const entryAllowed = query({
@@ -401,6 +431,12 @@ export const provision = mutation({
     const vitStudentIdentity = resolvedParticipantClass === "vit_student"
       ? requireVitStudentProfileIdentity(googleIdentity.displayName, event)
       : null;
+    if (vitStudentIdentity) {
+      await requireAvailableVitRegistrationNumber(ctx, {
+        eventId: event._id,
+        registrationNumber: vitStudentIdentity.registrationNumber,
+      });
+    }
 
     const now = Date.now();
     let subject = await ctx.db

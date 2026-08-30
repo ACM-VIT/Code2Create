@@ -411,14 +411,22 @@ export async function resolveTeamRosterPerson(
   if (args.entry.vitRegistrationNumber === undefined) {
     throw new Error("A team roster entry must contain one identity.");
   }
-  const membership = await ctx.db
+  const memberships = await ctx.db
     .query("eventMemberships")
     .withIndex("by_event_vit_registration", (index) =>
       index
         .eq("eventId", args.eventId)
         .eq("vitStudentIdentity.registrationNumber", args.entry.vitRegistrationNumber),
     )
-    .unique();
+    .take(2);
+  if (memberships.length > 1) {
+    throw new ConvexError({
+      code: "AMBIGUOUS_VIT_REGISTRATION_NUMBER",
+      message:
+        "This VIT registration number is linked to more than one event account. Resolve the duplicate identities before applying the roster.",
+    });
+  }
+  const membership = memberships[0];
   if (!membership) return null;
   const person = await ctx.db.get(membership.personId);
   if (!person) return null;

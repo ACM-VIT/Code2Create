@@ -1141,6 +1141,15 @@ describe("team roster backfill", () => {
     });
     expect(leadTeam?.name).toBe("Internal Alpha");
 
+    await expect(
+      provisionParticipant(backend, fixture, {
+        email: "duplicate.regno2024@vitstudent.ac.in",
+        googleSubject: "team-roster-duplicate-regno-subject",
+        vitHostedDomain: "vitstudent.ac.in",
+        displayName: "Duplicate Person 24BCI0150",
+      }),
+    ).rejects.toThrow("already linked to another event account");
+
     const otherName = await provisionParticipant(backend, fixture, {
       email: "other.person2024@vitstudent.ac.in",
       googleSubject: "team-roster-other-name-subject",
