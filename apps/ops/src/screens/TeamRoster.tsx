@@ -19,10 +19,12 @@ type PreviewResult = FunctionReturnType<typeof api.teamRosters.previewImport>
 type ImportResult = FunctionReturnType<typeof api.teamRosters.confirmImport>
 
 type EntryGroup = 'waiting' | 'joined' | 'skipped' | 'ended'
+type ImportShape = 'people' | 'teams'
 
 const maximumCsvBytes = 256 * 1024
 const maximumTeamRosterRows = 200
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const vitRegistrationNumberPattern = /^\d{2}[A-Za-z]{3}\d{4}$/
 
 const roleByWrittenForm = new Map<string, TeamRole>([
   ['lead', 'lead'],
@@ -48,6 +50,7 @@ export function TeamRoster() {
   const confirmImport = useMutation(api.teamRosters.confirmImport)
   const operations = useOperationRunner<ImportResult>()
   const [showImport, setShowImport] = useState(false)
+  const [importShape, setImportShape] = useState<ImportShape>('people')
   const [loadedRoster, setLoadedRoster] = useState<{
     fileName: string
     rows: ImportRow[]
@@ -98,7 +101,9 @@ export function TeamRoster() {
       return
     }
     try {
-      const parsed = parseTeamRosterCsv(await file.text())
+      const parsed = importShape === 'teams'
+        ? parseTeamShapedRosterCsv(await file.text())
+        : parseTeamRosterCsv(await file.text())
       setLoadedRoster({ fileName: file.name, rows: parsed })
       setSourceName((current) => current || sourceNameFromFile(file.name))
     } catch (caught) {
@@ -221,8 +226,11 @@ export function TeamRoster() {
           <div>
             <h2>Import team assignments</h2>
             <p className="muted">
-              A CSV of up to {maximumTeamRosterRows} rows with the columns <code>email,name,team,role</code>.
-              The role is lead or member. Export Excel as CSV.
+              {importShape === 'teams'
+                ? <>A CSV of up to {maximumTeamRosterRows} people with the columns <code>team,lead_name,lead_identity,member_identities</code>. Team can be blank; a new team is created from the lead&apos;s name. Identities are Google emails or VIT registration numbers such as <code>24BCI0150</code>, separated by semicolons.</>
+                : <>A CSV of up to {maximumTeamRosterRows} rows with the columns <code>identity,name,team,role</code>. Identity is a Google email or a VIT registration number such as <code>24BCI0150</code>. The role is lead or member.</>
+              }
+              {' '}Export Excel as CSV.
             </p>
           </div>
 
@@ -238,6 +246,37 @@ export function TeamRoster() {
             />
           ) : (
             <form className="roster-import-form" onSubmit={requestPreview}>
+              <fieldset className="field">
+                <legend>List shape</legend>
+                <label>
+                  <input
+                    checked={importShape === 'people'}
+                    name="roster-import-shape"
+                    type="radio"
+                    onChange={() => {
+                      setImportShape('people')
+                      setLoadedRoster(null)
+                      setFileInputKey((key) => key + 1)
+                      setError(null)
+                    }}
+                  />
+                  Person rows
+                </label>
+                <label>
+                  <input
+                    checked={importShape === 'teams'}
+                    name="roster-import-shape"
+                    type="radio"
+                    onChange={() => {
+                      setImportShape('teams')
+                      setLoadedRoster(null)
+                      setFileInputKey((key) => key + 1)
+                      setError(null)
+                    }}
+                  />
+                  Team rows
+                </label>
+              </fieldset>
               <label className="field roster-file-field">
                 <span>Team list</span>
                 <input
@@ -331,9 +370,9 @@ function TeamRosterPreview({
       </dl>
       <div className="roster-preview-rows">
         {preview.rows.map((row) => (
-          <div key={`${row.rowNumber}:${row.email}`}>
+          <div key={`${row.rowNumber}:${row.identity}`}>
             <span>{row.rowNumber}</span>
-            <span><strong>{row.displayName}</strong><small>{row.email}</small></span>
+            <span><strong>{row.displayName}</strong><small>{row.identity}</small></span>
             <span>{row.teamName} · {row.role}</span>
             <span>{outcomeName(row.outcome)}</span>
           </div>
@@ -402,7 +441,7 @@ function TeamRosterEntry({ entry, canRevoke }: { entry: Entry; canRevoke: boolea
             <span className="row-context"> · {entry.teamName} · {entry.role}</span>
           </strong>
           <small>{statusStatement(entry)}</small>
-          <small className="row-context">{entry.email}</small>
+          <small className="row-context">{entry.identity}</small>
         </div>
         {canRevoke && entry.canRevoke ? (
           <button
@@ -477,7 +516,7 @@ function statusStatement(entry: Entry) {
     return 'Was already on a team, so this assignment was skipped.'
   }
   if (entry.status === 'revoked') return 'The assignment was removed.'
-  return 'A newer assignment for the same email address replaced this one.'
+  return 'A newer assignment for the same person replaced this one.'
 }
 
 function parseTeamRosterCsv(text: string): ImportRow[] {
@@ -493,28 +532,30 @@ function parseTeamRosterCsv(text: string): ImportRow[] {
   )
   if (
     normalizedHeader?.length !== 4 ||
-    normalizedHeader[0] !== 'email' ||
+    normalizedHeader[0] !== 'identity' ||
     normalizedHeader[1] !== 'name' ||
     normalizedHeader[2] !== 'team' ||
     normalizedHeader[3] !== 'role'
   ) {
-    throw new Error('The first CSV row must be exactly: email,name,team,role.')
+    throw new Error('The first CSV row must be exactly: identity,name,team,role.')
   }
   const rows: ImportRow[] = []
   for (let index = 1; index < parsed.data.length; index += 1) {
     const source = parsed.data[index]
     if (!source || source.every((cell) => !cell.trim())) continue
-    const email = source[0]?.trim().toLowerCase()
     const displayName = source[1]?.trim()
     const teamName = source[2]?.trim()
     const role = source[3] ? parsedRole(source[3]) : null
-    if (source.length !== 4 || !email || !displayName || !teamName || !role) {
-      throw new Error(
-        'CSV row ' + (index + 1) + ' needs an email, a name, a team name, and a role of lead or member.',
-      )
+    let identity = ''
+    try {
+      identity = parsedRosterIdentity(source[0] ?? '')
+    } catch {
+      identity = ''
     }
-    if (!emailPattern.test(email) || email.length > 254) {
-      throw new Error(`CSV row ${index + 1} has an invalid email address.`)
+    if (source.length !== 4 || !identity || !displayName || !teamName || !role) {
+      throw new Error(
+        'CSV row ' + (index + 1) + ' needs a Google email or VIT registration number, a name, a team name, and a role of lead or member.',
+      )
     }
     if (displayName.length < 2 || displayName.length > 100) {
       throw new Error(`CSV row ${index + 1} needs a name between 2 and 100 characters.`)
@@ -522,16 +563,103 @@ function parseTeamRosterCsv(text: string): ImportRow[] {
     if (teamName.length < 2 || teamName.length > 60) {
       throw new Error(`CSV row ${index + 1} needs a team name between 2 and 60 characters.`)
     }
-    rows.push({ rowNumber: index + 1, email, displayName, teamName, role })
+    rows.push({ rowNumber: index + 1, identity, displayName, teamName, role })
   }
+  return finishedRosterRows(rows)
+}
+
+function parseTeamShapedRosterCsv(text: string): ImportRow[] {
+  const parsed = Papa.parse<string[]>(text, { skipEmptyLines: false })
+  const firstError = parsed.errors[0]
+  if (firstError) {
+    const row = firstError.row === undefined ? '' : ` on row ${firstError.row + 1}`
+    throw new Error(`CSV parsing failed${row}: ${firstError.message}`)
+  }
+  const header = parsed.data[0]
+  const normalizedHeader = header?.map((cell, index) =>
+    (index === 0 ? cell.replace(/^\uFEFF/, '') : cell).trim().toLowerCase(),
+  )
+  if (
+    normalizedHeader?.length !== 4 ||
+    normalizedHeader[0] !== 'team' ||
+    normalizedHeader[1] !== 'lead_name' ||
+    normalizedHeader[2] !== 'lead_identity' ||
+    normalizedHeader[3] !== 'member_identities'
+  ) {
+    throw new Error('The first CSV row must be exactly: team,lead_name,lead_identity,member_identities.')
+  }
+  const rows: ImportRow[] = []
+  let nextRowNumber = 2
+  const usedTeamNames = new Set<string>()
+  for (let index = 1; index < parsed.data.length; index += 1) {
+    const source = parsed.data[index]
+    if (!source || source.every((cell) => !cell.trim())) continue
+    const leadName = source[1]?.trim() ?? ''
+    const teamName = (source[0]?.trim() || leadName)
+    let leadIdentity = ''
+    try {
+      leadIdentity = parsedRosterIdentity(source[2] ?? '')
+    } catch {
+      leadIdentity = ''
+    }
+    if (!leadIdentity || leadName.length < 2 || leadName.length > 100) {
+      throw new Error(
+        `CSV row ${index + 1} needs a team or lead name, a lead identity, and optional member identities.`,
+      )
+    }
+    if (teamName.length < 2 || teamName.length > 60) {
+      throw new Error(`CSV row ${index + 1} needs a team name between 2 and 60 characters.`)
+    }
+    if (usedTeamNames.has(teamName)) {
+      throw new Error(`Team ${teamName} appears more than once in the CSV.`)
+    }
+    usedTeamNames.add(teamName)
+    rows.push({
+      rowNumber: nextRowNumber,
+      identity: leadIdentity,
+      displayName: leadName,
+      teamName,
+      role: 'lead',
+    })
+    nextRowNumber += 1
+    const memberIdentities = splitMemberIdentities(source[3] ?? '')
+    for (const memberIdentity of memberIdentities) {
+      rows.push({
+        rowNumber: nextRowNumber,
+        identity: memberIdentity,
+        displayName: memberIdentity,
+        teamName,
+        role: 'member',
+      })
+      nextRowNumber += 1
+    }
+  }
+  return finishedRosterRows(rows)
+}
+
+function splitMemberIdentities(value: string) {
+  return value
+    .split(/[;,\n]/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .map((part, index) => {
+      try {
+        return parsedRosterIdentity(part)
+      } catch {
+        throw new Error(`Member identity ${index + 1} must be a Google email or a VIT registration number.`)
+      }
+    })
+}
+
+function finishedRosterRows(rows: ImportRow[]) {
   if (rows.length === 0) throw new Error('The CSV contains no team roster rows.')
   if (rows.length > maximumTeamRosterRows) {
     throw new Error(`Import at most ${maximumTeamRosterRows} team roster rows at a time.`)
   }
   const duplicate = rows.find((row, index) =>
-    rows.some((candidate, candidateIndex) => candidateIndex < index && candidate.email === row.email),
+    rows.some((candidate, candidateIndex) => candidateIndex < index && candidate.identity === row.identity),
   )
-  if (duplicate) throw new Error(`${duplicate.email} appears more than once in the CSV.`)
+  if (duplicate) throw new Error(`${duplicate.identity} appears more than once in the CSV.`)
   const leadByTeam: Record<string, number> = {}
   for (const row of rows) {
     leadByTeam[row.teamName] = (leadByTeam[row.teamName] ?? 0) + (row.role === 'lead' ? 1 : 0)
@@ -543,6 +671,23 @@ function parseTeamRosterCsv(text: string): ImportRow[] {
     )
   }
   return rows
+}
+
+function parsedRosterIdentity(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  if (trimmed.includes('@')) {
+    const email = trimmed.toLowerCase()
+    if (!emailPattern.test(email) || email.length > 254) {
+      throw new Error('Every team roster row needs a Google account email or a VIT registration number.')
+    }
+    return email
+  }
+  const registrationNumber = trimmed.toUpperCase()
+  if (!vitRegistrationNumberPattern.test(registrationNumber)) {
+    throw new Error('Every team roster row needs a Google account email or a VIT registration number.')
+  }
+  return registrationNumber
 }
 
 function parsedRole(value: string): TeamRole | null {
