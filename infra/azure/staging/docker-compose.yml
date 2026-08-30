@@ -2,7 +2,7 @@ name: code2create-staging
 
 services:
   backend:
-    image: ghcr.io/get-convex/convex-backend:latest
+    image: ghcr.io/get-convex/convex-backend@sha256:1f2044e3eac463ac78973b136c0baf72d4ada602611d853d6f99f280e29e0a98
     restart: unless-stopped
     stop_grace_period: 30s
     stop_signal: SIGINT
@@ -20,7 +20,7 @@ services:
       start_period: 20s
 
   dashboard:
-    image: ghcr.io/get-convex/convex-dashboard:latest
+    image: ghcr.io/get-convex/convex-dashboard@sha256:284a2638e0c1a4ec0c2327d8219776f3a426ca5824b81686ae4d9454dc0ce8ed
     restart: unless-stopped
     env_file: .env
     ports:
@@ -30,7 +30,7 @@ services:
         condition: service_healthy
 
   caddy:
-    image: caddy:2-alpine
+    image: caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     restart: unless-stopped
     ports:
       - "80:80"
