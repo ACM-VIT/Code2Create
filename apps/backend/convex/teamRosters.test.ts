@@ -1101,6 +1101,134 @@ describe("team roster backfill", () => {
     expect(me?.membership).not.toBeNull();
   }, 30_000);
 
+  test("records duplicate registration identities as conflicts and applies safe rows", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const duplicateIdentity = await provisionParticipant(backend, fixture, {
+      email: "first.duplicate2024@vitstudent.ac.in",
+      googleSubject: "team-roster-first-duplicate",
+      vitHostedDomain: "vitstudent.ac.in",
+      displayName: "First Duplicate 24BCI0400",
+    });
+    const duplicateAuthUserId = await createAuthUser(
+      backend,
+      fixture.now,
+      "Second Duplicate",
+      "second.duplicate2024@vitstudent.ac.in",
+    );
+    await backend.run(async (ctx) => {
+      const [originalPerson, originalMembership] = await Promise.all([
+        ctx.db.get(duplicateIdentity.personId),
+        ctx.db.get(duplicateIdentity.membershipId),
+      ]);
+      if (!originalPerson || !originalMembership) {
+        throw new Error("The duplicate identity fixture did not provision.");
+      }
+      const personId = await ctx.db.insert("people", {
+        authUserId: duplicateAuthUserId,
+        googleSubject: "team-roster-second-duplicate",
+        verifiedEmail: "second.duplicate2024@vitstudent.ac.in",
+        displayName: "Second Duplicate",
+        status: "active",
+        createdAt: fixture.now,
+        updatedAt: fixture.now,
+      });
+      const {
+        _id: _membershipId,
+        _creationTime: _membershipCreationTime,
+        personId: _originalPersonId,
+        ...membership
+      } = originalMembership;
+      await ctx.db.insert("eventMemberships", { ...membership, personId });
+    });
+    const safeLead = await provisionParticipant(backend, fixture, {
+      email: "safe-lead@gmail.com",
+      googleSubject: "team-roster-safe-lead",
+    });
+
+    const rows = [
+      {
+        rowNumber: 2,
+        identity: "24BCI0400",
+        displayName: "Duplicate Student",
+        teamName: "Conflict Team",
+        role: "lead" as const,
+      },
+      {
+        rowNumber: 3,
+        identity: "safe-lead@gmail.com",
+        displayName: "Safe Lead",
+        teamName: "Safe Team",
+        role: "lead" as const,
+      },
+    ];
+    const preview = await importer.person.query(api.teamRosters.previewImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "Legacy duplicates",
+      rows,
+      reason: "Isolate legacy duplicate registrations",
+    });
+    expect(preview.counts.identityConflicts).toBe(1);
+    expect(preview.rows.map((row) => row.outcome)).toEqual([
+      "identity_conflict",
+      "pending",
+    ]);
+    await importer.person.mutation(api.teamRosters.confirmImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "Legacy duplicates",
+      rows,
+      reason: "Isolate legacy duplicate registrations",
+      previewChecksum: preview.previewChecksum,
+      clientOperationId: "team-roster-import-legacy-duplicates",
+    });
+    await drainScheduler(backend);
+
+    const statuses = await backend.run(async (ctx) => {
+      const entries = await ctx.db
+        .query("teamRosterEntries")
+        .withIndex("by_event_created", (index) => index.eq("eventId", fixture.eventId))
+        .collect();
+      return entries.map((entry) => ({ teamName: entry.teamName, status: entry.status }));
+    });
+    expect(statuses.find((entry) => entry.teamName === "Conflict Team")?.status)
+      .toBe("identity_conflict");
+    expect(statuses.find((entry) => entry.teamName === "Safe Team")?.status)
+      .toBe("claimed");
+    const safeTeam = await safeLead.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(safeTeam?.name).toBe("Safe Team");
+  }, 30_000);
+
+  test("an external Google display name cannot claim a VIT registration assignment", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    await importRows(importer, fixture, {
+      sourceName: "VIT-only registration assignment",
+      clientOperationId: "team-roster-import-vit-only-display-name",
+      rows: [{
+        rowNumber: 2,
+        identity: "24BCI0500",
+        displayName: "Actual VIT Student",
+        teamName: "VIT Team",
+        role: "lead",
+      }],
+    });
+    await drainScheduler(backend);
+
+    const external = await provisionParticipant(backend, fixture, {
+      email: "external-imposter@gmail.com",
+      googleSubject: "team-roster-external-imposter",
+      displayName: "External Imposter 24BCI0500",
+    });
+    expect(external.membership.participantClass).toBe("external_participant");
+    expect(external.me.pendingTeam).toBeNull();
+  }, 30_000);
+
   test("claims a VIT student by Google display-name registration number", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);

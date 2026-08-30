@@ -66,6 +66,7 @@ const importRequestArgs = {
 
 const previewCounts = v.object({
   pending: v.number(),
+  identityConflicts: v.number(),
   superseded: v.number(),
   alreadyOnTeam: v.number(),
   waitingForLead: v.number(),
@@ -73,6 +74,7 @@ const previewCounts = v.object({
 
 const entryCounts = v.object({
   waiting: v.number(),
+  identityConflicts: v.number(),
   claimed: v.number(),
   skipped: v.number(),
   total: v.number(),
@@ -80,6 +82,7 @@ const entryCounts = v.object({
 
 const previewRowOutcome = v.union(
   v.literal("pending"),
+  v.literal("identity_conflict"),
   v.literal("already_on_team"),
   v.literal("waiting_for_lead"),
 );
@@ -117,7 +120,7 @@ type NormalizedImportRow = ImportRowInput & {
 };
 
 type PreviewRow = NormalizedImportRow & {
-  outcome: "pending" | "already_on_team" | "waiting_for_lead";
+  outcome: "pending" | "identity_conflict" | "already_on_team" | "waiting_for_lead";
 };
 
 type TeamRosterPreview = {
@@ -125,7 +128,13 @@ type TeamRosterPreview = {
   sourceName: string;
   sourceFileName?: string;
   rows: PreviewRow[];
-  counts: { pending: number; superseded: number; alreadyOnTeam: number; waitingForLead: number };
+  counts: {
+    pending: number;
+    identityConflicts: number;
+    superseded: number;
+    alreadyOnTeam: number;
+    waitingForLead: number;
+  };
   reason: string;
   normalizedRows: NormalizedImportRow[];
   priorEntries: Doc<"teamRosterEntries">[];
@@ -247,7 +256,20 @@ async function personStateForPreview(
   identity: Pick<NormalizedImportRow, "emailNormalized" | "vitRegistrationNumber">,
 ) {
   const resolved = await resolveTeamRosterPerson(ctx, { eventId, entry: identity });
-  if (!resolved) return { activeMember: null as Doc<"teamMembers"> | null, hasMembership: false };
+  if (resolved.kind === "identity_conflict") {
+    return {
+      activeMember: null as Doc<"teamMembers"> | null,
+      hasMembership: false,
+      identityConflict: true,
+    };
+  }
+  if (resolved.kind === "not_found") {
+    return {
+      activeMember: null as Doc<"teamMembers"> | null,
+      hasMembership: false,
+      identityConflict: false,
+    };
+  }
   const activeMember = await ctx.db
     .query("teamMembers")
     .withIndex("by_event_membership_status", (index) =>
@@ -257,7 +279,7 @@ async function personStateForPreview(
         .eq("status", "active"),
     )
     .unique();
-  return { activeMember, hasMembership: true };
+  return { activeMember, hasMembership: true, identityConflict: false };
 }
 
 async function liveTeamNamed(
@@ -293,23 +315,26 @@ async function countTeamRosterEntries(
 
 const emptyEntryCounts = {
   waiting: 0,
+  identityConflicts: 0,
   claimed: 0,
   skipped: 0,
   total: 0,
 };
 
 async function eventEntryCounts(ctx: ReadCtx, eventId: Id<"events">) {
-  const [pending, waitingForLead, claimed, skipped] = await Promise.all([
+  const [pending, waitingForLead, identityConflicts, claimed, skipped] = await Promise.all([
     countTeamRosterEntries(ctx, eventId, "pending"),
     countTeamRosterEntries(ctx, eventId, "waiting_for_lead"),
+    countTeamRosterEntries(ctx, eventId, "identity_conflict"),
     countTeamRosterEntries(ctx, eventId, "claimed"),
     countTeamRosterEntries(ctx, eventId, "skipped_has_team"),
   ]);
   return {
     waiting: pending + waitingForLead,
+    identityConflicts,
     claimed,
     skipped,
-    total: pending + waitingForLead + claimed + skipped,
+    total: pending + waitingForLead + identityConflicts + claimed + skipped,
   };
 }
 
@@ -318,6 +343,7 @@ function entryStatusForPreviewOutcome(
 ): Doc<"teamRosterEntries">["status"] {
   if (outcome === "already_on_team") return "skipped_has_team";
   if (outcome === "waiting_for_lead") return "waiting_for_lead";
+  if (outcome === "identity_conflict") return "identity_conflict";
   return "pending";
 }
 
@@ -352,7 +378,9 @@ async function prepareTeamRosterPreview(
     if (priorEntry) priorEntries.push(priorEntry);
     const state = await personStateForPreview(ctx, event._id, row);
     const liveTeam = teamByName.get(row.teamName) ?? null;
-    if (state.activeMember) {
+    if (state.identityConflict) {
+      rows.push({ ...row, outcome: "identity_conflict" });
+    } else if (state.activeMember) {
       rows.push({ ...row, outcome: "already_on_team" });
     } else if (row.role === "member" && state.hasMembership && liveTeam === null) {
       rows.push({ ...row, outcome: "waiting_for_lead" });
@@ -364,7 +392,10 @@ async function prepareTeamRosterPreview(
   const teamMaximumSize = participantPolicy.normalized.teamMaximumSize;
   for (const [teamName, liveTeam] of teamByName) {
     const incoming = rows.filter(
-      (row) => row.teamName === teamName && row.outcome !== "already_on_team",
+      (row) =>
+        row.teamName === teamName &&
+        row.outcome !== "already_on_team" &&
+        row.outcome !== "identity_conflict",
     ).length;
     const liveCount = liveTeam ? teamRosterCounts(liveTeam).activeMemberCount : 0;
     if (liveCount + incoming > teamMaximumSize) {
@@ -398,6 +429,7 @@ async function prepareTeamRosterPreview(
     rows,
     counts: {
       pending: rows.filter((row) => row.outcome === "pending").length,
+      identityConflicts: rows.filter((row) => row.outcome === "identity_conflict").length,
       superseded: priorEntries.length,
       alreadyOnTeam: rows.filter((row) => row.outcome === "already_on_team").length,
       waitingForLead: rows.filter((row) => row.outcome === "waiting_for_lead").length,
@@ -519,7 +551,10 @@ export const list = query({
         role: entry.role,
         status: entry.status,
         version: entry.version,
-        canRevoke: entry.status === "pending" || entry.status === "waiting_for_lead",
+        canRevoke:
+          entry.status === "pending" ||
+          entry.status === "waiting_for_lead" ||
+          entry.status === "identity_conflict",
         createdAt: entry.createdAt,
       })),
     };
@@ -653,6 +688,7 @@ export const confirmImport = mutation({
       unchangedCount: prepared.counts.alreadyOnTeam,
       alreadyOnTeamCount: prepared.counts.alreadyOnTeam,
       waitingForLeadCount: prepared.counts.waitingForLead,
+      identityConflictCount: prepared.counts.identityConflicts,
       appliedNowCount: 0,
       reason: prepared.reason,
       authorizingGrantIds,
@@ -710,6 +746,7 @@ export const confirmImport = mutation({
         rowCount: prepared.rows.length,
         alreadyOnTeamCount: prepared.counts.alreadyOnTeam,
         waitingForLeadCount: prepared.counts.waitingForLead,
+        identityConflictCount: prepared.counts.identityConflicts,
       }),
       reason: prepared.reason,
     });
@@ -848,11 +885,15 @@ export const revoke = mutation({
         message: "Only the current pending team roster entry can be revoked.",
       });
     }
-    if (entry.status !== "pending" && entry.status !== "waiting_for_lead") {
+    if (
+      entry.status !== "pending" &&
+      entry.status !== "waiting_for_lead" &&
+      entry.status !== "identity_conflict"
+    ) {
       throw new ConvexError({
         code: "TEAM_ROSTER_ENTRY_NOT_REVOKABLE",
         message:
-          "Only entries still waiting for sign-in can be revoked. Use the team tools to remove a member.",
+          "Only entries still waiting or blocked by an identity conflict can be revoked. Use the team tools to remove a member.",
       });
     }
     const now = Date.now();

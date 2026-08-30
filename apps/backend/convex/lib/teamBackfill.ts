@@ -12,6 +12,7 @@ import {
 
 type TeamBackfillOutcome =
   | "still_pending"
+  | "identity_conflict"
   | "skipped_has_team"
   | "waiting_for_lead"
   | "claimed";
@@ -84,7 +85,16 @@ export async function applyTeamRosterEntry(
     eventId: args.event._id,
     entry,
   });
-  if (!resolved) return { outcome: "still_pending", claimedCount: 0 };
+  if (resolved.kind === "not_found") {
+    return { outcome: "still_pending", claimedCount: 0 };
+  }
+  if (resolved.kind === "identity_conflict") {
+    await ctx.db.patch(entry._id, {
+      status: "identity_conflict",
+      version: entry.version + 1,
+    });
+    return { outcome: "identity_conflict", claimedCount: 0 };
+  }
   const { membership } = resolved;
   if (membership.eligibilityStatus !== "eligible") {
     return { outcome: "still_pending", claimedCount: 0 };
@@ -389,7 +399,11 @@ export async function resolveTeamRosterPerson(
     eventId: Id<"events">;
     entry: Pick<Doc<"teamRosterEntries">, "emailNormalized" | "vitRegistrationNumber">;
   },
-): Promise<{ person: Doc<"people">; membership: Doc<"eventMemberships"> } | null> {
+): Promise<
+  | { kind: "resolved"; person: Doc<"people">; membership: Doc<"eventMemberships"> }
+  | { kind: "not_found" }
+  | { kind: "identity_conflict" }
+> {
   if (args.entry.emailNormalized !== undefined) {
     const emailNormalized = args.entry.emailNormalized;
     const person = await ctx.db
@@ -398,15 +412,15 @@ export async function resolveTeamRosterPerson(
         index.eq("verifiedEmail", emailNormalized),
       )
       .unique();
-    if (!person) return null;
+    if (!person) return { kind: "not_found" };
     const membership = await ctx.db
       .query("eventMemberships")
       .withIndex("by_event_person", (index) =>
         index.eq("eventId", args.eventId).eq("personId", person._id),
       )
       .unique();
-    if (!membership) return null;
-    return { person, membership };
+    if (!membership) return { kind: "not_found" };
+    return { kind: "resolved", person, membership };
   }
   if (args.entry.vitRegistrationNumber === undefined) {
     throw new Error("A team roster entry must contain one identity.");
@@ -420,17 +434,13 @@ export async function resolveTeamRosterPerson(
     )
     .take(2);
   if (memberships.length > 1) {
-    throw new ConvexError({
-      code: "AMBIGUOUS_VIT_REGISTRATION_NUMBER",
-      message:
-        "This VIT registration number is linked to more than one event account. Resolve the duplicate identities before applying the roster.",
-    });
+    return { kind: "identity_conflict" };
   }
   const membership = memberships[0];
-  if (!membership) return null;
+  if (!membership) return { kind: "not_found" };
   const person = await ctx.db.get(membership.personId);
-  if (!person) return null;
-  return { person, membership };
+  if (!person) return { kind: "not_found" };
+  return { kind: "resolved", person, membership };
 }
 
 export type PendingTeamAssignee = {
@@ -483,7 +493,7 @@ export async function pendingTeamAssignees(
       return {
         displayName: entry.displayName,
         role: entry.role,
-        signedIn: resolved !== null,
+        signedIn: resolved.kind === "resolved",
         isYou: args.viewerIdentities.includes(
           entry.emailNormalized ?? entry.vitRegistrationNumber ?? "",
         ),

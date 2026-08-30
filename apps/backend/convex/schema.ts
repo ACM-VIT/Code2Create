@@ -731,6 +731,7 @@ export default defineSchema({
     unchangedCount: v.number(),
     alreadyOnTeamCount: v.number(),
     waitingForLeadCount: v.number(),
+    identityConflictCount: v.number(),
     appliedNowCount: v.number(),
     reason: v.string(),
     authorizingGrantIds: v.array(v.id("permissionGrants")),

@@ -294,20 +294,14 @@ export const me = query({
           }
         : null;
     const viewerIdentities = [...rosterIdentitiesForPerson(person, membership)];
-    if (!membership?.vitStudentIdentity) {
-      const googleIdentity = await ctx.db
-        .query("googleIdentityClaims")
-        .withIndex("by_auth_user", (index) => index.eq("authUserId", person.authUserId))
-        .unique();
-      const parsed = googleIdentity?.displayName
-        ? parseVitStudentGoogleDisplayName(
-            googleIdentity.displayName,
-            vitIdentityReferenceYear(event),
-          )
-        : null;
-      if (parsed && !viewerIdentities.includes(parsed.registrationNumber)) {
-        viewerIdentities.push(parsed.registrationNumber);
-      }
+    const visibleVitStudentIdentity = visibleMembership?.participantClass === "vit_student"
+      ? visibleMembership.vitStudentIdentity
+      : null;
+    if (
+      visibleVitStudentIdentity &&
+      !viewerIdentities.includes(visibleVitStudentIdentity.registrationNumber)
+    ) {
+      viewerIdentities.push(visibleVitStudentIdentity.registrationNumber);
     }
     const pendingEntry = await teamRosterPendingEntry(ctx, {
       eventId: event._id,
