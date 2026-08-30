@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   isApprovedVitStudentIdentity,
+  parseVitRegistrationNumber,
   parseVitStudentGoogleDisplayName,
   vitInstitutionName,
 } from "./vitStudentIdentity.ts";
@@ -55,5 +56,15 @@ describe("VIT student identity", () => {
     expect(parseVitStudentGoogleDisplayName("Asha Rao 27BCE1234", eventYear)).toBeNull();
     expect(parseVitStudentGoogleDisplayName("Asha Rao BCE1234", eventYear)).toBeNull();
     expect(parseVitStudentGoogleDisplayName("26BCE1234", eventYear)).toBeNull();
+  });
+
+  test("normalizes a standalone VIT registration number", () => {
+    expect(parseVitRegistrationNumber("24bci0150", eventYear)).toEqual({
+      registrationNumber: "24BCI0150",
+      programmeCode: "BCI",
+      yearOfStudy: "third",
+    });
+    expect(parseVitRegistrationNumber("27BCI0150", eventYear)).toBeNull();
+    expect(parseVitRegistrationNumber("BCI0150", eventYear)).toBeNull();
   });
 });
