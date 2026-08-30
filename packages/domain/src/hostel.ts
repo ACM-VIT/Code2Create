@@ -1,7 +1,6 @@
 export const mensHostelResidences = [
   "mh_a",
   "mh_b",
-  "mh_b_annex",
   "mh_c",
   "mh_d",
   "mh_d_annex",
@@ -10,13 +9,10 @@ export const mensHostelResidences = [
   "mh_g",
   "mh_h",
   "mh_j",
-  "mh_j_annex",
   "mh_k",
   "mh_l",
   "mh_m",
-  "mh_m_annex",
   "mh_n",
-  "mh_n_annex",
   "mh_p",
   "mh_q",
   "mh_r",
@@ -34,8 +30,6 @@ export const ladiesHostelResidences = [
   "lh_h",
   "lh_j",
   "lh_s",
-  "lh_rgt_h",
-  "lh_gh_annex",
 ] as const;
 
 export const vitHostelResidences = [
@@ -53,7 +47,6 @@ export const vitHostelResidenceLabels: Record<VitHostelResidence, string> = {
   day_scholar: "Day scholar",
   mh_a: "Men's hostel · A block",
   mh_b: "Men's hostel · B block",
-  mh_b_annex: "Men's hostel · B annex",
   mh_c: "Men's hostel · C block",
   mh_d: "Men's hostel · D block",
   mh_d_annex: "Men's hostel · D annex",
@@ -62,13 +55,10 @@ export const vitHostelResidenceLabels: Record<VitHostelResidence, string> = {
   mh_g: "Men's hostel · G block",
   mh_h: "Men's hostel · H block",
   mh_j: "Men's hostel · J block",
-  mh_j_annex: "Men's hostel · J annex",
   mh_k: "Men's hostel · K block",
   mh_l: "Men's hostel · L block",
   mh_m: "Men's hostel · M block",
-  mh_m_annex: "Men's hostel · M annex",
   mh_n: "Men's hostel · N block",
-  mh_n_annex: "Men's hostel · N annex",
   mh_p: "Men's hostel · P block",
   mh_q: "Men's hostel · Q block",
   mh_r: "Men's hostel · R block",
@@ -83,15 +73,12 @@ export const vitHostelResidenceLabels: Record<VitHostelResidence, string> = {
   lh_h: "Ladies' hostel · H block",
   lh_j: "Ladies' hostel · J block",
   lh_s: "Ladies' hostel · S block",
-  lh_rgt_h: "Ladies' hostel · RGT H",
-  lh_gh_annex: "Ladies' hostel · GH annex",
 };
 
 export const vitHostelResidenceOptionLabels: Record<VitHostelResidence, string> = {
   day_scholar: "Day scholar",
   mh_a: "A block",
   mh_b: "B block",
-  mh_b_annex: "B annex",
   mh_c: "C block",
   mh_d: "D block",
   mh_d_annex: "D annex",
@@ -100,13 +87,10 @@ export const vitHostelResidenceOptionLabels: Record<VitHostelResidence, string> 
   mh_g: "G block",
   mh_h: "H block",
   mh_j: "J block",
-  mh_j_annex: "J annex",
   mh_k: "K block",
   mh_l: "L block",
   mh_m: "M block",
-  mh_m_annex: "M annex",
   mh_n: "N block",
-  mh_n_annex: "N annex",
   mh_p: "P block",
   mh_q: "Q block",
   mh_r: "R block",
@@ -121,8 +105,6 @@ export const vitHostelResidenceOptionLabels: Record<VitHostelResidence, string> 
   lh_h: "H block",
   lh_j: "J block",
   lh_s: "S block",
-  lh_rgt_h: "RGT H",
-  lh_gh_annex: "GH annex",
 };
 
 export function findVitHostelResidence(value: string): VitHostelResidence | null {

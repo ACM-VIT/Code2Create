@@ -25,10 +25,27 @@ test("the VIT hostel catalog is unique and fully labeled", () => {
   }
 });
 
-test("men's hostel includes B block and J annex", () => {
-  assert.ok(mensHostelResidences.includes("mh_b"));
-  assert.ok(mensHostelResidences.includes("mh_b_annex"));
-  assert.ok(mensHostelResidences.includes("mh_j_annex"));
+test("the men's hostel catalog matches the current blocks", () => {
+  assert.deepEqual(mensHostelResidences, [
+    "mh_a",
+    "mh_b",
+    "mh_c",
+    "mh_d",
+    "mh_d_annex",
+    "mh_e",
+    "mh_f",
+    "mh_g",
+    "mh_h",
+    "mh_j",
+    "mh_k",
+    "mh_l",
+    "mh_m",
+    "mh_n",
+    "mh_p",
+    "mh_q",
+    "mh_r",
+    "mh_t",
+  ]);
   assert.equal(vitHostelResidenceKind("mh_b"), "mens");
   assert.equal(isVitHostelBlock("mh_b"), true);
 });
@@ -41,11 +58,19 @@ test("S block is a ladies' hostel residence", () => {
   assert.equal(findVitHostelResidence("mh_s"), null);
 });
 
-test("the ladies' hostel catalog includes RGT H", () => {
-  assert.ok(ladiesHostelResidences.includes("lh_rgt_h"));
-  assert.equal(vitHostelResidenceKind("lh_rgt_h"), "ladies");
-  assert.equal(vitHostelResidenceLabels.lh_rgt_h, "Ladies' hostel · RGT H");
-  assert.equal(findVitHostelResidence("lh_rgt_h"), "lh_rgt_h");
+test("the ladies' hostel catalog matches the current blocks", () => {
+  assert.deepEqual(ladiesHostelResidences, [
+    "lh_a",
+    "lh_b",
+    "lh_c",
+    "lh_d",
+    "lh_e",
+    "lh_f",
+    "lh_g",
+    "lh_h",
+    "lh_j",
+    "lh_s",
+  ]);
 });
 
 test("day scholars are a residence, not a hostel block", () => {
