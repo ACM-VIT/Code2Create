@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Petal } from './Petal'
+import { PortalButton, PortalTextButton } from './PortalButton'
+import { PortalError } from './PortalField'
 import { initialsOf } from './initials'
 
 // Structural props rather than the generated Convex views: this is a
@@ -18,6 +20,15 @@ export type ClusterMember = {
   membershipId: string
   role: string
   displayName: string
+}
+
+export type TeamClusterLeaveAction = {
+  available: boolean
+  blockedMessage?: string
+  pending: boolean
+  retrying: boolean
+  error: string | null
+  onConfirm: () => Promise<void>
 }
 
 function Avatar({
@@ -57,35 +68,47 @@ export function TeamCluster({
   members,
   locked = false,
   onSignOut,
+  leaveAction,
 }: {
   team: ClusterTeam
   members: readonly ClusterMember[]
   locked?: boolean
   onSignOut?: () => void
+  leaveAction?: TeamClusterLeaveAction
 }) {
   // Hover previews the roster; a click (or keyboard focus) pins it open so it
   // survives the pointer leaving. Tracking them separately keeps a click on an
   // already-hovered cluster from closing it immediately.
   const [pinned, setPinned] = useState(false)
   const [hovered, setHovered] = useState(false)
+  const [confirmingLeave, setConfirmingLeave] = useState(false)
+  const leaveTriggerRef = useRef<HTMLButtonElement>(null)
+  const leaveDialogRef = useRef<HTMLDivElement>(null)
+  const restoreLeaveTriggerFocus = useRef(false)
+  const movingLeaveFlowFocus = useRef(false)
   const open = pinned || hovered
   const shown = members.slice(0, 4)
 
-  if (locked) {
-    return (
-      <div className="text-right">
-        <p className="font-display text-[13.5px] italic text-rose-light">{team.name} · locked</p>
-        {onSignOut ? (
-          <button
-            type="button"
-            onClick={onSignOut}
-            className="mt-1 text-[11.5px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
-          >
-            sign out
-          </button>
-        ) : null}
-      </div>
-    )
+  useEffect(() => {
+    if (confirmingLeave) {
+      leaveDialogRef.current
+        ?.querySelector<HTMLButtonElement>('[data-leave-cancel]')
+        ?.focus()
+      movingLeaveFlowFocus.current = false
+      return
+    }
+
+    if (!restoreLeaveTriggerFocus.current) return
+
+    restoreLeaveTriggerFocus.current = false
+    leaveTriggerRef.current?.focus()
+    movingLeaveFlowFocus.current = false
+  }, [confirmingLeave])
+
+  const closeLeaveConfirmation = () => {
+    movingLeaveFlowFocus.current = true
+    restoreLeaveTriggerFocus.current = true
+    setConfirmingLeave(false)
   }
 
   return (
@@ -93,14 +116,25 @@ export function TeamCluster({
       className="relative text-right"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onFocus={() => setPinned(true)}
+      onBlur={(event) => {
+        if (movingLeaveFlowFocus.current) return
+        const nextTarget = event.relatedTarget
+        if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return
+
+        if (confirmingLeave) {
+          closeLeaveConfirmation()
+          return
+        }
+
+        setPinned(false)
+      }}
     >
       <button
         type="button"
         aria-expanded={open}
-        aria-label={`Team ${team.name}, ${team.activeMemberCount} of ${team.teamMaximumSize} members`}
+        aria-label={`Team ${team.name}, ${team.activeMemberCount} of ${team.teamMaximumSize} members${locked ? ', locked' : ''}`}
         onClick={() => setPinned((value) => !value)}
-        onFocus={() => setPinned(true)}
-        onBlur={() => setPinned(false)}
         className="block cursor-pointer rounded-lg"
       >
         <div className="flex justify-end">
@@ -113,7 +147,9 @@ export function TeamCluster({
             />
           ))}
         </div>
-        <p className="mt-2 font-display text-[13.5px] italic text-rose-light">{team.name}</p>
+        <p className="mt-2 font-display text-[13.5px] italic text-rose-light">
+          {team.name}{locked ? ' · locked' : ''}
+        </p>
       </button>
 
       {onSignOut ? (
@@ -162,11 +198,78 @@ export function TeamCluster({
               )
             })}
           </ul>
-          <div className="mt-3 border-t border-petal-line pt-3">
-            <span className="font-mono text-[12.5px] tracking-[.12em] text-rose-light">
-              {team.publicCode}
-            </span>
-          </div>
+          {!locked ? (
+            <div className="mt-3 border-t border-petal-line pt-3">
+              <span className="font-mono text-[12.5px] tracking-[.12em] text-rose-light">
+                {team.publicCode}
+              </span>
+            </div>
+          ) : null}
+          {!locked && leaveAction ? (
+            <div className="mt-3 border-t border-petal-line pt-3">
+              {confirmingLeave ? (
+                <div
+                  ref={leaveDialogRef}
+                  role="alertdialog"
+                  aria-label={`Confirm leaving ${team.name}`}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Escape') return
+                    event.preventDefault()
+                    event.stopPropagation()
+                    closeLeaveConfirmation()
+                  }}
+                  className="rounded-petal-xs border border-petal-edge-soft bg-[linear-gradient(155deg,rgba(255,255,255,.08),rgba(12,0,4,.78)_62%)] px-4 py-3.5 shadow-[0_18px_36px_-16px_rgba(0,0,0,.9)]"
+                >
+                  <p className="mb-3 text-[12.5px] leading-relaxed text-[rgb(248_248_248/.72)]">
+                    {team.activeMemberCount === 1
+                      ? `Leave and close ${team.name}?`
+                      : `Leave ${team.name}? You can create or join another team before submissions close.`}
+                  </p>
+                  <PortalButton
+                    type="button"
+                    size="sm"
+                    className="w-full"
+                    disabled={leaveAction.pending}
+                    onClick={() => void leaveAction.onConfirm()}
+                  >
+                    {leaveAction.pending
+                      ? 'Leaving…'
+                      : leaveAction.retrying
+                        ? 'Confirm earlier leave'
+                        : 'Confirm leave'}
+                  </PortalButton>
+                  <PortalTextButton
+                    type="button"
+                    data-leave-cancel
+                    className="mt-3 w-full"
+                    disabled={leaveAction.pending}
+                    onClick={closeLeaveConfirmation}
+                  >
+                    Keep team
+                  </PortalTextButton>
+                  <PortalError message={leaveAction.error} />
+                </div>
+              ) : leaveAction.available ? (
+                <button
+                  ref={leaveTriggerRef}
+                  type="button"
+                  className="rounded-sm text-[12px] text-[rgb(248_248_248/.45)] underline-offset-4 transition-colors hover:text-rose-light hover:underline"
+                  disabled={leaveAction.pending}
+                  onClick={() => {
+                    movingLeaveFlowFocus.current = true
+                    setPinned(true)
+                    setConfirmingLeave(true)
+                  }}
+                >
+                  Leave team
+                </button>
+              ) : leaveAction.blockedMessage ? (
+                <p className="m-0 text-[11px] leading-relaxed text-[rgb(248_248_248/.42)]">
+                  {leaveAction.blockedMessage}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
