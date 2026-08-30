@@ -15,10 +15,10 @@ import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import {
   ensurePerson,
+  requireAuthUser,
   requireCurrentPerson,
   requireEventSubject,
   requireFreshAuthSession,
-  requireVerifiedGoogleIdentity,
   sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
@@ -137,13 +137,14 @@ export const mine = query({
   ),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { googleIdentity } = await requireVerifiedGoogleIdentity(ctx);
+    const user = await requireAuthUser(ctx);
+    const email = normalizeEmail(user.email);
     const invitation = await ctx.db
       .query("eventAccessInvitations")
       .withIndex("by_event_email_status", (index) =>
         index
           .eq("eventId", event._id)
-          .eq("emailNormalized", googleIdentity.verifiedEmail)
+          .eq("emailNormalized", email)
           .eq("status", "pending"),
       )
       .unique();
