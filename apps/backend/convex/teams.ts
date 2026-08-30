@@ -32,7 +32,7 @@ import {
   loadPublishedParticipantPolicy,
 } from "./lib/participantPolicy";
 import { normalizeCode } from "./lib/strings";
-import { teamRosterPendingEntry } from "./lib/teamBackfill";
+import { rosterIdentitiesForPerson, teamRosterPendingEntry } from "./lib/teamBackfill";
 import {
   endActiveTeamMember,
   insertActiveTeamMember,
@@ -365,9 +365,9 @@ async function requireNoActiveTeam(
 async function requireNoPendingTeamAssignment(
   ctx: MutationCtx,
   eventId: Id<"events">,
-  emailNormalized: string,
+  identities: readonly string[],
 ) {
-  const entry = await teamRosterPendingEntry(ctx, { eventId, emailNormalized });
+  const entry = await teamRosterPendingEntry(ctx, { eventId, identities });
   if (!entry) return;
   throw new ConvexError({
     code: "TEAM_ASSIGNMENT_PENDING",
@@ -478,7 +478,11 @@ export const create = mutation({
       scopeId: membership._id,
     });
     await requireNoActiveTeam(ctx, event._id, membership._id);
-    await requireNoPendingTeamAssignment(ctx, event._id, person.verifiedEmail);
+    await requireNoPendingTeamAssignment(
+      ctx,
+      event._id,
+      rosterIdentitiesForPerson(person, membership),
+    );
     const now = Date.now();
     const { teamId, publicCode } = await createFormingTeamWithLead(ctx, {
       event,
@@ -547,7 +551,11 @@ export const join = mutation({
       scopeId: membership._id,
     });
     await requireNoActiveTeam(ctx, event._id, membership._id);
-    await requireNoPendingTeamAssignment(ctx, event._id, person.verifiedEmail);
+    await requireNoPendingTeamAssignment(
+      ctx,
+      event._id,
+      rosterIdentitiesForPerson(person, membership),
+    );
 
     const team = await ctx.db
       .query("teams")
@@ -671,7 +679,11 @@ export const switchTeam = mutation({
       scopeType: "self",
       scopeId: membership._id,
     });
-    await requireNoPendingTeamAssignment(ctx, event._id, person.verifiedEmail);
+    await requireNoPendingTeamAssignment(
+      ctx,
+      event._id,
+      rosterIdentitiesForPerson(person, membership),
+    );
 
     const currentMember = await ctx.db
       .query("teamMembers")

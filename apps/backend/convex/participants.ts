@@ -41,11 +41,13 @@ import {
 import {
   isApprovedVitStudentIdentity,
   parseVitStudentGoogleDisplayName,
+  vitIdentityReferenceYear,
   vitInstitutionName,
 } from "./lib/vitStudentIdentity";
 import {
   claimPendingTeamRosterEntry,
   pendingTeamAssignees,
+  rosterIdentitiesForPerson,
   teamRosterPendingEntry,
 } from "./lib/teamBackfill";
 import {
@@ -106,14 +108,6 @@ const participantMembershipView = v.union(
     participantClass: v.literal("external_participant"),
   }),
 );
-
-function vitIdentityReferenceYear(event: Doc<"events">) {
-  const referenceAt = event.startsAt ?? event.applicationsCloseAt;
-  return Number(new Intl.DateTimeFormat("en", {
-    timeZone: event.timezone,
-    year: "numeric",
-  }).format(new Date(referenceAt)));
-}
 
 function requireVitStudentProfileIdentity(
   displayName: string,
@@ -269,9 +263,25 @@ export const me = query({
             onboardingStatus: membership.onboardingStatus,
           }
         : null;
+    const viewerIdentities = [...rosterIdentitiesForPerson(person, membership)];
+    if (!membership?.vitStudentIdentity) {
+      const googleIdentity = await ctx.db
+        .query("googleIdentityClaims")
+        .withIndex("by_auth_user", (index) => index.eq("authUserId", person.authUserId))
+        .unique();
+      const parsed = googleIdentity?.displayName
+        ? parseVitStudentGoogleDisplayName(
+            googleIdentity.displayName,
+            vitIdentityReferenceYear(event),
+          )
+        : null;
+      if (parsed && !viewerIdentities.includes(parsed.registrationNumber)) {
+        viewerIdentities.push(parsed.registrationNumber);
+      }
+    }
     const pendingEntry = await teamRosterPendingEntry(ctx, {
       eventId: event._id,
-      emailNormalized: person.verifiedEmail,
+      identities: viewerIdentities,
     });
     const pendingTeam = pendingEntry
       ? {
@@ -283,7 +293,7 @@ export const me = query({
           assignees: await pendingTeamAssignees(ctx, {
             eventId: event._id,
             teamName: pendingEntry.teamName,
-            viewerEmailNormalized: person.verifiedEmail,
+            viewerIdentities,
           }),
         }
       : null;
@@ -959,7 +969,11 @@ export const declineAssignedTeam = mutation({
         message: "That team assignment is not available.",
       });
     }
-    if (entry.emailNormalized !== person.verifiedEmail) {
+    const entryIdentity = entry.emailNormalized ?? entry.vitRegistrationNumber;
+    if (
+      entryIdentity === undefined ||
+      !rosterIdentitiesForPerson(person, membership).includes(entryIdentity)
+    ) {
       throw new ConvexError({
         code: "TEAM_ASSIGNMENT_NOT_YOURS",
         message: "You can only leave your own assigned team.",

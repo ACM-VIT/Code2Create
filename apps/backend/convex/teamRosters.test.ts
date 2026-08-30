@@ -34,14 +34,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "lead@example.test",
+          identity: "lead@example.test",
           displayName: "Lead Person",
           teamName: "Alpha",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: "member@gmail.com",
+          identity: "member@gmail.com",
           displayName: "Member Person",
           teamName: "Alpha",
           role: "member",
@@ -57,14 +57,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "lead@example.test",
+          identity: "lead@example.test",
           displayName: "Lead Person",
           teamName: "Alpha",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: "member@gmail.com",
+          identity: "member@gmail.com",
           displayName: "Member Person",
           teamName: "Alpha",
           role: "member",
@@ -144,14 +144,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "lead2@gmail.com",
+          identity: "lead2@gmail.com",
           displayName: "Second Lead",
           teamName: "Alpha",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: "already@gmail.com",
+          identity: "already@gmail.com",
           displayName: "Already Busy",
           teamName: "Alpha",
           role: "member",
@@ -167,14 +167,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "lead2@gmail.com",
+          identity: "lead2@gmail.com",
           displayName: "Second Lead",
           teamName: "Alpha",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: "already@gmail.com",
+          identity: "already@gmail.com",
           displayName: "Already Busy",
           teamName: "Alpha",
           role: "member",
@@ -223,14 +223,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "late-lead@example.test",
+          identity: "late-lead@example.test",
           displayName: "Late Lead",
           teamName: "Gamma",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: "early-member@gmail.com",
+          identity: "early-member@gmail.com",
           displayName: "Early Member",
           teamName: "Gamma",
           role: "member",
@@ -244,14 +244,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "late-lead@example.test",
+          identity: "late-lead@example.test",
           displayName: "Late Lead",
           teamName: "Gamma",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: "early-member@gmail.com",
+          identity: "early-member@gmail.com",
           displayName: "Early Member",
           teamName: "Gamma",
           role: "member",
@@ -302,14 +302,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "stay-lead@gmail.com",
+          identity: "stay-lead@gmail.com",
           displayName: "Stay Lead",
           teamName: "Delta",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: "leave-member@gmail.com",
+          identity: "leave-member@gmail.com",
           displayName: "Leave Member",
           teamName: "Delta",
           role: "member",
@@ -419,14 +419,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "guard-lead@gmail.com",
+          identity: "guard-lead@gmail.com",
           displayName: "Guard Lead",
           teamName: "Epsilon",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: "guard-member@gmail.com",
+          identity: "guard-member@gmail.com",
           displayName: "Guard Member",
           teamName: "Epsilon",
           role: "member",
@@ -505,14 +505,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "leave-lead@gmail.com",
+          identity: "leave-lead@gmail.com",
           displayName: "Leave Lead",
           teamName: "Delta",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: "leave-member@gmail.com",
+          identity: "leave-member@gmail.com",
           displayName: "Leave Member",
           teamName: "Delta",
           role: "member",
@@ -526,14 +526,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "leave-lead@gmail.com",
+          identity: "leave-lead@gmail.com",
           displayName: "Leave Lead",
           teamName: "Delta",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: "leave-member@gmail.com",
+          identity: "leave-member@gmail.com",
           displayName: "Leave Member",
           teamName: "Delta",
           role: "member",
@@ -616,7 +616,7 @@ describe("team roster backfill", () => {
         rows: [
           {
             rowNumber: 2,
-            email: "blocked@gmail.com",
+            identity: "blocked@gmail.com",
             displayName: "Blocked Lead",
             teamName: "Epsilon",
             role: "lead",
@@ -633,7 +633,7 @@ describe("team roster backfill", () => {
         rows: [
           {
             rowNumber: 2,
-            email: "blocked@gmail.com",
+            identity: "blocked@gmail.com",
             displayName: "Blocked Lead",
             teamName: "Epsilon",
             role: "lead",
@@ -663,14 +663,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: packed.leadEmail,
+          identity: packed.leadEmail,
           displayName: "Packed Lead",
           teamName: "Packed",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: extraIdentity.email,
+          identity: extraIdentity.email,
           displayName: "Extra Person",
           teamName: "Packed",
           role: "member",
@@ -723,14 +723,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: live.leadEmail,
+          identity: live.leadEmail,
           displayName: "Live Lead",
           teamName: "Live Alpha",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: member.me.person.verifiedEmail,
+          identity: member.me.person.verifiedEmail,
           displayName: "Ready Member",
           teamName: "Live Alpha",
           role: "member",
@@ -738,7 +738,7 @@ describe("team roster backfill", () => {
       ],
       reason: "Committee team assignments",
     });
-    const memberRow = preview.rows.find((row) => row.email === "ready-member@gmail.com");
+    const memberRow = preview.rows.find((row) => row.identity === "ready-member@gmail.com");
     expect(memberRow?.outcome).not.toBe("waiting_for_lead");
   }, 30_000);
 
@@ -756,14 +756,14 @@ describe("team roster backfill", () => {
         rows: [
           {
             rowNumber: 2,
-            email: packed.leadEmail,
+            identity: packed.leadEmail,
             displayName: "Overflow Lead",
             teamName: "Overflow",
             role: "lead",
           },
           {
             rowNumber: 3,
-            email: "one-more@gmail.com",
+            identity: "one-more@gmail.com",
             displayName: "One More",
             teamName: "Overflow",
             role: "member",
@@ -813,14 +813,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: live.leadEmail,
+          identity: live.leadEmail,
           displayName: "Live Lead",
           teamName: "Alpha",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: lateMember.email,
+          identity: lateMember.email,
           displayName: "Late Alpha",
           teamName: "Alpha",
           role: "member",
@@ -850,14 +850,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "keep-lead@gmail.com",
+          identity: "keep-lead@gmail.com",
           displayName: "Keep Lead",
           teamName: "Revoked",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: "drop-member@gmail.com",
+          identity: "drop-member@gmail.com",
           displayName: "Drop Member",
           teamName: "Revoked",
           role: "member",
@@ -870,7 +870,7 @@ describe("team roster backfill", () => {
       eventSlug: fixture.eventSlug,
       paginationOpts: { numItems: 20, cursor: null },
     });
-    const dropEntry = listed.page.find((entry) => entry.email === "drop-member@gmail.com");
+    const dropEntry = listed.page.find((entry) => entry.identity === "drop-member@gmail.com");
     expect(dropEntry?.status).toBe("pending");
     await importer.person.mutation(api.teamRosters.revoke, {
       eventSlug: fixture.eventSlug,
@@ -915,14 +915,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "other-lead@gmail.com",
+          identity: "other-lead@gmail.com",
           displayName: "Other Lead",
           teamName: "Other",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: busy.leadEmail,
+          identity: busy.leadEmail,
           displayName: "Busy Lead",
           teamName: "Other",
           role: "member",
@@ -933,7 +933,7 @@ describe("team roster backfill", () => {
       eventSlug: fixture.eventSlug,
       paginationOpts: { numItems: 20, cursor: null },
     });
-    const busyRow = listed.page.find((entry) => entry.email === busy.leadEmail);
+    const busyRow = listed.page.find((entry) => entry.identity === busy.leadEmail);
     expect(busyRow?.status).toBe("skipped_has_team");
   }, 30_000);
 
@@ -950,7 +950,7 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "usurper@gmail.com",
+          identity: "usurper@gmail.com",
           displayName: "Usurper",
           teamName: "Crown",
           role: "lead",
@@ -1000,7 +1000,7 @@ describe("team roster backfill", () => {
         });
         rows.push({
           rowNumber: 2 + teamIndex * 4 + memberIndex,
-          email,
+          identity: email,
           displayName: `${teamName} ${memberIndex}`,
           teamName,
           role: memberIndex === 0 ? "lead" : "member",
@@ -1074,14 +1074,14 @@ describe("team roster backfill", () => {
       rows: [
         {
           rowNumber: 2,
-          email: live.leadEmail,
+          identity: live.leadEmail,
           displayName: "Locked Lead",
           teamName: "Locked",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: lockedMember.email,
+          identity: lockedMember.email,
           displayName: "Locked Member",
           teamName: "Locked",
           role: "member",
@@ -1100,11 +1100,312 @@ describe("team roster backfill", () => {
     });
     expect(me?.membership).not.toBeNull();
   }, 30_000);
+
+  test("claims a VIT student by Google display-name registration number", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+
+    await importRows(importer, fixture, {
+      sourceName: "Committee internals",
+      clientOperationId: "team-roster-import-regno",
+      rows: [
+        {
+          rowNumber: 2,
+          identity: "24bci0150",
+          displayName: "Ashman Singh",
+          teamName: "Internal Alpha",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          identity: "24BCI0151",
+          displayName: "Teammate",
+          teamName: "Internal Alpha",
+          role: "member",
+        },
+      ],
+    });
+    await drainScheduler(backend);
+
+    const lead = await provisionParticipant(backend, fixture, {
+      email: "ashman.singh2024@vitstudent.ac.in",
+      googleSubject: "team-roster-ashman-subject",
+      vitHostedDomain: "vitstudent.ac.in",
+      displayName: "Ashman Singh 24BCI0150",
+    });
+    expect(lead.me.pendingTeam).toBeNull();
+    const leadTeam = await lead.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(leadTeam?.name).toBe("Internal Alpha");
+
+    const otherName = await provisionParticipant(backend, fixture, {
+      email: "other.person2024@vitstudent.ac.in",
+      googleSubject: "team-roster-other-name-subject",
+      vitHostedDomain: "vitstudent.ac.in",
+      displayName: "Other Person 24BCI0151",
+    });
+    expect(otherName.me.pendingTeam).toBeNull();
+    const memberTeam = await otherName.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(memberTeam?.id).toBe(leadTeam?.id);
+
+    const emailDoesNotClaim = await provisionParticipant(backend, fixture, {
+      email: "ashman.singh2024-extra@vitstudent.ac.in",
+      googleSubject: "team-roster-email-not-regno-subject",
+      vitHostedDomain: "vitstudent.ac.in",
+      displayName: "Ashman Extra 24BCI0999",
+    });
+    expect(emailDoesNotClaim.me.pendingTeam).toBeNull();
+    const extraTeam = await emailDoesNotClaim.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(extraTeam).toBeNull();
+  }, 30_000);
+
+  test("settles both email and registration-number assignments for one person", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const email = "dual.identity2024@vitstudent.ac.in";
+
+    await importRows(importer, fixture, {
+      sourceName: "Email assignment",
+      clientOperationId: "team-roster-import-dual-email",
+      rows: [{
+        rowNumber: 2,
+        identity: email,
+        displayName: "Dual Identity",
+        teamName: "Email Team",
+        role: "lead",
+      }],
+    });
+    await importRows(importer, fixture, {
+      sourceName: "Registration assignment",
+      clientOperationId: "team-roster-import-dual-regno",
+      rows: [{
+        rowNumber: 2,
+        identity: "24BCI0300",
+        displayName: "Dual Identity",
+        teamName: "Registration Team",
+        role: "lead",
+      }],
+    });
+    await drainScheduler(backend);
+
+    const participant = await provisionParticipant(backend, fixture, {
+      email,
+      googleSubject: "team-roster-dual-identity",
+      vitHostedDomain: "vitstudent.ac.in",
+      displayName: "Dual Identity 24BCI0300",
+    });
+    expect(participant.me.pendingTeam).toBeNull();
+
+    const statuses = await backend.run(async (ctx) => {
+      const entries = await ctx.db
+        .query("teamRosterEntries")
+        .withIndex("by_event_created", (index) => index.eq("eventId", fixture.eventId))
+        .take(2);
+      return entries.map((entry) => entry.status).sort();
+    });
+    expect(statuses).toEqual(["claimed", "skipped_has_team"]);
+  }, 30_000);
+
+  test("rejects a malformed or future-cohort registration number", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+
+    await expect(
+      importer.person.query(api.teamRosters.previewImport, {
+        eventSlug: fixture.eventSlug,
+        sourceName: "Bad regno",
+        rows: [
+          {
+            rowNumber: 2,
+            identity: "BCI0150",
+            displayName: "Broken",
+            teamName: "Broken",
+            role: "lead",
+          },
+        ],
+        reason: "Invalid registration number",
+      }),
+    ).rejects.toThrow("Google account email or a VIT registration number");
+
+    await expect(
+      importer.person.query(api.teamRosters.previewImport, {
+        eventSlug: fixture.eventSlug,
+        sourceName: "Future regno",
+        rows: [
+          {
+            rowNumber: 2,
+            identity: "27BCI0150",
+            displayName: "Future",
+            teamName: "Future",
+            role: "lead",
+          },
+        ],
+        reason: "Future registration number",
+      }),
+    ).rejects.toThrow("Google account email or a VIT registration number");
+  }, 30_000);
+
+  test("pending registration-number assignment blocks create and can be declined", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+
+    await importRows(importer, fixture, {
+      sourceName: "Regno guard",
+      clientOperationId: "team-roster-import-regno-guard",
+      rows: [
+        {
+          rowNumber: 2,
+          identity: "24BCI0200",
+          displayName: "Lead Internal",
+          teamName: "Regno Guard",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          identity: "24BCI0201",
+          displayName: "Member Internal",
+          teamName: "Regno Guard",
+          role: "member",
+        },
+      ],
+    });
+    await drainScheduler(backend);
+
+    const member = await provisionParticipant(backend, fixture, {
+      email: "member.internal2024@vitstudent.ac.in",
+      googleSubject: "team-roster-regno-guard-member",
+      vitHostedDomain: "vitstudent.ac.in",
+      displayName: "Member Internal 24BCI0201",
+    });
+    expect(member.me.pendingTeam).toMatchObject({
+      teamName: "Regno Guard",
+      status: "waiting_for_lead",
+    });
+    const pendingTeam = member.me.pendingTeam;
+    if (!pendingTeam) throw new Error("Member should still be waiting for the lead.");
+    await acceptPolicy(member.person, fixture, "accept-regno-guard-member");
+    await expect(
+      member.person.mutation(api.teams.create, {
+        eventSlug: fixture.eventSlug,
+        name: "Escape",
+        clientOperationId: "team-create-blocked-by-regno",
+      }),
+    ).rejects.toThrow("Leave the assigned team before creating or joining another.");
+
+    await member.person.mutation(api.participants.declineAssignedTeam, {
+      eventSlug: fixture.eventSlug,
+      teamRosterEntryId: pendingTeam.id,
+      expectedVersion: pendingTeam.version,
+      clientOperationId: "team-assignment-decline-regno",
+    });
+    const created = await member.person.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Escape",
+      clientOperationId: "team-create-after-regno-decline",
+    });
+    expect(created.teamId).toBeTruthy();
+  }, 30_000);
+
+  test("mixed email lead and registration-number member", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+
+    await importRows(importer, fixture, {
+      sourceName: "Mixed identities",
+      clientOperationId: "team-roster-import-mixed",
+      rows: [
+        {
+          rowNumber: 2,
+          identity: "lead.student2024@vitstudent.ac.in",
+          displayName: "Lead Student",
+          teamName: "Mixed",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          identity: "24BCI0300",
+          displayName: "Internal Member",
+          teamName: "Mixed",
+          role: "member",
+        },
+      ],
+    });
+    await drainScheduler(backend);
+
+    const lead = await provisionParticipant(backend, fixture, {
+      email: "lead.student2024@vitstudent.ac.in",
+      googleSubject: "team-roster-mixed-lead",
+      vitHostedDomain: "vitstudent.ac.in",
+      displayName: "Lead Student 24BCI0299",
+    });
+    const member = await provisionParticipant(backend, fixture, {
+      email: "internal.member2024@vitstudent.ac.in",
+      googleSubject: "team-roster-mixed-member",
+      vitHostedDomain: "vitstudent.ac.in",
+      displayName: "Internal Member 24BCI0300",
+    });
+    const leadTeam = await lead.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    const memberTeam = await member.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(leadTeam?.name).toBe("Mixed");
+    expect(memberTeam?.id).toBe(leadTeam?.id);
+  }, 30_000);
+
+  test("places an already-provisioned VIT student imported by registration number", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const lead = await provisionParticipant(backend, fixture, {
+      email: "ready.lead2024@vitstudent.ac.in",
+      googleSubject: "team-roster-ready-regno-lead",
+      vitHostedDomain: "vitstudent.ac.in",
+      displayName: "Ready Lead 24BCI0400",
+    });
+
+    await importRows(importer, fixture, {
+      sourceName: "Already signed in",
+      clientOperationId: "team-roster-import-ready-regno",
+      rows: [
+        {
+          rowNumber: 2,
+          identity: "24BCI0400",
+          displayName: "Ready Lead",
+          teamName: "Ready Lead",
+          role: "lead",
+        },
+      ],
+    });
+    await drainScheduler(backend);
+
+    const team = await lead.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(team?.name).toBe("Ready Lead");
+  }, 30_000);
 });
 
 type ImportRow = {
   rowNumber: number;
-  email: string;
+  identity: string;
   displayName: string;
   teamName: string;
   role: "lead" | "member";
@@ -1218,6 +1519,7 @@ async function seedEvent(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
+      startsAt: Date.UTC(2026, 7, 31, 9, 0),
       externalApplicationsCloseAt: Date.now() + 86_400_000,
       applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: ownerId,
@@ -1315,9 +1617,11 @@ async function signInParticipant(
     email: string;
     googleSubject: string;
     vitHostedDomain?: string;
+    displayName?: string;
   },
 ) {
-  const displayName = args.vitHostedDomain ? "VIT Student 24TST0001" : args.email;
+  const displayName = args.displayName
+    ?? (args.vitHostedDomain ? "VIT Student 24TST0001" : args.email);
   const authUserId = await createAuthUser(backend, fixture.now, displayName, args.email);
   const authSessionId = await createAuthSession(
     backend,
@@ -1349,6 +1653,7 @@ async function provisionParticipant(
     email: string;
     googleSubject: string;
     vitHostedDomain?: string;
+    displayName?: string;
   },
 ) {
   const identity = await signInParticipant(backend, fixture, args);
