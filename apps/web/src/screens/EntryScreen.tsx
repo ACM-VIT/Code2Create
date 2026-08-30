@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Code2CreateAuthClient } from '@code2create/web-auth'
+import { signInWithGooglePopup, type Code2CreateAuthClient } from '@code2create/web-auth'
 import { PortalScene } from '../components/portal/PortalScene'
 import { PortalButton } from '../components/portal/PortalButton'
 import { PortalError } from '../components/portal/PortalField'
@@ -17,6 +17,13 @@ function splitEventTitle(name: string): { name: string; edition: string | null }
 }
 
 export const participantClassStorageKey = 'code2create.participant-class'
+
+function popupErrorMessage(code: string | undefined) {
+  if (code === 'POPUP_BLOCKED') return 'Allow pop-ups for this site, then try again.'
+  if (code === 'POPUP_CLOSED') return 'Google sign-in was closed before it finished.'
+  if (code === 'POPUP_TIMEOUT') return 'Google sign-in took too long. Try again.'
+  return 'Google sign-in could not start. Try again.'
+}
 
 function ClassCard({
   title,
@@ -99,13 +106,10 @@ export function EntryScreen({
     setBusy(true)
     setError(null)
     try {
-      const result = await authClient.signIn.social({
-        provider: 'google',
-        callbackURL: window.location.href,
-      })
-      if (result.error) setError('Google sign-in could not start. Try again.')
+      const result = await signInWithGooglePopup(authClient, window.location.href)
+      if (result.error) setError(popupErrorMessage(result.error.code))
     } catch {
-      setError('Google sign-in could not start. Try again.')
+      setError(popupErrorMessage(undefined))
     } finally {
       setBusy(false)
     }
