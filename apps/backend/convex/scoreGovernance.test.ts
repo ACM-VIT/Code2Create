@@ -714,6 +714,7 @@ async function seedCorrectionFixture(backend: BackendTest) {
       vitCampusField: "not_collected",
       externalCityField: "optional",
       externalCountryField: "optional",
+      vitHostelDetailsField: "not_collected",
       profileNotice: "Correction fixture profile notice",
       projectTextNotice: "Correction fixture project notice",
       privacyNoticeUrl: "https://example.test/privacy",

@@ -108,6 +108,7 @@ import {
   venueCheckInStatus,
   venueIdentityCheckMethod,
   venuePresenceState,
+  vitHostelResidence,
 } from "./values";
 import {
   intelligenceRecommendationArguments,
@@ -295,6 +296,11 @@ export default defineSchema({
       v.literal("required"),
     ),
     externalCountryField: v.union(
+      v.literal("not_collected"),
+      v.literal("optional"),
+      v.literal("required"),
+    ),
+    vitHostelDetailsField: v.union(
       v.literal("not_collected"),
       v.literal("optional"),
       v.literal("required"),
@@ -910,6 +916,8 @@ export default defineSchema({
     vitRegistrationNumber: v.optional(v.string()),
     vitProgramme: v.optional(v.string()),
     vitCampus: v.optional(v.string()),
+    vitHostelResidence: v.optional(vitHostelResidence),
+    vitHostelRoomNumber: v.optional(v.string()),
     externalCity: v.optional(v.string()),
     externalCountry: v.optional(v.string()),
     profileVersion: v.number(),

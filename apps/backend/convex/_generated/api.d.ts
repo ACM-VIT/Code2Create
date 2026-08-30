@@ -180,6 +180,7 @@ import type * as lib_teamMembership from "../lib/teamMembership.js";
 import type * as lib_teamRoster from "../lib/teamRoster.js";
 import type * as lib_testSubmissionSnapshot from "../lib/testSubmissionSnapshot.js";
 import type * as lib_venueCheckInLifecycle from "../lib/venueCheckInLifecycle.js";
+import type * as lib_vitHostel from "../lib/vitHostel.js";
 import type * as lib_vitStudentIdentity from "../lib/vitStudentIdentity.js";
 import type * as manualReviewRecordActions from "../manualReviewRecordActions.js";
 import type * as manualReviewRecords from "../manualReviewRecords.js";
@@ -431,6 +432,7 @@ declare const fullApi: ApiFromModules<{
   "lib/teamRoster": typeof lib_teamRoster;
   "lib/testSubmissionSnapshot": typeof lib_testSubmissionSnapshot;
   "lib/venueCheckInLifecycle": typeof lib_venueCheckInLifecycle;
+  "lib/vitHostel": typeof lib_vitHostel;
   "lib/vitStudentIdentity": typeof lib_vitStudentIdentity;
   manualReviewRecordActions: typeof manualReviewRecordActions;
   manualReviewRecords: typeof manualReviewRecords;

@@ -133,6 +133,16 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
               <PortalField label="campus">
                 {(id) => <PortalInput id={id} defaultValue="Vellore" />}
               </PortalField>
+              <PortalField label="hostel">
+                {(id) => (
+                  <PortalSelect id={id} defaultValue="lh_s">
+                    <option value="lh_s">Ladies' hostel · S block</option>
+                  </PortalSelect>
+                )}
+              </PortalField>
+              <PortalField label="room number">
+                {(id) => <PortalInput id={id} className="font-mono" defaultValue="412" />}
+              </PortalField>
             </div>
             <div className="mt-4.5 border-t border-petal-line pt-4">
               <PortalCheckRow checked onChange={noop}>

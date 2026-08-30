@@ -723,6 +723,7 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
       vitCampusField: "not_collected",
       externalCityField: "not_collected",
       externalCountryField: "not_collected",
+      vitHostelDetailsField: "not_collected",
       profileNotice: "Fixture profile notice.",
       projectTextNotice: "Fixture project notice.",
       privacyNoticeUrl: "https://example.test/privacy",

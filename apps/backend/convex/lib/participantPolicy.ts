@@ -1,3 +1,4 @@
+import { isVitHostelBlock } from "@code2create/domain";
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";
@@ -26,6 +27,7 @@ export const participantPolicyInput = v.object({
   vitCampusField: profileFieldMode,
   externalCityField: profileFieldMode,
   externalCountryField: profileFieldMode,
+  vitHostelDetailsField: profileFieldMode,
   profileNotice: v.string(),
   projectTextNotice: v.string(),
   privacyNoticeUrl: v.string(),
@@ -44,6 +46,7 @@ export type ParticipantPolicy = {
   vitCampusField: ProfileFieldMode;
   externalCityField: ProfileFieldMode;
   externalCountryField: ProfileFieldMode;
+  vitHostelDetailsField: ProfileFieldMode;
   profileNotice: string;
   projectTextNotice: string;
   privacyNoticeUrl: string;
@@ -65,6 +68,7 @@ export const defaultParticipantPolicy: ParticipantPolicy = {
   vitCampusField: "required",
   externalCityField: "optional",
   externalCountryField: "required",
+  vitHostelDetailsField: "required",
   profileNotice:
     "We use these details to establish event eligibility, contact you about operations, and run Code2Create.",
   projectTextNotice:
@@ -141,6 +145,7 @@ export function normalizeParticipantPolicy(input: ParticipantPolicy): Participan
     vitCampusField: input.vitCampusField,
     externalCityField: input.externalCityField,
     externalCountryField: input.externalCountryField,
+    vitHostelDetailsField: input.vitHostelDetailsField,
     profileNotice: normalizedLongText(input.profileNotice, "Profile notice", 20, 600),
     projectTextNotice: normalizedLongText(
       input.projectTextNotice,
@@ -172,6 +177,7 @@ export function participantPolicyFromDocument(
     vitCampusField: policy.vitCampusField,
     externalCityField: policy.externalCityField,
     externalCountryField: policy.externalCountryField,
+    vitHostelDetailsField: policy.vitHostelDetailsField,
     profileNotice: policy.profileNotice,
     projectTextNotice: policy.projectTextNotice,
     privacyNoticeUrl: policy.privacyNoticeUrl,
@@ -263,6 +269,20 @@ function requiredValue(mode: ProfileFieldMode, value: string | undefined) {
   return mode !== "required" || value !== undefined;
 }
 
+function hostelDetailsComplete(
+  profile: Doc<"participantProfiles">,
+  mode: ProfileFieldMode,
+) {
+  if (mode === "not_collected") return true;
+  if (profile.vitHostelResidence === undefined) {
+    return mode === "optional" && profile.vitHostelRoomNumber === undefined;
+  }
+  if (!isVitHostelBlock(profile.vitHostelResidence)) {
+    return profile.vitHostelRoomNumber === undefined;
+  }
+  return profile.vitHostelRoomNumber !== undefined;
+}
+
 export function isProfileCompleteForPolicy(
   profile: Doc<"participantProfiles"> | null,
   membership: Doc<"eventMemberships">,
@@ -284,7 +304,8 @@ export function isProfileCompleteForPolicy(
       profile.yearOfStudy !== "not_applicable" &&
       requiredValue(policy.vitRegistrationNumberField, profile.vitRegistrationNumber) &&
       requiredValue(policy.vitProgrammeField, profile.vitProgramme) &&
-      requiredValue(policy.vitCampusField, profile.vitCampus)
+      requiredValue(policy.vitCampusField, profile.vitCampus) &&
+      hostelDetailsComplete(profile, policy.vitHostelDetailsField)
     );
   }
   return (

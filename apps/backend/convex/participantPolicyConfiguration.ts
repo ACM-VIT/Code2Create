@@ -291,7 +291,8 @@ function describeChanges(
     published.vitProgrammeField !== draft.vitProgrammeField ||
     published.vitCampusField !== draft.vitCampusField ||
     published.externalCityField !== draft.externalCityField ||
-    published.externalCountryField !== draft.externalCountryField
+    published.externalCountryField !== draft.externalCountryField ||
+    published.vitHostelDetailsField !== draft.vitHostelDetailsField
   ) {
     changes.push("Update class-aware profile fields.");
   }

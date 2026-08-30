@@ -104,6 +104,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           vitCampusField: 'required',
           externalCityField: 'optional',
           externalCountryField: 'required',
+          vitHostelDetailsField: 'required',
           profileNotice:
             'We use these details to establish event eligibility, contact you about operations, and run Code2Create.',
           projectTextNotice:

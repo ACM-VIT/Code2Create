@@ -274,12 +274,13 @@ export function ParticipantPolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Profile fields" description="VIT names and institution come from the verified student account; campus is supplied by the participant.">
+          <PolicySection title="Profile fields" description="VIT names and institution come from the verified student account; campus, hostel block, and room are supplied by the participant.">
             <div className="intake-policy-grid">
               <FieldModeSelect label="Phone" value={policy.phoneField} onChange={(value) => updatePolicy('phoneField', value)} />
               <FieldModeSelect label="VIT registration number" value={policy.vitRegistrationNumberField} onChange={(value) => updatePolicy('vitRegistrationNumberField', value)} />
               <FieldModeSelect label="VIT programme" value={policy.vitProgrammeField} onChange={(value) => updatePolicy('vitProgrammeField', value)} />
               <FieldModeSelect label="VIT campus" value={policy.vitCampusField} onChange={(value) => updatePolicy('vitCampusField', value)} />
+              <FieldModeSelect label="VIT hostel block and room" value={policy.vitHostelDetailsField} onChange={(value) => updatePolicy('vitHostelDetailsField', value)} />
               <FieldModeSelect label="External participant city" value={policy.externalCityField} onChange={(value) => updatePolicy('externalCityField', value)} />
               <FieldModeSelect label="External participant country" value={policy.externalCountryField} onChange={(value) => updatePolicy('externalCountryField', value)} />
             </div>

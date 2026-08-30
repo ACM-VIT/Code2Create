@@ -1,3 +1,4 @@
+import { vitHostelResidenceLabels } from "@code2create/domain";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -54,6 +55,8 @@ const rosterRow = v.object({
   name: v.string(),
   phone: v.optional(v.string()),
   vitRegistrationNumber: v.optional(v.string()),
+  vitHostelResidence: v.optional(v.string()),
+  vitHostelRoomNumber: v.optional(v.string()),
   participantClass,
   eligibilityStatus: participantEligibilityStatus,
   teamName: v.optional(v.string()),
@@ -335,6 +338,12 @@ async function buildSnapshot(
         ...(profile?.phone ? { phone: profile.phone } : {}),
         ...(profile?.vitRegistrationNumber
           ? { vitRegistrationNumber: profile.vitRegistrationNumber }
+          : {}),
+        ...(profile?.vitHostelResidence !== undefined
+          ? { vitHostelResidence: vitHostelResidenceLabels[profile.vitHostelResidence] }
+          : {}),
+        ...(profile?.vitHostelRoomNumber !== undefined
+          ? { vitHostelRoomNumber: profile.vitHostelRoomNumber }
           : {}),
         participantClass: membership.participantClass,
         eligibilityStatus: membership.eligibilityStatus,

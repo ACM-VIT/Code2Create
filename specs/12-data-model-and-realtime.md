@@ -284,6 +284,7 @@ Key fields:
 - college/university/institution/organization and current year-of-study or current-role key;
 - participant-class and deterministic admissions experience-band source fields;
 - VIT registration/programme/campus fields when applicable;
+- VIT hostel residence from the closed Vellore catalog (day scholar, men's blocks including B, ladies' blocks including S) and room number when the residence is a hostel block;
 - external city/country fields when the accepted policy permits them;
 - `profileVersion`
 - `updatedAt`
@@ -312,7 +313,7 @@ One immutable registration and team-policy release.
 - `eventId`, monotonic numeric version, and `status: draft | published | superseded | retired`;
 - participant-facing label;
 - positive whole-number team minimum/maximum chosen by operations, with the maximum no greater than the current published admission participant capacity;
-- `not_collected | optional | required` modes for phone, VIT registration number, VIT programme, VIT campus, external city, and external country;
+- `not_collected | optional | required` modes for phone, VIT registration number, VIT programme, VIT campus, VIT hostel details, external city, and external country;
 - profile-use notice, project-text processing notice, and credential-free HTTPS privacy-notice URL;
 - the fixed fresh-project acknowledgment and a bounded final warning that states that team membership locks;
 - checksum, creator/time, and optional publication time.
