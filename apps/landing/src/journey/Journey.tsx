@@ -35,10 +35,8 @@ gsap.registerPlugin(useGSAP, ScrollTrigger);
 
 /* Each About chapter is fronted by one of the five cards. */
 const CHAPTERS = [
-  /* Cards are dealt in fan order: each chapter lifts the next card from the
-     left, so the hand empties leftmost to rightmost — the ace for C2C, the
-     king for ACM-VIT, the queen for ACM, the jack for ACM-W, and the 10 for
-     VIT. */
+  /* Chapter cards: ace for C2C, king for ACM-VIT, jack for ACM, queen for
+     ACM-W, and 10 for VIT. */
   {
     title: 'Code2Create',
     wordmark: true,
@@ -58,7 +56,7 @@ const CHAPTERS = [
   },
   {
     title: 'ACM',
-    card: 2,
+    card: 3,
     body: [
       'The Association for Computing Machinery is the world’s largest computing society, uniting over 100,000 educators, researchers, and professionals to advance computing as a science and a profession.',
       'Through 860 chapters, 38 Special Interest Groups, and the ACM Digital Library, it champions technical excellence, shapes public policy, and honors breakthroughs with the prestigious A.M. Turing Award.',
@@ -66,7 +64,7 @@ const CHAPTERS = [
   },
   {
     title: 'ACM-W',
-    card: 3,
+    card: 2,
     body: [
       'ACM-W at VIT brings together women interested in STEM and innovation, with a welcoming space to learn, connect, and grow through workshops, mentorship, and meaningful conversations.',
       'We help students discover their strengths, build confidence, and encourage more women to make their mark in STEM.',
