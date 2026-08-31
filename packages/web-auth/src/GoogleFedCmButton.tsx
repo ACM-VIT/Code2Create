@@ -122,7 +122,7 @@ export function GoogleFedCmButton({
         display: 'grid',
         width: '100%',
         maxWidth: 320,
-        minHeight: 54,
+        minHeight: 55,
         marginInline: 'auto',
         alignItems: 'center',
         overflow: 'hidden',
@@ -136,8 +136,7 @@ export function GoogleFedCmButton({
           visibility: phase === 'ready' ? 'visible' : 'hidden',
           pointerEvents: phase === 'ready' ? 'auto' : 'none',
           minHeight: 44,
-          width: 'calc(100% + 20px)',
-          marginInline: -10,
+          width: '100%',
         }}
       />
       {phase === 'loading' ? <div style={{ gridArea: '1 / 1' }}>{loading}</div> : null}
