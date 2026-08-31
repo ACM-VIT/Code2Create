@@ -168,8 +168,10 @@
   --color-petal-b: #a94d72;
   --color-ring-lead: #c26787;
   --color-petal-line: rgb(150 55 92 / .25);
-  --color-petal-edge: rgb(169 77 114 / .5);
-  --color-petal-edge-soft: rgb(169 77 114 / .35);
+  /* Card edges need more presence here than at night: the half-transparent
+     rose all but vanishes over the near-white card washes. */
+  --color-petal-edge: rgb(169 77 114 / .62);
+  --color-petal-edge-soft: rgb(169 77 114 / .42);
 
   --scene-sky: linear-gradient(180deg, #cfc5e4 0%, #e5ccdb 36%, #f4d5d0 64%, #fbdfc0 90%, #fff1d8 112%);
   --scene-vignette: radial-gradient(ellipse at 50% 30%, transparent 50%, rgb(255 234 214 / .5) 100%);
@@ -270,6 +272,19 @@
   );
   will-change: transform;
   animation: c2cshimmer 2.5s infinite;
+}
+
+/* The novelty pill's phone ticker: score and band word trade places. */
+@keyframes c2cticka {
+  0%, 40% { opacity: 1; transform: translateY(0); }
+  46%, 90% { opacity: 0; transform: translateY(-9px); }
+  96%, 100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes c2ctickb {
+  0%, 40% { opacity: 0; transform: translateY(9px); }
+  46%, 90% { opacity: 1; transform: translateY(0); }
+  96%, 100% { opacity: 0; transform: translateY(9px); }
 }
 
 @keyframes c2cshimmer {

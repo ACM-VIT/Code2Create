@@ -31,8 +31,11 @@ import {
 } from '../lib/sessionDraft'
 import type { CurrentIntake, CurrentTeam, CurrentTeamMember } from '../types'
 
+type NoveltyBand = 'familiar' | 'developing' | 'distinct'
+
 type NoveltySignal = {
   score: number
+  band: NoveltyBand | null
 }
 
 type NoveltyState =
@@ -181,12 +184,14 @@ function IntakeStage({
       ) : null}
       <div className={`flex w-full flex-col items-center lg:mb-[8vh] ${width}`}>
         <h1
-          className={`mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight text-shadow-[0_4px_30px_var(--scene-text-glow)] ${titleClass}`}
+          className={`mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-balance text-[26px] leading-tight text-shadow-[0_4px_30px_var(--scene-text-glow)] ${titleClass}`}
         >
           {title}
         </h1>
         {hint ? (
-          <p className="-mt-3 mb-6 text-[12.5px] text-fg/50">{hint}</p>
+          <p className="-mt-3 mb-6 max-w-[560px] text-center text-pretty text-[12.5px] text-fg/50">
+            {hint}
+          </p>
         ) : null}
         {presence}
         {children}
@@ -351,6 +356,7 @@ function IntakeWorkspace({
   const noveltyMinimumIdeaLength = novelty?.minimumIdeaLength ?? null
   const noveltyDebounceMs = novelty?.debounceMs ?? null
   const savedNoveltyScore = draft?.noveltySignal?.score ?? null
+  const savedNoveltyBand = draft?.noveltySignal?.band ?? null
 
   const draftEditorLabel = editorLabel(
     members,
@@ -462,6 +468,7 @@ function IntakeWorkspace({
         status: 'ready',
         signal: {
           score: savedNoveltyScore,
+          band: savedNoveltyBand,
         },
       })
     }
@@ -497,7 +504,7 @@ function IntakeWorkspace({
             if (!hasSavedSignal) setNoveltyState({ status: 'unavailable' })
             return
           }
-          setNoveltyState({ status: 'ready', signal: { score: result.score } })
+          setNoveltyState({ status: 'ready', signal: { score: result.score, band: result.band } })
         })
         .catch(() => {
           if (noveltySequence.current === sequence && !hasSavedSignal) {
@@ -528,6 +535,7 @@ function IntakeWorkspace({
     noveltyDebounceMs,
     noveltyMinimumIdeaLength,
     previewNovelty,
+    savedNoveltyBand,
     savedNoveltyScore,
   ])
 
@@ -1272,7 +1280,7 @@ function IntakeWorkspace({
         {savedNoveltyScore !== null ? (
           <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
             <NoveltyPill
-              state={{ status: 'ready', signal: { score: savedNoveltyScore } }}
+              state={{ status: 'ready', signal: { score: savedNoveltyScore, band: savedNoveltyBand } }}
               minimumLength={novelty?.minimumIdeaLength ?? null}
             />
           </div>
@@ -1539,19 +1547,38 @@ export function NoveltyPill({
   }, [explaining, desktop])
 
   if (minimumLength === null) return null
+  const belowMinimum = currentLength !== undefined && currentLength < minimumLength
+  const signal = !belowMinimum && state.status === 'ready' ? state.signal : null
   const label =
-    (currentLength !== undefined && currentLength < minimumLength) || state.status === 'idle'
+    belowMinimum || state.status === 'idle'
       ? 'keep writing'
       : state.status === 'checking'
         ? 'checking…'
-        : state.status === 'unavailable'
-          ? 'score unavailable'
-          : `${state.signal.score} / 100`
+        : 'score unavailable'
   return (
     <div ref={anchorRef} className="pointer-events-auto relative">
       <div className="inline-flex items-center gap-2 rounded-[8px] border border-rose-light/55 bg-wash/92 py-1.5 pr-2 pl-3.5 text-[11.5px] font-semibold text-rose-light shadow-[0_8px_22px_var(--shade-1)] backdrop-blur-md">
-        <span aria-live="polite" aria-label="Live idea comparison score">
-          {label}
+        <span aria-live="polite" aria-label="live idea comparison score">
+          {signal === null ? (
+            label
+          ) : signal.band === null ? (
+            `${signal.score} / 100`
+          ) : (
+            <>
+              {/* Wide screens carry both; phones trade them on a slow tick. */}
+              <span className="hidden sm:inline">
+                {signal.score} / 100 · {signal.band}
+              </span>
+              <span className="grid overflow-hidden text-center sm:hidden">
+                <span className="col-start-1 row-start-1 animate-[c2cticka_5.6s_ease-in-out_infinite] motion-reduce:animate-none">
+                  {signal.score} / 100
+                </span>
+                <span className="col-start-1 row-start-1 animate-[c2ctickb_5.6s_ease-in-out_infinite] motion-reduce:hidden">
+                  {signal.band}
+                </span>
+              </span>
+            </>
+          )}
         </span>
         <button
           type="button"

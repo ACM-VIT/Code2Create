@@ -1795,13 +1795,32 @@ code {
   color: var(--color-fg);
 }
 
-/* Editors that ARE the card (the idea and answer sheets) opt out of the
-   boxed field skin — this beats the element rule above on specificity,
-   which single-class utilities cannot. */
+/* Editors that ARE the card (the idea and answer sheets) trade the boxed
+   field skin for a slight outline: a hairline that marks the writing area
+   without stacking a second box inside the card. They also grow with the
+   text (field-sizing, where supported) so long answers never clip mid-line
+   on small screens; past 55vh the field scrolls instead. This rule beats
+   the element skin above on specificity, which single-class utilities
+   cannot. */
 [data-portal-scene] textarea.bare-field {
+  padding: 12px 14px;
   background: transparent;
-  border: 0;
-  border-radius: 0;
+  border: 1px solid var(--color-petal-line);
+  border-radius: 10px;
+  field-sizing: content;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+[data-portal-scene] textarea.bare-field:focus {
+  border-color: var(--color-petal-edge-soft);
+}
+
+/* Phones get a shorter empty field; it grows as the writing does. */
+@media (max-width: 640px) {
+  [data-portal-scene] textarea.bare-field {
+    min-height: 128px;
+  }
 }
 
 [data-portal-scene] .notice,

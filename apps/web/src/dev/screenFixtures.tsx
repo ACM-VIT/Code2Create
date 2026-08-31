@@ -159,7 +159,6 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
         <div className="flex w-full max-w-[660px] flex-col items-center text-center">
           <h1 className="mb-2 font-display font-light tracking-[-.01em] text-3xl lg:text-[42px]">Find your people.</h1>
           <p className="mb-8 text-[12.5px] text-fg/50">
-            one team per participant · changes stay open until the deadline
           </p>
           <div className="flex w-full flex-col items-stretch gap-4 sm:flex-row sm:justify-center sm:gap-[18px]">
             <div className="flex w-full flex-col rounded-petal-sm border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] px-7 py-6 text-left shadow-[0_28px_56px_-20px_var(--shade-2),0_0_26px_var(--glow-rose-soft)] backdrop-blur-md sm:w-[300px]">
@@ -197,7 +196,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       <PortalScene tree="left" header={cluster}>
         <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
           <NoveltyPill
-            state={{ status: 'ready', signal: { score: 87 } }}
+            state={{ status: 'ready', signal: { score: 87, band: 'distinct' } }}
             currentLength={420}
             minimumLength={80}
           />
@@ -310,7 +309,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
   ['f5', () => (
       <PortalScene tree="left" header={cluster}>
         <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
-          <NoveltyPill state={{ status: 'ready', signal: { score: 87 } }} minimumLength={80} />
+          <NoveltyPill state={{ status: 'ready', signal: { score: 87, band: 'distinct' } }} minimumLength={80} />
         </div>
         <div className="flex w-full max-w-[760px] flex-col items-center">
           <h1 className="mb-7 text-center font-display font-light tracking-[-.01em] text-3xl lg:text-[44px]">Paper Cranes</h1>
