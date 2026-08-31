@@ -748,9 +748,6 @@ function ProvisionScreen({
       }
     >
       <div className="flex w-full max-w-[560px] flex-col items-center text-center">
-        <p className="mb-2 font-ui font-normal text-[15px] text-rose-light">
-          {publicState.event?.name ?? 'Code2Create'}
-        </p>
         <h1 className="mb-2 font-display font-light tracking-[-.01em] text-3xl lg:text-[40px]">
           Choose your participant type.
         </h1>

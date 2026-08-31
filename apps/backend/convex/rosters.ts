@@ -16,8 +16,6 @@ import {
   requireAuthUser,
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   bundleBindingRequirements,
@@ -865,7 +863,6 @@ export const confirmImport = mutation({
         message: "The roster, bundle versions, or import settings changed. Review the import again.",
       });
     }
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const now = Date.now();
     const rosterImportId = await ctx.db.insert("rosterImports", {
       eventId: event._id,
@@ -1590,7 +1587,6 @@ export const revoke = mutation({
       scopeType: "roster_entry",
       scopeId: args.rosterEntryId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const entry = await ctx.db.get("rosterEntries", args.rosterEntryId);
     if (!entry || entry.eventId !== event._id) {
       throw new ConvexError({

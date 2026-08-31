@@ -16,8 +16,6 @@ import {
   findCurrentPerson,
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
   stagingParticipantAccessAllowed,
 } from "./lib/identity";
 import {
@@ -2274,7 +2272,6 @@ export const grant = mutation({
           : {}),
       },
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const { grantId, created } = await insertPermissionGrant(ctx, {
       eventId: event._id,
       personId: args.targetPersonId,
@@ -2524,7 +2521,6 @@ async function grantPermissionBatch(ctx: MutationCtx, args: DirectGrantBatchArgs
   if (authorityPermissionKey === null) {
     throw new Error("Permission grant authority was not resolved.");
   }
-  await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
   const group = await insertPermissionGrantGroup(ctx, {
     eventId: event._id,
     personId: args.targetPersonId,
@@ -2637,7 +2633,6 @@ export const revoke = mutation({
         targetPersonId: grant.personId,
       },
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const targetSubject = await ctx.db.get(grant.eventAccessSubjectId);
     if (!targetSubject) throw new Error("Permission grant subject is missing.");
     requireAccessVersion(targetSubject, args.expectedAccessVersion);
@@ -2815,7 +2810,6 @@ export const revokeBatch = mutation({
     if (authorityPermissionKey === null) {
       throw new Error("Permission revoke authority was not resolved.");
     }
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const now = Date.now();
     for (const grant of grants) {
       await ctx.db.patch(grant._id, {

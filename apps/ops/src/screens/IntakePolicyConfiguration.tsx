@@ -270,10 +270,10 @@ export function IntakePolicyConfiguration({
                 <input disabled value="Two" />
               </label>
             </div>
-            <p className="muted intake-policy-note">Every introduction asks two short questions based on the team’s answers. Reviewed fallback questions keep the flow moving if AI is unavailable.</p>
+            <p className="muted intake-policy-note">Every introduction asks these two questions first. The platform may then ask up to two project-specific questions when useful.</p>
           </PolicySection>
 
-          <PolicySection title="Question goals" description="Generated questions use one of these reviewed goals.">
+          <PolicySection title="Generated question goals" description="Any additional question uses one of these reviewed goals.">
             <div className="intake-purpose-list">
               {purposeOptions.map((purpose) => (
                 <label key={purpose}>
@@ -293,7 +293,7 @@ export function IntakePolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Fallback questions" description="Used automatically when a generated question is unavailable.">
+          <PolicySection title="Fixed questions" description="Every team answers these before any generated question.">
             <div className="phase-card-list">
               {policy.fallbackQuestions.map((question) => (
                 <article className="phase-card" key={question.ordinal}>

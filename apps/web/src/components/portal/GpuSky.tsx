@@ -44,10 +44,12 @@ fn fbm(p: vec2f) -> f32 {
   col = mix(col, vec3f(1., .87, .68), day * smoothstep(.55, 1.35, uv.y + n * .2) * .45);
   let g = uv * vec2f(140., 88.);
   let cell = floor(g); let h = hash2(cell);
-  let star = smoothstep(.997, 1., h.x) * (.55 + .45 * sin(t * (1. + h.y * 2.) + h.y * 20.)) * (1. - day);
-  col += vec3f(1., .95, .97) * star * smoothstep(.75, .15, uv.y);
+  // Shape every star term by distance to the cell centre — without the
+  // falloff the whole grid cell brightens and stars render as squares.
   let d = distance(fract(g) - .5, vec2f(0.));
-  col += vec3f(1., .8, .87) * star * smoothstep(.5, .0, d) * .6;
+  let star = smoothstep(.997, 1., h.x) * (.55 + .45 * sin(t * (1. + h.y * 2.) + h.y * 20.)) * (1. - day);
+  col += vec3f(1., .95, .97) * star * smoothstep(.75, .15, uv.y) * smoothstep(.5, .05, d);
+  col += vec3f(1., .8, .87) * star * smoothstep(.16, .0, d) * .9;
   return vec4f(col, 1.);
 }`
 

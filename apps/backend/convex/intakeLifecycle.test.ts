@@ -257,10 +257,9 @@ describe("participant intake lifecycle", () => {
     expect(revisedIdeaSave.draftVersion).toBe(firstQuestionState.draft.version + 1);
     await expect(participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
-    })).resolves.toMatchObject({ draft: { followUps: [] }, workingFields: [] });
-    await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
-      draftId: savedIdea.draftId,
-      providerAvailable: false,
+    })).resolves.toMatchObject({
+      draft: { followUps: [{ state: "active", source: "fixed" }] },
+      workingFields: [],
     });
     const withQuestion = await participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
@@ -332,10 +331,6 @@ describe("participant intake lifecycle", () => {
     await expect(participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
     })).resolves.toMatchObject({ workingFields: [] });
-    await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
-      draftId: savedIdea.draftId,
-      providerAvailable: false,
-    });
     const withThirdQuestion = await participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
     });
@@ -345,12 +340,16 @@ describe("participant intake lifecycle", () => {
     if (!withThirdQuestion?.draft || !thirdQuestion) {
       throw new Error("The third total intake question did not become visible.");
     }
-    const answeredThirdQuestion = await participant.mutation(api.intake.respondToFollowUp, {
+    await participant.mutation(api.intake.respondToFollowUp, {
       eventSlug: fixture.eventSlug,
       questionId: thirdQuestion.id,
       answer: "We want to finish a reliable request handoff and completion update.",
       expectedDraftVersion: withThirdQuestion.draft.version,
       clientOperationId: "intake-third-question-answer",
+    });
+    await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
+      draftId: savedIdea.draftId,
+      providerAvailable: false,
     });
     const reviewBeforeAnswerEdit = await participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
@@ -362,13 +361,23 @@ describe("participant intake lifecycle", () => {
     const questionIdsBeforeAnswerEdit = reviewBeforeAnswerEdit.draft.followUps.map(
       (question) => question.id,
     );
-    const revisedAnswer = await participant.mutation(api.intake.reviseFollowUp, {
+    await participant.mutation(api.intake.reviseFollowUp, {
       eventSlug: fixture.eventSlug,
       questionId: firstAnsweredQuestion.id,
       answer: `${firstFollowUpAnswer} The first release focuses on mobility requests.`,
-      expectedDraftVersion: answeredThirdQuestion.draftVersion,
+      expectedDraftVersion: reviewBeforeAnswerEdit.draft.version,
       clientOperationId: "intake-follow-up-revise",
     });
+    await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
+      draftId: savedIdea.draftId,
+      providerAvailable: false,
+    });
+    const reviewAfterAnswerEdit = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!reviewAfterAnswerEdit?.draft) {
+      throw new Error("The revised intake did not return to review.");
+    }
     await expect(participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
     })).resolves.toMatchObject({
@@ -380,7 +389,7 @@ describe("participant intake lifecycle", () => {
     const freshness = await participant.mutation(api.intake.setFreshnessAttestation, {
       eventSlug: fixture.eventSlug,
       accepted: true,
-      expectedDraftVersion: revisedAnswer.draftVersion,
+      expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
       clientOperationId: "intake-freshness-confirm",
     });
 

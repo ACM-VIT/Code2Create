@@ -10,8 +10,6 @@ import { teamTableLabel } from "./lib/floor";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -972,7 +970,6 @@ export const waivePresence = mutation({
       scopeType: "review",
       scopeId: session._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const assignments = await ctx.db
       .query("reviewAssignments")
       .withIndex("by_session_person", (index) =>
@@ -1133,7 +1130,6 @@ export const waiveParticipantAvailability = mutation({
       reviewSessionId: session._id,
       teamId: session.teamId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const participantAvailability = await readReviewParticipantAvailability(ctx, {
       eventId: event._id,
       teamId: session.teamId,

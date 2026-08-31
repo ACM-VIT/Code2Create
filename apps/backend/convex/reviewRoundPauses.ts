@@ -7,8 +7,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -104,7 +102,6 @@ export const pause = mutation({
       scopeType: "incident",
       scopeId: incident._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (round.status !== "open" || round.version !== args.expectedRoundVersion) {
       throw new ConvexError({
         code: "ROUND_CHANGED",
@@ -233,7 +230,6 @@ export const resume = mutation({
       scopeType: "round",
       scopeId: round._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (
       pause.state !== "active" ||
       pause.version !== args.expectedPauseVersion ||

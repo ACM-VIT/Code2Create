@@ -57,6 +57,7 @@ import type * as http from "../http.js";
 import type * as identityClaims from "../identityClaims.js";
 import type * as incidents from "../incidents.js";
 import type * as intake from "../intake.js";
+import type * as intakeMigrations from "../intakeMigrations.js";
 import type * as intakePolicyConfiguration from "../intakePolicyConfiguration.js";
 import type * as intakePresence from "../intakePresence.js";
 import type * as integrationOperations from "../integrationOperations.js";
@@ -312,6 +313,7 @@ declare const fullApi: ApiFromModules<{
   identityClaims: typeof identityClaims;
   incidents: typeof incidents;
   intake: typeof intake;
+  intakeMigrations: typeof intakeMigrations;
   intakePolicyConfiguration: typeof intakePolicyConfiguration;
   intakePresence: typeof intakePresence;
   integrationOperations: typeof integrationOperations;

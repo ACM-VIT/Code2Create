@@ -44,7 +44,7 @@ describe("intake policy configuration", () => {
     expect(() => normalizeIntakePolicy({
       ...defaultDeterministicIntakePolicy,
       minimumFollowUpCount: 1,
-    })).toThrow("must ask exactly two follow-up questions");
+    })).toThrow("two fixed questions and up to two generated questions");
   });
 
   test("publishes a new default without moving an active participant draft", async () => {
@@ -144,7 +144,7 @@ describe("intake policy configuration", () => {
     expect(drafts).toHaveLength(1);
   });
 
-  test("uses the two published fallback questions in sequence", async () => {
+  test("uses the two published fixed questions before any model work", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "deterministic");
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
@@ -160,73 +160,41 @@ describe("intake policy configuration", () => {
     });
     const second = await currentQuestion(backend, fixture.projectDraftId, 2);
     expect(second.text).toBe(defaultDeterministicIntakePolicy.fallbackQuestions[1]?.text);
-    expect(second.source).toBe("fallback");
+    expect(first.source).toBe("fixed");
+    expect(second.source).toBe("fixed");
   });
 
-  test("an assisted policy generates the third total question before review", async () => {
+  test("an assisted policy starts generation only after both fixed answers", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "assisted");
+    await answerFixedQuestions(backend, fixture);
     const firstContext = await beginAssisted(backend, fixture.projectDraftId);
     await backend.mutation(internal.intelligence.finishIntakeInterpretation, {
       interpretationId: firstContext.interpretationId,
       inputFingerprint: firstContext.inputFingerprint,
       state: "succeeded",
-      coveragePurposeKeys: ["user"],
-      nextQuestionText: "Who would use this project first?",
-      nextQuestionPurposeKey: "user",
-      nextQuestionAnswerLength: "short",
-      nextQuestionSourceAnswerVersionIds: [fixture.initialAnswerId],
+      coveragePurposeKeys: ["problem", "experience"],
+      nextQuestionText: "How will an authority know which report needs action first?",
+      nextQuestionPurposeKey: "tradeoff",
+      nextQuestionAnswerLength: "medium",
+      nextQuestionSourceAnswerVersionIds: firstContext.answers.map((answer) => answer.id),
       stopReason: "needs_question",
       latencyMs: 20,
     });
-    const first = await currentQuestion(backend, fixture.projectDraftId, 1);
-    const firstAnswerId = await answerQuestion(
-      backend,
-      fixture,
-      first._id,
-      "Student volunteers would use it first.",
-    );
-    const secondContext = await beginAssisted(backend, fixture.projectDraftId);
-    await backend.mutation(internal.intelligence.finishIntakeInterpretation, {
-      interpretationId: secondContext.interpretationId,
-      inputFingerprint: secondContext.inputFingerprint,
-      state: "succeeded",
-      coveragePurposeKeys: ["user", "problem"],
-      nextQuestionText: "What useful result should happen after a volunteer accepts the request?",
-      nextQuestionPurposeKey: "problem",
-      nextQuestionAnswerLength: "medium",
-      nextQuestionSourceAnswerVersionIds: [firstAnswerId],
-      stopReason: "needs_question",
-      latencyMs: 18,
-    });
-    const second = await currentQuestion(backend, fixture.projectDraftId, 2);
-    expect(second).toMatchObject({
-      ordinal: 2,
+    const generated = await currentQuestion(backend, fixture.projectDraftId, 3);
+    expect(generated).toMatchObject({
+      ordinal: 3,
       source: "model",
       validationCategory: "model_output_validated",
     });
-    await answerQuestion(
-      backend,
-      fixture,
-      second._id,
-      "The request should reach a suitable volunteer and return a clear completion update.",
-    );
-    const result = await backend.run(async (ctx) => ({
-      draft: await ctx.db.get(fixture.projectDraftId),
-      questions: await ctx.db
-        .query("intakeGeneratedQuestions")
-        .withIndex("by_draft_ordinal", (index) => index.eq("draftId", fixture.projectDraftId))
-        .collect(),
-    }));
-    expect(result.draft?.stage).toBe("review");
-    expect(result.questions.map((question) => question.source)).toEqual(["model", "model"]);
   });
 
-  test("the OpenAI action generates both assisted follow-ups through the provider contract", async () => {
+  test("the OpenAI action can generate two additional questions through the provider contract", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "assisted");
+    await answerFixedQuestions(backend, fixture);
     vi.stubEnv("OPENAI_API_KEY", "intake-provider-test-key");
-    let sourceAnswerId = fixture.initialAnswerId;
+    let sourceAnswerIds: string[] = [];
     let requestCount = 0;
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       expect(String(input)).toBe("https://api.openai.com/v1/responses");
@@ -234,34 +202,37 @@ describe("intake policy configuration", () => {
       requestCount += 1;
       const firstRequest = requestCount === 1;
       return openAiResponse(JSON.stringify({
-        coveragePurposeKeys: firstRequest ? ["user"] : ["user", "event_goal"],
+        coveragePurposeKeys: firstRequest ? ["problem", "experience"] : ["problem", "experience", "risk"],
         nextQuestion: {
           text: firstRequest
-            ? "Who would use this project first?"
-            : "What working result should your team finish during Code2Create?",
-          purposeKey: firstRequest ? "user" : "event_goal",
-          answerLength: firstRequest ? "short" : "medium",
-          sourceAnswerVersionIds: [sourceAnswerId],
+            ? "How will an authority know which report needs action first?"
+            : "How will your team show that a reported issue was resolved?",
+          purposeKey: firstRequest ? "tradeoff" : "experience",
+          answerLength: "medium",
+          sourceAnswerVersionIds: sourceAnswerIds,
+          groundingTerms: [firstRequest ? "authority" : "report"],
         },
         matchedIdeaPatternKey: null,
         stopReason: "needs_question",
       }));
     });
 
+    sourceAnswerIds = await activeAnswerIds(backend, fixture.projectDraftId);
     await backend.action(internal.intelligence.interpretIdea, {
       draftId: fixture.projectDraftId,
     });
-    const first = await currentQuestion(backend, fixture.projectDraftId, 1);
-    sourceAnswerId = await answerQuestion(
+    const first = await currentQuestion(backend, fixture.projectDraftId, 3);
+    await answerQuestion(
       backend,
       fixture,
       first._id,
-      "Student volunteers would use it first.",
+      "Reports with a verified location and safety risk would be handled first.",
     );
+    sourceAnswerIds = await activeAnswerIds(backend, fixture.projectDraftId);
     await backend.action(internal.intelligence.interpretIdea, {
       draftId: fixture.projectDraftId,
     });
-    const second = await currentQuestion(backend, fixture.projectDraftId, 2);
+    const second = await currentQuestion(backend, fixture.projectDraftId, 4);
 
     expect(requestCount).toBe(2);
     expect([first, second].map((question) => ({
@@ -269,14 +240,62 @@ describe("intake policy configuration", () => {
       source: question.source,
       validationCategory: question.validationCategory,
     }))).toEqual([
-      { ordinal: 1, source: "model", validationCategory: "model_output_validated" },
-      { ordinal: 2, source: "model", validationCategory: "model_output_validated" },
+      { ordinal: 3, source: "model", validationCategory: "model_output_validated" },
+      { ordinal: 4, source: "model", validationCategory: "model_output_validated" },
     ]);
   });
 
-  test("a provider transport failure immediately publishes the deterministic fallback", async () => {
+  test("rejects a generated question that is not grounded in its source answers", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "assisted");
+    await answerFixedQuestions(backend, fixture);
+    vi.stubEnv("OPENAI_API_KEY", "intake-provider-test-key");
+    const sourceAnswerIds = await activeAnswerIds(backend, fixture.projectDraftId);
+    vi.stubGlobal("fetch", async () => openAiResponse(JSON.stringify({
+      coveragePurposeKeys: ["problem", "experience"],
+      nextQuestion: {
+        text: "What would make this project successful?",
+        purposeKey: "experience",
+        answerLength: "short",
+        sourceAnswerVersionIds: sourceAnswerIds,
+        groundingTerms: ["success"],
+      },
+      matchedIdeaPatternKey: null,
+      stopReason: "needs_question",
+    })));
+
+    await backend.action(internal.intelligence.interpretIdea, {
+      draftId: fixture.projectDraftId,
+    });
+
+    const result = await backend.run(async (ctx) => ({
+      draft: await ctx.db.get(fixture.projectDraftId),
+      questions: await ctx.db
+        .query("intakeGeneratedQuestions")
+        .withIndex("by_draft_ordinal", (index) =>
+          index.eq("draftId", fixture.projectDraftId),
+        )
+        .collect(),
+      interpretation: await ctx.db
+        .query("intakeInterpretations")
+        .withIndex("by_draft_created", (index) =>
+          index.eq("draftId", fixture.projectDraftId),
+        )
+        .order("desc")
+        .first(),
+    }));
+    expect(result.questions).toHaveLength(2);
+    expect(result.draft?.stage).toBe("review");
+    expect(result.interpretation).toMatchObject({
+      state: "invalid",
+      failureCategory: "invalid_or_disallowed_output",
+    });
+  });
+
+  test("a provider failure completes intake without adding a generic question", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, "assisted");
+    await answerFixedQuestions(backend, fixture);
     vi.stubEnv("OPENAI_API_KEY", "intake-provider-test-key");
     vi.stubGlobal("fetch", async () => {
       throw new TypeError("The provider connection is unavailable.");
@@ -286,24 +305,30 @@ describe("intake policy configuration", () => {
       draftId: fixture.projectDraftId,
     });
 
-    const question = await currentQuestion(backend, fixture.projectDraftId, 1);
-    const interpretation = await backend.run((ctx) => ctx.db
-      .query("intakeInterpretations")
-      .withIndex("by_draft_created", (index) => index.eq("draftId", fixture.projectDraftId))
-      .unique());
-    expect(question).toMatchObject({
-      source: "fallback",
-      text: defaultDeterministicIntakePolicy.fallbackQuestions[0]?.text,
-    });
+    const result = await backend.run(async (ctx) => ({
+      draft: await ctx.db.get(fixture.projectDraftId),
+      interpretations: await ctx.db
+        .query("intakeInterpretations")
+        .withIndex("by_draft_created", (index) => index.eq("draftId", fixture.projectDraftId))
+        .collect(),
+      questions: await ctx.db
+        .query("intakeGeneratedQuestions")
+        .withIndex("by_draft_ordinal", (index) => index.eq("draftId", fixture.projectDraftId))
+        .collect(),
+    }));
+    const interpretation = result.interpretations.at(-1);
+    expect(result.draft?.stage).toBe("review");
+    expect(result.questions).toHaveLength(2);
     expect(interpretation).toMatchObject({
       state: "failed",
       failureCategory: "provider_request_failed",
     });
   });
 
-  test("the settlement deadline publishes one fallback and rejects a late provider result", async () => {
+  test("the settlement deadline adds no question and rejects a late provider result", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "assisted");
+    await answerFixedQuestions(backend, fixture);
     const context = await beginAssisted(backend, fixture.projectDraftId);
 
     await backend.mutation(internal.intelligence.expireIntakeInterpretation, {
@@ -315,10 +340,10 @@ describe("intake policy configuration", () => {
       inputFingerprint: context.inputFingerprint,
       state: "succeeded",
       coveragePurposeKeys: ["user"],
-      nextQuestionText: "Who would use this project first?",
-      nextQuestionPurposeKey: "user",
-      nextQuestionAnswerLength: "short",
-      nextQuestionSourceAnswerVersionIds: [fixture.initialAnswerId],
+      nextQuestionText: "How will an authority know which report needs action first?",
+      nextQuestionPurposeKey: "tradeoff",
+      nextQuestionAnswerLength: "medium",
+      nextQuestionSourceAnswerVersionIds: context.answers.map((answer) => answer.id),
       stopReason: "needs_question",
       latencyMs: 16_000,
     });
@@ -334,65 +359,38 @@ describe("intake policy configuration", () => {
       state: "timed_out",
       failureCategory: "settlement_deadline_exceeded",
     });
-    expect(result.questions).toHaveLength(1);
-    expect(result.questions[0]).toMatchObject({
-      source: "fallback",
-      validationCategory: "published_fallback",
-    });
+    expect(result.questions).toHaveLength(2);
   });
 
-  test("a premature assisted stop cannot omit the third total question", async () => {
+  test("clear fixed answers allow the model to stop without a generated question", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "assisted");
-    const firstContext = await beginAssisted(backend, fixture.projectDraftId);
-    await backend.mutation(internal.intelligence.finishIntakeInterpretation, {
-      interpretationId: firstContext.interpretationId,
-      inputFingerprint: firstContext.inputFingerprint,
-      state: "succeeded",
-      coveragePurposeKeys: ["user"],
-      nextQuestionText: "Who would use this project first?",
-      nextQuestionPurposeKey: "user",
-      nextQuestionAnswerLength: "short",
-      nextQuestionSourceAnswerVersionIds: [fixture.initialAnswerId],
-      stopReason: "needs_question",
-      latencyMs: 20,
-    });
-    const first = await currentQuestion(backend, fixture.projectDraftId, 1);
-    await answerQuestion(
-      backend,
-      fixture,
-      first._id,
-      "Student volunteers would use it first.",
-    );
+    await answerFixedQuestions(backend, fixture);
     const secondContext = await beginAssisted(backend, fixture.projectDraftId);
     await backend.mutation(internal.intelligence.finishIntakeInterpretation, {
       interpretationId: secondContext.interpretationId,
       inputFingerprint: secondContext.inputFingerprint,
       state: "succeeded",
-      coveragePurposeKeys: ["user"],
+      coveragePurposeKeys: ["problem", "experience"],
       nextQuestionSourceAnswerVersionIds: [],
       stopReason: "enough_context",
       latencyMs: 18,
     });
 
-    const second = await currentQuestion(backend, fixture.projectDraftId, 2);
-    expect(second).toMatchObject({
-      ordinal: 2,
-      source: "fallback",
-      text: defaultDeterministicIntakePolicy.fallbackQuestions[1]?.text,
-    });
     const interpretation = await backend.run((ctx) =>
       ctx.db.get(secondContext.interpretationId),
     );
     expect(interpretation).toMatchObject({
-      state: "invalid",
-      failureCategory: "policy_validation_failed",
+      state: "succeeded",
+      stopReason: "enough_context",
     });
+    expect((await backend.run((ctx) => ctx.db.get(fixture.projectDraftId)))?.stage).toBe("review");
   });
 
-  test("a failed assisted run settles once and cannot replace its fallback later", async () => {
+  test("a failed assisted run settles once and cannot add a late question", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "assisted");
+    await answerFixedQuestions(backend, fixture);
     const context = await beginAssisted(backend, fixture.projectDraftId);
     await backend.mutation(internal.intelligence.finishIntakeInterpretation, {
       interpretationId: context.interpretationId,
@@ -408,10 +406,10 @@ describe("intake policy configuration", () => {
       inputFingerprint: context.inputFingerprint,
       state: "succeeded",
       coveragePurposeKeys: ["problem"],
-      nextQuestionText: "What different outcome should this project make possible?",
-      nextQuestionPurposeKey: "problem",
+      nextQuestionText: "How will an authority know which report needs action first?",
+      nextQuestionPurposeKey: "tradeoff",
       nextQuestionAnswerLength: "medium",
-      nextQuestionSourceAnswerVersionIds: [fixture.initialAnswerId],
+      nextQuestionSourceAnswerVersionIds: context.answers.map((answer) => answer.id),
       stopReason: "needs_question",
       latencyMs: 40,
     });
@@ -419,9 +417,8 @@ describe("intake policy configuration", () => {
       .query("intakeGeneratedQuestions")
       .withIndex("by_draft_ordinal", (index) => index.eq("draftId", fixture.projectDraftId))
       .collect());
-    expect(questions).toHaveLength(1);
-    expect(questions[0]?.source).toBe("fallback");
-    expect(questions[0]?.text).toBe(defaultDeterministicIntakePolicy.fallbackQuestions[0]?.text);
+    expect(questions).toHaveLength(2);
+    expect(questions.every((question) => question.source === "fixed")).toBe(true);
   });
 
   test("replacing an idea removes routed questions and answers together", async () => {
@@ -527,6 +524,50 @@ async function beginAssisted(backend: BackendTest, draftId: Id<"projectDrafts">)
   return context;
 }
 
+async function answerFixedQuestions(
+  backend: BackendTest,
+  fixture: Awaited<ReturnType<typeof seedFixture>>,
+) {
+  await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
+    draftId: fixture.projectDraftId,
+    providerAvailable: true,
+  });
+  const first = await currentQuestion(backend, fixture.projectDraftId, 1);
+  await answerQuestion(
+    backend,
+    fixture,
+    first._id,
+    "Residents and road users need damaged roads reported with a usable location.",
+  );
+  await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
+    draftId: fixture.projectDraftId,
+    providerAvailable: true,
+  });
+  const second = await currentQuestion(backend, fixture.projectDraftId, 2);
+  await answerQuestion(
+    backend,
+    fixture,
+    second._id,
+    "A person adds a photo and location, then the service routes the report to the responsible authority.",
+  );
+}
+
+async function activeAnswerIds(
+  backend: BackendTest,
+  draftId: Id<"projectDrafts">,
+) {
+  const answers = await backend.run((ctx) => ctx.db
+    .query("intakeAnswerVersions")
+    .withIndex("by_draft_status", (index) =>
+      index.eq("draftId", draftId).eq("status", "active"),
+    )
+    .collect());
+  return answers
+    .toSorted((left, right) => left.writtenAt - right.writtenAt)
+    .slice(-3)
+    .map((answer) => answer._id);
+}
+
 async function currentQuestion(
   backend: BackendTest,
   draftId: Id<"projectDrafts">,
@@ -571,7 +612,7 @@ async function answerQuestion(
       answeredAt: fixture.now + question.ordinal,
     });
     await ctx.db.patch(draft._id, {
-      stage: question.ordinal < 2 ? "follow_up" : "review",
+      stage: question.ordinal < 4 ? "follow_up" : "review",
       version: draft.version + 1,
       updatedAt: fixture.now + question.ordinal,
     });

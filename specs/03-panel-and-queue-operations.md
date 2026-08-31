@@ -52,7 +52,7 @@ Every round publishes three reviewer-staffing controls with the otherwise immuta
 
 Operations builds panels when it publishes a round. It does not pre-assign teams. The review desk sends each ready team to a panel. The operations dashboard must show this relationship.
 
-A published panel still has to be changeable. People go home sick, and waiting for a no-show to trigger the substitute chain is not a reasonable answer. An authorized operator can swap one reviewer for another on a live panel under its own exact permission, with the panel's current version, a reason, a fresh Google session, and an audit event.
+A published panel still has to be changeable. People go home sick, and waiting for a no-show to trigger the substitute chain is not a reasonable answer. An authorized operator can swap one reviewer for another on a live panel under its own exact permission, with the panel's current version, a reason, a current scoped authorization, and an audit event.
 
 The command refuses in three cases:
 
@@ -208,7 +208,7 @@ The panel or operations user calls the next eligible team. The server records `c
 
 The live board shows each team's active-member count, currently-inside count, and the round minimum. Before calling, the server reads those current participant venue projections in the same transaction as the queue transition. A team below the published minimum remains queued; the failed call creates no review, assignment, scorecard, or evidence checkpoint. One temporarily out member does not automatically mark the team missed or remove its queue time. Operations can wait or apply the separately authorized hold flow.
 
-An exceptional call requires `review.participant_availability.waive` for that exact team or an explicit event-wide grant. It also requires a reason, the same idempotent call operation, and a Google session created within the last 15 minutes. Before the transaction creates the called review, it records an immutable waiver. The waiver contains the observed and required counts, authorizing grant IDs, actor, and time. If availability drops after the call, the same permission can cover that exact review or team. The system records the waiver against the current pending-review version. A waiver never changes attendance and cannot be copied to another review. The team portal only asks members to regroup. It does not show the exception reason or identify the person who is away.
+An exceptional call requires `review.participant_availability.waive` for that exact team or an explicit event-wide grant. It also requires a reason, the same idempotent call operation, and a current scoped authorization. Before the transaction creates the called review, it records an immutable waiver. The waiver contains the observed and required counts, authorizing grant IDs, actor, and time. If availability drops after the call, the same permission can cover that exact review or team. The system records the waiver against the current pending-review version. A waiver never changes attendance and cannot be copied to another review. The team portal only asks members to regroup. It does not show the exception reason or identify the person who is away.
 
 The final missed-call grace period, number of calls, and re-entry position are open decisions. The dashboard must not implement a hidden default.
 
@@ -216,7 +216,7 @@ The final missed-call grace period, number of calls, and re-entry position are o
 
 An authorized operator can pause new calls and starts for one open round only after choosing an active review-backend incident that they may read. The pause is a separate versioned record, not another round lifecycle state. Teams already in a panel queue keep their position, and a review already active or overdue can keep saving and finish normally.
 
-`review.round.pause` and `review.round.resume` are independent exact-round permissions. Both commands require a Google session created within the last 15 minutes, the current round and pause versions, a reason, and a stable operation ID. The pause mutation increments the round version, so a concurrent call, start, or close either commits first or retries against the pause and fails. An incident cannot resolve while one of its round pauses remains active.
+`review.round.pause` and `review.round.resume` are independent exact-round permissions. Both commands require a current scoped authorization, the current round and pause versions, a reason, and a stable operation ID. The pause mutation increments the round version, so a concurrent call, start, or close either commits first or retries against the pause and fails. An incident cannot resolve while one of its round pauses remains active.
 
 ## 9. Reviewer presence
 

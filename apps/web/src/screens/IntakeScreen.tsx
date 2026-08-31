@@ -7,7 +7,6 @@ import { EditingPresence } from '../components/EditingPresence'
 import { PortalScene } from '../components/portal/PortalScene'
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
-import { Petal } from '../components/portal/Petal'
 import { ShimmerText } from '../components/portal/ShimmerText'
 import { TeamCluster } from '../components/portal/TeamCluster'
 import { Flower } from '../components/portal/FlowerAvatar'
@@ -730,9 +729,6 @@ function IntakeWorkspace({
     })
   }
 
-  const followUpCount = draft?.followUps.length ?? 0
-  const answeredFollowUps = draft?.followUps.filter((f) => f.state !== 'active').length ?? 0
-
   // While a save is in flight the editor stays put — its controls already
   // read `busy` and the submit button says "Saving…". This stop only takes
   // over once a response was genuinely interrupted (the command is still
@@ -861,7 +857,7 @@ function IntakeWorkspace({
                 )
               }}
               placeholder="Describe your idea…"
-              className="min-h-[180px] border-0 bg-transparent px-0 py-0 text-[17px] leading-[1.7] focus:border-0"
+              className="bare-field min-h-[180px] border-0 bg-transparent px-0 py-0 text-[17px] leading-[1.7] focus:border-0"
             />
             <PortalError message={error} />
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-petal-line pt-3.5">
@@ -915,7 +911,6 @@ function IntakeWorkspace({
   if (draft.stage === 'follow_up') {
     // While the next question is generated the card stays on stage — only the
     // title shimmers and the editor waits — so answering never swaps screens.
-    const isLast = answeredFollowUps + 1 >= followUpCount
     const minLength = draft.intakePolicy.followUpAnswerMinLength
     const answeredSheets = draft.followUps.filter((followUp) => followUp.state !== 'active')
     return (
@@ -1031,7 +1026,7 @@ function IntakeWorkspace({
                 markEditing('follow_up', activeFollowUp.id)
               }}
               placeholder="Scope it in a sentence or two…"
-              className="min-h-[174px] border-0 bg-transparent px-0 py-0 text-[16.5px] leading-[1.7] focus:border-0"
+              className="bare-field min-h-[174px] border-0 bg-transparent px-0 py-0 text-[16.5px] leading-[1.7] focus:border-0"
             />
             <PortalError message={error} />
             <div className="mt-2.5 flex flex-wrap items-center justify-between gap-3 border-t border-petal-line pt-3">
@@ -1053,7 +1048,7 @@ function IntakeWorkspace({
                 size="sm"
                 disabled={busy || !activeFollowUp || followUpConflict || answer.trim().length < minLength}
               >
-                {busy ? 'Saving…' : activeFollowUp && isLast ? 'Review' : 'Next'}
+                {busy ? 'Saving…' : 'Continue'}
               </PortalButton>
             </div>
           </form>
@@ -1121,88 +1116,80 @@ function IntakeWorkspace({
           titleClass="lg:text-[42px]"
           branch
         >
-          <PetalCard className="px-8 pt-7 pb-4">
-            <div className="mb-3.5">
-              <p className="mb-1 truncate text-left text-[15.5px] font-semibold">
+          <PetalCard className="px-8 pt-6 pb-4">
+            <div className="flex items-baseline justify-between gap-4">
+              <p className="m-0 min-w-0 truncate text-left text-[15.5px] font-semibold">
                 {preview.teamName}{' '}
                 <span className="font-normal text-fg/55">
                   · idea + {preview.followUps.length}{' '}
                   {preview.followUps.length === 1 ? 'answer' : 'answers'}
                 </span>
               </p>
-              <p className="mb-4 text-left text-xs text-fg/50">
-                <button
-                  type="button"
-                  onClick={() => setConfirming(false)}
-                  className="text-rose-light underline-offset-2 hover:underline"
-                >
-                  review
-                </button>
-              </p>
-              <div className="flex gap-2 border-t border-petal-line pt-4">
-                {preview.members.map((member) => {
-                  const lead = member.role === 'lead'
-                  const you = member.membershipId === team.currentMembershipId
-                  return (
-                    <div key={member.membershipId} className="flex-1 text-center">
-                      <div
-                        className={`relative mx-auto flex size-[52px] items-center justify-center rounded-full text-sm font-semibold ${
-                          lead
-                            ? 'border-2 border-ring-lead bg-avatar-lead shadow-[0_0_16px_var(--avatar-glow)]'
-                            : 'border-[1.5px] border-rose/70 bg-avatar'
-                        }`}
-                      >
-                        <Flower seed={member.membershipId} lead={lead} size={26} />
-                        {lead ? (
-                          <span className="absolute -top-1 -right-[3px]">
-                            <Petal size={14} />
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-[7px] mb-px truncate text-xs font-semibold">
-                        {member.displayName.split(/\s+/)[0]}
-                      </p>
-                      <p
-                        className={`text-[10px] ${
-                          lead || you ? 'text-rose-light' : 'text-fg/50'
-                        }`}
-                      >
-                        {lead && you
-                          ? 'lead · you'
-                          : lead
-                            ? 'lead'
-                            : member.submissionReady
-                              ? 'ready'
-                              : 'needs attention'}
-                      </p>
-                    </div>
-                  )
-                })}
-              </div>
+              <button
+                type="button"
+                onClick={() => setConfirming(false)}
+                className="flex-none text-xs text-fg/55 transition-colors hover:text-rose-light"
+              >
+                review idea
+              </button>
             </div>
 
-            <p className="mb-4 border-t border-petal-line pt-4 text-left font-ui text-[17px] leading-normal text-rose-light">
+            <div className="mt-4 flex gap-2 border-t border-petal-line pt-4">
+              {preview.members.map((member) => {
+                const lead = member.role === 'lead'
+                const you = member.membershipId === team.currentMembershipId
+                return (
+                  <div key={member.membershipId} className="flex-1 text-center">
+                    <div
+                      className={`mx-auto flex size-[52px] items-center justify-center rounded-full ${
+                        lead
+                          ? 'border-2 border-ring-lead bg-avatar-lead shadow-[0_0_16px_var(--avatar-glow)]'
+                          : 'border-[1.5px] border-rose/70 bg-avatar'
+                      }`}
+                    >
+                      <Flower seed={member.membershipId} lead={lead} size={26} />
+                    </div>
+                    <p className="mt-[7px] mb-px truncate text-xs font-semibold">
+                      {member.displayName.split(/\s+/)[0]}
+                    </p>
+                    <p
+                      className={`text-[10px] ${
+                        lead || you ? 'text-rose-light' : 'text-fg/50'
+                      }`}
+                    >
+                      {lead && you
+                        ? 'lead · you'
+                        : lead
+                          ? 'lead'
+                          : member.submissionReady
+                            ? 'ready'
+                            : 'needs attention'}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+
+            <p className="mt-7 mb-4 text-left text-[13.5px] leading-relaxed text-fg/70">
               {preview.warning}
             </p>
 
-            <div className="flex flex-col gap-3">
-              <PortalCheckRow
-                checked={preview.freshnessAttested}
-                disabled={busy}
-                onChange={(accepted) => {
-                  void run(async () => {
-                    await operations.run('freshness', (clientOperationId) => () => setFreshness({
-                      eventSlug,
-                      accepted,
-                      expectedDraftVersion: preview.draftVersion,
-                      clientOperationId,
-                    }))
-                  })
-                }}
-              >
-                We build only after kickoff.
-              </PortalCheckRow>
-            </div>
+            <PortalCheckRow
+              checked={preview.freshnessAttested}
+              disabled={busy}
+              onChange={(accepted) => {
+                void run(async () => {
+                  await operations.run('freshness', (clientOperationId) => () => setFreshness({
+                    eventSlug,
+                    accepted,
+                    expectedDraftVersion: preview.draftVersion,
+                    clientOperationId,
+                  }))
+                })
+              }}
+            >
+              We adhere to the Code2Create rules.
+            </PortalCheckRow>
 
             {preview.members.some((member) => !member.submissionReady) ? (
               <p className="mt-4 text-[12.5px] text-rose-light">
@@ -1243,6 +1230,7 @@ function IntakeWorkspace({
               <PortalButton
                 type="button"
                 size="sm"
+                variant="solid"
                 disabled={busy || !canSubmit}
                 onClick={() => {
                   void run(() =>

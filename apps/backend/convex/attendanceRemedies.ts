@@ -14,9 +14,7 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
   requireMembership,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -510,7 +508,6 @@ export const open = mutation({
       scopeType: "attendance_session",
       scopeId: args.sessionId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const now = Date.now();
     const opened = await insertOpenCase(ctx, {
       eventId: event._id,
@@ -840,7 +837,6 @@ export const decide = mutation({
       scopeType: "attendance_session",
       scopeId: remedy.sessionId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const context = await finalizedContext(ctx, {
       eventId: event._id,
       sessionId: remedy.sessionId,

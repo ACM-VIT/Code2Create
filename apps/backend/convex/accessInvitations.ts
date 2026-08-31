@@ -18,8 +18,6 @@ import {
   requireAuthUser,
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -263,7 +261,6 @@ export const create = mutation({
       permissionKey: "access.subjects.invite",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
 
     const linkedSubject = await ctx.db
       .query("eventAccessSubjects")
@@ -632,7 +629,6 @@ export const revoke = mutation({
       permissionKey: "access.subjects.invite",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const invitation = await ctx.db.get(args.invitationId);
     if (!invitation || invitation.eventId !== event._id) {
       throw new ConvexError({

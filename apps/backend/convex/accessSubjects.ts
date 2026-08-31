@@ -8,8 +8,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -78,7 +76,6 @@ async function changeStatus(
     scopeType: "person",
     scopeId: args.targetPersonId,
   });
-  await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
   if (args.targetStatus === "suspended" && args.targetPersonId === person._id) {
     throw new ConvexError({
       code: "SELF_SUSPENSION_NOT_ALLOWED",

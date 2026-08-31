@@ -10,8 +10,6 @@ import { teamRoundTableLabel } from "./lib/floor";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -512,7 +510,6 @@ export const createDraft = mutation({
       permissionKey: "review.manual_record.enter",
       reviewSessionId: session._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const [round, panel, rubric, assignments, scorecards, pendingDraft, pendingSubmitted] =
       await Promise.all([
         ctx.db.get(session.roundId),
@@ -775,7 +772,6 @@ export const sourceUploadContext = internalQuery({
       permissionKey: "review.manual_record.enter",
       reviewSessionId: record.reviewSessionId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (record.enteredByPersonId !== person._id) {
       throw new ConvexError({
         code: "PAPER_REVIEW_OWNER_REQUIRED",
@@ -959,7 +955,6 @@ export const attachSource = internalMutation({
       permissionKey: "review.manual_record.enter",
       reviewSessionId: record.reviewSessionId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const [incident, session, round, reusedSource] = await Promise.all([
       ctx.db.get(record.incidentId),
       ctx.db.get(record.reviewSessionId),
@@ -1099,7 +1094,6 @@ export const cancelDraft = mutation({
       permissionKey: "review.manual_record.enter",
       reviewSessionId: record.reviewSessionId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const now = Date.now();
     const version = record.version + 1;
     await ctx.db.patch(record._id, {
@@ -1281,7 +1275,6 @@ export const verify = mutation({
       }),
     ]);
     const authorizationGrantIds = [...verifyGrantIds, ...sourceGrantIds];
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const [incident, session, round, rubric, panel, sourceMetadata] = await Promise.all([
       ctx.db.get(record.incidentId),
       ctx.db.get(record.reviewSessionId),

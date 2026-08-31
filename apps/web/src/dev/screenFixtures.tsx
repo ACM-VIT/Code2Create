@@ -209,8 +209,8 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
           <IdeaCard
             footer={
               <>
-                <span className="text-xs text-fg/45">
-                  182 / 1200 · do not include private contact details
+                <span className="font-mono text-[11px] tracking-[.04em] text-fg/45">
+                  182 / 1200
                 </span>
                 <PortalButton size="sm">Next</PortalButton>
               </>
@@ -219,7 +219,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
             <PortalTextarea
               rows={7}
               defaultValue="A campus lost-and-found where finders post a photo and owners describe what they lost. On-device image matching pairs the two; pickup at verified hostel desks."
-              className="min-h-[180px] border-0 bg-transparent px-0 py-0 text-[17px] leading-[1.7]"
+              className="bare-field min-h-[180px] border-0 bg-transparent px-0 py-0 text-[17px] leading-[1.7]"
             />
           </IdeaCard>
         </div>
@@ -255,7 +255,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
             <PortalTextarea
               rows={6}
               defaultValue="Hostellers first · most losses happen in messes and reading halls. Security desks join in week two once verified pickup is proven."
-              className="min-h-[174px] border-0 bg-transparent px-0 py-0 text-[16.5px] leading-[1.7]"
+              className="bare-field min-h-[174px] border-0 bg-transparent px-0 py-0 text-[16.5px] leading-[1.7]"
             />
           </IdeaCard>
           </div>
@@ -300,7 +300,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
             <PortalTextarea
               rows={6}
               placeholder="Scope the demo: which parts are live, which are mocked, what a reviewer can touch…"
-              className="min-h-[174px] border-0 bg-transparent px-0 py-0 text-[16.5px] leading-[1.7]"
+              className="bare-field min-h-[174px] border-0 bg-transparent px-0 py-0 text-[16.5px] leading-[1.7]"
             />
           </IdeaCard>
           </div>
@@ -356,35 +356,35 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       <PortalScene tree="left" branch header={cluster}>
         <div className="flex w-full max-w-[600px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 text-center font-display font-light tracking-[-.01em] text-[26px] lg:text-[42px]">Ready to submit?</h1>
-          <PetalCard className="px-8 pt-7 pb-4">
-            <div className="mb-3.5">
-              <p className="mb-1 text-left text-[15.5px] font-semibold">
+          <PetalCard className="px-8 pt-6 pb-4">
+            <div className="flex items-baseline justify-between gap-4">
+              <p className="m-0 min-w-0 truncate text-left text-[15.5px] font-semibold">
                 Paper Cranes <span className="font-normal text-fg/55">· idea + 2 answers</span>
               </p>
-              <p className="mb-4 text-left text-xs"><span className="text-rose-light">review</span></p>
-              <div className="flex gap-2 border-t border-petal-line pt-4">
-                {members.map((member) => {
-                  const lead = member.role === 'lead'
-                  return (
-                    <div key={member.membershipId} className="flex-1 text-center">
-                      <div className={`relative mx-auto flex size-[52px] items-center justify-center rounded-full text-sm font-semibold ${lead ? 'border-2 border-ring-lead bg-avatar-lead shadow-[0_0_16px_var(--avatar-glow)]' : 'border-[1.5px] border-rose/70 bg-avatar'}`}>
-                        <Flower seed={member.membershipId} lead={lead} size={26} />
-                        {lead ? <span className="absolute -top-1 -right-[3px]"><Petal size={14} /></span> : null}
-                      </div>
-                      <p className="mt-[7px] mb-px text-xs font-semibold">{member.displayName.split(' ')[0]}</p>
-                      <p className={`m-0 text-[10px] ${lead ? 'text-rose-light' : 'text-fg/50'}`}>{lead ? 'lead · you' : 'ready'}</p>
-                    </div>
-                  )
-                })}
-              </div>
+              <button type="button" className="flex-none text-xs text-fg/55 transition-colors hover:text-rose-light">
+                review idea
+              </button>
             </div>
-            <p className="mb-4 border-t border-petal-line pt-4 text-left font-ui text-[17px] leading-normal text-rose-light">
-              Submitting sends this version for review. Team and proposal changes stay open until Sep 25.
-            </p>
-            <PortalCheckRow checked onChange={noop}>We build only after kickoff.</PortalCheckRow>
+            <div className="mt-4 flex gap-2 border-t border-petal-line pt-4">
+              {members.map((member) => {
+                const lead = member.role === 'lead'
+                return (
+                  <div key={member.membershipId} className="flex-1 text-center">
+                    <div className={`mx-auto flex size-[52px] items-center justify-center rounded-full ${lead ? 'border-2 border-ring-lead bg-avatar-lead shadow-[0_0_16px_var(--avatar-glow)]' : 'border-[1.5px] border-rose/70 bg-avatar'}`}>
+                      <Flower seed={member.membershipId} lead={lead} size={26} />
+                    </div>
+                    <p className="mt-[7px] mb-px truncate text-xs font-semibold">{member.displayName.split(' ')[0]}</p>
+                    <p className={`m-0 text-[10px] ${lead ? 'text-rose-light' : 'text-fg/50'}`}>{lead ? 'lead · you' : 'ready'}</p>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="mt-7">
+              <PortalCheckRow checked onChange={noop}>We adhere to the Code2Create rules.</PortalCheckRow>
+            </div>
             <div className="mt-4 flex items-center justify-between border-t border-petal-line pt-3.5">
               <PortalTextButton>back</PortalTextButton>
-              <PortalButton size="sm">Submit</PortalButton>
+              <PortalButton size="sm" variant="solid">Submit</PortalButton>
             </div>
           </PetalCard>
         </div>
@@ -457,9 +457,8 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
   ['f1', () => (
       <PortalScene tree="left" backdrop={<GpuSky />} header={cluster}>
         <div className="flex w-full max-w-[1048px] flex-1 flex-col justify-center pb-40">
-          <div className="max-w-[600px]">
-            <h1 className="mb-3 font-display font-light tracking-[-.01em] text-5xl leading-none lg:text-7xl">One answer left.</h1>
-            <p className="mb-8 font-ui font-normal text-lg text-rose-light">stage three of five</p>
+          <div className="max-w-[680px]">
+            <h1 className="mb-8 font-display font-light tracking-[-.01em] text-balance text-5xl leading-none lg:text-7xl">One answer left.</h1>
             <PortalButton>Answer it</PortalButton>
           </div>
         </div>

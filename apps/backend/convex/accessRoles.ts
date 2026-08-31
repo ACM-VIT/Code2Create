@@ -7,8 +7,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -73,7 +71,6 @@ export const set = mutation({
       scopeType: "person",
       scopeId: args.targetPersonId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const targetSubject = await requireEventSubject(
       ctx,
       event._id,

@@ -19,8 +19,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -114,7 +112,6 @@ export const start = mutation({
       scopeType: "attendance_session",
       scopeId: session._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (session.version !== args.expectedSessionVersion) {
       throw new ConvexError({
         code: "SESSION_CHANGED",
@@ -318,7 +315,6 @@ export const close = mutation({
       scopeType: "attendance_session",
       scopeId: rollCall.sessionId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (rollCall.state !== "active" || rollCall.version !== args.expectedVersion) {
       throw new ConvexError({
         code: "ROLL_CALL_CHANGED",

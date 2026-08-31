@@ -19,9 +19,7 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
   requireMembership,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -2998,7 +2996,6 @@ export const sendOffer = mutation({
       scopeType: "application",
       scopeId: application._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (application.version !== args.expectedApplicationVersion) {
       throw new ConvexError({
         code: "APPLICATION_CHANGED",
@@ -3279,7 +3276,6 @@ export const revokeOffer = mutation({
       scopeType: "application",
       scopeId: application._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const [offer, project, team] = await Promise.all([
       application.currentOfferId
         ? ctx.db.get(application.currentOfferId)

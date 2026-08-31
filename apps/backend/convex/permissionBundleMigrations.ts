@@ -13,8 +13,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   bundleBindingRequirements,
@@ -1287,7 +1285,6 @@ export const confirm = mutation({
       sourceBundleVersionId: args.sourceBundleVersionId,
       selections: normalizedSelections,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const expectedVersions = new Map(
       normalizedSelections.map((selection) => [
         selection.sourceGrantBatchId,

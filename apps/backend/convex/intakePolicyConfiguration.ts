@@ -14,8 +14,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   intakePolicyChecksum,
@@ -373,7 +371,6 @@ export const publish = mutation({
       permissionKey: "configuration.intake.publish",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (event.version !== args.expectedEventVersion) {
       throw new ConvexError({
         code: "EVENT_CONFIGURATION_CHANGED",

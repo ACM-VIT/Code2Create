@@ -6,7 +6,6 @@ import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { internalAction, internalMutation } from "./_generated/server";
 import {
-  fallbackForOrdinal,
   requirePinnedIntakePolicy,
   type IntakePolicy,
   validateGeneratedIntakeQuestion,
@@ -19,6 +18,7 @@ import {
 } from "./lib/ideaSubmissionAi";
 import {
   createIntakeQuestion,
+  createFixedIntakeQuestion,
   intakeInputFingerprint,
   loadActiveIntakeAnswers,
   loadCurrentIntakeResponses,
@@ -67,27 +67,20 @@ async function applyDeterministicPath(
     normalizedPolicy: IntakePolicy;
     ordinal: number;
     sourceAnswerVersionIds: Id<"intakeAnswerVersions">[];
-    interpretationId: Id<"intakeInterpretations">;
     now: number;
   },
 ) {
   const shouldAsk = args.ordinal <= args.normalizedPolicy.deterministicFollowUpCount;
   let questionId: Id<"intakeGeneratedQuestions"> | null = null;
   if (shouldAsk) {
-    const fallback = fallbackForOrdinal(args.normalizedPolicy, args.ordinal);
-    questionId = await createIntakeQuestion(ctx, {
-        draft: args.draft,
-        policy: args.policy,
-        ordinal: args.ordinal,
-        text: fallback.text,
-        purposeKey: fallback.purposeKey,
-        answerLength: fallback.answerLength,
-        source: "fallback",
-        sourceAnswerVersionIds: args.sourceAnswerVersionIds,
-        interpretationId: args.interpretationId,
-        validationCategory: "published_fallback",
-        now: args.now,
-      });
+    questionId = await createFixedIntakeQuestion(ctx, {
+      draft: args.draft,
+      policy: args.policy,
+      normalizedPolicy: args.normalizedPolicy,
+      ordinal: args.ordinal,
+      sourceAnswerVersionIds: args.sourceAnswerVersionIds,
+      now: args.now,
+    });
   }
   const stage = questionId ? "follow_up" as const : "review" as const;
   if (questionId || stage !== args.draft.stage) {
@@ -124,6 +117,17 @@ export const beginIntakeInterpretation = internalMutation({
           updatedAt: Date.now(),
         });
       }
+      return null;
+    }
+    if (ordinal <= normalized.deterministicFollowUpCount) {
+      await applyDeterministicPath(ctx, {
+        draft,
+        policy,
+        normalizedPolicy: normalized,
+        ordinal,
+        sourceAnswerVersionIds: answers.map((answer) => answer._id),
+        now: Date.now(),
+      });
       return null;
     }
     const inputFingerprint = intakeInputFingerprint({
@@ -168,7 +172,6 @@ export const beginIntakeInterpretation = internalMutation({
         normalizedPolicy: normalized,
         ordinal,
         sourceAnswerVersionIds: answers.map((answer) => answer._id),
-        interpretationId,
         now,
       });
       return null;
@@ -367,7 +370,6 @@ export const finishIntakeInterpretation = internalMutation({
         normalizedPolicy: normalized,
         ordinal: interpretation.ordinal,
         sourceAnswerVersionIds: answers.map((answer) => answer._id),
-        interpretationId: interpretation._id,
         now,
       });
       return null;
@@ -473,6 +475,7 @@ const modelOutputSchema = z
         purposeKey: z.enum(["user", "problem", "experience", "event_goal", "tradeoff", "risk"]),
         answerLength: z.enum(["short", "medium"]),
         sourceAnswerVersionIds: z.array(modelSourceRef).min(1).max(3),
+        groundingTerms: z.array(z.string().min(2).max(40)).min(1).max(3),
       })
       .strict()
       .nullable(),
@@ -533,6 +536,16 @@ function validateModelOutput(output: ModelOutput, context: IntakeContext) {
   if (output.nextQuestion) {
     const normalized = output.nextQuestion.text.trim().replace(/\s+/gu, " ");
     const lower = normalized.toLocaleLowerCase("en");
+    const sourceAnswers = new Map(
+      context.answers.map((answer) => [answer.id, answer.value] as const),
+    );
+    const groundingTerms = output.nextQuestion.groundingTerms.map((term) =>
+      term.trim().replace(/\s+/gu, " ").toLocaleLowerCase("en"),
+    );
+    const groundedText = questionSources
+      .map((id) => sourceAnswers.get(id) ?? "")
+      .join(" ")
+      .toLocaleLowerCase("en");
     if (
       normalized.length > context.questionMaxLength ||
       !isBroadIdeaQuestion(normalized) ||
@@ -541,7 +554,10 @@ function validateModelOutput(output: ModelOutput, context: IntakeContext) {
       context.blockedTerms.some((term) => lower.includes(term)) ||
       context.previousQuestions.some(
         (question) => question.trim().replace(/\s+/gu, " ").toLocaleLowerCase("en") === lower,
-      )
+      ) ||
+      new Set(groundingTerms).size !== groundingTerms.length ||
+      groundingTerms.some((term) => !groundedText.includes(term)) ||
+      !groundingTerms.some((term) => lower.includes(term))
     ) {
       return null;
     }

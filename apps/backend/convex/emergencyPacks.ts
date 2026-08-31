@@ -15,8 +15,6 @@ import { floorLocationDescription, nearestLandmarkName } from "./lib/floor";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -613,7 +611,6 @@ export const request = mutation({
       permissionKey: "emergency_pack.prepare",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -876,7 +873,6 @@ async function requirePrintAccess(
     permissionKey: "emergency_pack.print",
     scopeType: "event",
   });
-  await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
   if (pack.status !== "ready" || pack.expiresAt <= Date.now()) {
     throw new ConvexError({
       code: "EMERGENCY_PACK_NOT_AVAILABLE",

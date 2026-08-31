@@ -44,9 +44,12 @@ import {
   requirePublishedIntakePolicy,
 } from "./lib/intakePolicy";
 import {
+  createFixedIntakeQuestion,
   intakeSequenceComplete,
+  loadActiveIntakeAnswers,
   loadCurrentIntakeResponses,
   replaceCurrentIntakeQuestions,
+  replaceIntakeQuestionsAfter,
 } from "./lib/intakeQuestions";
 import { intakeWorkpool } from "./workpools";
 import { teamClassesMeetPolicy, teamRosterCounts } from "./lib/teamRoster";
@@ -106,7 +109,7 @@ const currentDraftView = v.object({
       question: v.string(),
       purposeKey: v.string(),
       answerLength: v.union(v.literal("short"), v.literal("medium")),
-      source: v.union(v.literal("model"), v.literal("fallback")),
+      source: v.union(v.literal("fixed"), v.literal("model"), v.literal("fallback")),
       state: v.union(v.literal("active"), v.literal("answered")),
       answer: v.optional(v.string()),
     }),
@@ -1361,7 +1364,7 @@ export const saveInitialIdea = mutation({
       });
     }
 
-    await saveAnswerVersion(ctx, {
+    const initialAnswer = await saveAnswerVersion(ctx, {
       eventId: event._id,
       teamId: team._id,
       draftId,
@@ -1369,6 +1372,16 @@ export const saveInitialIdea = mutation({
       promptKey: "initial_idea",
       value: idea,
       clientOperationId: args.clientOperationId,
+    });
+    const persistedDraft = await ctx.db.get(draftId);
+    if (!persistedDraft) throw new Error("The project draft did not persist.");
+    await createFixedIntakeQuestion(ctx, {
+      draft: persistedDraft,
+      policy: pinnedPolicy.policy,
+      normalizedPolicy: pinnedPolicy.normalized,
+      ordinal: 1,
+      sourceAnswerVersionIds: [initialAnswer._id],
+      now,
     });
     await deleteTeamWorkingFields(ctx, team._id);
 
@@ -1378,16 +1391,6 @@ export const saveInitialIdea = mutation({
       sourceUpdatedAt: now,
     });
 
-    await intakeWorkpool.enqueueAction(
-      ctx,
-      internal.intelligence.interpretIdea,
-      { draftId },
-      {
-        retry: false,
-        onComplete: internal.intelligence.intakeGenerationFinished,
-        context: { draftId, draftVersion },
-      },
-    );
     await recordDraftOperation(ctx, {
       eventId: event._id,
       personId: person._id,
@@ -1510,15 +1513,29 @@ export const respondToFollowUp = mutation({
       state: "answered",
       answeredAt: now,
     });
-    const needsAnotherInterpretation =
-      question.ordinal < policy.maximumFollowUpCount;
+    const nextOrdinal = question.ordinal + 1;
+    const needsAnotherInterpretation = nextOrdinal <= policy.maximumFollowUpCount;
+    if (nextOrdinal <= policy.deterministicFollowUpCount) {
+      const activeAnswers = await loadActiveIntakeAnswers(ctx, draft._id);
+      await createFixedIntakeQuestion(ctx, {
+        draft,
+        policy: (await requirePinnedIntakePolicy(ctx, draft)).policy,
+        normalizedPolicy: policy,
+        ordinal: nextOrdinal,
+        sourceAnswerVersionIds: activeAnswers.map((answer) => answer._id),
+        now,
+      });
+    }
     await ctx.db.patch(draft._id, {
       stage: needsAnotherInterpretation ? "follow_up" : "review",
       version: draftVersion,
       lastEditedByMembershipId: membership._id,
       updatedAt: now,
     });
-    if (needsAnotherInterpretation) {
+    if (
+      needsAnotherInterpretation &&
+      nextOrdinal > policy.deterministicFollowUpCount
+    ) {
       await intakeWorkpool.enqueueAction(
         ctx,
         internal.intelligence.interpretIdea,
@@ -1631,13 +1648,32 @@ export const reviseFollowUp = mutation({
       state: "answered",
       answeredAt: now,
     });
+    const regenerateAfterOrdinal = Math.max(
+      response.question.ordinal,
+      policy.deterministicFollowUpCount,
+    );
+    await replaceIntakeQuestionsAfter(ctx, draft._id, regenerateAfterOrdinal);
+    const needsAnotherInterpretation =
+      regenerateAfterOrdinal < policy.maximumFollowUpCount;
     const draftVersion = draft.version + 1;
     await ctx.db.patch(draft._id, {
-      stage: "review",
+      stage: needsAnotherInterpretation ? "follow_up" : "review",
       version: draftVersion,
       lastEditedByMembershipId: membership._id,
       updatedAt: now,
     });
+    if (needsAnotherInterpretation) {
+      await intakeWorkpool.enqueueAction(
+        ctx,
+        internal.intelligence.interpretIdea,
+        { draftId: draft._id },
+        {
+          retry: false,
+          onComplete: internal.intelligence.intakeGenerationFinished,
+          context: { draftId: draft._id, draftVersion },
+        },
+      );
+    }
     await recordDraftOperation(ctx, {
       eventId: event._id,
       personId: person._id,
@@ -1724,7 +1760,7 @@ export const submissionPreview = query({
           ordinal: v.number(),
           question: v.string(),
           purposeKey: v.string(),
-          source: v.union(v.literal("model"), v.literal("fallback")),
+          source: v.union(v.literal("fixed"), v.literal("model"), v.literal("fallback")),
           answer: v.string(),
         }),
       ),

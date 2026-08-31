@@ -15,8 +15,6 @@ import { teamTableLabel } from "./lib/floor";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   githubTopicVerificationIsCurrent,
@@ -1621,7 +1619,6 @@ export const callTeam = mutation({
         scopeType: "team",
         scopeId: team._id,
       });
-      await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     } else if (participantAvailabilityOverrideReason !== undefined) {
       throw new ConvexError({
         code: "PARTICIPANT_AVAILABILITY_EXCEPTION_NOT_NEEDED",

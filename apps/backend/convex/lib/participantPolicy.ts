@@ -60,13 +60,13 @@ export const defaultParticipantPolicy: ParticipantPolicy = {
   mixedParticipantClassesAllowed: false,
   vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
   profileNotice:
-    "We use these details to establish event eligibility, contact you about operations, and run Code2Create.",
+    "We use these details to run Code2Create.",
   projectTextNotice:
-    "Project answers may be processed by the published intake and novelty services. Do not include contact details, credentials, or other unnecessary personal information.",
+    "We may process submissions with AI tools to help us review.",
   privacyNoticeUrl: "https://code2create.in/privacy",
   freshProjectAttestation,
   finalSubmissionWarning:
-    "Submitting sends this version for review. You can edit the team and proposal until the published application deadline.",
+    "You can edit the team and proposal until the final deadline.",
 };
 
 function invalidPolicy(message: string): never {

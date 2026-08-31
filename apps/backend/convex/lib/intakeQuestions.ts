@@ -1,6 +1,9 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import type { IntakePolicy } from "./intakePolicy";
+import {
+  fixedQuestionForOrdinal,
+  type IntakePolicy,
+} from "./intakePolicy";
 import { fingerprintText } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -178,6 +181,32 @@ export async function createIntakeQuestion(
     state: "active",
     validationCategory: args.validationCategory,
     createdAt: args.now,
+  });
+}
+
+export async function createFixedIntakeQuestion(
+  ctx: MutationCtx,
+  args: {
+    draft: Doc<"projectDrafts">;
+    policy: Doc<"intakePolicyVersions">;
+    normalizedPolicy: IntakePolicy;
+    ordinal: number;
+    sourceAnswerVersionIds: Id<"intakeAnswerVersions">[];
+    now: number;
+  },
+) {
+  const question = fixedQuestionForOrdinal(args.normalizedPolicy, args.ordinal);
+  return createIntakeQuestion(ctx, {
+    draft: args.draft,
+    policy: args.policy,
+    ordinal: args.ordinal,
+    text: question.text,
+    purposeKey: question.purposeKey,
+    answerLength: question.answerLength,
+    source: "fixed",
+    sourceAnswerVersionIds: args.sourceAnswerVersionIds,
+    validationCategory: "published_fixed_question",
+    now: args.now,
   });
 }
 

@@ -15,8 +15,6 @@ import {
   findCurrentPerson,
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation, storedOperationResult } from "./lib/operations";
 import { loadPublishedParticipantPolicy } from "./lib/participantPolicy";
@@ -666,7 +664,6 @@ export const confirmImport = mutation({
       permissionKey: "team.roster.import",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const prepared = await prepareTeamRosterPreview(ctx, event, args);
     if (prepared.previewChecksum !== args.previewChecksum) {
       throw new ConvexError({
@@ -871,7 +868,6 @@ export const revoke = mutation({
       permissionKey: "team.roster.revoke",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const entry = await ctx.db.get("teamRosterEntries", args.teamRosterEntryId);
     if (!entry || entry.eventId !== event._id) {
       throw new ConvexError({

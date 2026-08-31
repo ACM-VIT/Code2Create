@@ -22,9 +22,9 @@ test('keeps ordinary Error messages and falls back for untyped thrown values', (
 })
 
 test('recognizes an exact trusted Convex error code', () => {
-  const error = new ConvexError({ code: 'FRESH_AUTH_REQUIRED', message: 'Verify again.' })
-  assert.equal(convexErrorCode(error), 'FRESH_AUTH_REQUIRED')
-  assert.equal(isConvexErrorCode(error, 'FRESH_AUTH_REQUIRED'), true)
+  const error = new ConvexError({ code: 'VERSION_CONFLICT', message: 'Refresh and try again.' })
+  assert.equal(convexErrorCode(error), 'VERSION_CONFLICT')
+  assert.equal(isConvexErrorCode(error, 'VERSION_CONFLICT'), true)
   assert.equal(isConvexErrorCode(error, 'OTHER'), false)
-  assert.equal(convexErrorCode({ data: { code: 'FRESH_AUTH_REQUIRED' } }), null)
+  assert.equal(convexErrorCode({ data: { code: 'VERSION_CONFLICT' } }), null)
 })

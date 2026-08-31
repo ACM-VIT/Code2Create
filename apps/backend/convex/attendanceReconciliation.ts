@@ -9,8 +9,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
@@ -284,7 +282,6 @@ export const reconcile = mutation({
       scopeType: "attendance_session",
       scopeId: session._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
 
     const intervals = await ctx.db
       .query("attendancePresenceIntervals")

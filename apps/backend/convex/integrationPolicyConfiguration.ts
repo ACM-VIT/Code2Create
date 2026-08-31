@@ -24,8 +24,6 @@ import {
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
@@ -278,7 +276,6 @@ export const createDraft = mutation({
       permissionKey: "configuration.integration.draft.create",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (event.version !== args.expectedEventVersion) {
       throw new ConvexError({
         code: "EVENT_CONFIGURATION_CHANGED",
@@ -389,7 +386,6 @@ export const publish = mutation({
       permissionKey: "configuration.integration.publish",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (event.version !== args.expectedEventVersion) {
       throw new ConvexError({
         code: "EVENT_CONFIGURATION_CHANGED",

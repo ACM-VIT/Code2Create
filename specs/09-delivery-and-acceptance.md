@@ -34,8 +34,8 @@ Deliver:
 - team create and join;
 - team leadership transfer;
 - free-text proposal intake;
-- two friendly AI follow-up questions;
-- deterministic fallback questions;
+- two required fixed proposal questions;
+- up to two grounded AI follow-up questions;
 - the live novelty number above the idea text box;
 - final preview and first immutable team snapshot;
 - immutable proposal versions;
@@ -231,8 +231,8 @@ Test:
 - rejection at or after the deadline;
 - immutable proposal versions;
 - stale review and AI invalidation;
-- one-to-two-question limit;
-- deterministic AI fallback;
+- two-fixed-plus-zero-to-two-generated question contract;
+- no-model and invalid-model completion without filler questions;
 - stale novelty rejection;
 - no novelty use in admission or judging;
 - human control of admission;
@@ -257,7 +257,7 @@ Test:
 - realtime team updates;
 - leadership transfer;
 - free-text proposal flow;
-- two follow-up questions, including the required third total question;
+- two fixed questions followed by zero, one, or two generated questions;
 - novelty number position above the idea box;
 - no novelty label, theme, or prompt;
 - final membership-lock preview;

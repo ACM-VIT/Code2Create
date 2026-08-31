@@ -4,10 +4,8 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import {
-  currentAuthSessionFreshness,
   ensurePerson,
   requireVerifiedGoogleIdentity,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   admissionModelConfigurationChecksum,
@@ -96,17 +94,6 @@ function initialEventSlug() {
   }
   return configured;
 }
-
-export const freshAuthenticationStatus = query({
-  args: {},
-  returns: v.object({ fresh: v.boolean() }),
-  handler: async (ctx) => ({
-    fresh: (await currentAuthSessionFreshness(
-      ctx,
-      sensitiveCommandSessionMaxAgeMs,
-    )).fresh,
-  }),
-});
 
 export const bootstrapEligibility = query({
   args: { eventSlug: v.string() },

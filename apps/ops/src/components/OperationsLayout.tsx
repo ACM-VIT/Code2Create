@@ -4,7 +4,6 @@ import { useEffect, useState, type ReactNode } from 'react'
 
 import { Icon, type IconName } from './Icon'
 import { IncidentBanner } from './IncidentBanner'
-import { FreshAuthenticationPrompt } from './FreshAuthenticationPrompt'
 
 export function OperationsLayout({
   accountEmail,
@@ -51,7 +50,6 @@ export function OperationsLayout({
       data-account-email={accountEmail}
       data-app-surface="operations"
     >
-      <FreshAuthenticationPrompt authClient={authClient} />
       <aside className="sidebar">
         <Link className="sidebar-wordmark" to={homePath}>Code2Create</Link>
         <nav aria-label="Operations" className="desktop-navigation">

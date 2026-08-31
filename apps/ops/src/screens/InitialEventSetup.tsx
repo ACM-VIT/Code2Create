@@ -122,7 +122,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           followUpAnswerMinLength: 5,
           followUpAnswerMaxLength: 1_200,
           minimumFollowUpCount: 2,
-          maximumFollowUpCount: 2,
+          maximumFollowUpCount: 4,
           deterministicFollowUpCount: 2,
           questionMaxLength: 140,
           allowedPurposeKeys: [
@@ -136,14 +136,14 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           fallbackQuestions: [
             {
               ordinal: 1,
-              text: 'Who would use this first?',
-              purposeKey: 'user',
-              answerLength: 'short',
+              text: 'What problem are you solving, and who has it?',
+              purposeKey: 'problem',
+              answerLength: 'medium',
             },
             {
               ordinal: 2,
-              text: 'What would you most like to finish during Code2Create?',
-              purposeKey: 'event_goal',
+              text: 'How will your solution work in practice?',
+              purposeKey: 'experience',
               answerLength: 'medium',
             },
           ],
@@ -158,14 +158,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
             'winner',
             'why should you win',
           ],
-          commonIdeaPatterns: [
-            {
-              stableKey: 'civic_issue_reporting',
-              description: 'A tool for reporting potholes, waste, damage, or another civic issue.',
-              supportiveQuestionGuidance:
-                'Ask what useful action or feedback should happen after someone submits a report.',
-            },
-          ],
+          commonIdeaPatterns: [],
           model: { mode: 'deterministic' },
         },
         communicationsPolicy: {

@@ -19,8 +19,6 @@ import { consumePortalQrToken } from "./lib/attendancePortalQrLifecycle";
 import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
@@ -383,7 +381,6 @@ async function requireExternalBadgeCommand(
     scopeType: "person",
     scopeId: membership.personId,
   });
-  await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
   return { event, person, station, membership, grantIds };
 }
 
@@ -1042,7 +1039,6 @@ export const beginVitBarcodeRebind = internalMutation({
       scopeType: "person",
       scopeId: membership.personId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (
       !priorCredential ||
       priorCredential.eventId !== event._id ||
@@ -1281,7 +1277,6 @@ export const verifyVitBarcodeRebind = internalMutation({
       scopeType: "person",
       scopeId: membership.personId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const [priorCredential, replacementCredential] = await Promise.all([
       ctx.db.get(args.priorCredentialId),
       ctx.db.get(args.replacementCredentialId),
@@ -1441,7 +1436,6 @@ export const suspendVitBarcode = internalMutation({
       scopeType: "person",
       scopeId: membership.personId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const now = Date.now();
     const resolution = await requireAvailableStaffedCredentialResolution(ctx, {
       resolutionId: args.resolutionId,

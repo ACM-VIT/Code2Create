@@ -2,10 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ConvexError } from 'convex/values'
 
-import {
-  completeFreshAuthentication,
-  currentFreshAuthenticationRequest,
-} from './freshAuthentication.ts'
 import { createMutationAttempt, createOperationRunner } from './operations.ts'
 
 test('a congested retry keeps the original staff command and id', async () => {
@@ -123,34 +119,6 @@ test('ConvexError is the only definitive rejection signal', async () => {
   assert.equal(replacementRan, false)
   assert.equal(runner.hasPending('fake'), true)
   assert.notEqual(fakeId, '')
-})
-
-test('fresh Google verification retries the exact pending command once', async () => {
-  const runner = createOperationRunner<number>()
-  const operationIds: string[] = []
-  let calls = 0
-  const result = runner.run('sensitive-change', (clientOperationId) => async () => {
-    operationIds.push(clientOperationId)
-    calls += 1
-    if (calls === 1) {
-      throw new ConvexError({
-        code: 'FRESH_AUTH_REQUIRED',
-        message: 'Verify with Google again.',
-      })
-    }
-    return 17
-  })
-
-  await new Promise<void>((resolve) => setImmediate(resolve))
-  const request = currentFreshAuthenticationRequest()
-  assert.ok(request)
-  assert.equal(runner.hasPending('sensitive-change'), true)
-  assert.equal(completeFreshAuthentication(request.id), true)
-
-  assert.equal(await result, 17)
-  assert.equal(calls, 2)
-  assert.deepEqual(operationIds, [operationIds[0], operationIds[0]])
-  assert.equal(runner.hasPending('sensitive-change'), false)
 })
 
 test('mutation slots retain immutable closures independently', async () => {

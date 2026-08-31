@@ -2,12 +2,10 @@ import { ConvexError } from "convex/values";
 
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { authComponent, createAuth } from "../auth";
+import { authComponent } from "../auth";
 import { normalizeEmail } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
-
-export const sensitiveCommandSessionMaxAgeMs = 15 * 60 * 1_000;
 
 export async function stagingParticipantAccessAllowed(
   ctx: ReadCtx,
@@ -54,21 +52,6 @@ export async function requireStagingParticipantAccess(
   });
 }
 
-export function authSessionCreatedAtMs(value: unknown) {
-  if (value instanceof Date) {
-    const timestamp = value.getTime();
-    if (Number.isFinite(timestamp)) return timestamp;
-  }
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
-    return value;
-  }
-  if (typeof value === "string") {
-    const timestamp = Date.parse(value);
-    if (Number.isFinite(timestamp)) return timestamp;
-  }
-  throw new Error("Better Auth returned an invalid session creation time.");
-}
-
 export async function requireAuthUser(ctx: ReadCtx) {
   const user = await authComponent.getAuthUser(ctx);
   if (!user.emailVerified) {
@@ -81,11 +64,11 @@ export async function requireAuthUser(ctx: ReadCtx) {
 }
 
 export async function findCurrentPerson(ctx: ReadCtx) {
-  const user = await authComponent.safeGetAuthUser(ctx);
-  if (!user) return null;
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) return null;
   return ctx.db
     .query("people")
-    .withIndex("by_auth_user", (query) => query.eq("authUserId", user._id))
+    .withIndex("by_auth_user", (query) => query.eq("authUserId", identity.subject))
     .unique();
 }
 
@@ -129,36 +112,6 @@ export async function requireVerifiedGoogleIdentity(ctx: ReadCtx) {
       displayName: googleIdentity.displayName,
     },
   };
-}
-
-export async function requireFreshAuthSession(
-  ctx: ReadCtx,
-  maximumAgeMs: number,
-) {
-  const current = await currentAuthSessionFreshness(ctx, maximumAgeMs);
-  if (!current.fresh) {
-    throw new ConvexError({
-      code: "FRESH_AUTH_REQUIRED",
-      message: "Verify with Google again before performing this sensitive action.",
-    });
-  }
-  return { sessionId: current.sessionId, createdAt: current.createdAt };
-}
-
-type AuthSessionFreshness =
-  | { fresh: false }
-  | { fresh: true; sessionId: string; createdAt: number };
-
-export async function currentAuthSessionFreshness(
-  ctx: ReadCtx,
-  maximumAgeMs: number,
-): Promise<AuthSessionFreshness> {
-  const { auth, headers } = await authComponent.getAuth(createAuth, ctx);
-  const current = await auth.api.getSession({ headers });
-  if (!current) return { fresh: false };
-  const createdAt = authSessionCreatedAtMs(current.session.createdAt);
-  if (Date.now() - createdAt >= maximumAgeMs) return { fresh: false };
-  return { fresh: true, sessionId: current.session.id, createdAt };
 }
 
 export async function refreshExistingPersonIdentity(

@@ -14,8 +14,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -183,7 +181,6 @@ export const updateApplicationDeadlines = mutation({
       permissionKey: "configuration.participant.publish",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (event.version !== args.expectedEventVersion) {
       throw new ConvexError({
         code: "EVENT_CONFIGURATION_CHANGED",
@@ -505,7 +502,6 @@ export const publish = mutation({
       permissionKey: "configuration.participant.publish",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (event.version !== args.expectedEventVersion) {
       throw new ConvexError({
         code: "EVENT_CONFIGURATION_CHANGED",

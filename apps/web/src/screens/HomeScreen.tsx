@@ -10,28 +10,22 @@ import { PortalScene } from '../components/portal/PortalScene'
 import { eventSlug } from '../lib/config'
 import type { CurrentTeam, CurrentTeamMember } from '../types'
 
-// The five-petal journey the mockup counts through: idea, two follow-ups,
-// review, submit.
-const JOURNEY_STAGES = 5
-const JOURNEY_LABELS = ['idea', 'q1', 'q2', 'review', 'submit'] as const
+const JOURNEY_STAGES = 4
+const JOURNEY_LABELS = ['idea', 'questions', 'review', 'submit'] as const
 
-function journeyState(draft: { stage: string; followUps: readonly { state: string }[] } | null) {
+function journeyState(draft: { stage: string } | null) {
   if (!draft || draft.stage === 'opening') {
     return { current: 0, headline: 'Start with the idea.', action: 'Write it' }
   }
   if (draft.stage === 'follow_up') {
-    const answered = draft.followUps.filter((followUp) => followUp.state !== 'active').length
-    const remaining = Math.max(2 - answered, 1)
     return {
-      current: 1 + answered,
-      headline: remaining === 1 ? 'One answer left.' : `${remaining} answers left.`,
+      current: 1,
+      headline: 'Shape the idea.',
       action: 'Answer it',
     }
   }
-  return { current: 3, headline: 'Read it together.', action: 'Open the review' }
+  return { current: 2, headline: 'Read it together.', action: 'Open the review' }
 }
-
-const STAGE_WORDS = ['one', 'two', 'three', 'four', 'five']
 
 function BottomCard({
   label,
@@ -97,11 +91,8 @@ export function HomeScreen({
       )}
     >
       <div className="flex w-full max-w-[1048px] flex-1 flex-col justify-center pb-40">
-        <div className="max-w-[600px]">
-          <p className="mb-3 font-ui text-lg text-rose-light text-shadow-[0_2px_14px_var(--scene-text-glow)]">
-            stage {STAGE_WORDS[journey.current] ?? 'one'} of {STAGE_WORDS[JOURNEY_STAGES - 1]}
-          </p>
-          <h1 className="mb-8 font-display font-light tracking-[-.01em] text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-7xl">
+        <div className="max-w-[680px]">
+          <h1 className="mb-8 font-display font-light tracking-[-.01em] text-balance text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-7xl">
             {journey.headline}
           </h1>
           <PortalButton type="button" onClick={() => navigate('/write')}>
@@ -167,9 +158,6 @@ export function HomeScreen({
                   minute: '2-digit',
                 })
               : '—'}
-            <span className="ml-2 text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
-              writing stays open after submit
-            </span>
           </p>
         </BottomCard>
       </div>

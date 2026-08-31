@@ -10,8 +10,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -134,7 +132,6 @@ export const request = mutation({
       scopeType: "attendance_session",
       scopeId: session._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -494,7 +491,6 @@ async function requireDownloadAccess(
     scopeType: "attendance_session",
     scopeId: exportRecord.sessionId,
   });
-  await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
   if (exportRecord.status !== "ready" || exportRecord.expiresAt <= Date.now()) {
     throw new ConvexError({
       code: "EXPORT_NOT_AVAILABLE",

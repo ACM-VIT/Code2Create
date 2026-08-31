@@ -9,8 +9,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -340,7 +338,6 @@ export const create = mutation({
       permissionKey: "incident.create",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const activeIncidents = (
       await Promise.all(
         (["open", "monitoring"] as const).map((state) =>
@@ -459,7 +456,6 @@ export const approveManualMode = mutation({
       scopeType: "incident",
       scopeId: incident._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const existingApproval = await ctx.db
       .query("incidentManualModeApprovals")
       .withIndex("by_incident_person", (index) =>
@@ -585,7 +581,6 @@ export const resolve = mutation({
       scopeType: "incident",
       scopeId: incident._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const [draftSheet, submittedSheet, draftReview, submittedReview, activeRoundPause] = await Promise.all([
       ctx.db
         .query("attendanceManualSheets")

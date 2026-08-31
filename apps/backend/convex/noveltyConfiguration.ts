@@ -16,8 +16,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   defaultNoveltyPolicy,
@@ -864,7 +862,6 @@ export const publish = mutation({
       permissionKey: "configuration.novelty.publish",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (event.version !== args.expectedEventVersion) {
       throw new ConvexError({
         code: "EVENT_CONFIGURATION_CHANGED",

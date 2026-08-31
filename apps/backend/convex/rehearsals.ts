@@ -12,8 +12,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   canCompleteRehearsal,
@@ -934,7 +932,6 @@ export const start = mutation({
       scopeType: "rehearsal_run",
       scopeId: rehearsalRun._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const reason = normalizedText(args.reason, "Audit reason", 5, 300);
     const operationId = normalizedText(
       args.clientOperationId,
@@ -1282,7 +1279,6 @@ export const complete = mutation({
       scopeType: "rehearsal_run",
       scopeId: rehearsalRun._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const summary = normalizedLongText(
       args.summary,
       "Completion summary",
@@ -1399,7 +1395,6 @@ export const cancel = mutation({
       scopeType: "rehearsal_run",
       scopeId: rehearsalRun._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const reason = normalizedLongText(args.reason, "Cancellation reason", 5, 500);
     const operationId = normalizedText(
       args.clientOperationId,

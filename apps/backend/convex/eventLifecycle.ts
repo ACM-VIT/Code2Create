@@ -14,8 +14,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -112,7 +110,6 @@ export const transition = mutation({
       permissionKey: "event.lifecycle.manage",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (event.version !== args.expectedEventVersion) {
       throw new ConvexError({
         code: "EVENT_CHANGED",

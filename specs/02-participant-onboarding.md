@@ -62,7 +62,7 @@ The server checks these facts in the join transaction:
 - The proposed lead accepts or declines the transfer.
 - Acceptance changes the lead and the source-attributed lead grants in one transaction.
 - A membership change rotates or invalidates affected invitations.
-- Merge, split, and correction after the deadline require a scoped operations command, impact preview, fresh authentication, reason, and audit event.
+- Merge, split, and correction after the deadline require a scoped operations command, impact preview, current authorization, reason, and audit event.
 
 Final submission creates an immutable snapshot of the current team, accepted participant-policy version, and proposal. It does not close team management. A successful join, leave, removal, switch, or accepted leadership transfer after submission must leave the team within the published bounds, with one participant class, complete eligible profiles, current policy acceptance, and exactly one lead. The same transaction creates a new immutable roster and proposal snapshot, advances the application's current version, and invalidates stale human-review and AI-admission output. If any condition fails, the team change and snapshot update both roll back. At the applicable deadline, the latest accepted snapshot becomes final.
 
@@ -80,7 +80,14 @@ The accepted privacy notice explains that proposal text can be sent to OpenAI fo
 
 ### Follow-up questions
 
-After the first answer, the AI asks two friendly questions. They appear one at a time. The second follow-up is the third total question and must appear before final review. If an AI request fails or returns invalid output, the system uses that ordinal's published fallback question.
+After the first answer, the portal asks two published questions, one at a time:
+
+1. **What problem are you solving, and who has it?**
+2. **How will your solution work in practice?**
+
+Both questions require answers. The first two questions are stored with the intake policy and appear immediately; they do not wait for an AI job.
+
+After both answers are committed, the AI may ask zero, one, or two additional questions. It asks only about material context that is still missing. A generated question must cite the source answer versions used to produce it and include project-specific grounding copied from those answers. If the same question would fit most unrelated projects, the model must stop. If generation is unavailable, invalid, or late, the portal proceeds with the two fixed answers instead of inserting a generic fallback.
 
 Each question must:
 
@@ -98,11 +105,11 @@ Each generated question requires an answer before the team can continue. The flo
 
 All active team members with `team.project.write` can help draft the initial idea and follow-up answers. Text saves to a small server-side working field after a short pause; typing does not advance the flow, generate a question, or run admission analysis. The portal shows `Saving…`, `Saved`, or `Not saved` beside the field. `Next` advances the flow. The portal also shows the exact active member and exact idea or question they are editing. If another member saves the same field first, the subscribed server revision wins and the losing browser keeps its text for an explicit keep-or-discard choice. A member's own successful save cannot produce a teammate-conflict notice.
 
-Confirming a changed initial idea invalidates every old generated follow-up and starts a fresh question route from the new idea. Editing the wording of an already answered follow-up does not reshuffle other completed questions or spend another model call.
+Confirming a changed initial idea invalidates the old question route and starts again from the two fixed questions. Editing either fixed answer preserves the other fixed answer, invalidates generated questions, and evaluates the generated-question route again. Editing a generated answer preserves earlier answers, invalidates only later generated questions, and evaluates the remaining route again. Stale model results cannot attach to a changed answer version.
 
 Only the current team lead can make the final submission. The server checks both current leadership and exact-team `application.submit` authority in the accepting transaction. A direct permission grant to a non-lead does not make that member a submitter. The confirmation screen uses the same rule. Presence is advisory: an open or disconnected editor cannot veto submission. If another member is typing, the lead sees a warning that submission uses the committed preview and excludes text that has not advanced into it. Exact draft and team versions provide the race boundary.
 
-When `OPENAI_API_KEY` is configured, the service always attempts to generate the question with the code-owned `gpt-5.6-luna` release. This is a platform capability, not an event-policy switch. The server validates the output against the published question contract. The model cannot submit, reject, classify, route, or score the team. Each ordinal has a reviewed fallback. Missing configuration, delay, or failure cannot block the proposal.
+When `OPENAI_API_KEY` is configured, the service evaluates the optional generated-question route with the code-owned `gpt-5.6-luna` release. This is a platform capability, not an event-policy switch. The server validates the output, source-answer references, and grounding before publishing a question. The model cannot submit, reject, classify, route, or score the team. Missing configuration, delay, or failure cannot block the proposal.
 
 The sequence should clarify:
 
@@ -197,7 +204,7 @@ Each proposal or team revision:
 
 The system retains every older proposal and roster version and its review history. No old output can support a new decision.
 
-At or after the applicable class deadline, the server rejects a team or proposal revision even if the browser still shows an edit screen. Operations cannot extend one team by editing its application. A deadline change is an event-policy publication that affects all eligible teams and requires its own scoped permission, fresh authentication, reason, and audit record.
+At or after the applicable class deadline, the server rejects a team or proposal revision even if the browser still shows an edit screen. Operations cannot extend one team by editing its application. A deadline change is an event-policy publication that affects all eligible teams and requires its own scoped permission, current authorization, reason, and audit record.
 
 ## 6. Admission
 
@@ -313,7 +320,7 @@ The participant cannot control playback or queue order. A music action cannot ch
 - The server rejects participant team and proposal writes at or after the applicable class deadline.
 - Every proposal save creates or advances an immutable version without deleting history.
 - A revision invalidates stale human and AI admission outputs.
-- The intake asks two friendly questions and works without OpenAI through published fallback questions.
+- The intake always asks two published questions, may add up to two grounded questions, and reaches review without OpenAI.
 - The novelty feature shows only one number above the idea text box.
 - The novelty feature never blocks save or submission and never enters admission or judging.
 - Proposal routing uses the current proposal and reviewer-domain coverage.
