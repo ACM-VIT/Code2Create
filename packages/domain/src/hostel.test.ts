@@ -102,11 +102,10 @@ test("the ladies' hostel catalog matches the current blocks", () => {
 });
 
 test("day scholars are a residence, not a hostel block", () => {
-  assert.deepEqual(defaultVitHostelResidenceCatalog[0], {
-    stableKey: "day_scholar",
-    label: "Day scholar",
-    kind: "day_scholar",
-  });
+  assert.equal(
+    findVitHostelResidenceCatalogEntry(defaultVitHostelResidenceCatalog, "day_scholar"),
+    null,
+  );
 });
 
 test("hostel room numbers are compact identifiers with a digit", () => {

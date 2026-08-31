@@ -266,7 +266,7 @@ async function resolveReference(
   return {
     membership,
     referenceKind: candidate.referenceKind,
-    participantName: profile?.preferredName ?? profile?.fullName ?? person.displayName,
+    participantName: profile?.fullName ?? person.displayName,
   };
 }
 

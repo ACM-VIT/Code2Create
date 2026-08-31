@@ -286,21 +286,10 @@ function describeChanges(
     changes.push("Update team size or mixed-team eligibility.");
   }
   if (
-    published.phoneField !== draft.phoneField ||
-    published.vitRegistrationNumberField !== draft.vitRegistrationNumberField ||
-    published.vitProgrammeField !== draft.vitProgrammeField ||
-    published.vitCampusField !== draft.vitCampusField ||
-    published.externalCityField !== draft.externalCityField ||
-    published.externalCountryField !== draft.externalCountryField ||
-    published.vitHostelDetailsField !== draft.vitHostelDetailsField
-  ) {
-    changes.push("Update class-aware profile fields.");
-  }
-  if (
     JSON.stringify(published.vitHostelResidenceCatalog) !==
     JSON.stringify(draft.vitHostelResidenceCatalog)
   ) {
-    changes.push("Update the VIT residence catalogue.");
+    changes.push("Update the VIT hostel block catalogue.");
   }
   if (
     published.label !== draft.label ||

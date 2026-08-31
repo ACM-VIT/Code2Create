@@ -41,6 +41,31 @@ test('builds an explicit Wrangler deployment command', () => {
   )
 })
 
+test('deploys a named Vite environment from its generated Wrangler config', () => {
+  assert.deepEqual(
+    cloudflareDeployArguments(
+      'code2create-intelligence',
+      {
+        CLOUDFLARE_ENV: 'staging',
+        VITE_RELEASE_ID: 'release-42',
+      },
+      'dist/code2create_intelligence/wrangler.json',
+    ),
+    [
+      'exec',
+      'wrangler',
+      'deploy',
+      '--config',
+      'dist/code2create_intelligence/wrangler.json',
+      '--name',
+      'code2create-intelligence-staging',
+      '--strict',
+      '--message',
+      'release-42',
+    ],
+  )
+})
+
 test('rejects an unset environment instead of falling back to production', () => {
   assert.throws(
     () => cloudflareWorkerName('code2create-operations', {}),

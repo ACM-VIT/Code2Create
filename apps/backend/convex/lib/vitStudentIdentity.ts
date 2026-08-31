@@ -1,5 +1,5 @@
 export const vitStudentEmailDomain = "vitstudent.ac.in";
-export const vitInstitutionName = "Vellore Institute of Technology";
+export const vitInstitutionName = "Vellore Institute of Technology, Vellore";
 
 export type VitStudentProfileIdentity = {
   fullName: string;

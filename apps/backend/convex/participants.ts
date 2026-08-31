@@ -32,12 +32,8 @@ import {
   isProfileCompleteForPolicy,
   loadPublishedParticipantPolicy,
   participantPolicyInput,
-  type ProfileFieldMode,
 } from "./lib/participantPolicy";
-import {
-  normalizedText,
-  optionalNormalizedText,
-} from "./lib/strings";
+import { normalizedText } from "./lib/strings";
 import { parsedHostelDetails } from "./lib/vitHostel";
 import {
   isApprovedVitStudentIdentity,
@@ -55,26 +51,27 @@ import {
   memberRole,
   participantClass,
   participantEligibilityStatus,
+  participantGender,
   participantOnboardingStatus,
   studyYear,
+  vitResidenceType,
 } from "./values";
 
 const profileView = v.object({
   id: v.id("participantProfiles"),
   participantClass,
   fullName: v.string(),
-  preferredName: v.optional(v.string()),
-  phone: v.optional(v.string()),
+  phone: v.string(),
+  gender: participantGender,
   institution: v.string(),
   yearOfStudy: studyYear,
-  currentRole: v.optional(v.string()),
   vitRegistrationNumber: v.optional(v.string()),
   vitProgramme: v.optional(v.string()),
-  vitCampus: v.optional(v.string()),
+  vitResidenceType: v.optional(vitResidenceType),
   vitHostelResidence: v.optional(v.string()),
   vitHostelRoomNumber: v.optional(v.string()),
-  externalCity: v.optional(v.string()),
-  externalCountry: v.optional(v.string()),
+  externalUniversity: v.optional(v.string()),
+  externalCollege: v.optional(v.string()),
   isComplete: v.boolean(),
   profileVersion: v.number(),
 });
@@ -337,23 +334,18 @@ export const me = query({
             id: profile._id,
             participantClass: profile.participantClass,
             fullName: profile.fullName,
-            ...(profile.preferredName !== undefined
-              ? { preferredName: profile.preferredName }
-              : {}),
-            ...(profile.phone !== undefined ? { phone: profile.phone } : {}),
+            phone: profile.phone,
+            gender: profile.gender,
             institution: profile.institution,
             yearOfStudy: profile.yearOfStudy,
-            ...(profile.currentRole !== undefined
-              ? { currentRole: profile.currentRole }
-              : {}),
             ...(profile.vitRegistrationNumber !== undefined
               ? { vitRegistrationNumber: profile.vitRegistrationNumber }
               : {}),
             ...(profile.vitProgramme !== undefined
               ? { vitProgramme: profile.vitProgramme }
               : {}),
-            ...(profile.vitCampus !== undefined
-              ? { vitCampus: profile.vitCampus }
+            ...(profile.vitResidenceType !== undefined
+              ? { vitResidenceType: profile.vitResidenceType }
               : {}),
             ...(profile.vitHostelResidence !== undefined
               ? { vitHostelResidence: profile.vitHostelResidence }
@@ -361,11 +353,11 @@ export const me = query({
             ...(profile.vitHostelRoomNumber !== undefined
               ? { vitHostelRoomNumber: profile.vitHostelRoomNumber }
               : {}),
-            ...(profile.externalCity !== undefined
-              ? { externalCity: profile.externalCity }
+            ...(profile.externalUniversity !== undefined
+              ? { externalUniversity: profile.externalUniversity }
               : {}),
-            ...(profile.externalCountry !== undefined
-              ? { externalCountry: profile.externalCountry }
+            ...(profile.externalCollege !== undefined
+              ? { externalCollege: profile.externalCollege }
               : {}),
             isComplete: isProfileCompleteForPolicy(profile, membership, participantPolicy.policy),
             profileVersion: profile.profileVersion,
@@ -707,38 +699,18 @@ export const acceptPolicy = mutation({
   },
 });
 
-function policyField(
-  value: string | undefined,
-  mode: ProfileFieldMode,
-  label: string,
-  maximum: number,
-) {
-  if (mode === "not_collected") return undefined;
-  const normalized = optionalNormalizedText(value, label, maximum);
-  if (mode === "required" && normalized === undefined) {
-    throw new ConvexError({
-      code: "PROFILE_FIELD_REQUIRED",
-      message: `${label} is required by the current participant policy.`,
-    });
-  }
-  return normalized;
-}
-
 export const saveProfile = mutation({
   args: {
     eventSlug: v.string(),
     participantPolicyVersionId: v.id("participantPolicyVersions"),
-    fullName: v.optional(v.string()),
-    preferredName: v.optional(v.string()),
-    phone: v.optional(v.string()),
-    institution: v.optional(v.string()),
+    phone: v.string(),
+    gender: participantGender,
     yearOfStudy: v.optional(studyYear),
-    currentRole: v.optional(v.string()),
-    vitCampus: v.optional(v.string()),
+    vitResidenceType: v.optional(vitResidenceType),
     vitHostelResidence: v.optional(v.string()),
     vitHostelRoomNumber: v.optional(v.string()),
-    externalCity: v.optional(v.string()),
-    externalCountry: v.optional(v.string()),
+    externalUniversity: v.optional(v.string()),
+    externalCollege: v.optional(v.string()),
     expectedProfileVersion: v.number(),
     clientOperationId: v.string(),
   },
@@ -748,17 +720,14 @@ export const saveProfile = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const requestFingerprint = operationFingerprint([
       args.participantPolicyVersionId,
-      args.fullName ?? null,
-      args.preferredName ?? null,
-      args.phone ?? null,
-      args.institution ?? null,
+      args.phone,
+      args.gender,
       args.yearOfStudy ?? null,
-      args.currentRole ?? null,
-      args.vitCampus ?? null,
+      args.vitResidenceType ?? null,
       args.vitHostelResidence ?? null,
       args.vitHostelRoomNumber ?? null,
-      args.externalCity ?? null,
-      args.externalCountry ?? null,
+      args.externalUniversity ?? null,
+      args.externalCollege ?? null,
       args.expectedProfileVersion,
     ]);
     const prior = await findOperation(ctx, {
@@ -808,56 +777,46 @@ export const saveProfile = mutation({
       : null;
     const fullName = vitStudentIdentity
       ? vitStudentIdentity.fullName
-      : normalizedText(args.fullName ?? "", "Full name", 2, 100);
-    const preferredName = optionalNormalizedText(args.preferredName, "Preferred name", 60);
-    const phone = policyField(args.phone, policy.phoneField, "Phone", 24);
-    const institution = vitStudentIdentity
-      ? vitInstitutionName
-      : normalizedText(args.institution ?? "", "Institution", 2, 160);
+      : person.displayName;
+    const phone = normalizedText(args.phone, "Phone", 7, 24);
     const yearOfStudy = vitStudentIdentity?.yearOfStudy ?? args.yearOfStudy;
-    if (!yearOfStudy) {
+    if (!yearOfStudy || yearOfStudy === "not_applicable") {
       throw new ConvexError({
         code: "STUDY_YEAR_REQUIRED",
         message: "Choose your current year of study.",
       });
     }
-    const currentRole = membership.participantClass === "external_participant"
-      ? optionalNormalizedText(args.currentRole, "Current role", 100)
-      : undefined;
-    if (
-      membership.participantClass === "external_participant" &&
-      yearOfStudy === "not_applicable" &&
-      currentRole === undefined
-    ) {
-      throw new ConvexError({
-        code: "EXTERNAL_ROLE_REQUIRED",
-        message: "Enter a current role when year of study does not apply.",
-      });
+    let externalUniversity: string | undefined;
+    let externalCollege: string | undefined;
+    let institution: string;
+    if (vitStudentIdentity) {
+      institution = vitInstitutionName;
+    } else {
+      externalUniversity = normalizedText(
+        args.externalUniversity ?? "",
+        "University",
+        2,
+        160,
+      );
+      externalCollege = normalizedText(args.externalCollege ?? "", "College", 2, 160);
+      institution = externalCollege === externalUniversity
+        ? externalUniversity
+        : `${externalCollege}, ${externalUniversity}`;
     }
-    const vitRegistrationNumber =
-      vitStudentIdentity && policy.vitRegistrationNumberField !== "not_collected"
-        ? vitStudentIdentity.registrationNumber
-        : undefined;
-    const vitProgramme =
-      vitStudentIdentity && policy.vitProgrammeField !== "not_collected"
-        ? vitStudentIdentity.programmeCode
-        : undefined;
-    const vitCampus = membership.participantClass === "vit_student"
-      ? policyField(args.vitCampus, policy.vitCampusField, "VIT campus", 80)
-      : undefined;
-    const { vitHostelResidence, vitHostelRoomNumber } = parsedHostelDetails(
+    const vitRegistrationNumber = vitStudentIdentity?.registrationNumber;
+    const vitProgramme = vitStudentIdentity?.programmeCode;
+    const {
+      vitResidenceType,
+      vitHostelResidence,
+      vitHostelRoomNumber,
+    } = parsedHostelDetails(
       membership.participantClass,
+      args.gender,
+      args.vitResidenceType,
       args.vitHostelResidence,
       args.vitHostelRoomNumber,
-      policy.vitHostelDetailsField,
       policy.vitHostelResidenceCatalog,
     );
-    const externalCity = membership.participantClass === "external_participant"
-      ? policyField(args.externalCity, policy.externalCityField, "City", 100)
-      : undefined;
-    const externalCountry = membership.participantClass === "external_participant"
-      ? policyField(args.externalCountry, policy.externalCountryField, "Country", 100)
-      : undefined;
 
     const existing = await ctx.db
       .query("participantProfiles")
@@ -898,18 +857,17 @@ export const saveProfile = mutation({
       await ctx.db.patch(existing._id, {
         participantClass: membership.participantClass,
         fullName,
-        preferredName,
         phone,
+        gender: args.gender,
         institution,
         yearOfStudy,
-        currentRole,
         vitRegistrationNumber,
         vitProgramme,
-        vitCampus,
+        vitResidenceType,
         vitHostelResidence,
         vitHostelRoomNumber,
-        externalCity,
-        externalCountry,
+        externalUniversity,
+        externalCollege,
         profileVersion,
         updatedAt: now,
       });
@@ -920,18 +878,17 @@ export const saveProfile = mutation({
         membershipId: membership._id,
         participantClass: membership.participantClass,
         fullName,
-        ...(preferredName !== undefined ? { preferredName } : {}),
-        ...(phone !== undefined ? { phone } : {}),
+        phone,
+        gender: args.gender,
         institution,
         yearOfStudy,
-        ...(currentRole !== undefined ? { currentRole } : {}),
         ...(vitRegistrationNumber !== undefined ? { vitRegistrationNumber } : {}),
         ...(vitProgramme !== undefined ? { vitProgramme } : {}),
-        ...(vitCampus !== undefined ? { vitCampus } : {}),
+        ...(vitResidenceType !== undefined ? { vitResidenceType } : {}),
         ...(vitHostelResidence !== undefined ? { vitHostelResidence } : {}),
         ...(vitHostelRoomNumber !== undefined ? { vitHostelRoomNumber } : {}),
-        ...(externalCity !== undefined ? { externalCity } : {}),
-        ...(externalCountry !== undefined ? { externalCountry } : {}),
+        ...(externalUniversity !== undefined ? { externalUniversity } : {}),
+        ...(externalCollege !== undefined ? { externalCollege } : {}),
         profileVersion,
         updatedAt: now,
       });

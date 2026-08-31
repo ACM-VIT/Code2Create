@@ -6,6 +6,18 @@ export const participantClass = v.union(
 );
 export type ParticipantClass = Infer<typeof participantClass>;
 
+export const participantGender = v.union(
+  v.literal("male"),
+  v.literal("female"),
+);
+export type ParticipantGender = Infer<typeof participantGender>;
+
+export const vitResidenceType = v.union(
+  v.literal("day_scholar"),
+  v.literal("hosteller"),
+);
+export type VitResidenceType = Infer<typeof vitResidenceType>;
+
 export const participantEligibilityStatus = v.union(
   v.literal("pending"),
   v.literal("eligible"),

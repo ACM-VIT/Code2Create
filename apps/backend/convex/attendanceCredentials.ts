@@ -559,7 +559,7 @@ export const resolveStaffedParticipant = internalMutation({
       resolutionId,
       membershipId: membership._id,
       participantClass: membership.participantClass,
-      displayName: profile.preferredName ?? profile.fullName ?? participantPerson.displayName,
+      displayName: profile.fullName ?? participantPerson.displayName,
       institution: profile.institution,
       teamName: teamContext.team.name,
       ...(profile.vitRegistrationNumber !== undefined
