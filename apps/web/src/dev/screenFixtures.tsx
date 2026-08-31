@@ -17,6 +17,13 @@ import { TreeLoader } from '../components/portal/TreeLoader'
 import { SglangInterlude } from '../screens/SglangInterlude'
 import { ConfirmCard } from '../screens/TeamLobbyScreen'
 import { NoveltyPill } from '../screens/IntakeScreen'
+import {
+  AccordionItem,
+  AccordionItemContent,
+  AccordionItemHeader,
+  AccordionItemTrigger,
+  AccordionRoot,
+} from '../components/portal/Accordion'
 import { TeamCluster, type ClusterMember, type ClusterTeam } from '../components/portal/TeamCluster'
 import { TeamMenu } from '../components/portal/TeamMenu'
 
@@ -80,7 +87,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
             />
           </h1>
           <div className="mb-7 flex w-full flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4">
-            <div className="w-full rounded-petal-sm border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] px-6 py-5 text-left shadow-[0_24px_50px_-18px_var(--shade-2),0_0_26px_var(--glow-rose-soft)] backdrop-blur-md sm:w-[250px]">
+            <div className="w-full rounded-petal-sm border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] px-6 py-5 text-left shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-md sm:w-[250px]">
               <p className="mb-1 font-display font-light tracking-[-.01em] text-[19px] text-rose-light">VIT student</p>
               <p className="text-xs text-fg/55">on-campus, with a VIT ID card</p>
             </div>
@@ -163,7 +170,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
           <p className="mb-8 text-[12.5px] text-fg/50">
           </p>
           <div className="flex w-full flex-col items-stretch gap-4 sm:flex-row sm:justify-center sm:gap-[18px]">
-            <div className="flex w-full flex-col rounded-petal-sm border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] px-7 py-6 text-left shadow-[0_28px_56px_-20px_var(--shade-2),0_0_26px_var(--glow-rose-soft)] backdrop-blur-md sm:w-[300px]">
+            <div className="flex w-full flex-col rounded-petal-sm border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] px-7 py-6 text-left shadow-[0_28px_56px_-20px_var(--shade-2)] backdrop-blur-md sm:w-[300px]">
               <p className="mb-1.5 font-display font-light tracking-[-.01em] text-[21px] text-rose-light">Create a team</p>
               <p className="mb-4.5 flex-1 text-[12.5px] leading-relaxed text-fg/60">
                 you become the lead
@@ -315,40 +322,45 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
         </div>
         <div className="flex w-full max-w-[760px] flex-col items-center">
           <h1 className="mb-7 text-center font-display font-light tracking-[-.01em] text-3xl lg:text-[44px]">Paper Cranes</h1>
-          <PetalCard className="px-8 py-6">
-            {[
-              [
-                'the idea',
-                'A campus lost-and-found where finders post a photo and owners describe what they lost. On-device image matching pairs the two; pickup at verified hostel desks.',
-              ],
-              [
-                'who will use Foundling on day one?',
-                'Hostellers first · most losses happen in messes and reading halls.',
-              ],
-              [
-                'what will you build during the 48 hours?',
-                'Live photo-match pipeline and posting flow; desk verification mocked.',
-              ],
-            ].map(([label, body]) => (
-              <section
-                key={label}
-                className="border-b border-petal-line py-4 first:pt-0 last:border-b-0 last:pb-0"
-              >
-                <div className="mb-1.5 flex items-baseline justify-between gap-4">
-                  <span className="text-[11px] tracking-[.06em] text-fg/45">
-                    {label}
-                  </span>
-                  <button className="flex-none text-[11.5px] text-rose-light">edit</button>
-                </div>
-                <div className="text-sm leading-relaxed wrap-anywhere text-fg/90">{body}</div>
-              </section>
-            ))}
+          <PetalCard className="px-6 py-2 sm:px-8">
+            <AccordionRoot allowMultiple defaultValue={['idea', 'q1', 'q2']}>
+              {([
+                {
+                  id: 'idea',
+                  label: 'The idea',
+                  body: 'A campus lost-and-found where finders post a photo and owners describe what they lost. On-device image matching pairs the two; pickup at verified hostel desks.',
+                },
+                {
+                  id: 'q1',
+                  label: 'who will use Foundling on day one?',
+                  body: 'Hostellers first · most losses happen in messes and reading halls.',
+                },
+                {
+                  id: 'q2',
+                  label: 'what will you build during the 48 hours?',
+                  body: 'Live photo-match pipeline and posting flow; desk verification mocked.',
+                },
+              ] as const).map(({ id, label, body }) => (
+                <AccordionItem key={id} value={id}>
+                  <AccordionItemTrigger>
+                    <AccordionItemHeader>
+                      <span className="text-[15px] font-semibold text-fg/85">{label}</span>
+                    </AccordionItemHeader>
+                  </AccordionItemTrigger>
+                  <AccordionItemContent className="text-[15px] leading-relaxed wrap-anywhere text-fg">
+                    <p className="whitespace-pre-line">{body}</p>
+                    <div className="mt-3 flex justify-end">
+                      <button className="text-[12.5px] text-rose-light underline-offset-4 hover:underline">
+                        edit
+                      </button>
+                    </div>
+                  </AccordionItemContent>
+                </AccordionItem>
+              ))}
+            </AccordionRoot>
           </PetalCard>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-5">
+          <div className="mt-8 flex justify-center">
             <PortalButton>Continue to submit</PortalButton>
-            <span className="text-xs text-fg/45">
-              team and proposal changes stay open until the deadline
-            </span>
           </div>
         </div>
       </PortalScene>

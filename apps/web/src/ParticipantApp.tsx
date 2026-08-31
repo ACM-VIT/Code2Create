@@ -801,7 +801,7 @@ function ProvisionChoice({
       onClick={onSelect}
       className={`w-full rounded-petal-sm px-6 py-5 text-left backdrop-blur-md transition-all disabled:cursor-not-allowed disabled:opacity-45 sm:w-[250px] ${
         selected
-          ? 'border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] shadow-[0_24px_50px_-18px_var(--shade-2),0_0_26px_var(--glow-rose-soft)]'
+          ? 'border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] shadow-[0_24px_50px_-18px_var(--shade-2)]'
           : 'border-[1.5px] border-petal-edge-soft bg-[image:var(--tile-bg)] shadow-[0_24px_50px_-18px_var(--shade-2)]'
       }`}
     >

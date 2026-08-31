@@ -5,6 +5,13 @@ import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type
 import { Drawer } from 'vaul'
 import { EditingPresence } from '../components/EditingPresence'
 import { PortalScene } from '../components/portal/PortalScene'
+import {
+  AccordionItem,
+  AccordionItemContent,
+  AccordionItemHeader,
+  AccordionItemTrigger,
+  AccordionRoot,
+} from '../components/portal/Accordion'
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { ShimmerText } from '../components/portal/ShimmerText'
@@ -372,6 +379,7 @@ function IntakeWorkspace({
   // between them.
   const [confirming, setConfirming] = useState(false)
   const [showingSglangNote, setShowingSglangNote] = useState(false)
+  const [collapsedSections, setCollapsedSections] = useState<readonly string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [noveltyState, setNoveltyState] = useState<NoveltyState>({ status: 'idle' })
@@ -1404,6 +1412,12 @@ function IntakeWorkspace({
     }
 
     // f5 · the proposal, together
+    const ideaSectionId = 'idea'
+    const sectionIds = [ideaSectionId, ...preview.followUps.map((followUp) => followUp.id)]
+    const openSections = sectionIds.filter((id) => !collapsedSections.includes(id))
+    const revealSection = (id: string) =>
+      setCollapsedSections((collapsed) => collapsed.filter((value) => value !== id))
+
     return (
       <PortalScene
         tree="left"
@@ -1441,10 +1455,25 @@ function IntakeWorkspace({
 
           <EditingPresence editors={editors ?? []} members={members} />
 
-          <PetalCard className="px-8 py-6">
-            <ReviewSection label="the idea" onEdit={editIdea} busy={busy}>
-              <p className="whitespace-pre-line">{preview.initialIdea}</p>
-            </ReviewSection>
+          <PetalCard className="px-6 py-2 sm:px-8">
+            <AccordionRoot
+              allowMultiple
+              value={openSections}
+              onValueChange={(next) =>
+                setCollapsedSections(sectionIds.filter((id) => !next.includes(id)))
+              }
+            >
+            <AccordionItem value={ideaSectionId}>
+              <AccordionItemTrigger>
+                <AccordionItemHeader>
+                  <span className="text-[15px] font-semibold text-fg/85">The idea</span>
+                </AccordionItemHeader>
+              </AccordionItemTrigger>
+              <AccordionItemContent className="text-[15px] leading-relaxed wrap-anywhere text-fg">
+                <p className="whitespace-pre-line">{preview.initialIdea}</p>
+                <ReviewEditRow busy={busy} onEdit={editIdea} />
+              </AccordionItemContent>
+            </AccordionItem>
 
             {recoveredFollowUp ? (
               <div
@@ -1461,6 +1490,7 @@ function IntakeWorkspace({
                   type="button"
                   className="mt-2"
                   onClick={() => {
+                    revealSection(recoveredFollowUp.questionId)
                     setEditingFollowUpId(recoveredFollowUp.questionId)
                     setEditedFollowUpAnswer(recoveredFollowUp.answer)
                     setRevisionBaseVersion(preview.draftVersion)
@@ -1472,123 +1502,128 @@ function IntakeWorkspace({
               </div>
             ) : null}
 
-            {preview.followUps.map((followUp) => (
-              <ReviewSection
-                key={followUp.id}
-                label={followUp.question}
-                busy={busy}
-                {...(editingFollowUpId === followUp.id
-                  ? {}
-                  : {
-                      onEdit: () => {
-                        const storageKey = `c2c:${eventSlug}:${team.id}:review:${followUp.id}`
-                        const recovered = readVersionedSessionDraft(storageKey)
-                        const savedAnswer = followUp.answer ?? ''
-                        const revision = recoverProposalRevision(
-                          savedAnswer,
-                          preview.draftVersion,
-                          recovered,
-                        )
-                        setEditingFollowUpId(followUp.id)
-                        setEditedFollowUpAnswer(revision.answer)
-                        setRevisionBaseVersion(revision.baseDraftVersion)
-                        if (!revision.recovered) clearSessionDraft(storageKey)
-                      },
-                    })}
-              >
-                {editingFollowUpId === followUp.id ? (
-                  <div>
-                    <PortalTextarea
-                      autoFocus
-                      required
-                      minLength={draft.intakePolicy.followUpAnswerMinLength}
-                      maxLength={draft.intakePolicy.followUpAnswerMaxLength}
-                      rows={4}
-                      disabled={busy}
-                      value={editedFollowUpAnswer}
-                      onChange={(event) => {
-                        const nextAnswer = event.target.value
-                        setEditedFollowUpAnswer(nextAnswer)
-                        if (revisionBaseVersion !== null) {
-                          writeVersionedSessionDraft(
-                            `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
-                            {
-                              base: String(revisionBaseVersion),
-                              value: nextAnswer,
-                            },
-                          )
-                        }
-                        setError(null)
-                        markEditing('follow_up', followUp.id)
-                      }}
-                    />
-                    {revisionConflict ? (
-                      <ConflictNotice
-                        message={`${editorLabel(
-                          members,
-                          team.currentMembershipId,
-                          preview.lastEditedByMembershipId,
-                        )} saved a newer answer. Your text is still here.`}
-                        onUseSaved={() => {
-                          setEditedFollowUpAnswer(followUp.answer ?? '')
-                          setRevisionBaseVersion(preview.draftVersion)
-                          clearSessionDraft(
-                            `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
-                          )
-                        }}
-                        onKeepMine={() => {
-                          setRevisionBaseVersion(preview.draftVersion)
-                          writeVersionedSessionDraft(
-                            `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
-                            {
-                              base: String(preview.draftVersion),
-                              value: editedFollowUpAnswer,
-                            },
-                          )
-                          retryRevisionAutosave()
+            {preview.followUps.map((followUp) => {
+              const startEditing = () => {
+                const storageKey = `c2c:${eventSlug}:${team.id}:review:${followUp.id}`
+                const recovered = readVersionedSessionDraft(storageKey)
+                const savedAnswer = followUp.answer ?? ''
+                const revision = recoverProposalRevision(
+                  savedAnswer,
+                  preview.draftVersion,
+                  recovered,
+                )
+                setEditingFollowUpId(followUp.id)
+                setEditedFollowUpAnswer(revision.answer)
+                setRevisionBaseVersion(revision.baseDraftVersion)
+                if (!revision.recovered) clearSessionDraft(storageKey)
+              }
+              return (
+                <AccordionItem key={followUp.id} value={followUp.id}>
+                  <AccordionItemTrigger>
+                    <AccordionItemHeader>
+                      <span className="text-[15px] font-semibold text-fg/85">
+                        {followUp.question}
+                      </span>
+                    </AccordionItemHeader>
+                  </AccordionItemTrigger>
+                  <AccordionItemContent className="text-[15px] leading-relaxed wrap-anywhere text-fg">
+                    {editingFollowUpId === followUp.id ? (
+                    <div>
+                      <PortalTextarea
+                        autoFocus
+                        required
+                        minLength={draft.intakePolicy.followUpAnswerMinLength}
+                        maxLength={draft.intakePolicy.followUpAnswerMaxLength}
+                        rows={4}
+                        disabled={busy}
+                        value={editedFollowUpAnswer}
+                        onChange={(event) => {
+                          const nextAnswer = event.target.value
+                          setEditedFollowUpAnswer(nextAnswer)
+                          if (revisionBaseVersion !== null) {
+                            writeVersionedSessionDraft(
+                              `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
+                              {
+                                base: String(revisionBaseVersion),
+                                value: nextAnswer,
+                              },
+                            )
+                          }
+                          setError(null)
+                          markEditing('follow_up', followUp.id)
                         }}
                       />
-                    ) : null}
-                    <div className="mt-3 flex items-center justify-between gap-4">
-                      <span className="text-xs text-fg/45">
-                        {autosaveLabel(revisionAutosaveState)}
-                      </span>
-                      <PortalTextButton
-                        type="button"
-                        disabled={
-                          revisionConflict ||
-                          revisionAutosaveState === 'dirty' ||
-                          revisionAutosaveState === 'saving' ||
-                          revisionAutosaveState === 'error' ||
-                          editedFollowUpAnswer.trim().length <
-                            draft.intakePolicy.followUpAnswerMinLength
-                        }
-                        onClick={() => {
-                          clearSessionDraft(
-                            `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
-                          )
-                          setEditingFollowUpId(null)
-                          setRevisionBaseVersion(null)
-                          stopEditing()
-                        }}
-                      >
-                        done
-                      </PortalTextButton>
+                      {revisionConflict ? (
+                        <ConflictNotice
+                          message={`${editorLabel(
+                            members,
+                            team.currentMembershipId,
+                            preview.lastEditedByMembershipId,
+                          )} saved a newer answer. Your text is still here.`}
+                          onUseSaved={() => {
+                            setEditedFollowUpAnswer(followUp.answer ?? '')
+                            setRevisionBaseVersion(preview.draftVersion)
+                            clearSessionDraft(
+                              `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
+                            )
+                          }}
+                          onKeepMine={() => {
+                            setRevisionBaseVersion(preview.draftVersion)
+                            writeVersionedSessionDraft(
+                              `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
+                              {
+                                base: String(preview.draftVersion),
+                                value: editedFollowUpAnswer,
+                              },
+                            )
+                            retryRevisionAutosave()
+                          }}
+                        />
+                      ) : null}
+                      <div className="mt-3 flex items-center justify-between gap-4">
+                        <span className="text-xs text-fg/45">
+                          {autosaveLabel(revisionAutosaveState)}
+                        </span>
+                        <PortalTextButton
+                          type="button"
+                          disabled={
+                            revisionConflict ||
+                            revisionAutosaveState === 'dirty' ||
+                            revisionAutosaveState === 'saving' ||
+                            revisionAutosaveState === 'error' ||
+                            editedFollowUpAnswer.trim().length <
+                              draft.intakePolicy.followUpAnswerMinLength
+                          }
+                          onClick={() => {
+                            clearSessionDraft(
+                              `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
+                            )
+                            setEditingFollowUpId(null)
+                            setRevisionBaseVersion(null)
+                            stopEditing()
+                          }}
+                        >
+                          done
+                        </PortalTextButton>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <p className="whitespace-pre-line">
-                    {followUp.answer}
-                  </p>
-                )}
-              </ReviewSection>
-            ))}
+                    ) : (
+                      <>
+                        <p className="whitespace-pre-line">{followUp.answer}</p>
+                        <ReviewEditRow busy={busy} onEdit={startEditing} />
+                      </>
+                    )}
+                  </AccordionItemContent>
+                </AccordionItem>
+              )
+            })}
+            </AccordionRoot>
 
           </PetalCard>
 
           <PortalError message={error ?? submissionFailureMessage ?? null} />
 
-          <div className="mt-8 flex flex-col items-center gap-3">
+          <div className="mt-8 flex flex-col items-center">
             <PortalButton
               type="button"
               disabled={busy}
@@ -1602,9 +1637,6 @@ function IntakeWorkspace({
             >
               Continue to submit
             </PortalButton>
-            <span className="text-xs text-fg/45">
-              team and proposal changes stay open until the deadline
-            </span>
           </div>
         </div>
       </PortalScene>
@@ -1615,34 +1647,19 @@ function IntakeWorkspace({
 }
 
 /** One labelled, separately-editable block of the review card (mockup f5). */
-function ReviewSection({
-  label,
-  onEdit,
-  busy,
-  children,
-}: {
-  label: string
-  onEdit?: () => void
-  busy: boolean
-  children: ReactNode
-}) {
+/** The quiet "edit" at the foot of a review panel. */
+function ReviewEditRow({ onEdit, busy }: { onEdit: () => void; busy: boolean }) {
   return (
-    <section className="border-b border-petal-line py-4 first:pt-0 last:border-b-0 last:pb-0">
-      <div className="mb-1.5 flex items-baseline justify-between gap-4">
-        <span className="text-[11px] tracking-[.06em] text-fg/45">{label}</span>
-        {onEdit ? (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onEdit}
-            className="flex-none text-[11.5px] text-rose-light underline-offset-2 hover:underline disabled:opacity-50"
-          >
-            edit
-          </button>
-        ) : null}
-      </div>
-      <div className="text-sm leading-relaxed wrap-anywhere text-fg/90">{children}</div>
-    </section>
+    <div className="mt-3 flex justify-end">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onEdit}
+        className="text-[12.5px] text-rose-light underline-offset-4 hover:underline disabled:opacity-50"
+      >
+        edit
+      </button>
+    </div>
   )
 }
 

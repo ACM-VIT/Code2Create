@@ -138,7 +138,6 @@
   /* Glass surfaces: the petal card, the quiet tiles, the roster popover,
      and the under-card glow. */
   --petal-card-bg: linear-gradient(155deg, rgb(255 255 255 / .09), rgb(12 0 4 / .5) 55%, rgb(160 66 99 / .2));
-  --petal-card-glow: rgb(216 132 162 / .4);
   --tile-bg: linear-gradient(155deg, rgb(255 255 255 / .07), rgb(12 0 4 / .48) 60%);
   --tile-bg-active: linear-gradient(155deg, rgb(255 255 255 / .1), rgb(12 0 4 / .55) 60%);
   /* The SGLang note's backdrop — the one screen off the painted scene.
@@ -223,7 +222,6 @@
   /* Effectively solid panels: any real translucency lets the sky's warm
      horizon band show through and read as a stain on the card. */
   --petal-card-bg: linear-gradient(160deg, rgb(255 255 255 / .98), rgb(255 248 243 / .96) 55%, rgb(252 238 242 / .96));
-  --petal-card-glow: rgb(255 183 120 / .6);
   --tile-bg: linear-gradient(160deg, rgb(255 255 255 / .97), rgb(255 248 243 / .94) 60%);
   --tile-bg-active: linear-gradient(160deg, #ffffff, #fff4ee 60%);
   --note-bg: radial-gradient(ellipse 90% 45% at 50% -8%, rgb(238 205 219 / .8), transparent 60%), linear-gradient(180deg, #f9ecee, #fff3e3);

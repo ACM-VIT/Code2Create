@@ -195,7 +195,7 @@ export function TeamRosterPanel({
     members.filter((member) => member.role !== 'lead').map((member) => member.membershipId),
   )
   return (
-    <div className="rounded-petal-sm border border-rose-light/60 bg-[image:var(--roster-bg)] px-5 py-4 text-left shadow-[0_30px_60px_-18px_var(--shade-2),0_0_34px_var(--glow-rose-soft)] backdrop-blur-lg">
+    <div className="rounded-petal-sm border border-rose-light/60 bg-[image:var(--roster-bg)] px-5 py-4 text-left shadow-[0_30px_60px_-18px_var(--shade-2)] backdrop-blur-lg">
       <div className="mb-3 flex items-baseline justify-between">
         <span className="font-ui font-normal text-base text-rose-light">{team.name}</span>
         <span className="text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
@@ -208,10 +208,7 @@ export function TeamRosterPanel({
           const isYou = member.membershipId === team.currentMembershipId
           const variant = flowerVariants.get(member.membershipId)
           return (
-            <li
-              key={member.teamMemberId}
-              className="flex items-center gap-3 border-b border-petal-line py-2.5 last:border-b-0"
-            >
+            <li key={member.teamMemberId} className="flex items-center gap-3 py-2">
               <Avatar
                 displayName={member.displayName}
                 seed={member.membershipId}

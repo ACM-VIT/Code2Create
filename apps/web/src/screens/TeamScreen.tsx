@@ -24,7 +24,7 @@ function TeamCard({
     <div
       className={`flex w-full flex-col rounded-petal-sm px-7 py-6 text-left backdrop-blur-md sm:w-[300px] ${
         featured
-          ? 'border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] shadow-[0_28px_56px_-20px_var(--shade-2),0_0_26px_var(--glow-rose-soft)]'
+          ? 'border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] shadow-[0_28px_56px_-20px_var(--shade-2)]'
           : 'border border-petal-line bg-[image:var(--tile-bg)] shadow-[0_28px_56px_-20px_var(--shade-2)]'
       }`}
     >
