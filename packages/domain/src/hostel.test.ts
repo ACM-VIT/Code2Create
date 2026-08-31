@@ -4,35 +4,24 @@ import test from "node:test";
 import {
   defaultVitHostelResidenceCatalog,
   findVitHostelResidenceCatalogEntry,
-  findVitHostelResidence,
-  isVitHostelBlock,
   isVitHostelRoomNumber,
-  ladiesHostelResidences,
-  mensHostelResidences,
   normalizeVitHostelRoomNumberInput,
-  vitHostelResidenceKind,
-  vitHostelResidenceLabels,
   vitHostelResidenceCatalogLabel,
-  vitHostelResidenceOptionLabels,
-  vitHostelResidences,
 } from "./hostel.ts";
 
 test("the VIT hostel catalog is unique and fully labeled", () => {
-  assert.equal(new Set(vitHostelResidences).size, vitHostelResidences.length);
-  for (const residence of vitHostelResidences) {
-    const label = vitHostelResidenceLabels[residence];
-    const option = vitHostelResidenceOptionLabels[residence];
-    assert.ok(label.length > 0, residence);
-    assert.ok(option.length > 0, residence);
-    assert.ok(!label.includes("_"), `${residence} still reads as a stored key`);
+  const stableKeys = defaultVitHostelResidenceCatalog.map((entry) => entry.stableKey);
+  assert.equal(new Set(stableKeys).size, stableKeys.length);
+  for (const entry of defaultVitHostelResidenceCatalog) {
+    assert.ok(entry.label.length > 0, entry.stableKey);
+    assert.ok(
+      !entry.label.includes("_"),
+      `${entry.stableKey} still reads as a stored key`,
+    );
   }
 });
 
-test("the configurable catalogue defaults to the current hardcoded residences", () => {
-  assert.deepEqual(
-    defaultVitHostelResidenceCatalog.map((entry) => entry.stableKey),
-    vitHostelResidences,
-  );
+test("the configurable catalogue defaults to the initial residences", () => {
   const residence = findVitHostelResidenceCatalogEntry(
     defaultVitHostelResidenceCatalog,
     "mh_d_annex",
@@ -49,56 +38,75 @@ test("the configurable catalogue defaults to the current hardcoded residences", 
 });
 
 test("the men's hostel catalog matches the current blocks", () => {
-  assert.deepEqual(mensHostelResidences, [
-    "mh_a",
-    "mh_b",
-    "mh_c",
-    "mh_d",
-    "mh_d_annex",
-    "mh_e",
-    "mh_f",
-    "mh_g",
-    "mh_h",
-    "mh_j",
-    "mh_k",
-    "mh_l",
-    "mh_m",
-    "mh_n",
-    "mh_p",
-    "mh_q",
-    "mh_r",
-    "mh_t",
-  ]);
-  assert.equal(vitHostelResidenceKind("mh_b"), "mens");
-  assert.equal(isVitHostelBlock("mh_b"), true);
+  assert.deepEqual(
+    defaultVitHostelResidenceCatalog
+      .filter((entry) => entry.kind === "mens")
+      .map((entry) => entry.stableKey),
+    [
+      "mh_a",
+      "mh_b",
+      "mh_c",
+      "mh_d",
+      "mh_d_annex",
+      "mh_e",
+      "mh_f",
+      "mh_g",
+      "mh_h",
+      "mh_j",
+      "mh_k",
+      "mh_l",
+      "mh_m",
+      "mh_n",
+      "mh_p",
+      "mh_q",
+      "mh_r",
+      "mh_t",
+    ],
+  );
 });
 
 test("S block is a ladies' hostel residence", () => {
-  assert.ok(ladiesHostelResidences.includes("lh_s"));
-  assert.equal(vitHostelResidenceKind("lh_s"), "ladies");
-  assert.equal(vitHostelResidenceLabels.lh_s, "Ladies' hostel · S block");
-  assert.equal(findVitHostelResidence("lh_s"), "lh_s");
-  assert.equal(findVitHostelResidence("mh_s"), null);
+  const residence = findVitHostelResidenceCatalogEntry(
+    defaultVitHostelResidenceCatalog,
+    "lh_s",
+  );
+  assert.deepEqual(residence, {
+    stableKey: "lh_s",
+    label: "S block",
+    kind: "ladies",
+  });
+  assert.equal(
+    findVitHostelResidenceCatalogEntry(defaultVitHostelResidenceCatalog, "mh_s"),
+    null,
+  );
 });
 
 test("the ladies' hostel catalog matches the current blocks", () => {
-  assert.deepEqual(ladiesHostelResidences, [
-    "lh_a",
-    "lh_b",
-    "lh_c",
-    "lh_d",
-    "lh_e",
-    "lh_f",
-    "lh_g",
-    "lh_h",
-    "lh_j",
-    "lh_s",
-  ]);
+  assert.deepEqual(
+    defaultVitHostelResidenceCatalog
+      .filter((entry) => entry.kind === "ladies")
+      .map((entry) => entry.stableKey),
+    [
+      "lh_a",
+      "lh_b",
+      "lh_c",
+      "lh_d",
+      "lh_e",
+      "lh_f",
+      "lh_g",
+      "lh_h",
+      "lh_j",
+      "lh_s",
+    ],
+  );
 });
 
 test("day scholars are a residence, not a hostel block", () => {
-  assert.equal(vitHostelResidenceKind("day_scholar"), "day_scholar");
-  assert.equal(isVitHostelBlock("day_scholar"), false);
+  assert.deepEqual(defaultVitHostelResidenceCatalog[0], {
+    stableKey: "day_scholar",
+    label: "Day scholar",
+    kind: "day_scholar",
+  });
 });
 
 test("hostel room numbers are compact identifiers with a digit", () => {
