@@ -777,7 +777,7 @@ export const saveProfile = mutation({
       : null;
     const fullName = vitStudentIdentity
       ? vitStudentIdentity.fullName
-      : normalizedText(person.displayName, "Google account name", 2, 100);
+      : person.displayName;
     const phone = normalizedText(args.phone, "Phone", 7, 24);
     const yearOfStudy = vitStudentIdentity?.yearOfStudy ?? args.yearOfStudy;
     if (!yearOfStudy || yearOfStudy === "not_applicable") {

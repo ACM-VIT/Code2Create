@@ -556,6 +556,40 @@ describe("participant onboarding lifecycle", () => {
     });
   });
 
+  test("preserves a provider-authoritative one-character Google display name", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.personId, { displayName: "Q" });
+    });
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "short-google-name-policy-accept",
+    });
+
+    await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      phone: "+91 90000 00000",
+      gender: "female",
+      yearOfStudy: "third",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "short-google-name-profile-save",
+    });
+
+    const me = await participant.query(api.participants.me, { eventSlug: fixture.eventSlug });
+    expect(me?.profile?.fullName).toBe("Q");
+  });
+
   test("transfers team leadership and its exact grants through an idempotent acceptance", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
