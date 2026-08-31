@@ -1,13 +1,32 @@
 import { useEffect, useState } from 'react'
 
 const revealDelay = 300
+const bonsaiSource = '/plants/plant-01.webp'
+const bonsaiDecoded = decodeBonsai()
+
+function decodeBonsai() {
+  const image = new Image()
+  image.src = bonsaiSource
+  return image.decode().catch(() => undefined)
+}
 
 export function DelayedBonsai({ compact = false }: { compact?: boolean }) {
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setVisible(true), revealDelay)
-    return () => window.clearTimeout(timer)
+    let active = true
+    let resolveDelay = () => {}
+    const delayElapsed = new Promise<void>((resolve) => {
+      resolveDelay = resolve
+    })
+    const timer = window.setTimeout(resolveDelay, revealDelay)
+    void Promise.all([delayElapsed, bonsaiDecoded]).then(() => {
+      if (active) setVisible(true)
+    })
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
   }, [])
 
   if (!visible) return null
@@ -15,7 +34,7 @@ export function DelayedBonsai({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`delayed-bonsai${compact ? ' delayed-bonsai-compact' : ''}`} role="status">
       <div className="delayed-bonsai-art" aria-hidden="true">
-        <img src="/plants/plant-01.svg" alt="" />
+        <img src={bonsaiSource} alt="" />
         {Array.from({ length: 9 }, (_, index) => <i key={index} />)}
       </div>
       <span className="delayed-bonsai-label">just a moment</span>
