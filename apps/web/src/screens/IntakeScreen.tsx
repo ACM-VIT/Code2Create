@@ -1264,6 +1264,7 @@ function IntakeWorkspace({
                 <span className="font-normal text-fg/55">
                   · idea + {preview.followUps.length}{' '}
                   {preview.followUps.length === 1 ? 'answer' : 'answers'}
+                  {savedNoveltyScore !== null ? ` · novelty ${savedNoveltyScore}/100` : ''}
                 </span>
               </p>
               <button
@@ -1433,14 +1434,6 @@ function IntakeWorkspace({
           />
         )}
       >
-        {savedNoveltyScore !== null ? (
-          <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
-            <NoveltyPill
-              state={{ status: 'ready', signal: { score: savedNoveltyScore, band: savedNoveltyBand } }}
-              minimumLength={novelty?.minimumIdeaLength ?? null}
-            />
-          </div>
-        ) : null}
         <div className="flex w-full max-w-[760px] flex-col items-center">
           <h1 className="mb-6 text-center font-display font-light tracking-[-.01em] wrap-anywhere text-3xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[44px]">
             {preview.teamName}
@@ -1449,6 +1442,9 @@ function IntakeWorkspace({
           <EditingPresence editors={editors ?? []} members={members} />
 
           <PetalCard className="px-6 py-2 sm:px-8">
+            {savedNoveltyScore !== null ? (
+              <NoveltyReviewRow score={savedNoveltyScore} band={savedNoveltyBand} />
+            ) : null}
             <AccordionRoot
               allowMultiple
               value={openSections}
@@ -1700,15 +1696,11 @@ function NoveltyExplainer() {
  * below the pill on desktop and in a bottom sheet on phones. Omit
  * `currentLength` where nobody is typing (review).
  */
-export function NoveltyPill({
-  state,
-  currentLength,
-  minimumLength,
-}: {
-  state: NoveltyState
-  currentLength?: number
-  minimumLength: number | null
-}) {
+/**
+ * The "?" beside every novelty read: a popover on desktop, a bottom sheet on
+ * phones, both carrying the same explainer.
+ */
+function NoveltyHelp({ align = 'center' }: { align?: 'center' | 'end' }) {
   const [explaining, setExplaining] = useState(false)
   const desktop = useDesktop()
   const anchorRef = useRef<HTMLDivElement>(null)
@@ -1731,52 +1723,23 @@ export function NoveltyPill({
     }
   }, [explaining, desktop])
 
-  if (minimumLength === null) return null
-  const belowMinimum = currentLength !== undefined && currentLength < minimumLength
-  const signal = !belowMinimum && state.status === 'ready' ? state.signal : null
-  const label =
-    belowMinimum || state.status === 'idle'
-      ? 'keep writing'
-      : state.status === 'checking'
-        ? 'checking…'
-        : 'score unavailable'
   return (
-    <div ref={anchorRef} className="pointer-events-auto relative">
-      <div className="inline-flex items-center gap-2 rounded-[8px] border border-rose-light/55 bg-wash/92 py-1.5 pr-2 pl-3.5 text-[11.5px] font-semibold text-rose-light shadow-[0_8px_22px_var(--shade-1)] backdrop-blur-md">
-        <span aria-live="polite" aria-label="Live idea comparison score">
-          {signal === null ? (
-            label
-          ) : signal.band === null ? (
-            `${signal.score} / 100`
-          ) : (
-            <>
-              {/* Wide screens carry both; phones trade them on a slow tick. */}
-              <span className="hidden sm:inline">
-                {signal.score} / 100 · {noveltyBandLabels[signal.band]}
-              </span>
-              <span className="grid overflow-hidden text-center sm:hidden">
-                <span className="col-start-1 row-start-1 animate-[c2cticka_5.6s_ease-in-out_infinite] motion-reduce:animate-none">
-                  {signal.score} / 100
-                </span>
-                <span className="col-start-1 row-start-1 animate-[c2ctickb_5.6s_ease-in-out_infinite] motion-reduce:hidden">
-                  {noveltyBandLabels[signal.band]}
-                </span>
-              </span>
-            </>
-          )}
-        </span>
-        <button
-          type="button"
-          aria-label="What this score means"
-          aria-expanded={explaining}
-          onClick={() => setExplaining((value) => !value)}
-          className="flex size-[18px] items-center justify-center rounded-full border border-rose/60 text-[10px] text-rose-light/80 transition-colors hover:border-rose-light hover:text-rose-light"
-        >
-          ?
-        </button>
-      </div>
+    <div ref={anchorRef} className="pointer-events-auto relative flex">
+      <button
+        type="button"
+        aria-label="What this score means"
+        aria-expanded={explaining}
+        onClick={() => setExplaining((value) => !value)}
+        className="flex size-[18px] items-center justify-center rounded-full border border-rose/60 text-[10px] text-rose-light/80 transition-colors hover:border-rose-light hover:text-rose-light"
+      >
+        ?
+      </button>
       {explaining && desktop ? (
-        <div className="absolute top-[calc(100%+10px)] left-1/2 z-[7] w-[320px] -translate-x-1/2 rounded-petal-sm border border-petal-edge bg-wash/92 px-6 py-5 shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-md">
+        <div
+          className={`absolute top-[calc(100%+10px)] z-[7] w-[320px] rounded-petal-sm border border-petal-edge bg-wash/92 px-6 py-5 shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-md ${
+            align === 'center' ? 'left-1/2 -translate-x-1/2' : 'right-0'
+          }`}
+        >
           <p className="mb-2.5 text-[11px] font-semibold tracking-[.08em] text-rose-light/80">
             What the score means
           </p>
@@ -1800,6 +1763,90 @@ export function NoveltyPill({
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>
+    </div>
+  )
+}
+
+/**
+ * The saved score woven into the review card: the number, its plain-speak
+ * band, a thin meter, and one line that keeps it honest — a guide while
+ * writing, not a shortlisting gate.
+ */
+export function NoveltyReviewRow({
+  score,
+  band,
+}: {
+  score: number
+  band: NoveltyBand | null
+}) {
+  return (
+    <div className="border-b border-petal-line pt-4 pb-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[15px] font-semibold text-fg/85">Novelty</span>
+        <span className="flex items-center gap-2 text-[12.5px] font-semibold text-rose-light">
+          {score} / 100{band === null ? '' : ` · ${noveltyBandLabels[band]}`}
+          <NoveltyHelp align="end" />
+        </span>
+      </div>
+      <div className="mt-2.5 h-[3px] overflow-hidden rounded-full bg-petal-line" aria-hidden>
+        <div
+          className="h-full rounded-full bg-rose-light transition-[width] duration-700"
+          style={{ width: `${Math.max(2, Math.min(100, score))}%` }}
+        />
+      </div>
+      <p className="mt-2 mb-0 text-[11px] leading-relaxed text-fg/45">
+        This score compares your idea with ideas from other teams. A higher score means fewer teams are working on something similar. It updates while you type and is saved with your idea. 
+        We don't use this score to block submissions. Our team will see your idea, not this score.
+      </p>
+    </div>
+  )
+}
+
+export function NoveltyPill({
+  state,
+  currentLength,
+  minimumLength,
+}: {
+  state: NoveltyState
+  currentLength?: number
+  minimumLength: number | null
+}) {
+  if (minimumLength === null) return null
+  const belowMinimum = currentLength !== undefined && currentLength < minimumLength
+  const signal = !belowMinimum && state.status === 'ready' ? state.signal : null
+  const label =
+    belowMinimum || state.status === 'idle'
+      ? 'keep writing'
+      : state.status === 'checking'
+        ? 'checking…'
+        : 'score unavailable'
+  return (
+    <div className="pointer-events-auto relative">
+      <div className="inline-flex items-center gap-2 rounded-[8px] border border-rose-light/55 bg-wash/92 py-1.5 pr-2 pl-3.5 text-[11.5px] font-semibold text-rose-light shadow-[0_8px_22px_var(--shade-1)] backdrop-blur-md">
+        <span aria-live="polite" aria-label="Live idea comparison score">
+          {signal === null ? (
+            label
+          ) : signal.band === null ? (
+            `${signal.score} / 100`
+          ) : (
+            <>
+              {/* Wide screens carry both; phones trade them on a slow tick. */}
+              <span className="hidden sm:inline">
+                {signal.score} / 100 · {noveltyBandLabels[signal.band]}
+              </span>
+              <span className="grid overflow-hidden text-center sm:hidden">
+                <span className="col-start-1 row-start-1 animate-[c2cticka_5.6s_ease-in-out_infinite] motion-reduce:animate-none">
+                  {signal.score} / 100
+                </span>
+                <span className="col-start-1 row-start-1 animate-[c2ctickb_5.6s_ease-in-out_infinite] motion-reduce:hidden">
+                  {noveltyBandLabels[signal.band]}
+                </span>
+              </span>
+            </>
+          )}
+        </span>
+        <NoveltyHelp />
+      </div>
     </div>
   )
 }

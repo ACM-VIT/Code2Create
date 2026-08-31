@@ -16,7 +16,7 @@ import { PortalScene } from '../components/portal/PortalScene'
 import { TreeLoader } from '../components/portal/TreeLoader'
 import { SglangInterlude } from '../screens/SglangInterlude'
 import { ConfirmCard } from '../screens/TeamLobbyScreen'
-import { NoveltyPill } from '../screens/IntakeScreen'
+import { NoveltyPill, NoveltyReviewRow } from '../screens/IntakeScreen'
 import {
   AccordionItem,
   AccordionItemContent,
@@ -324,12 +324,10 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
     )],
   ['f5', () => (
       <PortalScene tree="left" header={cluster} menu={teamMenu}>
-        <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
-          <NoveltyPill state={{ status: 'ready', signal: { score: 87, band: 'distinct' } }} minimumLength={80} />
-        </div>
         <div className="flex w-full max-w-[760px] flex-col items-center">
           <h1 className="mb-7 text-center font-display font-light tracking-[-.01em] text-3xl lg:text-[44px]">Paper Cranes</h1>
           <PetalCard className="px-6 py-2 sm:px-8">
+            <NoveltyReviewRow score={87} band="distinct" />
             <AccordionRoot allowMultiple defaultValue={['idea', 'q1', 'q2']}>
               {([
                 {
