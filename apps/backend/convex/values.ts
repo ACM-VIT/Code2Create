@@ -28,6 +28,7 @@ export type ParticipantEligibilityStatus = Infer<typeof participantEligibilitySt
 
 export const participantOnboardingStatus = v.union(
   v.literal("profile_required"),
+  v.literal("github_required"),
   v.literal("team_required"),
   v.literal("project_required"),
   v.literal("ready_to_submit"),

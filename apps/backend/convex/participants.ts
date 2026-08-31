@@ -914,7 +914,7 @@ export const saveProfile = mutation({
     }
 
     await ctx.db.patch(membership._id, {
-      onboardingStatus: teamMembership ? "project_required" : "team_required",
+      onboardingStatus: teamMembership ? "project_required" : "github_required",
       updatedAt: now,
     });
     await recordOperation(ctx, {

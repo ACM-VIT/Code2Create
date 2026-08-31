@@ -36,7 +36,21 @@ One immutable participant-policy version owns profile fields, team bounds, notic
 
 The event stores one deadline for external participants and one later or equal deadline for VIT students. Profile, team, idea, submission, and proposal-revision writes use the deadline for the signed-in participant's verified class. A team has one class, so every member sees the same deadline. Saved work remains readable after that deadline.
 
-## 3. Team formation
+## 3. GitHub contribution step
+
+After the profile is complete and before team creation or joining, each participant must connect a GitHub account and star `sgl-project/sglang`. The screen has one staged action:
+
+- before connection, it shows **Connect GitHub**;
+- after connection, it shows the verified GitHub login and **Star SGLang**; and
+- after GitHub accepts the star, onboarding continues to team setup.
+
+There is no skip action. Opening the repository link does not complete the step. The server, not the browser, calls GitHub's authenticated starring endpoint and records completion. One GitHub account can complete this step for only one participant in the event. A pending imported-roster assignment also waits at this boundary.
+
+The OAuth request uses state and PKCE. The server encrypts the short-lived user token, uses it only to identify the GitHub account and star this repository, then deletes it immediately after success. An abandoned authorization expires within eight hours. This participant-scoped authorization is separate from the later team-scoped GitHub App installation used for repository evidence.
+
+Existing participants who already have an active team do not return to this new onboarding gate. Team creation, joining, and imported-roster claim all enforce the completion on the server for participants who have not joined a team.
+
+## 4. Team formation
 
 A participant can belong to one active team in the event. Each team has exactly one lead.
 
@@ -68,7 +82,7 @@ The server checks these facts in the join transaction:
 
 Final submission creates an immutable snapshot of the current team, accepted participant-policy version, and proposal. It does not close team management. A successful join, leave, removal, switch, or accepted leadership transfer after submission must leave the team within the published bounds, with one participant class, complete eligible profiles, current policy acceptance, and exactly one lead. The same transaction creates a new immutable roster and proposal snapshot, advances the application's current version, and invalidates stale human-review and AI-admission output. If any condition fails, the team change and snapshot update both roll back. At the applicable deadline, the latest accepted snapshot becomes final.
 
-## 4. Proposal intake
+## 5. Proposal intake
 
 ### Opening
 
@@ -160,7 +174,7 @@ The server does not request an embedding when the text contains a detected email
 
 Novelty request records store an input fingerprint and character count. They do not store another copy of proposal text. Team-density rows store a fingerprint, lifecycle, one full-idea vector, and timestamps; they store no raw idea. The novelty number and similarity values are absent from proposal versions, applications, admission input, human review, reviewer evidence, queues, judging, awards, and exports.
 
-## 5. Proposal versions and final submission
+## 6. Proposal versions and final submission
 
 The shared team draft uses optimistic version checks. Two devices cannot silently overwrite each other.
 
@@ -208,7 +222,7 @@ The system retains every older proposal and roster version and its review histor
 
 At or after the applicable class deadline, the server rejects a team or proposal revision even if the browser still shows an edit screen. Operations cannot extend one team by editing its application. A deadline change is an event-policy publication that affects all eligible teams and requires its own scoped permission, current authorization, reason, and audit record.
 
-## 6. Admission
+## 7. Admission
 
 Each application points to the event's frozen admission-policy version. The admission release contains the criteria, experience-band rule, minimum human review, decision reasons, participant capacity, and the code-owned admission-model release. Provider failure leaves human review fully usable; there is no organizer-facing AI toggle.
 
@@ -230,7 +244,7 @@ An information response creates another immutable proposal-content version and i
 
 An offer reserves capacity for the exact deadline-frozen member count. Only the current lead can accept or decline the offer. An expired or revoked offer releases capacity without deleting decision history.
 
-## 7. GitHub and Figma
+## 8. GitHub and Figma
 
 ### GitHub
 
@@ -260,7 +274,7 @@ Each checkpoint pins the exact Figma file version, selected node renders, versio
 
 GitHub and Figma evidence gives reviewers context. Activity counts do not become scores. Missing provider access produces an explicit incomplete state and an approved alternative-evidence route.
 
-## 8. Attendance and team location
+## 9. Attendance and team location
 
 An accepted team must confirm its live offer before venue and review workflows.
 
@@ -272,7 +286,7 @@ The team dashboard shows a short-lived team-location QR. An authorized organizer
 
 The review-presence QR is a separate credential. It proves assigned-reviewer presence. It cannot create participant attendance or team location.
 
-## 9. Staff-managed review queue
+## 10. Staff-managed review queue
 
 The participant portal has no command to enter a team into a panel queue or change queue priority.
 
@@ -291,7 +305,7 @@ The participant sees one accepted state:
 
 The queue shows a five-minute-bucketed range. It uses server time, configured review duration, current review remainder, recent bounded median duration, teams ahead, and handover allowance. A paused round hides the estimate. An expired estimate shows **Taking longer than estimated**.
 
-## 10. Support and recovery
+## 11. Support and recovery
 
 - Support is available after the authenticated event account exists.
 - A participant can read and reply only to the participant's own cases.
@@ -302,16 +316,19 @@ The queue shows a five-minute-bucketed range. It uses server time, configured re
 - A closed case remains closed. The reporter opens a new case for a new occurrence.
 - Refresh, device change, or reinstall cannot duplicate membership, proposal versions, or attendance facts.
 
-## 11. Synesthesia
+## 12. Synesthesia
 
 Accepted participants can request, vote for, and report music catalog tracks during a published Synesthesia window. These tracks belong only to the Synesthesia music catalog. They do not classify proposals.
 
 The participant cannot control playback or queue order. A music action cannot change admission, attendance, review routing, project evidence, or judging.
 
-## 12. Acceptance checks
+## 13. Acceptance checks
 
 - Google sign-in and server-side account classification work for both participant classes.
 - Profile fields and consent follow the published participant policy.
+- A participant without an active team cannot create, join, or claim an imported team before GitHub confirms the SGLang star.
+- The SGLang step has no skip path, does not trust a browser click, and deletes its temporary GitHub token after success.
+- One GitHub account cannot complete the SGLang step for two participants in one event.
 - One participant belongs to at most one active team.
 - One active team has exactly one lead.
 - Leadership transfer requires acceptance and updates source-attributed grants atomically.

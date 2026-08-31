@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { AccountBadge } from '../components/portal/AccountBadge'
 import { PetalCard } from '../components/portal/PetalCard'
 import { Petal } from '../components/portal/Petal'
@@ -26,6 +26,7 @@ import {
 } from '../components/portal/Accordion'
 import { TeamCluster, type ClusterMember, type ClusterTeam } from '../components/portal/TeamCluster'
 import { TeamMenu } from '../components/portal/TeamMenu'
+import { SubmitCelebration } from '../components/portal/SubmitCelebration'
 
 // Fixture content for the dev screen gallery. These compose the same portal
 // primitives the real screens use, so the design system is genuinely shared —
@@ -54,6 +55,12 @@ const account = (
   <AccountBadge name="Ananya Iyer" email="ananya@vitstudent.ac.in" detail="VIT student" onSignOut={() => {}} />
 )
 
+
+/** The submit bloom, looping: each run remounts when the last one fades. */
+function BloomFixture() {
+  const [run, setRun] = useState(0)
+  return <SubmitCelebration key={run} onDone={() => setRun((current) => current + 1)} />
+}
 
 function IdeaCard({ children, footer }: { children: ReactNode; footer: ReactNode }) {
   return (
@@ -403,6 +410,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
         </div>
       </PortalScene>
     )],
+  ['f6b', () => <BloomFixture />],
   ['f7', () => (
       <PortalScene tree="none" header={<TeamCluster team={team} members={members} editable canManage />}>
         <div className="flex w-full max-w-[760px] flex-col items-center text-center">
@@ -509,7 +517,12 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
         </div>
       </PortalScene>
     )],
-  ['fs', () => <SglangInterlude onContinue={noop} />],
+  ['fs', () => (
+    <SglangInterlude
+      state={{ connected: false, completed: false }}
+      callback={false}
+    />
+  )],
   ['f7b', () => (
       <PortalScene tree="none" header={cluster} menu={teamMenu}>
         <div className="flex w-full max-w-[840px] flex-col items-center">

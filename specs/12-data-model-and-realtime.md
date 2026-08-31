@@ -90,12 +90,26 @@ Key fields:
 - `eventId`, `personId`, `eventAccessSubjectId`
 - `participantClass: vit_student | external | none`
 - `eligibilityStatus: pending | eligible | rejected | suspended`
-- `onboardingStatus: profile_required | team_required | project_required | ready_to_submit | submitted | selected | offer_pending | accepted`
+- `onboardingStatus: profile_required | github_required | team_required | project_required | ready_to_submit | submitted | selected | offer_pending | accepted`
 - exact `acceptedParticipantPolicyVersionIds`;
 - `googleHostedDomain?`
 - `createdAt`, `updatedAt`
 
 One active membership exists per event/person.
+
+`github_required` means the profile is complete but the participant has not completed the mandatory SGLang contribution step. The server requires a `githubStarCompletion` before team creation, team joining, or imported-roster claim.
+
+### `githubStarSetupIntents`
+
+One short-lived, participant-scoped GitHub OAuth attempt. It stores the event, membership, person, hashed state, encrypted PKCE verifier, exact redirect URI, status, claim lease, expiry, and completion or failure metadata. Raw OAuth state and tokens are never stored. A scheduled mutation expires unused attempts.
+
+### `githubStarAuthorizations`
+
+One temporary GitHub user authorization for a participant who connected GitHub but has not completed the star. It stores the event, membership, person, GitHub user ID/login, encrypted access token, hard expiry, and an optimistic provider-call lease. One GitHub user can be active for only one membership in an event. The record is deleted immediately after successful completion or when its authorization expires.
+
+### `githubStarCompletions`
+
+One durable completion per event/membership. It stores the participant and GitHub identities, the fixed `sgl-project/sglang` repository identity, and server completion time. The same GitHub user cannot complete the step for two participants in one event. It stores no OAuth credential.
 
 `selected` means the human acceptance is published but no offer is open. `offer_pending` means the exact deadline-frozen roster has reserved places and awaits its current lead. `accepted` is deliberately the final membership state after offer confirmation and is the only one of those three that enables attendance, hall mapping, and review queues.
 
@@ -2222,6 +2236,11 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `teamIntegrations.by_event_team_provider` | One shared provider binding per team |
 | `teamIntegrations.by_event_provider_state` | Operations health board |
 | `githubInstallations.by_event_installation` | Resolve an App webhook installation |
+| `githubStarSetupIntents.by_state_digest` | Claim one participant OAuth callback without storing raw state |
+| `githubStarAuthorizations.by_event_membership` | Load the one temporary GitHub authorization for a participant |
+| `githubStarAuthorizations.by_event_github_user` | Prevent one GitHub user from authorizing two participants in an event |
+| `githubStarCompletions.by_event_membership` | Enforce the mandatory onboarding boundary for one participant |
+| `githubStarCompletions.by_event_github_user` | Prevent one GitHub user from completing the boundary twice in an event |
 | `githubRepositoryBindings.by_event_repository_state` | Route a repository event and prevent duplicate use |
 | `githubRepositoryBindings.by_integration_state_order` | Ordered active repository set for one team |
 | `githubRepositoryBindings.by_event_state_sync_updated` | Count only current setup/active bindings in an exact sync state and age window |

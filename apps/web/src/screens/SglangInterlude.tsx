@@ -1,13 +1,100 @@
+import { api } from '@code2create/backend/api'
+import { useAction } from 'convex/react'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DaybreakToggle } from '../components/portal/DaybreakToggle'
 import { Petals } from '../components/portal/Petals'
+import { PortalButton } from '../components/portal/PortalButton'
+import { eventSlug } from '../lib/config'
+import { readableError } from '../lib/errors'
+import type { GitHubStarConnectionResult, GitHubStarGateState } from '../types'
 
-/**
- * Mockup fs: a quiet note between review and confirm asking the team to
- * look at SGLang. Off the painted scene, but not off the world: a soft
- * light gradient and a few drifting petals keep it in the garden. Shown
- * once per browser; both paths continue to the confirm screen.
- */
-export function SglangInterlude({ onContinue }: { onContinue: () => void }) {
+const callbackAttempts = new Map<string, Promise<GitHubStarConnectionResult>>()
+
+export function SglangInterlude({
+  state,
+  callback,
+}: {
+  state: GitHubStarGateState
+  callback: boolean
+}) {
+  const beginConnection = useAction(api.githubStarActions.beginConnection)
+  const completeConnection = useAction(api.githubStarActions.completeConnection)
+  const starRepository = useAction(api.githubStarActions.star)
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const callbackValues = useMemo(() => {
+    if (!callback) return null
+    const oauthError = searchParams.get('error')
+    if (oauthError) return { kind: 'error' as const }
+    const code = searchParams.get('code')
+    const oauthState = searchParams.get('state')
+    if (!code || !oauthState) return { kind: 'invalid' as const }
+    return { kind: 'complete' as const, code, oauthState }
+  }, [callback, searchParams])
+  const [busy, setBusy] = useState(callbackValues?.kind === 'complete')
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (callbackValues?.kind !== 'complete') return
+    const key = `${callbackValues.oauthState}:${callbackValues.code}`
+    let attempt = callbackAttempts.get(key)
+    if (!attempt) {
+      attempt = completeConnection({
+        eventSlug,
+        state: callbackValues.oauthState,
+        code: callbackValues.code,
+      })
+      callbackAttempts.set(key, attempt)
+    }
+    let active = true
+    attempt.then(
+      () => {
+        if (!active) return
+        setBusy(false)
+        navigate('/', { replace: true, viewTransition: true })
+      },
+      (reason: unknown) => {
+        if (!active) return
+        setBusy(false)
+        setError(readableError(reason))
+      },
+    )
+    return () => {
+      active = false
+    }
+  }, [callbackValues, completeConnection, navigate])
+
+  const callbackMessage = callbackValues?.kind === 'error'
+    ? 'GitHub did not authorize this connection. Try again.'
+    : callbackValues?.kind === 'invalid'
+      ? 'This GitHub callback is incomplete. Connect GitHub again.'
+      : null
+  const displayedError = error ?? callbackMessage
+
+  const connect = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await beginConnection({ eventSlug })
+      window.location.assign(result.authorizationUrl)
+    } catch (reason) {
+      setBusy(false)
+      setError(readableError(reason))
+    }
+  }
+
+  const star = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await starRepository({ eventSlug })
+    } catch (reason) {
+      setBusy(false)
+      setError(readableError(reason))
+    }
+  }
+
   return (
     <div
       data-portal-scene
@@ -24,7 +111,7 @@ export function SglangInterlude({ onContinue }: { onContinue: () => void }) {
       </div>
       <div className="relative mx-auto flex w-full max-w-[660px] flex-1 flex-col justify-center pt-16 pb-14 text-center">
         <h1 className="mb-6 font-display font-light tracking-[-.01em] text-balance text-[28px] leading-[1.25] lg:text-[38px]">
-          We’d love for you to star SGLang.
+          Star SGLang to continue.
         </h1>
         <p className="m-0 text-pretty text-[15px] leading-[1.8] text-fg/70">
           It serves trillions of tokens a day across 400,000+ GPUs, at xAI, NVIDIA, AMD, LinkedIn,
@@ -40,26 +127,43 @@ export function SglangInterlude({ onContinue }: { onContinue: () => void }) {
           went from contributor to maintainer to MLE at Hugging Face.
         </p>
         <p className="mt-4 mb-0 text-pretty text-[15px] leading-[1.8] text-fg/70">
-          No obligation. We just want you to look inside and get into inference.
-        </p>
-
-        <div className="mt-[38px] flex flex-col items-center gap-3.5">
+          Connect GitHub here, then star{' '}
           <a
             href="https://github.com/sgl-project/sglang"
             target="_blank"
             rel="noreferrer"
-            onClick={onContinue}
-            className="inline-flex items-center justify-center rounded-btn border-[1.5px] border-rose bg-transparent px-[34px] py-3 text-sm font-semibold text-rose-light transition-[background,color] duration-250 hover:bg-rose hover:text-wash"
+            className="text-rose-light underline underline-offset-[3px]"
           >
-            Star sgl-project/sglang
+            sgl-project/sglang ↗
           </a>
-          <button
+          .
+        </p>
+
+        <div className="mt-[38px] flex min-h-[78px] flex-col items-center gap-3.5">
+          {state.connected && state.githubLogin ? (
+            <p className="m-0 text-[13px] text-fg/55">connected as @{state.githubLogin}</p>
+          ) : null}
+          <PortalButton
             type="button"
-            onClick={onContinue}
-            className="text-[13px] text-fg/55 transition-colors hover:text-fg"
+            disabled={busy || state.completed}
+            onClick={state.connected ? () => void star() : () => void connect()}
+            className="min-w-[190px]"
           >
-            maybe later
-          </button>
+            {busy
+              ? callbackValues?.kind === 'complete'
+                ? 'Connecting…'
+                : state.connected
+                  ? 'Starring…'
+                  : 'Opening GitHub…'
+              : state.connected
+                ? 'Star SGLang'
+                : 'Connect GitHub'}
+          </PortalButton>
+          {displayedError ? (
+            <p role="alert" className="m-0 max-w-[440px] text-[13px] leading-relaxed text-rose-light">
+              {displayedError}
+            </p>
+          ) : null}
         </div>
 
         <div className="mt-[54px] flex items-center justify-center gap-[26px] opacity-55">

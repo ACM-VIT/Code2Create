@@ -6,6 +6,18 @@ import { App, Octokit } from "octokit";
 const githubApiVersion = "2026-03-10";
 const githubRequestTimeoutMs = 30_000;
 
+export function isGitHubRateLimit(
+  status: number,
+  headers: Readonly<Record<string, string | number | undefined>>,
+) {
+  const remaining = headers["x-ratelimit-remaining"];
+  return (
+    status === 429 ||
+    (status === 403 &&
+      (remaining === "0" || remaining === 0 || headers["retry-after"] !== undefined))
+  );
+}
+
 export async function timedGitHubFetch(
   input: string | URL | Request,
   init?: RequestInit,

@@ -21,6 +21,7 @@ import { DetailsScreen } from './screens/DetailsScreen'
 import { HomeScreen } from './screens/HomeScreen'
 import { MoreScreen } from './screens/MoreScreen'
 import { IntakeScreen } from './screens/IntakeScreen'
+import { SglangInterlude } from './screens/SglangInterlude'
 import { TeamLobbyScreen } from './screens/TeamLobbyScreen'
 import { TeamScreen } from './screens/TeamScreen'
 import type { CurrentTeam, ParticipantClass, PublicState } from './types'
@@ -79,6 +80,12 @@ export function ParticipantApp({
   const me = useQuery(api.participants.me, { eventSlug })
   const access = useQuery(api.access.participantCapabilities, { eventSlug })
   const hasTeamMembership = access?.hasTeamMembership ?? false
+  const shouldLoadGitHubStarGate =
+    access !== undefined && Boolean(me?.membership && me.profile?.isComplete) && !hasTeamMembership
+  const githubStarGate = useQuery(
+    api.githubStarGate.current,
+    shouldLoadGitHubStarGate ? { eventSlug } : 'skip',
+  )
   const canReadProfile = access?.profileRead ?? false
   const canWriteProfile = access?.profileWrite ?? false
   const canJoinTeam = access?.teamJoin ?? false
@@ -183,6 +190,18 @@ export function ParticipantApp({
     return (
       <DetailsScreen key={profileKey} me={me} canWriteProfile={canWriteProfile} onSignOut={signOut} />
     )
+  }
+
+  if (!hasTeamMembership && !supportRoute) {
+    if (githubStarGate === undefined || githubStarGate === null) return <PortalLoading />
+    if (!githubStarGate.completed) {
+      return (
+        <SglangInterlude
+          state={githubStarGate}
+          callback={location.pathname === '/onboarding/github/callback'}
+        />
+      )
+    }
   }
 
   if (teamAccessUnavailable) {

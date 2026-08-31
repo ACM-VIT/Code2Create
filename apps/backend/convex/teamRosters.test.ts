@@ -1,5 +1,6 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest, type TestConvex } from "convex-test";
+import type { FunctionReturnType } from "convex/server";
 import { describe, expect, test, vi } from "vitest";
 
 import { api, components, internal } from "./_generated/api";
@@ -83,7 +84,7 @@ describe("team roster backfill", () => {
       googleSubject: "team-roster-lead-subject",
     });
     expect(lead.me.pendingTeam).toBeNull();
-    expect(lead.membership.onboardingStatus).toBe("profile_required");
+    expect(lead.membership.onboardingStatus).toBe("project_required");
     const leadTeam = await lead.person.query(api.teams.current, {
       eventSlug: fixture.eventSlug,
     });
@@ -832,6 +833,17 @@ describe("team roster backfill", () => {
       eventSlug: fixture.eventSlug,
       participantClass: "external_participant",
     });
+    const provisionedLateMember = await lateMember.person.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!provisionedLateMember?.membership) {
+      throw new Error("The late participant membership is missing.");
+    }
+    await completeMandatoryOnboarding(backend, fixture, provisionedLateMember);
+    await lateMember.person.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "external_participant",
+    });
     const joined = await lateMember.person.query(api.teams.current, {
       eventSlug: fixture.eventSlug,
     });
@@ -1538,6 +1550,95 @@ describe("team roster backfill", () => {
     });
     expect(team?.name).toBe("Ready Lead");
   }, 30_000);
+
+  test("keeps an imported provisioned participant pending until GitHub onboarding completes", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const lead = await provisionParticipant(backend, fixture, {
+      email: "pending-github@example.test",
+      googleSubject: "team-roster-pending-github",
+      displayName: "Pending GitHub",
+    });
+
+    await backend.run(async (ctx) => {
+      const completion = await ctx.db
+        .query("githubStarCompletions")
+        .withIndex("by_event_membership", (index) =>
+          index.eq("eventId", fixture.eventId).eq("membershipId", lead.membershipId),
+        )
+        .unique();
+      if (!completion) throw new Error("The GitHub completion fixture is missing.");
+      await ctx.db.delete(completion._id);
+      await ctx.db.patch(lead.membershipId, {
+        onboardingStatus: "github_required",
+        updatedAt: Date.now(),
+      });
+    });
+
+    const preview = await importer.person.query(api.teamRosters.previewImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "GitHub-gated team",
+      rows: [
+        {
+          rowNumber: 2,
+          identity: lead.me.person.verifiedEmail,
+          displayName: "Pending GitHub",
+          teamName: "Still Pending",
+          role: "lead",
+        },
+      ],
+      reason: "Committee team assignments",
+    });
+    const imported = await importer.person.mutation(api.teamRosters.confirmImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "GitHub-gated team",
+      rows: [
+        {
+          rowNumber: 2,
+          identity: lead.me.person.verifiedEmail,
+          displayName: "Pending GitHub",
+          teamName: "Still Pending",
+          role: "lead",
+        },
+      ],
+      reason: "Committee team assignments",
+      previewChecksum: preview.previewChecksum,
+      clientOperationId: "team-roster-github-gate",
+    });
+    await drainScheduler(backend);
+
+    expect(await lead.person.query(api.teams.current, { eventSlug: fixture.eventSlug })).toBeNull();
+    await backend.run(async (ctx) => {
+      const pending = await ctx.db
+        .query("teamRosterEntries")
+        .withIndex("by_event_email_status", (index) =>
+          index
+            .eq("eventId", fixture.eventId)
+            .eq("emailNormalized", lead.me.person.verifiedEmail)
+            .eq("status", "pending"),
+        )
+        .unique();
+      expect(pending).not.toBeNull();
+      await ctx.db.insert("githubStarCompletions", {
+        eventId: fixture.eventId,
+        membershipId: lead.membershipId,
+        personId: lead.personId,
+        githubUserId: "pending-github-user",
+        githubLogin: "pending-github-user",
+        repositoryOwner: "sgl-project",
+        repositoryName: "sglang",
+        completedAt: Date.now(),
+      });
+    });
+
+    await backend.mutation(internal.teamRosters.applyImport, {
+      teamRosterImportId: imported.teamRosterImportId,
+    });
+    const team = await lead.person.query(api.teams.current, { eventSlug: fixture.eventSlug });
+    expect(team?.name).toBe("Still Pending");
+  }, 30_000);
 });
 
 type ImportRow = {
@@ -1798,8 +1899,17 @@ async function provisionParticipant(
     eventSlug: fixture.eventSlug,
     participantClass: args.vitHostedDomain ? "vit_student" : "external_participant",
   });
+  const provisioned = await identity.person.query(api.participants.me, {
+    eventSlug: fixture.eventSlug,
+  });
+  if (!provisioned?.membership) throw new Error("Provisioning did not create a membership.");
+  await completeMandatoryOnboarding(backend, fixture, provisioned);
+  await identity.person.mutation(api.participants.provision, {
+    eventSlug: fixture.eventSlug,
+    participantClass: args.vitHostedDomain ? "vit_student" : "external_participant",
+  });
   const me = await identity.person.query(api.participants.me, { eventSlug: fixture.eventSlug });
-  if (!me?.membership) throw new Error("Provisioning did not create a membership.");
+  if (!me?.membership) throw new Error("The completed participant membership is missing.");
   return {
     authUserId: identity.authUserId,
     authSessionId: identity.authSessionId,
@@ -1809,6 +1919,68 @@ async function provisionParticipant(
     me,
     person: identity.person,
   };
+}
+
+async function completeMandatoryOnboarding(
+  backend: BackendTest,
+  fixture: Awaited<ReturnType<typeof seedEvent>>,
+  participant: NonNullable<FunctionReturnType<typeof api.participants.me>>,
+) {
+  const participantMembership = participant.membership;
+  if (!participantMembership) throw new Error("The participant membership is missing.");
+  await backend.run(async (ctx) => {
+    const membership = await ctx.db.get(participantMembership.id);
+    if (!membership) throw new Error("The participant membership is missing.");
+    const now = Date.now();
+    if (membership.participantClass === "vit_student") {
+      const vitIdentity = membership.vitStudentIdentity;
+      if (!vitIdentity) throw new Error("The VIT identity is missing.");
+      await ctx.db.insert("participantProfiles", {
+        eventId: fixture.eventId,
+        membershipId: membership._id,
+        participantClass: "vit_student",
+        fullName: vitIdentity.fullName,
+        phone: "+91 90000 00000",
+        gender: "male",
+        institution: "VIT Vellore",
+        yearOfStudy: vitIdentity.yearOfStudy,
+        vitRegistrationNumber: vitIdentity.registrationNumber,
+        vitProgramme: vitIdentity.programmeCode,
+        vitResidenceType: "day_scholar",
+        profileVersion: 1,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("participantProfiles", {
+        eventId: fixture.eventId,
+        membershipId: membership._id,
+        participantClass: "external_participant",
+        fullName: participant.person.displayName,
+        phone: "+91 90000 00000",
+        gender: "male",
+        institution: "Example University",
+        yearOfStudy: "first",
+        externalUniversity: "Example University",
+        externalCollege: "Example College",
+        profileVersion: 1,
+        updatedAt: now,
+      });
+    }
+    await ctx.db.insert("githubStarCompletions", {
+      eventId: fixture.eventId,
+      membershipId: membership._id,
+      personId: membership.personId,
+      githubUserId: `test-${membership._id}`,
+      githubLogin: `test-${membership._id}`,
+      repositoryOwner: "sgl-project",
+      repositoryName: "sglang",
+      completedAt: now,
+    });
+    await ctx.db.patch(membership._id, {
+      onboardingStatus: "team_required",
+      updatedAt: now,
+    });
+  });
 }
 
 async function seedGoogleIdentity(

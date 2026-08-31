@@ -7,6 +7,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import { requireGitHubStarCompletion } from "./githubStarGate";
 import { writeAuditEvent } from "./lib/audit";
 import {
   addTeamLeadGrants,
@@ -478,6 +479,7 @@ export const create = mutation({
     );
     requireRegistrationOpen(event, membership.participantClass);
     requireCurrentPolicyAcceptance(membership, participantPolicy.policy);
+    await requireGitHubStarCompletion(ctx, event, membership);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -551,6 +553,7 @@ export const join = mutation({
     );
     requireRegistrationOpen(event, membership.participantClass);
     requireCurrentPolicyAcceptance(membership, participantPolicy.policy);
+    await requireGitHubStarCompletion(ctx, event, membership);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,

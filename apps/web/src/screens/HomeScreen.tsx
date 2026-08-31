@@ -1,6 +1,6 @@
 import { api } from '@code2create/backend/api'
 import { useQuery } from 'convex/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { GpuSky } from '../components/portal/GpuSky'
 import { TeamCluster } from '../components/portal/TeamCluster'
@@ -26,6 +26,31 @@ function journeyState(draft: { stage: string } | null) {
     }
   }
   return { current: 2, headline: 'Read it together.', action: 'Open the review' }
+}
+
+/** The live tick to the writing deadline — the countdown every ACM portal owes its participants. */
+function Countdown({ deadline }: { deadline: number }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const left = Math.max(0, deadline - now)
+  const days = Math.floor(left / 86_400_000)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const clock = `${pad(Math.floor(left / 3_600_000) % 24)}:${pad(Math.floor(left / 60_000) % 60)}:${pad(Math.floor(left / 1000) % 60)}`
+  return (
+    <p className="m-0 font-display font-light tracking-[-.01em] text-[26px] text-rose-light [font-variant-numeric:tabular-nums]">
+      {days > 0 ? (
+        <>
+          {days}
+          <span className="text-sm">d</span> {clock}
+        </>
+      ) : (
+        clock
+      )}
+    </p>
+  )
 }
 
 function BottomCard({
@@ -69,13 +94,8 @@ export function HomeScreen({
   const navigate = useNavigate()
   const intake = useQuery(api.intake.current, { eventSlug })
 
-  // Snapshotted once per mount: a day-level countdown doesn't need a ticker.
-  const [now] = useState(() => Date.now())
   const draft = intake?.draft ?? null
   const journey = journeyState(draft)
-  const daysLeft = intake
-    ? Math.max(0, Math.ceil((intake.applicationsCloseAt - now) / 86_400_000))
-    : null
 
   return (
     <PortalScene
@@ -113,9 +133,11 @@ export function HomeScreen({
 
       <div className="absolute inset-x-5 bottom-8 z-[3] flex flex-col gap-3 sm:flex-row sm:gap-[18px] lg:inset-x-24 lg:bottom-14">
         <BottomCard label="deadline">
-          <p className="m-0 font-display font-light tracking-[-.01em] text-[26px] text-rose-light">
-            {daysLeft ?? '·'} <span className="text-sm">{daysLeft === 1 ? 'day' : 'days'}</span>
-          </p>
+          {intake ? (
+            <Countdown deadline={intake.applicationsCloseAt} />
+          ) : (
+            <p className="m-0 font-display font-light tracking-[-.01em] text-[26px] text-rose-light">·</p>
+          )}
         </BottomCard>
         <BottomCard label={`journey · ${journey.current + 1} of ${JOURNEY_STAGES}`}>
           {/* Each petal gets its stage name, joined by hairlines, so the row

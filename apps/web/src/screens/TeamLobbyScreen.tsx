@@ -87,7 +87,7 @@ export function TeamLobbyScreen({
   const operations = useOperationRunner<TeamOperationResult>()
   const [mode, setMode] = useState<LobbyMode>('view')
   const [busy, setBusy] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'code' | 'link' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selectedMemberId, setSelectedMemberId] = useState<CurrentTeamMember['membershipId'] | null>(null)
   const currentTransfer = team.pendingLeadershipTransfer
@@ -150,11 +150,11 @@ export function TeamLobbyScreen({
       })),
     )
 
-  const copyCode = async (value: string) => {
+  const copyCode = async (value: string, which: 'code' | 'link') => {
     try {
       await navigator.clipboard.writeText(value)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1800)
+      setCopied(which)
+      window.setTimeout(() => setCopied((current) => (current === which ? null : current)), 1800)
     } catch {
       setError('Copying is unavailable in this browser.')
     }
@@ -370,17 +370,17 @@ export function TeamLobbyScreen({
             <span aria-hidden className="h-[18px] w-px bg-rose/40" />
             <button
               type="button"
-              onClick={() => void copyCode(team.publicCode)}
+              onClick={() => void copyCode(team.publicCode, 'code')}
               className="text-[13px] text-fg transition-colors hover:text-rose-light"
             >
-              {copied ? 'copied' : 'copy'}
+              {copied === 'code' ? 'copied' : 'copy'}
             </button>
             <button
               type="button"
-              onClick={() => void copyCode(joinLink)}
+              onClick={() => void copyCode(joinLink, 'link')}
               className="whitespace-nowrap text-[13px] text-fg transition-colors hover:text-rose-light"
             >
-              share link
+              {copied === 'link' ? 'copied' : 'share link'}
             </button>
           </div>
             ) : null}

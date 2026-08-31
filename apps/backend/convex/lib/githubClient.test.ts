@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { timedGitHubFetch } from "./githubClient";
+import { isGitHubRateLimit, timedGitHubFetch } from "./githubClient";
 
 describe("GitHub request boundary", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -38,5 +38,13 @@ describe("GitHub request boundary", () => {
     await expect(
       timedGitHubFetch("https://api.github.com/app", undefined, 1),
     ).rejects.toBeDefined();
+  });
+
+  it("distinguishes primary and secondary rate limits from missing permissions", () => {
+    expect(isGitHubRateLimit(429, {})).toBe(true);
+    expect(isGitHubRateLimit(403, { "x-ratelimit-remaining": "0" })).toBe(true);
+    expect(isGitHubRateLimit(403, { "x-ratelimit-remaining": 0 })).toBe(true);
+    expect(isGitHubRateLimit(403, { "retry-after": "60" })).toBe(true);
+    expect(isGitHubRateLimit(403, {})).toBe(false);
   });
 });

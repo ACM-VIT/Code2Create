@@ -3837,6 +3837,62 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_team_status", ["teamId", "status"]),
 
+  githubStarSetupIntents: defineTable({
+    eventId: v.id("events"),
+    membershipId: v.id("eventMemberships"),
+    personId: v.id("people"),
+    stateDigest: v.string(),
+    pkceVerifierCiphertext: v.optional(v.string()),
+    redirectUri: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("verifying"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("expired"),
+    ),
+    attemptId: v.optional(v.string()),
+    claimExpiresAt: v.optional(v.number()),
+    authorizationId: v.optional(v.id("githubStarAuthorizations")),
+    failureCode: v.optional(v.string()),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_state_digest", ["stateDigest"])
+    .index("by_membership_status", ["membershipId", "status"])
+    .index("by_status", ["status"]),
+
+  githubStarAuthorizations: defineTable({
+    eventId: v.id("events"),
+    membershipId: v.id("eventMemberships"),
+    personId: v.id("people"),
+    githubUserId: v.string(),
+    githubLogin: v.string(),
+    accessTokenCiphertext: v.string(),
+    expiresAt: v.number(),
+    status: v.union(v.literal("active"), v.literal("starring")),
+    attemptId: v.optional(v.string()),
+    claimExpiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_event_membership", ["eventId", "membershipId"])
+    .index("by_event_github_user", ["eventId", "githubUserId"]),
+
+  githubStarCompletions: defineTable({
+    eventId: v.id("events"),
+    membershipId: v.id("eventMemberships"),
+    personId: v.id("people"),
+    githubUserId: v.string(),
+    githubLogin: v.string(),
+    repositoryOwner: v.string(),
+    repositoryName: v.string(),
+    completedAt: v.number(),
+  })
+    .index("by_event_membership", ["eventId", "membershipId"])
+    .index("by_event_github_user", ["eventId", "githubUserId"]),
+
   githubInstallationConnections: defineTable({
     eventId: v.id("events"),
     teamId: v.id("teams"),

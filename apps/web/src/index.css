@@ -91,6 +91,18 @@
     0%, 100% { transform: rotate(-.5deg); }
     50%      { transform: rotate(.7deg); }
   }
+  @keyframes c2cburst {
+    0%   { transform: translate(-50%, -50%) scale(.35) rotate(0deg); opacity: 0; }
+    10%  { opacity: 1; }
+    70%  { opacity: .9; }
+    100% {
+      transform:
+        translate(calc(-50% + var(--burst-x)), calc(-50% + var(--burst-y)))
+        scale(1)
+        rotate(var(--burst-r));
+      opacity: 0;
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -180,9 +192,24 @@
   to { filter: blur(12px); }
 }
 
+/* The submit celebration's closing line glides up into the Submitted
+   screen's heading — slower and softer than the route swap around it. */
+::view-transition-group(submitted-heading) {
+  animation-duration: 700ms;
+  animation-timing-function: cubic-bezier(.22, 1, .36, 1);
+}
+
+::view-transition-old(submitted-heading),
+::view-transition-new(submitted-heading) {
+  animation-duration: 700ms;
+}
+
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(root),
-  ::view-transition-new(root) {
+  ::view-transition-new(root),
+  ::view-transition-group(submitted-heading),
+  ::view-transition-old(submitted-heading),
+  ::view-transition-new(submitted-heading) {
     animation-duration: 1ms;
   }
 }

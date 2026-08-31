@@ -13,6 +13,7 @@ import {
   githubApp,
   githubConfiguration,
   installationOctokit,
+  isGitHubRateLimit,
   repositoryOctokit,
   safeGitHubId,
 } from "./lib/githubClient";
@@ -87,10 +88,7 @@ function installationSelection(value: string) {
 
 function providerFailure(error: unknown) {
   if (error instanceof RequestError) {
-    if (
-      error.status === 429 ||
-      (error.status === 403 && error.response?.headers["x-ratelimit-remaining"] === "0")
-    ) {
+    if (isGitHubRateLimit(error.status, error.response?.headers ?? {})) {
       return { state: "rate_limited" as const, code: "github_rate_limited" };
     }
     if (error.status === 401 || error.status === 403) {

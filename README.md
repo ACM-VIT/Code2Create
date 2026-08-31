@@ -37,6 +37,8 @@ INITIAL_EVENT_SLUG=code2create-7
 
 Register `http://localhost:3211/api/auth/callback/google` as the Google OAuth redirect URI. Register `http://localhost:5180` and `http://localhost:5181` as browser origins.
 
+The mandatory SGLang onboarding step uses the configured GitHub App. Give its user authorization **Starring: read and write**, and register `http://localhost:5180/onboarding/github/callback` as an exact callback URL. Staging and production register the same path on their respective `PARTICIPANT_SITE_URL` origins.
+
 Start the ordinary product loop:
 
 ```sh

@@ -52,6 +52,8 @@ import type * as floorOperations from "../floorOperations.js";
 import type * as floorParticipant from "../floorParticipant.js";
 import type * as githubActions from "../githubActions.js";
 import type * as githubIntegrations from "../githubIntegrations.js";
+import type * as githubStarActions from "../githubStarActions.js";
+import type * as githubStarGate from "../githubStarGate.js";
 import type * as githubWebhook from "../githubWebhook.js";
 import type * as http from "../http.js";
 import type * as identityClaims from "../identityClaims.js";
@@ -308,6 +310,8 @@ declare const fullApi: ApiFromModules<{
   floorParticipant: typeof floorParticipant;
   githubActions: typeof githubActions;
   githubIntegrations: typeof githubIntegrations;
+  githubStarActions: typeof githubStarActions;
+  githubStarGate: typeof githubStarGate;
   githubWebhook: typeof githubWebhook;
   http: typeof http;
   identityClaims: typeof identityClaims;

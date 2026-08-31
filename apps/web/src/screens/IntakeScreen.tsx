@@ -25,8 +25,10 @@ import {
 } from '../components/portal/PortalField'
 import { useEditingPresence } from '../hooks/useEditingPresence'
 import { autosaveLabel, useDebouncedAutosave } from '../hooks/useDebouncedAutosave'
-import { markSglangInterludeSeen, sglangInterludeSeen } from '../lib/sglangNote'
-import { SglangInterlude } from './SglangInterlude'
+import {
+  clearSubmissionCelebration,
+  markSubmissionCelebration,
+} from '../lib/submissionCelebration'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { reconcileWorkingCopy, shouldRecoverFollowUpDraft } from '../lib/intakeCollaboration'
@@ -375,10 +377,8 @@ function IntakeWorkspace({
   const [peekQuestionId, setPeekQuestionId] = useState<string | null>(null)
   const [pendingFollowUp, setPendingFollowUp] = useState<PendingFollowUp | null>(null)
   // The mockup splits the old single review screen into reading the proposal
-  // (f5) and confirming the lock (f6), with the one-time SGLang note (fs)
-  // between them.
+  // (f5) and confirming the lock (f6).
   const [confirming, setConfirming] = useState(false)
-  const [showingSglangNote, setShowingSglangNote] = useState(false)
   const [collapsedSections, setCollapsedSections] = useState<readonly string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -856,10 +856,14 @@ function IntakeWorkspace({
 
   const confirmPendingOperation = (operation: PendingIntakeOperation) => {
     void run(async () => {
+      if (operation.kind === 'submit') markSubmissionCelebration()
       try {
         await operations.retryPending(operation.slot)
       } catch (caught) {
-        if (!operations.hasPending(operation.slot)) clearPendingOperation(operation)
+        if (!operations.hasPending(operation.slot)) {
+          if (operation.kind === 'submit') clearSubmissionCelebration()
+          clearPendingOperation(operation)
+        }
         throw caught
       }
       clearPendingOperation(operation)
@@ -1246,19 +1250,6 @@ function IntakeWorkspace({
       setEditingIdea(true)
     }
 
-    // fs · the SGLang note, once, on the way to confirm
-    if (showingSglangNote) {
-      return (
-        <SglangInterlude
-          onContinue={() => {
-            markSglangInterludeSeen()
-            setShowingSglangNote(false)
-            setConfirming(true)
-          }}
-        />
-      )
-    }
-
     // f6 · confirm
     if (confirming) {
       return (
@@ -1389,18 +1380,26 @@ function IntakeWorkspace({
                 variant="solid"
                 disabled={busy || !canSubmit}
                 onClick={() => {
-                  void run(() =>
-                    operations.run(
-                      'final-submit',
-                      (clientOperationId) => () => submitApplication({
-                        eventSlug,
-                        expectedDraftVersion: preview.draftVersion,
-                        expectedTeamVersion: preview.teamVersion,
-                        participantPolicyVersionId: preview.participantPolicyVersionId,
-                        clientOperationId,
-                      }),
-                    ),
-                  )
+                  void run(async () => {
+                    markSubmissionCelebration()
+                    try {
+                      await operations.run(
+                        'final-submit',
+                        (clientOperationId) => () => submitApplication({
+                          eventSlug,
+                          expectedDraftVersion: preview.draftVersion,
+                          expectedTeamVersion: preview.teamVersion,
+                          participantPolicyVersionId: preview.participantPolicyVersionId,
+                          clientOperationId,
+                        }),
+                      )
+                    } catch (caught) {
+                      if (!operations.hasPending('final-submit')) {
+                        clearSubmissionCelebration()
+                      }
+                      throw caught
+                    }
+                  })
                 }}
               >
                 {busy ? 'Submitting…' : 'Submit'}
@@ -1627,13 +1626,7 @@ function IntakeWorkspace({
             <PortalButton
               type="button"
               disabled={busy}
-              onClick={() => {
-                if (sglangInterludeSeen()) {
-                  setConfirming(true)
-                  return
-                }
-                setShowingSglangNote(true)
-              }}
+              onClick={() => setConfirming(true)}
             >
               Continue to submit
             </PortalButton>

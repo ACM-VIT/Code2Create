@@ -15,6 +15,12 @@ export type AvailableGitHubRepository =
 export type GitHubConnectionResult = FunctionReturnType<
   typeof api.githubActions.completeConnection
 >
+export type GitHubStarGateState = NonNullable<
+  FunctionReturnType<typeof api.githubStarGate.current>
+>
+export type GitHubStarConnectionResult = FunctionReturnType<
+  typeof api.githubStarActions.completeConnection
+>
 export type CurrentFigmaIntegration = NonNullable<
   FunctionReturnType<typeof api.figmaIntegrations.current>
 >

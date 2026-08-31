@@ -23,6 +23,8 @@ import { TeamMenu } from '../components/portal/TeamMenu'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { PortalError, PortalField, PortalTextarea } from '../components/portal/PortalField'
 import { Flower } from '../components/portal/FlowerAvatar'
+import { SubmitCelebration } from '../components/portal/SubmitCelebration'
+import { consumeSubmissionCelebration } from '../lib/submissionCelebration'
 import {
   clearSessionDraft,
   readVersionedSessionDraft,
@@ -179,6 +181,8 @@ function SubmittedWorkspace({
   const [busy, setBusy] = useState<'confirm' | 'decline' | null>(null)
   const [confirmDecline, setConfirmDecline] = useState(false)
   const [viewingProposal, setViewingProposal] = useState(false)
+  // Set by the submit button; consumed here so the bloom plays exactly once.
+  const [celebrating, setCelebrating] = useState(consumeSubmissionCelebration)
   const [error, setError] = useState<string | null>(null)
   const event = publicState.event
   const phaseClock = useRef({
@@ -315,6 +319,10 @@ function SubmittedWorkspace({
     )
   }
 
+  const celebration = celebrating ? (
+    <SubmitCelebration onDone={() => setCelebrating(false)} />
+  ) : null
+
   // ---- f7 · the quiet queue state ----------------------------------------
   // Everything before a decision reads as one still screen; the proposal
   // editor stays one click away rather than sitting open under the hero.
@@ -325,11 +333,19 @@ function SubmittedWorkspace({
         header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
         menu={<TeamMenu team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
       >
+        {celebration}
         <div className="flex w-full max-w-[760px] flex-col items-center text-center">
           <div className="mb-5 drop-shadow-[0_0_14px_var(--glow-rose)]">
             <Petal size={34} />
           </div>
-          <h1 className="mb-3.5 font-display font-light tracking-[-.01em] text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-[70px]">
+          <h1
+            className={`mb-3.5 font-display font-light tracking-[-.01em] text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-[70px] ${
+              /* Named only once the overlay is gone, so the celebration's
+                 closing line can morph into this heading — two live elements
+                 sharing the name would cancel the transition. */
+              celebrating ? '' : '[view-transition-name:submitted-heading]'
+            }`}
+          >
             {copy.heading}
           </h1>
           <p className="mb-8 font-ui font-normal text-base text-rose-light lg:text-[19px]">

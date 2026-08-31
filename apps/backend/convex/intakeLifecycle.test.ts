@@ -62,6 +62,20 @@ describe("participant intake lifecycle", () => {
       expectedProfileVersion: 0,
       clientOperationId: "intake-profile-save",
     });
+    await backend.run(async (ctx) => {
+      const membership = await ctx.db.get(fixture.membershipId);
+      if (!membership) throw new Error("The intake membership is missing.");
+      await ctx.db.insert("githubStarCompletions", {
+        eventId: membership.eventId,
+        membershipId: fixture.membershipId,
+        personId: membership.personId,
+        githubUserId: "intake-github-user-1",
+        githubLogin: "anika-intake",
+        repositoryOwner: "sgl-project",
+        repositoryName: "sglang",
+        completedAt: Date.now(),
+      });
+    });
     const team = await participant.mutation(api.teams.create, {
       eventSlug: fixture.eventSlug,
       name: "Plain Petals",
@@ -900,6 +914,16 @@ describe("participant intake lifecycle", () => {
         externalCollege: "Example Institute of Technology",
         profileVersion: 1,
         updatedAt: event.createdAt,
+      });
+      await ctx.db.insert("githubStarCompletions", {
+        eventId: event._id,
+        membershipId,
+        personId,
+        githubUserId: "intake-github-user-3",
+        githubLogin: "meera-intake",
+        repositoryOwner: "sgl-project",
+        repositoryName: "sglang",
+        completedAt: event.createdAt,
       });
       await insertPermissionGrant(ctx, {
         eventId: event._id,

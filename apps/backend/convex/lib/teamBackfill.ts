@@ -67,8 +67,10 @@ export async function activeTeamsWithName(
  * already be provisioned; otherwise the entry stays pending. Never moves a
  * person who already has an active team. Policy acceptance is deliberately not
  * required here: assignment is organizer-driven and consent happens on the
- * participant portal screens. Placement failures leave the entry pending
- * instead of throwing, so signup and import apply can commit around a bad row.
+ * participant portal screens. The mandatory GitHub contribution step is still
+ * required because team access is the boundary it unlocks. Placement failures
+ * leave the entry pending instead of throwing, so signup and import apply can
+ * commit around a bad row.
  */
 export async function applyTeamRosterEntry(
   ctx: MutationCtx,
@@ -99,7 +101,6 @@ export async function applyTeamRosterEntry(
   if (membership.eligibilityStatus !== "eligible") {
     return { outcome: "still_pending", claimedCount: 0 };
   }
-
   const existingMember = await ctx.db
     .query("teamMembers")
     .withIndex("by_event_membership_status", (index) =>
@@ -115,6 +116,15 @@ export async function applyTeamRosterEntry(
       version: entry.version + 1,
     });
     return { outcome: "skipped_has_team", claimedCount: 0 };
+  }
+  const githubStarCompletion = await ctx.db
+    .query("githubStarCompletions")
+    .withIndex("by_event_membership", (index) =>
+      index.eq("eventId", args.event._id).eq("membershipId", membership._id),
+    )
+    .unique();
+  if (!githubStarCompletion) {
+    return { outcome: "still_pending", claimedCount: 0 };
   }
 
   try {
@@ -520,6 +530,7 @@ export async function claimPendingTeamRosterEntry(
       index.eq("eventId", args.event._id).eq("personId", args.person._id),
     )
     .unique();
+  if (!membership) return "still_pending" as const;
   let outcome: TeamBackfillOutcome = "still_pending";
   for (const identityNormalized of rosterIdentitiesForPerson(args.person, membership)) {
     const entry = await pendingEntryForIdentity(ctx, {

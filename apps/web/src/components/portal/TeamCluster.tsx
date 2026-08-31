@@ -175,6 +175,26 @@ export function TeamCluster({
   )
 }
 
+/** The join code as a one-tap copy. */
+function CopyCode({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      title="Copy the join code"
+      onClick={() => {
+        void navigator.clipboard.writeText(code).then(() => {
+          setCopied(true)
+          window.setTimeout(() => setCopied(false), 1600)
+        })
+      }}
+      className="font-mono text-[12.5px] tracking-[.12em] text-rose-light transition-colors hover:text-fg"
+    >
+      {copied ? 'copied' : code}
+    </button>
+  )
+}
+
 /**
  * The team details card: name, seat count, the roster, and the join code or
  * sealed line with the team-page link. The cluster shows it as its popover;
@@ -237,9 +257,7 @@ export function TeamRosterPanel({
       </ul>
       <div className="mt-3 flex items-center justify-between gap-3 border-t border-petal-line pt-3">
         {editable ? (
-          <span className="font-mono text-[12.5px] tracking-[.12em] text-rose-light">
-            {team.publicCode}
-          </span>
+          <CopyCode code={team.publicCode} />
         ) : (
           <p className="m-0 flex items-center gap-1.5 text-[11.5px] text-fg/50">
             <Petal size={12} />

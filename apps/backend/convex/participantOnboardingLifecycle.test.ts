@@ -2,7 +2,8 @@ import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/compon
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test, vi } from "vitest";
 
-import { api, components } from "./_generated/api";
+import { api, components, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import {
   defaultParticipantPolicy,
   normalizeParticipantPolicy,
@@ -22,7 +23,7 @@ const betterAuthModules = import.meta.glob(
 type BackendTest = TestConvex<typeof schema>;
 
 describe("participant onboarding lifecycle", () => {
-  test("keeps consent explicit while allowing team creation before profile completion", async () => {
+  test("requires consent, a complete profile, and the GitHub star before team setup", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const fixture = await seedParticipant(backend);
@@ -68,6 +69,39 @@ describe("participant onboarding lifecycle", () => {
             .eq("clientOperationId", acceptance.clientOperationId),
         )
         .collect()).toHaveLength(1);
+    });
+
+    await expect(participant.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Quiet Circuit",
+      clientOperationId: "team-before-profile",
+    })).rejects.toThrow("Complete your participant details");
+
+    await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Aarav Menon",
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "third",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "complete-profile-before-team",
+    });
+    await expect(participant.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Quiet Circuit",
+      clientOperationId: "team-before-github-star",
+    })).rejects.toThrow("star sgl-project/sglang");
+    await backend.run(async (ctx) => {
+      expect((await ctx.db.get(fixture.membershipId))?.onboardingStatus).toBe("github_required");
+    });
+    await completeGitHubStar(backend, fixture, {
+      personId: fixture.personId,
+      membershipId: fixture.membershipId,
+      githubUserId: "1001",
+      githubLogin: "aarav-test",
     });
 
     await backend.run(async (ctx) => {
@@ -140,7 +174,7 @@ describe("participant onboarding lifecycle", () => {
           index.eq("teamId", created.teamId).eq("status", "active"),
         )
         .collect();
-      expect(membership?.onboardingStatus).toBe("profile_required");
+      expect(membership?.onboardingStatus).toBe("project_required");
       expect(teamMembers).toHaveLength(1);
       expect(teamMembers[0]?.membershipId).toBe(fixture.membershipId);
       expect(teamMembers[0]?.role).toBe("lead");
@@ -505,6 +539,99 @@ describe("participant onboarding lifecycle", () => {
     })).rejects.toThrow("Applications are closed");
   }, 10_000);
 
+  test("settles the GitHub connection and star with idempotent transactional claims", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "github-gate-policy",
+    });
+    await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Aarav Menon",
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "third",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "github-gate-profile",
+    });
+
+    const setup = await participant.mutation(internal.githubStarGate.createSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      stateDigest: "github-gate-state-digest",
+      pkceVerifierCiphertext: "encrypted-verifier",
+      redirectUri: "https://participant.example.test/onboarding/github/callback",
+    });
+    const setupClaim = await participant.mutation(internal.githubStarGate.claimSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      stateDigest: "github-gate-state-digest",
+      attemptId: "github-gate-setup-attempt",
+    });
+    expect(setupClaim.kind).toBe("verify");
+    if (setupClaim.kind !== "verify") throw new Error("The setup intent was not claimed.");
+    expect(setupClaim.intentId).toBe(setup.intentId);
+    await participant.mutation(internal.githubStarGate.finishSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      intentId: setupClaim.intentId,
+      attemptId: "github-gate-setup-attempt",
+      githubUserId: "2001",
+      githubLogin: "aarav-github",
+      accessTokenCiphertext: "encrypted-access-token",
+      authorizationExpiresAt: Date.now() + 60_000,
+    });
+    await expect(participant.query(api.githubStarGate.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      connected: true,
+      completed: false,
+      githubLogin: "aarav-github",
+    });
+
+    const starClaim = await participant.mutation(internal.githubStarGate.claimStar, {
+      eventSlug: fixture.eventSlug,
+      attemptId: "github-gate-star-attempt",
+    });
+    expect(starClaim.kind).toBe("star");
+    if (starClaim.kind !== "star") throw new Error("The star authorization was not claimed.");
+    const completed = await participant.mutation(internal.githubStarGate.finishStar, {
+      eventSlug: fixture.eventSlug,
+      authorizationId: starClaim.authorizationId,
+      attemptId: "github-gate-star-attempt",
+    });
+    const replayed = await participant.mutation(internal.githubStarGate.finishStar, {
+      eventSlug: fixture.eventSlug,
+      authorizationId: starClaim.authorizationId,
+      attemptId: "github-gate-star-attempt",
+    });
+    expect(replayed).toEqual(completed);
+    await expect(participant.query(api.githubStarGate.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      connected: true,
+      completed: true,
+      githubLogin: "aarav-github",
+    });
+    await backend.run(async (ctx) => {
+      expect(await ctx.db
+        .query("githubStarAuthorizations")
+        .withIndex("by_event_membership", (index) =>
+          index.eq("eventId", fixture.eventId).eq("membershipId", fixture.membershipId),
+        )
+        .unique()).toBeNull();
+      expect((await ctx.db.get(fixture.membershipId))?.onboardingStatus).toBe("team_required");
+    });
+  });
+
   test("requires an external participant's year, university, college, phone, and binary gender", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
@@ -644,6 +771,20 @@ describe("participant onboarding lifecycle", () => {
       accepted: true,
       clientOperationId: "next-lead-policy-acceptance",
     });
+    await completeExternalOnboarding(backend, fixture, {
+      personId: fixture.personId,
+      membershipId: fixture.membershipId,
+      fullName: "Aarav Menon",
+      githubUserId: "1002",
+      githubLogin: "aarav-lead",
+    });
+    await completeExternalOnboarding(backend, fixture, {
+      personId: nextLead.personId,
+      membershipId: nextLead.membershipId,
+      fullName: "Meera Rao",
+      githubUserId: "1003",
+      githubLogin: "meera-next-lead",
+    });
 
     const created = await currentLeadClient.mutation(api.teams.create, {
       eventSlug: fixture.eventSlug,
@@ -764,6 +905,20 @@ describe("participant onboarding lifecycle", () => {
       participantPolicyVersionId: fixture.policyId,
       accepted: true,
       clientOperationId: "host-policy-acceptance",
+    });
+    await completeExternalOnboarding(backend, fixture, {
+      personId: fixture.personId,
+      membershipId: fixture.membershipId,
+      fullName: "Aarav Menon",
+      githubUserId: "1004",
+      githubLogin: "aarav-switch",
+    });
+    await completeExternalOnboarding(backend, fixture, {
+      personId: host.personId,
+      membershipId: host.membershipId,
+      fullName: "Meera Rao",
+      githubUserId: "1005",
+      githubLogin: "meera-host",
     });
 
     const created = await participant.mutation(api.teams.create, {
@@ -989,6 +1144,17 @@ describe("participant onboarding lifecycle", () => {
         verifiedAt: fixture.now,
       });
     });
+    await completeExternalOnboarding(backend, fixture, {
+      personId: fixture.personId,
+      membershipId: fixture.membershipId,
+      fullName: "Aarav Menon",
+      githubUserId: "1006",
+      githubLogin: "aarav-roster-member",
+    });
+    await participant.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "external_participant",
+    });
 
     const leadAuthUserId = await createAuthUser(
       backend,
@@ -1016,6 +1182,21 @@ describe("participant onboarding lifecycle", () => {
     const lead = backend.withIdentity({
       subject: leadAuthUserId,
       sessionId: leadAuthSessionId,
+    });
+    await lead.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "external_participant",
+    });
+    const provisionedLead = await lead.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!provisionedLead?.membership) throw new Error("The roster lead was not provisioned.");
+    await completeExternalOnboarding(backend, fixture, {
+      personId: provisionedLead.person.id,
+      membershipId: provisionedLead.membership.id,
+      fullName: "Roster Lead",
+      githubUserId: "1007",
+      githubLogin: "roster-lead",
     });
     await lead.mutation(api.participants.provision, {
       eventSlug: fixture.eventSlug,
@@ -1334,6 +1515,63 @@ describe("participant onboarding lifecycle", () => {
     expect(afterDayScholar?.profile?.vitHostelRoomNumber).toBeUndefined();
     expect(provisioned.created).toBe(true);
   });
+
+  test("staging participant reset removes every GitHub star onboarding record", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("githubStarSetupIntents", {
+        eventId: fixture.eventId,
+        membershipId: fixture.membershipId,
+        personId: fixture.personId,
+        stateDigest: "staging-reset-state",
+        redirectUri: "http://localhost:4173/onboarding/github/callback",
+        status: "pending",
+        expiresAt: fixture.now + 60_000,
+        createdAt: fixture.now,
+      });
+      await ctx.db.insert("githubStarAuthorizations", {
+        eventId: fixture.eventId,
+        membershipId: fixture.membershipId,
+        personId: fixture.personId,
+        githubUserId: "staging-reset-user",
+        githubLogin: "staging-reset-user",
+        accessTokenCiphertext: "encrypted-test-token",
+        expiresAt: fixture.now + 60_000,
+        status: "active",
+        createdAt: fixture.now,
+        updatedAt: fixture.now,
+      });
+      await ctx.db.insert("githubStarCompletions", {
+        eventId: fixture.eventId,
+        membershipId: fixture.membershipId,
+        personId: fixture.personId,
+        githubUserId: "staging-reset-user",
+        githubLogin: "staging-reset-user",
+        repositoryOwner: "sgl-project",
+        repositoryName: "sglang",
+        completedAt: fixture.now,
+      });
+    });
+
+    const previousEnvironment = process.env.C2C_DEPLOYMENT_ENVIRONMENT;
+    process.env.C2C_DEPLOYMENT_ENVIRONMENT = "staging";
+    try {
+      await backend.mutation(internal.stagingSetup.resetParticipantTestingData, {
+        eventSlug: fixture.eventSlug,
+      });
+    } finally {
+      if (previousEnvironment === undefined) delete process.env.C2C_DEPLOYMENT_ENVIRONMENT;
+      else process.env.C2C_DEPLOYMENT_ENVIRONMENT = previousEnvironment;
+    }
+
+    await backend.run(async (ctx) => {
+      expect(await ctx.db.query("githubStarSetupIntents").collect()).toHaveLength(0);
+      expect(await ctx.db.query("githubStarAuthorizations").collect()).toHaveLength(0);
+      expect(await ctx.db.query("githubStarCompletions").collect()).toHaveLength(0);
+    });
+  });
 });
 
 async function seedParticipant(backend: BackendTest) {
@@ -1524,6 +1762,65 @@ async function seedAdditionalParticipant(
     }
     return { authUserId, authSessionId, personId, subjectId, membershipId };
   });
+}
+
+async function completeGitHubStar(
+  backend: BackendTest,
+  fixture: Awaited<ReturnType<typeof seedParticipant>>,
+  args: {
+    personId: Id<"people">;
+    membershipId: Id<"eventMemberships">;
+    githubUserId: string;
+    githubLogin: string;
+  },
+) {
+  await backend.run(async (ctx) => {
+    const now = Date.now();
+    await ctx.db.insert("githubStarCompletions", {
+      eventId: fixture.eventId,
+      membershipId: args.membershipId,
+      personId: args.personId,
+      githubUserId: args.githubUserId,
+      githubLogin: args.githubLogin,
+      repositoryOwner: "sgl-project",
+      repositoryName: "sglang",
+      completedAt: now,
+    });
+    await ctx.db.patch(args.membershipId, {
+      onboardingStatus: "team_required",
+      updatedAt: now,
+    });
+  });
+}
+
+async function completeExternalOnboarding(
+  backend: BackendTest,
+  fixture: Awaited<ReturnType<typeof seedParticipant>>,
+  args: {
+    personId: Id<"people">;
+    membershipId: Id<"eventMemberships">;
+    fullName: string;
+    githubUserId: string;
+    githubLogin: string;
+  },
+) {
+  await backend.run(async (ctx) => {
+    await ctx.db.insert("participantProfiles", {
+      eventId: fixture.eventId,
+      membershipId: args.membershipId,
+      participantClass: "external_participant",
+      fullName: args.fullName,
+      phone: "+91 90000 00000",
+      gender: "male",
+      institution: "Example University",
+      yearOfStudy: "third",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      profileVersion: 1,
+      updatedAt: Date.now(),
+    });
+  });
+  await completeGitHubStar(backend, fixture, args);
 }
 
 async function createAuthUser(

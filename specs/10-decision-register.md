@@ -68,7 +68,7 @@ This file records current decisions only. It does not keep obsolete product path
 | T-017 | Store only a fingerprint and character count on novelty requests. | The proposal draft remains the only participant-text source. |
 | T-018 | Use OpenAI strict structured output with `store: false` for follow-up and admission requests. | The server validates a closed contract. |
 | T-019 | Give AI no event command tools. | Model output cannot carry product authority. |
-| T-020 | Use a GitHub App with Metadata read and Contents read. | The evidence path does not need repository writes. |
+| T-020 | Use a GitHub App with repository Metadata read and Contents read. Give its user authorization Starring read and write. | Team evidence does not need repository writes. The separate participant onboarding action needs the minimum user permission that can star SGLang. |
 | T-021 | Bind several repositories to one team integration. | A product can span several repositories and organizations. |
 | T-022 | Use Figma OAuth with the minimum approved file scopes. | The system can capture exact design evidence without write access. |
 | T-023 | Pin GitHub SHAs and Figma file versions at review start. | Later provider changes cannot rewrite review evidence. |
@@ -82,6 +82,7 @@ This file records current decisions only. It does not keep obsolete product path
 | T-031 | Deploy staging Workers from `staging` and production Workers from `main` through separate Cloudflare Workers Builds connections. | Branch identity, Worker runtime configuration, deployment history, and rollback stay exact for each surface. |
 | T-032 | Derive a VIT participant's study year from the verified registration number and configured event start year. | A release-year prefix table would reject valid later cohorts and fifth-year participants. |
 | T-033 | Invalidate older team novelty vectors and running previews in the same transaction that accepts changed idea text. | Provider failure or late completion cannot leave an obsolete idea active in the density pool. |
+| T-034 | Require a provider-verified SGLang star after profile completion and before team setup. | A browser click is not evidence. State, PKCE, a short encrypted token lifetime, one-GitHub-user-per-participant uniqueness, and backend enforcement make the step deterministic. |
 
 ## 3. Required concurrency rules
 
