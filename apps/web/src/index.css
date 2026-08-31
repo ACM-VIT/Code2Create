@@ -148,28 +148,138 @@
   --confirm-bg: linear-gradient(155deg, rgb(255 255 255 / .08), rgb(12 0 4 / .78) 62%);
 }
 
-/* Route changes keep the old screen visible until the destination is ready,
-   then exchange the two rendered views without a loading interstitial. */
+/* Every navigation uses the startup handoff: the destination is already
+   painted underneath while the previous surface lifts, blurs, and fades.
+   The loader plant is a named snapshot (c2c-pending), so it stays sharp. */
 ::view-transition-old(root) {
-  animation: c2c-view-out 180ms ease-in both;
+  z-index: 1;
+  animation:
+    c2c-surface-fade 320ms ease-in both,
+    c2c-surface-lift 360ms cubic-bezier(.22, 1, .36, 1) both,
+    c2c-surface-blur 360ms ease-in both;
 }
 
 ::view-transition-new(root) {
-  animation: c2c-view-in 320ms cubic-bezier(.22, 1, .36, 1) both;
+  z-index: 0;
+  animation: none;
 }
 
-@keyframes c2c-view-out {
-  to { opacity: 0; transform: scale(.992); }
+::view-transition-group(c2c-pending) {
+  z-index: 2;
 }
 
-@keyframes c2c-view-in {
-  from { opacity: 0; transform: translateY(8px) scale(.996); }
+@keyframes c2c-surface-fade {
+  to { opacity: 0; }
+}
+
+@keyframes c2c-surface-lift {
+  to { transform: scale(1.008); }
+}
+
+@keyframes c2c-surface-blur {
+  to { filter: blur(12px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(root),
   ::view-transition-new(root) {
     animation-duration: 1ms;
+  }
+}
+
+.startup-cover {
+  position: fixed;
+  inset: 0;
+  z-index: 9997;
+  background: var(--color-wash);
+  opacity: 1;
+  transform: scale(1);
+  filter: blur(0);
+  transition:
+    opacity 320ms ease-in,
+    transform 360ms cubic-bezier(.22, 1, .36, 1),
+    filter 360ms ease-in;
+  view-transition-name: c2c-startup;
+}
+
+.startup-cover[data-phase='leaving'] {
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(1.008);
+  filter: blur(12px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .startup-cover {
+    transition-duration: 1ms;
+  }
+}
+
+.delayed-bonsai {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  color: var(--color-rose-light);
+  view-transition-name: c2c-pending;
+}
+
+.delayed-bonsai-art {
+  position: relative;
+  width: clamp(112px, 15vw, 164px);
+  filter: var(--scene-plant-filter);
+  animation: c2c-bonsai-arrive 360ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.delayed-bonsai-art img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.delayed-bonsai-art i {
+  position: absolute;
+  width: 9px;
+  height: 6px;
+  border-radius: 70% 30% 65% 35%;
+  background: var(--color-petal-a);
+  box-shadow: 0 0 10px var(--glow-rose);
+  animation: c2c-bonsai-petal 1.7s ease-in-out infinite alternate;
+}
+
+.delayed-bonsai-art i:nth-of-type(1) { top: 7%; left: 48%; rotate: 24deg; }
+.delayed-bonsai-art i:nth-of-type(2) { top: 18%; left: 55%; rotate: -18deg; animation-delay: -.9s; }
+.delayed-bonsai-art i:nth-of-type(3) { top: 28%; left: 71%; rotate: 38deg; animation-delay: -.4s; }
+.delayed-bonsai-art i:nth-of-type(4) { top: 32%; left: 43%; rotate: -32deg; animation-delay: -1.2s; }
+.delayed-bonsai-art i:nth-of-type(5) { top: 39%; left: 30%; rotate: 16deg; animation-delay: -.6s; }
+.delayed-bonsai-art i:nth-of-type(6) { top: 44%; left: 63%; rotate: -12deg; animation-delay: -1.4s; }
+.delayed-bonsai-art i:nth-of-type(7) { top: 52%; left: 23%; rotate: 42deg; animation-delay: -.2s; }
+.delayed-bonsai-art i:nth-of-type(8) { top: 55%; left: 48%; rotate: -28deg; animation-delay: -1s; }
+.delayed-bonsai-art i:nth-of-type(9) { top: 61%; left: 34%; rotate: 12deg; animation-delay: -.7s; }
+
+.delayed-bonsai-label {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  letter-spacing: .08em;
+  opacity: .58;
+}
+
+.delayed-bonsai-compact .delayed-bonsai-art {
+  width: 96px;
+}
+
+@keyframes c2c-bonsai-arrive {
+  from { opacity: 0; transform: translateY(7px) scale(.98); }
+}
+
+@keyframes c2c-bonsai-petal {
+  from { opacity: .35; transform: scale(.78); }
+  to { opacity: 1; transform: scale(1.12); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .delayed-bonsai-art,
+  .delayed-bonsai-art i {
+    animation: none;
   }
 }
 
