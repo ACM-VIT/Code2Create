@@ -12,6 +12,7 @@ import {
 
 type TeamBackfillOutcome =
   | "still_pending"
+  | "identity_conflict"
   | "skipped_has_team"
   | "waiting_for_lead"
   | "claimed";
@@ -80,18 +81,21 @@ export async function applyTeamRosterEntry(
 ): Promise<TeamBackfillResult> {
   const entry = args.entry;
   const now = Date.now();
-  const person = await ctx.db
-    .query("people")
-    .withIndex("by_verified_email", (index) => index.eq("verifiedEmail", entry.emailNormalized))
-    .unique();
-  if (!person) return { outcome: "still_pending", claimedCount: 0 };
-  const membership = await ctx.db
-    .query("eventMemberships")
-    .withIndex("by_event_person", (index) =>
-      index.eq("eventId", args.event._id).eq("personId", person._id),
-    )
-    .unique();
-  if (!membership) return { outcome: "still_pending", claimedCount: 0 };
+  const resolved = await resolveTeamRosterPerson(ctx, {
+    eventId: args.event._id,
+    entry,
+  });
+  if (resolved.kind === "not_found") {
+    return { outcome: "still_pending", claimedCount: 0 };
+  }
+  if (resolved.kind === "identity_conflict") {
+    await ctx.db.patch(entry._id, {
+      status: "identity_conflict",
+      version: entry.version + 1,
+    });
+    return { outcome: "identity_conflict", claimedCount: 0 };
+  }
+  const { membership } = resolved;
   if (membership.eligibilityStatus !== "eligible") {
     return { outcome: "still_pending", claimedCount: 0 };
   }
@@ -310,8 +314,8 @@ async function applyFollowingEntries(
 }
 
 /**
- * Finds the one non-terminal roster entry for a person's email, if any.
- * Import supersede rules keep at most one pending or waiting entry per email.
+ * Finds the one non-terminal roster entry for a person's identities, if any.
+ * Import supersede rules keep at most one pending or waiting entry per identity.
  */
 type PendingTeamRosterEntryStatus = "pending" | "waiting_for_lead";
 
@@ -328,34 +332,115 @@ function isPendingTeamRosterEntry(
   return entry.status === "pending" || entry.status === "waiting_for_lead";
 }
 
+export function rosterIdentitiesForPerson(
+  person: Pick<Doc<"people">, "verifiedEmail">,
+  membership: Pick<Doc<"eventMemberships">, "vitStudentIdentity"> | null,
+) {
+  const identities = [person.verifiedEmail];
+  const registrationNumber = membership?.vitStudentIdentity?.registrationNumber;
+  if (registrationNumber) identities.push(registrationNumber);
+  return identities;
+}
+
+export async function pendingEntryForIdentity(
+  ctx: MutationCtx | QueryCtx,
+  args: {
+    eventId: Id<"events">;
+    identityNormalized: string;
+  },
+): Promise<PendingTeamRosterEntry | null> {
+  const byStatus = (status: PendingTeamRosterEntryStatus) =>
+    args.identityNormalized.includes("@")
+      ? ctx.db
+          .query("teamRosterEntries")
+          .withIndex("by_event_email_status", (index) =>
+            index
+              .eq("eventId", args.eventId)
+              .eq("emailNormalized", args.identityNormalized)
+              .eq("status", status),
+          )
+          .unique()
+      : ctx.db
+          .query("teamRosterEntries")
+          .withIndex("by_event_vit_registration_status", (index) =>
+            index
+              .eq("eventId", args.eventId)
+              .eq("vitRegistrationNumber", args.identityNormalized)
+              .eq("status", status),
+          )
+          .unique();
+  const pending = await byStatus("pending");
+  if (pending && isPendingTeamRosterEntry(pending)) return pending;
+  const waiting = await byStatus("waiting_for_lead");
+  if (waiting && isPendingTeamRosterEntry(waiting)) return waiting;
+  return null;
+}
+
 export async function teamRosterPendingEntry(
   ctx: MutationCtx | QueryCtx,
   args: {
     eventId: Id<"events">;
-    emailNormalized: string;
+    identities: readonly string[];
   },
 ): Promise<PendingTeamRosterEntry | null> {
-  const pending = await ctx.db
-    .query("teamRosterEntries")
-    .withIndex("by_event_email_status", (index) =>
-      index
-        .eq("eventId", args.eventId)
-        .eq("emailNormalized", args.emailNormalized)
-        .eq("status", "pending"),
-    )
-    .unique();
-  if (pending && isPendingTeamRosterEntry(pending)) return pending;
-  const waiting = await ctx.db
-    .query("teamRosterEntries")
-    .withIndex("by_event_email_status", (index) =>
-      index
-        .eq("eventId", args.eventId)
-        .eq("emailNormalized", args.emailNormalized)
-        .eq("status", "waiting_for_lead"),
-    )
-    .unique();
-  if (waiting && isPendingTeamRosterEntry(waiting)) return waiting;
+  for (const identityNormalized of args.identities) {
+    const entry = await pendingEntryForIdentity(ctx, {
+      eventId: args.eventId,
+      identityNormalized,
+    });
+    if (entry) return entry;
+  }
   return null;
+}
+
+export async function resolveTeamRosterPerson(
+  ctx: MutationCtx | QueryCtx,
+  args: {
+    eventId: Id<"events">;
+    entry: Pick<Doc<"teamRosterEntries">, "emailNormalized" | "vitRegistrationNumber">;
+  },
+): Promise<
+  | { kind: "resolved"; person: Doc<"people">; membership: Doc<"eventMemberships"> }
+  | { kind: "not_found" }
+  | { kind: "identity_conflict" }
+> {
+  if (args.entry.emailNormalized !== undefined) {
+    const emailNormalized = args.entry.emailNormalized;
+    const person = await ctx.db
+      .query("people")
+      .withIndex("by_verified_email", (index) =>
+        index.eq("verifiedEmail", emailNormalized),
+      )
+      .unique();
+    if (!person) return { kind: "not_found" };
+    const membership = await ctx.db
+      .query("eventMemberships")
+      .withIndex("by_event_person", (index) =>
+        index.eq("eventId", args.eventId).eq("personId", person._id),
+      )
+      .unique();
+    if (!membership) return { kind: "not_found" };
+    return { kind: "resolved", person, membership };
+  }
+  if (args.entry.vitRegistrationNumber === undefined) {
+    throw new Error("A team roster entry must contain one identity.");
+  }
+  const memberships = await ctx.db
+    .query("eventMemberships")
+    .withIndex("by_event_vit_registration", (index) =>
+      index
+        .eq("eventId", args.eventId)
+        .eq("vitStudentIdentity.registrationNumber", args.entry.vitRegistrationNumber),
+    )
+    .take(2);
+  if (memberships.length > 1) {
+    return { kind: "identity_conflict" };
+  }
+  const membership = memberships[0];
+  if (!membership) return { kind: "not_found" };
+  const person = await ctx.db.get(membership.personId);
+  if (!person) return { kind: "not_found" };
+  return { kind: "resolved", person, membership };
 }
 
 export type PendingTeamAssignee = {
@@ -372,7 +457,7 @@ export async function pendingTeamAssignees(
   args: {
     eventId: Id<"events">;
     teamName: string;
-    viewerEmailNormalized: string;
+    viewerIdentities: readonly string[];
   },
 ): Promise<PendingTeamAssignee[]> {
   const pending = await ctx.db
@@ -401,17 +486,17 @@ export async function pendingTeamAssignees(
     .slice(0, maximumPendingAssignees);
   return Promise.all(
     entries.map(async (entry) => {
-      const person = await ctx.db
-        .query("people")
-        .withIndex("by_verified_email", (index) =>
-          index.eq("verifiedEmail", entry.emailNormalized),
-        )
-        .unique();
+      const resolved = await resolveTeamRosterPerson(ctx, {
+        eventId: args.eventId,
+        entry,
+      });
       return {
         displayName: entry.displayName,
         role: entry.role,
-        signedIn: person !== null,
-        isYou: entry.emailNormalized === args.viewerEmailNormalized,
+        signedIn: resolved.kind === "resolved",
+        isYou: args.viewerIdentities.includes(
+          entry.emailNormalized ?? entry.vitRegistrationNumber ?? "",
+        ),
       };
     }),
   );
@@ -429,19 +514,31 @@ export async function claimPendingTeamRosterEntry(
     person: Doc<"people">;
   },
 ) {
-  const entry = await teamRosterPendingEntry(ctx, {
-    eventId: args.event._id,
-    emailNormalized: args.person.verifiedEmail,
-  });
-  if (!entry) return "still_pending";
-  try {
-    return (await applyTeamRosterEntry(ctx, {
-      event: args.event,
-      entry,
-      actorPersonId: args.person._id,
-    })).outcome;
-  } catch (error) {
-    if (isTeamPlacementFailure(error)) return "still_pending";
-    throw error;
+  const membership = await ctx.db
+    .query("eventMemberships")
+    .withIndex("by_event_person", (index) =>
+      index.eq("eventId", args.event._id).eq("personId", args.person._id),
+    )
+    .unique();
+  let outcome: TeamBackfillOutcome = "still_pending";
+  for (const identityNormalized of rosterIdentitiesForPerson(args.person, membership)) {
+    const entry = await pendingEntryForIdentity(ctx, {
+      eventId: args.event._id,
+      identityNormalized,
+    });
+    if (!entry) continue;
+    try {
+      const result = await applyTeamRosterEntry(ctx, {
+        event: args.event,
+        entry,
+        actorPersonId: args.person._id,
+      });
+      if (result.outcome === "claimed" || outcome === "still_pending") {
+        outcome = result.outcome;
+      }
+    } catch (error) {
+      if (!isTeamPlacementFailure(error)) throw error;
+    }
   }
+  return outcome;
 }

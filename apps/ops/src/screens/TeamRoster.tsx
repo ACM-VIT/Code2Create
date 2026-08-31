@@ -1,7 +1,6 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
-import * as Papa from 'papaparse'
 import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -10,28 +9,25 @@ import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from '../comp
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
+import {
+  maximumTeamRosterRows,
+  parseTeamRosterCsv,
+  parseTeamShapedRosterCsv,
+} from '../lib/teamRosterCsv'
 
 type Entry = FunctionReturnType<typeof api.teamRosters.list>['page'][number]
 type PreviewRequest = FunctionArgs<typeof api.teamRosters.previewImport>
 type ImportRow = PreviewRequest['rows'][number]
-type TeamRole = ImportRow['role']
 type PreviewResult = FunctionReturnType<typeof api.teamRosters.previewImport>
 type ImportResult = FunctionReturnType<typeof api.teamRosters.confirmImport>
 
-type EntryGroup = 'waiting' | 'joined' | 'skipped' | 'ended'
+type EntryGroup = 'conflict' | 'waiting' | 'joined' | 'skipped' | 'ended'
+type ImportShape = 'people' | 'teams'
 
 const maximumCsvBytes = 256 * 1024
-const maximumTeamRosterRows = 200
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-const roleByWrittenForm = new Map<string, TeamRole>([
-  ['lead', 'lead'],
-  ['team_lead', 'lead'],
-  ['team lead', 'lead'],
-  ['member', 'member'],
-])
 
 const teamRosterGroups: ReadonlyArray<{ key: EntryGroup; label: string }> = [
+  { key: 'conflict', label: 'Identity conflicts to resolve' },
   { key: 'waiting', label: 'Waiting to sign in or for their lead' },
   { key: 'joined', label: 'On their team' },
   { key: 'skipped', label: 'Already on a team' },
@@ -48,6 +44,7 @@ export function TeamRoster() {
   const confirmImport = useMutation(api.teamRosters.confirmImport)
   const operations = useOperationRunner<ImportResult>()
   const [showImport, setShowImport] = useState(false)
+  const [importShape, setImportShape] = useState<ImportShape>('people')
   const [loadedRoster, setLoadedRoster] = useState<{
     fileName: string
     rows: ImportRow[]
@@ -74,6 +71,7 @@ export function TeamRoster() {
   const entries = entryPage.results
   const loadingPeople = entryPage.status === 'LoadingFirstPage'
   const waiting = workspace.entryCounts.waiting
+  const identityConflicts = workspace.entryCounts.identityConflicts
   const joined = workspace.entryCounts.claimed
   const skipped = workspace.entryCounts.skipped
   const total = workspace.entryCounts.total
@@ -98,7 +96,9 @@ export function TeamRoster() {
       return
     }
     try {
-      const parsed = parseTeamRosterCsv(await file.text())
+      const parsed = importShape === 'teams'
+        ? parseTeamShapedRosterCsv(await file.text())
+        : parseTeamRosterCsv(await file.text())
       setLoadedRoster({ fileName: file.name, rows: parsed })
       setSourceName((current) => current || sourceNameFromFile(file.name))
     } catch (caught) {
@@ -146,7 +146,9 @@ export function TeamRoster() {
         }),
       )
       setMessage(
-        `Recorded ${result.rowCount} ${people(result.rowCount)}. They join their team as soon as they sign in, or right away if they already have an account.`,
+        preview.counts.identityConflicts > 0
+          ? `Recorded ${result.rowCount} ${people(result.rowCount)}. ${preview.counts.identityConflicts} identity ${preview.counts.identityConflicts === 1 ? 'conflict needs' : 'conflicts need'} duplicate-account cleanup; safe rows will continue joining normally.`
+          : `Recorded ${result.rowCount} ${people(result.rowCount)}. They join their team as soon as they sign in, or right away if they already have an account.`,
       )
       setPreviewRequest(null)
       setLoadedRoster(null)
@@ -199,11 +201,14 @@ export function TeamRoster() {
               <dl className="catalog-summary">
                 <div><dt>On their team</dt><dd>{joined}</dd></div>
                 <div><dt>Waiting</dt><dd>{waiting}</dd></div>
+                <div><dt>Identity conflicts</dt><dd>{identityConflicts}</dd></div>
                 <div><dt>Already on a team</dt><dd>{skipped}</dd></div>
               </dl>
               <p>
-                {waiting === 0
-                  ? 'Every imported person is on a team.'
+                {waiting === 0 && identityConflicts === 0
+                  ? 'Every current assignment is resolved.'
+                  : identityConflicts > 0
+                    ? `${identityConflicts} ${people(identityConflicts)} need duplicate VIT accounts resolved; ${waiting} are still waiting to join.`
                   : `${waiting} of ${total} ${people(total)} are still waiting to join their team.`}
               </p>
               {!workspace.canImport ? (
@@ -221,8 +226,11 @@ export function TeamRoster() {
           <div>
             <h2>Import team assignments</h2>
             <p className="muted">
-              A CSV of up to {maximumTeamRosterRows} rows with the columns <code>email,name,team,role</code>.
-              The role is lead or member. Export Excel as CSV.
+              {importShape === 'teams'
+                ? <>A CSV of up to {maximumTeamRosterRows} people with the columns <code>team,lead_name,lead_identity,member_identities</code>. Team can be blank; a new team is created from the lead&apos;s name. Identities are Google emails or VIT registration numbers such as <code>24BCI0150</code>, separated by semicolons.</>
+                : <>A CSV of up to {maximumTeamRosterRows} rows with the columns <code>identity,name,team,role</code>. Identity is a Google email or a VIT registration number such as <code>24BCI0150</code>. The role is lead or member.</>
+              }
+              {' '}Export Excel as CSV.
             </p>
           </div>
 
@@ -238,6 +246,37 @@ export function TeamRoster() {
             />
           ) : (
             <form className="roster-import-form" onSubmit={requestPreview}>
+              <fieldset className="roster-bundles">
+                <legend>List shape</legend>
+                <label className="check-row">
+                  <input
+                    checked={importShape === 'people'}
+                    name="roster-import-shape"
+                    type="radio"
+                    onChange={() => {
+                      setImportShape('people')
+                      setLoadedRoster(null)
+                      setFileInputKey((key) => key + 1)
+                      setError(null)
+                    }}
+                  />
+                  Person rows
+                </label>
+                <label className="check-row">
+                  <input
+                    checked={importShape === 'teams'}
+                    name="roster-import-shape"
+                    type="radio"
+                    onChange={() => {
+                      setImportShape('teams')
+                      setLoadedRoster(null)
+                      setFileInputKey((key) => key + 1)
+                      setError(null)
+                    }}
+                  />
+                  Team rows
+                </label>
+              </fieldset>
               <label className="field roster-file-field">
                 <span>Team list</span>
                 <input
@@ -325,23 +364,25 @@ function TeamRosterPreview({
     <div className="roster-preview">
       <dl className="roster-preview-counts">
         <div><dt>Waiting to sign in</dt><dd>{preview.counts.pending}</dd></div>
+        <div><dt>Identity conflicts</dt><dd>{preview.counts.identityConflicts}</dd></div>
         <div><dt>Already on a team</dt><dd>{preview.counts.alreadyOnTeam}</dd></div>
         <div><dt>Team lead not signed in</dt><dd>{preview.counts.waitingForLead}</dd></div>
         <div><dt>Replaces an earlier row</dt><dd>{preview.counts.superseded}</dd></div>
       </dl>
       <div className="roster-preview-rows">
         {preview.rows.map((row) => (
-          <div key={`${row.rowNumber}:${row.email}`}>
+          <div key={`${row.rowNumber}:${row.identity}`}>
             <span>{row.rowNumber}</span>
-            <span><strong>{row.displayName}</strong><small>{row.email}</small></span>
+            <span><strong>{row.displayName}</strong><small>{row.identity}</small></span>
             <span>{row.teamName} · {row.role}</span>
             <span>{outcomeName(row.outcome)}</span>
           </div>
         ))}
       </div>
       <p className="muted">
-        People already on a team stay where they are. Everyone else joins the named team when they
-        sign in, or immediately if they already have a participant account.
+        People already on a team stay where they are. Safe rows continue normally. Identity
+        conflicts are recorded without placement so Ops can resolve duplicate VIT accounts and
+        import those people again.
       </p>
       <div className="button-row">
         <button className="primary" type="button" disabled={busy} onClick={onConfirm}>
@@ -402,7 +443,7 @@ function TeamRosterEntry({ entry, canRevoke }: { entry: Entry; canRevoke: boolea
             <span className="row-context"> · {entry.teamName} · {entry.role}</span>
           </strong>
           <small>{statusStatement(entry)}</small>
-          <small className="row-context">{entry.email}</small>
+          <small className="row-context">{entry.identity}</small>
         </div>
         {canRevoke && entry.canRevoke ? (
           <button
@@ -446,6 +487,7 @@ function orderedEntries(entries: readonly Entry[], group: EntryGroup) {
 }
 
 function entryGroup(status: Entry['status']): EntryGroup {
+  if (status === 'identity_conflict') return 'conflict'
   if (status === 'pending' || status === 'waiting_for_lead') return 'waiting'
   if (status === 'claimed') return 'joined'
   if (status === 'skipped_has_team') return 'skipped'
@@ -453,12 +495,14 @@ function entryGroup(status: Entry['status']): EntryGroup {
 }
 
 function groupTone(group: EntryGroup) {
+  if (group === 'conflict') return 'critical'
   if (group === 'skipped') return 'watch'
   if (group === 'waiting') return 'watch'
   return ''
 }
 
 function groupIcon(group: EntryGroup): IconName {
+  if (group === 'conflict') return 'alert'
   if (group === 'waiting') return 'clock'
   if (group === 'joined') return 'users'
   if (group === 'skipped') return 'pause'
@@ -472,85 +516,15 @@ function statusStatement(entry: Entry) {
   if (entry.status === 'waiting_for_lead') {
     return 'Signed in, but the team lead has not. They join as soon as the lead does.'
   }
+  if (entry.status === 'identity_conflict') {
+    return 'This registration number belongs to multiple event accounts. Resolve the duplicate accounts, remove this row, then import it again.'
+  }
   if (entry.status === 'claimed') return 'On their team.'
   if (entry.status === 'skipped_has_team') {
     return 'Was already on a team, so this assignment was skipped.'
   }
   if (entry.status === 'revoked') return 'The assignment was removed.'
-  return 'A newer assignment for the same email address replaced this one.'
-}
-
-function parseTeamRosterCsv(text: string): ImportRow[] {
-  const parsed = Papa.parse<string[]>(text, { skipEmptyLines: false })
-  const firstError = parsed.errors[0]
-  if (firstError) {
-    const row = firstError.row === undefined ? '' : ` on row ${firstError.row + 1}`
-    throw new Error(`CSV parsing failed${row}: ${firstError.message}`)
-  }
-  const header = parsed.data[0]
-  const normalizedHeader = header?.map((cell, index) =>
-    (index === 0 ? cell.replace(/^\uFEFF/, '') : cell).trim().toLowerCase(),
-  )
-  if (
-    normalizedHeader?.length !== 4 ||
-    normalizedHeader[0] !== 'email' ||
-    normalizedHeader[1] !== 'name' ||
-    normalizedHeader[2] !== 'team' ||
-    normalizedHeader[3] !== 'role'
-  ) {
-    throw new Error('The first CSV row must be exactly: email,name,team,role.')
-  }
-  const rows: ImportRow[] = []
-  for (let index = 1; index < parsed.data.length; index += 1) {
-    const source = parsed.data[index]
-    if (!source || source.every((cell) => !cell.trim())) continue
-    const email = source[0]?.trim().toLowerCase()
-    const displayName = source[1]?.trim()
-    const teamName = source[2]?.trim()
-    const role = source[3] ? parsedRole(source[3]) : null
-    if (source.length !== 4 || !email || !displayName || !teamName || !role) {
-      throw new Error(
-        'CSV row ' + (index + 1) + ' needs an email, a name, a team name, and a role of lead or member.',
-      )
-    }
-    if (!emailPattern.test(email) || email.length > 254) {
-      throw new Error(`CSV row ${index + 1} has an invalid email address.`)
-    }
-    if (displayName.length < 2 || displayName.length > 100) {
-      throw new Error(`CSV row ${index + 1} needs a name between 2 and 100 characters.`)
-    }
-    if (teamName.length < 2 || teamName.length > 60) {
-      throw new Error(`CSV row ${index + 1} needs a team name between 2 and 60 characters.`)
-    }
-    rows.push({ rowNumber: index + 1, email, displayName, teamName, role })
-  }
-  if (rows.length === 0) throw new Error('The CSV contains no team roster rows.')
-  if (rows.length > maximumTeamRosterRows) {
-    throw new Error(`Import at most ${maximumTeamRosterRows} team roster rows at a time.`)
-  }
-  const duplicate = rows.find((row, index) =>
-    rows.some((candidate, candidateIndex) => candidateIndex < index && candidate.email === row.email),
-  )
-  if (duplicate) throw new Error(`${duplicate.email} appears more than once in the CSV.`)
-  const leadByTeam: Record<string, number> = {}
-  for (const row of rows) {
-    leadByTeam[row.teamName] = (leadByTeam[row.teamName] ?? 0) + (row.role === 'lead' ? 1 : 0)
-  }
-  const badTeam = Object.entries(leadByTeam).find(([, leadCount]) => leadCount !== 1)
-  if (badTeam) {
-    throw new Error(
-      `Team ${badTeam[0]} needs exactly one lead row. Give every team one lead.`,
-    )
-  }
-  return rows
-}
-
-function parsedRole(value: string): TeamRole | null {
-  return roleByWrittenForm.get(normalizedRoleText(value)) ?? null
-}
-
-function normalizedRoleText(value: string) {
-  return value.trim().toLowerCase().replace(/[ -]+/g, '_')
+  return 'A newer assignment for the same person replaced this one.'
 }
 
 function sourceNameFromFile(fileName: string) {
@@ -564,6 +538,7 @@ function people(count: number) {
 
 function outcomeName(outcome: PreviewResult['rows'][number]['outcome']) {
   if (outcome === 'pending') return 'Waiting to sign in'
+  if (outcome === 'identity_conflict') return 'Resolve duplicate VIT accounts'
   if (outcome === 'already_on_team') return 'Already on a team'
   return 'Lead not signed in yet'
 }

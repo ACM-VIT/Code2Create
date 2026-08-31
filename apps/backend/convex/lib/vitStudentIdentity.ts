@@ -8,6 +8,26 @@ export type VitStudentProfileIdentity = {
   yearOfStudy: "first" | "second" | "third" | "fourth" | "fifth_or_later";
 };
 
+export type ParsedVitRegistrationNumber = {
+  registrationNumber: string;
+  programmeCode: string;
+  yearOfStudy: VitStudentProfileIdentity["yearOfStudy"];
+};
+
+const vitRegistrationNumberPattern = /^(\d{2})([A-Za-z]{3})(\d{4})$/;
+
+export function vitIdentityReferenceYear(event: {
+  timezone: string;
+  startsAt?: number;
+  applicationsCloseAt: number;
+}) {
+  const referenceAt = event.startsAt ?? event.applicationsCloseAt;
+  return Number(new Intl.DateTimeFormat("en", {
+    timeZone: event.timezone,
+    year: "numeric",
+  }).format(new Date(referenceAt)));
+}
+
 function studyYearForRegistrationPrefix(prefix: string, eventYear: number) {
   if (!Number.isSafeInteger(eventYear) || eventYear < 2000 || eventYear > 2099) {
     throw new Error("The event year cannot determine a VIT study year.");
@@ -22,35 +42,43 @@ function studyYearForRegistrationPrefix(prefix: string, eventYear: number) {
   return "fifth_or_later" as const;
 }
 
+export function parseVitRegistrationNumber(
+  value: string,
+  eventYear: number,
+): ParsedVitRegistrationNumber | null {
+  const match = value.trim().match(vitRegistrationNumberPattern);
+  if (!match) return null;
+  const registrationPrefix = match[1];
+  const programmeCode = match[2];
+  const registrationSerial = match[3];
+  if (!registrationPrefix || !programmeCode || !registrationSerial) return null;
+  const yearOfStudy = studyYearForRegistrationPrefix(registrationPrefix, eventYear);
+  if (!yearOfStudy) return null;
+  const normalizedProgrammeCode = programmeCode.toUpperCase();
+  return {
+    registrationNumber: `${registrationPrefix}${normalizedProgrammeCode}${registrationSerial}`,
+    programmeCode: normalizedProgrammeCode,
+    yearOfStudy,
+  };
+}
+
 export function parseVitStudentGoogleDisplayName(
   displayName: string,
   eventYear: number,
 ): VitStudentProfileIdentity | null {
   const normalized = displayName.trim().replace(/\s+/g, " ");
-  const match = normalized.match(
-    /^(.{2,})\s+((\d{2})([A-Za-z]{3})(\d{4}))$/,
-  );
+  const match = normalized.match(/^(.{2,})\s+(\d{2}[A-Za-z]{3}\d{4})$/);
   if (!match) return null;
   const fullName = match[1];
-  const registrationPrefix = match[3];
-  const programmeCode = match[4];
-  const registrationSerial = match[5];
-  if (
-    !fullName ||
-    !registrationPrefix ||
-    !programmeCode ||
-    !registrationSerial
-  ) {
-    return null;
-  }
-  const yearOfStudy = studyYearForRegistrationPrefix(registrationPrefix, eventYear);
-  if (!yearOfStudy) return null;
-  const normalizedProgrammeCode = programmeCode.toUpperCase();
+  const rawRegistrationNumber = match[2];
+  if (!fullName || !rawRegistrationNumber) return null;
+  const parsed = parseVitRegistrationNumber(rawRegistrationNumber, eventYear);
+  if (!parsed) return null;
   return {
     fullName,
-    registrationNumber: `${registrationPrefix}${normalizedProgrammeCode}${registrationSerial}`,
-    programmeCode: normalizedProgrammeCode,
-    yearOfStudy,
+    registrationNumber: parsed.registrationNumber,
+    programmeCode: parsed.programmeCode,
+    yearOfStudy: parsed.yearOfStudy,
   };
 }
 

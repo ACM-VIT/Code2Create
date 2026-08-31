@@ -23,8 +23,17 @@ import { loadPublishedParticipantPolicy } from "./lib/participantPolicy";
 import type { PermissionKey } from "./lib/permissionCatalog";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizeEmail, normalizedText } from "./lib/strings";
-import { activeTeamsWithName, applyTeamRosterEntry } from "./lib/teamBackfill";
+import {
+  activeTeamsWithName,
+  applyTeamRosterEntry,
+  pendingEntryForIdentity,
+  resolveTeamRosterPerson,
+} from "./lib/teamBackfill";
 import { teamRosterCounts } from "./lib/teamRoster";
+import {
+  parseVitRegistrationNumber,
+  vitIdentityReferenceYear,
+} from "./lib/vitStudentIdentity";
 import { memberRole, teamRosterEntryStatus } from "./values";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -41,7 +50,7 @@ const teamRosterImportOperationResult = z
 
 const importRow = v.object({
   rowNumber: v.number(),
-  email: v.string(),
+  identity: v.string(),
   displayName: v.string(),
   teamName: v.string(),
   role: memberRole,
@@ -57,6 +66,7 @@ const importRequestArgs = {
 
 const previewCounts = v.object({
   pending: v.number(),
+  identityConflicts: v.number(),
   superseded: v.number(),
   alreadyOnTeam: v.number(),
   waitingForLead: v.number(),
@@ -64,6 +74,7 @@ const previewCounts = v.object({
 
 const entryCounts = v.object({
   waiting: v.number(),
+  identityConflicts: v.number(),
   claimed: v.number(),
   skipped: v.number(),
   total: v.number(),
@@ -71,6 +82,7 @@ const entryCounts = v.object({
 
 const previewRowOutcome = v.union(
   v.literal("pending"),
+  v.literal("identity_conflict"),
   v.literal("already_on_team"),
   v.literal("waiting_for_lead"),
 );
@@ -79,7 +91,8 @@ const entryView = v.object({
   id: v.id("teamRosterEntries"),
   teamRosterImportId: v.id("teamRosterImports"),
   sourceRowNumber: v.number(),
-  email: v.string(),
+  identity: v.string(),
+  identityKind: v.union(v.literal("email"), v.literal("vit_registration")),
   displayName: v.string(),
   teamName: v.string(),
   role: memberRole,
@@ -93,14 +106,21 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type ImportRowInput = {
   rowNumber: number;
-  email: string;
+  identity: string;
   displayName: string;
   teamName: string;
   role: Doc<"teamRosterEntries">["role"];
 };
 
-type PreviewRow = ImportRowInput & {
-  outcome: "pending" | "already_on_team" | "waiting_for_lead";
+type NormalizedImportRow = ImportRowInput & {
+  identityKind: "email" | "vit_registration";
+  identityNormalized: string;
+  emailNormalized?: string;
+  vitRegistrationNumber?: string;
+};
+
+type PreviewRow = NormalizedImportRow & {
+  outcome: "pending" | "identity_conflict" | "already_on_team" | "waiting_for_lead";
 };
 
 type TeamRosterPreview = {
@@ -108,22 +128,49 @@ type TeamRosterPreview = {
   sourceName: string;
   sourceFileName?: string;
   rows: PreviewRow[];
-  counts: { pending: number; superseded: number; alreadyOnTeam: number; waitingForLead: number };
+  counts: {
+    pending: number;
+    identityConflicts: number;
+    superseded: number;
+    alreadyOnTeam: number;
+    waitingForLead: number;
+  };
   reason: string;
-  normalizedRows: ImportRowInput[];
+  normalizedRows: NormalizedImportRow[];
   priorEntries: Doc<"teamRosterEntries">[];
   eventId: Id<"events">;
 };
 
-function exactTeamRosterEmail(value: string) {
-  const email = normalizeEmail(value);
-  if (!emailPattern.test(email) || email.length > 254) {
+function exactTeamRosterIdentity(value: string, eventYear: number) {
+  const trimmed = value.trim();
+  if (trimmed.includes("@")) {
+    const email = normalizeEmail(trimmed);
+    if (!emailPattern.test(email) || email.length > 254) {
+      throw new ConvexError({
+        code: "INVALID_TEAM_ROSTER_IDENTITY",
+        message: "Every team roster row needs a Google account email or a VIT registration number.",
+      });
+    }
+    return {
+      identityKind: "email" as const,
+      identityNormalized: email,
+      identity: email,
+      emailNormalized: email,
+    };
+  }
+  const parsed = parseVitRegistrationNumber(trimmed, eventYear);
+  if (!parsed) {
     throw new ConvexError({
-      code: "INVALID_TEAM_ROSTER_EMAIL",
-      message: "Every team roster row needs one complete Google account email address.",
+      code: "INVALID_TEAM_ROSTER_IDENTITY",
+      message: "Every team roster row needs a Google account email or a VIT registration number.",
     });
   }
-  return email;
+  return {
+    identityKind: "vit_registration" as const,
+    identityNormalized: parsed.registrationNumber,
+    identity: parsed.registrationNumber,
+    vitRegistrationNumber: parsed.registrationNumber,
+  };
 }
 
 function normalizeTeamRosterRequest(args: {
@@ -131,6 +178,7 @@ function normalizeTeamRosterRequest(args: {
   sourceFileName?: string;
   rows: ImportRowInput[];
   reason: string;
+  eventYear: number;
 }) {
   if (args.rows.length < 1 || args.rows.length > maximumRowsPerImport) {
     throw new ConvexError({
@@ -145,7 +193,7 @@ function normalizeTeamRosterRequest(args: {
   const reason = normalizedText(args.reason, "Reason", 5, 300);
 
   const seenRows = new Set<number>();
-  const seenEmails = new Set<string>();
+  const seenIdentities = new Set<string>();
   const rows = args.rows.map((row) => {
     if (!Number.isSafeInteger(row.rowNumber) || row.rowNumber < 2 || seenRows.has(row.rowNumber)) {
       throw new ConvexError({
@@ -154,17 +202,22 @@ function normalizeTeamRosterRequest(args: {
       });
     }
     seenRows.add(row.rowNumber);
-    const email = exactTeamRosterEmail(row.email);
-    if (seenEmails.has(email)) {
+    const identity = exactTeamRosterIdentity(row.identity, args.eventYear);
+    if (seenIdentities.has(identity.identityNormalized)) {
       throw new ConvexError({
-        code: "DUPLICATE_TEAM_ROSTER_EMAIL",
-        message: `${email} appears more than once in this import.`,
+        code: "DUPLICATE_TEAM_ROSTER_IDENTITY",
+        message: `${identity.identityNormalized} appears more than once in this import.`,
       });
     }
-    seenEmails.add(email);
+    seenIdentities.add(identity.identityNormalized);
     return {
       rowNumber: row.rowNumber,
-      email,
+      identity: identity.identity,
+      identityKind: identity.identityKind,
+      identityNormalized: identity.identityNormalized,
+      ...(identity.identityKind === "email"
+        ? { emailNormalized: identity.emailNormalized }
+        : { vitRegistrationNumber: identity.vitRegistrationNumber }),
       displayName: normalizedText(row.displayName, "Roster name", 2, 100),
       teamName: normalizedText(row.teamName, "Team name", 2, 60),
       role: row.role,
@@ -200,53 +253,33 @@ function normalizeTeamRosterRequest(args: {
 async function personStateForPreview(
   ctx: ReadCtx,
   eventId: Id<"events">,
-  email: string,
+  identity: Pick<NormalizedImportRow, "emailNormalized" | "vitRegistrationNumber">,
 ) {
-  const person = await ctx.db
-    .query("people")
-    .withIndex("by_verified_email", (index) => index.eq("verifiedEmail", email))
-    .unique();
-  if (!person) return { activeMember: null as Doc<"teamMembers"> | null, hasMembership: false };
-  const membership = await ctx.db
-    .query("eventMemberships")
-    .withIndex("by_event_person", (index) =>
-      index.eq("eventId", eventId).eq("personId", person._id),
-    )
-    .unique();
-  if (!membership) return { activeMember: null as Doc<"teamMembers"> | null, hasMembership: false };
+  const resolved = await resolveTeamRosterPerson(ctx, { eventId, entry: identity });
+  if (resolved.kind === "identity_conflict") {
+    return {
+      activeMember: null as Doc<"teamMembers"> | null,
+      hasMembership: false,
+      identityConflict: true,
+    };
+  }
+  if (resolved.kind === "not_found") {
+    return {
+      activeMember: null as Doc<"teamMembers"> | null,
+      hasMembership: false,
+      identityConflict: false,
+    };
+  }
   const activeMember = await ctx.db
     .query("teamMembers")
     .withIndex("by_event_membership_status", (index) =>
       index
         .eq("eventId", eventId)
-        .eq("membershipId", membership._id)
+        .eq("membershipId", resolved.membership._id)
         .eq("status", "active"),
     )
     .unique();
-  return { activeMember, hasMembership: true };
-}
-
-async function pendingEntryForEmail(
-  ctx: ReadCtx,
-  eventId: Id<"events">,
-  email: string,
-) {
-  const pending = await ctx.db
-    .query("teamRosterEntries")
-    .withIndex("by_event_email_status", (index) =>
-      index.eq("eventId", eventId).eq("emailNormalized", email).eq("status", "pending"),
-    )
-    .unique();
-  if (pending) return pending;
-  return ctx.db
-    .query("teamRosterEntries")
-    .withIndex("by_event_email_status", (index) =>
-      index
-        .eq("eventId", eventId)
-        .eq("emailNormalized", email)
-        .eq("status", "waiting_for_lead"),
-    )
-    .unique();
+  return { activeMember, hasMembership: true, identityConflict: false };
 }
 
 async function liveTeamNamed(
@@ -282,23 +315,26 @@ async function countTeamRosterEntries(
 
 const emptyEntryCounts = {
   waiting: 0,
+  identityConflicts: 0,
   claimed: 0,
   skipped: 0,
   total: 0,
 };
 
 async function eventEntryCounts(ctx: ReadCtx, eventId: Id<"events">) {
-  const [pending, waitingForLead, claimed, skipped] = await Promise.all([
+  const [pending, waitingForLead, identityConflicts, claimed, skipped] = await Promise.all([
     countTeamRosterEntries(ctx, eventId, "pending"),
     countTeamRosterEntries(ctx, eventId, "waiting_for_lead"),
+    countTeamRosterEntries(ctx, eventId, "identity_conflict"),
     countTeamRosterEntries(ctx, eventId, "claimed"),
     countTeamRosterEntries(ctx, eventId, "skipped_has_team"),
   ]);
   return {
     waiting: pending + waitingForLead,
+    identityConflicts,
     claimed,
     skipped,
-    total: pending + waitingForLead + claimed + skipped,
+    total: pending + waitingForLead + identityConflicts + claimed + skipped,
   };
 }
 
@@ -307,6 +343,7 @@ function entryStatusForPreviewOutcome(
 ): Doc<"teamRosterEntries">["status"] {
   if (outcome === "already_on_team") return "skipped_has_team";
   if (outcome === "waiting_for_lead") return "waiting_for_lead";
+  if (outcome === "identity_conflict") return "identity_conflict";
   return "pending";
 }
 
@@ -320,7 +357,10 @@ async function prepareTeamRosterPreview(
     reason: string;
   },
 ): Promise<TeamRosterPreview> {
-  const normalized = normalizeTeamRosterRequest(args);
+  const normalized = normalizeTeamRosterRequest({
+    ...args,
+    eventYear: vitIdentityReferenceYear(event),
+  });
   const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
   const teamByName = new Map<string, Doc<"teams"> | null>();
   for (const row of normalized.rows) {
@@ -331,11 +371,16 @@ async function prepareTeamRosterPreview(
   const rows: PreviewRow[] = [];
   const priorEntries: Doc<"teamRosterEntries">[] = [];
   for (const row of normalized.rows) {
-    const priorEntry = await pendingEntryForEmail(ctx, event._id, row.email);
+    const priorEntry = await pendingEntryForIdentity(ctx, {
+      eventId: event._id,
+      identityNormalized: row.identityNormalized,
+    });
     if (priorEntry) priorEntries.push(priorEntry);
-    const state = await personStateForPreview(ctx, event._id, row.email);
+    const state = await personStateForPreview(ctx, event._id, row);
     const liveTeam = teamByName.get(row.teamName) ?? null;
-    if (state.activeMember) {
+    if (state.identityConflict) {
+      rows.push({ ...row, outcome: "identity_conflict" });
+    } else if (state.activeMember) {
       rows.push({ ...row, outcome: "already_on_team" });
     } else if (row.role === "member" && state.hasMembership && liveTeam === null) {
       rows.push({ ...row, outcome: "waiting_for_lead" });
@@ -347,7 +392,10 @@ async function prepareTeamRosterPreview(
   const teamMaximumSize = participantPolicy.normalized.teamMaximumSize;
   for (const [teamName, liveTeam] of teamByName) {
     const incoming = rows.filter(
-      (row) => row.teamName === teamName && row.outcome !== "already_on_team",
+      (row) =>
+        row.teamName === teamName &&
+        row.outcome !== "already_on_team" &&
+        row.outcome !== "identity_conflict",
     ).length;
     const liveCount = liveTeam ? teamRosterCounts(liveTeam).activeMemberCount : 0;
     if (liveCount + incoming > teamMaximumSize) {
@@ -362,7 +410,7 @@ async function prepareTeamRosterPreview(
     operationFingerprint(
       normalized.rows.flatMap((row) => [
         row.rowNumber,
-        row.email,
+        row.identityNormalized,
         row.displayName,
         row.teamName,
         row.role,
@@ -381,6 +429,7 @@ async function prepareTeamRosterPreview(
     rows,
     counts: {
       pending: rows.filter((row) => row.outcome === "pending").length,
+      identityConflicts: rows.filter((row) => row.outcome === "identity_conflict").length,
       superseded: priorEntries.length,
       alreadyOnTeam: rows.filter((row) => row.outcome === "already_on_team").length,
       waitingForLead: rows.filter((row) => row.outcome === "waiting_for_lead").length,
@@ -493,13 +542,19 @@ export const list = query({
         id: entry._id,
         teamRosterImportId: entry.teamRosterImportId,
         sourceRowNumber: entry.sourceRowNumber,
-        email: entry.emailNormalized,
+        identity: entry.emailNormalized ?? entry.vitRegistrationNumber ?? "",
+        identityKind: entry.emailNormalized === undefined
+          ? "vit_registration" as const
+          : "email" as const,
         displayName: entry.displayName,
         teamName: entry.teamName,
         role: entry.role,
         status: entry.status,
         version: entry.version,
-        canRevoke: entry.status === "pending" || entry.status === "waiting_for_lead",
+        canRevoke:
+          entry.status === "pending" ||
+          entry.status === "waiting_for_lead" ||
+          entry.status === "identity_conflict",
         createdAt: entry.createdAt,
       })),
     };
@@ -513,7 +568,7 @@ export const previewImport = query({
     rows: v.array(
       v.object({
         rowNumber: v.number(),
-        email: v.string(),
+        identity: v.string(),
         displayName: v.string(),
         teamName: v.string(),
         role: memberRole,
@@ -540,7 +595,14 @@ export const previewImport = query({
     const prepared = await prepareTeamRosterPreview(ctx, event, args);
     return {
       previewChecksum: prepared.previewChecksum,
-      rows: prepared.rows,
+      rows: prepared.rows.map((row) => ({
+        rowNumber: row.rowNumber,
+        identity: row.identity,
+        displayName: row.displayName,
+        teamName: row.teamName,
+        role: row.role,
+        outcome: row.outcome,
+      })),
       counts: prepared.counts,
     };
   },
@@ -566,7 +628,7 @@ export const confirmImport = mutation({
       operationFingerprint(
         args.rows.flatMap((row) => [
           row.rowNumber,
-          row.email,
+          row.identity,
           row.displayName,
           row.teamName,
           row.role,
@@ -626,6 +688,7 @@ export const confirmImport = mutation({
       unchangedCount: prepared.counts.alreadyOnTeam,
       alreadyOnTeamCount: prepared.counts.alreadyOnTeam,
       waitingForLeadCount: prepared.counts.waitingForLead,
+      identityConflictCount: prepared.counts.identityConflicts,
       appliedNowCount: 0,
       reason: prepared.reason,
       authorizingGrantIds,
@@ -639,7 +702,9 @@ export const confirmImport = mutation({
         eventId: event._id,
         teamRosterImportId,
         sourceRowNumber: row.rowNumber,
-        emailNormalized: row.email,
+        ...(row.identityKind === "email"
+          ? { emailNormalized: row.identityNormalized }
+          : { vitRegistrationNumber: row.identityNormalized }),
         displayName: row.displayName,
         teamName: row.teamName,
         role: row.role,
@@ -652,7 +717,9 @@ export const confirmImport = mutation({
     }
     for (const priorEntry of prepared.priorEntries) {
       const supersedingRow = prepared.normalizedRows.find(
-        (row) => row.email === priorEntry.emailNormalized,
+        (row) =>
+          row.identityNormalized ===
+          (priorEntry.emailNormalized ?? priorEntry.vitRegistrationNumber),
       );
       await ctx.db.patch(priorEntry._id, {
         status: "superseded",
@@ -679,6 +746,7 @@ export const confirmImport = mutation({
         rowCount: prepared.rows.length,
         alreadyOnTeamCount: prepared.counts.alreadyOnTeam,
         waitingForLeadCount: prepared.counts.waitingForLead,
+        identityConflictCount: prepared.counts.identityConflicts,
       }),
       reason: prepared.reason,
     });
@@ -817,11 +885,15 @@ export const revoke = mutation({
         message: "Only the current pending team roster entry can be revoked.",
       });
     }
-    if (entry.status !== "pending" && entry.status !== "waiting_for_lead") {
+    if (
+      entry.status !== "pending" &&
+      entry.status !== "waiting_for_lead" &&
+      entry.status !== "identity_conflict"
+    ) {
       throw new ConvexError({
         code: "TEAM_ROSTER_ENTRY_NOT_REVOKABLE",
         message:
-          "Only entries still waiting for sign-in can be revoked. Use the team tools to remove a member.",
+          "Only entries still waiting or blocked by an identity conflict can be revoked. Use the team tools to remove a member.",
       });
     }
     const now = Date.now();

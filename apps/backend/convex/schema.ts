@@ -711,6 +711,7 @@ export default defineSchema({
     unchangedCount: v.number(),
     alreadyOnTeamCount: v.number(),
     waitingForLeadCount: v.number(),
+    identityConflictCount: v.number(),
     appliedNowCount: v.number(),
     reason: v.string(),
     authorizingGrantIds: v.array(v.id("permissionGrants")),
@@ -725,7 +726,8 @@ export default defineSchema({
     eventId: v.id("events"),
     teamRosterImportId: v.id("teamRosterImports"),
     sourceRowNumber: v.number(),
-    emailNormalized: v.string(),
+    emailNormalized: v.optional(v.string()),
+    vitRegistrationNumber: v.optional(v.string()),
     displayName: v.string(),
     teamName: v.string(),
     role: memberRole,
@@ -739,6 +741,11 @@ export default defineSchema({
     supersededByEntryId: v.optional(v.id("teamRosterEntries")),
   })
     .index("by_event_email_status", ["eventId", "emailNormalized", "status"])
+    .index("by_event_vit_registration_status", [
+      "eventId",
+      "vitRegistrationNumber",
+      "status",
+    ])
     .index("by_event_team_status", ["eventId", "teamName", "status"])
     .index("by_event_status", ["eventId", "status"])
     .index("by_import_row", ["teamRosterImportId", "sourceRowNumber"])
@@ -765,7 +772,8 @@ export default defineSchema({
     .index("by_event_person", ["eventId", "personId"])
     .index("by_person", ["personId"])
     .index("by_event_status", ["eventId", "eligibilityStatus"])
-    .index("by_event_onboarding_status", ["eventId", "onboardingStatus"]),
+    .index("by_event_onboarding_status", ["eventId", "onboardingStatus"])
+    .index("by_event_vit_registration", ["eventId", "vitStudentIdentity.registrationNumber"]),
 
   eventRoles: defineTable({
     eventId: v.id("events"),
