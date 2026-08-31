@@ -11,6 +11,7 @@ import './index.css'
 import App from './App.tsx'
 import { clientConfiguration } from './lib/config.ts'
 import { initPortalTheme } from './lib/portalTheme.ts'
+import { RouteErrorScreen } from './RouteErrorScreen.tsx'
 
 installBrowserChunkRecovery()
 initPortalTheme()
@@ -41,6 +42,7 @@ if (!clientConfiguration.convexUrl || !clientConfiguration.convexSiteUrl) {
           <App authClient={authClient} />
         </Code2CreateAuthProvider>
       ),
+      errorElement: <RouteErrorScreen />,
     },
   ])
 

@@ -3,12 +3,12 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import { authComponent } from "./auth";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
 import {
   ensurePerson,
   findCurrentPerson,
-  requireAuthUser,
   requireCurrentPerson,
   requireEligibleMembership,
   requireEventSubject,
@@ -206,8 +206,9 @@ export const entryAllowed = query({
   handler: async (ctx, args) => {
     const [event, user] = await Promise.all([
       requireEventBySlug(ctx, args.eventSlug),
-      requireAuthUser(ctx),
+      authComponent.safeGetAuthUser(ctx),
     ]);
+    if (!user?.emailVerified) return false;
     return stagingParticipantAccessAllowed(ctx, event._id, user.email);
   },
 });

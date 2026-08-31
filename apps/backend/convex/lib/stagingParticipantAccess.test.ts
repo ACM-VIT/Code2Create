@@ -1,14 +1,59 @@
+import betterAuthSchema from "../../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+import { api } from "../_generated/api";
 import { requireMembership, stagingParticipantAccessAllowed } from "./identity";
 import schema from "../schema";
 
 const modules = import.meta.glob(["../**/*.ts", "!../**/*.test.ts"]);
+const betterAuthModules = import.meta.glob(
+  "../../node_modules/@convex-dev/better-auth/src/component/**/*.ts",
+);
 
 afterEach(() => vi.unstubAllEnvs());
 
 describe("staging participant access", () => {
+  test("treats a stale authentication identity as denied entry", async () => {
+    vi.stubEnv("C2C_DEPLOYMENT_ENVIRONMENT", "staging");
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const now = Date.now();
+    const eventSlug = `stale-participant-session-${crypto.randomUUID()}`;
+    await backend.run(async (ctx) => {
+      const creatorPersonId = await ctx.db.insert("people", {
+        authUserId: "stale-session-event-creator",
+        googleSubject: "stale-session-event-google",
+        verifiedEmail: "creator@example.test",
+        displayName: "Event creator",
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("events", {
+        slug: eventSlug,
+        name: "Stale session fixture",
+        timezone: "Asia/Kolkata",
+        status: "registration_open",
+        vitEmailDomains: ["vitstudent.ac.in"],
+        externalApplicationsCloseAt: now + 86_400_000,
+        applicationsCloseAt: now + 86_400_000,
+        createdByPersonId: creatorPersonId,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+    const staleSession = backend.withIdentity({
+      subject: "removed-auth-user",
+      sessionId: "removed-auth-session",
+    });
+
+    await expect(staleSession.query(api.participants.entryAllowed, {
+      eventSlug,
+    })).resolves.toBe(false);
+  });
+
   test("uses the active staff roster as the participant tester allowlist", async () => {
     vi.stubEnv("C2C_DEPLOYMENT_ENVIRONMENT", "staging");
     const backend = convexTest(schema, modules);
