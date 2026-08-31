@@ -17,6 +17,7 @@ import { SglangInterlude } from '../screens/SglangInterlude'
 import { ConfirmCard } from '../screens/TeamLobbyScreen'
 import { NoveltyPill } from '../screens/IntakeScreen'
 import { TeamCluster, type ClusterMember, type ClusterTeam } from '../components/portal/TeamCluster'
+import { TeamMenu } from '../components/portal/TeamMenu'
 
 // Fixture content for the dev screen gallery. These compose the same portal
 // primitives the real screens use, so the design system is genuinely shared —
@@ -40,6 +41,7 @@ const members: ClusterMember[] = [
 const noop = () => {}
 
 const cluster = <TeamCluster team={team} members={members} onSignOut={noop} />
+const teamMenu = <TeamMenu team={team} members={members} onSignOut={noop} />
 const account = (
   <AccountBadge name="Ananya Iyer" email="ananya@vitstudent.ac.in" detail="VIT student" />
 )
@@ -192,7 +194,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f2', () => (
-      <PortalScene tree="left" header={cluster}>
+      <PortalScene tree="left" header={cluster} menu={teamMenu}>
         <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
           <NoveltyPill
             state={{ status: 'ready', signal: { score: 87, band: 'distinct' } }}
@@ -224,7 +226,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f3', () => (
-      <PortalScene tree="left" header={cluster}>
+      <PortalScene tree="left" header={cluster} menu={teamMenu}>
         <div className="flex w-full max-w-[820px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight lg:text-[38px]">
             Who will use Foundling on day one?
@@ -261,7 +263,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f4', () => (
-      <PortalScene tree="left" header={cluster}>
+      <PortalScene tree="left" header={cluster} menu={teamMenu}>
         <div className="flex w-full max-w-[820px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight lg:text-[38px]">
             What will you build during the 48 hours?
@@ -306,7 +308,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f5', () => (
-      <PortalScene tree="left" header={cluster}>
+      <PortalScene tree="left" header={cluster} menu={teamMenu}>
         <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
           <NoveltyPill state={{ status: 'ready', signal: { score: 87, band: 'distinct' } }} minimumLength={80} />
         </div>
@@ -351,7 +353,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f6', () => (
-      <PortalScene tree="left" branch header={cluster}>
+      <PortalScene tree="left" branch header={cluster} menu={teamMenu}>
         <div className="flex w-full max-w-[600px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 text-center font-display font-light tracking-[-.01em] text-[26px] lg:text-[42px]">Ready to submit?</h1>
           <PetalCard className="px-8 pt-6 pb-4">
@@ -448,7 +450,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f1', () => (
-      <PortalScene tree="left" backdrop={<GpuSky />} header={cluster}>
+      <PortalScene tree="left" backdrop={<GpuSky />} header={cluster} menu={teamMenu}>
         <div className="flex w-full max-w-[1048px] flex-1 flex-col justify-center pb-40">
           <div className="max-w-[680px]">
             <h1 className="mb-8 font-display font-light tracking-[-.01em] text-balance text-5xl leading-none lg:text-7xl">One answer left.</h1>
@@ -489,7 +491,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
     )],
   ['fs', () => <SglangInterlude onContinue={noop} />],
   ['f7b', () => (
-      <PortalScene tree="none" header={cluster}>
+      <PortalScene tree="none" header={cluster} menu={teamMenu}>
         <div className="flex w-full max-w-[840px] flex-col items-center">
           <h1 className="mb-2 text-center font-display font-light tracking-[-.01em] text-3xl lg:text-[44px]">
             Paper Cranes

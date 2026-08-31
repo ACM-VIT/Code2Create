@@ -19,6 +19,7 @@ import { PortalScene } from '../components/portal/PortalScene'
 import { PetalCard } from '../components/portal/PetalCard'
 import { Petal } from '../components/portal/Petal'
 import { TeamCluster } from '../components/portal/TeamCluster'
+import { TeamMenu } from '../components/portal/TeamMenu'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { PortalError, PortalField, PortalTextarea } from '../components/portal/PortalField'
 import { Flower } from '../components/portal/FlowerAvatar'
@@ -28,6 +29,10 @@ import {
   sessionDraftConflicts,
   writeVersionedSessionDraft,
 } from '../lib/sessionDraft'
+import {
+  proposalRevisionBase,
+  proposalRevisionBaseFingerprint,
+} from '../lib/proposalRevision'
 
 type ParticipantDelivery = FunctionReturnType<typeof api.participantNotifications.mine>
 type ParticipantDeliveryState = NonNullable<ParticipantDelivery>['state']
@@ -271,6 +276,7 @@ function SubmittedWorkspace({
       <PortalScene
         tree="none"
         header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
+        menu={<TeamMenu team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
       >
         <div className="flex w-full max-w-[840px] flex-col items-center">
           <h1 className="mb-2 text-center font-display font-light tracking-[-.01em] text-3xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[44px]">
@@ -312,6 +318,7 @@ function SubmittedWorkspace({
       <PortalScene
         tree="none"
         header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
+        menu={<TeamMenu team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
       >
         <div className="flex w-full max-w-[760px] flex-col items-center text-center">
           <div className="mb-5 drop-shadow-[0_0_14px_var(--glow-rose)]">
@@ -405,6 +412,7 @@ function SubmittedWorkspace({
       <PortalScene
         tree="none"
         header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
+        menu={<TeamMenu team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
         backdrop={
           <div aria-hidden className="pointer-events-none absolute inset-0 z-[2]">
             <img
@@ -588,6 +596,7 @@ function SubmittedWorkspace({
     <PortalScene
       tree="none"
       header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
+        menu={<TeamMenu team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
     >
       <div className="flex w-full max-w-[760px] flex-col items-center text-center">
         <div className="mb-5 drop-shadow-[0_0_14px_var(--glow-rose)]">
@@ -689,6 +698,15 @@ function EventLiveScene({
       tree="none"
       header={(
         <TeamCluster
+          team={team}
+          members={members}
+          editable={phaseTime < team.membershipEditableUntil}
+          canManage={team.currentRole === 'lead' && phaseTime < team.membershipEditableUntil}
+          onSignOut={onSignOut}
+        />
+      )}
+      menu={(
+        <TeamMenu
           team={team}
           members={members}
           editable={phaseTime < team.membershipEditableUntil}
@@ -868,7 +886,7 @@ function ProposalSummary({
   const pending = revisionAttempt.hasPending('proposal-revision')
   const proposalStorageKey = `c2c:${eventSlug}:${application.id}:proposal`
   const [recoveredDraft] = useState(() => readVersionedSessionDraft(proposalStorageKey))
-  const currentEditBase = proposalEditBase(application, intake)
+  const currentEditBase = proposalRevisionBase(application, intake.project)
   const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [draft, setDraft] = useState(() => (
@@ -879,15 +897,18 @@ function ProposalSummary({
   const [hasRecoveredDraft, setHasRecoveredDraft] = useState(recoveredDraft !== null)
   const editBase = useRef(currentEditBase)
   const [editConflict, setEditConflict] = useState(
-    sessionDraftConflicts(recoveredDraft, proposalEditBaseFingerprint(currentEditBase)),
+    sessionDraftConflicts(recoveredDraft, proposalRevisionBaseFingerprint(currentEditBase)),
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { editors, markEditing, stopEditing } = useEditingPresence(canEdit && editing)
 
   useEffect(() => {
-    const latest = proposalEditBase(application, intake)
-    if (proposalEditBaseFingerprint(editBase.current) === proposalEditBaseFingerprint(latest)) return
+    const latest = proposalRevisionBase(application, intake.project)
+    if (
+      proposalRevisionBaseFingerprint(editBase.current) ===
+      proposalRevisionBaseFingerprint(latest)
+    ) return
     if (editing || hasRecoveredDraft) {
       setEditConflict(true)
       return
@@ -905,7 +926,6 @@ function ProposalSummary({
         const args = {
           eventSlug,
           applicationId: application.id,
-          expectedApplicationVersion: editBase.current.applicationVersion,
           expectedApplicationContentVersion: editBase.current.applicationContentVersion,
           expectedProjectVersionId: editBase.current.projectVersionId,
           expectedProjectVersion: editBase.current.projectVersion,
@@ -938,6 +958,8 @@ function ProposalSummary({
   const invalidIdea =
     ideaLength < intake.editRules.initialIdeaMinLength ||
     ideaLength > intake.editRules.initialIdeaMaxLength
+  const hasLocalChanges =
+    serializeProposalDraft(draft) !== serializeProposalDraft(proposalDraft(intake))
 
   const toggleEditing = () => {
     if (editing) {
@@ -947,7 +969,7 @@ function ProposalSummary({
       setEditConflict(false)
       stopEditing()
     } else {
-      editBase.current = proposalEditBase(application, intake)
+      editBase.current = proposalRevisionBase(application, intake.project)
       if (!hasRecoveredDraft) setDraft(proposalDraft(intake))
       setExpanded(true)
     }
@@ -979,7 +1001,7 @@ function ProposalSummary({
               <div className="mt-2 flex gap-5">
                 <PortalTextButton type="button" onClick={() => {
                   setDraft(proposalDraft(intake))
-                  editBase.current = proposalEditBase(application, intake)
+                  editBase.current = proposalRevisionBase(application, intake.project)
                   setEditConflict(false)
                   setHasRecoveredDraft(false)
                   clearSessionDraft(proposalStorageKey)
@@ -987,10 +1009,10 @@ function ProposalSummary({
                   use the saved version
                 </PortalTextButton>
                 <PortalTextButton type="button" onClick={() => {
-                  editBase.current = proposalEditBase(application, intake)
+                  editBase.current = proposalRevisionBase(application, intake.project)
                   setEditConflict(false)
                   writeVersionedSessionDraft(proposalStorageKey, {
-                    base: proposalEditBaseFingerprint(editBase.current),
+                    base: proposalRevisionBaseFingerprint(editBase.current),
                     value: serializeProposalDraft(draft),
                   })
                 }}>
@@ -1018,10 +1040,9 @@ function ProposalSummary({
                   }))
                   const nextDraft = { ...draft, initialIdea: value }
                   writeVersionedSessionDraft(proposalStorageKey, {
-                    base: proposalEditBaseFingerprint(editBase.current),
+                    base: proposalRevisionBaseFingerprint(editBase.current),
                     value: serializeProposalDraft(nextDraft),
                   })
-                  setHasRecoveredDraft(true)
                   markEditing('proposal_revision')
                 }}
               />
@@ -1057,10 +1078,9 @@ function ProposalSummary({
                       )),
                     }
                     writeVersionedSessionDraft(proposalStorageKey, {
-                      base: proposalEditBaseFingerprint(editBase.current),
+                      base: proposalRevisionBaseFingerprint(editBase.current),
                       value: serializeProposalDraft(nextDraft),
                     })
-                    setHasRecoveredDraft(true)
                     markEditing('proposal_revision', response.questionId)
                   }}
                 />
@@ -1068,10 +1088,17 @@ function ProposalSummary({
             </PortalField>
           ))}
           <PortalError message={error} />
-          <div className="mt-1 flex items-center justify-between border-t border-petal-line pt-3.5">
+          <div className="mt-1 flex items-center gap-4 border-t border-petal-line pt-3.5">
             <PortalTextButton type="button" disabled={busy || pending} onClick={toggleEditing}>
               cancel
             </PortalTextButton>
+            {hasLocalChanges ? (
+              <span className="mr-auto text-[11.5px] text-fg/45">
+                draft saved on this device
+              </span>
+            ) : (
+              <span className="mr-auto" />
+            )}
             <PortalButton
               type="submit"
               size="sm"
@@ -1140,24 +1167,6 @@ function proposalDraft(intake: SubmittedIntake) {
 }
 
 type ProposalDraft = ReturnType<typeof proposalDraft>
-
-function proposalEditBase(application: CurrentApplication, intake: SubmittedIntake) {
-  return {
-    applicationVersion: application.version,
-    applicationContentVersion: application.contentVersion,
-    projectVersionId: intake.project.id,
-    projectVersion: intake.project.version,
-  }
-}
-
-function proposalEditBaseFingerprint(base: ReturnType<typeof proposalEditBase>) {
-  return [
-    base.applicationVersion,
-    base.applicationContentVersion,
-    base.projectVersionId,
-    base.projectVersion,
-  ].join(':')
-}
 
 function serializeProposalDraft(draft: ProposalDraft) {
   const values = new URLSearchParams()

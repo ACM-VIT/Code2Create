@@ -13,3 +13,35 @@ export function shouldRecoverFollowUpDraft(args: {
     args.lastEditedByMembershipId !== args.currentMembershipId
   )
 }
+
+export type WorkingCopyReconciliation =
+  | { kind: 'unchanged' }
+  | { kind: 'acknowledge'; revision: number }
+  | { kind: 'continue'; revision: number }
+  | { kind: 'adopt'; revision: number; value: string }
+  | { kind: 'conflict' }
+
+export function reconcileWorkingCopy(args: {
+  knownRevision: number
+  localDirty: boolean
+  localValue: string
+  pendingValue: string | null
+  serverRevision: number
+  serverValue: string
+}): WorkingCopyReconciliation {
+  if (args.serverRevision === args.knownRevision) return { kind: 'unchanged' }
+  if (!args.localDirty) {
+    return {
+      kind: 'adopt',
+      revision: args.serverRevision,
+      value: args.serverValue,
+    }
+  }
+  if (args.serverValue === args.localValue) {
+    return { kind: 'acknowledge', revision: args.serverRevision }
+  }
+  if (args.serverValue === args.pendingValue) {
+    return { kind: 'continue', revision: args.serverRevision }
+  }
+  return { kind: 'conflict' }
+}

@@ -9,6 +9,7 @@ import { PetalCard } from '../components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { ShimmerText } from '../components/portal/ShimmerText'
 import { TeamCluster } from '../components/portal/TeamCluster'
+import { TeamMenu } from '../components/portal/TeamMenu'
 import { Flower } from '../components/portal/FlowerAvatar'
 import {
   PortalCheckRow,
@@ -21,8 +22,9 @@ import { markSglangInterludeSeen, sglangInterludeSeen } from '../lib/sglangNote'
 import { SglangInterlude } from './SglangInterlude'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
-import { shouldRecoverFollowUpDraft } from '../lib/intakeCollaboration'
+import { reconcileWorkingCopy, shouldRecoverFollowUpDraft } from '../lib/intakeCollaboration'
 import { useOperationRunner } from '../lib/operations'
+import { recoverProposalRevision } from '../lib/proposalRevision'
 import {
   clearSessionDraft,
   readVersionedSessionDraft,
@@ -32,6 +34,14 @@ import {
 import type { CurrentIntake, CurrentTeam, CurrentTeamMember } from '../types'
 
 type NoveltyBand = 'familiar' | 'developing' | 'distinct'
+
+// The pill's plain-speak read of each band: how close the idea sits to
+// what other teams are writing.
+const noveltyBandLabels: Record<NoveltyBand, string> = {
+  familiar: 'similar',
+  developing: 'somewhat similar',
+  distinct: 'distinct',
+}
 
 type NoveltySignal = {
   score: number
@@ -176,6 +186,15 @@ function IntakeStage({
           onSignOut={onSignOut}
         />
       )}
+      menu={(
+        <TeamMenu
+          team={team}
+          members={members}
+          editable={teamEditable}
+          canManage={team.currentRole === 'lead' && teamEditable}
+          onSignOut={onSignOut}
+        />
+      )}
     >
       {topCenter ? (
         <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
@@ -203,10 +222,14 @@ function IntakeStage({
 
 /** The conflict banner shared by the idea and follow-up editors. */
 function ConflictNotice({
+  cloudLabel,
+  cloudValue,
   message,
   onUseSaved,
   onKeepMine,
 }: {
+  cloudLabel?: string
+  cloudValue?: string | undefined
   message: string
   onUseSaved: () => void
   onKeepMine: () => void
@@ -217,6 +240,16 @@ function ConflictNotice({
       className="mb-4 rounded-petal-xs border border-petal-edge-soft bg-wash/50 px-4 py-3"
     >
       <p className="text-[12.5px] text-fg/75">{message}</p>
+      {cloudValue !== undefined ? (
+        <div className="mt-3 border-l border-rose-light/25 pl-3">
+          <span className="block text-[10.5px] tracking-[.04em] text-fg/35">
+            {cloudLabel ?? 'cloud version'}
+          </span>
+          <p className="mt-1 whitespace-pre-line wrap-anywhere text-[12.5px] leading-relaxed text-fg/35">
+            {cloudValue}
+          </p>
+        </div>
+      ) : null}
       <div className="mt-2 flex gap-4">
         <PortalTextButton type="button" onClick={onUseSaved}>
           Use saved version
@@ -308,10 +341,14 @@ function IntakeWorkspace({
   const initialSavedVersion = draft?.version ?? 0
   const [idea, setIdea] = useState(recoveredIdea?.value ?? initialWorkingIdea)
   const [ideaDirty, setIdeaDirty] = useState(
-    (recoveredIdea?.value ?? initialWorkingIdea) !== initialSavedIdea,
+    recoveredIdea !== null && recoveredIdea.value !== initialWorkingIdea,
   )
-  const ideaBase = useRef({ version: recoveredIdeaVersion ?? initialSavedVersion })
+  const ideaBase = useRef({
+    value: initialSavedIdea,
+    version: recoveredIdeaVersion ?? initialSavedVersion,
+  })
   const ideaWorkingRevision = useRef(workingIdea?.revision ?? 0)
+  const pendingIdeaAutosave = useRef<string | null>(null)
   const [ideaConflict, setIdeaConflict] = useState(
     sessionDraftConflicts(recoveredIdea, String(initialSavedVersion)),
   )
@@ -363,6 +400,11 @@ function IntakeWorkspace({
     team.currentMembershipId,
     draft?.lastEditedByMembershipId,
   )
+  const ideaEditorLabel = editorLabel(
+    members,
+    team.currentMembershipId,
+    workingIdea?.writtenByMembershipId ?? draft?.lastEditedByMembershipId,
+  )
   const ideaPending = operations.hasPending('idea')
   const followUpSlot = pendingFollowUp ? `follow-up:${pendingFollowUp.questionId}` : null
   const followUpPending = followUpSlot !== null && operations.hasPending(followUpSlot)
@@ -387,14 +429,70 @@ function IntakeWorkspace({
   useEffect(() => {
     const savedValue = draft?.initialIdea ?? ''
     const savedVersion = draft?.version ?? 0
+    const serverWorkingValue = workingIdea?.value ?? savedValue
+    const serverWorkingRevision = workingIdea?.revision ?? 0
     if (!ideaDirty) {
-      ideaBase.current = { version: savedVersion }
-      setIdea(savedValue)
+      ideaBase.current = { value: savedValue, version: savedVersion }
+      ideaWorkingRevision.current = serverWorkingRevision
+      setIdea(serverWorkingValue)
+      setIdeaDirty(false)
       setIdeaConflict(false)
+      clearSessionDraft(ideaStorageKey)
       return
     }
-    if (savedVersion !== ideaBase.current.version) setIdeaConflict(true)
-  }, [draft?.initialIdea, draft?.version, ideaDirty])
+    if (savedVersion !== ideaBase.current.version) {
+      if (savedValue === ideaBase.current.value) {
+        ideaBase.current = { value: savedValue, version: savedVersion }
+        writeVersionedSessionDraft(ideaStorageKey, {
+          base: String(savedVersion),
+          value: idea,
+        })
+      } else if (savedValue === idea) {
+        ideaBase.current = { value: savedValue, version: savedVersion }
+        ideaWorkingRevision.current = serverWorkingRevision
+        setIdea(serverWorkingValue)
+        setIdeaDirty(false)
+        setIdeaConflict(false)
+        clearSessionDraft(ideaStorageKey)
+        return
+      } else {
+        setIdeaConflict(true)
+        return
+      }
+    }
+    const reconciliation = reconcileWorkingCopy({
+      knownRevision: ideaWorkingRevision.current,
+      localDirty: ideaDirty,
+      localValue: idea,
+      pendingValue: pendingIdeaAutosave.current,
+      serverRevision: serverWorkingRevision,
+      serverValue: serverWorkingValue,
+    })
+    if (reconciliation.kind === 'unchanged') return
+    if (reconciliation.kind === 'conflict') {
+      setIdeaConflict(true)
+      return
+    }
+    ideaWorkingRevision.current = reconciliation.revision
+    if (reconciliation.kind === 'continue') {
+      pendingIdeaAutosave.current = null
+      return
+    }
+    if (reconciliation.kind === 'adopt') {
+      setIdea(reconciliation.value)
+      setIdeaDirty(false)
+      setIdeaConflict(false)
+    }
+    clearSessionDraft(ideaStorageKey)
+  }, [
+    draft?.initialIdea,
+    draft?.version,
+    idea,
+    ideaDirty,
+    ideaStorageKey,
+    workingIdea?.revision,
+    workingIdea?.value,
+  ])
 
   useEffect(() => {
     const nextQuestionId = activeFollowUp?.id ?? null
@@ -556,24 +654,36 @@ function IntakeWorkspace({
       ideaMaximumLength > 0 &&
       idea.length <= ideaMaximumLength,
     initialSavedValue: workingIdea?.value ?? initialSavedIdea,
-    resetKey: `idea:${draft?.version ?? 0}`,
+    resetKey: `idea:${draft?.version ?? 0}:${workingIdea?.revision ?? 0}`,
     value: idea,
-    save: (value) => autosaveWorkingField({
-      eventSlug,
-      field: { kind: 'idea' },
-      value,
-      baseDraftVersion: ideaBase.current.version,
-      expectedRevision: ideaWorkingRevision.current,
-    }),
+    save: (value) => {
+      pendingIdeaAutosave.current = value
+      return autosaveWorkingField({
+        eventSlug,
+        field: { kind: 'idea' },
+        value,
+        baseDraftVersion: ideaBase.current.version,
+        expectedRevision: ideaWorkingRevision.current,
+      })
+    },
     onSaved: (result, savedValue) => {
+      pendingIdeaAutosave.current = null
       ideaWorkingRevision.current = result.revision
-      if (savedValue === idea) clearSessionDraft(ideaStorageKey)
+      if (savedValue === idea) {
+        setIdeaDirty(false)
+        clearSessionDraft(ideaStorageKey)
+      }
       setError(null)
     },
     onError: (autosaveError) => {
+      pendingIdeaAutosave.current = null
       const message = readableError(autosaveError)
-      if (message.includes('newer text')) setIdeaConflict(true)
-      setError(message)
+      if (message.includes('newer text')) {
+        setIdeaConflict(true)
+        setError(null)
+      } else {
+        setError(message)
+      }
     },
   })
 
@@ -637,8 +747,19 @@ function IntakeWorkspace({
         clientOperationId: crypto.randomUUID(),
       })
     },
-    onSaved: (result) => {
+    onSaved: (result, savedValue) => {
       setRevisionBaseVersion(result.draftVersion)
+      if (editingFollowUp) {
+        const storageKey = `c2c:${eventSlug}:${team.id}:review:${editingFollowUp.id}`
+        if (savedValue === editedFollowUpAnswer) {
+          clearSessionDraft(storageKey)
+        } else {
+          writeVersionedSessionDraft(storageKey, {
+            base: String(result.draftVersion),
+            value: editedFollowUpAnswer,
+          })
+        }
+      }
       setError(null)
     },
     onError: (autosaveError) => setError(readableError(autosaveError)),
@@ -818,19 +939,32 @@ function IntakeWorkspace({
           <form onSubmit={submitIdea}>
             {ideaConflict ? (
               <ConflictNotice
-                message={`${draftEditorLabel} saved a newer idea. Your text is still here.`}
+                cloudLabel={ideaEditorLabel === 'You'
+                  ? 'cloud version from your other session'
+                  : `${ideaEditorLabel}'s cloud version`}
+                cloudValue={workingIdea?.value ?? draft?.initialIdea}
+                message={`${ideaEditorLabel} saved a newer idea. Your text is still here.`}
                 onUseSaved={() => {
                   const savedValue = workingIdea?.value ?? draft?.initialIdea ?? ''
                   setIdea(savedValue)
-                  setIdeaDirty(savedValue !== (draft?.initialIdea ?? ''))
+                  setIdeaDirty(false)
                   setIdeaConflict(false)
-                  ideaBase.current = { version: draft?.version ?? 0 }
+                  ideaBase.current = {
+                    value: draft?.initialIdea ?? '',
+                    version: draft?.version ?? 0,
+                  }
                   ideaWorkingRevision.current = workingIdea?.revision ?? 0
+                  pendingIdeaAutosave.current = null
                   clearSessionDraft(ideaStorageKey)
                 }}
                 onKeepMine={() => {
-                  ideaBase.current = { version: draft?.version ?? 0 }
+                  ideaBase.current = {
+                    value: draft?.initialIdea ?? '',
+                    version: draft?.version ?? 0,
+                  }
                   ideaWorkingRevision.current = workingIdea?.revision ?? 0
+                  pendingIdeaAutosave.current = null
+                  setIdeaDirty(true)
                   setIdeaConflict(false)
                   retryIdeaAutosave()
                   writeVersionedSessionDraft(ideaStorageKey, {
@@ -889,7 +1023,10 @@ function IntakeWorkspace({
                       setIdea(draft?.initialIdea ?? '')
                       setIdeaDirty(false)
                       setIdeaConflict(false)
-                      ideaBase.current = { version: draft?.version ?? 0 }
+                      ideaBase.current = {
+                        value: draft?.initialIdea ?? '',
+                        version: draft?.version ?? 0,
+                      }
                       clearSessionDraft(ideaStorageKey)
                       stopEditing()
                       setEditingIdea(false)
@@ -945,7 +1082,10 @@ function IntakeWorkspace({
             type="button"
             aria-label="Edit your idea"
             onClick={() => {
-              ideaBase.current = { version: draft.version }
+              ideaBase.current = {
+                value: draft.initialIdea ?? '',
+                version: draft.version,
+              }
               setIdea(draft.initialIdea ?? '')
               setIdeaDirty(false)
               setEditingIdea(true)
@@ -1092,7 +1232,7 @@ function IntakeWorkspace({
 
     const editIdea = () => {
       const savedIdea = preview.initialIdea ?? ''
-      ideaBase.current = { version: preview.draftVersion }
+      ideaBase.current = { value: savedIdea, version: preview.draftVersion }
       setIdea(savedIdea)
       setIdeaDirty(false)
       setEditingIdea(true)
@@ -1276,6 +1416,15 @@ function IntakeWorkspace({
             onSignOut={onSignOut}
           />
         )}
+        menu={(
+          <TeamMenu
+            team={team}
+            members={members}
+            editable={teamEditable}
+            canManage={team.currentRole === 'lead' && teamEditable}
+            onSignOut={onSignOut}
+          />
+        )}
       >
         {savedNoveltyScore !== null ? (
           <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
@@ -1332,9 +1481,18 @@ function IntakeWorkspace({
                   ? {}
                   : {
                       onEdit: () => {
+                        const storageKey = `c2c:${eventSlug}:${team.id}:review:${followUp.id}`
+                        const recovered = readVersionedSessionDraft(storageKey)
+                        const savedAnswer = followUp.answer ?? ''
+                        const revision = recoverProposalRevision(
+                          savedAnswer,
+                          preview.draftVersion,
+                          recovered,
+                        )
                         setEditingFollowUpId(followUp.id)
-                        setEditedFollowUpAnswer(followUp.answer ?? '')
-                        setRevisionBaseVersion(preview.draftVersion)
+                        setEditedFollowUpAnswer(revision.answer)
+                        setRevisionBaseVersion(revision.baseDraftVersion)
+                        if (!revision.recovered) clearSessionDraft(storageKey)
                       },
                     })}
               >
@@ -1349,7 +1507,17 @@ function IntakeWorkspace({
                       disabled={busy}
                       value={editedFollowUpAnswer}
                       onChange={(event) => {
-                        setEditedFollowUpAnswer(event.target.value)
+                        const nextAnswer = event.target.value
+                        setEditedFollowUpAnswer(nextAnswer)
+                        if (revisionBaseVersion !== null) {
+                          writeVersionedSessionDraft(
+                            `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
+                            {
+                              base: String(revisionBaseVersion),
+                              value: nextAnswer,
+                            },
+                          )
+                        }
                         setError(null)
                         markEditing('follow_up', followUp.id)
                       }}
@@ -1364,9 +1532,19 @@ function IntakeWorkspace({
                         onUseSaved={() => {
                           setEditedFollowUpAnswer(followUp.answer ?? '')
                           setRevisionBaseVersion(preview.draftVersion)
+                          clearSessionDraft(
+                            `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
+                          )
                         }}
                         onKeepMine={() => {
                           setRevisionBaseVersion(preview.draftVersion)
+                          writeVersionedSessionDraft(
+                            `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
+                            {
+                              base: String(preview.draftVersion),
+                              value: editedFollowUpAnswer,
+                            },
+                          )
                           retryRevisionAutosave()
                         }}
                       />
@@ -1386,6 +1564,9 @@ function IntakeWorkspace({
                             draft.intakePolicy.followUpAnswerMinLength
                         }
                         onClick={() => {
+                          clearSessionDraft(
+                            `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
+                          )
                           setEditingFollowUpId(null)
                           setRevisionBaseVersion(null)
                           stopEditing()
@@ -1482,7 +1663,7 @@ function NoveltyExplainer() {
   return (
     <div className="text-left">
       <p className="m-0 text-[13px] leading-relaxed text-fg/85">
-        we compare your idea with ideas from other teams. a higher score means
+        We compare your idea with ideas from other teams. A higher score means
         fewer teams are working on something similar.
       </p>
       <div className="mt-4 mb-1.5 flex h-1.5 overflow-hidden rounded-full" aria-hidden>
@@ -1491,19 +1672,19 @@ function NoveltyExplainer() {
         <span className="flex-1 bg-rose" />
       </div>
       <div className="mb-3.5 flex justify-between text-[10.5px] text-fg/50">
-        <span>many similar</span>
-        <span>some similar</span>
-        <span>few similar</span>
+        <span>Similar</span>
+        <span>Somewhat similar</span>
+        <span>Distinct</span>
       </div>
       <p className="m-0 text-xs leading-relaxed text-fg/55">
-        hackathon ideas can end up looking very similar. this score helps you
-        notice that early and try an approach that fewer teams are using. when
-        teams work on different ideas, code2create is more fun for everyone.
+        Hackathon ideas can end up looking very similar. This score helps you
+        notice that early and try an approach that fewer teams are using. When
+        teams work on different ideas, Code2Create is more fun for everyone.
       </p>
       <p className="mt-3 mb-0 text-xs leading-relaxed text-fg/55">
-        the score updates while you type. the latest score is saved with your
-        idea. it cannot block your submission. reviewers see your written idea.
-        they do not see this score.
+        The score updates while you type. The latest score is saved with your
+        idea. It cannot block your submission. Reviewers see your written idea.
+        They do not see this score.
       </p>
     </div>
   )
@@ -1558,7 +1739,7 @@ export function NoveltyPill({
   return (
     <div ref={anchorRef} className="pointer-events-auto relative">
       <div className="inline-flex items-center gap-2 rounded-[8px] border border-rose-light/55 bg-wash/92 py-1.5 pr-2 pl-3.5 text-[11.5px] font-semibold text-rose-light shadow-[0_8px_22px_var(--shade-1)] backdrop-blur-md">
-        <span aria-live="polite" aria-label="live idea comparison score">
+        <span aria-live="polite" aria-label="Live idea comparison score">
           {signal === null ? (
             label
           ) : signal.band === null ? (
@@ -1567,14 +1748,14 @@ export function NoveltyPill({
             <>
               {/* Wide screens carry both; phones trade them on a slow tick. */}
               <span className="hidden sm:inline">
-                {signal.score} / 100 · {signal.band}
+                {signal.score} / 100 · {noveltyBandLabels[signal.band]}
               </span>
               <span className="grid overflow-hidden text-center sm:hidden">
                 <span className="col-start-1 row-start-1 animate-[c2cticka_5.6s_ease-in-out_infinite] motion-reduce:animate-none">
                   {signal.score} / 100
                 </span>
                 <span className="col-start-1 row-start-1 animate-[c2ctickb_5.6s_ease-in-out_infinite] motion-reduce:hidden">
-                  {signal.band}
+                  {noveltyBandLabels[signal.band]}
                 </span>
               </span>
             </>
@@ -1593,7 +1774,7 @@ export function NoveltyPill({
       {explaining && desktop ? (
         <div className="absolute top-[calc(100%+10px)] left-1/2 z-[7] w-[320px] -translate-x-1/2 rounded-petal-sm border border-petal-edge bg-wash/92 px-6 py-5 shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-md">
           <p className="mb-2.5 text-[11px] font-semibold tracking-[.08em] text-rose-light/80">
-            what the score means
+            What the score means
           </p>
           <NoveltyExplainer />
         </div>
@@ -1605,10 +1786,10 @@ export function NoveltyPill({
             <div className="mx-auto mt-3 h-1 w-10 rounded-full bg-rose/40" aria-hidden />
             <div className="px-7 pt-5 pb-[calc(28px+env(safe-area-inset-bottom))]">
               <Drawer.Title className="mb-2.5 text-[11px] font-semibold tracking-[.08em] text-rose-light/80">
-                what the score means
+                What the score means
               </Drawer.Title>
               <Drawer.Description className="sr-only">
-                what the idea comparison score means
+                What the idea comparison score means.
               </Drawer.Description>
               <NoveltyExplainer />
             </div>
