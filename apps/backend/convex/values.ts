@@ -928,6 +928,7 @@ export const rosterEntryStatus = v.union(
 export const teamRosterEntryStatus = v.union(
   v.literal("pending"),
   v.literal("waiting_for_lead"),
+  v.literal("identity_conflict"),
   v.literal("claimed"),
   v.literal("skipped_has_team"),
   v.literal("revoked"),

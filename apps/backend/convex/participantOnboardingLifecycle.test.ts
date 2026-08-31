@@ -807,14 +807,14 @@ describe("participant onboarding lifecycle", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "roster-lead@example.test",
+          identity: "roster-lead@example.test",
           displayName: "Roster Lead",
           teamName: "Backfill Team",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: "participant@example.test",
+          identity: "participant@example.test",
           displayName: "Aarav Menon",
           teamName: "Backfill Team",
           role: "member",
@@ -828,14 +828,14 @@ describe("participant onboarding lifecycle", () => {
       rows: [
         {
           rowNumber: 2,
-          email: "roster-lead@example.test",
+          identity: "roster-lead@example.test",
           displayName: "Roster Lead",
           teamName: "Backfill Team",
           role: "lead",
         },
         {
           rowNumber: 3,
-          email: "participant@example.test",
+          identity: "participant@example.test",
           displayName: "Aarav Menon",
           teamName: "Backfill Team",
           role: "member",
