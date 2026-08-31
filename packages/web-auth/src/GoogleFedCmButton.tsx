@@ -94,9 +94,11 @@ export function GoogleFedCmButton({
             }),
           )
           element.replaceChildren()
+          const buttonWidth = element.parentElement?.getBoundingClientRect().width
+            ?? element.getBoundingClientRect().width
           google.accounts.id.renderButton(
             element,
-            googleButtonConfiguration(element.getBoundingClientRect().width),
+            googleButtonConfiguration(buttonWidth),
           )
           setPhase('ready')
         } catch {
@@ -111,7 +113,6 @@ export function GoogleFedCmButton({
 
     return () => {
       active = false
-      element.replaceChildren()
     }
   }, [authClient, clientId, hostedDomain])
 
@@ -124,6 +125,7 @@ export function GoogleFedCmButton({
         minHeight: 54,
         marginInline: 'auto',
         alignItems: 'center',
+        overflow: 'hidden',
       }}
     >
       <div
@@ -134,7 +136,8 @@ export function GoogleFedCmButton({
           visibility: phase === 'ready' ? 'visible' : 'hidden',
           pointerEvents: phase === 'ready' ? 'auto' : 'none',
           minHeight: 44,
-          width: '100%',
+          width: 'calc(100% + 20px)',
+          marginInline: -10,
         }}
       />
       {phase === 'loading' ? <div style={{ gridArea: '1 / 1' }}>{loading}</div> : null}
