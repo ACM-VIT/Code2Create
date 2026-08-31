@@ -13,7 +13,6 @@ import {
 import { GpuSky } from '../components/portal/GpuSky'
 import { Flower } from '../components/portal/FlowerAvatar'
 import { PortalScene } from '../components/portal/PortalScene'
-import { TreeLoader } from '../components/portal/TreeLoader'
 import { SglangInterlude } from '../screens/SglangInterlude'
 import { ConfirmCard } from '../screens/TeamLobbyScreen'
 import { NoveltyPill } from '../screens/IntakeScreen'
@@ -435,11 +434,6 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
           </p>
           <p className="text-[13px] text-fg/50">come back in a little while</p>
         </div>
-      </PortalScene>
-    )],
-  ['loading', () => (
-      <PortalScene tree="both">
-        <TreeLoader label="Loading your portal…" />
       </PortalScene>
     )],
   ['notice', () => (

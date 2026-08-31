@@ -17,7 +17,6 @@ export const GALLERY_SCREENS = [
   { id: 'f10b', label: 'Team lobby · manage' },
   { id: 'f12', label: 'More' },
   { id: 'gate', label: 'Cooking' },
-  { id: 'loading', label: 'Loading' },
   { id: 'notice', label: 'Access notice' },
 ] as const
 
