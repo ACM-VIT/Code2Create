@@ -16,6 +16,8 @@ export type EmergencyPackRosterRow = {
   name: string;
   phone?: string;
   vitRegistrationNumber?: string;
+  vitHostelResidence?: string;
+  vitHostelRoomNumber?: string;
   participantClass: ParticipantClass;
   eligibilityStatus: ParticipantEligibilityStatus;
   teamName?: string;
@@ -335,6 +337,8 @@ function roster(snapshot: EmergencyPackSnapshot) {
           <td>${cell(participant.name)}</td>
           <td>${cell(participant.phone)}</td>
           <td>${cell(participant.vitRegistrationNumber)}</td>
+          <td>${cell(participant.vitHostelResidence)}</td>
+          <td>${cell(participant.vitHostelRoomNumber)}</td>
           <td>${cell(participant.teamName)}</td>
           <td>${cell(participant.teamCode)}</td>
           <td>${cell(participant.hallZoneName)}</td>
@@ -349,7 +353,7 @@ function roster(snapshot: EmergencyPackSnapshot) {
     <section class="page wide roster">
       <header class="section-header"><p class="kicker">Restricted identifiable roster</p><h2>Last accepted location and presence</h2></header>
       <p class="caption">Presence is the last server-accepted boundary state at the snapshot time. A blank hall location means nobody had recorded where the team was sitting.</p>
-      <table><thead><tr><th>Participant ref</th><th>Name</th><th>Phone</th><th>VIT ID</th><th>Team</th><th>Code</th><th>Hall zone</th><th>Where in the hall</th><th>Presence</th><th>Presence zone</th><th>Updated</th></tr></thead><tbody>${rows || '<tr><td colspan="11">No participant memberships.</td></tr>'}</tbody></table>
+      <table><thead><tr><th>Participant ref</th><th>Name</th><th>Phone</th><th>VIT ID</th><th>Hostel</th><th>Room</th><th>Team</th><th>Code</th><th>Hall zone</th><th>Where in the hall</th><th>Presence</th><th>Presence zone</th><th>Updated</th></tr></thead><tbody>${rows || '<tr><td colspan="13">No participant memberships.</td></tr>'}</tbody></table>
     </section>`;
 }
 

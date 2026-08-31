@@ -1,5 +1,9 @@
 import { api } from '@code2create/backend/api'
-import { studyYearLabels } from '@code2create/domain'
+import {
+  findVitHostelResidenceCatalogEntry,
+  isVitHostelResidenceCatalogBlock,
+  studyYearLabels,
+} from '@code2create/domain'
 import { useMutation } from 'convex/react'
 import { useState, type FormEvent } from 'react'
 import { PortalScene } from '../components/portal/PortalScene'
@@ -22,6 +26,27 @@ import type { ParticipantMe } from '../types'
 const participantPolicyUrl = 'https://c2c.acmvit.in/policy'
 
 type StudyYear = NonNullable<ParticipantMe['profile']>['yearOfStudy']
+type HostelCatalog = ParticipantMe['participantPolicy']['policy']['vitHostelResidenceCatalog']
+
+function hostelDetailsPayload(
+  catalog: HostelCatalog,
+  residenceValue: string,
+  roomNumber: string,
+) {
+  const residence = findVitHostelResidenceCatalogEntry(catalog, residenceValue)
+  if (!residence) return {}
+  return {
+    vitHostelResidence: residence.stableKey,
+    ...(isVitHostelResidenceCatalogBlock(residence) && roomNumber
+      ? { vitHostelRoomNumber: roomNumber }
+      : {}),
+  }
+}
+
+function hostelBlockSelected(catalog: HostelCatalog, value: string) {
+  const residence = findVitHostelResidenceCatalogEntry(catalog, value)
+  return residence !== null && isVitHostelResidenceCatalogBlock(residence)
+}
 
 function parseStudyYear(value: string): StudyYear | null {
   switch (value) {
@@ -64,6 +89,8 @@ export function DetailsScreen({
   const [yearOfStudy, setYearOfStudy] = useState(existing?.yearOfStudy ?? 'first')
   const [currentRole, setCurrentRole] = useState(existing?.currentRole ?? '')
   const [campus, setCampus] = useState(existing?.vitCampus ?? '')
+  const [hostelResidence, setHostelResidence] = useState(existing?.vitHostelResidence ?? '')
+  const [hostelRoomNumber, setHostelRoomNumber] = useState(existing?.vitHostelRoomNumber ?? '')
   const [externalCity, setExternalCity] = useState(existing?.externalCity ?? '')
   const [externalCountry, setExternalCountry] = useState(existing?.externalCountry ?? '')
   const [accepted, setAccepted] = useState(me.participantPolicy.accepted)
@@ -115,6 +142,13 @@ export function DetailsScreen({
               : {}),
             ...(vitStudent && policy.vitCampusField !== 'not_collected' && campus
               ? { vitCampus: campus }
+              : {}),
+            ...(vitStudent && policy.vitHostelDetailsField !== 'not_collected'
+              ? hostelDetailsPayload(
+                  policy.vitHostelResidenceCatalog,
+                  hostelResidence,
+                  hostelRoomNumber,
+                )
               : {}),
             ...(!vitStudent && policy.externalCityField !== 'not_collected' && externalCity
               ? { externalCity }
@@ -318,6 +352,78 @@ export function DetailsScreen({
                           />
                         )}
                       </PortalField>
+                    ) : null}
+                    {policy.vitHostelDetailsField !== 'not_collected' ? (
+                      <>
+                        <PortalField
+                          label="hostel"
+                          {...(policy.vitHostelDetailsField === 'optional' ? { hint: 'optional' } : {})}
+                        >
+                          {(id) => (
+                            <PortalSelect
+                              id={id}
+                              required={policy.vitHostelDetailsField === 'required'}
+                              value={hostelResidence}
+                              onChange={(event) => {
+                                const nextResidence = event.target.value
+                                setHostelResidence(nextResidence)
+                                const parsed = findVitHostelResidenceCatalogEntry(
+                                  policy.vitHostelResidenceCatalog,
+                                  nextResidence,
+                                )
+                                if (!parsed || !isVitHostelResidenceCatalogBlock(parsed)) {
+                                  setHostelRoomNumber('')
+                                }
+                              }}
+                            >
+                              <option value="">Select residence</option>
+                              {policy.vitHostelResidenceCatalog
+                                .filter((residence) => residence.kind === 'day_scholar')
+                                .map((residence) => (
+                                  <option key={residence.stableKey} value={residence.stableKey}>
+                                    {residence.label}
+                                  </option>
+                                ))}
+                              <optgroup label="Men's hostel">
+                                {policy.vitHostelResidenceCatalog
+                                  .filter((residence) => residence.kind === 'mens')
+                                  .map((residence) => (
+                                  <option key={residence.stableKey} value={residence.stableKey}>
+                                    {residence.label}
+                                  </option>
+                                ))}
+                              </optgroup>
+                              <optgroup label="Ladies' hostel">
+                                {policy.vitHostelResidenceCatalog
+                                  .filter((residence) => residence.kind === 'ladies')
+                                  .map((residence) => (
+                                  <option key={residence.stableKey} value={residence.stableKey}>
+                                    {residence.label}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            </PortalSelect>
+                          )}
+                        </PortalField>
+                        {hostelBlockSelected(
+                          policy.vitHostelResidenceCatalog,
+                          hostelResidence,
+                        ) ? (
+                          <PortalField label="room number">
+                            {(id) => (
+                              <PortalInput
+                                id={id}
+                                required
+                                className="font-mono"
+                                inputMode="text"
+                                autoCapitalize="characters"
+                                value={hostelRoomNumber}
+                                onChange={(event) => setHostelRoomNumber(event.target.value)}
+                              />
+                            )}
+                          </PortalField>
+                        ) : null}
+                      </>
                     ) : null}
                   </>
                 ) : (

@@ -69,6 +69,76 @@ describe("participant policy lifecycle", () => {
     })).toThrow("positive whole number");
   });
 
+  test("normalizes an Ops-managed VIT residence catalogue", () => {
+    const policy = normalizeParticipantPolicy({
+      ...defaultParticipantPolicy,
+      vitHostelResidenceCatalog: [
+        { stableKey: " day_scholar ", label: " Day scholar ", kind: "day_scholar" },
+        { stableKey: "mh_new_annex", label: " New annex ", kind: "mens" },
+      ],
+    });
+    expect(policy.vitHostelResidenceCatalog).toEqual([
+      { stableKey: "day_scholar", label: "Day scholar", kind: "day_scholar" },
+      { stableKey: "mh_new_annex", label: "New annex", kind: "mens" },
+    ]);
+    expect(() => normalizeParticipantPolicy({
+      ...defaultParticipantPolicy,
+      vitHostelResidenceCatalog: [
+        { stableKey: "day_scholar", label: "Day scholar", kind: "day_scholar" },
+        { stableKey: "day_scholar", label: "Duplicate", kind: "mens" },
+      ],
+    })).toThrow("duplicated");
+    expect(() => normalizeParticipantPolicy({
+      ...defaultParticipantPolicy,
+      vitHostelResidenceCatalog: [
+        { stableKey: "mh_a", label: "A block", kind: "mens" },
+        { stableKey: "lh_a", label: "A block", kind: "ladies" },
+      ],
+    })).toThrow("exactly one day-scholar");
+  });
+
+  test("VIT hostel completeness requires a current block and room, or day scholar", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, "hostel-complete");
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.membershipId, { participantClass: "vit_student" });
+      await ctx.db.patch(fixture.profileId, {
+        participantClass: "vit_student",
+        yearOfStudy: "third",
+        vitRegistrationNumber: "24TST0001",
+        vitProgramme: "TST",
+        vitCampus: "Vellore",
+        currentRole: undefined,
+        externalCity: undefined,
+        externalCountry: undefined,
+      });
+      const membership = await ctx.db.get(fixture.membershipId);
+      const policy = await ctx.db.get(fixture.policyId);
+      if (!membership || !policy) throw new Error("The hostel completeness fixture is missing.");
+      const incomplete = await ctx.db.get(fixture.profileId);
+      if (!incomplete) throw new Error("The hostel completeness profile is missing.");
+      expect(isProfileCompleteForPolicy(incomplete, membership, policy)).toBe(false);
+      await ctx.db.patch(incomplete._id, { vitHostelResidence: "mh_b" });
+      const blockOnly = await ctx.db.get(incomplete._id);
+      if (!blockOnly) throw new Error("The hostel block-only profile is missing.");
+      expect(isProfileCompleteForPolicy(blockOnly, membership, policy)).toBe(false);
+      await ctx.db.patch(incomplete._id, {
+        vitHostelResidence: "mh_b",
+        vitHostelRoomNumber: "108",
+      });
+      const hosteller = await ctx.db.get(incomplete._id);
+      if (!hosteller) throw new Error("The hosteller profile is missing.");
+      expect(isProfileCompleteForPolicy(hosteller, membership, policy)).toBe(true);
+      await ctx.db.patch(incomplete._id, {
+        vitHostelResidence: "day_scholar",
+        vitHostelRoomNumber: undefined,
+      });
+      const dayScholar = await ctx.db.get(incomplete._id);
+      if (!dayScholar) throw new Error("The day-scholar profile is missing.");
+      expect(isProfileCompleteForPolicy(dayScholar, membership, policy)).toBe(true);
+    });
+  });
+
   test("allows one competing draft from the same observed state", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "draft-race");
