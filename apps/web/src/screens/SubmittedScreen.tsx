@@ -641,7 +641,7 @@ function BentoBlock({
   return (
     <div
       className={`rounded-petal-sm border border-rose-light/45 bg-[image:var(--tile-bg)] px-[22px] py-[18px] shadow-[0_24px_50px_-18px_var(--shade-2),inset_0_1px_0_var(--card-topline)] backdrop-blur-[14px] transition-all duration-250 ${
-        expandable ? 'cursor-pointer hover:-translate-y-[3px] hover:border-rose-light/80' : ''
+        expandable ? 'cursor-pointer' : ''
       }`}
       {...(expandable
         ? {

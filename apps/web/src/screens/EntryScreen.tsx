@@ -41,10 +41,10 @@ function ClassCard({
       disabled={disabled}
       aria-pressed={selected}
       onClick={onSelect}
-      className={`w-full rounded-petal-sm px-6 py-5 text-left backdrop-blur-md transition-all duration-250 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 sm:w-[250px] ${
+      className={`w-full rounded-petal-sm px-6 py-5 text-left backdrop-blur-md transition-all duration-250 disabled:cursor-not-allowed disabled:opacity-45 sm:w-[250px] ${
         selected
           ? 'border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] shadow-[0_24px_50px_-18px_var(--shade-2),0_0_26px_var(--glow-rose-soft)]'
-          : 'border border-petal-edge-soft bg-[image:var(--tile-bg)] shadow-[0_24px_50px_-18px_var(--shade-2)] hover:border-ring-lead/70'
+          : 'border-[1.5px] border-petal-edge-soft bg-[image:var(--tile-bg)] shadow-[0_24px_50px_-18px_var(--shade-2)]'
       }`}
     >
       <p
@@ -200,12 +200,13 @@ export function EntryScreen({
             {...(participantClass === 'vit_student'
               ? { hostedDomain: vitStudentEmailDomain }
               : {})}
-            loading={<PortalButton disabled>Loading Google…</PortalButton>}
-            pending={<PortalButton disabled>Signing in…</PortalButton>}
+            loading={<PortalButton disabled className="mx-auto w-full max-w-[320px]">Loading Google…</PortalButton>}
+            pending={<PortalButton disabled className="mx-auto w-full max-w-[320px]">Signing in…</PortalButton>}
             fallback={(
               <PortalButton
                 type="button"
                 disabled={busy}
+                className="mx-auto w-full max-w-[320px]"
                 onClick={() => void fallbackSignIn()}
               >
                 {busy ? 'Opening Google…' : 'Continue with Google'}
@@ -214,10 +215,7 @@ export function EntryScreen({
             onError={(message) => setError(message)}
           />
         ) : (
-          <PortalButton
-            type="button"
-            disabled
-          >
+          <PortalButton type="button" disabled className="w-full max-w-[320px]">
             Continue with Google
           </PortalButton>
         )}

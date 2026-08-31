@@ -116,7 +116,10 @@ export function GoogleFedCmButton({
   }, [authClient, clientId, hostedDomain])
 
   return (
-    <div style={{ display: 'grid', width: '100%' }}>
+    // Every phase renders inside the same fixed box so swapping between the
+    // Google button and the loading/pending/fallback buttons never shifts
+    // the layout around it.
+    <div style={{ display: 'grid', width: '100%', minHeight: 54, alignContent: 'center' }}>
       <div
         ref={container}
         aria-hidden={phase !== 'ready'}
