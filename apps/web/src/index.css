@@ -149,28 +149,57 @@
   --confirm-bg: linear-gradient(155deg, rgb(255 255 255 / .08), rgb(12 0 4 / .78) 62%);
 }
 
-/* Route changes keep the old screen visible until the destination is ready,
-   then exchange the two rendered views without a loading interstitial. */
+/* Every navigation uses the startup handoff: the destination is already
+   painted underneath while the previous surface lifts and fades away. */
 ::view-transition-old(root) {
-  animation: c2c-view-out 180ms ease-in both;
+  z-index: 1;
+  animation:
+    c2c-surface-fade 320ms ease-in both,
+    c2c-surface-lift 360ms cubic-bezier(.22, 1, .36, 1) both;
 }
 
 ::view-transition-new(root) {
-  animation: c2c-view-in 320ms cubic-bezier(.22, 1, .36, 1) both;
+  z-index: 0;
+  animation: none;
 }
 
-@keyframes c2c-view-out {
-  to { opacity: 0; transform: scale(.992); }
+@keyframes c2c-surface-fade {
+  to { opacity: 0; }
 }
 
-@keyframes c2c-view-in {
-  from { opacity: 0; transform: translateY(8px) scale(.996); }
+@keyframes c2c-surface-lift {
+  to { transform: scale(1.008); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(root),
   ::view-transition-new(root) {
     animation-duration: 1ms;
+  }
+}
+
+.startup-cover {
+  position: fixed;
+  inset: 0;
+  z-index: 9997;
+  background: var(--color-wash);
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 320ms ease-in,
+    transform 360ms cubic-bezier(.22, 1, .36, 1);
+  view-transition-name: c2c-startup;
+}
+
+.startup-cover[data-phase='leaving'] {
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(1.008);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .startup-cover {
+    transition-duration: 1ms;
   }
 }
 
