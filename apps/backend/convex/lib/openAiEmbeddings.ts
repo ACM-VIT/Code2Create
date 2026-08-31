@@ -25,7 +25,20 @@ export class OpenAiEmbeddingError extends Error {
   }
 }
 
-export async function createOpenAiEmbeddings(args: {
+function isTimeoutError(error: unknown) {
+  return error instanceof Error
+    && (error.name === "AbortError" || error.name === "TimeoutError");
+}
+
+function canRetry(error: unknown) {
+  if (!(error instanceof OpenAiEmbeddingError)) return false;
+  return error.timedOut
+    || error.status === undefined
+    || error.status === 429
+    || error.status >= 500;
+}
+
+async function requestOpenAiEmbeddings(args: {
   apiKey: string;
   model: "text-embedding-3-small";
   input: string | string[];
@@ -47,8 +60,7 @@ export async function createOpenAiEmbeddings(args: {
       signal: AbortSignal.timeout(args.timeoutMs),
     });
   } catch (error) {
-    const timedOut = error instanceof DOMException
-      && (error.name === "AbortError" || error.name === "TimeoutError");
+    const timedOut = isTimeoutError(error);
     throw new OpenAiEmbeddingError(
       timedOut ? "The embedding request timed out." : "The embedding request failed.",
       undefined,
@@ -77,4 +89,22 @@ export async function createOpenAiEmbeddings(args: {
     data: parsed.data.data,
     ...(requestId ? { requestId } : {}),
   };
+}
+
+export async function createOpenAiEmbeddings(args: {
+  apiKey: string;
+  model: "text-embedding-3-small";
+  input: string | string[];
+  timeoutMs: number;
+  maximumAttempts?: 1 | 2;
+}) {
+  const maximumAttempts = args.maximumAttempts ?? 1;
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    try {
+      return await requestOpenAiEmbeddings(args);
+    } catch (error) {
+      if (attempt === maximumAttempts || !canRetry(error)) throw error;
+    }
+  }
+  throw new Error("The embedding request exhausted its attempts.");
 }

@@ -908,7 +908,8 @@ export const preview = action({
         apiKey,
         model: begun.embeddingModel,
         input: begun.embeddingInputs,
-        timeoutMs: 12_000,
+        timeoutMs: 6_000,
+        maximumAttempts: 2,
       });
       const embeddings = orderedEmbeddings(response.data, begun.embeddingInputs.length);
       const embedding = embeddings?.[0];
