@@ -205,6 +205,43 @@ describe("participant intake lifecycle", () => {
         writtenByMembershipId: fixture.membershipId,
       }],
     });
+    const shortenedWorkingIdea = "A campus tool that routes accessibility requests to volunteers.";
+    await expect(participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "idea" },
+      value: shortenedWorkingIdea,
+      baseDraftVersion: 0,
+      expectedRevision: 1,
+    })).resolves.toMatchObject({ revision: 2 });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      workingFields: [{
+        kind: "idea",
+        value: shortenedWorkingIdea,
+        baseDraftVersion: 0,
+        revision: 2,
+        writtenByMembershipId: fixture.membershipId,
+      }],
+    });
+    await expect(participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "idea" },
+      value: "",
+      baseDraftVersion: 0,
+      expectedRevision: 2,
+    })).resolves.toMatchObject({ revision: 3 });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      workingFields: [{
+        kind: "idea",
+        value: "",
+        baseDraftVersion: 0,
+        revision: 3,
+        writtenByMembershipId: fixture.membershipId,
+      }],
+    });
     await expect(secondParticipant.mutation(api.intake.autosaveWorkingField, {
       eventSlug: fixture.eventSlug,
       field: { kind: "idea" },
@@ -620,6 +657,7 @@ describe("participant intake lifecycle", () => {
         state: "under_review",
         assignedReviewCount: 1,
         completedReviewCount: 1,
+        version: submitted.application.version + 1,
       });
       return { humanReviewId, assignmentId };
     });
@@ -627,7 +665,6 @@ describe("participant intake lifecycle", () => {
     const revisionRequest = {
       eventSlug: fixture.eventSlug,
       applicationId: submitted.application.id,
-      expectedApplicationVersion: submitted.application.version,
       expectedApplicationContentVersion: submitted.application.contentVersion,
       expectedProjectVersionId: submitted.project.id,
       expectedProjectVersion: submitted.project.version,
@@ -644,7 +681,7 @@ describe("participant intake lifecycle", () => {
     );
     expect(revision).toMatchObject({
       projectVersion: 2,
-      applicationVersion: submitted.application.version + 1,
+      applicationVersion: submitted.application.version + 2,
       applicationContentVersion: 2,
     });
     await expect(

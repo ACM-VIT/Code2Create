@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { GpuSky } from '../components/portal/GpuSky'
 import { TeamCluster } from '../components/portal/TeamCluster'
+import { TeamMenu } from '../components/portal/TeamMenu'
 import { Petal } from '../components/portal/Petal'
 import { PortalButton } from '../components/portal/PortalButton'
 import { PortalScene } from '../components/portal/PortalScene'
@@ -82,6 +83,15 @@ export function HomeScreen({
       backdrop={<GpuSky />}
       header={(
         <TeamCluster
+          team={team}
+          members={members}
+          editable={teamEditable}
+          canManage={team.currentRole === 'lead' && teamEditable}
+          onSignOut={onSignOut}
+        />
+      )}
+      menu={(
+        <TeamMenu
           team={team}
           members={members}
           editable={teamEditable}

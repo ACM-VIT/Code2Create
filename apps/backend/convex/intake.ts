@@ -586,7 +586,6 @@ export const reviseSubmission = mutation({
   args: {
     eventSlug: v.string(),
     applicationId: v.id("applications"),
-    expectedApplicationVersion: v.number(),
     expectedApplicationContentVersion: v.number(),
     expectedProjectVersionId: v.id("projectVersions"),
     expectedProjectVersion: v.number(),
@@ -600,7 +599,6 @@ export const reviseSubmission = mutation({
       await currentTeamContext(ctx, args.eventSlug);
     const requestFingerprint = operationFingerprint([
       args.applicationId,
-      args.expectedApplicationVersion,
       args.expectedApplicationContentVersion,
       args.expectedProjectVersionId,
       args.expectedProjectVersion,
@@ -661,10 +659,7 @@ export const reviseSubmission = mutation({
         message: "That application is unavailable.",
       });
     }
-    if (
-      application.version !== args.expectedApplicationVersion ||
-      application.contentVersion !== args.expectedApplicationContentVersion
-    ) {
+    if (application.contentVersion !== args.expectedApplicationContentVersion) {
       throw new ConvexError({
         code: "APPLICATION_CHANGED",
         message: "The application changed. Review the current proposal before saving.",
