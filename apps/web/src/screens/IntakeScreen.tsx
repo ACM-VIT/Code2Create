@@ -1500,6 +1500,11 @@ function NoveltyExplainer() {
         <span>few similar</span>
       </div>
       <p className="m-0 text-xs leading-relaxed text-fg/55">
+        hackathon ideas can end up looking very similar. this score helps you
+        notice that early and try an approach that fewer teams are using. when
+        teams work on different ideas, code2create is more fun for everyone.
+      </p>
+      <p className="mt-3 mb-0 text-xs leading-relaxed text-fg/55">
         the score updates while you type. the latest score is saved with your
         idea. it cannot block your submission. reviewers see your written idea.
         they do not see this score.
