@@ -212,6 +212,7 @@ export function TeamCluster({
             )}
             <Link
               to="/team"
+              viewTransition
               className="flex-none text-[11.5px] text-fg/55 transition-colors hover:text-rose-light"
             >
               {canManage && editable ? 'manage team' : 'view team'} →

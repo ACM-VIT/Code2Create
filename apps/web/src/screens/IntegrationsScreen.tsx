@@ -678,7 +678,7 @@ function IntegrationsScene({
         <p className="mb-1.5 font-ui text-lg text-rose-light">connected tools</p>
         <p className="mb-7 text-xs text-[rgb(248_248_248/.5)]">
           code and design your team is building ·{' '}
-          <Link to="/" className="text-rose-light">back home</Link>
+          <Link to="/" viewTransition className="text-rose-light">back home</Link>
         </p>
         <div className="w-full text-left">{children}</div>
       </div>

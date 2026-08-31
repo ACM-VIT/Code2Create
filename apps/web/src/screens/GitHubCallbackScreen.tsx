@@ -35,7 +35,7 @@ export function GitHubCallbackScreen() {
     let active = true
     void completion
       .then(() => {
-        if (active) navigate('/integrations', { replace: true })
+        if (active) navigate('/integrations', { replace: true, viewTransition: true })
       })
       .catch((caught) => {
         if (active) setError(readableError(caught))
@@ -52,7 +52,7 @@ export function GitHubCallbackScreen() {
       {error ? (
         <>
           <p className="lead">{error}</p>
-          <Link className="secondary link-button" to="/integrations">Back to integrations</Link>
+          <Link className="secondary link-button" to="/integrations" viewTransition>Back to integrations</Link>
         </>
       ) : (
         <p className="muted" role="status">Verifying the installation with GitHub.</p>

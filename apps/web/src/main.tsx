@@ -6,7 +6,7 @@ import {
 import { Code2CreateAuthProvider, createCode2CreateAuthClient } from '@code2create/web-auth'
 import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
 import { clientConfiguration } from './lib/config.ts'
@@ -33,15 +33,18 @@ if (!clientConfiguration.convexUrl || !clientConfiguration.convexSiteUrl) {
   const convex = new ConvexReactClient(clientConfiguration.convexUrl)
   const authClient = createCode2CreateAuthClient(clientConfiguration.convexSiteUrl)
 
-  render(
-    <StrictMode>
-      <BrowserRouter>
+  const router = createBrowserRouter([
+    {
+      path: '*',
+      element: (
         <Code2CreateAuthProvider client={convex} authClient={authClient}>
           <App authClient={authClient} />
         </Code2CreateAuthProvider>
-      </BrowserRouter>
-    </StrictMode>,
-  )
+      ),
+    },
+  ])
+
+  render(<StrictMode><RouterProvider router={router} /></StrictMode>)
 }
 
 function render(children: ReactNode) {

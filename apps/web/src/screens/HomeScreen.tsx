@@ -95,7 +95,7 @@ export function HomeScreen({
           <h1 className="mb-8 font-display font-light tracking-[-.01em] text-balance text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-7xl">
             {journey.headline}
           </h1>
-          <PortalButton type="button" onClick={() => navigate('/write')}>
+          <PortalButton type="button" onClick={() => navigate('/write', { viewTransition: true })}>
             {journey.action}
           </PortalButton>
         </div>

@@ -10,7 +10,6 @@ import { PetalCard } from './components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from './components/portal/PortalButton'
 import { PortalError } from './components/portal/PortalField'
 import { PortalScene } from './components/portal/PortalScene'
-import { TreeLoader } from './components/portal/TreeLoader'
 import { eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
 import { useOperationRunner } from './lib/operations'
@@ -157,7 +156,7 @@ export function ParticipantApp({
   const joinCode = joinCodeParam?.trim().toUpperCase() ?? ''
   const finishTeamSwitch = () => {
     setPendingTeamSwitchCode(null)
-    navigate('/', { replace: true })
+    navigate('/', { replace: true, viewTransition: true })
   }
   const requestedTeamSwitchCode = pendingTeamSwitchCode ?? joinCode
   const teamSwitch =
@@ -453,19 +452,19 @@ function PortalHeader({
 }) {
   return (
     <header className="portal-header">
-      <Link to="/" className="wordmark">Code2Create</Link>
+      <Link to="/" viewTransition className="wordmark">Code2Create</Link>
       <div className="header-actions">
         {showNavigation || showIntegrations || showMusic || showSupport ? (
           <nav className="portal-navigation" aria-label="Portal">
-            {showNavigation ? <NavLink end to="/">Home</NavLink> : null}
+            {showNavigation ? <NavLink end to="/" viewTransition>Home</NavLink> : null}
             {showIntegrations ? (
-              <NavLink to="/integrations" onFocus={preloadIntegrations} onMouseEnter={preloadIntegrations}>Build</NavLink>
+              <NavLink to="/integrations" viewTransition onFocus={preloadIntegrations} onMouseEnter={preloadIntegrations}>Build</NavLink>
             ) : null}
             {showMusic ? (
-              <NavLink to="/music" onFocus={preloadSynesthesia} onMouseEnter={preloadSynesthesia}>Music</NavLink>
+              <NavLink to="/music" viewTransition onFocus={preloadSynesthesia} onMouseEnter={preloadSynesthesia}>Music</NavLink>
             ) : null}
             {showSupport ? (
-              <NavLink to="/support" onFocus={preloadSupport} onMouseEnter={preloadSupport}>Help</NavLink>
+              <NavLink to="/support" viewTransition onFocus={preloadSupport} onMouseEnter={preloadSupport}>Help</NavLink>
             ) : null}
           </nav>
         ) : null}
@@ -479,11 +478,7 @@ function PortalHeader({
 }
 
 function PortalLoading() {
-  return (
-    <PortalScene tree="left">
-      <TreeLoader label="Loading your portal…" />
-    </PortalScene>
-  )
+  return <PortalScene tree="left">{null}</PortalScene>
 }
 
 function SwitchTeamScreen({
@@ -651,7 +646,7 @@ function PendingTeamScreen({
 }
 
 function PortalContentLoading() {
-  return <TreeLoader variant="shell" />
+  return null
 }
 
 function preloadIntegrations() {

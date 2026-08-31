@@ -35,7 +35,7 @@ function Row({
     'flex w-full items-center justify-between gap-4 border-b border-petal-line py-[15px] text-left last:border-b-0'
   if (to) {
     return (
-      <Link to={to} className={`${rowClass} transition-colors hover:text-rose-light`}>
+      <Link to={to} viewTransition className={`${rowClass} transition-colors hover:text-rose-light`}>
         {body}
       </Link>
     )
@@ -121,7 +121,7 @@ export function MoreScreen({
           <Row label="Sign out" accent onClick={onSignOut} />
         </PetalCard>
         <p className="mt-5 text-[11.5px] text-[rgb(248_248_248/.4)]">
-          <Link to="/" className="text-rose-light">
+          <Link to="/" viewTransition className="text-rose-light">
             back home
           </Link>
         </p>
