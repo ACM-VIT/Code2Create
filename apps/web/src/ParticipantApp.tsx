@@ -16,6 +16,7 @@ import { eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
 import { useOperationRunner } from './lib/operations'
 import { canLeaveByTeamRule, canLeaveCurrentTeam } from './lib/teamLeave'
+import { useDeadlineReached } from './lib/useDeadlineReached'
 import { participantClassStorageKey } from './screens/EntryScreen'
 import { DetailsScreen } from './screens/DetailsScreen'
 import { HomeScreen } from './screens/HomeScreen'
@@ -51,19 +52,6 @@ const SynesthesiaScreen = lazy(() =>
 const SupportScreen = lazy(() =>
   loadSupportScreen().then((module) => ({ default: module.SupportScreen })),
 )
-
-function useDeadlineReached(serverNow: number, deadline: number | undefined) {
-  const [elapsedDeadline, setElapsedDeadline] = useState<number | null>(null)
-  useEffect(() => {
-    if (deadline === undefined || serverNow >= deadline) return
-    const timer = window.setTimeout(
-      () => setElapsedDeadline(deadline),
-      Math.min(deadline - serverNow + 100, 2_147_000_000),
-    )
-    return () => window.clearTimeout(timer)
-  }, [deadline, serverNow])
-  return deadline !== undefined && (serverNow >= deadline || elapsedDeadline === deadline)
-}
 
 export function ParticipantApp({
   publicState,
@@ -283,6 +271,7 @@ export function ParticipantApp({
           team={team}
           members={teamMembers.results}
           teamEditable={teamEditable}
+          serverNow={publicState.serverNow}
           onSignOut={signOut}
           {...(intakeStatus.submissionFailureMessage === undefined
             ? {}
@@ -359,6 +348,7 @@ export function ParticipantApp({
                 team={team}
                 members={teamMembers.results}
                 teamEditable={teamEditable}
+                serverNow={publicState.serverNow}
                 onSignOut={signOut}
                 {...(intakeStatus.submissionFailureMessage === undefined
                   ? {}

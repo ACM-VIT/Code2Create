@@ -152,11 +152,14 @@ export function FormValidationBoundary({ children }: { children: ReactNode }) {
     root.addEventListener('input', handleInput)
     window.addEventListener('resize', refreshPosition)
     window.addEventListener('scroll', refreshPosition, true)
+    const removalObserver = new MutationObserver(refreshPosition)
+    removalObserver.observe(root, { childList: true, subtree: true })
     return () => {
       root.removeEventListener('invalid', handleInvalid, true)
       root.removeEventListener('input', handleInput)
       window.removeEventListener('resize', refreshPosition)
       window.removeEventListener('scroll', refreshPosition, true)
+      removalObserver.disconnect()
     }
   }, [clearIssue, refreshPosition])
 

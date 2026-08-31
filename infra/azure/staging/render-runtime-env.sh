@@ -22,6 +22,9 @@ read_secret() {
 }
 
 C2C_POSTGRES_PASSWORD="$(read_secret postgres-app-password)"
+C2C_POSTGRES_PASSWORD_URI="$(
+  jq --null-input --raw-output --arg password "${C2C_POSTGRES_PASSWORD}" '$password | @uri'
+)"
 C2C_INSTANCE_SECRET="$(read_secret convex-instance-secret)"
 C2C_ENV_FILE="$(mktemp)"
 
@@ -33,7 +36,7 @@ trap cleanup EXIT
 cat >"${C2C_ENV_FILE}" <<EOF
 INSTANCE_NAME=code2create-staging
 INSTANCE_SECRET=${C2C_INSTANCE_SECRET}
-POSTGRES_URL=postgresql://c2cadmin:${C2C_POSTGRES_PASSWORD}@${C2C_POSTGRES_HOST}:5432
+POSTGRES_URL=postgresql://c2cadmin:${C2C_POSTGRES_PASSWORD_URI}@${C2C_POSTGRES_HOST}:5432
 CONVEX_CLOUD_ORIGIN=https://realtime-staging.c2c.sh
 CONVEX_SITE_ORIGIN=https://api-staging.c2c.sh
 NEXT_PUBLIC_DEPLOYMENT_URL=https://realtime-staging.c2c.sh

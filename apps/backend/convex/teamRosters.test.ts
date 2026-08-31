@@ -775,6 +775,94 @@ describe("team roster backfill", () => {
     ).rejects.toThrow();
   }, 30_000);
 
+  test("rejects confirmation when an assignee joins a team after preview", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const assignee = await provisionParticipant(backend, fixture, {
+      email: "stale-preview@gmail.com",
+      googleSubject: "team-roster-stale-preview",
+    });
+    await acceptPolicy(assignee.person, fixture, "accept-stale-preview");
+    const rows: ImportRow[] = [{
+      rowNumber: 2,
+      identity: assignee.me.person.verifiedEmail,
+      displayName: "Stale Preview",
+      teamName: "Preview Team",
+      role: "lead",
+    }];
+    const preview = await importer.person.query(api.teamRosters.previewImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "State-bound preview",
+      rows,
+      reason: "Verify stale preview rejection",
+    });
+    expect(preview.rows[0]?.outcome).toBe("pending");
+
+    await assignee.person.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Joined Elsewhere",
+      clientOperationId: "create-after-roster-preview",
+    });
+
+    await expect(
+      importer.person.mutation(api.teamRosters.confirmImport, {
+        eventSlug: fixture.eventSlug,
+        sourceName: "State-bound preview",
+        rows,
+        reason: "Verify stale preview rejection",
+        previewChecksum: preview.previewChecksum,
+        clientOperationId: "confirm-stale-roster-preview",
+      }),
+    ).rejects.toThrow("The team roster import changed");
+  }, 30_000);
+
+  test("rejects confirmation when a prior pending assignment appears after preview", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const rows: ImportRow[] = [{
+      rowNumber: 2,
+      identity: "pending-after-preview@gmail.com",
+      displayName: "Pending After Preview",
+      teamName: "Pending Team",
+      role: "lead",
+    }];
+    const originalPreview = await importer.person.query(api.teamRosters.previewImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "Original preview",
+      rows,
+      reason: "Verify prior entry freshness",
+    });
+    const interveningPreview = await importer.person.query(api.teamRosters.previewImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "Intervening import",
+      rows,
+      reason: "Create the intervening pending entry",
+    });
+    await importer.person.mutation(api.teamRosters.confirmImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "Intervening import",
+      rows,
+      reason: "Create the intervening pending entry",
+      previewChecksum: interveningPreview.previewChecksum,
+      clientOperationId: "intervening-roster-import",
+    });
+
+    await expect(
+      importer.person.mutation(api.teamRosters.confirmImport, {
+        eventSlug: fixture.eventSlug,
+        sourceName: "Original preview",
+        rows,
+        reason: "Verify prior entry freshness",
+        previewChecksum: originalPreview.previewChecksum,
+        clientOperationId: "confirm-after-pending-entry",
+      }),
+    ).rejects.toThrow("The team roster import changed");
+  }, 30_000);
+
   test("reused withdrawn names still attach to the live team", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);

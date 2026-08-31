@@ -40,6 +40,7 @@ import {
   sessionDraftConflicts,
   writeVersionedSessionDraft,
 } from '../lib/sessionDraft'
+import { useDeadlineReached } from '../lib/useDeadlineReached'
 import type { CurrentIntake, CurrentTeam, CurrentTeamMember } from '../types'
 
 type NoveltyBand = 'familiar' | 'developing' | 'distinct'
@@ -112,12 +113,14 @@ export function IntakeScreen({
   team,
   members,
   teamEditable,
+  serverNow,
   submissionFailureMessage,
   onSignOut,
 }: {
   team: CurrentTeam
   members: CurrentTeamMember[]
   teamEditable: boolean
+  serverNow: number
   submissionFailureMessage?: string
   onSignOut: () => void
 }) {
@@ -141,6 +144,7 @@ export function IntakeScreen({
       intake={intake}
       members={members}
       teamEditable={teamEditable}
+      serverNow={serverNow}
       onSignOut={onSignOut}
       {...(submissionFailureMessage === undefined ? {} : { submissionFailureMessage })}
     />
@@ -312,6 +316,7 @@ function IntakeWorkspace({
   intake,
   members,
   teamEditable,
+  serverNow,
   submissionFailureMessage,
   onSignOut,
 }: {
@@ -319,6 +324,7 @@ function IntakeWorkspace({
   intake: CurrentIntake
   members: CurrentTeamMember[]
   teamEditable: boolean
+  serverNow: number
   submissionFailureMessage?: string
   onSignOut: () => void
 }) {
@@ -385,9 +391,8 @@ function IntakeWorkspace({
   const [noveltyState, setNoveltyState] = useState<NoveltyState>({ status: 'idle' })
   const noveltySequence = useRef(0)
   const commandInFlight = useRef(false)
-  const [applicationsOpen, setApplicationsOpen] = useState(
-    () => Date.now() < intake.applicationsCloseAt,
-  )
+  const applicationsClosed = useDeadlineReached(serverNow, intake.applicationsCloseAt)
+  const applicationsOpen = !applicationsClosed
   const operations = useOperationRunner<IntakeOperationResult>()
   const ideaEditorOpen = !draft || draft.stage === 'opening' || editingIdea
   const { editors, markEditing, stopEditing } = useEditingPresence(team.canWriteProject)
@@ -420,19 +425,8 @@ function IntakeWorkspace({
   const submitPending = operations.hasPending('final-submit')
 
   useEffect(() => {
-    const remaining = intake.applicationsCloseAt - Date.now()
-    if (remaining <= 0) {
-      setApplicationsOpen(false)
-      stopEditing()
-      return
-    }
-    setApplicationsOpen(true)
-    const timer = window.setTimeout(() => {
-      setApplicationsOpen(false)
-      stopEditing()
-    }, Math.min(remaining + 50, 2_147_000_000))
-    return () => window.clearTimeout(timer)
-  }, [intake.applicationsCloseAt, stopEditing])
+    if (applicationsClosed) stopEditing()
+  }, [applicationsClosed, stopEditing])
 
   useEffect(() => {
     const savedValue = draft?.initialIdea ?? ''

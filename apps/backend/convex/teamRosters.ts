@@ -259,6 +259,7 @@ async function personStateForPreview(
       activeMember: null as Doc<"teamMembers"> | null,
       hasMembership: false,
       identityConflict: true,
+      membershipId: null as Id<"eventMemberships"> | null,
     };
   }
   if (resolved.kind === "not_found") {
@@ -266,6 +267,7 @@ async function personStateForPreview(
       activeMember: null as Doc<"teamMembers"> | null,
       hasMembership: false,
       identityConflict: false,
+      membershipId: null as Id<"eventMemberships"> | null,
     };
   }
   const activeMember = await ctx.db
@@ -277,7 +279,12 @@ async function personStateForPreview(
         .eq("status", "active"),
     )
     .unique();
-  return { activeMember, hasMembership: true, identityConflict: false };
+  return {
+    activeMember,
+    hasMembership: true,
+    identityConflict: false,
+    membershipId: resolved.membership._id,
+  };
 }
 
 async function liveTeamNamed(
@@ -367,6 +374,7 @@ async function prepareTeamRosterPreview(
   }
 
   const rows: PreviewRow[] = [];
+  const identityStateChecksums: string[] = [];
   const priorEntries: Doc<"teamRosterEntries">[] = [];
   for (const row of normalized.rows) {
     const priorEntry = await pendingEntryForIdentity(ctx, {
@@ -375,6 +383,14 @@ async function prepareTeamRosterPreview(
     });
     if (priorEntry) priorEntries.push(priorEntry);
     const state = await personStateForPreview(ctx, event._id, row);
+    identityStateChecksums.push(operationFingerprint([
+      row.identityNormalized,
+      state.membershipId,
+      state.activeMember?._id ?? null,
+      state.activeMember?.teamId ?? null,
+      state.hasMembership,
+      state.identityConflict,
+    ]));
     const liveTeam = teamByName.get(row.teamName) ?? null;
     if (state.identityConflict) {
       rows.push({ ...row, outcome: "identity_conflict" });
@@ -406,14 +422,33 @@ async function prepareTeamRosterPreview(
 
   const previewChecksum = operationFingerprint([
     operationFingerprint(
-      normalized.rows.flatMap((row) => [
+      rows.flatMap((row) => [
         row.rowNumber,
         row.identityNormalized,
         row.displayName,
         row.teamName,
         row.role,
+        row.outcome,
       ]),
     ),
+    operationFingerprint(identityStateChecksums),
+    operationFingerprint(
+      priorEntries.flatMap((entry) => [
+        entry._id,
+        entry.version,
+        entry.status,
+      ]),
+    ),
+    operationFingerprint(
+      [...teamByName.entries()].flatMap(([teamName, team]) => [
+        teamName,
+        team?._id ?? null,
+        team?.version ?? null,
+        team?.activeMemberCount ?? null,
+      ]),
+    ),
+    participantPolicy.policy._id,
+    participantPolicy.policy.checksum,
     normalized.sourceName,
     normalized.sourceFileName ?? null,
     normalized.reason,

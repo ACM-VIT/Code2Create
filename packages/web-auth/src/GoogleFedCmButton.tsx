@@ -77,19 +77,21 @@ export function GoogleFedCmButton({
           },
           throw: false,
         })
-        if (!active) return
         if (result.error) {
-          signInPending.current = false
-          setPhase('ready')
-          errorHandler.current('Google could not complete sign-in. Try again or use another account.')
+          if (active) {
+            setPhase('ready')
+            errorHandler.current('Google could not complete sign-in. Try again or use another account.')
+          }
           return
         }
         authClient.updateSession()
       } catch {
-        if (!active) return
+        if (active) {
+          setPhase('ready')
+          errorHandler.current('Google could not complete sign-in. Try again or use another account.')
+        }
+      } finally {
         signInPending.current = false
-        setPhase('ready')
-        errorHandler.current('Google could not complete sign-in. Try again or use another account.')
       }
     }
 
