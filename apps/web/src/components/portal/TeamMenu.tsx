@@ -28,7 +28,7 @@ export function TeamMenu({
   return (
     <div className="flex w-full max-w-[320px] flex-col items-center gap-8 text-center">
       <div>
-        <p className="m-0 font-display font-light tracking-[-.01em] text-[30px] leading-tight text-balance text-rose-light">
+        <p className="m-0 font-display font-light tracking-[-.01em] text-[30px] leading-tight text-balance wrap-anywhere text-rose-light">
           {team.name}
         </p>
         <p className="m-0 mt-1.5 text-[11.5px] text-fg/55">

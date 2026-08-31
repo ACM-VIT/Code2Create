@@ -340,7 +340,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
                   </span>
                   <button className="flex-none text-[11.5px] text-rose-light">edit</button>
                 </div>
-                <div className="text-sm leading-relaxed text-fg/90">{body}</div>
+                <div className="text-sm leading-relaxed wrap-anywhere text-fg/90">{body}</div>
               </section>
             ))}
           </PetalCard>
@@ -507,7 +507,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
           </p>
           <div className="w-full text-left">
             <PetalCard className="px-5 py-5 sm:px-7 sm:py-6">
-              <p className="whitespace-pre-line text-[15px] leading-relaxed text-fg/90">
+              <p className="whitespace-pre-line text-[15px] leading-relaxed wrap-anywhere text-fg/90">
                 A campus lost-and-found where finders post a photo and owners describe what they
                 lost. On-device image matching pairs the two; pickup at verified hostel desks.
               </p>

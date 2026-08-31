@@ -1115,7 +1115,7 @@ function ProposalSummary({
         </form>
       ) : (
         <div>
-          <p className="whitespace-pre-line text-[15px] leading-relaxed text-fg/90">
+          <p className="whitespace-pre-line text-[15px] leading-relaxed wrap-anywhere text-fg/90">
             {intake.project.initialIdea}
           </p>
           {intake.project.intakeResponses.length > 0 ? (
@@ -1136,7 +1136,7 @@ function ProposalSummary({
                   <p className="mb-1.5 text-[11px] tracking-[.06em] text-fg/45">
                     {response.question}
                   </p>
-                  <p className="whitespace-pre-line text-sm leading-relaxed text-fg/90">
+                  <p className="whitespace-pre-line text-sm leading-relaxed wrap-anywhere text-fg/90">
                     {response.answer}
                   </p>
                 </div>

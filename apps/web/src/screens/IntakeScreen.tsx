@@ -288,7 +288,7 @@ function ReadOnlyIntake({
       <EditingPresence editors={editors ?? []} members={members} />
       {draft?.initialIdea ? (
         <PetalCard className="px-8 py-7">
-          <p className="whitespace-pre-line text-[15px] leading-relaxed text-fg/90">
+          <p className="whitespace-pre-line text-[15px] leading-relaxed wrap-anywhere text-fg/90">
             {draft.initialIdea}
           </p>
         </PetalCard>
@@ -885,7 +885,7 @@ function IntakeWorkspace({
       >
         {draft?.initialIdea ? (
           <PetalCard className="px-8 py-7">
-            <p className="whitespace-pre-line text-[15px] leading-relaxed text-fg/90">
+            <p className="whitespace-pre-line text-[15px] leading-relaxed wrap-anywhere text-fg/90">
               {draft.initialIdea}
             </p>
           </PetalCard>
@@ -1099,7 +1099,7 @@ function IntakeWorkspace({
                 <span className="block truncate text-[11px] text-fg/50">{followUp.question}</span>
                 {peeked ? (
                   <>
-                    <span className="mt-1 block text-[12.5px] leading-relaxed whitespace-pre-line text-fg/80">
+                    <span className="mt-1 block text-[12.5px] leading-relaxed whitespace-pre-line wrap-anywhere text-fg/80">
                       {followUp.answer}
                     </span>
                     <span className="mt-1.5 block text-[10.5px] text-fg/40">
@@ -1423,7 +1423,7 @@ function IntakeWorkspace({
           </div>
         ) : null}
         <div className="flex w-full max-w-[760px] flex-col items-center">
-          <h1 className="mb-6 text-center font-display font-light tracking-[-.01em] text-3xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[44px]">
+          <h1 className="mb-6 text-center font-display font-light tracking-[-.01em] wrap-anywhere text-3xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[44px]">
             {preview.teamName}
           </h1>
 
@@ -1597,7 +1597,7 @@ function ReviewSection({
           </button>
         ) : null}
       </div>
-      <div className="text-sm leading-relaxed text-fg/90">{children}</div>
+      <div className="text-sm leading-relaxed wrap-anywhere text-fg/90">{children}</div>
     </section>
   )
 }

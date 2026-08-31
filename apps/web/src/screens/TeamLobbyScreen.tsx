@@ -190,7 +190,7 @@ export function TeamLobbyScreen({
         <p className="mb-2 text-[12px] text-rose-light/70">
           {canManage ? 'manage team' : 'view team'}
         </p>
-        <h1 className="mb-11 font-display font-light tracking-[-.01em] text-4xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[54px]">
+        <h1 className="mb-11 font-display font-light tracking-[-.01em] wrap-anywhere text-4xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[54px]">
           {team.name}
         </h1>
 

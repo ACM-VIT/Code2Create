@@ -917,6 +917,7 @@ code {
 .proposal-copy,
 .proposal-editor,
 .proposal-response {
+  overflow-wrap: anywhere;
   display: grid;
   gap: 14px;
 }
