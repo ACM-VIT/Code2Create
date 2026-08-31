@@ -1,7 +1,11 @@
 import { api } from '@code2create/backend/api'
 import { ClientObservabilityIdentity } from '@code2create/client-observability'
 import { type EventStage, eventRoleLabels, eventStageGuidance } from '@code2create/domain'
-import { signInWithGooglePopup, type Code2CreateAuthClient } from '@code2create/web-auth'
+import {
+  GoogleFedCmButton,
+  signInWithGooglePopup,
+  type Code2CreateAuthClient,
+} from '@code2create/web-auth'
 import type { FunctionReturnType } from 'convex/server'
 import { AuthLoading, Authenticated, Unauthenticated, useMutation, useQuery } from 'convex/react'
 import { Navigate, Route, Routes } from 'react-router-dom'
@@ -142,6 +146,7 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
         <SignIn
           authClient={authClient}
           googleConfigured={publicState.auth.googleConfigured}
+          googleClientId={publicState.auth.googleClientId}
         />
       </Unauthenticated>
       <Authenticated>
@@ -760,13 +765,15 @@ function NoOperationsAccess({ authClient }: { authClient: Code2CreateAuthClient 
 function SignIn({
   authClient,
   googleConfigured,
+  googleClientId,
 }: {
   authClient: Code2CreateAuthClient
   googleConfigured: boolean
+  googleClientId: string | null
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const signIn = async () => {
+  const fallbackSignIn = async () => {
     setBusy(true)
     setError(null)
     try {
@@ -790,11 +797,28 @@ function popupErrorMessage(code: string | undefined) {
       error={error}
       title="Operations"
     >
-      <GateAction
-        disabled={!googleConfigured || busy}
-        label={busy ? 'Opening Google…' : 'Continue with Google'}
-        onClick={() => void signIn()}
-      />
+      {googleClientId ? (
+        <GoogleFedCmButton
+          authClient={authClient}
+          clientId={googleClientId}
+          loading={<GateAction disabled label="Loading Google…" />}
+          pending={<GateAction disabled label="Signing in…" />}
+          fallback={(
+            <GateAction
+              disabled={busy}
+              label={busy ? 'Opening Google…' : 'Continue with Google'}
+              onClick={() => void fallbackSignIn()}
+            />
+          )}
+          onError={(message) => setError(message)}
+        />
+      ) : (
+        <GateAction
+          disabled={!googleConfigured || busy}
+          label={busy ? 'Opening Google…' : 'Continue with Google'}
+          onClick={() => void fallbackSignIn()}
+        />
+      )}
       {!googleConfigured ? (
         <p className="gate-error">Google sign-in is unavailable. Check the event’s authentication setup.</p>
       ) : null}

@@ -12,6 +12,7 @@ import {
 import { readAuthPopupNonce, signalAuthPopupCompletion } from './popup'
 
 export { signInWithGooglePopup, type AuthPopupErrorCode } from './popup'
+export { GoogleFedCmButton } from './GoogleFedCmButton'
 
 export function createCode2CreateAuthClient(baseURL: string) {
   return createAuthClient({

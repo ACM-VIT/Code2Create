@@ -1,5 +1,9 @@
 import { useState } from 'react'
-import { signInWithGooglePopup, type Code2CreateAuthClient } from '@code2create/web-auth'
+import {
+  GoogleFedCmButton,
+  signInWithGooglePopup,
+  type Code2CreateAuthClient,
+} from '@code2create/web-auth'
 import {
   restrictGoogleAuthorizationToVitStudents,
   vitStudentEmailDomain,
@@ -118,7 +122,7 @@ export function EntryScreen({
     setError(null)
   }
 
-  const signIn = async () => {
+  const fallbackSignIn = async () => {
     if (!participantClass || !publicState.auth.googleConfigured) return
     setBusy(true)
     setError(null)
@@ -189,31 +193,34 @@ export function EntryScreen({
           />
         </div>
 
-        <PortalButton
-          type="button"
-          disabled={!participantClass || !selectedClassOpen || busy || !publicState.auth.googleConfigured}
-          onClick={signIn}
-          className="w-full sm:w-auto"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
-            <path
-              d="M21.6 12.2c0-.7-.06-1.4-.18-2H12v3.9h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.4z"
-              fill="currentColor"
-            />
-            <path
-              d="M12 22c2.7 0 5-.9 6.6-2.4l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z"
-              fill="currentColor"
-              opacity=".75"
-            />
-            <path d="M6.4 14a6 6 0 0 1 0-3.9V7.5H3.1a10 10 0 0 0 0 9z" fill="currentColor" opacity=".55" />
-            <path
-              d="M12 5.9c1.5 0 2.8.5 3.8 1.5l2.8-2.8A10 10 0 0 0 3.1 7.5l3.3 2.6c.8-2.4 3-4.2 5.6-4.2z"
-              fill="currentColor"
-              opacity=".9"
-            />
-          </svg>
-          {busy ? 'Opening Google…' : 'Continue with Google'}
-        </PortalButton>
+        {participantClass && selectedClassOpen && publicState.auth.googleClientId ? (
+          <GoogleFedCmButton
+            authClient={authClient}
+            clientId={publicState.auth.googleClientId}
+            {...(participantClass === 'vit_student'
+              ? { hostedDomain: vitStudentEmailDomain }
+              : {})}
+            loading={<PortalButton disabled>Loading Google…</PortalButton>}
+            pending={<PortalButton disabled>Signing in…</PortalButton>}
+            fallback={(
+              <PortalButton
+                type="button"
+                disabled={busy}
+                onClick={() => void fallbackSignIn()}
+              >
+                {busy ? 'Opening Google…' : 'Continue with Google'}
+              </PortalButton>
+            )}
+            onError={(message) => setError(message)}
+          />
+        ) : (
+          <PortalButton
+            type="button"
+            disabled
+          >
+            Continue with Google
+          </PortalButton>
+        )}
 
         {!publicState.auth.googleConfigured ? (
           <p className="mt-4 text-[11.5px] text-rose-light">

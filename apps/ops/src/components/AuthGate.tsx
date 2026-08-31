@@ -49,7 +49,7 @@ export function GateAction({
 }: {
   disabled?: boolean
   label: string
-  onClick: () => void
+  onClick?: () => void
   secondary?: boolean
 }) {
   return (

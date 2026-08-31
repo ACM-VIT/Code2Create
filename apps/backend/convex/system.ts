@@ -58,6 +58,7 @@ const publicShellState = v.object({
   serverNow: v.number(),
   auth: v.object({
     googleConfigured: v.boolean(),
+    googleClientId: v.union(v.string(), v.null()),
   }),
   event: v.union(
     v.null(),
@@ -72,10 +73,11 @@ const publicShellState = v.object({
 });
 
 function publicAuthState() {
+  const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() || null;
+  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim() || null;
   return {
-    googleConfigured: Boolean(
-      process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim(),
-    ),
+    googleConfigured: googleClientId !== null && googleClientSecret !== null,
+    googleClientId: googleClientSecret === null ? null : googleClientId,
   };
 }
 
@@ -124,6 +126,7 @@ export const getPublicState = query({
     serverNow: v.number(),
     auth: v.object({
       googleConfigured: v.boolean(),
+      googleClientId: v.union(v.string(), v.null()),
     }),
     event: v.union(
       v.null(),
