@@ -122,7 +122,7 @@ export function GoogleFedCmButton({
         display: 'grid',
         width: '100%',
         maxWidth: 320,
-        minHeight: 55,
+        height: 55,
         marginInline: 'auto',
         alignItems: 'center',
         overflow: 'hidden',
