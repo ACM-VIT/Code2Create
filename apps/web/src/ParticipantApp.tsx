@@ -10,6 +10,7 @@ import { PetalCard } from './components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from './components/portal/PortalButton'
 import { PortalError } from './components/portal/PortalField'
 import { PortalScene } from './components/portal/PortalScene'
+import { SignOutCircle } from './components/portal/SignOutCircle'
 import { eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
 import { useOperationRunner } from './lib/operations'
@@ -96,15 +97,7 @@ export function ParticipantApp({
   if (!entryAllowed) {
     return (
       <PortalNotice
-        header={(
-          <button
-            type="button"
-            onClick={signOut}
-            className="text-[12px] text-fg/45 transition-colors hover:text-rose-light"
-          >
-            Sign out
-          </button>
-        )}
+        header={<SignOutCircle onSignOut={signOut} />}
         title="This account is not on the tester list."
         body="Use one of the Google accounts invited to staging."
       />
@@ -130,15 +123,7 @@ export function ParticipantApp({
   ) {
     return (
       <PortalNotice
-        header={(
-          <button
-            type="button"
-            onClick={signOut}
-            className="text-[12px] text-fg/45 transition-colors hover:text-rose-light"
-          >
-            Sign out
-          </button>
-        )}
+        header={<SignOutCircle onSignOut={signOut} />}
         title="Verify your VIT account again."
         body="Sign out, then continue with Google. Your saved profile, team, and proposal stay unchanged."
       />
@@ -532,7 +517,7 @@ function SwitchTeamScreen({
   return (
     <PortalScene tree="both" header={header}>
       <PetalCard className="w-full max-w-[600px] px-7 py-7 sm:px-9">
-        <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-rose-light">Switch team</p>
+        <p className="mb-2 text-[11px] tracking-[.08em] text-rose-light">switch team</p>
         <h1 className="font-display font-light tracking-[-.01em] text-3xl">
           {team.name}
         </h1>
@@ -547,14 +532,19 @@ function SwitchTeamScreen({
         ) : (
           <p className="mt-3 text-[13px] leading-relaxed text-fg/58">{prompt}</p>
         )}
-        <div className="mt-6 flex flex-wrap gap-3">
+        <div className="mt-6">
           {!switchPending && (needsTransfer || !canLeave) ? null : (
-            <PortalButton type="button" onClick={() => void confirmSwitch()}>
+            <PortalButton type="button" size="sm" className="w-full" onClick={() => void confirmSwitch()}>
               {switchPending ? 'Confirm earlier switch' : 'Leave and join'}
             </PortalButton>
           )}
-          <PortalTextButton type="button" disabled={switchPending} onClick={onStay}>
-            Stay on this team
+          <PortalTextButton
+            type="button"
+            disabled={switchPending}
+            onClick={onStay}
+            className="mx-auto mt-2 block px-4 py-2"
+          >
+            stay on this team
           </PortalTextButton>
         </div>
         <PortalError message={error} />
@@ -598,36 +588,51 @@ function PendingTeamScreen({
   return (
     <PortalScene tree="both" header={header}>
       <PetalCard className="w-full max-w-[600px] px-7 py-7 sm:px-9">
-        <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-rose-light">Your team</p>
+        <p className="mb-2 text-[11px] tracking-[.08em] text-rose-light">your team</p>
         <h1 className="font-display font-light tracking-[-.01em] text-3xl">{pendingTeam.teamName}</h1>
         <p className="mt-3 text-[13px] leading-relaxed text-fg/58">
           {pendingTeam.status === 'waiting_for_lead'
             ? 'Your team lead has not signed in yet. You will join automatically when they do.'
             : `You will join as ${pendingTeam.role === 'lead' ? 'the lead' : 'a member'} shortly.`}
         </p>
-        <ul className="m-0 mt-6 list-none divide-y divide-fg/10 p-0">
+        <ul className="m-0 mt-6 list-none divide-y divide-petal-line p-0">
           {pendingTeam.assignees.map((assignee, index) => (
             <li className="flex items-center justify-between gap-4 py-3" key={`${assignee.role}:${index}`}>
               <span className="text-sm text-fg/86">{assignee.displayName}</span>
-              <small className="text-right text-[11px] text-fg/42">
-                {assignee.role === 'lead' ? 'Lead' : 'Member'}
-                {assignee.isYou ? ' · You' : ''}
-                {` · ${assignee.signedIn ? 'Signed in' : 'Waiting'}`}
+              <small
+                className={`text-right text-[11px] ${
+                  assignee.isYou || assignee.role === 'lead' ? 'text-rose-light' : 'text-fg/45'
+                }`}
+              >
+                {assignee.role === 'lead' ? 'lead' : 'member'}
+                {assignee.isYou ? ' · you' : ''}
+                {` · ${assignee.signedIn ? 'signed in' : 'waiting'}`}
               </small>
             </li>
           ))}
         </ul>
         {confirmLeave ? (
-          <div className="mt-6 border-t border-fg/10 pt-5">
+          <div className="mt-6 border-t border-petal-line pt-5">
             <p className="text-[13px] text-fg/65">
               Leave this assignment? You can create or join another team afterward.
             </p>
-            <div className="mt-4 flex flex-wrap gap-3">
-              <PortalButton type="button" disabled={leavePending} onClick={() => void leaveAssignment()}>
+            <div className="mt-4">
+              <PortalButton
+                type="button"
+                size="sm"
+                className="w-full"
+                disabled={leavePending}
+                onClick={() => void leaveAssignment()}
+              >
                 {leavePending ? 'Leaving…' : 'Leave team'}
               </PortalButton>
-              <PortalTextButton type="button" disabled={leavePending} onClick={() => setConfirmLeave(false)}>
-                Keep assignment
+              <PortalTextButton
+                type="button"
+                disabled={leavePending}
+                onClick={() => setConfirmLeave(false)}
+                className="mx-auto mt-2 block px-4 py-2"
+              >
+                keep assignment
               </PortalTextButton>
             </div>
           </div>
@@ -638,7 +643,7 @@ function PendingTeamScreen({
             disabled={leavePending}
             onClick={() => setConfirmLeave(true)}
           >
-            Leave assignment
+            leave assignment
           </button>
         )}
         <PortalError message={error} />
@@ -734,15 +739,7 @@ function ProvisionScreen({
   return (
     <PortalScene
       tree="both"
-      header={
-        <button
-          type="button"
-          onClick={onSignOut}
-          className="text-[12px] text-fg/45 transition-colors hover:text-rose-light"
-        >
-          Sign out
-        </button>
-      }
+      header={<SignOutCircle onSignOut={onSignOut} />}
     >
       <div className="flex w-full max-w-[560px] flex-col items-center text-center">
         <h1 className="mb-2 font-display font-light tracking-[-.01em] text-3xl lg:text-[40px]">

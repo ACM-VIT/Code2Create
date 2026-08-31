@@ -1,4 +1,5 @@
 import { initialsOf } from './initials'
+import { SignOutCircle } from './SignOutCircle'
 
 /**
  * The onboarding header: the updated mockup shows only the avatar, so the
@@ -23,15 +24,7 @@ export function AccountBadge({
       >
         {initialsOf(name)}
       </div>
-      {onSignOut ? (
-        <button
-          type="button"
-          onClick={onSignOut}
-          className="ml-1 rounded-sm text-[12px] text-fg/45 transition-colors hover:text-rose-light"
-        >
-          Sign out
-        </button>
-      ) : null}
+      {onSignOut ? <SignOutCircle onSignOut={onSignOut} className="-ml-1" /> : null}
     </div>
   )
 }

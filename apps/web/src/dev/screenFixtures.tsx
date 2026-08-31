@@ -44,7 +44,7 @@ const noop = () => {}
 const cluster = <TeamCluster team={team} members={members} onSignOut={noop} />
 const teamMenu = <TeamMenu team={team} members={members} onSignOut={noop} />
 const account = (
-  <AccountBadge name="Ananya Iyer" email="ananya@vitstudent.ac.in" detail="VIT student" />
+  <AccountBadge name="Ananya Iyer" email="ananya@vitstudent.ac.in" detail="VIT student" onSignOut={() => {}} />
 )
 
 
