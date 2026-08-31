@@ -1,6 +1,6 @@
 /// <reference types="google.accounts" />
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 
 import { googleButtonConfiguration, googleFedCmConfiguration } from './google-fedcm-config'
 import type { Code2CreateAuthClient } from './index'
@@ -18,6 +18,7 @@ declare global {
 }
 
 type ButtonPhase = 'loading' | 'ready' | 'signing-in' | 'unavailable'
+type ButtonLayer = 0 | 1
 
 const googleIdentityScriptUrl = 'https://accounts.google.com/gsi/client'
 let googleIdentityScript: Promise<void> | null = null
@@ -42,9 +43,13 @@ export function GoogleFedCmButton({
   fallback: ReactNode
   onError: (message: string) => void
 }) {
-  const container = useRef<HTMLDivElement>(null)
+  const firstContainer = useRef<HTMLDivElement>(null)
+  const secondContainer = useRef<HTMLDivElement>(null)
+  const activeLayerRef = useRef<ButtonLayer | null>(null)
   const errorHandler = useRef(onError)
   const signInPending = useRef(false)
+  const [activeLayer, setActiveLayer] = useState<ButtonLayer | null>(null)
+  const [replacing, setReplacing] = useState(false)
   const [phase, setPhase] = useState<ButtonPhase>('loading')
 
   useEffect(() => {
@@ -52,9 +57,12 @@ export function GoogleFedCmButton({
   }, [onError])
 
   useEffect(() => {
-    const element = container.current
+    const nextLayer: ButtonLayer = activeLayerRef.current === 0 ? 1 : 0
+    const element = nextLayer === 0 ? firstContainer.current : secondContainer.current
     if (!element) return
+    const hasActiveButton = activeLayerRef.current !== null
     let active = true
+    if (hasActiveButton) setReplacing(true)
 
     const receiveCredential = async (response: google.accounts.id.CredentialResponse) => {
       if (!active || signInPending.current) return
@@ -84,40 +92,68 @@ export function GoogleFedCmButton({
       }
     }
 
-    void Promise.all([loadGoogleIdentityServices(), supportsGoogleFedCmButton()]).then(
-      ([, useFedCm]) => {
+    void (async () => {
+      try {
+        const [, useFedCm] = await Promise.all([
+          loadGoogleIdentityServices(),
+          supportsGoogleFedCmButton(),
+        ])
         if (!active) return
-        try {
-          google.accounts.id.initialize(
-            googleFedCmConfiguration({
-              clientId,
-              ...(hostedDomain ? { hostedDomain } : {}),
-              onCredential: (response) => void receiveCredential(response),
-              useFedCm,
-            }),
-          )
-          element.replaceChildren()
-          const buttonWidth = element.parentElement?.getBoundingClientRect().width
-            ?? element.getBoundingClientRect().width
-          google.accounts.id.renderButton(
-            element,
-            googleButtonConfiguration(buttonWidth, appearance),
-          )
-          setPhase('ready')
-        } catch {
-          setPhase('unavailable')
-        }
-      },
-      () => {
+
+        google.accounts.id.initialize(
+          googleFedCmConfiguration({
+            clientId,
+            ...(hostedDomain ? { hostedDomain } : {}),
+            onCredential: (response) => void receiveCredential(response),
+            useFedCm,
+          }),
+        )
+        element.replaceChildren()
+        const buttonWidth = element.parentElement?.getBoundingClientRect().width
+          ?? element.getBoundingClientRect().width
+        google.accounts.id.renderButton(
+          element,
+          googleButtonConfiguration(buttonWidth, appearance),
+        )
+        const ready = await waitForRenderedGoogleButton(element, () => active)
         if (!active) return
+        if (!ready) throw new Error('Google button did not finish rendering.')
+
+        activeLayerRef.current = nextLayer
+        setActiveLayer(nextLayer)
+        setReplacing(false)
+        setPhase('ready')
+      } catch {
+        if (!active) return
+        setReplacing(false)
         setPhase('unavailable')
-      },
-    )
+      }
+    })()
 
     return () => {
       active = false
     }
   }, [appearance, authClient, clientId, hostedDomain])
+
+  const googleLayer = (
+    layer: ButtonLayer,
+    ref: RefObject<HTMLDivElement | null>,
+  ) => {
+    const visible = phase === 'ready' && activeLayer === layer
+    return (
+      <div
+        ref={ref}
+        aria-hidden={!visible}
+        style={{
+          gridArea: '1 / 1',
+          visibility: visible ? 'visible' : 'hidden',
+          pointerEvents: visible && !replacing ? 'auto' : 'none',
+          minHeight: 44,
+          width: '100%',
+        }}
+      />
+    )
+  }
 
   return (
     <div
@@ -131,22 +167,42 @@ export function GoogleFedCmButton({
         overflow: 'hidden',
       }}
     >
-      <div
-        ref={container}
-        aria-hidden={phase !== 'ready'}
-        style={{
-          gridArea: '1 / 1',
-          visibility: phase === 'ready' ? 'visible' : 'hidden',
-          pointerEvents: phase === 'ready' ? 'auto' : 'none',
-          minHeight: 44,
-          width: '100%',
-        }}
-      />
+      {googleLayer(0, firstContainer)}
+      {googleLayer(1, secondContainer)}
       {phase === 'loading' ? <div style={{ gridArea: '1 / 1' }}>{loading}</div> : null}
       {phase === 'signing-in' ? <div style={{ gridArea: '1 / 1' }}>{pending}</div> : null}
       {phase === 'unavailable' ? <div style={{ gridArea: '1 / 1' }}>{fallback}</div> : null}
     </div>
   )
+}
+
+function waitForRenderedGoogleButton(
+  element: HTMLDivElement,
+  isActive: () => boolean,
+) {
+  const startedAt = performance.now()
+  return new Promise<boolean>((resolve) => {
+    const check = () => {
+      if (!isActive()) {
+        resolve(false)
+        return
+      }
+      const iframe = Array.from(element.querySelectorAll('iframe')).find(
+        (candidate) => candidate.title === 'Sign in with Google Button',
+      )
+      const bounds = iframe?.getBoundingClientRect()
+      if (bounds && bounds.width > 0 && bounds.height > 0) {
+        resolve(true)
+        return
+      }
+      if (performance.now() - startedAt >= 8_000) {
+        resolve(false)
+        return
+      }
+      window.requestAnimationFrame(check)
+    }
+    window.requestAnimationFrame(check)
+  })
 }
 
 async function supportsGoogleFedCmButton() {
