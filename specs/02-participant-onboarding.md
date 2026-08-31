@@ -8,7 +8,7 @@ A returning participant goes to the first unfinished task.
 
 The event publishes one authoritative `externalApplicationsCloseAt` time and one authoritative VIT `applicationsCloseAt` time. The external deadline is no later than the VIT deadline. The server uses the deadline for the verified participant class. The browser clock is not authoritative.
 
-Before the applicable deadline, an eligible participant can accept policy, update a profile, change an unlocked team, edit a proposal, answer an intake follow-up, and submit. At or after that deadline, the server rejects new onboarding, submission, and participant-initiated proposal revision for that class. A later organizer-requested admission-information response remains available to the locked lead. A retry with an operation ID that committed before the applicable deadline returns the original result.
+Before the applicable deadline, an eligible participant can accept policy, update a profile, change a team, edit a proposal, answer an intake follow-up, and submit. A submitted team can still add, remove, leave, switch, or transfer leadership while the resulting team remains valid. At or after that deadline, the server rejects new onboarding, team changes, submission, and participant-initiated proposal revision for that class. A later organizer-requested admission-information response remains available to the current lead. A retry with an operation ID that committed before the applicable deadline returns the original result.
 
 ## 2. Participant profile
 
@@ -30,7 +30,7 @@ A VIT student can also provide a campus when policy permits it. An external part
 
 The participant policy marks phone, VIT registration number, programme, campus, city, and country as `not_collected | optional | required`. Full name, institution, and year or current role are required. Sensitive eligibility, dietary, and accessibility facts use protected evidence or support routes. No profile or contact field enters proposal AI input.
 
-One immutable participant-policy version owns profile fields, team bounds, notices, the privacy URL, the fresh-project acknowledgement, and the membership-lock warning. VIT students and external participants always form separate teams. Each participant accepts the exact current version. A later publication does not edit an earlier profile or consent record.
+One immutable participant-policy version owns profile fields, team bounds, notices, the privacy URL, the fresh-project acknowledgement, and the final-submission warning. VIT students and external participants always form separate teams. Each participant accepts the exact current version. A later publication does not edit an earlier profile or consent record.
 
 The event stores one deadline for external participants and one later or equal deadline for VIT students. Profile, team, idea, submission, and proposal-revision writes use the deadline for the signed-in participant's verified class. A team has one class, so every member sees the same deadline. Saved work remains readable after that deadline.
 
@@ -40,7 +40,7 @@ A participant can belong to one active team in the event. Each team has exactly 
 
 ### Create
 
-The creator becomes the lead. The server creates a short join code and link. The team view shows active members, pending members, capacity, lead, and lock state in realtime.
+The creator becomes the lead. The server creates a short join code and link. The team view shows active members, pending members, capacity, lead, and the applicable deadline in realtime.
 
 ### Join
 
@@ -49,22 +49,22 @@ The server checks these facts in the join transaction:
 - The participant is eligible.
 - The participant accepted the current policy.
 - The participant is not in another active team.
-- The target team is active, unlocked, and below capacity.
+- The target team is active, still within its application window, and below capacity.
 - The invitation is current.
 - Every active member has the same verified participant class.
 
 ### Membership changes
 
-- The lead can remove a non-lead member before final submission.
-- A member can leave before final submission.
+- The lead can remove a non-lead member before the applicable deadline.
+- A member can leave before the applicable deadline.
 - A lead with other members must transfer leadership before leaving.
 - The current lead proposes a transfer.
 - The proposed lead accepts or declines the transfer.
 - Acceptance changes the lead and the source-attributed lead grants in one transaction.
 - A membership change rotates or invalidates affected invitations.
-- Merge, split, and post-lock correction require a scoped operations command, impact preview, fresh authentication, reason, and audit event.
+- Merge, split, and correction after the deadline require a scoped operations command, impact preview, fresh authentication, reason, and audit event.
 
-Final submission locks membership. It also freezes the accepted participant-policy version and materializes immutable member snapshot rows. It does not lock proposal content. A successful final submission disables ordinary join, leave, remove, and lead-transfer commands. A failed submission attempt can release the lock if it created no application.
+Final submission creates an immutable snapshot of the current team, accepted participant-policy version, and proposal. It does not close team management. A successful join, leave, removal, switch, or accepted leadership transfer after submission must leave the team within the published bounds, with one participant class, complete eligible profiles, current policy acceptance, and exactly one lead. The same transaction creates a new immutable roster and proposal snapshot, advances the application's current version, and invalidates stale human-review and AI-admission output. If any condition fails, the team change and snapshot update both roll back. At the applicable deadline, the latest accepted snapshot becomes final.
 
 ## 4. Proposal intake
 
@@ -92,8 +92,13 @@ Each question must:
 - avoid repeated questions;
 - avoid personal, protected, or credential data;
 - avoid admission, judging, scoring, and winner language;
-- avoid requests for market size, research, metrics, or a full architecture; and
-- offer **Skip**.
+- avoid requests for market size, research, metrics, or a full architecture.
+
+Each generated question requires an answer before the team can continue. The flow does not offer a skip action.
+
+All active team members with `team.project.write` can help draft the initial idea and follow-up answers. Text saves to a small server-side working field after a short pause; typing does not advance the flow, generate a question, or run admission analysis. The portal shows `Saving…`, `Saved`, or `Not saved` beside the field. `Next` advances the flow. The portal also shows the exact active member and exact idea or question they are editing. If another member saves the same field first, the subscribed server revision wins and the losing browser keeps its text for an explicit keep-or-discard choice. A member's own successful save cannot produce a teammate-conflict notice.
+
+Only the current team lead can make the final submission. The server checks both current leadership and exact-team `application.submit` authority in the accepting transaction. A direct permission grant to a non-lead does not make that member a submitter. The confirmation screen uses the same rule. Presence is advisory: an open or disconnected editor cannot veto submission. If another member is typing, the lead sees a warning that submission uses the committed preview and excludes text that has not advanced into it. Exact draft and team versions provide the race boundary.
 
 When `OPENAI_API_KEY` is configured, the service always attempts to generate the question with the code-owned `gpt-5.6-luna` release. This is a platform capability, not an event-policy switch. The server validates the output against the published question contract. The model cannot submit, reject, classify, route, or score the team. Each ordinal has a reviewed fallback. Missing configuration, delay, or failure cannot block the proposal.
 
@@ -162,25 +167,25 @@ The final preview shows:
 The lead confirms the preview. The first submission then:
 
 1. rechecks the current lead and exact-team submit grant;
-2. rechecks `applicationsCloseAt`;
+2. rechecks the deadline for the team's verified participant class;
 3. rechecks team bounds, participant eligibility, policy acceptance, profile completeness, and draft version;
-4. locks membership;
-5. materializes the immutable member snapshot;
+4. materializes the immutable member snapshot;
+5. records the current team and policy versions;
 6. creates immutable proposal version 1; and
 7. creates one application that points to proposal version 1.
 
 The command uses one stable operation ID. A retry returns the original application.
 
-### Revision before the deadline
+### Changes before the deadline
 
-The current lead can revise submitted proposal content while server time is before `applicationsCloseAt`. The member snapshot remains locked.
+The current lead can revise submitted proposal content while server time is before the deadline for the team's participant class. The team can also change membership or leadership during that window. The portal labels the team action **Manage team** for the current lead while changes are open. Other members, and everyone after the deadline, see **View team**.
 
-Each revision:
+Each proposal or team revision:
 
 1. reads the current proposal version;
 2. compares the expected application and draft versions;
-3. validates the complete proposal;
-4. creates a new immutable proposal version;
+3. validates the complete proposal and current team when the roster or lead changed;
+4. creates a new immutable proposal and roster version;
 5. moves the application's current-version pointer;
 6. marks earlier human recommendations and AI admission recommendations stale;
 7. cancels or rebinds active review assignments to the new content version;
@@ -188,9 +193,9 @@ Each revision:
 9. queues fresh AI analysis when the provider is configured; and
 10. records actor, time, operation ID, before version, and after version.
 
-The system retains every older proposal version and its review history. No old output can support a new decision.
+The system retains every older proposal and roster version and its review history. No old output can support a new decision.
 
-At or after `applicationsCloseAt`, the server rejects a revision even if the browser still shows an edit screen. Operations cannot extend one team by editing its application. A deadline change is an event-policy publication that affects all eligible teams and requires its own scoped permission, fresh authentication, reason, and audit record.
+At or after the applicable class deadline, the server rejects a team or proposal revision even if the browser still shows an edit screen. Operations cannot extend one team by editing its application. A deadline change is an event-policy publication that affects all eligible teams and requires its own scoped permission, fresh authentication, reason, and audit record.
 
 ## 6. Admission
 
@@ -208,11 +213,11 @@ An authorized human can:
 
 - publish an admission decision for the current proposal version;
 - record whether the human used, cleared, or overrode the current AI recommendation; or
-- request one or two specific facts from the locked lead.
+- request one or two specific facts from the current lead.
 
 An information response creates another immutable proposal-content version and invalidates stale outputs in the same way as a lead revision. The response does not unlock membership.
 
-An offer reserves capacity for the exact locked member count. Only the current lead can accept or decline the offer. An expired or revoked offer releases capacity without deleting decision history.
+An offer reserves capacity for the exact deadline-frozen member count. Only the current lead can accept or decline the offer. An expired or revoked offer releases capacity without deleting decision history.
 
 ## 7. GitHub and Figma
 
@@ -299,9 +304,11 @@ The participant cannot control playback or queue order. A music action cannot ch
 - One participant belongs to at most one active team.
 - One active team has exactly one lead.
 - Leadership transfer requires acceptance and updates source-attributed grants atomically.
-- Final submission locks only membership and the policy/member snapshot.
-- The lead can revise submitted proposal content before `applicationsCloseAt`.
-- The server rejects proposal writes at or after `applicationsCloseAt`.
+- Final submission creates an immutable team, policy, and proposal snapshot without closing team management.
+- A valid membership or leadership change after submission advances the immutable application snapshot and invalidates stale human and AI output.
+- A team change that would violate team bounds, participant class, profile, policy, or single-lead rules fails atomically.
+- The lead can revise submitted proposal content before the applicable class deadline.
+- The server rejects participant team and proposal writes at or after the applicable class deadline.
 - Every proposal save creates or advances an immutable version without deleting history.
 - A revision invalidates stale human and AI admission outputs.
 - The intake asks two friendly questions and works without OpenAI through published fallback questions.

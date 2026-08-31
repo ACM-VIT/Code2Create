@@ -27,25 +27,3 @@ export function Petal({ size = 14, state = 'done' }: { size?: number; state?: Pe
     </svg>
   )
 }
-
-/**
- * The step indicator: one petal per step, filled behind you, pulsing where you
- * are, outlined ahead. It replaces a numeric "step 1 of 3" counter, so the
- * count still ships to assistive tech via the label.
- */
-export function SakuraSteps({ total, current }: { total: number; current: number }) {
-  return (
-    <div
-      className="flex gap-2.5"
-      role="img"
-      aria-label={`Step ${Math.min(current + 1, total)} of ${total}`}
-    >
-      {Array.from({ length: total }, (_, index) => (
-        <Petal
-          key={index}
-          state={index < current ? 'done' : index === current ? 'current' : 'todo'}
-        />
-      ))}
-    </div>
-  )
-}

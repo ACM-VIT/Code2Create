@@ -100,7 +100,7 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
           Find your people.
         </h1>
         <p className="mb-8 text-[12.5px] text-fg/50">
-          one team per participant · you can switch until you submit
+          one team per participant · changes stay open until the deadline
         </p>
 
         <div className="flex w-full flex-col items-stretch gap-4 sm:flex-row sm:justify-center sm:gap-[18px]">

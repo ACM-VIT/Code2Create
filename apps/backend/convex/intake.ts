@@ -44,10 +44,8 @@ import {
   requirePublishedIntakePolicy,
 } from "./lib/intakePolicy";
 import {
-  deactivateCurrentQuestionAnswer,
   intakeSequenceComplete,
   loadCurrentIntakeResponses,
-  replaceIntakeQuestionsAfter,
   replaceCurrentIntakeQuestions,
 } from "./lib/intakeQuestions";
 import { intakeWorkpool } from "./workpools";
@@ -109,12 +107,31 @@ const currentDraftView = v.object({
       purposeKey: v.string(),
       answerLength: v.union(v.literal("short"), v.literal("medium")),
       source: v.union(v.literal("model"), v.literal("fallback")),
-      state: v.union(v.literal("active"), v.literal("answered"), v.literal("skipped")),
+      state: v.union(v.literal("active"), v.literal("answered")),
       answer: v.optional(v.string()),
     }),
   ),
   freshnessAttested: v.boolean(),
+  lastEditedByMembershipId: v.id("eventMemberships"),
   version: v.number(),
+});
+
+const intakeWorkingField = v.union(
+  v.object({ kind: v.literal("idea") }),
+  v.object({
+    kind: v.literal("follow_up"),
+    questionId: v.id("intakeGeneratedQuestions"),
+  }),
+);
+
+const intakeWorkingFieldView = v.object({
+  kind: v.union(v.literal("idea"), v.literal("follow_up")),
+  questionId: v.optional(v.id("intakeGeneratedQuestions")),
+  value: v.string(),
+  baseDraftVersion: v.number(),
+  revision: v.number(),
+  writtenByMembershipId: v.id("eventMemberships"),
+  updatedAt: v.number(),
 });
 
 const participantApplicationView = v.object({
@@ -153,8 +170,7 @@ const participantApplicationView = v.object({
 
 const proposalRevisionResponseInput = v.object({
   questionId: v.id("intakeGeneratedQuestions"),
-  answer: v.optional(v.string()),
-  skipped: v.boolean(),
+  answer: v.string(),
 });
 
 const proposalRevisionResult = v.object({
@@ -172,6 +188,13 @@ const storedProposalRevisionResult = z.object({
 });
 
 type ReadCtx = QueryCtx | MutationCtx;
+
+function requiredIntakeAnswerValue(answer: Doc<"intakeAnswerVersions"> | null) {
+  if (!answer) {
+    throw new Error("An answered intake question has no active answer version.");
+  }
+  return answer.value;
+}
 
 const participantNoveltyConfiguration = v.object({
   corpusVersionId: v.id("noveltyCorpusVersions"),
@@ -360,6 +383,7 @@ export const current = query({
       applicationsCloseAt: v.number(),
       currentRole: v.union(v.literal("lead"), v.literal("member")),
       draft: v.union(v.null(), currentDraftView),
+      workingFields: v.array(intakeWorkingFieldView),
       application: v.union(v.null(), participantApplicationView),
     }),
   ),
@@ -371,7 +395,13 @@ export const current = query({
       .query("projectDrafts")
       .withIndex("by_team", (index) => index.eq("teamId", team._id))
       .unique();
-    const participantApplication = await participantApplicationForTeam(ctx, event, team);
+    const [participantApplication, storedWorkingFields] = await Promise.all([
+      participantApplicationForTeam(ctx, event, team),
+      ctx.db
+        .query("intakeWorkingFields")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .take(4),
+    ]);
     let visibleDraft: Infer<typeof currentDraftView> | null = null;
     if (draft) {
       const [pinnedPolicy, followUps, novelty] = await Promise.all([
@@ -423,6 +453,7 @@ export const current = query({
           ...(answer ? { answer: answer.value } : {}),
         })),
         freshnessAttested: Boolean(draft.freshnessAttestedAt),
+        lastEditedByMembershipId: draft.lastEditedByMembershipId,
         version: draft.version,
       };
     }
@@ -432,6 +463,21 @@ export const current = query({
       applicationsCloseAt: applicationsCloseAtFor(event, membership.participantClass),
       currentRole: member.role,
       draft: visibleDraft,
+      workingFields: participantApplication
+        ? []
+        : storedWorkingFields
+            .filter((field) => field.baseDraftVersion === (draft?.version ?? 0))
+            .map((field) => ({
+              kind: field.kind,
+              ...(field.questionId !== undefined
+                ? { questionId: field.questionId }
+                : {}),
+              value: field.value,
+              baseDraftVersion: field.baseDraftVersion,
+              revision: field.revision,
+              writtenByMembershipId: field.writtenByMembershipId,
+              updatedAt: field.updatedAt,
+            })),
       application: participantApplication?.view ?? null,
     };
   },
@@ -451,8 +497,7 @@ export const submitted = query({
           v.object({
             questionId: v.id("intakeGeneratedQuestions"),
             question: v.string(),
-            answer: v.optional(v.string()),
-            skipped: v.boolean(),
+            answer: v.string(),
           }),
         ),
         version: v.number(),
@@ -512,8 +557,7 @@ export const submitted = query({
         intakeResponses: project.intakeResponses.map((response) => ({
           questionId: response.questionId,
           question: response.question,
-          ...(response.answer !== undefined ? { answer: response.answer } : {}),
-          skipped: response.skipped,
+          answer: response.answer,
         })),
         version: project.version,
       },
@@ -685,20 +729,12 @@ export const reviseSubmission = mutation({
     const intakeResponses = project.intakeResponses.map((response, index) => {
       const input = args.responses[index];
       if (!input) throw new Error("A validated proposal response is missing.");
-      if (input.skipped ? input.answer !== undefined : input.answer === undefined) {
-        throw new ConvexError({
-          code: "INVALID_FOLLOW_UP_RESPONSE",
-          message: "Answer each question or skip it, but not both.",
-        });
-      }
-      const answer = input.answer === undefined
-        ? undefined
-        : normalizedLongText(
-            input.answer,
-            "Follow-up answer",
-            policy.followUpAnswerMinLength,
-            policy.followUpAnswerMaxLength,
-          );
+      const answer = normalizedLongText(
+        input.answer,
+        "Follow-up answer",
+        policy.followUpAnswerMinLength,
+        policy.followUpAnswerMaxLength,
+      );
       return {
         questionId: response.questionId,
         ordinal: response.ordinal,
@@ -706,8 +742,7 @@ export const reviseSubmission = mutation({
         purposeKey: response.purposeKey,
         answerLength: response.answerLength,
         source: response.source,
-        ...(answer !== undefined ? { answer } : {}),
-        skipped: input.skipped,
+        answer,
       };
     });
     const unchanged =
@@ -716,8 +751,7 @@ export const reviseSubmission = mutation({
         const next = intakeResponses[index];
         return next !== undefined &&
           response.questionId === next.questionId &&
-          response.answer === next.answer &&
-          response.skipped === next.skipped;
+          response.answer === next.answer;
       });
     if (unchanged) {
       const result = {
@@ -1078,6 +1112,152 @@ async function saveAnswerVersion(
   return answerVersion;
 }
 
+function workingFieldQuestionId(
+  field: Infer<typeof intakeWorkingField>,
+) {
+  return field.kind === "follow_up" ? field.questionId : undefined;
+}
+
+async function findWorkingField(
+  ctx: ReadCtx,
+  teamId: Id<"teams">,
+  field: Infer<typeof intakeWorkingField>,
+) {
+  return await ctx.db
+    .query("intakeWorkingFields")
+    .withIndex("by_team_kind_question", (index) =>
+      index
+        .eq("teamId", teamId)
+        .eq("kind", field.kind)
+        .eq("questionId", workingFieldQuestionId(field)),
+    )
+    .unique();
+}
+
+async function deleteWorkingField(
+  ctx: MutationCtx,
+  teamId: Id<"teams">,
+  field: Infer<typeof intakeWorkingField>,
+) {
+  const workingField = await findWorkingField(ctx, teamId, field);
+  if (workingField) await ctx.db.delete(workingField._id);
+}
+
+async function deleteTeamWorkingFields(
+  ctx: MutationCtx,
+  teamId: Id<"teams">,
+) {
+  const fields = await ctx.db
+    .query("intakeWorkingFields")
+    .withIndex("by_team", (index) => index.eq("teamId", teamId))
+    .take(4);
+  await Promise.all(fields.map((field) => ctx.db.delete(field._id)));
+}
+
+export const autosaveWorkingField = mutation({
+  args: {
+    eventSlug: v.string(),
+    field: intakeWorkingField,
+    value: v.string(),
+    baseDraftVersion: v.number(),
+    expectedRevision: v.number(),
+  },
+  returns: v.object({ revision: v.number(), updatedAt: v.number() }),
+  handler: async (ctx, args) => {
+    const { event, membership, team } = await currentTeamContext(
+      ctx,
+      args.eventSlug,
+    );
+    requireRegistrationOpen(event, membership.participantClass);
+    requireEditableTeam(team);
+    const [application, draft] = await Promise.all([
+      ctx.db
+        .query("applications")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique(),
+      ctx.db
+        .query("projectDrafts")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique(),
+    ]);
+    if (application) {
+      throw new ConvexError({
+        code: "APPLICATION_ALREADY_SUBMITTED",
+        message: "This application has been submitted. Edit its current proposal instead.",
+      });
+    }
+    const draftVersion = draft?.version ?? 0;
+    requireDraftVersion(draftVersion, args.baseDraftVersion);
+    const pinnedPolicy = draft
+      ? await requirePinnedIntakePolicy(ctx, draft)
+      : await requirePublishedIntakePolicy(ctx, event);
+    const maximumLength = args.field.kind === "idea"
+      ? pinnedPolicy.normalized.initialIdeaMaxLength
+      : pinnedPolicy.normalized.followUpAnswerMaxLength;
+    if (args.value.length > maximumLength) {
+      throw new ConvexError({
+        code: "DRAFT_TOO_LONG",
+        message: `Keep this response within ${maximumLength} characters.`,
+      });
+    }
+    if (args.field.kind === "follow_up") {
+      const question = await ctx.db.get(args.field.questionId);
+      if (
+        !draft ||
+        !question ||
+        question.eventId !== event._id ||
+        question.teamId !== team._id ||
+        question.draftId !== draft._id ||
+        (question.state !== "active" && question.state !== "answered")
+      ) {
+        throw new ConvexError({
+          code: "FOLLOW_UP_CHANGED",
+          message: "That follow-up changed. Your text is still on this device.",
+        });
+      }
+    }
+    const existing = await findWorkingField(ctx, team._id, args.field);
+    if ((existing?.revision ?? 0) !== args.expectedRevision) {
+      throw new ConvexError({
+        code: "WORKING_FIELD_CHANGED",
+        message: "A teammate saved newer text in this field. Your text is still here.",
+      });
+    }
+    if (
+      existing?.value === args.value &&
+      existing.baseDraftVersion === draftVersion
+    ) {
+      return { revision: existing.revision, updatedAt: existing.updatedAt };
+    }
+    const now = Date.now();
+    const revision = (existing?.revision ?? 0) + 1;
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        value: args.value,
+        baseDraftVersion: draftVersion,
+        revision,
+        writtenByMembershipId: membership._id,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("intakeWorkingFields", {
+        eventId: event._id,
+        teamId: team._id,
+        kind: args.field.kind,
+        ...(args.field.kind === "follow_up"
+          ? { questionId: args.field.questionId }
+          : {}),
+        value: args.value,
+        baseDraftVersion: draftVersion,
+        revision,
+        writtenByMembershipId: membership._id,
+        updatedAt: now,
+      });
+    }
+    return { revision, updatedAt: now };
+  },
+});
+
 export const saveInitialIdea = mutation({
   args: {
     eventSlug: v.string(),
@@ -1126,6 +1306,7 @@ export const saveInitialIdea = mutation({
     if (
       existing?.initialIdea === idea
     ) {
+      await deleteWorkingField(ctx, team._id, { kind: "idea" });
       await ctx.scheduler.runAfter(0, internal.novelty.indexDraftIdea, {
         draftId: existing._id,
         inputFingerprint: noveltyInputFingerprint(idea),
@@ -1189,6 +1370,7 @@ export const saveInitialIdea = mutation({
       value: idea,
       clientOperationId: args.clientOperationId,
     });
+    await deleteTeamWorkingFields(ctx, team._id);
 
     await ctx.scheduler.runAfter(0, internal.novelty.indexDraftIdea, {
       draftId,
@@ -1240,8 +1422,7 @@ export const respondToFollowUp = mutation({
   args: {
     eventSlug: v.string(),
     questionId: v.id("intakeGeneratedQuestions"),
-    answer: v.optional(v.string()),
-    skipped: v.boolean(),
+    answer: v.string(),
     expectedDraftVersion: v.number(),
     clientOperationId: v.string(),
   },
@@ -1252,8 +1433,7 @@ export const respondToFollowUp = mutation({
       team._id,
       args.questionId,
       args.expectedDraftVersion,
-      args.answer ?? null,
-      args.skipped,
+      args.answer,
     ]);
     const replay = await replayDraftOperation(
       ctx,
@@ -1290,20 +1470,13 @@ export const respondToFollowUp = mutation({
         message: "That follow-up is no longer active. Review the current question.",
       });
     }
-    if (args.skipped ? args.answer !== undefined : args.answer === undefined) {
-      throw new ConvexError({
-        code: "INVALID_FOLLOW_UP_RESPONSE",
-        message: "Answer the question or skip it, but not both.",
-      });
-    }
     const { normalized: policy } = await requirePinnedIntakePolicy(ctx, draft);
     const responses = await loadCurrentIntakeResponses(ctx, draft._id);
     if (
       responses.some(
         ({ question: row }) =>
           row.ordinal < question.ordinal &&
-          row.state !== "answered" &&
-          row.state !== "skipped",
+          row.state !== "answered",
       )
     ) {
       throw new ConvexError({
@@ -1311,28 +1484,30 @@ export const respondToFollowUp = mutation({
         message: "Complete the earlier follow-up first.",
       });
     }
-    if (args.answer !== undefined) {
-      const answer = normalizedLongText(
-        args.answer,
-        "Follow-up answer",
-        policy.followUpAnswerMinLength,
-        policy.followUpAnswerMaxLength,
-      );
-      await saveAnswerVersion(ctx, {
-        eventId: event._id,
-        teamId: team._id,
-        draftId: draft._id,
-        membershipId: membership._id,
-        promptKey: `introduction_follow_up_${question.ordinal}`,
-        value: answer,
-        generatedQuestionId: question._id,
-        clientOperationId: args.clientOperationId,
-      });
-    }
+    const answer = normalizedLongText(
+      args.answer,
+      "Follow-up answer",
+      policy.followUpAnswerMinLength,
+      policy.followUpAnswerMaxLength,
+    );
+    await saveAnswerVersion(ctx, {
+      eventId: event._id,
+      teamId: team._id,
+      draftId: draft._id,
+      membershipId: membership._id,
+      promptKey: `introduction_follow_up_${question.ordinal}`,
+      value: answer,
+      generatedQuestionId: question._id,
+      clientOperationId: args.clientOperationId,
+    });
+    await deleteWorkingField(ctx, team._id, {
+      kind: "follow_up",
+      questionId: question._id,
+    });
     const draftVersion = draft.version + 1;
     const now = Date.now();
     await ctx.db.patch(question._id, {
-      state: args.skipped ? "skipped" : "answered",
+      state: "answered",
       answeredAt: now,
     });
     const needsAnotherInterpretation =
@@ -1372,8 +1547,7 @@ export const reviseFollowUp = mutation({
   args: {
     eventSlug: v.string(),
     questionId: v.id("intakeGeneratedQuestions"),
-    answer: v.optional(v.string()),
-    skipped: v.boolean(),
+    answer: v.string(),
     expectedDraftVersion: v.number(),
     clientOperationId: v.string(),
   },
@@ -1384,8 +1558,7 @@ export const reviseFollowUp = mutation({
       team._id,
       args.questionId,
       args.expectedDraftVersion,
-      args.answer ?? null,
-      args.skipped,
+      args.answer,
     ]);
     const replay = await replayDraftOperation(
       ctx,
@@ -1409,19 +1582,13 @@ export const reviseFollowUp = mutation({
       });
     }
     requireDraftVersion(draft.version, args.expectedDraftVersion);
-    if (args.skipped ? args.answer !== undefined : args.answer === undefined) {
-      throw new ConvexError({
-        code: "INVALID_FOLLOW_UP_RESPONSE",
-        message: "Answer the question or skip it, but not both.",
-      });
-    }
     const responses = await loadCurrentIntakeResponses(ctx, draft._id);
     const response = responses.find(({ question }) => question._id === args.questionId);
     if (
       !response ||
       response.question.teamId !== team._id ||
       response.question.eventId !== event._id ||
-      (response.question.state !== "answered" && response.question.state !== "skipped")
+      response.question.state !== "answered"
     ) {
       throw new ConvexError({
         code: "FOLLOW_UP_CHANGED",
@@ -1429,17 +1596,13 @@ export const reviseFollowUp = mutation({
       });
     }
     const { normalized: policy } = await requirePinnedIntakePolicy(ctx, draft);
-    const answer = args.answer === undefined
-      ? null
-      : normalizedLongText(
-          args.answer,
-          "Follow-up answer",
-          policy.followUpAnswerMinLength,
-          policy.followUpAnswerMaxLength,
-        );
-    const unchanged = args.skipped
-      ? response.question.state === "skipped"
-      : response.question.state === "answered" && response.answer?.value === answer;
+    const answer = normalizedLongText(
+      args.answer,
+      "Follow-up answer",
+      policy.followUpAnswerMinLength,
+      policy.followUpAnswerMaxLength,
+    );
+    const unchanged = response.answer?.value === answer;
     const now = Date.now();
     if (unchanged) {
       await recordDraftOperation(ctx, {
@@ -1454,46 +1617,27 @@ export const reviseFollowUp = mutation({
       return { draftVersion: draft.version };
     }
 
-    if (answer === null) {
-      await deactivateCurrentQuestionAnswer(ctx, response.question._id);
-    } else {
-      await saveAnswerVersion(ctx, {
-        eventId: event._id,
-        teamId: team._id,
-        draftId: draft._id,
-        membershipId: membership._id,
-        promptKey: `introduction_follow_up_${response.question.ordinal}`,
-        value: answer,
-        generatedQuestionId: response.question._id,
-        clientOperationId: args.clientOperationId,
-      });
-    }
+    await saveAnswerVersion(ctx, {
+      eventId: event._id,
+      teamId: team._id,
+      draftId: draft._id,
+      membershipId: membership._id,
+      promptKey: `introduction_follow_up_${response.question.ordinal}`,
+      value: answer,
+      generatedQuestionId: response.question._id,
+      clientOperationId: args.clientOperationId,
+    });
     await ctx.db.patch(response.question._id, {
-      state: args.skipped ? "skipped" : "answered",
+      state: "answered",
       answeredAt: now,
     });
-    await replaceIntakeQuestionsAfter(ctx, draft._id, response.question.ordinal);
-    const needsAnotherInterpretation =
-      response.question.ordinal < policy.maximumFollowUpCount;
     const draftVersion = draft.version + 1;
     await ctx.db.patch(draft._id, {
-      stage: needsAnotherInterpretation ? "follow_up" : "review",
+      stage: "review",
       version: draftVersion,
       lastEditedByMembershipId: membership._id,
       updatedAt: now,
     });
-    if (needsAnotherInterpretation) {
-      await intakeWorkpool.enqueueAction(
-        ctx,
-        internal.intelligence.interpretIdea,
-        { draftId: draft._id },
-        {
-          retry: false,
-          onComplete: internal.intelligence.intakeGenerationFinished,
-          context: { draftId: draft._id, draftVersion },
-        },
-      );
-    }
     await recordDraftOperation(ctx, {
       eventId: event._id,
       personId: person._id,
@@ -1571,6 +1715,7 @@ export const submissionPreview = query({
       teamName: v.string(),
       teamVersion: v.number(),
       draftVersion: v.number(),
+      lastEditedByMembershipId: v.id("eventMemberships"),
       applicationsCloseAt: v.number(),
       initialIdea: v.optional(v.string()),
       followUps: v.array(
@@ -1580,8 +1725,7 @@ export const submissionPreview = query({
           question: v.string(),
           purposeKey: v.string(),
           source: v.union(v.literal("model"), v.literal("fallback")),
-          answer: v.optional(v.string()),
-          skipped: v.boolean(),
+          answer: v.string(),
         }),
       ),
       freshnessAttested: v.boolean(),
@@ -1711,6 +1855,7 @@ export const submissionPreview = query({
       teamName: team.name,
       teamVersion: team.version,
       draftVersion: draft.version,
+      lastEditedByMembershipId: draft.lastEditedByMembershipId,
       applicationsCloseAt,
       ...(draft.initialIdea !== undefined ? { initialIdea: draft.initialIdea } : {}),
       followUps: followUps.map(({ question, answer }) => ({
@@ -1719,8 +1864,7 @@ export const submissionPreview = query({
         question: question.text,
         purposeKey: question.purposeKey,
         source: question.source,
-        ...(answer ? { answer: answer.value } : {}),
-        skipped: question.state === "skipped",
+        answer: requiredIntakeAnswerValue(answer),
       })),
       freshnessAttested: Boolean(draft.freshnessAttestedAt),
       memberCount: rosterCounts.activeMemberCount,
@@ -1846,7 +1990,10 @@ export const submit = mutation({
     }
     const team = await ctx.db.get(member.teamId);
     if (!team || team.membershipLocked) {
-      throw new ConvexError({ code: "SUBMISSION_LOCKED", message: "This team is already locked." });
+      throw new ConvexError({
+        code: "SUBMISSION_LOCKED",
+        message: "This application has already been submitted.",
+      });
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -2262,8 +2409,7 @@ export const finalizeSubmission = internalMutation({
         purposeKey: question.purposeKey,
         answerLength: question.answerLength,
         source: question.source,
-        ...(answer ? { answer: answer.value } : {}),
-        skipped: question.state === "skipped",
+        answer: requiredIntakeAnswerValue(answer),
       })),
       lockedRosterSnapshotId: attempt._id,
       lockedMemberCount: attempt.processedMemberCount,
@@ -2353,7 +2499,7 @@ export const finalizeSubmission = internalMutation({
       grantIds: attempt.authorizingGrantIds,
       scopeType: "team",
       scopeId: team._id,
-      action: "application.submitted_and_team_locked",
+      action: "application.submitted",
       targetType: "application",
       targetId: applicationId,
       previousSummary: JSON.stringify({
@@ -2363,7 +2509,7 @@ export const finalizeSubmission = internalMutation({
       nextSummary: JSON.stringify({
         projectVersionId,
         memberCount: attempt.processedMemberCount,
-        lockedAt: attempt.createdAt,
+        submittedAt: attempt.createdAt,
       }),
       reason: "Team lead explicitly confirmed final submission",
     });

@@ -14,7 +14,11 @@ import {
   createFormingTeamWithLead,
   unusedTeamCode,
 } from "./lib/teamMembership";
-import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
+import {
+  applicationsCloseAtFor,
+  requireEventBySlug,
+  requireRegistrationOpen,
+} from "./lib/events";
 import {
   findCurrentPerson,
   requireCurrentPerson,
@@ -33,6 +37,7 @@ import {
 } from "./lib/participantPolicy";
 import { normalizeCode } from "./lib/strings";
 import { teamRosterPendingEntry } from "./lib/teamBackfill";
+import { refreshSubmittedApplicationRoster } from "./lib/submittedTeamRoster";
 import {
   endActiveTeamMember,
   insertActiveTeamMember,
@@ -50,6 +55,7 @@ const teamView = v.object({
   publicCode: v.string(),
   status: teamStatus,
   membershipLocked: v.boolean(),
+  membershipEditableUntil: v.number(),
   teamMinimumSize: v.number(),
   teamMaximumSize: v.number(),
   mixedParticipantClassesAllowed: v.boolean(),
@@ -209,6 +215,7 @@ export const current = query({
       publicCode: team.publicCode,
       status: team.status,
       membershipLocked: team.membershipLocked,
+      membershipEditableUntil: applicationsCloseAtFor(event, membership.participantClass),
       teamMinimumSize: participantPolicy.normalized.teamMinimumSize,
       teamMaximumSize: participantPolicy.normalized.teamMaximumSize,
       mixedParticipantClassesAllowed:
@@ -222,7 +229,8 @@ export const current = query({
       canTransferLeadership: transferLeadershipGrantIds.length > 0,
       canRespondToLeadershipTransfer: acceptLeadershipGrantIds.length > 0,
       canWriteProject: projectWriteGrantIds.length > 0,
-      canSubmitApplication: applicationSubmitGrantIds.length > 0,
+      canSubmitApplication:
+        currentMember.role === "lead" && applicationSubmitGrantIds.length > 0,
       canRespondToInformationRequest: informationResponseGrantIds.length > 0,
       canRespondToOffer: offerResponseGrantIds.length > 0,
       pendingLeadershipTransfer: pendingLeadershipTransfer
@@ -556,9 +564,6 @@ export const join = mutation({
     if (!team || team.status === "withdrawn" || team.status === "disqualified") {
       throw new ConvexError({ code: "TEAM_NOT_FOUND", message: "That team code is not active." });
     }
-    if (team.membershipLocked) {
-      throw new ConvexError({ code: "TEAM_LOCKED", message: "That team has already submitted." });
-    }
     const rosterCounts = teamRosterCounts(team);
     if (rosterCounts.activeMemberCount >= participantPolicy.normalized.teamMaximumSize) {
       throw new ConvexError({ code: "TEAM_FULL", message: "That team is full." });
@@ -600,6 +605,16 @@ export const join = mutation({
       onboardingStatus:
         membership.onboardingStatus === "profile_required" ? "profile_required" : "project_required",
       updatedAt: now,
+    });
+    await refreshSubmittedApplicationRoster(ctx, {
+      event,
+      teamId: team._id,
+      actorPersonId: person._id,
+      actorMembershipId: membership._id,
+      authorizingGrantIds: grantIds,
+      clientOperationId: args.clientOperationId,
+      requestFingerprint,
+      now,
     });
     await recordOperation(ctx, {
       eventId: event._id,
@@ -689,9 +704,6 @@ export const switchTeam = mutation({
     if (!fromTeam || fromTeam.eventId !== event._id) {
       throw new ConvexError({ code: "TEAM_NOT_FOUND", message: "That team is not available." });
     }
-    if (fromTeam.membershipLocked) {
-      throw new ConvexError({ code: "TEAM_LOCKED", message: "Team membership is locked." });
-    }
     if (fromTeam.version !== args.expectedFromTeamVersion) {
       throw new ConvexError({
         code: "TEAM_CHANGED",
@@ -724,9 +736,6 @@ export const switchTeam = mutation({
     }
     if (toTeam._id === fromTeam._id) {
       throw new ConvexError({ code: "ALREADY_ON_TEAM", message: "You are already on that team." });
-    }
-    if (toTeam.membershipLocked) {
-      throw new ConvexError({ code: "TEAM_LOCKED", message: "That team has already submitted." });
     }
     const toCounts = teamRosterCounts(toTeam);
     if (toCounts.activeMemberCount >= participantPolicy.normalized.teamMaximumSize) {
@@ -804,6 +813,26 @@ export const switchTeam = mutation({
       onboardingStatus:
         membership.onboardingStatus === "profile_required" ? "profile_required" : "project_required",
       updatedAt: now,
+    });
+    await refreshSubmittedApplicationRoster(ctx, {
+      event,
+      teamId: fromTeam._id,
+      actorPersonId: person._id,
+      actorMembershipId: membership._id,
+      authorizingGrantIds: leaveGrantIds,
+      clientOperationId: args.clientOperationId,
+      requestFingerprint,
+      now,
+    });
+    await refreshSubmittedApplicationRoster(ctx, {
+      event,
+      teamId: toTeam._id,
+      actorPersonId: person._id,
+      actorMembershipId: membership._id,
+      authorizingGrantIds: joinGrantIds,
+      clientOperationId: args.clientOperationId,
+      requestFingerprint,
+      now,
     });
     await recordOperation(ctx, {
       eventId: event._id,
@@ -888,9 +917,6 @@ export const leave = mutation({
     if (!team || team.eventId !== event._id) {
       throw new ConvexError({ code: "TEAM_NOT_FOUND", message: "That team is not available." });
     }
-    if (team.membershipLocked) {
-      throw new ConvexError({ code: "TEAM_LOCKED", message: "Team membership is locked." });
-    }
     if (team.version !== args.expectedTeamVersion) {
       throw new ConvexError({
         code: "TEAM_CHANGED",
@@ -952,6 +978,16 @@ export const leave = mutation({
         reason: "Sole team lead withdrew the team",
       });
     }
+    await refreshSubmittedApplicationRoster(ctx, {
+      event,
+      teamId: team._id,
+      actorPersonId: person._id,
+      actorMembershipId: membership._id,
+      authorizingGrantIds: grantIds,
+      clientOperationId: args.clientOperationId,
+      requestFingerprint,
+      now,
+    });
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1014,9 +1050,6 @@ export const removeMember = mutation({
     if (!team || team.eventId !== event._id) {
       throw new ConvexError({ code: "TEAM_NOT_FOUND", message: "That team is not available." });
     }
-    if (team.membershipLocked) {
-      throw new ConvexError({ code: "TEAM_LOCKED", message: "Team membership is locked." });
-    }
     if (team.version !== args.expectedTeamVersion) {
       throw new ConvexError({
         code: "TEAM_CHANGED",
@@ -1078,6 +1111,16 @@ export const removeMember = mutation({
       sourceId: targetMember._id,
       revokedByPersonId: person._id,
       reason: "Participant was removed from the team",
+    });
+    await refreshSubmittedApplicationRoster(ctx, {
+      event,
+      teamId: team._id,
+      actorPersonId: person._id,
+      actorMembershipId: membership._id,
+      authorizingGrantIds: grantIds,
+      clientOperationId: args.clientOperationId,
+      requestFingerprint,
+      now,
     });
     await recordOperation(ctx, {
       eventId: event._id,
@@ -1154,8 +1197,8 @@ export const requestLeadershipTransfer = mutation({
       throw new ConvexError({ code: "TEAM_LEAD_REQUIRED", message: "Only the team lead can do that." });
     }
     const team = await ctx.db.get(member.teamId);
-    if (!team || team.membershipLocked) {
-      throw new ConvexError({ code: "TEAM_LOCKED", message: "Team leadership is locked." });
+    if (!team) {
+      throw new ConvexError({ code: "TEAM_NOT_FOUND", message: "That team is not available." });
     }
     if (team.version !== args.expectedTeamVersion) {
       throw new ConvexError({ code: "TEAM_CHANGED", message: "The team changed. Review it and try again." });
@@ -1275,7 +1318,7 @@ export const respondToLeadershipTransfer = mutation({
       throw new ConvexError({ code: "TRANSFER_EXPIRED", message: "That transfer has expired." });
     }
     const team = await ctx.db.get(transfer.teamId);
-    if (!team || team.membershipLocked || team.version !== transfer.expectedTeamVersion) {
+    if (!team || team.version !== transfer.expectedTeamVersion) {
       throw new ConvexError({
         code: "TRANSFER_STALE",
         message: "The team changed after this transfer was requested.",
@@ -1374,6 +1417,16 @@ export const respondToLeadershipTransfer = mutation({
       membership: toMembership,
       teamId: team._id,
       actorPersonId: person._id,
+    });
+    await refreshSubmittedApplicationRoster(ctx, {
+      event,
+      teamId: team._id,
+      actorPersonId: person._id,
+      actorMembershipId: membership._id,
+      authorizingGrantIds: grantIds,
+      clientOperationId: args.clientOperationId,
+      requestFingerprint,
+      now,
     });
     await recordOperation(ctx, {
       eventId: event._id,

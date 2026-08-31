@@ -307,7 +307,7 @@ function describeChanges(
     published.freshProjectAttestation !== draft.freshProjectAttestation ||
     published.finalSubmissionWarning !== draft.finalSubmissionWarning
   ) {
-    changes.push("Update the submission acknowledgement or lock warning.");
+    changes.push("Update the submission acknowledgement or final warning.");
   }
   return changes.length > 0 ? changes : ["No participant-facing changes."];
 }

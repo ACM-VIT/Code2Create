@@ -4,6 +4,7 @@ import type { CurrentTeamMember } from '../types'
 type Editor = {
   membershipId: CurrentTeamMember['membershipId']
   surface: EditingSurface
+  label: string
 }
 
 export function EditingPresence({
@@ -15,40 +16,32 @@ export function EditingPresence({
 }) {
   if (editors.length === 0) return null
 
-  const names = editors.map((editor) => (
-    members.find((member) => member.membershipId === editor.membershipId)?.displayName ??
-    'A teammate'
-  ))
-  const uniqueNames = [...new Set(names)]
-  const subject = uniqueNames.length === 1
-    ? uniqueNames[0]
-    : uniqueNames.length === 2
-      ? `${uniqueNames[0]} and ${uniqueNames[1]}`
-      : `${uniqueNames[0]} and ${uniqueNames.length - 1} others`
-  const sharedSurface = editors.every(
-    (editor) => editor.surface === editors[0]?.surface,
-  )
-    ? editors[0]?.surface
-    : null
-  const action = sharedSurface === 'idea'
-    ? 'editing the idea'
-    : sharedSurface === 'follow_up'
-      ? 'answering a question'
-      : sharedSurface === 'proposal_revision'
-        ? 'updating the submission'
-        : 'editing the submission'
+  const activeEditors = [...new Map(editors.map((editor) => {
+    const name = members.find(
+      (member) => member.membershipId === editor.membershipId,
+    )?.displayName
+    const label = name ? `${name} is editing ${editor.label}` : `Someone is editing ${editor.label}`
+    return [`${editor.membershipId}:${editor.surface}:${editor.label}`, label] as const
+  })).values()]
 
   return (
     <p
       role="status"
       aria-live="polite"
-      className="-mt-1.5 mb-4.5 flex items-center justify-center gap-1.5 text-[11.5px] text-rose-light"
+      className="-mt-1.5 mb-4.5 flex flex-wrap items-center justify-center gap-2 text-[11.5px] text-rose-light"
     >
-      <span
-        aria-hidden="true"
-        className="size-[5px] flex-none animate-dot-pulse rounded-full bg-rose-light"
-      />
-      {subject} {uniqueNames.length === 1 ? 'is' : 'are'} {action}…
+      {activeEditors.map((label) => (
+        <span
+          key={label}
+          className="inline-flex items-center gap-1.5 rounded-full border border-rose-light/25 bg-rose-light/8 px-2.5 py-1"
+        >
+          <span
+            aria-hidden="true"
+            className="size-[5px] flex-none animate-dot-pulse rounded-full bg-rose-light"
+          />
+          {label}
+        </span>
+      ))}
     </p>
   )
 }

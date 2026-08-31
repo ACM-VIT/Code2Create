@@ -20,7 +20,7 @@ import { PetalCard } from '../components/portal/PetalCard'
 import { Petal } from '../components/portal/Petal'
 import { TeamCluster } from '../components/portal/TeamCluster'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
-import { PortalError } from '../components/portal/PortalField'
+import { PortalError, PortalField, PortalTextarea } from '../components/portal/PortalField'
 import { Flower } from '../components/portal/FlowerAvatar'
 import {
   clearSessionDraft,
@@ -59,12 +59,12 @@ const applicationCopy: Record<ApplicationState, {
   submitted: {
     status: 'Application received',
     heading: 'Submitted.',
-    message: 'We have your application. Your team is locked; the lead can revise the submission until the deadline.',
+    message: 'We have your application. Your team and proposal can change until the deadline.',
   },
   under_review: {
     status: 'Under review',
-    heading: 'Your application is being reviewed.',
-    message: 'Your team remains locked. We will post the decision here.',
+    heading: 'Your idea is submitted.',
+    message: 'Review is underway. Changes before the deadline create a new review version.',
   },
   needs_information: {
     status: 'Your response is needed',
@@ -217,6 +217,8 @@ function SubmittedWorkspace({
   )
   const eventIsLive = confirmed && currentPhase !== undefined
   const canEditProposal = intake.canEdit && phaseTime < intake.applicationsCloseAt
+  const teamEditable = phaseTime < team.membershipEditableUntil
+  const canManageTeam = team.currentRole === 'lead' && teamEditable
 
   const respond = async (response: 'confirm' | 'decline') => {
     const offer = application.currentOffer
@@ -266,7 +268,10 @@ function SubmittedWorkspace({
   // ---- the proposal as its own view, swapped in place of the hero ----------
   if (viewingProposal) {
     return (
-      <PortalScene tree="none" header={<TeamCluster team={team} members={members} locked onSignOut={onSignOut} />}>
+      <PortalScene
+        tree="none"
+        header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
+      >
         <div className="flex w-full max-w-[840px] flex-col items-center">
           <h1 className="mb-2 text-center font-display font-light tracking-[-.01em] text-3xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[44px]">
             {team.name}
@@ -285,13 +290,12 @@ function SubmittedWorkspace({
             </button>
           </p>
           <div className="w-full text-left">
-            <PetalCard className="px-7 py-6">
+            <PetalCard className="px-5 py-5 sm:px-7 sm:py-6">
               <ProposalSummary
                 application={application}
                 canEdit={canEditProposal}
                 intake={intake}
                 members={members}
-                timezone={event.timezone}
               />
             </PetalCard>
           </div>
@@ -307,7 +311,7 @@ function SubmittedWorkspace({
     return (
       <PortalScene
         tree="none"
-        header={<TeamCluster team={team} members={members} locked onSignOut={onSignOut} />}
+        header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
       >
         <div className="flex w-full max-w-[760px] flex-col items-center text-center">
           <div className="mb-5 drop-shadow-[0_0_14px_var(--glow-rose)]">
@@ -328,7 +332,10 @@ function SubmittedWorkspace({
             </span>
             <span aria-hidden className="hidden h-3.5 w-px bg-rose/40 sm:block" />
             <span>
-              team <span className="text-rose-light">locked</span>
+              team{' '}
+              <Link to="/team" className="text-rose-light underline-offset-4 hover:underline">
+                {canManageTeam ? 'manage team' : 'view team'}
+              </Link>
             </span>
             {canEditProposal ? (
               <>
@@ -397,7 +404,7 @@ function SubmittedWorkspace({
     return (
       <PortalScene
         tree="none"
-        header={<TeamCluster team={team} members={members} locked onSignOut={onSignOut} />}
+        header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
         backdrop={
           <div aria-hidden className="pointer-events-none absolute inset-0 z-[2]">
             <img
@@ -578,7 +585,10 @@ function SubmittedWorkspace({
 
   // ---- closed states: declined, waitlisted, expired, withdrawn ------------
   return (
-    <PortalScene tree="none" header={<TeamCluster team={team} members={members} locked onSignOut={onSignOut} />}>
+    <PortalScene
+      tree="none"
+      header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
+    >
       <div className="flex w-full max-w-[760px] flex-col items-center text-center">
         <div className="mb-5 drop-shadow-[0_0_14px_var(--glow-rose)]">
           <Petal size={34} />
@@ -675,7 +685,18 @@ function EventLiveScene({
   const nextPhase = event.phases.find((phase) => phase.startsAt > phaseTime)
   const latestStep = communications?.nextSteps[0]
   return (
-    <PortalScene tree="none" header={<TeamCluster team={team} members={members} locked onSignOut={onSignOut} />}>
+    <PortalScene
+      tree="none"
+      header={(
+        <TeamCluster
+          team={team}
+          members={members}
+          editable={phaseTime < team.membershipEditableUntil}
+          canManage={team.currentRole === 'lead' && phaseTime < team.membershipEditableUntil}
+          onSignOut={onSignOut}
+        />
+      )}
+    >
       <div className="w-full max-w-[1048px] pt-2 pb-10 lg:pt-6">
         <p className="mb-2 flex items-center gap-2 font-ui text-base text-rose-light">
           <span aria-hidden className="inline-block size-[7px] animate-dot-pulse rounded-full bg-rose-light" />
@@ -751,7 +772,7 @@ function EventLiveScene({
           ) : null}
           <BentoBlock
             title="squad"
-            meta={`${team.activeMemberCount} of ${team.teamMaximumSize} · locked`}
+            meta={`${team.activeMemberCount} of ${team.teamMaximumSize} · view team`}
             summary={
               <span className="mt-1 flex">
                 {members.slice(0, 6).map((member, index) => (
@@ -836,13 +857,11 @@ function ProposalSummary({
   canEdit,
   intake,
   members,
-  timezone,
 }: {
   application: CurrentApplication
   canEdit: boolean
   intake: SubmittedIntake
   members: CurrentTeamMember[]
-  timezone: string
 }) {
   const reviseSubmission = useMutation(api.intake.reviseSubmission)
   const revisionAttempt = useMutationAttempt<FunctionReturnType<typeof api.intake.reviseSubmission>>()
@@ -893,8 +912,7 @@ function ProposalSummary({
           initialIdea: draft.initialIdea,
           responses: draft.responses.map((response) => ({
             questionId: response.questionId,
-            ...(response.skipped ? {} : { answer: response.answer }),
-            skipped: response.skipped,
+            answer: response.answer,
           })),
           clientOperationId: crypto.randomUUID(),
         }
@@ -914,111 +932,112 @@ function ProposalSummary({
 
   const ideaLength = draft.initialIdea.trim().length
   const invalidResponse = draft.responses.some((response) => (
-    !response.skipped && (
-      response.answer.trim().length < intake.editRules.followUpAnswerMinLength ||
-      response.answer.trim().length > intake.editRules.followUpAnswerMaxLength
-    )
+    response.answer.trim().length < intake.editRules.followUpAnswerMinLength ||
+    response.answer.trim().length > intake.editRules.followUpAnswerMaxLength
   ))
   const invalidIdea =
     ideaLength < intake.editRules.initialIdeaMinLength ||
     ideaLength > intake.editRules.initialIdeaMaxLength
 
+  const toggleEditing = () => {
+    if (editing) {
+      setDraft(proposalDraft(intake))
+      clearSessionDraft(proposalStorageKey)
+      setHasRecoveredDraft(false)
+      setEditConflict(false)
+      stopEditing()
+    } else {
+      editBase.current = proposalEditBase(application, intake)
+      if (!hasRecoveredDraft) setDraft(proposalDraft(intake))
+      setExpanded(true)
+    }
+    setEditing(!editing)
+    setError(null)
+  }
+
   return (
-    <section className="submitted-summary">
-      <div className="proposal-heading">
-        <div>
-          <p className="fine-print">
-            Edits close {formatEventTime(intake.applicationsCloseAt, timezone)}.
-          </p>
-        </div>
-        {canEdit ? (
-          <button
-            type="button"
-            className="text-button"
-            disabled={busy || pending}
-            onClick={() => {
-              if (editing) {
-                setDraft(proposalDraft(intake))
-                clearSessionDraft(proposalStorageKey)
-                setHasRecoveredDraft(false)
-                setEditConflict(false)
-                stopEditing()
-              } else {
-                editBase.current = proposalEditBase(application, intake)
-                if (!hasRecoveredDraft) setDraft(proposalDraft(intake))
-                setExpanded(true)
-              }
-              setEditing(!editing)
-              setError(null)
-            }}
-          >
-            {editing ? 'Cancel' : 'Edit submission'}
-          </button>
-        ) : null}
-      </div>
+    <section className="text-left">
       <EditingPresence editors={editors ?? []} members={members} />
       {editing && canEdit ? (
-        <form className="proposal-editor" onSubmit={save}>
+        <form onSubmit={save}>
           {hasRecoveredDraft ? (
-            <p className="notice" role="status">Recovered your unsaved changes from this tab.</p>
+            <p
+              role="status"
+              className="mb-5 rounded-petal-xs border border-petal-edge-soft bg-wash/50 px-4 py-3 text-[12.5px] text-fg/75"
+            >
+              Recovered your unsaved changes from this tab.
+            </p>
           ) : null}
           {editConflict ? (
-            <div className="notice" role="status">
-              <p>A newer submission was saved. Your changes are still here.</p>
-              <div className="button-row">
-                <button type="button" className="text-button" onClick={() => {
+            <div
+              role="status"
+              className="mb-5 rounded-petal-xs border border-petal-edge-soft bg-wash/50 px-4 py-3"
+            >
+              <p className="text-[12.5px] text-fg/75">
+                A newer submission was saved. Your changes are still here.
+              </p>
+              <div className="mt-2 flex gap-5">
+                <PortalTextButton type="button" onClick={() => {
                   setDraft(proposalDraft(intake))
                   editBase.current = proposalEditBase(application, intake)
                   setEditConflict(false)
                   setHasRecoveredDraft(false)
                   clearSessionDraft(proposalStorageKey)
-                }}>Use saved version</button>
-                <button type="button" className="text-button" onClick={() => {
+                }}>
+                  use the saved version
+                </PortalTextButton>
+                <PortalTextButton type="button" onClick={() => {
                   editBase.current = proposalEditBase(application, intake)
                   setEditConflict(false)
                   writeVersionedSessionDraft(proposalStorageKey, {
                     base: proposalEditBaseFingerprint(editBase.current),
                     value: serializeProposalDraft(draft),
                   })
-                }}>Keep mine</button>
+                }}>
+                  keep mine
+                </PortalTextButton>
               </div>
             </div>
           ) : null}
-          <label className="field">
-            <span>What do you want to build?</span>
-            <textarea
-              autoFocus
-              required
-              minLength={intake.editRules.initialIdeaMinLength}
-              maxLength={intake.editRules.initialIdeaMaxLength}
-              value={draft.initialIdea}
-              disabled={busy || pending}
-              onChange={(event) => {
-                const value = event.currentTarget.value
-                setDraft((current) => ({
-                  ...current,
-                  initialIdea: value,
-                }))
-                const nextDraft = { ...draft, initialIdea: value }
-                writeVersionedSessionDraft(proposalStorageKey, {
-                  base: proposalEditBaseFingerprint(editBase.current),
-                  value: serializeProposalDraft(nextDraft),
-                })
-                setHasRecoveredDraft(true)
-                markEditing('proposal_revision')
-              }}
-            />
-          </label>
+          <PortalField label="What do you want to build?" className="mb-5">
+            {(id) => (
+              <PortalTextarea
+                id={id}
+                autoFocus
+                required
+                rows={5}
+                minLength={intake.editRules.initialIdeaMinLength}
+                maxLength={intake.editRules.initialIdeaMaxLength}
+                value={draft.initialIdea}
+                disabled={busy || pending}
+                onChange={(event) => {
+                  const value = event.currentTarget.value
+                  setDraft((current) => ({
+                    ...current,
+                    initialIdea: value,
+                  }))
+                  const nextDraft = { ...draft, initialIdea: value }
+                  writeVersionedSessionDraft(proposalStorageKey, {
+                    base: proposalEditBaseFingerprint(editBase.current),
+                    value: serializeProposalDraft(nextDraft),
+                  })
+                  setHasRecoveredDraft(true)
+                  markEditing('proposal_revision')
+                }}
+              />
+            )}
+          </PortalField>
           {intake.project.intakeResponses.map((response, index) => (
-            <div className="proposal-response" key={response.questionId}>
-              <label className="field">
-                <span>{response.question}</span>
-                <textarea
-                  required={!draft.responses[index]?.skipped}
+            <PortalField key={response.questionId} label={response.question} className="mb-5">
+              {(id) => (
+                <PortalTextarea
+                  id={id}
+                  required
+                  rows={3}
                   minLength={intake.editRules.followUpAnswerMinLength}
                   maxLength={intake.editRules.followUpAnswerMaxLength}
                   value={draft.responses[index]?.answer ?? ''}
-                  disabled={busy || pending || draft.responses[index]?.skipped}
+                  disabled={busy || pending}
                   onChange={(event) => {
                     const value = event.currentTarget.value
                     setDraft((current) => ({
@@ -1042,76 +1061,66 @@ function ProposalSummary({
                       value: serializeProposalDraft(nextDraft),
                     })
                     setHasRecoveredDraft(true)
-                    markEditing('proposal_revision')
+                    markEditing('proposal_revision', response.questionId)
                   }}
                 />
-              </label>
-              <label className="proposal-skip">
-                <input
-                  type="checkbox"
-                  checked={draft.responses[index]?.skipped ?? false}
-                  disabled={busy || pending}
-                  onChange={(event) => {
-                    const checked = event.currentTarget.checked
-                    setDraft((current) => ({
-                      ...current,
-                      responses: current.responses.map((item, itemIndex) => (
-                        itemIndex === index
-                          ? { ...item, skipped: checked }
-                          : item
-                      )),
-                    }))
-                    const nextDraft = {
-                      ...draft,
-                      responses: draft.responses.map((item, itemIndex) => (
-                        itemIndex === index
-                          ? { ...item, skipped: checked }
-                          : item
-                      )),
-                    }
-                    writeVersionedSessionDraft(proposalStorageKey, {
-                      base: proposalEditBaseFingerprint(editBase.current),
-                      value: serializeProposalDraft(nextDraft),
-                    })
-                    setHasRecoveredDraft(true)
-                    markEditing('proposal_revision')
-                  }}
-                />
-                Skip this question
-              </label>
-            </div>
+              )}
+            </PortalField>
           ))}
-          {error ? <p className="notice error" role="alert">{error}</p> : null}
-          <button
-            type="submit"
-            className="primary"
-            disabled={busy || editConflict || invalidIdea || invalidResponse}
-          >
-            {busy ? 'Saving…' : pending ? 'Confirm earlier save' : 'Save submission'}
-          </button>
+          <PortalError message={error} />
+          <div className="mt-1 flex items-center justify-between border-t border-petal-line pt-3.5">
+            <PortalTextButton type="button" disabled={busy || pending} onClick={toggleEditing}>
+              cancel
+            </PortalTextButton>
+            <PortalButton
+              type="submit"
+              size="sm"
+              disabled={busy || editConflict || invalidIdea || invalidResponse}
+            >
+              {busy ? 'Saving…' : pending ? 'Confirm earlier save' : 'Save submission'}
+            </PortalButton>
+          </div>
         </form>
       ) : (
-        <div className="proposal-copy">
-          <p className="proposal-idea">{intake.project.initialIdea}</p>
+        <div>
+          <p className="whitespace-pre-line text-[15px] leading-relaxed text-fg/90">
+            {intake.project.initialIdea}
+          </p>
           {intake.project.intakeResponses.length > 0 ? (
             <button
               type="button"
-              className="text-button proposal-details-toggle"
               aria-controls="proposal-responses"
               aria-expanded={expanded}
               onClick={() => setExpanded((current) => !current)}
+              className="mt-4 text-[12.5px] text-rose-light underline-offset-4 hover:underline"
             >
-              {expanded ? 'Hide answers' : `View ${intake.project.intakeResponses.length} answers`}
+              {expanded ? 'hide answers' : `view ${intake.project.intakeResponses.length} answers`}
             </button>
           ) : null}
           {expanded ? (
-            <div className="proposal-responses" id="proposal-responses">
+            <div className="mt-3" id="proposal-responses">
               {intake.project.intakeResponses.map((response) => (
-                <div key={response.questionId}>
-                  <strong>{response.question}</strong>
-                  <p>{response.skipped ? 'Skipped' : response.answer}</p>
+                <div key={response.questionId} className="border-t border-petal-line py-4 last:pb-1">
+                  <p className="mb-1.5 text-[11px] tracking-[.06em] text-fg/45">
+                    {response.question}
+                  </p>
+                  <p className="whitespace-pre-line text-sm leading-relaxed text-fg/90">
+                    {response.answer}
+                  </p>
                 </div>
               ))}
+            </div>
+          ) : null}
+          {canEdit ? (
+            <div className="mt-5 flex justify-end border-t border-petal-line pt-3.5">
+              <button
+                type="button"
+                disabled={busy || pending}
+                onClick={toggleEditing}
+                className="text-[12.5px] text-rose-light underline-offset-4 hover:underline disabled:opacity-50"
+              >
+                edit submission →
+              </button>
             </div>
           ) : null}
         </div>
@@ -1125,8 +1134,7 @@ function proposalDraft(intake: SubmittedIntake) {
     initialIdea: intake.project.initialIdea,
     responses: intake.project.intakeResponses.map((response) => ({
       questionId: response.questionId,
-      answer: response.answer ?? '',
-      skipped: response.skipped,
+      answer: response.answer,
     })),
   }
 }
@@ -1156,7 +1164,6 @@ function serializeProposalDraft(draft: ProposalDraft) {
   values.set('idea', draft.initialIdea)
   for (const response of draft.responses) {
     values.set(`answer:${response.questionId}`, response.answer)
-    values.set(`skipped:${response.questionId}`, response.skipped ? '1' : '0')
   }
   return values.toString()
 }
@@ -1166,14 +1173,10 @@ function recoverProposalDraft(intake: SubmittedIntake, stored: string): Proposal
   const values = new URLSearchParams(stored)
   return {
     initialIdea: values.get('idea') ?? current.initialIdea,
-    responses: current.responses.map((response) => {
-      const storedSkipped = values.get(`skipped:${response.questionId}`)
-      return {
-        ...response,
-        answer: values.get(`answer:${response.questionId}`) ?? response.answer,
-        skipped: storedSkipped === null ? response.skipped : storedSkipped === '1',
-      }
-    }),
+    responses: current.responses.map((response) => ({
+      ...response,
+      answer: values.get(`answer:${response.questionId}`) ?? response.answer,
+    })),
   }
 }
 
@@ -1239,7 +1242,7 @@ function InformationResponsePanel({
   return (
     <section className="information-response">
       <h2>A quick follow-up</h2>
-      <p>Answer only these questions. Your team stays locked.</p>
+      <p>Answer only these questions. Only the current team lead can send the response.</p>
       {canRespond ? (
         <form onSubmit={submit}>
           {request.questions.map((question, index) => (
@@ -1275,7 +1278,7 @@ function InformationResponsePanel({
           </button>
         </form>
       ) : currentRole !== 'lead' ? (
-        <p className="fine-print">The locked team lead submits these answers for the team.</p>
+        <p className="fine-print">The current team lead submits these answers for the team.</p>
       ) : (
         <p className="fine-print">Response access is unavailable. Ask an organizer if this looks wrong.</p>
       )}

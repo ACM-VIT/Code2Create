@@ -54,13 +54,13 @@ The participant portal is a Vite web application. It provides:
 - review history; and
 - Synesthesia music requests and votes.
 
-One published participant-policy version controls profile fields, team bounds, notices, consent text, and the membership-lock warning. VIT students and external participants always form separate teams. Each participant accepts the exact current policy version. A later publication does not rewrite an earlier profile, proposal version, or consent record.
+One published participant-policy version controls profile fields, team bounds, notices, consent text, and the final-submission warning. VIT students and external participants always form separate teams. Each participant accepts the exact current policy version. A later publication does not rewrite an earlier profile, proposal version, or consent record.
 
 The proposal starts with **What is your project about?** The team writes free text. The server stores that text before model work starts. The AI then asks two short, friendly questions. The second follow-up is the third total question in the introduction and cannot be omitted. The AI cannot choose participant state, admission state, review state, or judging state. A published fallback supplies either question when the AI is unavailable.
 
 The live novelty feature is separate from the follow-up-question flow. It shows only one directional number from 0 through 100 above the idea text box. It has no label such as familiar or distinct. It shows no prior-project text, theme, or reflection prompt. A stale or failed request cannot block editing or submission. The number is absent from applications, admission analysis, human admission review, reviewer evidence, judging, awards, and exports.
 
-Final submission locks team membership. It does not lock proposal content. The current team lead can revise the submitted proposal until the deadline for the team's participant class. Every save creates an immutable proposal version. A revision makes all earlier human-review outputs and AI admission outputs stale. The system must create new review inputs before a human can publish a decision for the revised proposal.
+Final submission sends the current team and proposal for review. Team membership, leadership, and proposal content remain editable until the deadline for the team's participant class. Every accepted change creates a new immutable application version. A post-submission team or proposal change makes all earlier human-review outputs and AI admission outputs stale. The system must create new review inputs before a human can publish a decision for the changed application. At the applicable deadline, the latest valid team and proposal version becomes final.
 
 ### Reviewer app
 
@@ -85,9 +85,9 @@ The dashboard shows accepted state and legal next actions. Each protected comman
 3. The team maintains exactly one lead. Leadership transfer requires acceptance by the new lead.
 4. The team writes its proposal and answers two follow-up questions.
 5. The lead previews the active member list and current proposal.
-6. Final submission locks the member list and creates the first immutable proposal version.
-7. The lead can create later proposal versions until `applicationsCloseAt`.
-8. Each revision invalidates stale human-review and AI-admission outputs.
+6. Final submission creates the first immutable team and proposal snapshot.
+7. The team can change membership or leadership, and the lead can revise the proposal, until the deadline for that team's participant class.
+8. Each accepted change creates a new immutable application version and invalidates stale human-review and AI-admission outputs.
 9. Authorized humans review the current version and control the admission decision.
 10. The system sends generic status email. The authenticated portal shows the decision and next steps.
 
@@ -177,7 +177,8 @@ The production release must satisfy these outcomes:
 - Every application decision points to the current immutable proposal version and admission-policy version.
 - A proposal revision before `applicationsCloseAt` makes earlier review and AI outputs unusable.
 - No proposal edit is accepted after `applicationsCloseAt`.
-- Final submission locks membership but does not lock proposal content before the deadline.
+- Team membership, leadership, and proposal content remain editable after submission until the applicable class deadline.
+- Every accepted post-submission team change creates a new immutable roster and proposal snapshot and invalidates stale review and AI output.
 - Every final admission outcome identifies the authorized human actor.
 - Active offers and confirmations do not exceed approved participant capacity.
 - VIT ID barcode and QR scans update one participant identity without duplicate presence intervals.

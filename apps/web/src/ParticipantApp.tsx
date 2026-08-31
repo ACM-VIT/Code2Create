@@ -10,6 +10,7 @@ import { PetalCard } from './components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from './components/portal/PortalButton'
 import { PortalError } from './components/portal/PortalField'
 import { PortalScene } from './components/portal/PortalScene'
+import { TreeLoader } from './components/portal/TreeLoader'
 import { eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
 import { useOperationRunner } from './lib/operations'
@@ -49,6 +50,19 @@ const SupportScreen = lazy(() =>
   loadSupportScreen().then((module) => ({ default: module.SupportScreen })),
 )
 
+function useDeadlineReached(serverNow: number, deadline: number | undefined) {
+  const [elapsedDeadline, setElapsedDeadline] = useState<number | null>(null)
+  useEffect(() => {
+    if (deadline === undefined || serverNow >= deadline) return
+    const timer = window.setTimeout(
+      () => setElapsedDeadline(deadline),
+      Math.min(deadline - serverNow + 100, 2_147_000_000),
+    )
+    return () => window.clearTimeout(timer)
+  }, [deadline, serverNow])
+  return deadline !== undefined && (serverNow >= deadline || elapsedDeadline === deadline)
+}
+
 export function ParticipantApp({
   publicState,
   authClient,
@@ -69,6 +83,10 @@ export function ParticipantApp({
   const canJoinTeam = access?.teamJoin ?? false
   const canReadTeam = access?.teamRead ?? false
   const teamQuery = useQuery(api.teams.current, canReadTeam ? { eventSlug } : 'skip')
+  const teamDeadlineReached = useDeadlineReached(
+    publicState.serverNow,
+    teamQuery?.membershipEditableUntil,
+  )
   const teamMembers = usePaginatedQuery(api.teams.members, canReadTeam ? { eventSlug } : 'skip', { initialNumItems: 25 })
   const intakeStatusQuery = useQuery(api.intake.status, canReadTeam ? { eventSlug } : 'skip')
 
@@ -146,7 +164,7 @@ export function ParticipantApp({
     team &&
     requestedTeamSwitchCode.length > 0 &&
     requestedTeamSwitchCode !== team.publicCode &&
-    !team.membershipLocked
+    !teamDeadlineReached
       ? { code: requestedTeamSwitchCode, team }
       : null
 
@@ -204,6 +222,7 @@ export function ParticipantApp({
   }
 
   if (!intakeStatus) return <PortalLoading />
+  const teamEditable = !teamDeadlineReached
 
   if (intakeStatus.submissionState === 'validating') {
     return (
@@ -243,7 +262,7 @@ export function ParticipantApp({
         members={teamMembers.results}
         rosterStatus={teamMembers.status}
         loadMore={teamMembers.loadMore}
-        locked={intakeStatus.applicationState !== null || team.membershipLocked}
+        editable={teamEditable}
         onSignOut={signOut}
       />
     )
@@ -251,7 +270,7 @@ export function ParticipantApp({
 
   // ---- f1-f6 · home, then the writing flow, full-bleed on the night scene --
   if (intakeStatus.applicationState === null && location.pathname === '/') {
-    return <HomeScreen team={team} members={teamMembers.results} onSignOut={signOut} />
+    return <HomeScreen team={team} members={teamMembers.results} teamEditable={teamEditable} onSignOut={signOut} />
   }
   if (intakeStatus.applicationState === null && location.pathname === '/write') {
     return (
@@ -259,6 +278,7 @@ export function ParticipantApp({
         <IntakeScreen
           team={team}
           members={teamMembers.results}
+          teamEditable={teamEditable}
           onSignOut={signOut}
           {...(intakeStatus.submissionFailureMessage === undefined
             ? {}
@@ -334,6 +354,7 @@ export function ParticipantApp({
               <IntakeScreen
                 team={team}
                 members={teamMembers.results}
+                teamEditable={teamEditable}
                 onSignOut={signOut}
                 {...(intakeStatus.submissionFailureMessage === undefined
                   ? {}
@@ -363,7 +384,7 @@ export function ParticipantApp({
               <strong>{team.name}</strong>
               <small>{team.activeMemberCount} {team.activeMemberCount === 1 ? 'member' : 'members'}</small>
             </summary>
-            <TeamPanel team={team} members={teamMembers.results} rosterStatus={teamMembers.status} loadMore={teamMembers.loadMore} />
+            <TeamPanel team={team} members={teamMembers.results} rosterStatus={teamMembers.status} loadMore={teamMembers.loadMore} editable={teamEditable} />
           </details>
           <main className="portal-main participant-home-main">
             <Suspense fallback={<PortalContentLoading />}>{portalContent}</Suspense>
@@ -371,7 +392,7 @@ export function ParticipantApp({
         </div>
       ) : (
         <div className="portal-grid">
-          <TeamPanel team={team} members={teamMembers.results} rosterStatus={teamMembers.status} loadMore={teamMembers.loadMore} />
+          <TeamPanel team={team} members={teamMembers.results} rosterStatus={teamMembers.status} loadMore={teamMembers.loadMore} editable={teamEditable} />
           <main className="portal-main">
             <Suspense fallback={<PortalContentLoading />}>{portalContent}</Suspense>
           </main>
@@ -460,9 +481,7 @@ function PortalHeader({
 function PortalLoading() {
   return (
     <PortalScene tree="left">
-      <p role="status" className="font-ui font-normal text-xl text-rose-light">
-        Loading your portal…
-      </p>
+      <TreeLoader label="Loading your portal…" />
     </PortalScene>
   )
 }
@@ -632,7 +651,7 @@ function PendingTeamScreen({
 }
 
 function PortalContentLoading() {
-  return <p className="muted" role="status">Loading…</p>
+  return <TreeLoader variant="shell" />
 }
 
 function preloadIntegrations() {

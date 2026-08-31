@@ -22,6 +22,45 @@ type TeamOperationResult =
 
 type LobbyMode = 'view' | 'transfer' | 'remove' | 'leave'
 
+// Every decision in the lobby — hand over the lead, remove someone, leave —
+// takes the same shape in the same place: question, one full-width button,
+// the way out underneath.
+export function ConfirmCard({
+  question,
+  detail,
+  primaryLabel,
+  onPrimary,
+  secondaryLabel,
+  onSecondary,
+  busy,
+}: {
+  question: string
+  detail: string | null
+  primaryLabel: string
+  onPrimary: () => void
+  secondaryLabel: string
+  onSecondary: () => void
+  busy: boolean
+}) {
+  return (
+    <div className="w-full max-w-[380px] rounded-petal-sm border border-petal-edge bg-wash/60 px-7 pt-6 pb-4 text-center shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-md">
+      <p className={`m-0 text-[15px] text-fg/90 ${detail ? 'mb-1.5' : 'mb-5'}`}>{question}</p>
+      {detail ? <p className="mb-5 text-xs leading-relaxed text-fg/50">{detail}</p> : null}
+      <PortalButton type="button" size="sm" disabled={busy} onClick={onPrimary} className="w-full">
+        {primaryLabel}
+      </PortalButton>
+      <PortalTextButton
+        type="button"
+        disabled={busy}
+        onClick={onSecondary}
+        className="mx-auto mt-2 block px-4 py-2"
+      >
+        {secondaryLabel}
+      </PortalTextButton>
+    </div>
+  )
+}
+
 /**
  * Mockup f10: the squad lobby as a full page — big roster, the join code with
  * copy/share, and the quiet management links underneath.
@@ -31,14 +70,14 @@ export function TeamLobbyScreen({
   members,
   rosterStatus,
   loadMore,
-  locked,
+  editable,
   onSignOut,
 }: {
   team: CurrentTeam
   members: CurrentTeamMember[]
   rosterStatus: 'LoadingFirstPage' | 'CanLoadMore' | 'LoadingMore' | 'Exhausted'
   loadMore: (numItems: number) => void
-  locked: boolean
+  editable: boolean
   onSignOut: () => void
 }) {
   const requestTransfer = useMutation(api.teams.requestLeadershipTransfer)
@@ -50,6 +89,7 @@ export function TeamLobbyScreen({
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [selectedMemberId, setSelectedMemberId] = useState<CurrentTeamMember['membershipId'] | null>(null)
   const currentTransfer = team.pendingLeadershipTransfer
 
   const run = async (command: () => Promise<unknown>) => {
@@ -58,6 +98,7 @@ export function TeamLobbyScreen({
     try {
       await command()
       setMode('view')
+      setSelectedMemberId(null)
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -122,6 +163,8 @@ export function TeamLobbyScreen({
   const joinLink = `${window.location.origin}/join/${team.publicCode}`
   const openSeats = Math.max(0, team.teamMaximumSize - team.activeMemberCount)
   const picking = mode === 'transfer' || mode === 'remove'
+  const selectedMember = members.find((member) => member.membershipId === selectedMemberId)
+  const canManage = editable && team.currentRole === 'lead'
   const transferInbound =
     currentTransfer && currentTransfer.toMembershipId === team.currentMembershipId
 
@@ -144,61 +187,76 @@ export function TeamLobbyScreen({
       }
     >
       <div className="flex w-full max-w-[860px] flex-col items-center text-center">
+        <p className="mb-2 text-[12px] text-rose-light/70">
+          {canManage ? 'manage team' : 'view team'}
+        </p>
         <h1 className="mb-11 font-display font-light tracking-[-.01em] text-4xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[54px]">
           {team.name}
         </h1>
-
-        {transferInbound ? (
-          <div className="mb-8 w-full max-w-[520px] rounded-petal-sm border border-petal-edge bg-wash/60 px-6 py-4 backdrop-blur-md">
-            <p className="mb-3 text-[13px] text-fg/85">
-              You’ve been asked to lead {team.name}.
-            </p>
-            <div className="flex justify-center gap-3">
-              <PortalButton type="button" size="xs" disabled={busy} onClick={() => void respond(true)}>
-                Accept the lead
-              </PortalButton>
-              <PortalTextButton type="button" disabled={busy} onClick={() => void respond(false)}>
-                decline
-              </PortalTextButton>
-            </div>
-          </div>
-        ) : currentTransfer ? (
-          <p className="mb-8 text-[12.5px] text-fg/55">
-            Waiting for{' '}
-            {members.find((member) => member.membershipId === currentTransfer.toMembershipId)
-              ?.displayName ?? 'a teammate'}{' '}
-            to accept the lead.
-          </p>
-        ) : null}
 
         <div className="mb-10 flex flex-wrap items-start justify-center gap-6 lg:gap-[34px]">
           {members.map((member) => {
             const lead = member.role === 'lead'
             const you = member.membershipId === team.currentMembershipId
-            const pickable =
-              picking &&
-              !you &&
-              (mode === 'transfer' ? !lead : true) &&
-              !busy
+            const pickTarget = picking && canManage && !you && !lead
+            const pickable = pickTarget && !busy
             return (
-              <div key={member.teamMemberId} className="w-[104px] lg:w-[120px]">
+              <div
+                key={member.teamMemberId}
+                className={`w-[104px] transition-opacity duration-250 lg:w-[120px] ${
+                  picking && !pickTarget ? 'opacity-40 saturate-[.65]' : ''
+                }`}
+              >
                 <button
                   type="button"
                   disabled={!pickable}
                   onClick={() => {
-                    if (mode === 'transfer') void transferTo(member.membershipId)
-                    else if (mode === 'remove') void removeTeamMember(member.teamMemberId)
+                    if (pickable) setSelectedMemberId(member.membershipId)
                   }}
-                  className={`relative mx-auto flex size-[72px] items-center justify-center rounded-full text-xl font-semibold transition-all duration-250 lg:size-[88px] lg:text-2xl ${
+                  aria-label={pickable
+                    ? `${mode === 'transfer' ? 'Choose' : 'Remove'} ${member.displayName}`
+                    : member.displayName}
+                  className={`group relative mx-auto flex size-[72px] items-center justify-center rounded-full text-xl font-semibold transition-all duration-250 lg:size-[88px] lg:text-2xl ${
                     lead
                       ? 'border-[2.5px] border-ring-lead bg-avatar-lead shadow-[0_0_26px_var(--avatar-glow),0_14px_30px_var(--shade-1)]'
                       : 'border-2 border-rose/70 bg-avatar shadow-[0_14px_30px_var(--shade-1)]'
-                  } ${pickable ? 'cursor-pointer hover:-translate-y-1 hover:border-rose-light' : 'cursor-default'}`}
+                  } ${
+                    pickable
+                      ? mode === 'transfer'
+                        ? 'cursor-pointer hover:-translate-y-1 hover:border-ring-lead hover:bg-avatar-lead hover:shadow-[0_0_26px_var(--avatar-glow),0_14px_30px_var(--shade-1)]'
+                        : 'cursor-pointer hover:-translate-y-1 hover:border-rose-light'
+                      : 'cursor-default'
+                  }`}
                 >
                   <Flower seed={member.membershipId} lead={lead} size={38} />
                   {lead ? (
                     <span className="absolute -top-1.5 -right-1">
                       <Petal size={20} />
+                    </span>
+                  ) : null}
+                  {/* What tapping does, worn on the avatar: a petal for the
+                      handover, an ✕ for removal. Hovering a transfer target
+                      previews them with the lead's ring. */}
+                  {pickTarget ? (
+                    <span
+                      className={`absolute -top-1 -right-1 flex size-[22px] items-center justify-center rounded-full border bg-wash shadow-[0_4px_12px_var(--shade-1)] transition-all duration-250 ${
+                        mode === 'remove'
+                          ? 'border-rose/70 text-rose-light group-hover:border-rose-light group-hover:bg-rose group-hover:text-wash'
+                          : 'border-ring-lead/70 group-hover:border-ring-lead'
+                      }`}
+                    >
+                      {mode === 'remove' ? (
+                        <svg width="9" height="9" viewBox="0 0 10 10" aria-hidden>
+                          <path
+                            d="M1.5 1.5l7 7M8.5 1.5l-7 7"
+                            stroke="currentColor"
+                            strokeWidth="1.7"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      ) : (
+                        <Petal size={13} />
+                      )}
                     </span>
                   ) : null}
                 </button>
@@ -221,8 +279,9 @@ export function TeamLobbyScreen({
               <div className="mx-auto flex size-[72px] items-center justify-center rounded-full border-2 border-dashed border-rose/55 bg-avatar/40 text-xl font-semibold text-fg/40 lg:size-[88px]">
                 ·
               </div>
-              <p className="mt-3 mb-0.5 text-sm font-semibold text-fg/50">open</p>
-              <p className="m-0 text-[11.5px] text-fg/40">share the code</p>
+              <p className="mt-3 mb-0.5 text-sm font-semibold text-fg/50">
+                {editable ? 'open' : 'unused'}
+              </p>
             </div>
           ))}
         </div>
@@ -233,38 +292,79 @@ export function TeamLobbyScreen({
           </PortalTextButton>
         ) : null}
 
-        {picking ? (
-          <div className="mb-6">
-            <p className="mb-2 text-[12.5px] text-rose-light">
-              {mode === 'transfer' ? 'pick who should lead' : 'pick who to remove'}
+        {mode === 'leave' ? (
+          <ConfirmCard
+            question={
+              team.activeMemberCount === 1 ? `Leave and close ${team.name}?` : `Leave ${team.name}?`
+            }
+            detail={null}
+            primaryLabel={busy ? 'Leaving…' : 'Leave team'}
+            onPrimary={() => void leave()}
+            secondaryLabel="stay"
+            onSecondary={() => setMode('view')}
+            busy={busy}
+          />
+        ) : picking && selectedMember ? (
+          <ConfirmCard
+            question={
+              mode === 'transfer'
+                ? `Make ${selectedMember.displayName} the team lead?`
+                : `Remove ${selectedMember.displayName} from the team?`
+            }
+            detail={
+              mode === 'transfer'
+                ? 'They take over once they accept.'
+                : 'Their access ends and the join code changes.'
+            }
+            primaryLabel={busy ? 'Working…' : mode === 'transfer' ? 'Send the request' : 'Remove them'}
+            onPrimary={() => {
+              if (mode === 'transfer') void transferTo(selectedMember.membershipId)
+              else void removeTeamMember(selectedMember.teamMemberId)
+            }}
+            secondaryLabel="back"
+            onSecondary={() => setSelectedMemberId(null)}
+            busy={busy}
+          />
+        ) : picking ? (
+          <div>
+            <p className="mb-1.5 text-[13.5px] text-rose-light">
+              {mode === 'transfer' ? 'tap who takes the lead' : 'tap who to remove'}
             </p>
-            <PortalTextButton type="button" disabled={busy} onClick={() => setMode('view')}>
+            <PortalTextButton
+              type="button"
+              disabled={busy}
+              className="px-4 py-2"
+              onClick={() => {
+                setMode('view')
+                setSelectedMemberId(null)
+              }}
+            >
               never mind
             </PortalTextButton>
           </div>
-        ) : null}
-
-        {mode === 'leave' ? (
-          <div className="mb-6 w-full max-w-[420px] rounded-petal-sm border border-petal-edge-soft bg-wash/60 px-6 py-4 backdrop-blur-md">
-            <p className="mb-3 text-[13px] text-fg/85">
-              {team.activeMemberCount === 1
-                ? `Leave and close ${team.name}?`
-                : `Leave ${team.name}?`}
-            </p>
-            <div className="flex justify-center gap-3">
-              <PortalButton type="button" size="xs" disabled={busy} onClick={() => void leave()}>
-                {busy ? 'Leaving…' : 'Confirm leave'}
-              </PortalButton>
-              <PortalTextButton type="button" disabled={busy} onClick={() => setMode('view')}>
-                stay
-              </PortalTextButton>
-            </div>
-          </div>
-        ) : null}
-
-        {!locked ? (
-          <div className="flex items-center gap-3.5 rounded-petal-sm border border-petal-edge bg-[image:var(--tile-bg-active)] px-6 py-3 shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-md">
-            <span className="font-mono text-[17px] tracking-[.14em] text-rose-light lg:text-[19px]">
+        ) : transferInbound && editable ? (
+          <ConfirmCard
+            question={`You’ve been asked to lead ${team.name}.`}
+            detail={null}
+            primaryLabel={busy ? 'Working…' : 'Accept the lead'}
+            onPrimary={() => void respond(true)}
+            secondaryLabel="decline"
+            onSecondary={() => void respond(false)}
+            busy={busy}
+          />
+        ) : (
+          <>
+            {currentTransfer && editable ? (
+              <p className="mb-4 text-[12.5px] text-fg/55">
+                Waiting for{' '}
+                {members.find((member) => member.membershipId === currentTransfer.toMembershipId)
+                  ?.displayName ?? 'a teammate'}{' '}
+                to accept the lead.
+              </p>
+            ) : null}
+            {editable ? (
+          <div className="flex items-center gap-3 rounded-petal-sm border border-petal-edge bg-[image:var(--tile-bg-active)] px-5 py-3 shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-md lg:gap-3.5 lg:px-6">
+            <span className="whitespace-nowrap font-mono text-[17px] tracking-[.14em] text-rose-light lg:text-[19px]">
               {team.publicCode}
             </span>
             <span aria-hidden className="h-[18px] w-px bg-rose/40" />
@@ -278,42 +378,84 @@ export function TeamLobbyScreen({
             <button
               type="button"
               onClick={() => void copyCode(joinLink)}
-              className="text-[13px] text-fg transition-colors hover:text-rose-light"
+              className="whitespace-nowrap text-[13px] text-fg transition-colors hover:text-rose-light"
             >
               share link
             </button>
           </div>
-        ) : (
-          <p className="font-ui text-[13.5px] text-rose-light">team locked</p>
+            ) : null}
+          </>
         )}
 
-        {!locked ? (
-          <div className="mt-6 flex flex-wrap justify-center gap-x-7 gap-y-2 text-[12.5px]">
+        <PortalError message={error} />
+        {mode !== 'view' ? null : editable ? (
+          <div className="mt-7 flex flex-wrap items-baseline justify-center gap-x-3.5 gap-y-1 text-[13.5px] text-fg/45">
             {team.canTransferLeadership && members.length > 1 ? (
-              <PortalTextButton type="button" disabled={busy} onClick={() => setMode('transfer')}>
-                transfer lead
-              </PortalTextButton>
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="py-1 text-fg/65 transition-colors hover:text-rose-light"
+                  onClick={() => {
+                    setMode('transfer')
+                    setSelectedMemberId(null)
+                  }}
+                >
+                  change leader
+                </button>
+                <span aria-hidden className="text-fg/30">·</span>
+              </>
             ) : null}
             {team.canManageMembers && members.length > 1 ? (
-              <PortalTextButton type="button" disabled={busy} onClick={() => setMode('remove')}>
-                remove a member
-              </PortalTextButton>
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="py-1 text-fg/65 transition-colors hover:text-rose-light"
+                  onClick={() => {
+                    setMode('remove')
+                    setSelectedMemberId(null)
+                  }}
+                >
+                  remove a member
+                </button>
+                <span aria-hidden className="text-fg/30">·</span>
+              </>
             ) : null}
             {canLeaveCurrentTeam(team) ? (
-              <PortalTextButton type="button" disabled={busy} onClick={() => setMode('leave')}>
-                leave team
-              </PortalTextButton>
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="py-1 text-fg/65 transition-colors hover:text-rose-light"
+                  onClick={() => setMode('leave')}
+                >
+                  leave team
+                </button>
+                <span aria-hidden className="text-fg/30">·</span>
+              </>
             ) : null}
+            <span>
+              {`changes close ${new Date(team.membershipEditableUntil).toLocaleString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+              })}`}
+            </span>
+            <span aria-hidden className="text-fg/30">·</span>
+            <Link to="/" className="py-1 text-rose-light">
+              back home
+            </Link>
           </div>
-        ) : null}
-
-        <PortalError message={error} />
-        <p className="mt-4.5 text-[11.5px] text-fg/40">
-          {locked ? 'membership locked at submission' : 'editable until you submit'} ·{' '}
-          <Link to="/" className="text-rose-light">
-            back home
-          </Link>
-        </p>
+        ) : (
+          <p className="mt-7 text-[13px] text-fg/45">
+            changes closed{' · '}
+            <Link to="/" className="text-rose-light">
+              back home
+            </Link>
+          </p>
+        )}
       </div>
     </PortalScene>
   )

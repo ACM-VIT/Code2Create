@@ -72,7 +72,7 @@ export const defaultParticipantPolicy: ParticipantPolicy = {
   privacyNoticeUrl: "https://code2create.in/privacy",
   freshProjectAttestation,
   finalSubmissionWarning:
-    "Submitting locks this exact team. You can edit the proposal until the published application deadline.",
+    "Submitting sends this version for review. You can edit the team and proposal until the published application deadline.",
 };
 
 function invalidPolicy(message: string): never {
@@ -125,9 +125,9 @@ export function normalizeParticipantPolicy(input: ParticipantPolicy): Participan
     400,
   );
   const warningText = finalSubmissionWarning.toLocaleLowerCase("en");
-  if (!["team", "lock", "edit", "deadline"].every((term) => warningText.includes(term))) {
+  if (!["team", "proposal", "edit", "deadline"].every((term) => warningText.includes(term))) {
     invalidPolicy(
-      "The final-submission warning must say that the team locks and the proposal remains editable until the deadline.",
+      "The final-submission warning must say that the team and proposal remain editable until the deadline.",
     );
   }
   return {

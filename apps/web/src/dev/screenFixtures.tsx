@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { AccountBadge } from '../components/portal/AccountBadge'
 import { PetalCard } from '../components/portal/PetalCard'
-import { Petal, SakuraSteps } from '../components/portal/Petal'
+import { Petal } from '../components/portal/Petal'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import {
   PortalCheckRow,
@@ -13,7 +13,10 @@ import {
 import { GpuSky } from '../components/portal/GpuSky'
 import { Flower } from '../components/portal/FlowerAvatar'
 import { PortalScene } from '../components/portal/PortalScene'
+import { TreeLoader } from '../components/portal/TreeLoader'
 import { SglangInterlude } from '../screens/SglangInterlude'
+import { ConfirmCard } from '../screens/TeamLobbyScreen'
+import { NoveltyPill } from '../screens/IntakeScreen'
 import { TeamCluster, type ClusterMember, type ClusterTeam } from '../components/portal/TeamCluster'
 
 // Fixture content for the dev screen gallery. These compose the same portal
@@ -146,7 +149,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
         <div className="flex w-full max-w-[660px] flex-col items-center text-center">
           <h1 className="mb-2 font-display font-light tracking-[-.01em] text-3xl lg:text-[42px]">Find your people.</h1>
           <p className="mb-8 text-[12.5px] text-fg/50">
-            one team per participant · you can switch until you submit
+            one team per participant · changes stay open until the deadline
           </p>
           <div className="flex w-full flex-col items-stretch gap-4 sm:flex-row sm:justify-center sm:gap-[18px]">
             <div className="flex w-full flex-col rounded-petal-sm border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] px-7 py-6 text-left shadow-[0_28px_56px_-20px_var(--shade-2),0_0_26px_var(--glow-rose-soft)] backdrop-blur-md sm:w-[300px]">
@@ -183,15 +186,13 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
   ['f2', () => (
       <PortalScene tree="left" header={cluster}>
         <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
-          <p className="inline-flex items-center gap-1.5 rounded-full border border-rose-light/45 bg-wash/55 px-3.5 py-1.5 text-[11.5px] text-rose-light backdrop-blur-md">
-            <Petal size={10} />
-            87% distinct
-          </p>
+          <NoveltyPill
+            state={{ status: 'ready', signal: { score: 87 } }}
+            currentLength={420}
+            minimumLength={80}
+          />
         </div>
-        <div className="flex w-full max-w-[820px] flex-col items-center">
-          <div className="mb-4.5">
-            <SakuraSteps total={3} current={0} />
-          </div>
+        <div className="flex w-full max-w-[820px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight lg:text-[42px]">
             What do you want to build?
           </h1>
@@ -216,24 +217,28 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
     )],
   ['f3', () => (
       <PortalScene tree="left" header={cluster}>
-        <div className="flex w-full max-w-[820px] flex-col items-center">
-          <div className="mb-4.5">
-            <SakuraSteps total={3} current={1} />
-          </div>
+        <div className="flex w-full max-w-[820px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight lg:text-[38px]">
             Who will use Foundling on day one?
           </h1>
+          <div className="flex w-full flex-col">
+          <button
+            type="button"
+            aria-label="Edit your idea"
+            style={{ marginInline: 28 }}
+            className="relative -mb-1.5 overflow-hidden rounded-t-petal-sm border border-b-0 border-petal-line bg-[image:var(--tile-bg)] px-5 pt-1.5 pb-3.5 text-left backdrop-blur-md transition-transform duration-250 hover:-translate-y-1"
+          >
+            <span className="block truncate text-[11px] text-fg/50">
+              your idea <span className="text-fg/35">· A campus lost-and-found where finders post a photo and owners describe what they lost.</span>
+            </span>
+          </button>
           <IdeaCard
             footer={
               <>
-                <span className="text-xs text-fg/45">
-                  148 / 600 · a sentence or two is plenty
+                <span className="font-mono text-[11px] tracking-[.04em] text-fg/45">
+                  148 / 600
                 </span>
-                <div className="flex items-center gap-4.5">
-                  <PortalTextButton>edit idea</PortalTextButton>
-                  <PortalTextButton>skip</PortalTextButton>
-                  <PortalButton size="sm">Next</PortalButton>
-                </div>
+                <PortalButton size="sm">Next</PortalButton>
               </>
             }
           >
@@ -243,31 +248,42 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
               className="min-h-[174px] border-0 bg-transparent px-0 py-0 text-[16.5px] leading-[1.7]"
             />
           </IdeaCard>
+          </div>
         </div>
       </PortalScene>
     )],
   ['f4', () => (
       <PortalScene tree="left" header={cluster}>
-        <div className="flex w-full max-w-[820px] flex-col items-center">
-          <div className="mb-4.5">
-            <SakuraSteps total={3} current={2} />
-          </div>
+        <div className="flex w-full max-w-[820px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight lg:text-[38px]">
             What will you build during the 48 hours?
           </h1>
+          <div className="flex w-full flex-col">
+          <button
+            type="button"
+            aria-label="Edit your idea"
+            style={{ marginInline: 42 }}
+            className="relative -mb-1.5 overflow-hidden rounded-t-petal-sm border border-b-0 border-petal-line bg-[image:var(--tile-bg)] px-5 pt-1.5 pb-3.5 text-left backdrop-blur-md transition-transform duration-250 hover:-translate-y-1"
+          >
+            <span className="block truncate text-[11px] text-fg/50">
+              your idea <span className="text-fg/35">· A campus lost-and-found where finders post a photo and owners describe what they lost.</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            aria-expanded={false}
+            style={{ marginInline: 14 }}
+            className="relative -mb-1.5 overflow-hidden rounded-t-petal-sm border border-b-0 border-petal-line bg-[image:var(--tile-bg)] px-5 pt-1.5 pb-3.5 text-left backdrop-blur-md transition-transform duration-250 hover:-translate-y-1"
+          >
+            <span className="block truncate text-[11px] text-fg/50">Who will use Foundling on day one?</span>
+          </button>
           <IdeaCard
             footer={
               <>
-                <span className="text-xs text-fg/45">
-                  0 / 600 · a sentence or two is plenty
-                </span>
-                <div className="flex items-center gap-4.5">
-                  <PortalTextButton>edit idea</PortalTextButton>
-                  <PortalTextButton>skip</PortalTextButton>
-                  <PortalButton size="sm" disabled>
-                    Review
-                  </PortalButton>
-                </div>
+                <span className="text-xs text-fg/45">a sentence or two is plenty</span>
+                <PortalButton size="sm" disabled>
+                  Review
+                </PortalButton>
               </>
             }
           >
@@ -277,14 +293,15 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
               className="min-h-[174px] border-0 bg-transparent px-0 py-0 text-[16.5px] leading-[1.7]"
             />
           </IdeaCard>
-          <p className="mt-5 text-[11.5px] text-fg/40">
-            the Next button wakes up when you write something
-          </p>
+          </div>
         </div>
       </PortalScene>
     )],
   ['f5', () => (
       <PortalScene tree="left" header={cluster}>
+        <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
+          <NoveltyPill state={{ status: 'ready', signal: { score: 87 } }} minimumLength={80} />
+        </div>
         <div className="flex w-full max-w-[760px] flex-col items-center">
           <h1 className="mb-7 text-center font-display font-light tracking-[-.01em] text-3xl lg:text-[44px]">Paper Cranes</h1>
           <PetalCard className="px-8 py-6">
@@ -319,7 +336,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
           <div className="mt-8 flex flex-wrap items-center justify-center gap-5">
             <PortalButton>Continue to submit</PortalButton>
             <span className="text-xs text-fg/45">
-              the next screen locks the team, not the writing
+              team and proposal changes stay open until the deadline
             </span>
           </div>
         </div>
@@ -327,10 +344,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
     )],
   ['f6', () => (
       <PortalScene tree="left" branch header={cluster}>
-        <div className="flex w-full max-w-[600px] flex-col items-center">
-          <div className="mb-4.5">
-            <SakuraSteps total={3} current={3} />
-          </div>
+        <div className="flex w-full max-w-[600px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 text-center font-display font-light tracking-[-.01em] text-[26px] lg:text-[42px]">Ready to submit?</h1>
           <PetalCard className="px-8 pt-7 pb-4">
             <div className="mb-3.5">
@@ -355,7 +369,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
               </div>
             </div>
             <p className="mb-4 border-t border-petal-line pt-4 text-left font-ui text-[17px] leading-normal text-rose-light">
-              Submitting locks your team of four. The writing stays editable until Sep 25.
+              Submitting sends this version for review. Team and proposal changes stay open until Sep 25.
             </p>
             <PortalCheckRow checked onChange={noop}>We build only after kickoff.</PortalCheckRow>
             <div className="mt-4 flex items-center justify-between border-t border-petal-line pt-3.5">
@@ -367,7 +381,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f7', () => (
-      <PortalScene tree="none" header={<TeamCluster team={team} members={members} locked />}>
+      <PortalScene tree="none" header={<TeamCluster team={team} members={members} editable canManage />}>
         <div className="flex w-full max-w-[760px] flex-col items-center text-center">
           <div className="mb-5 drop-shadow-[0_0_14px_var(--glow-rose)]">
             <Petal size={34} />
@@ -382,7 +396,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
             </span>
             <span aria-hidden className="hidden h-3.5 w-px bg-rose/40 sm:block" />
             <span>
-              team <span className="text-rose-light">locked</span>
+              team <span className="text-rose-light">manage team</span>
             </span>
             <span aria-hidden className="hidden h-3.5 w-px bg-rose/40 sm:block" />
             <span>
@@ -395,11 +409,26 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
         </div>
       </PortalScene>
     )],
+  ['gate', () => (
+      <PortalScene tree="both" logo="none">
+        <a href="https://acmvit.in" className="absolute top-7 left-6 z-[6] opacity-85 lg:top-9 lg:left-11">
+          <img src="/assets/acm-mark.svg" alt="ACM-VIT" className="size-8 [filter:var(--mark-filter)] lg:size-9" />
+        </a>
+        <div className="flex w-full max-w-[640px] flex-col items-center text-center">
+          <img src="/assets/logo.svg" alt="" className="mb-3.5 w-11 drop-shadow-[0_0_20px_var(--logo-glow)] lg:mb-[18px] lg:w-[52px]" />
+          <h1 className="mb-8 flex justify-center lg:mb-10">
+            <img src="/assets/wordmark.svg" alt="Code2Create" className="h-9 w-auto [filter:var(--wordmark-filter)] sm:h-12 lg:h-[68px]" />
+          </h1>
+          <p className="mb-2 font-display font-light tracking-[-.01em] text-[26px] text-rose-light lg:text-[32px]">
+            it’s cooking.
+          </p>
+          <p className="text-[13px] text-fg/50">come back in a little while</p>
+        </div>
+      </PortalScene>
+    )],
   ['loading', () => (
       <PortalScene tree="both">
-        <p role="status" className="font-ui font-normal text-xl text-rose-light">
-          Loading your portal…
-        </p>
+        <TreeLoader label="Loading your portal…" />
       </PortalScene>
     )],
   ['notice', () => (
@@ -457,10 +486,38 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['fs', () => <SglangInterlude onContinue={noop} />],
+  ['f7b', () => (
+      <PortalScene tree="none" header={cluster}>
+        <div className="flex w-full max-w-[840px] flex-col items-center">
+          <h1 className="mb-2 text-center font-display font-light tracking-[-.01em] text-3xl lg:text-[44px]">
+            Paper Cranes
+          </h1>
+          <p className="mb-7 text-xs text-fg/50">
+            editable until Aug 31, 4:00 PM · <span className="text-rose-light">back</span>
+          </p>
+          <div className="w-full text-left">
+            <PetalCard className="px-5 py-5 sm:px-7 sm:py-6">
+              <p className="whitespace-pre-line text-[15px] leading-relaxed text-fg/90">
+                A campus lost-and-found where finders post a photo and owners describe what they
+                lost. On-device image matching pairs the two; pickup at verified hostel desks.
+              </p>
+              <button type="button" className="mt-4 text-[12.5px] text-rose-light underline-offset-4 hover:underline">
+                view 2 answers
+              </button>
+              <div className="mt-5 flex justify-end border-t border-petal-line pt-3.5">
+                <button type="button" className="text-[12.5px] text-rose-light underline-offset-4 hover:underline">
+                  edit submission →
+                </button>
+              </div>
+            </PetalCard>
+          </div>
+        </div>
+      </PortalScene>
+    )],
   ['f8', () => (
       <PortalScene
         tree="none"
-        header={<p className="m-0 font-ui text-[13.5px] text-rose-light">Paper Cranes · locked</p>}
+        header={<p className="m-0 font-ui text-[13.5px] text-rose-light">Paper Cranes · view team</p>}
         backdrop={
           <div aria-hidden className="pointer-events-none absolute inset-0 z-[2]">
             <img src="/assets/lantern-1.svg" alt="" className="absolute bottom-[-60px] left-[16%] w-[42px]" style={{ animation: 'c2crise 16s linear -2s infinite' }} />
@@ -517,16 +574,62 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
               )
             })}
           </div>
-          <div className="flex items-center gap-3.5 rounded-petal-sm border border-petal-edge bg-[image:var(--tile-bg-active)] px-6 py-3 backdrop-blur-md">
-            <span className="font-mono text-[19px] tracking-[.14em] text-rose-light">C2C-PCRN</span>
+          <div className="flex items-center gap-3 rounded-petal-sm border border-petal-edge bg-[image:var(--tile-bg-active)] px-5 py-3 backdrop-blur-md lg:gap-3.5 lg:px-6">
+            <span className="whitespace-nowrap font-mono text-[17px] tracking-[.14em] text-rose-light lg:text-[19px]">C2C-PCRN</span>
             <span aria-hidden className="h-[18px] w-px bg-rose/40" />
             <span className="text-[13px]">copy</span>
-            <span className="text-[13px]">share link</span>
+            <span className="whitespace-nowrap text-[13px]">share link</span>
           </div>
-          <div className="mt-6 flex gap-7 text-[12.5px] text-fg/55">
-            <span>transfer lead</span><span>remove a member</span><span>leave team</span>
+          <div className="mt-7 flex flex-wrap items-baseline justify-center gap-x-3.5 gap-y-1 text-[13.5px] text-fg/45">
+            <span className="text-fg/65">change leader</span>
+            <span aria-hidden className="text-fg/30">·</span>
+            <span className="text-fg/65">remove a member</span>
+            <span aria-hidden className="text-fg/30">·</span>
+            <span className="text-fg/65">leave team</span>
+            <span aria-hidden className="text-fg/30">·</span>
+            <span>changes close Aug 31, 4:00 PM</span>
+            <span aria-hidden className="text-fg/30">·</span>
+            <span className="text-rose-light">back home</span>
           </div>
-          <p className="mt-4.5 text-[11.5px] text-fg/40">editable until you submit</p>
+        </div>
+      </PortalScene>
+    )],
+  ['f10b', () => (
+      <PortalScene tree="right" header={<p className="m-0 font-ui text-[13.5px] text-rose-light/80">4 of 4 seats</p>}>
+        <div className="flex w-full max-w-[860px] flex-col items-center text-center">
+          <h1 className="mb-11 font-display font-light tracking-[-.01em] text-4xl lg:text-[54px]">Paper Cranes</h1>
+          <div className="mb-10 flex flex-wrap items-start justify-center gap-[34px]">
+            {members.map((member, index) => {
+              const lead = member.role === 'lead'
+              const target = index >= 2
+              return (
+                <div key={member.teamMemberId} className={`w-[120px] ${target ? '' : 'opacity-40 saturate-[.65]'}`}>
+                  <div className={`group relative mx-auto flex size-[88px] items-center justify-center rounded-full text-2xl font-semibold ${lead ? 'border-[2.5px] border-ring-lead bg-avatar-lead shadow-[0_0_26px_var(--avatar-glow)]' : 'border-2 border-rose/70 bg-avatar'} ${target ? 'cursor-pointer transition-all duration-250 hover:-translate-y-1 hover:border-rose-light' : ''}`}>
+                    <Flower seed={member.membershipId} lead={lead} size={38} />
+                    {lead ? <span className="absolute -top-1.5 -right-1"><Petal size={20} /></span> : null}
+                    {target ? (
+                      <span className="absolute -top-1 -right-1 flex size-[22px] items-center justify-center rounded-full border border-rose/70 bg-wash text-rose-light shadow-[0_4px_12px_var(--shade-1)] transition-all duration-250 group-hover:border-rose-light group-hover:bg-rose group-hover:text-wash">
+                        <svg width="9" height="9" viewBox="0 0 10 10" aria-hidden>
+                          <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                        </svg>
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-3 mb-0.5 text-sm font-semibold">{member.displayName.split(' ')[0]}</p>
+                  <p className={`m-0 text-[11.5px] ${lead || index === 1 ? 'text-rose-light' : 'text-fg/50'}`}>{lead ? 'lead' : index === 1 ? 'you' : 'ready'}</p>
+                </div>
+              )
+            })}
+          </div>
+          <ConfirmCard
+            question="Remove Sara from the team?"
+            detail="Their access ends and the join code changes."
+            primaryLabel="Remove them"
+            onPrimary={() => {}}
+            secondaryLabel="back"
+            onSecondary={() => {}}
+            busy={false}
+          />
         </div>
       </PortalScene>
     )],

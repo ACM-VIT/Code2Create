@@ -29,8 +29,7 @@ const recommendationContext = v.object({
     v.object({
       sourceRef,
       question: v.string(),
-      answer: v.optional(v.string()),
-      skipped: v.boolean(),
+      answer: v.string(),
     }),
   ),
   informationResponses: v.array(
@@ -54,20 +53,13 @@ type RecommendationContext = Infer<typeof recommendationContext>;
 function validSubmittedIntakeResponses(
   responses: readonly {
     ordinal: number;
-    answer?: string;
-    skipped: boolean;
+    answer: string;
   }[],
 ) {
   return (
     responses.length >= 1 &&
     responses.length <= 2 &&
-    responses.every(
-      (response, index) =>
-        response.ordinal === index + 1 &&
-        (response.skipped
-          ? response.answer === undefined
-          : response.answer !== undefined),
-    )
+    responses.every((response, index) => response.ordinal === index + 1)
   );
 }
 
@@ -179,8 +171,7 @@ export const beginRecommendation = internalMutation({
       intakeResponses: project.intakeResponses.map((response) => ({
         sourceRef: followUpSourceRef(response.ordinal),
         question: response.question,
-        ...(response.answer !== undefined ? { answer: response.answer } : {}),
-        skipped: response.skipped,
+        answer: response.answer,
       })),
       informationResponses: admissionInformationSources(
         project.admissionInformationResponses,
@@ -377,9 +368,7 @@ export const finishRecommendation = internalMutation({
       const availableSourceRefs = new Set<SourceRef>(["initial_idea"]);
       if (project && validProjectResponses) {
         for (const response of project.intakeResponses) {
-          if (!response.skipped && response.answer !== undefined) {
-            availableSourceRefs.add(followUpSourceRef(response.ordinal));
-          }
+          availableSourceRefs.add(followUpSourceRef(response.ordinal));
         }
       }
       if (project) {

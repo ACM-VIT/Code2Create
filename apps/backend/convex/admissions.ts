@@ -446,8 +446,7 @@ export const detail = query({
           v.object({
             ordinal: v.number(),
             question: v.string(),
-            answer: v.optional(v.string()),
-            skipped: v.boolean(),
+            answer: v.string(),
           }),
         ),
         informationResponses: v.array(
@@ -774,8 +773,7 @@ export const detail = query({
         intakeResponses: project.intakeResponses.map((response) => ({
           ordinal: response.ordinal,
           question: response.question,
-          ...(response.answer !== undefined ? { answer: response.answer } : {}),
-          skipped: response.skipped,
+          answer: response.answer,
         })),
         informationResponses: (project.admissionInformationResponses ?? []).map(
           (response) => ({

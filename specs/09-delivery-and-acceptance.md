@@ -37,7 +37,7 @@ Deliver:
 - two friendly AI follow-up questions;
 - deterministic fallback questions;
 - the live novelty number above the idea text box;
-- final preview and membership lock;
+- final preview and first immutable team snapshot;
 - immutable proposal versions;
 - lead revision before `applicationsCloseAt`;
 - stale human-review and AI-output invalidation;
@@ -225,7 +225,8 @@ Test:
 - one-team membership;
 - one-lead invariant;
 - accepted leadership transfer;
-- membership lock;
+- post-submission team changes before the applicable deadline;
+- rejection of participant team changes at or after the applicable deadline;
 - proposal revision before the deadline;
 - rejection at or after the deadline;
 - immutable proposal versions;

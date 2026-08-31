@@ -250,7 +250,7 @@ Physical credential commands use an independent one-action slot on the staffed r
 
 A second scan must present the exact claimed resolution and pending credential. The operator, phone, station, and member must match. The pending credential expires after five minutes. Client membership and credential IDs are comparison targets. They are not proof of a participant scan. One resolution can perform one credential action and one venue action. It cannot repeat either type.
 
-Offer confirmation creates one team-availability projection from the locked roster. Its initial inside count is zero. Each accepted venue entry or exit updates that row with the participant venue projection in one transaction. Review-board, call, start, and waiver paths read one indexed row for each team. They do not read every member venue row.
+Offer confirmation creates one team-availability projection from the deadline-frozen roster. Its initial inside count is zero. Each accepted venue entry or exit updates that row with the participant venue projection in one transaction. Review-board, call, start, and waiver paths read one indexed row for each team. They do not read every member venue row.
 
 A below-minimum call writes nothing unless the same idempotent request meets three conditions. It needs `review.participant_availability.waive` for the exact team or event, recent Google authentication, and a reason. An accepted call creates one immutable review-linked waiver. The waiver contains observed and required counts and the authorizing grant IDs.
 
@@ -421,7 +421,7 @@ The write path is:
 3. The action calls `POST /v1/responses` only when the pinned policy is assisted and an API key is present. Deterministic mode or a missing key writes the published fallback without a provider request.
 4. The request uses `store: false`, no tools, no web access, and strict JSON Schema through `text.format`.
 5. An internal mutation validates every returned key plus the generated question's purpose, length, single-question form, wording policy, source IDs, freshness, and ordinal against the pinned configuration.
-6. If still current, the mutation stores the interpretation and one immutable question. Invalid or failed output writes the same ordinal's published fallback. A late completion cannot replace a current question. The participant answers or skips the question, accepts the freshness attestation, and confirms the final summary.
+6. If still current, the mutation stores the interpretation and one immutable question. Invalid or failed output writes the same ordinal's published fallback. A late completion cannot replace a current question. The participant must answer the question, accept the freshness attestation, and confirm the final summary.
 
 The schema returns covered purpose keys, an optional matched abstract idea-pattern key, an optional generated `nextQuestion { text, purposeKey, answerLength, sourceAnswerVersionIds }`, and `stopReason`. Structured Outputs constrains the shape and closed enums. The application still validates question text. Unknown IDs, stale sources, oversized, compound, repeated, or prohibited questions, and any question beyond ordinal two make the output unusable.
 
@@ -447,7 +447,7 @@ API data is not used for model training. However, the policy does not describe `
 
 ### Admission analysis
 
-Admission analysis is a second stateless contract and queue. Final submission commits an application with a locked member set and immutable proposal version. A deduplicated `admission_ai` job can then read:
+Admission analysis is a second stateless contract and queue. Final submission commits an application with an immutable current team and proposal snapshot. A deduplicated `admission_ai` job can then read:
 
 - the redacted submitted brief and source-linked answers;
 - completeness and freshness-attestation facts;
@@ -474,7 +474,7 @@ Examples:
 - `projects.reviseSubmitted` appends one immutable proposal version before `applicationsCloseAt`, invalidates stale review and AI output, and updates every authorized application view.
 - `checkpointConfiguration.publish` supersedes one exact checkpoint plan and moves only the event default. `projectCheckpoints.saveUpdate` and `.saveFollowUp` update one optimistic shared team draft; `.submit` freezes one immutable submission. Team members and authorized operations readers converge on the same row, while no checkpoint command writes queue, review, or score state.
 - Starting a review captures the latest already-submitted team checkpoint ID in the same evidence transaction that fixes GitHub/Figma snapshots. Reviewer context and the verified round export resolve that ID rather than querying whichever update is newest later.
-- `admissions.decide` changes participant admission state and confirmed-capacity views, creates one delivery record per locked member, and unlocks selected-team next steps in the same transaction. Cloudflare email processing happens later and never substitutes for the authoritative portal state.
+- `admissions.decide` changes participant admission state and confirmed-capacity views, creates one delivery record per member of the deadline-frozen application roster, and unlocks selected-team next steps in the same transaction. Cloudflare email processing happens later and never substitutes for the authoritative portal state.
 - Signed normalized Cloudflare Email lifecycle events update the participant's minimal delivery line and each authorized operations recipient row through the same stored delivery record.
 - `pages.accept` changes reviewer Now, panel staffing, and the operations exception list.
 - `reviews.start` changes participant state, reviewer context, panel row, queue, and active-review board.
@@ -596,7 +596,7 @@ Figma OAuth grants are encrypted once per Figma App/user and referenced by team-
 
 - PostHog receives privacy-filtered web/mobile page or screen events, exceptions, release ID, environment, and non-sensitive event identifiers. Session replay, click autocapture, console capture, and performance capture are disabled.
 - Convex logs function errors, external-job attempts, and scheduled-work failures.
-- Intake diagnostics show model latency, timeout/refusal/schema-failure/question-policy-rejection/fallback rates, token usage, skips by purpose or fallback key, and config version without logging answer or generated-question text.
+- Intake diagnostics show model latency, timeout/refusal/schema-failure/question-policy-rejection/fallback rates, token usage, and configuration version without logging answer or generated-question text.
 - Novelty diagnostics show request state, latency, failure category, pinned corpus version, and bounded aggregate volume. They do not log idea text, fingerprints, vectors, similarities, or participant scores.
 - Admission diagnostics show job state, latency, invalid/stale/unavailable rates, policy/model version, and human used/cleared/overridden disposition without logging application text or recommendation explanations.
 - Integration diagnostics show Workpool backlog, provider rate-limit windows, webhook age, metadata age, full-snapshot age, and incomplete/truncated results.
@@ -648,8 +648,8 @@ Business history stays in domain records and audit events. PostHog is not the ju
 - A novelty preview uses the native 1,536-value `text-embedding-3-small` output and a corpus-filtered vector search. A stale response cannot attach to newer text, a duplicate request cannot create a second row, sensitive-looking input creates no request, and every failure leaves intake usable.
 - A successful introduction contains exactly two follow-ups; each is short, single-purpose, immutable, and tied to the source/configuration versions that produced it.
 - Model output cannot call a mutation, select a phase, accept the freshness attestation, change a participant answer, publish a proposal, or reach judging data.
-- Final submission starts with one optimistic transaction over the previewed draft, authoritative roster counts, and lead. That transaction locks membership and creates a durable attempt. Bounded idempotent mutations then materialize the immutable member snapshot and finalize the application. A concurrent pre-lock change forces a new preview. A failed materialization unlocks membership and preserves a bounded failure reason.
-- The current lead can revise proposal content before the server deadline. Each revision appends an immutable version and invalidates stale human and AI outputs.
+- Final submission starts with one optimistic transaction over the previewed draft, authoritative roster counts, and lead. That transaction installs a transient materialization guard and creates a durable attempt. Bounded idempotent mutations then materialize the immutable member snapshot and finalize the application. A concurrent change forces a new preview. A failed materialization releases the guard and preserves a bounded failure reason.
+- Before the applicable server deadline, a valid membership or leadership change and each lead proposal revision appends an immutable application version and invalidates stale human and AI outputs. The team change and version advance share one Convex transaction.
 - Admission analysis is versioned, structured, non-numeric, and optional to human review. It cannot publish or order a decision, and its output never reaches judging context.
 - A published human decision and its per-member delivery records commit without waiting for Cloudflare. Generic email contains no decision/project content, only explicit non-acceptance is retried, ambiguous/expired requests become `unknown`, signed duplicate/out-of-order lifecycle events converge, and delivered never means read.
 - Participant delivery detail and controls resolve exact-person communications grants independently. A manual retry requires the latest definite failure, current delivery/destination/application/email context, fresh auth, reason, and operation ID; `unknown` cannot be resent through that path.

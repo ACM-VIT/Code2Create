@@ -163,7 +163,7 @@ export function ParticipantPolicyConfiguration({
       <header className="page-heading configuration-heading">
         <div>
           <h1>Participant form</h1>
-          <p className="muted">Controls profile collection, team eligibility, consent text, and the final lock warning.</p>
+          <p className="muted">Controls profile collection, team eligibility, consent text, and the final submission warning.</p>
         </div>
       </header>
 
@@ -313,7 +313,7 @@ export function ParticipantPolicyConfiguration({
                 <textarea disabled value={policy.freshProjectAttestation} />
               </label>
               <label className="field field-wide">
-                <span>Final lock warning</span>
+                <span>Final submission warning</span>
                 <textarea required minLength={40} maxLength={400} value={policy.finalSubmissionWarning} onChange={(event) => updatePolicy('finalSubmissionWarning', event.currentTarget.value)} />
               </label>
             </div>

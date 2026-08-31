@@ -106,6 +106,11 @@
   --scene-hills-filter: none;
   --scene-hills-opacity: .4;
   --scene-branch-filter: brightness(.85);
+  /* The loading bonsai. Its illustration was painted for the dark landing,
+     so night runs it untouched; daybreak lifts it like the near tree and
+     trades the inky ground shadow for a morning one. */
+  --scene-plant-filter: none;
+  --scene-plant-shadow: rgb(5 2 3 / .84);
   /* Titles float off the sky: an ink halo at night, a light haze at dawn. */
   --scene-text-glow: rgb(0 0 0 / .55);
   /* The wordmark keeps its white lettering in both lights — only its
@@ -173,6 +178,8 @@
   --scene-hills-filter: sepia(.25) hue-rotate(-15deg) brightness(1.6) saturate(.7);
   --scene-hills-opacity: .3;
   --scene-branch-filter: brightness(1.03) saturate(1.02);
+  --scene-plant-filter: brightness(1.05) saturate(1.03);
+  --scene-plant-shadow: rgb(146 84 96 / .3);
   --scene-text-glow: rgb(255 243 230 / .9);
   --wordmark-filter: drop-shadow(0 8px 40px rgb(131 48 79 / .45));
   --mark-filter: brightness(0) saturate(100%) invert(12%) sepia(24%) saturate(1900%) hue-rotate(305deg) brightness(1.05);
@@ -209,6 +216,70 @@
 .cursor-petal {
   animation: c2ccursorfall 1.8s cubic-bezier(.2, .58, .32, 1) forwards;
   box-shadow: 0 0 5px var(--glow-rose-soft);
+}
+
+/* ------------------------------------------------------------------ *
+ * Text shimmer for waiting states (ShimmerText). The sweep lives on an
+ * inert clone masked to its own glyphs — masking the original text
+ * clips sub-pixels and visibly thins it. The sweep animates transform
+ * only, so it stays on the compositor; browsers without text mask
+ * clipping (Firefox) keep the static base text, because the
+ * -moz-element fallback rasterizes on the CPU every frame.
+ * ------------------------------------------------------------------ */
+.shimmer-text {
+  position: relative;
+  display: inline-block;
+}
+
+.shimmer-text-clone {
+  --spread: 4ch;
+  position: absolute;
+  inset: 0;
+  display: none;
+  overflow: clip;
+  color: transparent;
+  contain: strict;
+  pointer-events: none;
+  /* The stage titles carry a glow; a second copy of it doubles up. */
+  text-shadow: none;
+}
+
+@supports (-webkit-mask-clip: text) {
+  .shimmer-text-clone {
+    display: block;
+    mask-image: linear-gradient(#fff, #fff);
+    -webkit-mask-clip: text;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text-clone {
+    display: none;
+  }
+}
+
+.shimmer-text-clone::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent calc(50% - var(--spread)),
+    var(--color-fg) 50%,
+    transparent calc(50% + var(--spread))
+  );
+  will-change: transform;
+  animation: c2cshimmer 2.5s infinite;
+}
+
+@keyframes c2cshimmer {
+  from {
+    translate: -100% 0;
+  }
+
+  to {
+    translate: 100% 0;
+  }
 }
 
 /* Tailwind's preflight is off, so bare buttons would keep the user-agent's

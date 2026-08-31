@@ -50,7 +50,7 @@ describe("participant policy lifecycle", () => {
     expect(() => normalizeParticipantPolicy({
       ...defaultParticipantPolicy,
       finalSubmissionWarning: "Please check everything carefully before submitting this application.",
-    })).toThrow("team locks and the proposal remains editable until the deadline");
+    })).toThrow("team and proposal remain editable until the deadline");
     expect(participantClassesMeetPolicy(
       ["vit_student", "external_participant"],
       { ...defaultParticipantPolicy, mixedParticipantClassesAllowed: false },

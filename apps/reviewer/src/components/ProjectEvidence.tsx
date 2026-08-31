@@ -99,7 +99,7 @@ export function ProjectEvidence({
       {review.project.intakeResponses.map((response) => (
         <View key={response.ordinal}>
           <Text style={styles.question}>{response.question}</Text>
-          <Text style={styles.body}>{response.skipped ? 'Skipped by team' : response.answer}</Text>
+          <Text style={styles.body}>{response.answer}</Text>
         </View>
       ))}
       <View style={styles.evidenceHeader}>

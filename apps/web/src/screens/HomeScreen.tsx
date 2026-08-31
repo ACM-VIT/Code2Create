@@ -63,10 +63,12 @@ function BottomCard({
 export function HomeScreen({
   team,
   members,
+  teamEditable,
   onSignOut,
 }: {
   team: CurrentTeam
   members: CurrentTeamMember[]
+  teamEditable: boolean
   onSignOut: () => void
 }) {
   const navigate = useNavigate()
@@ -84,7 +86,15 @@ export function HomeScreen({
     <PortalScene
       tree="left"
       backdrop={<GpuSky />}
-      header={<TeamCluster team={team} members={members} onSignOut={onSignOut} />}
+      header={(
+        <TeamCluster
+          team={team}
+          members={members}
+          editable={teamEditable}
+          canManage={team.currentRole === 'lead' && teamEditable}
+          onSignOut={onSignOut}
+        />
+      )}
     >
       <div className="flex w-full max-w-[1048px] flex-1 flex-col justify-center pb-40">
         <div className="max-w-[600px]">

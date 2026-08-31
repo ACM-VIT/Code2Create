@@ -69,15 +69,40 @@ export function EntryScreen({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  // Before the event is published there is nothing to sign into — tease,
+  // don't explain.
   if (!publicState.event) {
     return (
-      <PortalScene tree="both">
-        <div className="text-center">
-          <p className="mb-2 font-ui font-normal text-[19px] text-rose-light">Code2Create</p>
-          <h1 className="mb-4 font-display font-light tracking-[-.01em] text-5xl leading-none">Event setup is not complete</h1>
-          <p className="text-[13px] text-fg/50">
-            An organizer with event setup access needs to finish setup.
+      <PortalScene tree="both" logo="none">
+        <a
+          href="https://acmvit.in"
+          target="_blank"
+          rel="noreferrer"
+          className="absolute top-7 left-6 z-[6] opacity-85 transition-opacity hover:opacity-100 lg:top-9 lg:left-11"
+        >
+          <img
+            src="/assets/acm-mark.svg"
+            alt="ACM-VIT"
+            className="size-8 [filter:var(--mark-filter)] lg:size-9"
+          />
+        </a>
+        <div className="flex w-full max-w-[640px] flex-col items-center text-center">
+          <img
+            src="/assets/logo.svg"
+            alt=""
+            className="mb-3.5 w-11 drop-shadow-[0_0_20px_var(--logo-glow)] lg:mb-[18px] lg:w-[52px]"
+          />
+          <h1 className="mb-8 flex justify-center lg:mb-10">
+            <img
+              src="/assets/wordmark.svg"
+              alt="Code2Create"
+              className="h-9 w-auto [filter:var(--wordmark-filter)] sm:h-12 lg:h-[68px]"
+            />
+          </h1>
+          <p className="mb-2 font-display font-light tracking-[-.01em] text-[26px] text-rose-light lg:text-[32px]">
+            it’s cooking.
           </p>
+          <p className="text-[13px] text-fg/50">come back in a little while</p>
         </div>
       </PortalScene>
     )

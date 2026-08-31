@@ -66,12 +66,14 @@ function Avatar({
 export function TeamCluster({
   team,
   members,
-  locked = false,
+  editable = true,
+  canManage = false,
   onSignOut,
 }: {
   team: ClusterTeam
   members: readonly ClusterMember[]
-  locked?: boolean
+  editable?: boolean
+  canManage?: boolean
   onSignOut?: () => void
 }) {
   // Hover previews the roster; a click (or keyboard focus) pins it open so it
@@ -102,7 +104,7 @@ export function TeamCluster({
         <button
           type="button"
           aria-expanded={open}
-          aria-label={`Team ${team.name}, ${team.activeMemberCount} of ${team.teamMaximumSize} members${locked ? ', locked' : ''}`}
+          aria-label={`Team ${team.name}, ${team.activeMemberCount} of ${team.teamMaximumSize} members`}
           onClick={() => setPinned((value) => !value)}
           className="block cursor-pointer rounded-lg"
         >
@@ -121,8 +123,8 @@ export function TeamCluster({
               )
             })}
           </div>
-          <p className="mt-2 font-ui font-normal text-[13.5px] text-rose-light">
-            {team.name}{locked ? ' · locked' : ''}
+          <p className="mt-2 hidden font-ui font-normal text-[13.5px] text-rose-light sm:block">
+            {team.name}
           </p>
         </button>
         {onSignOut ? (
@@ -197,35 +199,24 @@ export function TeamCluster({
               )
             })}
           </ul>
-          {locked ? (
-            /* Sealed roster: one quiet status line where the join code sits
-               when the team is still open — same row shape, calmer than the
-               old dashed stamp. */
-            <div className="mt-3 flex items-center justify-between gap-3 border-t border-petal-line pt-3">
-              <p className="m-0 flex items-center gap-1.5 text-[11.5px] text-rose-light">
-                <Petal size={12} />
-                sealed at submission
-              </p>
-              <Link
-                to="/team"
-                className="flex-none text-[11.5px] text-fg/55 transition-colors hover:text-rose-light"
-              >
-                view team →
-              </Link>
-            </div>
-          ) : (
-            <div className="mt-3 flex items-center justify-between gap-3 border-t border-petal-line pt-3">
+          <div className="mt-3 flex items-center justify-between gap-3 border-t border-petal-line pt-3">
+            {editable ? (
               <span className="font-mono text-[12.5px] tracking-[.12em] text-rose-light">
                 {team.publicCode}
               </span>
-              <Link
-                to="/team"
-                className="text-[11.5px] text-fg/55 transition-colors hover:text-rose-light"
-              >
-                view team →
-              </Link>
-            </div>
-          )}
+            ) : (
+              <p className="m-0 flex items-center gap-1.5 text-[11.5px] text-fg/50">
+                <Petal size={12} />
+                changes closed
+              </p>
+            )}
+            <Link
+              to="/team"
+              className="flex-none text-[11.5px] text-fg/55 transition-colors hover:text-rose-light"
+            >
+              {canManage && editable ? 'manage team' : 'view team'} →
+            </Link>
+          </div>
         </div>
       ) : null}
     </div>

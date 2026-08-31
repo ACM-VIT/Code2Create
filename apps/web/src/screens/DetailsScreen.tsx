@@ -18,6 +18,9 @@ import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
 import type { ParticipantMe } from '../types'
 
+/** The policy page on the event site; the privacy notice URL stays config-driven. */
+const participantPolicyUrl = 'https://c2c.acmvit.in/policy'
+
 type StudyYear = NonNullable<ParticipantMe['profile']>['yearOfStudy']
 
 function parseStudyYear(value: string): StudyYear | null {
@@ -361,7 +364,7 @@ export function DetailsScreen({
                 >
                   I accept the{' '}
                   <a
-                    href={policy.privacyNoticeUrl}
+                    href={participantPolicyUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"

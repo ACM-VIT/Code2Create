@@ -12,6 +12,18 @@
       "port": 5180
     },
     {
+      "name": "web-alt",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "apps/web",
+        "dev",
+        "--port",
+        "5183"
+      ],
+      "port": 5183
+    },
+    {
       "name": "ops",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [

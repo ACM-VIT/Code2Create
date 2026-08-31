@@ -1621,6 +1621,20 @@ export default defineSchema({
     .index("by_team", ["teamId"])
     .index("by_event_intake_policy", ["eventId", "intakePolicyVersionId"]),
 
+  intakeWorkingFields: defineTable({
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+    kind: v.union(v.literal("idea"), v.literal("follow_up")),
+    questionId: v.optional(v.id("intakeGeneratedQuestions")),
+    value: v.string(),
+    baseDraftVersion: v.number(),
+    revision: v.number(),
+    writtenByMembershipId: v.id("eventMemberships"),
+    updatedAt: v.number(),
+  })
+    .index("by_team", ["teamId"])
+    .index("by_team_kind_question", ["teamId", "kind", "questionId"]),
+
   intakeAnswerVersions: defineTable({
     eventId: v.id("events"),
     teamId: v.id("teams"),
@@ -1661,7 +1675,6 @@ export default defineSchema({
     state: v.union(
       v.literal("active"),
       v.literal("answered"),
-      v.literal("skipped"),
       v.literal("replaced"),
       v.literal("stale"),
     ),
@@ -1728,8 +1741,7 @@ export default defineSchema({
         purposeKey: intakeQuestionPurpose,
         answerLength: intakeAnswerLength,
         source: v.union(v.literal("model"), v.literal("fallback")),
-        answer: v.optional(v.string()),
-        skipped: v.boolean(),
+        answer: v.string(),
       }),
     ),
     lockedRosterSnapshotId: v.id("teamSubmissionAttempts"),
@@ -1771,6 +1783,13 @@ export default defineSchema({
         sourceProjectVersionId: v.id("projectVersions"),
         editedByMembershipId: v.id("eventMemberships"),
         editedAt: v.number(),
+      }),
+    ),
+    rosterRevision: v.optional(
+      v.object({
+        sourceProjectVersionId: v.id("projectVersions"),
+        changedByMembershipId: v.id("eventMemberships"),
+        changedAt: v.number(),
       }),
     ),
     sourceDraftVersion: v.number(),

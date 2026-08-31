@@ -124,7 +124,11 @@ describe("participant intake lifecycle", () => {
         joinedAt: event.createdAt,
         source: "code",
       });
-      for (const permissionKey of ["team.read", "team.project.write"] as const) {
+      for (const permissionKey of [
+        "team.read",
+        "team.project.write",
+        "team.lead.accept",
+      ] as const) {
         await insertPermissionGrant(ctx, {
           eventId: event._id,
           personId,
@@ -167,7 +171,11 @@ describe("participant intake lifecycle", () => {
     expect(await participant.query(api.intakePresence.list, {
       eventSlug: fixture.eventSlug,
     })).toEqual([
-      { membershipId: secondMembershipId, surface: "idea" },
+      {
+        membershipId: secondMembershipId,
+        surface: "idea",
+        label: "the idea",
+      },
     ]);
     await secondParticipant.mutation(api.intakePresence.disconnect, {
       sessionToken: secondPresence.sessionToken,
@@ -176,15 +184,79 @@ describe("participant intake lifecycle", () => {
       eventSlug: fixture.eventSlug,
     })).toEqual([]);
 
-    const idea = "A shared campus tool that routes accessibility requests to volunteers who can help.";
+    const initialIdea = "A shared campus tool that routes accessibility requests to volunteers who can help.";
+    const idea = `${initialIdea} It prioritizes requests by the help needed.`;
+    await expect(participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "idea" },
+      value: initialIdea,
+      baseDraftVersion: 0,
+      expectedRevision: 0,
+    })).resolves.toMatchObject({ revision: 1 });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      workingFields: [{
+        kind: "idea",
+        value: initialIdea,
+        baseDraftVersion: 0,
+        revision: 1,
+        writtenByMembershipId: fixture.membershipId,
+      }],
+    });
+    await expect(secondParticipant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "idea" },
+      value: `${initialIdea} A conflicting rewrite.`,
+      baseDraftVersion: 0,
+      expectedRevision: 0,
+    })).rejects.toThrow("newer text");
     const savedIdea = await participant.mutation(api.intake.saveInitialIdea, {
       eventSlug: fixture.eventSlug,
-      idea,
+      idea: initialIdea,
       expectedDraftVersion: 0,
       clientOperationId: "intake-idea-save",
     });
     expect(savedIdea.draftVersion).toBe(1);
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({ workingFields: [] });
 
+    await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
+      draftId: savedIdea.draftId,
+      providerAvailable: false,
+    });
+    const firstQuestionState = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    const firstQuestion = firstQuestionState?.draft?.followUps.find(
+      (question) => question.state === "active",
+    );
+    if (!firstQuestionState?.draft || !firstQuestion) {
+      throw new Error("The first idea did not produce its follow-up.");
+    }
+    await participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "idea" },
+      value: idea,
+      baseDraftVersion: firstQuestionState.draft.version,
+      expectedRevision: 0,
+    });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      draft: { followUps: [{ id: firstQuestion.id, state: "active" }] },
+    });
+    const revisedIdeaSave = await participant.mutation(api.intake.saveInitialIdea, {
+      eventSlug: fixture.eventSlug,
+      idea,
+      expectedDraftVersion: firstQuestionState.draft.version,
+      clientOperationId: "intake-idea-revise",
+    });
+    expect(revisedIdeaSave.draftVersion).toBe(firstQuestionState.draft.version + 1);
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({ draft: { followUps: [] }, workingFields: [] });
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: savedIdea.draftId,
       providerAvailable: false,
@@ -200,14 +272,65 @@ describe("participant intake lifecycle", () => {
     }
     expect(withQuestion.draft.stage).toBe("follow_up");
 
+    await expect(
+      secondParticipant.mutation(api.intakePresence.heartbeat, {
+        eventSlug: fixture.eventSlug,
+        surface: "follow_up",
+        sessionId: "ravi-missing-question-session",
+      }),
+    ).rejects.toThrow("requires its exact question");
+    const secondFollowUpPresence = await secondParticipant.mutation(
+      api.intakePresence.heartbeat,
+      {
+        eventSlug: fixture.eventSlug,
+        surface: "follow_up",
+        questionId: activeQuestion.id,
+        sessionId: "ravi-follow-up-session",
+      },
+    );
+    await expect(
+      participant.query(api.intakePresence.list, { eventSlug: fixture.eventSlug }),
+    ).resolves.toEqual([
+      {
+        membershipId: secondMembershipId,
+        surface: "follow_up",
+        questionId: activeQuestion.id,
+        label: activeQuestion.question,
+      },
+    ]);
+    await secondParticipant.mutation(api.intakePresence.disconnect, {
+      sessionToken: secondFollowUpPresence.sessionToken,
+    });
+
+    await expect(
+      participant.mutation(api.intake.respondToFollowUp, {
+        eventSlug: fixture.eventSlug,
+        questionId: activeQuestion.id,
+        answer: "",
+        expectedDraftVersion: withQuestion.draft.version,
+        clientOperationId: "intake-follow-up-empty-answer",
+      }),
+    ).rejects.toThrow("Follow-up answer must be between");
+
+    const firstFollowUpAnswer =
+      "Students with temporary or permanent access needs would use it first.";
+    await expect(participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "follow_up", questionId: activeQuestion.id },
+      value: firstFollowUpAnswer,
+      baseDraftVersion: withQuestion.draft.version,
+      expectedRevision: 0,
+    })).resolves.toMatchObject({ revision: 1 });
     await participant.mutation(api.intake.respondToFollowUp, {
       eventSlug: fixture.eventSlug,
       questionId: activeQuestion.id,
-      answer: "Students with temporary or permanent access needs would use it first.",
-      skipped: false,
+      answer: firstFollowUpAnswer,
       expectedDraftVersion: withQuestion.draft.version,
       clientOperationId: "intake-follow-up-answer",
     });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({ workingFields: [] });
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: savedIdea.draftId,
       providerAvailable: false,
@@ -225,7 +348,6 @@ describe("participant intake lifecycle", () => {
       eventSlug: fixture.eventSlug,
       questionId: thirdQuestion.id,
       answer: "We want to finish a reliable request handoff and completion update.",
-      skipped: false,
       expectedDraftVersion: withThirdQuestion.draft.version,
       clientOperationId: "intake-third-question-answer",
     });
@@ -299,6 +421,44 @@ describe("participant intake lifecycle", () => {
       participantPolicyVersionId: preview.participantPolicyVersionId,
       clientOperationId: "intake-final-submit",
     } as const;
+    await backend.run(async (ctx) => {
+      const membership = await ctx.db.get(secondMembershipId);
+      if (!membership) throw new Error("The second participant membership is missing.");
+      await insertPermissionGrant(ctx, {
+        eventId: membership.eventId,
+        personId: membership.personId,
+        eventAccessSubjectId: membership.eventAccessSubjectId,
+        permissionKey: "application.submit",
+        scopeType: "team",
+        scopeId: team.teamId,
+        sourceType: "manual",
+        sourceId: membership._id,
+        reason: "Prove that submission still requires current team leadership",
+      });
+    });
+    await expect(
+      secondParticipant.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).resolves.toMatchObject({
+      currentRole: "member",
+      canSubmitApplication: false,
+    });
+    await expect(
+      secondParticipant.mutation(api.intake.submit, {
+        ...submitRequest,
+        clientOperationId: "intake-member-cannot-submit",
+      }),
+    ).rejects.toThrow("Only the team lead can submit");
+    const answeredQuestion = preview.followUps[0];
+    if (!answeredQuestion) throw new Error("The submission preview has no follow-up question.");
+    const editingPresence = await secondParticipant.mutation(
+      api.intakePresence.heartbeat,
+      {
+        eventSlug: fixture.eventSlug,
+        surface: "follow_up",
+        questionId: answeredQuestion.id,
+        sessionId: "ravi-editing-before-submit",
+      },
+    );
     const submitGrantId = await backend.run(async (ctx) => {
       const membership = await ctx.db.get(fixture.membershipId);
       if (!membership) throw new Error("The participant membership is missing.");
@@ -344,6 +504,9 @@ describe("participant intake lifecycle", () => {
     ).resolves.toMatchObject({ canSubmitApplication: true });
     const started = await participant.mutation(api.intake.submit, submitRequest);
     expect(started.state).toBe("validating");
+    await secondParticipant.mutation(api.intakePresence.disconnect, {
+      sessionToken: editingPresence.sessionToken,
+    });
 
     const lockedTeam = await backend.run((ctx) => ctx.db.get(team.teamId));
     expect(lockedTeam).toMatchObject({
@@ -356,7 +519,7 @@ describe("participant intake lifecycle", () => {
       idea: `${idea} Updated after confirmation.`,
       expectedDraftVersion: preview.draftVersion,
       clientOperationId: "intake-write-after-lock",
-    })).rejects.toThrow("locked");
+    })).rejects.toThrow("submitted");
 
     await backend.mutation(internal.intake.materializeSubmissionRoster, {
       submissionAttemptId: started.submissionAttemptId,
@@ -386,7 +549,7 @@ describe("participant intake lifecycle", () => {
       eventSlug: fixture.eventSlug,
       surface: "idea",
       sessionId: "locked-idea-session",
-    })).rejects.toThrow("locked");
+    })).rejects.toThrow("submitted");
     await expect(participant.mutation(api.intakePresence.heartbeat, {
       eventSlug: fixture.eventSlug,
       surface: "proposal_revision",
@@ -434,7 +597,6 @@ describe("participant intake lifecycle", () => {
       responses: submitted.project.intakeResponses.map((response) => ({
         questionId: response.questionId,
         answer: "Students with access needs would use the updated workflow first.",
-        skipped: false,
       })),
       clientOperationId: "intake-proposal-revision",
     } as const;
@@ -501,6 +663,204 @@ describe("participant intake lifecycle", () => {
       confirmedByMembershipId: fixture.membershipId,
       confirmedAt: stored.attempt?.createdAt,
     });
+
+    const thirdAuthUserId = await createAuthUser(
+      backend,
+      Date.now(),
+      "Meera Kapoor",
+      "meera@example.test",
+    );
+    const thirdAuthSessionId = await createAuthSession(
+      backend,
+      thirdAuthUserId,
+      Date.now(),
+      "meera-intake-session-token",
+    );
+    const thirdMembershipId = await backend.run(async (ctx) => {
+      const event = await ctx.db
+        .query("events")
+        .withIndex("by_slug", (index) => index.eq("slug", fixture.eventSlug))
+        .unique();
+      if (!event) throw new Error("The intake event is missing.");
+      const personId = await ctx.db.insert("people", {
+        authUserId: thirdAuthUserId,
+        googleSubject: "meera-intake-google-subject",
+        verifiedEmail: "meera@example.test",
+        displayName: "Meera Kapoor",
+        status: "active",
+        createdAt: event.createdAt,
+        updatedAt: event.createdAt,
+      });
+      const subjectId = await ctx.db.insert("eventAccessSubjects", {
+        eventId: event._id,
+        personId,
+        emailNormalized: "meera@example.test",
+        displayName: "Meera Kapoor",
+        status: "active",
+        linkedBy: "participant_provisioning",
+        accessVersion: 1,
+        createdAt: event.createdAt,
+        updatedAt: event.createdAt,
+      });
+      const membershipId = await ctx.db.insert("eventMemberships", {
+        eventId: event._id,
+        personId,
+        eventAccessSubjectId: subjectId,
+        participantClass: "external_participant",
+        eligibilityStatus: "eligible",
+        onboardingStatus: "project_required",
+        acceptedParticipantPolicyVersionIds: [fixture.participantPolicyId],
+        createdAt: event.createdAt,
+        updatedAt: event.createdAt,
+      });
+      await ctx.db.insert("participantProfiles", {
+        eventId: event._id,
+        membershipId,
+        participantClass: "external_participant",
+        fullName: "Meera Kapoor",
+        institution: "Example Institute of Technology",
+        yearOfStudy: "first",
+        externalCountry: "India",
+        profileVersion: 1,
+        updatedAt: event.createdAt,
+      });
+      await insertPermissionGrant(ctx, {
+        eventId: event._id,
+        personId,
+        eventAccessSubjectId: subjectId,
+        permissionKey: "team.join",
+        scopeType: "self",
+        scopeId: membershipId,
+        sourceType: "participant_membership",
+        sourceId: membershipId,
+        reason: "Submitted roster revision fixture",
+      });
+      return membershipId;
+    });
+    const thirdParticipant = backend.withIdentity({
+      subject: thirdAuthUserId,
+      sessionId: thirdAuthSessionId,
+    });
+    await thirdParticipant.mutation(api.teams.join, {
+      eventSlug: fixture.eventSlug,
+      code: team.publicCode,
+      clientOperationId: "join-after-final-submission",
+    });
+    const afterJoin = await participant.query(api.intake.submitted, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(afterJoin).toMatchObject({
+      application: { contentVersion: 3 },
+      project: { version: 3 },
+    });
+    const rosterAfterJoin = await participant.query(api.teams.members, {
+      eventSlug: fixture.eventSlug,
+      paginationOpts: { numItems: 5, cursor: null },
+    });
+    const thirdTeamMember = rosterAfterJoin.page.find(
+      (member) => member.membershipId === thirdMembershipId,
+    );
+    const secondTeamMember = rosterAfterJoin.page.find(
+      (member) => member.membershipId === secondMembershipId,
+    );
+    if (!thirdTeamMember) throw new Error("The joined submitted-team member is missing.");
+    if (!secondTeamMember) throw new Error("The existing submitted-team member is missing.");
+    const teamAfterJoin = await participant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!teamAfterJoin) throw new Error("The submitted team disappeared after a member joined.");
+    await participant.mutation(api.teams.removeMember, {
+      eventSlug: fixture.eventSlug,
+      teamId: team.teamId,
+      targetTeamMemberId: thirdTeamMember.teamMemberId,
+      expectedTeamVersion: teamAfterJoin.version,
+      clientOperationId: "remove-after-final-submission",
+    });
+    await expect(participant.query(api.intake.submitted, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      application: { contentVersion: 4 },
+      project: { version: 4 },
+    });
+
+    const minimumSizeTeam = await participant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!minimumSizeTeam) throw new Error("The submitted team is missing at minimum size.");
+    await expect(participant.mutation(api.teams.removeMember, {
+      eventSlug: fixture.eventSlug,
+      teamId: team.teamId,
+      targetTeamMemberId: secondTeamMember.teamMemberId,
+      expectedTeamVersion: minimumSizeTeam.version,
+      clientOperationId: "reject-invalid-submitted-roster",
+    })).rejects.toThrow("must keep 2 to 5 eligible members");
+    await expect(participant.query(api.intake.submitted, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      application: { contentVersion: 4 },
+      project: { version: 4 },
+    });
+
+    const teamBeforeTransfer = await participant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!teamBeforeTransfer) throw new Error("The submitted team is missing before transfer.");
+    const transfer = await participant.mutation(api.teams.requestLeadershipTransfer, {
+      eventSlug: fixture.eventSlug,
+      toMembershipId: secondMembershipId,
+      expectedTeamVersion: teamBeforeTransfer.version,
+      clientOperationId: "transfer-after-final-submission",
+    });
+    await secondParticipant.mutation(api.teams.respondToLeadershipTransfer, {
+      eventSlug: fixture.eventSlug,
+      transferId: transfer.transferId,
+      accept: true,
+      clientOperationId: "accept-transfer-after-final-submission",
+    });
+    await expect(secondParticipant.query(api.intake.submitted, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      currentRole: "lead",
+      application: { contentVersion: 5 },
+      project: { version: 5 },
+    });
+    const currentSnapshot = await backend.run(async (ctx) => {
+      const currentTeam = await ctx.db.get(team.teamId);
+      const currentProject = currentTeam?.lockedProjectVersionId
+        ? await ctx.db.get(currentTeam.lockedProjectVersionId)
+        : null;
+      return { currentTeam, currentProject };
+    });
+    expect(currentSnapshot.currentProject).toMatchObject({
+      lockedMemberCount: 2,
+      lockedLeadMembershipId: secondMembershipId,
+      rosterRevision: {
+        changedByMembershipId: secondMembershipId,
+      },
+    });
+
+    await backend.run(async (ctx) => {
+      const event = await ctx.db
+        .query("events")
+        .withIndex("by_slug", (index) => index.eq("slug", fixture.eventSlug))
+        .unique();
+      if (!event) throw new Error("The intake event is missing at deadline close.");
+      await ctx.db.patch(event._id, {
+        externalApplicationsCloseAt: Date.now() - 1,
+        version: event.version + 1,
+        updatedAt: Date.now(),
+      });
+    });
+    const closedTeam = await secondParticipant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!closedTeam) throw new Error("The submitted team is missing after the deadline.");
+    await expect(secondParticipant.mutation(api.teams.requestLeadershipTransfer, {
+      eventSlug: fixture.eventSlug,
+      toMembershipId: fixture.membershipId,
+      expectedTeamVersion: closedTeam.version,
+      clientOperationId: "transfer-after-deadline",
+    })).rejects.toThrow("Applications are closed");
   }, 15_000);
 });
 
