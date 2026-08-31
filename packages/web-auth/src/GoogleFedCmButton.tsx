@@ -146,7 +146,7 @@ export function GoogleFedCmButton({
         aria-hidden={!visible}
         style={{
           gridArea: '1 / 1',
-          visibility: visible ? 'visible' : 'hidden',
+          opacity: visible ? 1 : 0,
           pointerEvents: visible && !replacing ? 'auto' : 'none',
           minHeight: 44,
           width: '100%',
