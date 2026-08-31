@@ -1486,9 +1486,8 @@ function NoveltyExplainer() {
   return (
     <div className="text-left">
       <p className="m-0 text-[13px] leading-relaxed text-fg/85">
-        while your team writes, the idea is quietly compared with what every
-        other team is building. the score is distance from the crowd — higher
-        means fewer teams on the same ground.
+        we compare your idea with ideas from other teams. a higher score means
+        fewer teams are working on something similar.
       </p>
       <div className="mt-4 mb-1.5 flex h-1.5 overflow-hidden rounded-full" aria-hidden>
         <span className="flex-1 bg-rose/25" />
@@ -1496,24 +1495,24 @@ function NoveltyExplainer() {
         <span className="flex-1 bg-rose" />
       </div>
       <div className="mb-3.5 flex justify-between text-[10.5px] text-fg/50">
-        <span>familiar</span>
-        <span>developing</span>
-        <span>distinct</span>
+        <span>many similar</span>
+        <span>some similar</span>
+        <span>few similar</span>
       </div>
       <p className="m-0 text-xs leading-relaxed text-fg/55">
-        it refreshes while you write and the saved idea keeps its last read. a
-        compass, not a gate — familiar ideas aren't blocked, and reviewers read
-        your words, never this number.
+        the score updates while you type. the latest score is saved with your
+        idea. it cannot block your submission. reviewers see your written idea.
+        they do not see this score.
       </p>
     </div>
   )
 }
 
 /**
- * The live novelty read, shown as the floating pill the mockup puts above the
- * idea card. Reads as "N · distinct" once the idea is long enough to score;
- * its ? unfolds the explainer — anchored below the pill on desktop, a bottom
- * sheet on phones. Omit `currentLength` where nobody is typing (review).
+ * The live idea-comparison score shown above the idea card. Reads as "N / 100"
+ * once the idea is long enough to score. Its help button opens the explainer
+ * below the pill on desktop and in a bottom sheet on phones. Omit
+ * `currentLength` where nobody is typing (review).
  */
 export function NoveltyPill({
   state,
@@ -1553,17 +1552,17 @@ export function NoveltyPill({
       : state.status === 'checking'
         ? 'checking…'
         : state.status === 'unavailable'
-          ? 'novelty unavailable'
-          : `${state.signal.score} · distinct`
+          ? 'score unavailable'
+          : `${state.signal.score} / 100`
   return (
     <div ref={anchorRef} className="pointer-events-auto relative">
       <div className="inline-flex items-center gap-2 rounded-[8px] border border-rose-light/55 bg-wash/92 py-1.5 pr-2 pl-3.5 text-[11.5px] font-semibold text-rose-light shadow-[0_8px_22px_var(--shade-1)] backdrop-blur-md">
-        <span aria-live="polite" aria-label="Live novelty score">
+        <span aria-live="polite" aria-label="Live idea comparison score">
           {label}
         </span>
         <button
           type="button"
-          aria-label="What the novelty score means"
+          aria-label="What this score means"
           aria-expanded={explaining}
           onClick={() => setExplaining((value) => !value)}
           className="flex size-[18px] items-center justify-center rounded-full border border-rose/60 text-[10px] text-rose-light/80 transition-colors hover:border-rose-light hover:text-rose-light"
@@ -1574,7 +1573,7 @@ export function NoveltyPill({
       {explaining && desktop ? (
         <div className="absolute top-[calc(100%+10px)] left-1/2 z-[7] w-[320px] -translate-x-1/2 rounded-petal-sm border border-petal-edge bg-wash/92 px-6 py-5 shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-md">
           <p className="mb-2.5 text-[11px] font-semibold tracking-[.08em] text-rose-light/80">
-            the novelty read
+            what the score means
           </p>
           <NoveltyExplainer />
         </div>
@@ -1586,10 +1585,10 @@ export function NoveltyPill({
             <div className="mx-auto mt-3 h-1 w-10 rounded-full bg-rose/40" aria-hidden />
             <div className="px-7 pt-5 pb-[calc(28px+env(safe-area-inset-bottom))]">
               <Drawer.Title className="mb-2.5 text-[11px] font-semibold tracking-[.08em] text-rose-light/80">
-                the novelty read
+                what the score means
               </Drawer.Title>
               <Drawer.Description className="sr-only">
-                what the novelty score means
+                what the idea comparison score means
               </Drawer.Description>
               <NoveltyExplainer />
             </div>
