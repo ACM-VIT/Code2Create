@@ -2,6 +2,12 @@ name: Staging release verification
 
 on:
   workflow_dispatch:
+    inputs:
+      deploy_backend:
+        description: Deploy the Convex backend before running release verification
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -11,8 +17,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  backend:
+    name: Backend deployment
+    if: inputs.deploy_backend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: staging
+    env:
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm, Node.js, and dependencies
+        uses: pnpm/setup@c9883cc79df532ad1a7b81bf9ab944ceb090d65c
+        with:
+          runtime: node@24
+          cache: true
+
+      - name: Verify the deployment is staging
+        run: test "$(pnpm --filter @code2create/backend exec convex env get C2C_DEPLOYMENT_ENVIRONMENT)" = staging
+
+      - name: Deploy Convex backend
+        run: pnpm --filter @code2create/backend exec convex deploy --yes --check-build-environment disable --typecheck enable --message "$GITHUB_SHA"
+
   browser:
     name: Browser surfaces
+    needs: backend
+    if: always() && (needs.backend.result == 'success' || needs.backend.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: staging
@@ -52,6 +83,8 @@ jobs:
 
   providers:
     name: Live providers
+    needs: backend
+    if: always() && (needs.backend.result == 'success' || needs.backend.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: staging
