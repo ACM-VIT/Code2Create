@@ -88,7 +88,7 @@ export function ScreenGallery() {
             <ScreenFixture id={active.id} />
           </div>
           {pendingScreenId ? (
-            <div className="fixed inset-0 z-[9998] grid place-items-center bg-wash/8 backdrop-blur-[1px]">
+            <div className="fixed inset-0 z-[9998] grid place-items-center bg-wash/25 backdrop-blur-[12px]">
               <DelayedBonsai />
             </div>
           ) : null}

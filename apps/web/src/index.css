@@ -150,17 +150,23 @@
 }
 
 /* Every navigation uses the startup handoff: the destination is already
-   painted underneath while the previous surface lifts and fades away. */
+   painted underneath while the previous surface lifts, blurs, and fades.
+   The loader plant is a named snapshot (c2c-pending), so it stays sharp. */
 ::view-transition-old(root) {
   z-index: 1;
   animation:
     c2c-surface-fade 320ms ease-in both,
-    c2c-surface-lift 360ms cubic-bezier(.22, 1, .36, 1) both;
+    c2c-surface-lift 360ms cubic-bezier(.22, 1, .36, 1) both,
+    c2c-surface-blur 360ms ease-in both;
 }
 
 ::view-transition-new(root) {
   z-index: 0;
   animation: none;
+}
+
+::view-transition-group(c2c-pending) {
+  z-index: 2;
 }
 
 @keyframes c2c-surface-fade {
@@ -169,6 +175,10 @@
 
 @keyframes c2c-surface-lift {
   to { transform: scale(1.008); }
+}
+
+@keyframes c2c-surface-blur {
+  to { filter: blur(12px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -185,9 +195,11 @@
   background: var(--color-wash);
   opacity: 1;
   transform: scale(1);
+  filter: blur(0);
   transition:
     opacity 320ms ease-in,
-    transform 360ms cubic-bezier(.22, 1, .36, 1);
+    transform 360ms cubic-bezier(.22, 1, .36, 1),
+    filter 360ms ease-in;
   view-transition-name: c2c-startup;
 }
 
@@ -195,6 +207,7 @@
   pointer-events: none;
   opacity: 0;
   transform: scale(1.008);
+  filter: blur(12px);
 }
 
 @media (prefers-reduced-motion: reduce) {
