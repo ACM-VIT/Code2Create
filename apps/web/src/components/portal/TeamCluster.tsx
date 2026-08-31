@@ -1,3 +1,4 @@
+import { safePolygon, useFloating, useHover, useInteractions } from '@floating-ui/react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Petal } from './Petal'
@@ -76,12 +77,26 @@ export function TeamCluster({
   canManage?: boolean
   onSignOut?: () => void
 }) {
-  // Hover previews the roster; a click (or keyboard focus) pins it open so it
-  // survives the pointer leaving. Tracking them separately keeps a click on an
-  // already-hovered cluster from closing it immediately.
+  // Hover previews the roster; a click pins it, while keyboard focus keeps the
+  // whole cluster open for tabbing. Keeping those channels separate prevents a
+  // pointer-induced focus event from cancelling the click that should pin it.
   const [pinned, setPinned] = useState(false)
   const [hovered, setHovered] = useState(false)
-  const open = pinned || hovered
+  const [keyboardFocused, setKeyboardFocused] = useState(false)
+  const [reference, setReference] = useState<HTMLElement | null>(null)
+  const [floating, setFloating] = useState<HTMLDivElement | null>(null)
+  const open = pinned || hovered || keyboardFocused
+  const { context } = useFloating({
+    elements: { reference, floating },
+    open: hovered,
+    onOpenChange: setHovered,
+    placement: 'bottom-end',
+  })
+  const hover = useHover(context, {
+    mouseOnly: true,
+    handleClose: safePolygon({ buffer: 1 }),
+  })
+  const { getFloatingProps, getReferenceProps } = useInteractions([hover])
   const shown = members.slice(0, 4)
   // One deal for the whole roster so no two members share a bloom.
   const flowerVariants = assignFlowerVariants(
@@ -91,16 +106,24 @@ export function TeamCluster({
   return (
     <div
       className="relative text-right"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocus={() => setPinned(true)}
+      onFocus={(event) => {
+        const target = event.target
+        if (target instanceof HTMLElement && target.matches(':focus-visible')) {
+          setKeyboardFocused(true)
+        }
+      }}
       onBlur={(event) => {
         const nextTarget = event.relatedTarget
         if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return
         setPinned(false)
+        setKeyboardFocused(false)
       }}
     >
-      <div className="flex items-start justify-end">
+      <div
+        ref={setReference}
+        className="flex items-start justify-end"
+        {...getReferenceProps({ onPointerDown: () => setKeyboardFocused(false) })}
+      >
         <button
           type="button"
           aria-expanded={open}
@@ -156,7 +179,11 @@ export function TeamCluster({
       </div>
 
       {open ? (
-        <div className="absolute right-0 top-[96px] z-10 w-[300px] max-w-[calc(100vw-40px)] text-left lg:top-[104px]">
+        <div
+          ref={setFloating}
+          className="absolute right-0 top-[96px] z-10 w-[300px] max-w-[calc(100vw-40px)] text-left lg:top-[104px]"
+          {...getFloatingProps()}
+        >
           <TeamRosterPanel
             team={team}
             members={members}
