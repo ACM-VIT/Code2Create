@@ -351,10 +351,35 @@ describe("participant intake lifecycle", () => {
       expectedDraftVersion: withThirdQuestion.draft.version,
       clientOperationId: "intake-third-question-answer",
     });
+    const reviewBeforeAnswerEdit = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    const firstAnsweredQuestion = reviewBeforeAnswerEdit?.draft?.followUps[0];
+    if (!reviewBeforeAnswerEdit?.draft || !firstAnsweredQuestion) {
+      throw new Error("The review did not retain its answered questions.");
+    }
+    const questionIdsBeforeAnswerEdit = reviewBeforeAnswerEdit.draft.followUps.map(
+      (question) => question.id,
+    );
+    const revisedAnswer = await participant.mutation(api.intake.reviseFollowUp, {
+      eventSlug: fixture.eventSlug,
+      questionId: firstAnsweredQuestion.id,
+      answer: `${firstFollowUpAnswer} The first release focuses on mobility requests.`,
+      expectedDraftVersion: answeredThirdQuestion.draftVersion,
+      clientOperationId: "intake-follow-up-revise",
+    });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      draft: {
+        stage: "review",
+        followUps: questionIdsBeforeAnswerEdit.map((id) => ({ id })),
+      },
+    });
     const freshness = await participant.mutation(api.intake.setFreshnessAttestation, {
       eventSlug: fixture.eventSlug,
       accepted: true,
-      expectedDraftVersion: answeredThirdQuestion.draftVersion,
+      expectedDraftVersion: revisedAnswer.draftVersion,
       clientOperationId: "intake-freshness-confirm",
     });
 
