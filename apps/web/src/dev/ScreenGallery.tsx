@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { flushSync } from 'react-dom'
+import { useEffect, useRef, useState } from 'react'
 import { ScreenFixture } from './screenFixtures'
 import { GALLERY_SCREENS } from './screenList'
 
@@ -14,25 +15,66 @@ const WIDTHS = [
 ] as const
 
 type WidthId = (typeof WIDTHS)[number]['id']
+type Delay = 0 | 1200
 
 export function ScreenGallery() {
   const [open, setOpen] = useState(false)
   const [screenId, setScreenId] = useState<string | null>(null)
+  const [pendingScreenId, setPendingScreenId] = useState<string | null>(null)
+  const [delay, setDelay] = useState<Delay>(0)
   const [widthId, setWidthId] = useState<WidthId>('full')
+  const pendingTimer = useRef<number | null>(null)
+
+  const cancelPending = () => {
+    if (pendingTimer.current !== null) window.clearTimeout(pendingTimer.current)
+    pendingTimer.current = null
+    setPendingScreenId(null)
+  }
+
+  const showScreen = (nextScreenId: string | null) => {
+    cancelPending()
+    const commit = () => {
+      const update = () => flushSync(() => setScreenId(nextScreenId))
+      if (document.startViewTransition) {
+        document.startViewTransition(update)
+      } else {
+        update()
+      }
+      setPendingScreenId(null)
+      pendingTimer.current = null
+    }
+
+    if (delay === 0 || nextScreenId === null || screenId === null) {
+      commit()
+      return
+    }
+
+    setPendingScreenId(nextScreenId)
+    pendingTimer.current = window.setTimeout(commit, delay)
+  }
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        cancelPending()
         setScreenId(null)
         setOpen(false)
       }
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      if (pendingTimer.current !== null) window.clearTimeout(pendingTimer.current)
+    }
   }, [])
 
   const active = GALLERY_SCREENS.find((screen) => screen.id === screenId) ?? null
   const width = WIDTHS.find((option) => option.id === widthId)
+  const activeIndex = active ? GALLERY_SCREENS.indexOf(active) : -1
+  const previous = activeIndex > 0 ? GALLERY_SCREENS[activeIndex - 1] : null
+  const next = activeIndex >= 0 && activeIndex < GALLERY_SCREENS.length - 1
+    ? GALLERY_SCREENS[activeIndex + 1]
+    : null
 
   return (
     <>
@@ -44,13 +86,14 @@ export function ScreenGallery() {
           >
             <ScreenFixture id={active.id} />
           </div>
-          <button
-            type="button"
-            onClick={() => setScreenId(null)}
-            className="fixed top-3 left-1/2 z-[9999] -translate-x-1/2 rounded-full border border-rose/50 bg-wash/92 px-3.5 py-1.5 font-mono text-[11px] text-rose-light shadow-lg backdrop-blur-md hover:text-fg"
-          >
-            fixture {active.id} — not the live app · click or esc to exit
-          </button>
+          <div className="fixed top-3 left-1/2 z-[9999] flex -translate-x-1/2 items-center overflow-hidden rounded-full border border-rose/50 bg-wash/92 font-mono text-[11px] text-rose-light shadow-lg backdrop-blur-md">
+            <button type="button" disabled={!previous || pendingScreenId !== null} onClick={() => previous && showScreen(previous.id)} className="px-3 py-1.5 hover:text-fg disabled:opacity-25">←</button>
+            <span className="border-x border-rose/25 px-3.5 py-1.5">
+              {pendingScreenId ? `${active.id} · holding for ${delay}ms` : `mock route · ${active.id}`}
+            </span>
+            <button type="button" disabled={!next || pendingScreenId !== null} onClick={() => next && showScreen(next.id)} className="px-3 py-1.5 hover:text-fg disabled:opacity-25">→</button>
+            <button type="button" onClick={() => showScreen(null)} className="border-l border-rose/25 px-3 py-1.5 hover:text-fg">×</button>
+          </div>
         </div>
       ) : null}
 
@@ -73,10 +116,23 @@ export function ScreenGallery() {
                 </button>
               ))}
             </div>
+            <div className="flex items-center gap-1 border-b border-rose/25 px-2 py-1.5">
+              <span className="mr-auto text-[10px] text-fg/35">route delay</span>
+              {([0, 1200] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setDelay(option)}
+                  className={`rounded px-1.5 py-0.5 ${delay === option ? 'bg-rose-light text-wash' : 'text-fg/55 hover:text-fg'}`}
+                >
+                  {option === 0 ? 'off' : '1.2s'}
+                </button>
+              ))}
+            </div>
             <div className="max-h-[60vh] overflow-auto py-1">
               <button
                 type="button"
-                onClick={() => setScreenId(null)}
+                onClick={() => showScreen(null)}
                 className={`block w-full px-3 py-1.5 text-left ${
                   active === null ? 'text-rose-light' : 'text-fg/60 hover:text-fg'
                 }`}
@@ -87,7 +143,8 @@ export function ScreenGallery() {
                 <button
                   key={screen.id}
                   type="button"
-                  onClick={() => setScreenId(screen.id)}
+                  disabled={pendingScreenId !== null}
+                  onClick={() => showScreen(screen.id)}
                   className={`block w-full px-3 py-1.5 text-left ${
                     screenId === screen.id
                       ? 'text-rose-light'
@@ -100,7 +157,7 @@ export function ScreenGallery() {
               ))}
             </div>
             <p className="border-t border-rose/25 px-3 py-1.5 text-[10px] text-fg/35">
-              fixture content · esc exits
+              mock routes · transitions work offline
             </p>
           </div>
         ) : null}
@@ -110,7 +167,7 @@ export function ScreenGallery() {
           onClick={() => setOpen((value) => !value)}
           className="rounded-lg border border-rose/40 bg-wash/90 px-2.5 py-1.5 text-fg/70 shadow-lg backdrop-blur-md hover:text-fg"
         >
-          ◧ {active ? active.id : 'screens'}
+          ◧ {pendingScreenId ? `${active?.id ?? 'mock'} → ${pendingScreenId}` : active ? active.id : 'screens'}
         </button>
       </div>
     </>
