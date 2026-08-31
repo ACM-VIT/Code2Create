@@ -5,6 +5,18 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { googleButtonConfiguration, googleFedCmConfiguration } from './google-fedcm-config'
 import type { Code2CreateAuthClient } from './index'
 
+declare global {
+  interface Navigator {
+    brave?: {
+      isBrave: () => Promise<boolean>
+    }
+  }
+
+  interface Window {
+    IdentityCredential?: object
+  }
+}
+
 type ButtonPhase = 'loading' | 'ready' | 'signing-in' | 'unavailable'
 
 const googleIdentityScriptUrl = 'https://accounts.google.com/gsi/client'
@@ -69,8 +81,8 @@ export function GoogleFedCmButton({
       }
     }
 
-    void loadGoogleIdentityServices().then(
-      () => {
+    void Promise.all([loadGoogleIdentityServices(), supportsGoogleFedCmButton()]).then(
+      ([, useFedCm]) => {
         if (!active) return
         try {
           google.accounts.id.initialize(
@@ -78,6 +90,7 @@ export function GoogleFedCmButton({
               clientId,
               ...(hostedDomain ? { hostedDomain } : {}),
               onCredential: (response) => void receiveCredential(response),
+              useFedCm,
             }),
           )
           element.replaceChildren()
@@ -120,6 +133,17 @@ export function GoogleFedCmButton({
       {phase === 'unavailable' ? fallback : null}
     </div>
   )
+}
+
+async function supportsGoogleFedCmButton() {
+  if (typeof window.IdentityCredential === 'undefined') return false
+  if (!navigator.brave) return true
+
+  try {
+    return !(await navigator.brave.isBrave())
+  } catch {
+    return false
+  }
 }
 
 function loadGoogleIdentityServices() {
