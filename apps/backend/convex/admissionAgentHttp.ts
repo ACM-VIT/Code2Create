@@ -138,8 +138,7 @@ export const ideaIntelligenceReadEndpoint = httpAction(async (ctx, request) => {
       ...projection.intakeResponses.map((source) => ({
         sourceRef: source.sourceRef,
         question: source.question,
-        ...(source.answer === undefined ? {} : { answer: redactProjectText(source.answer) }),
-        skipped: source.skipped,
+        answer: redactProjectText(source.answer),
       })),
       ...projection.informationResponses.map((source) => ({
         sourceRef: source.sourceRef,

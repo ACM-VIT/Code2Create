@@ -225,16 +225,16 @@ export function Emblem() {
   );
 }
 
-/* The deck, in fan order — which is chapter order: the 10 fronts
-   Code2Create, the ace ACM-VIT, the king ACM, the queen ACM-W and the
-   jack VIT. Each SVG wraps the supplied club-suit scan, background
+/* The deck, in fan order — which is chapter order: the ace fronts
+   Code2Create, the king ACM-VIT, the queen ACM, the jack ACM-W and the
+   10 VIT. Each SVG wraps the supplied club-suit scan, background
    removed and corners cut to the card's own radius. */
 const FACES = [
-  '/assets/svg/card-10.svg',
   '/assets/svg/card-ace.svg',
   '/assets/svg/card-king.svg',
   '/assets/svg/card-queen.svg',
   '/assets/svg/card-jack.svg',
+  '/assets/svg/card-10.svg',
 ];
 
 export default function Cards() {

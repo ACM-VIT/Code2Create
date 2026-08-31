@@ -478,7 +478,7 @@ Import requires the original-paper filing attestation. It creates append-only `m
 - Normal venue check-in, approved no-ID exception, and reversal fail independently without their exact person permission; a station grant, credential permission, or role label cannot substitute.
 - One membership/event has at most one active venue check-in. Reversal preserves the prior row, decrements only the sharded arrival projection, and a later valid arrival creates a new row.
 - Recording or reversing arrival creates no presence event, venue state, interval, session participant/result, judging fact, or score change.
-- The team reaches `checked_in` only after every active locked member has a current venue check-in; a reversal at that milestone returns it to `confirmed` without rewriting a later active event phase.
+- The team reaches `checked_in` only after every member of its deadline-frozen roster has a current venue check-in; a reversal at that milestone returns it to `confirmed` without rewriting a later active event phase.
 - The same participant can check into every configured hacking session without receiving a new account or badge.
 - An enrolled VIT ID barcode, external event-badge QR, and portal QR produce the same accepted domain transition.
 - A portal QR cannot be used for another participant, event, session scope, or incompatible station; direction remains server-owned station configuration.

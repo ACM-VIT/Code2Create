@@ -38,6 +38,7 @@ import {
   normalizedText,
   optionalNormalizedText,
 } from "./lib/strings";
+import { parsedHostelDetails } from "./lib/vitHostel";
 import {
   isApprovedVitStudentIdentity,
   parseVitStudentGoogleDisplayName,
@@ -70,6 +71,8 @@ const profileView = v.object({
   vitRegistrationNumber: v.optional(v.string()),
   vitProgramme: v.optional(v.string()),
   vitCampus: v.optional(v.string()),
+  vitHostelResidence: v.optional(v.string()),
+  vitHostelRoomNumber: v.optional(v.string()),
   externalCity: v.optional(v.string()),
   externalCountry: v.optional(v.string()),
   isComplete: v.boolean(),
@@ -351,6 +354,12 @@ export const me = query({
               : {}),
             ...(profile.vitCampus !== undefined
               ? { vitCampus: profile.vitCampus }
+              : {}),
+            ...(profile.vitHostelResidence !== undefined
+              ? { vitHostelResidence: profile.vitHostelResidence }
+              : {}),
+            ...(profile.vitHostelRoomNumber !== undefined
+              ? { vitHostelRoomNumber: profile.vitHostelRoomNumber }
               : {}),
             ...(profile.externalCity !== undefined
               ? { externalCity: profile.externalCity }
@@ -726,6 +735,8 @@ export const saveProfile = mutation({
     yearOfStudy: v.optional(studyYear),
     currentRole: v.optional(v.string()),
     vitCampus: v.optional(v.string()),
+    vitHostelResidence: v.optional(v.string()),
+    vitHostelRoomNumber: v.optional(v.string()),
     externalCity: v.optional(v.string()),
     externalCountry: v.optional(v.string()),
     expectedProfileVersion: v.number(),
@@ -744,6 +755,8 @@ export const saveProfile = mutation({
       args.yearOfStudy ?? null,
       args.currentRole ?? null,
       args.vitCampus ?? null,
+      args.vitHostelResidence ?? null,
+      args.vitHostelRoomNumber ?? null,
       args.externalCity ?? null,
       args.externalCountry ?? null,
       args.expectedProfileVersion,
@@ -832,6 +845,13 @@ export const saveProfile = mutation({
     const vitCampus = membership.participantClass === "vit_student"
       ? policyField(args.vitCampus, policy.vitCampusField, "VIT campus", 80)
       : undefined;
+    const { vitHostelResidence, vitHostelRoomNumber } = parsedHostelDetails(
+      membership.participantClass,
+      args.vitHostelResidence,
+      args.vitHostelRoomNumber,
+      policy.vitHostelDetailsField,
+      policy.vitHostelResidenceCatalog,
+    );
     const externalCity = membership.participantClass === "external_participant"
       ? policyField(args.externalCity, policy.externalCityField, "City", 100)
       : undefined;
@@ -886,6 +906,8 @@ export const saveProfile = mutation({
         vitRegistrationNumber,
         vitProgramme,
         vitCampus,
+        vitHostelResidence,
+        vitHostelRoomNumber,
         externalCity,
         externalCountry,
         profileVersion,
@@ -906,6 +928,8 @@ export const saveProfile = mutation({
         ...(vitRegistrationNumber !== undefined ? { vitRegistrationNumber } : {}),
         ...(vitProgramme !== undefined ? { vitProgramme } : {}),
         ...(vitCampus !== undefined ? { vitCampus } : {}),
+        ...(vitHostelResidence !== undefined ? { vitHostelResidence } : {}),
+        ...(vitHostelRoomNumber !== undefined ? { vitHostelRoomNumber } : {}),
         ...(externalCity !== undefined ? { externalCity } : {}),
         ...(externalCountry !== undefined ? { externalCountry } : {}),
         profileVersion,

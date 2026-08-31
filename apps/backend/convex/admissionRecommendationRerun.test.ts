@@ -564,7 +564,6 @@ async function seedFixture(backend: BackendTest) {
         answerLength: "short",
         source: "fallback",
         answer: "Volunteer coordinators use it first.",
-        skipped: false,
       }],
       lockedRosterSnapshotId,
       lockedMemberCount: 1,

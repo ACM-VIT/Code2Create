@@ -1,5 +1,9 @@
 import { api } from '@code2create/backend/api'
-import { studyYearLabels } from '@code2create/domain'
+import {
+  findVitHostelResidenceCatalogEntry,
+  isVitHostelResidenceCatalogBlock,
+  studyYearLabels,
+} from '@code2create/domain'
 import { useMutation } from 'convex/react'
 import { useState, type FormEvent } from 'react'
 import { PortalScene } from '../components/portal/PortalScene'
@@ -18,7 +22,31 @@ import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
 import type { ParticipantMe } from '../types'
 
+/** The policy page on the event site; the privacy notice URL stays config-driven. */
+const participantPolicyUrl = 'https://c2c.acmvit.in/policy'
+
 type StudyYear = NonNullable<ParticipantMe['profile']>['yearOfStudy']
+type HostelCatalog = ParticipantMe['participantPolicy']['policy']['vitHostelResidenceCatalog']
+
+function hostelDetailsPayload(
+  catalog: HostelCatalog,
+  residenceValue: string,
+  roomNumber: string,
+) {
+  const residence = findVitHostelResidenceCatalogEntry(catalog, residenceValue)
+  if (!residence) return {}
+  return {
+    vitHostelResidence: residence.stableKey,
+    ...(isVitHostelResidenceCatalogBlock(residence) && roomNumber
+      ? { vitHostelRoomNumber: roomNumber }
+      : {}),
+  }
+}
+
+function hostelBlockSelected(catalog: HostelCatalog, value: string) {
+  const residence = findVitHostelResidenceCatalogEntry(catalog, value)
+  return residence !== null && isVitHostelResidenceCatalogBlock(residence)
+}
 
 function parseStudyYear(value: string): StudyYear | null {
   switch (value) {
@@ -61,6 +89,8 @@ export function DetailsScreen({
   const [yearOfStudy, setYearOfStudy] = useState(existing?.yearOfStudy ?? 'first')
   const [currentRole, setCurrentRole] = useState(existing?.currentRole ?? '')
   const [campus, setCampus] = useState(existing?.vitCampus ?? '')
+  const [hostelResidence, setHostelResidence] = useState(existing?.vitHostelResidence ?? '')
+  const [hostelRoomNumber, setHostelRoomNumber] = useState(existing?.vitHostelRoomNumber ?? '')
   const [externalCity, setExternalCity] = useState(existing?.externalCity ?? '')
   const [externalCountry, setExternalCountry] = useState(existing?.externalCountry ?? '')
   const [accepted, setAccepted] = useState(me.participantPolicy.accepted)
@@ -113,6 +143,13 @@ export function DetailsScreen({
             ...(vitStudent && policy.vitCampusField !== 'not_collected' && campus
               ? { vitCampus: campus }
               : {}),
+            ...(vitStudent && policy.vitHostelDetailsField !== 'not_collected'
+              ? hostelDetailsPayload(
+                  policy.vitHostelResidenceCatalog,
+                  hostelResidence,
+                  hostelRoomNumber,
+                )
+              : {}),
             ...(!vitStudent && policy.externalCityField !== 'not_collected' && externalCity
               ? { externalCity }
               : {}),
@@ -144,7 +181,7 @@ export function DetailsScreen({
       <PortalScene tree="right" header={header}>
         <PetalCard className="max-w-[560px] px-8 py-7">
           <h1 className="mb-3 font-display font-light tracking-[-.01em] text-3xl">Profile editing is unavailable.</h1>
-          <p className="text-[13px] text-[rgb(248_248_248/.6)]">
+          <p className="text-[13px] text-fg/60">
             Ask an organizer if this looks wrong.
           </p>
         </PetalCard>
@@ -155,7 +192,7 @@ export function DetailsScreen({
   return (
     <PortalScene tree="right" header={header}>
       <div className="flex w-full max-w-[640px] flex-col items-center">
-        <h1 className="mb-7 text-center font-display font-normal tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_rgba(0,0,0,.55)] lg:text-[40px]">
+        <h1 className="mb-7 text-center font-display font-normal tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_var(--scene-text-glow)] lg:text-[40px]">
           A few details, once.
         </h1>
 
@@ -164,7 +201,7 @@ export function DetailsScreen({
             <fieldset disabled={disabled} className="contents">
               <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
                 {vitStudentIdentity ? (
-                  <PortalField label="full name" hint="verified by your VIT Google account">
+                  <PortalField label="full name" hint="verified">
                     {(id) => <PortalInput id={id} readOnly value={vitStudentIdentity.fullName} />}
                   </PortalField>
                 ) : (
@@ -208,7 +245,7 @@ export function DetailsScreen({
                 ) : null}
 
                 {vitStudentIdentity ? (
-                  <PortalField label="college or university" hint="verified from your VIT account">
+                  <PortalField label="college or university" hint="verified">
                     {(id) => <PortalInput id={id} readOnly value="Vellore Institute of Technology" />}
                   </PortalField>
                 ) : (
@@ -225,7 +262,7 @@ export function DetailsScreen({
                 )}
 
                 {vitStudentIdentity ? (
-                  <PortalField label="year of study" hint="derived from your registration number">
+                  <PortalField label="year of study" hint="auto">
                     {(id) => (
                       <PortalInput
                         id={id}
@@ -275,7 +312,7 @@ export function DetailsScreen({
                     {policy.vitRegistrationNumberField !== 'not_collected' ? (
                       <PortalField
                         label="registration number"
-                        hint="verified from your VIT Google account"
+                        hint="verified"
                       >
                         {(id) => (
                           <PortalInput
@@ -290,7 +327,7 @@ export function DetailsScreen({
                     {policy.vitProgrammeField !== 'not_collected' ? (
                       <PortalField
                         label="programme code"
-                        hint="derived from your registration number"
+                        hint="auto"
                       >
                         {(id) => (
                           <PortalInput
@@ -315,6 +352,78 @@ export function DetailsScreen({
                           />
                         )}
                       </PortalField>
+                    ) : null}
+                    {policy.vitHostelDetailsField !== 'not_collected' ? (
+                      <>
+                        <PortalField
+                          label="hostel"
+                          {...(policy.vitHostelDetailsField === 'optional' ? { hint: 'optional' } : {})}
+                        >
+                          {(id) => (
+                            <PortalSelect
+                              id={id}
+                              required={policy.vitHostelDetailsField === 'required'}
+                              value={hostelResidence}
+                              onChange={(event) => {
+                                const nextResidence = event.target.value
+                                setHostelResidence(nextResidence)
+                                const parsed = findVitHostelResidenceCatalogEntry(
+                                  policy.vitHostelResidenceCatalog,
+                                  nextResidence,
+                                )
+                                if (!parsed || !isVitHostelResidenceCatalogBlock(parsed)) {
+                                  setHostelRoomNumber('')
+                                }
+                              }}
+                            >
+                              <option value="">Select residence</option>
+                              {policy.vitHostelResidenceCatalog
+                                .filter((residence) => residence.kind === 'day_scholar')
+                                .map((residence) => (
+                                  <option key={residence.stableKey} value={residence.stableKey}>
+                                    {residence.label}
+                                  </option>
+                                ))}
+                              <optgroup label="Men's hostel">
+                                {policy.vitHostelResidenceCatalog
+                                  .filter((residence) => residence.kind === 'mens')
+                                  .map((residence) => (
+                                  <option key={residence.stableKey} value={residence.stableKey}>
+                                    {residence.label}
+                                  </option>
+                                ))}
+                              </optgroup>
+                              <optgroup label="Ladies' hostel">
+                                {policy.vitHostelResidenceCatalog
+                                  .filter((residence) => residence.kind === 'ladies')
+                                  .map((residence) => (
+                                  <option key={residence.stableKey} value={residence.stableKey}>
+                                    {residence.label}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            </PortalSelect>
+                          )}
+                        </PortalField>
+                        {hostelBlockSelected(
+                          policy.vitHostelResidenceCatalog,
+                          hostelResidence,
+                        ) ? (
+                          <PortalField label="room number">
+                            {(id) => (
+                              <PortalInput
+                                id={id}
+                                required
+                                className="font-mono"
+                                inputMode="text"
+                                autoCapitalize="characters"
+                                value={hostelRoomNumber}
+                                onChange={(event) => setHostelRoomNumber(event.target.value)}
+                              />
+                            )}
+                          </PortalField>
+                        ) : null}
+                      </>
                     ) : null}
                   </>
                 ) : (
@@ -359,18 +468,26 @@ export function DetailsScreen({
                   disabled={policyAlreadyAccepted || disabled}
                   onChange={setAccepted}
                 >
-                  I accept the participant policy and the{' '}
+                  I accept the{' '}
+                  <a
+                    href={participantPolicyUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"
+                  >
+                    participant policy
+                  </a>{' '}
+                  and the{' '}
                   <a
                     href={policy.privacyNoticeUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-rose-light underline-offset-2 hover:underline"
+                    className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"
                   >
                     privacy notice
-                  </a>{' '}
-                  · {policy.projectTextNotice}
+                  </a>
                 </PortalCheckRow>
-                <p className="mt-2 pl-6 text-[11.5px] text-[rgb(248_248_248/.45)]">
+                <p className="mt-2 pl-6 text-[11.5px] text-fg/45">
                   {policy.profileNotice}
                 </p>
               </div>
@@ -379,7 +496,7 @@ export function DetailsScreen({
             <PortalError message={error} />
 
             <div className="mt-3.5 flex items-center justify-between border-t border-petal-line pt-3.5">
-              <span className="text-xs text-[rgb(248_248_248/.45)]">
+              <span className="text-xs text-fg/45">
                 {savePending ? 'confirming your earlier save' : 'saved when you continue'}
               </span>
               <PortalButton type="submit" size="sm" disabled={disabled || !accepted}>

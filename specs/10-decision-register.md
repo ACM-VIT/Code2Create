@@ -15,9 +15,9 @@ This file records current decisions only. It does not keep obsolete product path
 | P-007 | Any event-linked account can receive a grant without receiving a role label. |
 | P-008 | One participant can belong to one active team. One active team has exactly one lead. |
 | P-009 | Leadership transfer requires acceptance by the proposed lead. |
-| P-010 | Final submission locks team membership. It does not lock proposal content. |
-| P-011 | The lead can revise submitted proposal content until the deadline for the team's verified participant class. |
-| P-012 | Every proposal revision creates an immutable version and invalidates stale human-review and AI-admission outputs. |
+| P-010 | Final submission creates the first immutable team and proposal snapshot. It does not close team management. |
+| P-011 | Membership, leadership, and proposal content remain editable until the deadline for the team's verified participant class. |
+| P-012 | Every accepted post-submission team or proposal change creates an immutable version and invalidates stale human-review and AI-admission outputs. |
 | P-013 | Route proposals by current proposal content and reviewer-domain coverage. |
 | P-014 | Git tracked branches remain part of GitHub evidence. Synesthesia music tracks remain part of the music catalog. |
 | P-015 | Proposal intake is free text followed by two friendly AI questions. The second follow-up is the required third total question. |
@@ -115,7 +115,7 @@ This file records current decisions only. It does not keep obsolete product path
 | O-001 | Board | Team-size bounds |
 | O-002 | Board | External-participant and VIT-student application deadlines |
 | O-003 | Board and admissions owner | Admission rubric, minimum human reviews, AI-use rule, capacity, waitlist order, offer deadline, and participant-visible reasons |
-| O-004 | Board and participant owner | Profile fields, notices, consent, privacy URL, fresh-project text, and membership-lock warning |
+| O-004 | Board and participant owner | Profile fields, notices, consent, privacy URL, fresh-project text, and final-submission warning |
 | O-005 | Board and review owner | Panel size, reviewer eligibility, expertise coverage, review duration, and substitute policy |
 | O-006 | Board and judging owner | Rubric, correction deadline, feedback release, finalist process, and awards |
 | O-007 | Attendance owner | Sessions, expected groups, scan windows, grace rules, and result policy |

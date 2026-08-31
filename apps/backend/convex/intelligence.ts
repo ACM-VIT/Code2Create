@@ -1,9 +1,8 @@
-import OpenAI from "openai";
 import { v, type Infer } from "convex/values";
 import { z } from "zod";
 
 import { internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { internalAction, internalMutation } from "./_generated/server";
 import {
@@ -14,6 +13,7 @@ import {
 } from "./lib/intakePolicy";
 import {
   ideaQuestionModelId,
+  ideaQuestionSettlementDeadlineMs,
   ideaQuestionSystemInstruction,
   isBroadIdeaQuestion,
 } from "./lib/ideaSubmissionAi";
@@ -27,6 +27,7 @@ import {
 import { redactProjectText } from "./lib/projectText";
 import { appendIntakeJobReadFactById } from "./lib/operationsAutonomyReadFacts/intakeJobs";
 import { intakeAnswerLength, intakeQuestionPurpose } from "./values";
+import { intakeWorkpool } from "./workpools";
 
 const sourceAnswer = v.object({
   id: v.id("intakeAnswerVersions"),
@@ -172,6 +173,11 @@ export const beginIntakeInterpretation = internalMutation({
       });
       return null;
     }
+    await ctx.scheduler.runAfter(
+      ideaQuestionSettlementDeadlineMs,
+      internal.intelligence.expireIntakeInterpretation,
+      { interpretationId, inputFingerprint },
+    );
     return {
       interpretationId,
       draftId: draft._id,
@@ -379,6 +385,82 @@ export const finishIntakeInterpretation = internalMutation({
   },
 });
 
+export const expireIntakeInterpretation = internalMutation({
+  args: {
+    interpretationId: v.id("intakeInterpretations"),
+    inputFingerprint: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const interpretation = await ctx.db.get(args.interpretationId);
+    if (
+      !interpretation ||
+      interpretation.state !== "running" ||
+      interpretation.inputFingerprint !== args.inputFingerprint
+    ) return null;
+    const result: null = await ctx.runMutation(
+      internal.intelligence.finishIntakeInterpretation,
+      {
+        interpretationId: interpretation._id,
+        inputFingerprint: interpretation.inputFingerprint,
+        state: "timed_out",
+        ...emptyCompletion(),
+        latencyMs: Math.max(0, Date.now() - interpretation.createdAt),
+        failureCategory: "settlement_deadline_exceeded",
+      },
+    );
+    return result;
+  },
+});
+
+const intakeGenerationContext = v.object({
+  draftId: v.id("projectDrafts"),
+  draftVersion: v.number(),
+});
+
+export const intakeGenerationFinished = intakeWorkpool.defineOnComplete<
+  DataModel,
+  typeof intakeGenerationContext
+>({
+  context: intakeGenerationContext,
+  handler: async (ctx, { context, result }) => {
+    if (result.kind === "success") return;
+    const draft = await ctx.db.get(context.draftId);
+    if (
+      !draft?.initialIdea ||
+      draft.stage !== "follow_up" ||
+      draft.version !== context.draftVersion
+    ) return;
+    const latest = await ctx.db
+      .query("intakeInterpretations")
+      .withIndex("by_draft_created", (index) => index.eq("draftId", draft._id))
+      .order("desc")
+      .first();
+    if (latest?.state === "running") {
+      const settled: null = await ctx.runMutation(
+        internal.intelligence.finishIntakeInterpretation,
+        {
+          interpretationId: latest._id,
+          inputFingerprint: latest.inputFingerprint,
+          state: "failed",
+          ...emptyCompletion(),
+          latencyMs: Math.max(0, Date.now() - latest.createdAt),
+          failureCategory: result.kind === "canceled"
+            ? "generation_canceled"
+            : "generation_action_failed",
+        },
+      );
+      void settled;
+      return;
+    }
+    const started: IntakeContext | null = await ctx.runMutation(
+      internal.intelligence.beginIntakeInterpretation,
+      { draftId: draft._id, providerAvailable: false },
+    );
+    void started;
+  },
+});
+
 const modelSourceRef = z.string().min(1).max(200);
 const modelOutputSchema = z
   .object({
@@ -500,99 +582,49 @@ export const interpretIdea = internalAction({
     if (!context || !apiKey) return null;
 
     const startedAt = Date.now();
-    const client = new OpenAI({ apiKey, maxRetries: 0 });
     try {
-      const response = await client.responses.create({
-        model: context.modelId,
-        store: false,
-        instructions: context.systemInstruction,
-        input: JSON.stringify({
-          questionOrdinal: context.ordinal,
-          answers: context.answers.map((answer) => ({
-            answerVersionId: answer.id,
-            promptKey: answer.promptKey,
-            text: redactProjectText(answer.value),
-          })),
-          priorQuestions: context.previousQuestions,
-          allowedPurposeKeys: context.allowedPurposeKeys,
-          commonIdeaPatterns: context.commonIdeaPatterns,
-        }),
-        text: {
-          format: {
-            type: "json_schema",
-            name: "code2create_intake_interpretation",
-            strict: true,
-            schema: {
-              type: "object",
-              properties: {
-                coveragePurposeKeys: {
-                  type: "array",
-                  items: {
-                    type: "string",
-                    enum: ["user", "problem", "experience", "event_goal", "tradeoff", "risk"],
-                  },
-                  maxItems: 6,
-                },
-                nextQuestion: {
-                  anyOf: [
-                    {
-                      type: "object",
-                      properties: {
-                        text: { type: "string", minLength: 8, maxLength: 120 },
-                        purposeKey: {
-                          type: "string",
-                          enum: ["user", "problem", "experience", "event_goal", "tradeoff", "risk"],
-                        },
-                        answerLength: {
-                          type: "string",
-                          enum: ["short", "medium"],
-                        },
-                        sourceAnswerVersionIds: {
-                          type: "array",
-                          items: { type: "string", minLength: 1, maxLength: 200 },
-                          minItems: 1,
-                          maxItems: 3,
-                        },
-                      },
-                      required: ["text", "purposeKey", "answerLength", "sourceAnswerVersionIds"],
-                      additionalProperties: false,
-                    },
-                    { type: "null" },
-                  ],
-                },
-                matchedIdeaPatternKey: {
-                  anyOf: [
-                    { type: "string", minLength: 1, maxLength: 60 },
-                    { type: "null" },
-                  ],
-                },
-                stopReason: {
-                  type: "string",
-                  enum: ["needs_question", "enough_context", "question_limit"],
-                },
-              },
-              required: [
-                "coveragePurposeKeys",
-                "nextQuestion",
-                "matchedIdeaPatternKey",
-                "stopReason",
-              ],
-              additionalProperties: false,
-            },
-          },
+      const provider = await ctx.runAction(
+        internal.intelligenceActions.requestIdeaQuestion,
+        {
+          modelId: context.modelId,
+          systemInstruction: context.systemInstruction,
+          input: JSON.stringify({
+            questionOrdinal: context.ordinal,
+            answers: context.answers.map((answer) => ({
+              answerVersionId: answer.id,
+              promptKey: answer.promptKey,
+              text: redactProjectText(answer.value),
+            })),
+            priorQuestions: context.previousQuestions,
+            allowedPurposeKeys: context.allowedPurposeKeys,
+            commonIdeaPatterns: context.commonIdeaPatterns,
+          }),
         },
-      });
-      const parsed = response.output_text ? parseModelOutput(response.output_text) : null;
+      );
+      if (provider.kind === "failure") {
+        await ctx.runMutation(internal.intelligence.finishIntakeInterpretation, {
+          interpretationId: context.interpretationId,
+          inputFingerprint: context.inputFingerprint,
+          state: provider.state,
+          ...emptyCompletion(),
+          latencyMs: Date.now() - startedAt,
+          failureCategory: provider.failureCategory,
+        });
+        return null;
+      }
+      const parsed = provider.outputText ? parseModelOutput(provider.outputText) : null;
       const validated = parsed ? validateModelOutput(parsed, context) : null;
       if (!validated) {
         await ctx.runMutation(internal.intelligence.finishIntakeInterpretation, {
           interpretationId: context.interpretationId,
           inputFingerprint: context.inputFingerprint,
-          state: response.output_text ? "invalid" : "refused",
+          state: provider.outputText ? "invalid" : "refused",
           ...emptyCompletion(),
-          ...(response._request_id ? { providerRequestId: response._request_id } : {}),
+          ...(provider.providerRequestId
+            ? { providerRequestId: provider.providerRequestId }
+            : {}),
           latencyMs: Date.now() - startedAt,
-          failureCategory: response.output_text
+          failureCategory: provider.outputText
             ? "invalid_or_disallowed_output"
             : "empty_or_refused_output",
         });
@@ -603,24 +635,19 @@ export const interpretIdea = internalAction({
         inputFingerprint: context.inputFingerprint,
         state: "succeeded",
         ...validated,
-        ...(response._request_id ? { providerRequestId: response._request_id } : {}),
+        ...(provider.providerRequestId
+          ? { providerRequestId: provider.providerRequestId }
+          : {}),
         latencyMs: Date.now() - startedAt,
       });
-    } catch (error) {
-      const status = error instanceof OpenAI.APIError ? error.status : undefined;
-      const state =
-        status === 429
-          ? "rate_limited" as const
-          : error instanceof OpenAI.APIConnectionTimeoutError
-            ? "timed_out" as const
-            : "failed" as const;
+    } catch {
       await ctx.runMutation(internal.intelligence.finishIntakeInterpretation, {
         interpretationId: context.interpretationId,
         inputFingerprint: context.inputFingerprint,
-        state,
+        state: "failed",
         ...emptyCompletion(),
         latencyMs: Date.now() - startedAt,
-        failureCategory: status ? `provider_http_${status}` : "provider_request_failed",
+        failureCategory: "provider_action_failed",
       });
     }
     return null;

@@ -22,11 +22,13 @@ export function TeamPanel({
   members,
   rosterStatus,
   loadMore,
+  editable,
 }: {
   team: CurrentTeam
   members: CurrentTeamMember[]
   rosterStatus: 'LoadingFirstPage' | 'CanLoadMore' | 'LoadingMore' | 'Exhausted'
   loadMore: (numItems: number) => void
+  editable: boolean
 }) {
   const requestTransfer = useMutation(api.teams.requestLeadershipTransfer)
   const respondToTransfer = useMutation(api.teams.respondToLeadershipTransfer)
@@ -46,6 +48,7 @@ export function TeamPanel({
   const removePending = operations.hasPending('team-member-remove')
   const actionPending = leavePending || removePending
   const operationPending = transferPending || responsePending || actionPending
+  const canManage = editable && team.currentRole === 'lead'
 
   useEffect(() => {
     if (
@@ -150,9 +153,7 @@ export function TeamPanel({
           <p className="muted">Team</p>
           <h2>{team.name}</h2>
         </div>
-        <span className={team.membershipLocked ? 'lock-state locked' : 'lock-state'}>
-          {team.membershipLocked ? 'Locked' : 'Open'}
-        </span>
+        <span className="lock-state">{canManage ? 'Manage team' : 'View team'}</span>
       </div>
 
       <p className="fine-print">
@@ -160,7 +161,7 @@ export function TeamPanel({
         {team.teamMinimumSize > 1 ? ` · ${team.teamMinimumSize} needed to submit` : ''}
       </p>
 
-      {!team.membershipLocked ? (
+      {editable ? (
         <div className="team-code-row">
           <div>
             <span className="field-label">Join code</span>
@@ -189,7 +190,7 @@ export function TeamPanel({
                   {member.membershipId === team.currentMembershipId ? ' · You' : ''}
                 </small>
               </div>
-              {!team.membershipLocked && (canTransferToMember || canRemoveMember) ? (
+              {editable && (canTransferToMember || canRemoveMember) ? (
                 <div className="member-actions">
                   {canTransferToMember ? (
                     <button
@@ -241,7 +242,7 @@ export function TeamPanel({
         </button>
       ) : null}
 
-      {(currentTransfer?.toMembershipId === team.currentMembershipId && team.canRespondToLeadershipTransfer) || responsePending ? (
+      {(editable && currentTransfer?.toMembershipId === team.currentMembershipId && team.canRespondToLeadershipTransfer) || responsePending ? (
         <div className="transfer-card">
           <p>The current lead asked you to take over.</p>
           <div className="button-row">
@@ -263,13 +264,13 @@ export function TeamPanel({
             </button>
           </div>
         </div>
-      ) : currentTransfer?.toMembershipId === team.currentMembershipId ? (
+      ) : editable && currentTransfer?.toMembershipId === team.currentMembershipId ? (
         <p className="fine-print">A leadership transfer is waiting, but this account cannot respond.</p>
-      ) : currentTransfer ? (
+      ) : editable && currentTransfer ? (
         <p className="fine-print">A leadership transfer is waiting for acceptance.</p>
       ) : null}
 
-      {!team.membershipLocked ? (
+      {editable ? (
         <div className="team-exit">
           {team.canLeave && canLeaveByTeamRule ? (
             <button
@@ -287,6 +288,12 @@ export function TeamPanel({
           )}
         </div>
       ) : null}
+
+      <p className="fine-print">
+        {editable
+          ? `Team changes close ${new Date(team.membershipEditableUntil).toLocaleString()}.`
+          : 'Team changes are closed.'}
+      </p>
 
       {pendingAction ? (
         <div className="transfer-card action-confirmation">

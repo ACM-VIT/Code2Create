@@ -11,9 +11,12 @@ export const GALLERY_SCREENS = [
   { id: 'fs', label: 'SGLang note' },
   { id: 'f6', label: 'Confirm' },
   { id: 'f7', label: 'Submitted' },
+  { id: 'f7b', label: 'Submission view' },
   { id: 'f8', label: 'Accepted' },
   { id: 'f10', label: 'Team lobby' },
+  { id: 'f10b', label: 'Team lobby · manage' },
   { id: 'f12', label: 'More' },
+  { id: 'gate', label: 'Cooking' },
   { id: 'loading', label: 'Loading' },
   { id: 'notice', label: 'Access notice' },
 ] as const

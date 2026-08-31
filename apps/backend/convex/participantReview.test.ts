@@ -1,5 +1,6 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import aggregateTest from "@convex-dev/aggregate/test";
+import { defaultVitHostelResidenceCatalog } from "@code2create/domain";
 import { convexTest, type TestConvex } from "convex-test";
 import { afterAll, describe, expect, test } from "vitest";
 
@@ -723,6 +724,8 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
       vitCampusField: "not_collected",
       externalCityField: "not_collected",
       externalCountryField: "not_collected",
+      vitHostelDetailsField: "not_collected",
+      vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
       profileNotice: "Fixture profile notice.",
       projectTextNotice: "Fixture project notice.",
       privacyNoticeUrl: "https://example.test/privacy",

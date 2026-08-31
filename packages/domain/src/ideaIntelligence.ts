@@ -31,7 +31,6 @@ export type IdeaIntelligenceSource = {
   sourceRef: string;
   question?: string;
   answer?: string;
-  skipped?: boolean;
 };
 
 export type IdeaIntelligenceCriterion = {

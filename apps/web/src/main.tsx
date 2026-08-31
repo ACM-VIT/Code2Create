@@ -10,8 +10,10 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
 import { clientConfiguration } from './lib/config.ts'
+import { initPortalTheme } from './lib/portalTheme.ts'
 
 installBrowserChunkRecovery()
+initPortalTheme()
 
 const rootElement = document.getElementById('root')
 if (!rootElement) throw new Error('The application root element is missing.')

@@ -6,9 +6,9 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react'
 // mockup's own filled hover state uses ink, so solid labels follow that.
 const variants = {
   outline:
-    'border-[1.5px] border-rose bg-transparent text-rose-light hover:bg-rose hover:text-ink disabled:border-2 disabled:border-[rgb(216_132_162/.35)] disabled:bg-transparent disabled:text-[rgb(216_132_162/.5)]',
+    'border-[1.5px] border-rose bg-transparent text-rose-light hover:bg-rose hover:text-wash disabled:border-2 disabled:border-rose/35 disabled:bg-transparent disabled:text-rose/50',
   solid:
-    'border-0 bg-rose text-ink shadow-[0_10px_24px_-12px_rgba(216,132,162,.55)] hover:brightness-105 disabled:opacity-50',
+    'border-0 bg-rose text-wash shadow-[0_10px_24px_-12px_var(--glow-rose)] hover:brightness-105 disabled:opacity-50',
 } as const
 
 const sizes = {
@@ -31,7 +31,7 @@ export function PortalButton({
   return (
     <button
       {...props}
-      className={`portal-primary-button inline-flex items-center justify-center gap-2.5 font-ui font-semibold transition-[background,color] duration-250 disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2.5 font-ui font-semibold transition-[background,color] duration-250 disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]} ${className}`}
     >
       {children}
     </button>
@@ -47,7 +47,7 @@ export function PortalTextButton({
   return (
     <button
       {...props}
-      className={`rounded-sm text-[12.5px] text-[rgb(248_248_248/.55)] transition-colors hover:text-paper disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
+      className={`rounded-sm text-[12.5px] text-fg/55 transition-colors hover:text-fg disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
     >
       {children}
     </button>

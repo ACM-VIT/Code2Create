@@ -19,7 +19,7 @@ export function AccountBadge({
     <div className="flex items-center gap-2.5">
       <div
         title={[email ?? name, detail].filter(Boolean).join(' · ')}
-        className="flex size-[34px] flex-none items-center justify-center rounded-full border-2 border-rose-light bg-avatar-lead text-[11px] font-semibold"
+        className="flex size-10 flex-none items-center justify-center rounded-full border-2 border-ring-lead bg-avatar-lead text-[11px] font-semibold lg:size-12 lg:text-[12.5px]"
       >
         {initialsOf(name)}
       </div>
@@ -27,7 +27,7 @@ export function AccountBadge({
         <button
           type="button"
           onClick={onSignOut}
-          className="ml-1 rounded-sm text-[12px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
+          className="ml-1 rounded-sm text-[12px] text-fg/45 transition-colors hover:text-rose-light"
         >
           Sign out
         </button>

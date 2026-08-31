@@ -25,7 +25,7 @@ export function Petals({ className = '' }: { className?: string }) {
         duration: 15 + (index % 5) * 1.7,
         delay: -(index * 2.7),
         size: 7 + (index % 3) * 3,
-        color: index % 2 ? '#feb4cb' : '#d884a2',
+        color: index % 2 ? 'var(--color-petal-a)' : 'var(--color-petal-b)',
       })),
     [],
   )

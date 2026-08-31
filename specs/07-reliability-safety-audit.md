@@ -45,7 +45,7 @@ A client may show an optimistic control for a low-risk action such as a Synesthe
 - staff queue placement;
 - table or panel assignment;
 - reviewer presence;
-- fresh-project attestation, membership lock, and proposal submission or revision;
+- fresh-project attestation, application submission, post-submission team changes, and proposal revision;
 - review start or extension;
 - scorecard submission;
 - correction;

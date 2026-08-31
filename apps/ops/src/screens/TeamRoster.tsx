@@ -246,9 +246,9 @@ export function TeamRoster() {
             />
           ) : (
             <form className="roster-import-form" onSubmit={requestPreview}>
-              <fieldset className="field">
+              <fieldset className="roster-bundles">
                 <legend>List shape</legend>
-                <label>
+                <label className="check-row">
                   <input
                     checked={importShape === 'people'}
                     name="roster-import-shape"
@@ -262,7 +262,7 @@ export function TeamRoster() {
                   />
                   Person rows
                 </label>
-                <label>
+                <label className="check-row">
                   <input
                     checked={importShape === 'teams'}
                     name="roster-import-shape"

@@ -1067,6 +1067,143 @@ describe("participant onboarding lifecycle", () => {
       },
     });
   });
+
+  test("collects a current VIT hostel block and room, or day scholar, for internal participants", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const email = "hostel-check@vitstudent.ac.in";
+    const authUserId = await createAuthUser(
+      backend,
+      fixture.now,
+      "Hostel Student 24TST0002",
+      email,
+    );
+    const authSessionId = await createAuthSession(
+      backend,
+      authUserId,
+      fixture.now,
+      "participant-onboarding-hostel-session",
+    );
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("googleIdentityClaims", {
+        authUserId,
+        googleSubject: "participant-onboarding-hostel-subject",
+        verifiedEmail: email,
+        displayName: "Hostel Student 24TST0002",
+        hostedDomain: "vitstudent.ac.in",
+        tokenIssuedAt: fixture.now,
+        tokenExpiresAt: fixture.now + 3_600_000,
+        verifiedAt: fixture.now,
+      });
+    });
+    const participant = backend.withIdentity({
+      subject: authUserId,
+      sessionId: authSessionId,
+    });
+    const provisioned = await participant.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "vit_student",
+    });
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "hostel-policy-accept",
+    });
+
+    await expect(participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      vitCampus: "Vellore",
+      expectedProfileVersion: 0,
+      clientOperationId: "hostel-missing-residence",
+    })).rejects.toThrow("Hostel residence is required");
+
+    await expect(participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      vitCampus: "Vellore",
+      vitHostelResidence: "mh_s",
+      expectedProfileVersion: 0,
+      clientOperationId: "hostel-retired-mens-s-block",
+    })).rejects.toThrow("current VIT hostel block");
+
+    await expect(participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      vitCampus: "Vellore",
+      vitHostelResidence: "mh_b",
+      expectedProfileVersion: 0,
+      clientOperationId: "hostel-missing-room",
+    })).rejects.toThrow("hostel room number");
+
+    await expect(participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      vitCampus: "Vellore",
+      vitHostelResidence: "day_scholar",
+      vitHostelRoomNumber: "412",
+      expectedProfileVersion: 0,
+      clientOperationId: "hostel-day-scholar-room",
+    })).rejects.toThrow("Day scholars do not have a hostel room number");
+
+    const ladies = await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      vitCampus: "Vellore",
+      vitHostelResidence: "lh_s",
+      vitHostelRoomNumber: "412",
+      expectedProfileVersion: 0,
+      clientOperationId: "hostel-ladies-s-block",
+    });
+    const afterLadies = await participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(afterLadies?.profile).toMatchObject({
+      id: ladies.profileId,
+      vitHostelResidence: "lh_s",
+      vitHostelRoomNumber: "412",
+      isComplete: true,
+    });
+
+    const mens = await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      vitCampus: "Vellore",
+      vitHostelResidence: "mh_b",
+      vitHostelRoomNumber: "108",
+      expectedProfileVersion: ladies.profileVersion,
+      clientOperationId: "hostel-mens-b-block",
+    });
+    const afterMens = await participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(afterMens?.profile).toMatchObject({
+      id: mens.profileId,
+      vitHostelResidence: "mh_b",
+      vitHostelRoomNumber: "108",
+      isComplete: true,
+    });
+
+    await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      vitCampus: "Vellore",
+      vitHostelResidence: "day_scholar",
+      expectedProfileVersion: mens.profileVersion,
+      clientOperationId: "hostel-day-scholar",
+    });
+    const afterDayScholar = await participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(afterDayScholar?.profile).toMatchObject({
+      vitHostelResidence: "day_scholar",
+      isComplete: true,
+    });
+    expect(afterDayScholar?.profile?.vitHostelRoomNumber).toBeUndefined();
+    expect(provisioned.created).toBe(true);
+  });
 });
 
 async function seedParticipant(backend: BackendTest) {

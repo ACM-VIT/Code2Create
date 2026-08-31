@@ -978,8 +978,7 @@ const reviewerProjectView = v.object({
     v.object({
       ordinal: v.number(),
       question: v.string(),
-      answer: v.optional(v.string()),
-      skipped: v.boolean(),
+      answer: v.string(),
     }),
   ),
   submittedAt: v.number(),
@@ -1858,8 +1857,7 @@ export const reviewWorkspaceData = internalQuery({
         intakeResponses: project.intakeResponses.map((response) => ({
           ordinal: response.ordinal,
           question: response.question,
-          ...(response.answer !== undefined ? { answer: response.answer } : {}),
-          skipped: response.skipped,
+          answer: response.answer,
         })),
         submittedAt: project.submittedAt,
         latestCheckpoint: teamCheckpoint

@@ -291,9 +291,16 @@ function describeChanges(
     published.vitProgrammeField !== draft.vitProgrammeField ||
     published.vitCampusField !== draft.vitCampusField ||
     published.externalCityField !== draft.externalCityField ||
-    published.externalCountryField !== draft.externalCountryField
+    published.externalCountryField !== draft.externalCountryField ||
+    published.vitHostelDetailsField !== draft.vitHostelDetailsField
   ) {
     changes.push("Update class-aware profile fields.");
+  }
+  if (
+    JSON.stringify(published.vitHostelResidenceCatalog) !==
+    JSON.stringify(draft.vitHostelResidenceCatalog)
+  ) {
+    changes.push("Update the VIT residence catalogue.");
   }
   if (
     published.label !== draft.label ||
@@ -307,7 +314,7 @@ function describeChanges(
     published.freshProjectAttestation !== draft.freshProjectAttestation ||
     published.finalSubmissionWarning !== draft.finalSubmissionWarning
   ) {
-    changes.push("Update the submission acknowledgement or lock warning.");
+    changes.push("Update the submission acknowledgement or final warning.");
   }
   return changes.length > 0 ? changes : ["No participant-facing changes."];
 }

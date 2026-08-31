@@ -5,20 +5,17 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { PortalScene } from '../components/portal/PortalScene'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { PortalError, PortalInput, PortalLabel } from '../components/portal/PortalField'
-import { Petal } from '../components/portal/Petal'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
 
 function TeamCard({
   featured = false,
-  icon,
   title,
   detail,
   children,
 }: {
   featured?: boolean
-  icon: ReactNode
   title: string
   detail: string
   children: ReactNode
@@ -27,42 +24,24 @@ function TeamCard({
     <div
       className={`flex w-full flex-col rounded-petal-sm px-7 py-6 text-left backdrop-blur-md sm:w-[300px] ${
         featured
-          ? 'border-[1.5px] border-rose-light bg-[linear-gradient(155deg,rgba(255,255,255,.1),rgba(12,0,4,.55)_60%)] shadow-[0_28px_56px_-20px_rgba(0,0,0,.85),0_0_26px_rgba(216,132,162,.25)]'
-          : 'border border-petal-edge-soft bg-[linear-gradient(155deg,rgba(255,255,255,.06),rgba(12,0,4,.48)_60%)] shadow-[0_28px_56px_-20px_rgba(0,0,0,.85)]'
+          ? 'border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] shadow-[0_28px_56px_-20px_var(--shade-2),0_0_26px_var(--glow-rose-soft)]'
+          : 'border border-petal-line bg-[image:var(--tile-bg)] shadow-[0_28px_56px_-20px_var(--shade-2)]'
       }`}
     >
-      <div className="mb-3">{icon}</div>
       <p
         className={`mb-1.5 font-display font-light tracking-[-.01em] text-[21px] ${
-          featured ? 'text-rose-light' : 'text-[rgb(248_248_248/.85)]'
+          featured ? 'text-rose-light' : 'text-fg/85'
         }`}
       >
         {title}
       </p>
-      <p className="mb-4.5 flex-1 text-[12.5px] leading-relaxed text-[rgb(248_248_248/.6)]">
+      <p className="mb-4.5 flex-1 text-[12.5px] leading-relaxed text-fg/60">
         {detail}
       </p>
       {children}
     </div>
   )
 }
-
-const joinIcon = (
-  <svg
-    width="26"
-    height="26"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="rgb(254 180 203 / .8)"
-    strokeWidth="1.8"
-    strokeLinecap="round"
-    aria-hidden
-  >
-    <circle cx="9" cy="8.5" r="3" />
-    <path d="M3.5 19c.4-3 2.6-4.7 5.5-4.7s5.1 1.7 5.5 4.7" />
-    <path d="M16 6.2a2.6 2.6 0 0 1 0 4.9M17.5 14.6c1.8.5 3 1.9 3.3 4" />
-  </svg>
-)
 
 /** Onboarding step three (mockup f0c): create a team, or join with a code. */
 export function TeamScreen({ header }: { header?: ReactNode }) {
@@ -117,17 +96,16 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
   return (
     <PortalScene tree="left" {...(header ? { header } : {})}>
       <div className="flex w-full max-w-[660px] flex-col items-center text-center">
-        <h1 className="mb-2 font-display font-normal tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_rgba(0,0,0,.55)] lg:text-[42px]">
+        <h1 className="mb-2 font-display font-normal tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_var(--scene-text-glow)] lg:text-[42px]">
           Find your people.
         </h1>
-        <p className="mb-8 text-[12.5px] text-[rgb(248_248_248/.5)]">
-          one team per participant · you can switch until you submit
+        <p className="mb-8 text-[12.5px] text-fg/50">
+          one team per participant · changes stay open until the deadline
         </p>
 
         <div className="flex w-full flex-col items-stretch gap-4 sm:flex-row sm:justify-center sm:gap-[18px]">
           <TeamCard
             featured
-            icon={<Petal size={26} />}
             title="Create a team"
             detail="you become the lead"
           >
@@ -179,7 +157,7 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
             )}
           </TeamCard>
 
-          <TeamCard icon={joinIcon} title="Join a team" detail="paste the code your lead shared">
+          <TeamCard title="Join a team" detail="paste the code your lead shared">
             <form onSubmit={join} className="flex gap-2.5">
               <PortalInput
                 required
@@ -204,9 +182,6 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
         </div>
 
         <PortalError message={error} />
-        <p className="mt-6 text-[11.5px] text-[rgb(248_248_248/.4)]">
-          joining checks eligibility, policy, capacity, and the mixed-team rule · instantly
-        </p>
       </div>
     </PortalScene>
   )

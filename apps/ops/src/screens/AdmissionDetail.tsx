@@ -147,7 +147,7 @@ export function AdmissionDetail() {
         {detail.project.intakeResponses.map((response) => (
           <div className="answer" key={response.ordinal}>
             <span>{response.question}</span>
-            <p>{response.skipped ? 'Skipped by team' : response.answer}</p>
+            <p>{response.answer}</p>
           </div>
         ))}
         {detail.project.informationResponses.flatMap((response) =>

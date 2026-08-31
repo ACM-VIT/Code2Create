@@ -20,8 +20,8 @@ import { PetalCard } from '../components/portal/PetalCard'
 import { Petal } from '../components/portal/Petal'
 import { TeamCluster } from '../components/portal/TeamCluster'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
-import { PortalError } from '../components/portal/PortalField'
-import { initialsOf } from '../components/portal/initials'
+import { PortalError, PortalField, PortalTextarea } from '../components/portal/PortalField'
+import { Flower } from '../components/portal/FlowerAvatar'
 import {
   clearSessionDraft,
   readVersionedSessionDraft,
@@ -59,12 +59,12 @@ const applicationCopy: Record<ApplicationState, {
   submitted: {
     status: 'Application received',
     heading: 'Submitted.',
-    message: 'We have your application. Your team is locked; the lead can revise the proposal until the deadline.',
+    message: 'We have your application. Your team and proposal can change until the deadline.',
   },
   under_review: {
     status: 'Under review',
-    heading: 'Your application is being reviewed.',
-    message: 'Your team remains locked. We will post the decision here.',
+    heading: 'Your idea is submitted.',
+    message: 'Review is underway. Changes before the deadline create a new review version.',
   },
   needs_information: {
     status: 'Your response is needed',
@@ -173,7 +173,7 @@ function SubmittedWorkspace({
   const responsePending = responseAttempt.hasPending('offer-response')
   const [busy, setBusy] = useState<'confirm' | 'decline' | null>(null)
   const [confirmDecline, setConfirmDecline] = useState(false)
-  const [proposalOpen, setProposalOpen] = useState(false)
+  const [viewingProposal, setViewingProposal] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const event = publicState.event
   const phaseClock = useRef({
@@ -217,6 +217,8 @@ function SubmittedWorkspace({
   )
   const eventIsLive = confirmed && currentPhase !== undefined
   const canEditProposal = intake.canEdit && phaseTime < intake.applicationsCloseAt
+  const teamEditable = phaseTime < team.membershipEditableUntil
+  const canManageTeam = team.currentRole === 'lead' && teamEditable
 
   const respond = async (response: 'confirm' | 'decline') => {
     const offer = application.currentOffer
@@ -246,6 +248,62 @@ function SubmittedWorkspace({
     }
   }
 
+  const proposalLink = (
+    <>
+      <button
+        type="button"
+        onClick={() => setViewingProposal(true)}
+        className="mt-8 rounded-sm text-[13.5px] text-rose-light underline-offset-4 hover:underline"
+      >
+        {canEditProposal ? 'edit submission →' : 'view submission →'}
+      </button>
+      {delivery && deliveryNeedsAttention(delivery.state) ? (
+        <p role="status" className="mt-6 text-[12.5px] text-rose-light">
+          {deliveryStatusCopy[delivery.state]}
+        </p>
+      ) : null}
+    </>
+  )
+
+  // ---- the proposal as its own view, swapped in place of the hero ----------
+  if (viewingProposal) {
+    return (
+      <PortalScene
+        tree="none"
+        header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
+      >
+        <div className="flex w-full max-w-[840px] flex-col items-center">
+          <h1 className="mb-2 text-center font-display font-light tracking-[-.01em] text-3xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[44px]">
+            {team.name}
+          </h1>
+          <p className="mb-7 text-xs text-fg/50">
+            {canEditProposal
+              ? `editable until ${formatEventTime(intake.applicationsCloseAt, event.timezone)}`
+              : 'submission window closed'}{' '}
+            ·{' '}
+            <button
+              type="button"
+              onClick={() => setViewingProposal(false)}
+              className="text-rose-light underline-offset-4 hover:underline"
+            >
+              back
+            </button>
+          </p>
+          <div className="w-full text-left">
+            <PetalCard className="px-5 py-5 sm:px-7 sm:py-6">
+              <ProposalSummary
+                application={application}
+                canEdit={canEditProposal}
+                intake={intake}
+                members={members}
+              />
+            </PetalCard>
+          </div>
+        </div>
+      </PortalScene>
+    )
+  }
+
   // ---- f7 · the quiet queue state ----------------------------------------
   // Everything before a decision reads as one still screen; the proposal
   // editor stays one click away rather than sitting open under the hero.
@@ -253,13 +311,13 @@ function SubmittedWorkspace({
     return (
       <PortalScene
         tree="none"
-        header={<TeamCluster team={team} members={members} locked onSignOut={onSignOut} />}
+        header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
       >
         <div className="flex w-full max-w-[760px] flex-col items-center text-center">
-          <div className="mb-5 drop-shadow-[0_0_14px_rgba(254,180,203,.5)]">
+          <div className="mb-5 drop-shadow-[0_0_14px_var(--glow-rose)]">
             <Petal size={34} />
           </div>
-          <h1 className="mb-3.5 font-display font-light tracking-[-.01em] text-5xl leading-none text-shadow-[0_8px_50px_rgba(0,0,0,.6)] lg:text-[70px]">
+          <h1 className="mb-3.5 font-display font-light tracking-[-.01em] text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-[70px]">
             {copy.heading}
           </h1>
           <p className="mb-8 font-ui font-normal text-base text-rose-light lg:text-[19px]">
@@ -268,20 +326,23 @@ function SubmittedWorkspace({
               : `${team.name} is in the review queue`}
           </p>
 
-          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-[13px] text-[rgb(248_248_248/.65)]">
+          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-[13px] text-fg/65">
             <span>
-              status <span className="text-paper">{copy.status.toLowerCase()}</span>
+              status <span className="text-fg">{copy.status.toLowerCase()}</span>
             </span>
-            <span aria-hidden className="hidden h-3.5 w-px bg-[rgb(216_132_162/.4)] sm:block" />
+            <span aria-hidden className="hidden h-3.5 w-px bg-rose/40 sm:block" />
             <span>
-              team <span className="text-rose-light">locked</span>
+              team{' '}
+              <Link to="/team" className="text-rose-light underline-offset-4 hover:underline">
+                {canManageTeam ? 'manage team' : 'view team'}
+              </Link>
             </span>
             {canEditProposal ? (
               <>
-                <span aria-hidden className="hidden h-3.5 w-px bg-[rgb(216_132_162/.4)] sm:block" />
+                <span aria-hidden className="hidden h-3.5 w-px bg-rose/40 sm:block" />
                 <span>
                   editable until{' '}
-                  <span className="text-paper">
+                  <span className="text-fg">
                     {formatEventTime(intake.applicationsCloseAt, event.timezone)}
                   </span>
                 </span>
@@ -303,31 +364,7 @@ function SubmittedWorkspace({
             </div>
           ) : null}
 
-          <button
-            type="button"
-            onClick={() => setProposalOpen((open) => !open)}
-            className="mt-8 rounded-sm text-[13.5px] text-rose-light underline-offset-4 hover:underline"
-          >
-            {proposalOpen
-              ? 'hide proposal'
-              : canEditProposal
-                ? 'edit proposal'
-                : 'view proposal'}
-          </button>
-
-          {proposalOpen ? (
-            <div className="mt-6 w-full text-left">
-              <PetalCard className="px-7 py-6">
-                <ProposalSummary
-                  application={application}
-                  canEdit={canEditProposal}
-                  intake={intake}
-                  members={members}
-                  timezone={event.timezone}
-                />
-              </PetalCard>
-            </div>
-          ) : null}
+          {proposalLink}
 
           {delivery && deliveryNeedsAttention(delivery.state) ? (
             <p role="status" className="mt-6 text-[12.5px] text-rose-light">
@@ -339,35 +376,6 @@ function SubmittedWorkspace({
     )
   }
 
-  const proposalToggle = (
-    <>
-      <button
-        type="button"
-        onClick={() => setProposalOpen((open) => !open)}
-        className="mt-8 rounded-sm text-[13.5px] text-rose-light underline-offset-4 hover:underline"
-      >
-        {proposalOpen ? 'hide proposal' : canEditProposal ? 'edit proposal' : 'view proposal'}
-      </button>
-      {proposalOpen ? (
-        <div className="mt-6 w-full text-left">
-          <PetalCard className="px-7 py-6">
-            <ProposalSummary
-              application={application}
-              canEdit={canEditProposal}
-              intake={intake}
-              members={members}
-              timezone={event.timezone}
-            />
-          </PetalCard>
-        </div>
-      ) : null}
-      {delivery && deliveryNeedsAttention(delivery.state) ? (
-        <p role="status" className="mt-6 text-[12.5px] text-rose-light">
-          {deliveryStatusCopy[delivery.state]}
-        </p>
-      ) : null}
-    </>
-  )
 
   // ---- f9 · event live: one reactive bento --------------------------------
   if (eventIsLive) {
@@ -380,7 +388,7 @@ function SubmittedWorkspace({
         currentPhase={currentPhase}
         phaseTime={phaseTime}
         onSignOut={onSignOut}
-        proposalToggle={proposalToggle}
+        proposalLink={proposalLink}
       />
     )
   }
@@ -396,7 +404,7 @@ function SubmittedWorkspace({
     return (
       <PortalScene
         tree="none"
-        header={<LockedHeader team={team} onSignOut={onSignOut} />}
+        header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
         backdrop={
           <div aria-hidden className="pointer-events-none absolute inset-0 z-[2]">
             <img
@@ -415,25 +423,25 @@ function SubmittedWorkspace({
         }
       >
         <div className="flex w-full max-w-[760px] flex-col items-center text-center">
-          <p className="mb-2.5 font-ui text-lg text-rose-light text-shadow-[0_2px_14px_rgba(0,0,0,.6)] lg:text-xl">
+          <p className="mb-2.5 font-ui text-lg text-rose-light text-shadow-[0_2px_14px_var(--scene-text-glow)] lg:text-xl">
             {copy.status} for {event.name}
           </p>
-          <h1 className="mb-9 font-display font-light tracking-[-.01em] text-6xl leading-[.96] text-shadow-[0_0_60px_rgba(254,180,203,.3),0_10px_50px_rgba(0,0,0,.6)] lg:mb-[42px] lg:text-[92px]">
+          <h1 className="mb-9 font-display font-light tracking-[-.01em] text-6xl leading-[.96] text-shadow-[0_0_60px_var(--glow-rose-soft),0_10px_50px_var(--scene-text-glow)] lg:mb-[42px] lg:text-[92px]">
             {confirmed ? 'You’re confirmed.' : 'You’re in.'}
           </h1>
 
           <PetalCard className="flex flex-col sm:flex-row">
             <div className="grid flex-1 grid-cols-1 gap-4 px-7 py-[22px] sm:grid-cols-3 sm:gap-0">
-              <div className="sm:border-r sm:border-[rgb(216_132_162/.35)] sm:pr-5">
-                <p className="mb-1 text-[10.5px] font-semibold tracking-[.14em] text-[rgb(248_248_248/.5)] uppercase">
+              <div className="sm:border-r sm:border-rose/35 sm:pr-5">
+                <p className="mb-1 text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
                   venue
                 </p>
                 <p className="m-0 font-display font-light tracking-[-.01em] text-[16.5px] leading-[1.3]">
                   {communications?.venueName ?? 'announced with your offer'}
                 </p>
               </div>
-              <div className="sm:border-r sm:border-[rgb(216_132_162/.35)] sm:px-5">
-                <p className="mb-1 text-[10.5px] font-semibold tracking-[.14em] text-[rgb(248_248_248/.5)] uppercase">
+              <div className="sm:border-r sm:border-rose/35 sm:px-5">
+                <p className="mb-1 text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
                   when
                 </p>
                 <p className="m-0 font-display font-light tracking-[-.01em] text-[16.5px] leading-[1.3]">
@@ -443,7 +451,7 @@ function SubmittedWorkspace({
                 </p>
               </div>
               <div className="sm:pl-5">
-                <p className="mb-1 text-[10.5px] font-semibold tracking-[.14em] text-[rgb(248_248_248/.5)] uppercase">
+                <p className="mb-1 text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
                   {confirmed ? 'status' : 'confirm by'}
                 </p>
                 <p className="m-0 font-display font-light tracking-[-.01em] text-[16.5px] leading-[1.3] text-rose-light">
@@ -455,11 +463,11 @@ function SubmittedWorkspace({
                 </p>
               </div>
             </div>
-            <div className="flex flex-none items-center justify-center gap-3 border-t-2 border-dashed border-[rgb(216_132_162/.55)] px-5 py-4 sm:w-[140px] sm:flex-col sm:gap-[7px] sm:border-t-0 sm:border-l-2">
-              <div className="flex size-12 -rotate-4 items-center justify-center rounded-[10px] bg-rose text-[15px] font-bold text-ink shadow-[0_8px_20px_rgba(0,0,0,.5)]">
+            <div className="flex flex-none items-center justify-center gap-3 border-t-2 border-dashed border-rose/55 px-5 py-4 sm:w-[140px] sm:flex-col sm:gap-[7px] sm:border-t-0 sm:border-l-2">
+              <div className="flex size-12 -rotate-4 items-center justify-center rounded-[10px] bg-rose text-[15px] font-bold text-wash shadow-[0_8px_20px_var(--shade-1)]">
                 C2C
               </div>
-              <p className="m-0 text-[11px] text-[rgb(248_248_248/.6)]">
+              <p className="m-0 text-[11px] text-fg/60">
                 admits {team.activeMemberCount === 1 ? 'one' : team.activeMemberCount}
               </p>
             </div>
@@ -479,7 +487,7 @@ function SubmittedWorkspace({
                           href={step.actionUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-paper underline-offset-4 hover:text-rose-light hover:underline"
+                          className="text-fg underline-offset-4 hover:text-rose-light hover:underline"
                         >
                           {step.title}
                         </a>
@@ -487,7 +495,7 @@ function SubmittedWorkspace({
                         step.title
                       )}
                     </p>
-                    <p className="m-0 text-xs text-[rgb(248_248_248/.55)]">{step.detail}</p>
+                    <p className="m-0 text-xs text-fg/55">{step.detail}</p>
                   </div>
                   {step.dueAt ? (
                     <span className="flex-none text-[11px] text-rose-light">
@@ -503,7 +511,7 @@ function SubmittedWorkspace({
             {canRespond ? (
               confirmDecline ? (
                 <div className="flex flex-col items-center gap-3">
-                  <p className="m-0 max-w-[420px] text-[12.5px] text-[rgb(248_248_248/.7)]">
+                  <p className="m-0 max-w-[420px] text-[12.5px] text-fg/70">
                     Declining releases the whole team’s places. You cannot undo this in the portal.
                   </p>
                   <div className="flex items-center gap-4">
@@ -551,7 +559,7 @@ function SubmittedWorkspace({
                 </>
               )
             ) : application.state === 'offer_sent' && intake.currentRole !== 'lead' ? (
-              <p className="m-0 text-[12.5px] text-[rgb(248_248_248/.6)]">
+              <p className="m-0 text-[12.5px] text-fg/60">
                 Your team lead confirms for the team
                 {offer ? ` · by ${formatEventTime(offer.expiresAt, event.timezone)}` : ''}.
               </p>
@@ -569,7 +577,7 @@ function SubmittedWorkspace({
           </div>
 
           <PortalError message={error} />
-          {proposalToggle}
+          {proposalLink}
         </div>
       </PortalScene>
     )
@@ -577,42 +585,29 @@ function SubmittedWorkspace({
 
   // ---- closed states: declined, waitlisted, expired, withdrawn ------------
   return (
-    <PortalScene tree="none" header={<LockedHeader team={team} onSignOut={onSignOut} />}>
+    <PortalScene
+      tree="none"
+      header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
+    >
       <div className="flex w-full max-w-[760px] flex-col items-center text-center">
-        <div className="mb-5 drop-shadow-[0_0_14px_rgba(254,180,203,.5)]">
+        <div className="mb-5 drop-shadow-[0_0_14px_var(--glow-rose)]">
           <Petal size={34} />
         </div>
-        <h1 className="mb-3.5 font-display font-light tracking-[-.01em] text-5xl leading-none text-shadow-[0_8px_50px_rgba(0,0,0,.6)] lg:text-[64px]">
+        <h1 className="mb-3.5 font-display font-light tracking-[-.01em] text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-[64px]">
           {copy.heading}
         </h1>
         <p className="mb-6 max-w-[520px] font-ui text-base text-rose-light lg:text-[19px]">
           {copy.message}
         </p>
-        <p className="m-0 text-[13px] text-[rgb(248_248_248/.65)]">
-          status <span className="text-paper">{copy.status.toLowerCase()}</span>
+        <p className="m-0 text-[13px] text-fg/65">
+          status <span className="text-fg">{copy.status.toLowerCase()}</span>
         </p>
-        {proposalToggle}
+        {proposalLink}
       </div>
     </PortalScene>
   )
 }
 
-
-/** The quiet top-right header once the team is locked. */
-function LockedHeader({ team, onSignOut }: { team: CurrentTeam; onSignOut: () => void }) {
-  return (
-    <div className="flex flex-col items-end gap-1 text-right">
-      <p className="m-0 font-ui text-[13.5px] text-rose-light">{team.name} · locked</p>
-      <button
-        type="button"
-        onClick={onSignOut}
-        className="text-[11.5px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
-      >
-        sign out
-      </button>
-    </div>
-  )
-}
 
 function BentoBlock({
   title,
@@ -631,8 +626,8 @@ function BentoBlock({
   const expandable = children !== undefined
   return (
     <div
-      className={`rounded-petal-sm border border-[rgb(254_180_203/.45)] bg-[linear-gradient(155deg,rgba(255,255,255,.08),rgba(12,0,4,.52)_60%)] px-[22px] py-[18px] shadow-[0_24px_50px_-18px_rgba(0,0,0,.8),inset_0_1px_0_rgba(255,255,255,.12)] backdrop-blur-[14px] transition-all duration-250 ${
-        expandable ? 'cursor-pointer hover:-translate-y-[3px] hover:border-[rgb(254_180_203/.8)]' : ''
+      className={`rounded-petal-sm border border-rose-light/45 bg-[image:var(--tile-bg)] px-[22px] py-[18px] shadow-[0_24px_50px_-18px_var(--shade-2),inset_0_1px_0_var(--card-topline)] backdrop-blur-[14px] transition-all duration-250 ${
+        expandable ? 'cursor-pointer hover:-translate-y-[3px] hover:border-rose-light/80' : ''
       }`}
       {...(expandable
         ? {
@@ -649,11 +644,11 @@ function BentoBlock({
     >
       <div className="flex items-baseline justify-between gap-3">
         <span className="font-ui text-base text-rose-light">{title}</span>
-        <span className="text-[11px] text-[rgb(248_248_248/.45)]">
+        <span className="text-[11px] text-fg/45">
           {meta ?? (expandable ? (open ? 'tap to close' : 'tap to open') : '')}
         </span>
       </div>
-      <div className="mt-2 text-sm text-[rgb(248_248_248/.85)]">{summary}</div>
+      <div className="mt-2 text-sm text-fg/85">{summary}</div>
       {expandable && open ? (
         <div className="mt-3.5 cursor-auto" onClick={(event) => event.stopPropagation()}>
           {children}
@@ -675,7 +670,7 @@ function EventLiveScene({
   currentPhase,
   phaseTime,
   onSignOut,
-  proposalToggle,
+  proposalLink,
 }: {
   team: CurrentTeam
   members: CurrentTeamMember[]
@@ -684,20 +679,31 @@ function EventLiveScene({
   currentPhase: NonNullable<PublicState['event']>['phases'][number]
   phaseTime: number
   onSignOut: () => void
-  proposalToggle: ReactNode
+  proposalLink: ReactNode
 }) {
   const capabilities = useQuery(api.access.participantCapabilities, { eventSlug })
   const nextPhase = event.phases.find((phase) => phase.startsAt > phaseTime)
   const latestStep = communications?.nextSteps[0]
   return (
-    <PortalScene tree="none" header={<LockedHeader team={team} onSignOut={onSignOut} />}>
+    <PortalScene
+      tree="none"
+      header={(
+        <TeamCluster
+          team={team}
+          members={members}
+          editable={phaseTime < team.membershipEditableUntil}
+          canManage={team.currentRole === 'lead' && phaseTime < team.membershipEditableUntil}
+          onSignOut={onSignOut}
+        />
+      )}
+    >
       <div className="w-full max-w-[1048px] pt-2 pb-10 lg:pt-6">
         <p className="mb-2 flex items-center gap-2 font-ui text-base text-rose-light">
           <span aria-hidden className="inline-block size-[7px] animate-dot-pulse rounded-full bg-rose-light" />
           {currentPhase.displayName.toLowerCase()} · ends{' '}
           {formatEventTime(currentPhase.endsAt, event.timezone)}
         </p>
-        <h1 className="mb-7 font-display font-light tracking-[-.01em] text-4xl leading-none text-shadow-[0_8px_50px_rgba(0,0,0,.6)] lg:text-[46px]">
+        <h1 className="mb-7 font-display font-light tracking-[-.01em] text-4xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-[46px]">
           {nextPhase
             ? `${nextPhase.displayName} at ${formatEventTime(nextPhase.startsAt, event.timezone)}.`
             : currentPhase.description}
@@ -728,21 +734,21 @@ function EventLiveScene({
                 return (
                   <div
                     key={phase.phaseKey}
-                    className="flex justify-between gap-3 border-b border-[rgb(216_132_162/.2)] py-2 text-xs last:border-b-0"
+                    className="flex justify-between gap-3 border-b border-rose/20 py-2 text-xs last:border-b-0"
                   >
                     <span
                       className={
                         now
                           ? 'text-rose-light'
                           : past
-                            ? 'text-[rgb(248_248_248/.55)]'
-                            : 'text-[rgb(248_248_248/.75)]'
+                            ? 'text-fg/55'
+                            : 'text-fg/75'
                       }
                     >
                       {phase.displayName}
                       {past ? ' ✓' : ''}
                     </span>
-                    <span className={now ? 'text-rose-light' : 'text-[rgb(248_248_248/.5)]'}>
+                    <span className={now ? 'text-rose-light' : 'text-fg/50'}>
                       {formatEventTime(phase.startsAt, event.timezone)}
                     </span>
                   </div>
@@ -766,7 +772,7 @@ function EventLiveScene({
           ) : null}
           <BentoBlock
             title="squad"
-            meta={`${team.activeMemberCount} of ${team.teamMaximumSize} · locked`}
+            meta={`${team.activeMemberCount} of ${team.teamMaximumSize} · view team`}
             summary={
               <span className="mt-1 flex">
                 {members.slice(0, 6).map((member, index) => (
@@ -775,11 +781,11 @@ function EventLiveScene({
                     title={member.displayName}
                     className={`flex size-[30px] items-center justify-center rounded-full text-[10px] font-semibold ${
                       member.role === 'lead'
-                        ? 'border-[1.5px] border-rose-light bg-avatar-lead'
-                        : 'border-[1.5px] border-[rgb(216_132_162/.7)] bg-avatar'
+                        ? 'border-[1.5px] border-ring-lead bg-avatar-lead'
+                        : 'border-[1.5px] border-rose/70 bg-avatar'
                     } ${index > 0 ? '-ml-2' : ''}`}
                   >
-                    {initialsOf(member.displayName)}
+                    <Flower seed={member.membershipId} lead={member.role === 'lead'} size={16} />
                   </span>
                 ))}
               </span>
@@ -789,7 +795,7 @@ function EventLiveScene({
               {members.map((member) => (
                 <div
                   key={member.teamMemberId}
-                  className="flex justify-between gap-3 border-b border-[rgb(216_132_162/.2)] py-[7px] text-xs last:border-b-0"
+                  className="flex justify-between gap-3 border-b border-rose/20 py-[7px] text-xs last:border-b-0"
                 >
                   <span>
                     {member.displayName}
@@ -840,7 +846,7 @@ function EventLiveScene({
             }
           />
         </div>
-        <div className="text-center">{proposalToggle}</div>
+        <div className="text-center">{proposalLink}</div>
       </div>
     </PortalScene>
   )
@@ -851,13 +857,11 @@ function ProposalSummary({
   canEdit,
   intake,
   members,
-  timezone,
 }: {
   application: CurrentApplication
   canEdit: boolean
   intake: SubmittedIntake
   members: CurrentTeamMember[]
-  timezone: string
 }) {
   const reviseSubmission = useMutation(api.intake.reviseSubmission)
   const revisionAttempt = useMutationAttempt<FunctionReturnType<typeof api.intake.reviseSubmission>>()
@@ -908,8 +912,7 @@ function ProposalSummary({
           initialIdea: draft.initialIdea,
           responses: draft.responses.map((response) => ({
             questionId: response.questionId,
-            ...(response.skipped ? {} : { answer: response.answer }),
-            skipped: response.skipped,
+            answer: response.answer,
           })),
           clientOperationId: crypto.randomUUID(),
         }
@@ -929,112 +932,112 @@ function ProposalSummary({
 
   const ideaLength = draft.initialIdea.trim().length
   const invalidResponse = draft.responses.some((response) => (
-    !response.skipped && (
-      response.answer.trim().length < intake.editRules.followUpAnswerMinLength ||
-      response.answer.trim().length > intake.editRules.followUpAnswerMaxLength
-    )
+    response.answer.trim().length < intake.editRules.followUpAnswerMinLength ||
+    response.answer.trim().length > intake.editRules.followUpAnswerMaxLength
   ))
   const invalidIdea =
     ideaLength < intake.editRules.initialIdeaMinLength ||
     ideaLength > intake.editRules.initialIdeaMaxLength
 
+  const toggleEditing = () => {
+    if (editing) {
+      setDraft(proposalDraft(intake))
+      clearSessionDraft(proposalStorageKey)
+      setHasRecoveredDraft(false)
+      setEditConflict(false)
+      stopEditing()
+    } else {
+      editBase.current = proposalEditBase(application, intake)
+      if (!hasRecoveredDraft) setDraft(proposalDraft(intake))
+      setExpanded(true)
+    }
+    setEditing(!editing)
+    setError(null)
+  }
+
   return (
-    <section className="submitted-summary">
-      <div className="proposal-heading">
-        <div>
-          <h2>Your project</h2>
-          <p className="fine-print">
-            Edits close {formatEventTime(intake.applicationsCloseAt, timezone)}.
-          </p>
-        </div>
-        {canEdit ? (
-          <button
-            type="button"
-            className="text-button"
-            disabled={busy || pending}
-            onClick={() => {
-              if (editing) {
-                setDraft(proposalDraft(intake))
-                clearSessionDraft(proposalStorageKey)
-                setHasRecoveredDraft(false)
-                setEditConflict(false)
-                stopEditing()
-              } else {
-                editBase.current = proposalEditBase(application, intake)
-                if (!hasRecoveredDraft) setDraft(proposalDraft(intake))
-                setExpanded(true)
-              }
-              setEditing(!editing)
-              setError(null)
-            }}
-          >
-            {editing ? 'Cancel' : 'Edit proposal'}
-          </button>
-        ) : null}
-      </div>
+    <section className="text-left">
       <EditingPresence editors={editors ?? []} members={members} />
       {editing && canEdit ? (
-        <form className="proposal-editor" onSubmit={save}>
+        <form onSubmit={save}>
           {hasRecoveredDraft ? (
-            <p className="notice" role="status">Recovered your unsaved changes from this tab.</p>
+            <p
+              role="status"
+              className="mb-5 rounded-petal-xs border border-petal-edge-soft bg-wash/50 px-4 py-3 text-[12.5px] text-fg/75"
+            >
+              Recovered your unsaved changes from this tab.
+            </p>
           ) : null}
           {editConflict ? (
-            <div className="notice" role="status">
-              <p>A newer proposal was saved. Your changes are still here.</p>
-              <div className="button-row">
-                <button type="button" className="text-button" onClick={() => {
+            <div
+              role="status"
+              className="mb-5 rounded-petal-xs border border-petal-edge-soft bg-wash/50 px-4 py-3"
+            >
+              <p className="text-[12.5px] text-fg/75">
+                A newer submission was saved. Your changes are still here.
+              </p>
+              <div className="mt-2 flex gap-5">
+                <PortalTextButton type="button" onClick={() => {
                   setDraft(proposalDraft(intake))
                   editBase.current = proposalEditBase(application, intake)
                   setEditConflict(false)
                   setHasRecoveredDraft(false)
                   clearSessionDraft(proposalStorageKey)
-                }}>Use saved version</button>
-                <button type="button" className="text-button" onClick={() => {
+                }}>
+                  use the saved version
+                </PortalTextButton>
+                <PortalTextButton type="button" onClick={() => {
                   editBase.current = proposalEditBase(application, intake)
                   setEditConflict(false)
                   writeVersionedSessionDraft(proposalStorageKey, {
                     base: proposalEditBaseFingerprint(editBase.current),
                     value: serializeProposalDraft(draft),
                   })
-                }}>Keep mine</button>
+                }}>
+                  keep mine
+                </PortalTextButton>
               </div>
             </div>
           ) : null}
-          <label className="field">
-            <span>What do you want to build?</span>
-            <textarea
-              autoFocus
-              required
-              minLength={intake.editRules.initialIdeaMinLength}
-              maxLength={intake.editRules.initialIdeaMaxLength}
-              value={draft.initialIdea}
-              disabled={busy || pending}
-              onChange={(event) => {
-                const value = event.currentTarget.value
-                setDraft((current) => ({
-                  ...current,
-                  initialIdea: value,
-                }))
-                const nextDraft = { ...draft, initialIdea: value }
-                writeVersionedSessionDraft(proposalStorageKey, {
-                  base: proposalEditBaseFingerprint(editBase.current),
-                  value: serializeProposalDraft(nextDraft),
-                })
-                setHasRecoveredDraft(true)
-                markEditing('proposal_revision')
-              }}
-            />
-          </label>
+          <PortalField label="What do you want to build?" className="mb-5">
+            {(id) => (
+              <PortalTextarea
+                id={id}
+                autoFocus
+                required
+                rows={5}
+                minLength={intake.editRules.initialIdeaMinLength}
+                maxLength={intake.editRules.initialIdeaMaxLength}
+                value={draft.initialIdea}
+                disabled={busy || pending}
+                onChange={(event) => {
+                  const value = event.currentTarget.value
+                  setDraft((current) => ({
+                    ...current,
+                    initialIdea: value,
+                  }))
+                  const nextDraft = { ...draft, initialIdea: value }
+                  writeVersionedSessionDraft(proposalStorageKey, {
+                    base: proposalEditBaseFingerprint(editBase.current),
+                    value: serializeProposalDraft(nextDraft),
+                  })
+                  setHasRecoveredDraft(true)
+                  markEditing('proposal_revision')
+                }}
+              />
+            )}
+          </PortalField>
           {intake.project.intakeResponses.map((response, index) => (
-            <div className="proposal-response" key={response.questionId}>
-              <label className="field">
-                <span>{response.question}</span>
-                <textarea
-                  required={!draft.responses[index]?.skipped}
+            <PortalField key={response.questionId} label={response.question} className="mb-5">
+              {(id) => (
+                <PortalTextarea
+                  id={id}
+                  required
+                  rows={3}
                   minLength={intake.editRules.followUpAnswerMinLength}
                   maxLength={intake.editRules.followUpAnswerMaxLength}
                   value={draft.responses[index]?.answer ?? ''}
-                  disabled={busy || pending || draft.responses[index]?.skipped}
+                  disabled={busy || pending}
                   onChange={(event) => {
                     const value = event.currentTarget.value
                     setDraft((current) => ({
@@ -1058,76 +1061,66 @@ function ProposalSummary({
                       value: serializeProposalDraft(nextDraft),
                     })
                     setHasRecoveredDraft(true)
-                    markEditing('proposal_revision')
+                    markEditing('proposal_revision', response.questionId)
                   }}
                 />
-              </label>
-              <label className="proposal-skip">
-                <input
-                  type="checkbox"
-                  checked={draft.responses[index]?.skipped ?? false}
-                  disabled={busy || pending}
-                  onChange={(event) => {
-                    const checked = event.currentTarget.checked
-                    setDraft((current) => ({
-                      ...current,
-                      responses: current.responses.map((item, itemIndex) => (
-                        itemIndex === index
-                          ? { ...item, skipped: checked }
-                          : item
-                      )),
-                    }))
-                    const nextDraft = {
-                      ...draft,
-                      responses: draft.responses.map((item, itemIndex) => (
-                        itemIndex === index
-                          ? { ...item, skipped: checked }
-                          : item
-                      )),
-                    }
-                    writeVersionedSessionDraft(proposalStorageKey, {
-                      base: proposalEditBaseFingerprint(editBase.current),
-                      value: serializeProposalDraft(nextDraft),
-                    })
-                    setHasRecoveredDraft(true)
-                    markEditing('proposal_revision')
-                  }}
-                />
-                Skip this question
-              </label>
-            </div>
+              )}
+            </PortalField>
           ))}
-          {error ? <p className="notice error" role="alert">{error}</p> : null}
-          <button
-            type="submit"
-            className="primary"
-            disabled={busy || editConflict || invalidIdea || invalidResponse}
-          >
-            {busy ? 'Saving…' : pending ? 'Confirm earlier save' : 'Save proposal'}
-          </button>
+          <PortalError message={error} />
+          <div className="mt-1 flex items-center justify-between border-t border-petal-line pt-3.5">
+            <PortalTextButton type="button" disabled={busy || pending} onClick={toggleEditing}>
+              cancel
+            </PortalTextButton>
+            <PortalButton
+              type="submit"
+              size="sm"
+              disabled={busy || editConflict || invalidIdea || invalidResponse}
+            >
+              {busy ? 'Saving…' : pending ? 'Confirm earlier save' : 'Save submission'}
+            </PortalButton>
+          </div>
         </form>
       ) : (
-        <div className="proposal-copy">
-          <p className="proposal-idea">{intake.project.initialIdea}</p>
+        <div>
+          <p className="whitespace-pre-line text-[15px] leading-relaxed text-fg/90">
+            {intake.project.initialIdea}
+          </p>
           {intake.project.intakeResponses.length > 0 ? (
             <button
               type="button"
-              className="text-button proposal-details-toggle"
               aria-controls="proposal-responses"
               aria-expanded={expanded}
               onClick={() => setExpanded((current) => !current)}
+              className="mt-4 text-[12.5px] text-rose-light underline-offset-4 hover:underline"
             >
-              {expanded ? 'Hide answers' : `View ${intake.project.intakeResponses.length} answers`}
+              {expanded ? 'hide answers' : `view ${intake.project.intakeResponses.length} answers`}
             </button>
           ) : null}
           {expanded ? (
-            <div className="proposal-responses" id="proposal-responses">
+            <div className="mt-3" id="proposal-responses">
               {intake.project.intakeResponses.map((response) => (
-                <div key={response.questionId}>
-                  <strong>{response.question}</strong>
-                  <p>{response.skipped ? 'Skipped' : response.answer}</p>
+                <div key={response.questionId} className="border-t border-petal-line py-4 last:pb-1">
+                  <p className="mb-1.5 text-[11px] tracking-[.06em] text-fg/45">
+                    {response.question}
+                  </p>
+                  <p className="whitespace-pre-line text-sm leading-relaxed text-fg/90">
+                    {response.answer}
+                  </p>
                 </div>
               ))}
+            </div>
+          ) : null}
+          {canEdit ? (
+            <div className="mt-5 flex justify-end border-t border-petal-line pt-3.5">
+              <button
+                type="button"
+                disabled={busy || pending}
+                onClick={toggleEditing}
+                className="text-[12.5px] text-rose-light underline-offset-4 hover:underline disabled:opacity-50"
+              >
+                edit submission →
+              </button>
             </div>
           ) : null}
         </div>
@@ -1141,8 +1134,7 @@ function proposalDraft(intake: SubmittedIntake) {
     initialIdea: intake.project.initialIdea,
     responses: intake.project.intakeResponses.map((response) => ({
       questionId: response.questionId,
-      answer: response.answer ?? '',
-      skipped: response.skipped,
+      answer: response.answer,
     })),
   }
 }
@@ -1172,7 +1164,6 @@ function serializeProposalDraft(draft: ProposalDraft) {
   values.set('idea', draft.initialIdea)
   for (const response of draft.responses) {
     values.set(`answer:${response.questionId}`, response.answer)
-    values.set(`skipped:${response.questionId}`, response.skipped ? '1' : '0')
   }
   return values.toString()
 }
@@ -1182,14 +1173,10 @@ function recoverProposalDraft(intake: SubmittedIntake, stored: string): Proposal
   const values = new URLSearchParams(stored)
   return {
     initialIdea: values.get('idea') ?? current.initialIdea,
-    responses: current.responses.map((response) => {
-      const storedSkipped = values.get(`skipped:${response.questionId}`)
-      return {
-        ...response,
-        answer: values.get(`answer:${response.questionId}`) ?? response.answer,
-        skipped: storedSkipped === null ? response.skipped : storedSkipped === '1',
-      }
-    }),
+    responses: current.responses.map((response) => ({
+      ...response,
+      answer: values.get(`answer:${response.questionId}`) ?? response.answer,
+    })),
   }
 }
 
@@ -1255,7 +1242,7 @@ function InformationResponsePanel({
   return (
     <section className="information-response">
       <h2>A quick follow-up</h2>
-      <p>Answer only these questions. Your team stays locked.</p>
+      <p>Answer only these questions. Only the current team lead can send the response.</p>
       {canRespond ? (
         <form onSubmit={submit}>
           {request.questions.map((question, index) => (
@@ -1291,7 +1278,7 @@ function InformationResponsePanel({
           </button>
         </form>
       ) : currentRole !== 'lead' ? (
-        <p className="fine-print">The locked team lead submits these answers for the team.</p>
+        <p className="fine-print">The current team lead submits these answers for the team.</p>
       ) : (
         <p className="fine-print">Response access is unavailable. Ask an organizer if this looks wrong.</p>
       )}

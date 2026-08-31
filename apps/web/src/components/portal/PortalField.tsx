@@ -7,11 +7,11 @@ import type {
 import { useId } from 'react'
 
 const control =
-  'w-full rounded-petal-xs border border-petal-edge-soft bg-[rgb(12_0_4/.45)] px-3.5 py-2.5 text-[13.5px] text-paper transition-colors placeholder:text-[rgb(248_248_248/.45)] focus:border-rose-light focus:outline-none disabled:opacity-60'
+  'w-full rounded-petal-xs border border-petal-edge-soft bg-wash/45 px-3.5 py-2.5 text-[13.5px] text-fg transition-colors placeholder:text-fg/45 focus:border-rose-light focus:outline-none disabled:opacity-60'
 
 export function PortalLabel({ children }: { children: ReactNode }) {
   return (
-    <span className="mb-1.5 block text-[10.5px] font-semibold tracking-[.14em] text-[rgb(248_248_248/.5)] uppercase">
+    <span className="mb-1.5 block text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
       {children}
     </span>
   )
@@ -77,7 +77,7 @@ export function PortalCheckRow({
   children: ReactNode
 }) {
   return (
-    <label className="flex items-start gap-2.5 text-xs leading-relaxed text-[rgb(248_248_248/.7)]">
+    <label className="flex items-start gap-2.5 text-xs leading-relaxed text-fg/70">
       <input
         type="checkbox"
         checked={checked}

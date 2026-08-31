@@ -6,17 +6,13 @@ import { fingerprintText } from "./strings";
 type ReadCtx = QueryCtx | MutationCtx;
 
 type CurrentIntakeQuestion = Doc<"intakeGeneratedQuestions"> & {
-  state: "active" | "answered" | "skipped";
+  state: "active" | "answered";
 };
 
 function isCurrentQuestion(
   question: Doc<"intakeGeneratedQuestions">,
 ): question is CurrentIntakeQuestion {
-  return (
-    question.state === "active" ||
-    question.state === "answered" ||
-    question.state === "skipped"
-  );
+  return question.state === "active" || question.state === "answered";
 }
 
 export async function loadCurrentIntakeQuestions(
@@ -188,9 +184,7 @@ export async function createIntakeQuestion(
 export function nextQuestionOrdinal(
   responses: readonly { question: Doc<"intakeGeneratedQuestions"> }[],
 ) {
-  const completed = responses.filter(
-    ({ question }) => question.state === "answered" || question.state === "skipped",
-  );
+  const completed = responses.filter(({ question }) => question.state === "answered");
   if (completed.length !== responses.length) return null;
   return completed.length + 1;
 }
@@ -205,7 +199,7 @@ export function intakeSequenceComplete(
     responses.every(
       ({ question }, index) =>
         question.ordinal === index + 1 &&
-        (question.state === "answered" || question.state === "skipped"),
+        question.state === "answered",
     )
   );
 }

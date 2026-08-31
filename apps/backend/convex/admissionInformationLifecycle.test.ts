@@ -469,7 +469,6 @@ async function seedFixture(backend: BackendTest, slug: string) {
         answerLength: "short",
         source: "fallback",
         answer: "People attending the event.",
-        skipped: false,
       }],
       lockedRosterSnapshotId,
       lockedMemberCount: 1,

@@ -392,7 +392,7 @@ button:disabled {
 }
 
 .primary:hover:not(:disabled) {
-  background: #fff;
+  background: var(--primary-hover);
 }
 
 .secondary {
@@ -950,14 +950,6 @@ code {
 .proposal-copy strong {
   font-size: .82rem;
   font-weight: 600;
-}
-
-.proposal-skip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: .78rem;
 }
 
 .event-phase-status {
@@ -1749,53 +1741,58 @@ code {
  * touching the panels' logic. The old grey look remains outside scenes.
  * ------------------------------------------------------------------ */
 [data-portal-scene] {
-  --surface: rgb(12 0 4 / .45);
-  --surface-raised: rgb(12 0 4 / .6);
-  --background: #0c0004;
-  --text: #f8f8f8;
-  --muted: rgb(248 248 248 / .6);
-  --faint: rgb(248 248 248 / .45);
-  --border: rgb(216 132 162 / .25);
-  --border-strong: rgb(216 132 162 / .45);
-  --accent: #feb4cb;
-  --accent-soft: rgb(216 132 162 / .16);
+  --surface: color-mix(in srgb, var(--color-wash) 45%, transparent);
+  --surface-raised: color-mix(in srgb, var(--color-wash) 60%, transparent);
+  --background: var(--color-wash);
+  --text: var(--color-fg);
+  --muted: color-mix(in srgb, var(--color-fg) 60%, transparent);
+  --faint: color-mix(in srgb, var(--color-fg) 45%, transparent);
+  --border: var(--color-petal-line);
+  --border-strong: color-mix(in srgb, var(--color-rose) 45%, transparent);
+  --accent: var(--color-rose-light);
+  --accent-soft: color-mix(in srgb, var(--color-rose) 16%, transparent);
 }
 
 [data-portal-scene] .primary {
-  color: #0c0004;
-  background: #d884a2;
+  color: var(--color-wash);
+  background: var(--color-rose);
   border: 0;
   border-radius: 12px;
 }
 
+[data-portal-scene] .primary:hover:not(:disabled) {
+  background: var(--color-rose);
+  filter: brightness(1.05);
+}
+
 [data-portal-scene] .secondary {
-  color: #feb4cb;
+  color: var(--color-rose-light);
   background: transparent;
-  border: 1.5px solid #d884a2;
+  border: 1.5px solid var(--color-rose);
   border-radius: 12px;
   transition: background .25s ease, color .25s ease;
 }
 
 [data-portal-scene] .secondary:hover:not(:disabled) {
-  color: #0c0004;
-  background: #d884a2;
+  color: var(--color-wash);
+  background: var(--color-rose);
 }
 
 [data-portal-scene] .text-button {
-  color: rgb(248 248 248 / .55);
+  color: color-mix(in srgb, var(--color-fg) 55%, transparent);
 }
 
 [data-portal-scene] .text-button:hover:not(:disabled) {
-  color: #feb4cb;
+  color: var(--color-rose-light);
 }
 
 [data-portal-scene] input:not([type='checkbox']):not([type='radio']),
 [data-portal-scene] textarea,
 [data-portal-scene] select {
-  background: rgb(12 0 4 / .45);
-  border: 1px solid rgb(216 132 162 / .4);
+  background: color-mix(in srgb, var(--color-wash) 45%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-rose) 40%, transparent);
   border-radius: 10px;
-  color: #f8f8f8;
+  color: var(--color-fg);
 }
 
 [data-portal-scene] .notice,
@@ -1804,7 +1801,7 @@ code {
 [data-portal-scene] .repository-picker,
 [data-portal-scene] .connection-row,
 [data-portal-scene] .archive-confirmation {
-  background: linear-gradient(155deg, rgb(255 255 255 / .07), rgb(12 0 4 / .48) 60%);
-  border: 1px solid rgb(216 132 162 / .3);
+  background: var(--tile-bg);
+  border: 1px solid color-mix(in srgb, var(--color-rose) 30%, transparent);
   border-radius: 16px;
 }

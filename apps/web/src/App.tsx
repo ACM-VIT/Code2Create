@@ -7,6 +7,7 @@ import { Route, Routes } from 'react-router-dom'
 import { eventSlug } from './lib/config'
 import { EntryScreen } from './screens/EntryScreen'
 import { PortalScene } from './components/portal/PortalScene'
+import { TreeLoader } from './components/portal/TreeLoader'
 import './App.css'
 
 const ParticipantApp = lazy(() =>
@@ -67,9 +68,7 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
 function LoadingScreen() {
   return (
     <PortalScene tree="both">
-      <p role="status" className="font-ui font-normal text-xl text-rose-light">
-        Loading…
-      </p>
+      <TreeLoader />
     </PortalScene>
   )
 }

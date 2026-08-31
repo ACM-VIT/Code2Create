@@ -299,6 +299,20 @@ export default defineSchema({
       v.literal("optional"),
       v.literal("required"),
     ),
+    vitHostelDetailsField: v.union(
+      v.literal("not_collected"),
+      v.literal("optional"),
+      v.literal("required"),
+    ),
+    vitHostelResidenceCatalog: v.array(v.object({
+      stableKey: v.string(),
+      label: v.string(),
+      kind: v.union(
+        v.literal("day_scholar"),
+        v.literal("mens"),
+        v.literal("ladies"),
+      ),
+    })),
     profileNotice: v.string(),
     projectTextNotice: v.string(),
     privacyNoticeUrl: v.string(),
@@ -918,6 +932,8 @@ export default defineSchema({
     vitRegistrationNumber: v.optional(v.string()),
     vitProgramme: v.optional(v.string()),
     vitCampus: v.optional(v.string()),
+    vitHostelResidence: v.optional(v.string()),
+    vitHostelRoomNumber: v.optional(v.string()),
     externalCity: v.optional(v.string()),
     externalCountry: v.optional(v.string()),
     profileVersion: v.number(),
@@ -1629,6 +1645,20 @@ export default defineSchema({
     .index("by_team", ["teamId"])
     .index("by_event_intake_policy", ["eventId", "intakePolicyVersionId"]),
 
+  intakeWorkingFields: defineTable({
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+    kind: v.union(v.literal("idea"), v.literal("follow_up")),
+    questionId: v.optional(v.id("intakeGeneratedQuestions")),
+    value: v.string(),
+    baseDraftVersion: v.number(),
+    revision: v.number(),
+    writtenByMembershipId: v.id("eventMemberships"),
+    updatedAt: v.number(),
+  })
+    .index("by_team", ["teamId"])
+    .index("by_team_kind_question", ["teamId", "kind", "questionId"]),
+
   intakeAnswerVersions: defineTable({
     eventId: v.id("events"),
     teamId: v.id("teams"),
@@ -1669,7 +1699,6 @@ export default defineSchema({
     state: v.union(
       v.literal("active"),
       v.literal("answered"),
-      v.literal("skipped"),
       v.literal("replaced"),
       v.literal("stale"),
     ),
@@ -1736,8 +1765,7 @@ export default defineSchema({
         purposeKey: intakeQuestionPurpose,
         answerLength: intakeAnswerLength,
         source: v.union(v.literal("model"), v.literal("fallback")),
-        answer: v.optional(v.string()),
-        skipped: v.boolean(),
+        answer: v.string(),
       }),
     ),
     lockedRosterSnapshotId: v.id("teamSubmissionAttempts"),
@@ -1779,6 +1807,13 @@ export default defineSchema({
         sourceProjectVersionId: v.id("projectVersions"),
         editedByMembershipId: v.id("eventMemberships"),
         editedAt: v.number(),
+      }),
+    ),
+    rosterRevision: v.optional(
+      v.object({
+        sourceProjectVersionId: v.id("projectVersions"),
+        changedByMembershipId: v.id("eventMemberships"),
+        changedAt: v.number(),
       }),
     ),
     sourceDraftVersion: v.number(),

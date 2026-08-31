@@ -33,7 +33,7 @@
     "test:event-lifecycle": "vitest run convex/eventLifecycle.test.ts",
     "test:intake": "vitest run convex/intakePolicyConfiguration.test.ts convex/eventPhaseConfiguration.test.ts convex/projectCheckpointLifecycle.test.ts convex/intakeLifecycle.test.ts convex/lib/configurationOperationResult.test.ts",
     "test:integration-policy": "vitest run convex/integrationPolicyConfiguration.test.ts",
-    "test:participant-policy": "vitest run convex/lib/events.test.ts convex/lib/stagingParticipantAccess.test.ts convex/participantPolicyLifecycle.test.ts convex/participantOnboardingLifecycle.test.ts",
+    "test:participant-policy": "vitest run convex/lib/events.test.ts convex/lib/stagingParticipantAccess.test.ts convex/lib/vitHostel.test.ts convex/participantPolicyLifecycle.test.ts convex/participantOnboardingLifecycle.test.ts",
     "test:team-rosters": "vitest run convex/teamRosters.test.ts",
     "test:admission-configuration": "vitest run convex/admissionPolicyConfiguration.test.ts",
     "test:admission-information": "vitest run convex/admissionInformationLifecycle.test.ts",
