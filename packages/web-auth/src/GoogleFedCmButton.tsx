@@ -26,6 +26,7 @@ export function GoogleFedCmButton({
   authClient,
   clientId,
   hostedDomain,
+  appearance = 'dark',
   loading,
   pending,
   fallback,
@@ -34,6 +35,8 @@ export function GoogleFedCmButton({
   authClient: Code2CreateAuthClient
   clientId: string
   hostedDomain?: string
+  /** Matches Google's button to the surrounding page theme. */
+  appearance?: 'light' | 'dark'
   loading: ReactNode
   pending: ReactNode
   fallback: ReactNode
@@ -98,7 +101,7 @@ export function GoogleFedCmButton({
             ?? element.getBoundingClientRect().width
           google.accounts.id.renderButton(
             element,
-            googleButtonConfiguration(buttonWidth),
+            googleButtonConfiguration(buttonWidth, appearance),
           )
           setPhase('ready')
         } catch {
@@ -114,7 +117,7 @@ export function GoogleFedCmButton({
     return () => {
       active = false
     }
-  }, [authClient, clientId, hostedDomain])
+  }, [appearance, authClient, clientId, hostedDomain])
 
   return (
     <div

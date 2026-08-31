@@ -46,3 +46,9 @@ test('keeps the rendered Google button within supported dimensions', () => {
   assert.equal(googleButtonConfiguration(318.9).width, 318)
   assert.equal(googleButtonConfiguration(900).width, 400)
 })
+
+test('matches the Google button to the page theme', () => {
+  assert.equal(googleButtonConfiguration(300).theme, 'filled_black')
+  assert.equal(googleButtonConfiguration(300, 'dark').theme, 'filled_black')
+  assert.equal(googleButtonConfiguration(300, 'light').theme, 'outline')
+})

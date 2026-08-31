@@ -9,6 +9,7 @@ import {
   vitStudentEmailDomain,
 } from '../lib/googleAuthorization'
 import { PortalScene } from '../components/portal/PortalScene'
+import { usePortalTheme } from '../lib/portalTheme'
 import { PortalButton } from '../components/portal/PortalButton'
 import { PortalError } from '../components/portal/PortalField'
 import type { ParticipantClass, PublicState } from '../types'
@@ -66,6 +67,7 @@ export function EntryScreen({
   publicState: PublicState
   authClient: Code2CreateAuthClient
 }) {
+  const portalTheme = usePortalTheme()
   const [participantClass, setParticipantClass] = useState<ParticipantClass | null>(() => {
     const stored = sessionStorage.getItem(participantClassStorageKey)
     return stored === 'vit_student' || stored === 'external_participant' ? stored : null
@@ -196,6 +198,7 @@ export function EntryScreen({
         {participantClass && selectedClassOpen && publicState.auth.googleClientId ? (
           <GoogleFedCmButton
             authClient={authClient}
+            appearance={portalTheme === 'daybreak' ? 'light' : 'dark'}
             clientId={publicState.auth.googleClientId}
             {...(participantClass === 'vit_student'
               ? { hostedDomain: vitStudentEmailDomain }

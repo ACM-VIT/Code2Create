@@ -28,10 +28,13 @@ export function googleFedCmConfiguration({
   }
 }
 
-export function googleButtonConfiguration(width: number): google.accounts.id.GsiButtonConfiguration {
+export function googleButtonConfiguration(
+  width: number,
+  appearance: 'light' | 'dark' = 'dark',
+): google.accounts.id.GsiButtonConfiguration {
   return {
     type: 'standard',
-    theme: 'filled_black',
+    theme: appearance === 'light' ? 'outline' : 'filled_black',
     size: 'large',
     text: 'continue_with',
     shape: 'pill',
