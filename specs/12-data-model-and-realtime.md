@@ -289,6 +289,8 @@ Key fields:
 - `profileVersion`
 - `updatedAt`
 
+For VIT participants, the stored full name comes from the verified VIT Google identity and cannot be replaced by the client. External participants send an event-facing full name because their Google display name is not authoritative. Contact numbers are normalized before storage. Shared domain validation rejects malformed or obvious placeholder names and numbers on both the client and the server.
+
 Completeness is derived against an exact policy version; it is not stored as a boolean that can become stale after publication. Sensitive dietary, accessibility, or eligibility material belongs in its protected support/evidence record rather than this profile.
 
 ## 4. Event configuration

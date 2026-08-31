@@ -378,15 +378,17 @@ The stored rehearsal must include these cases:
 51. A support reply races a staff state change.
 52. A permission is revoked during a protected command.
 53. A device uses an old Expo runtime.
-54. An update asset has the wrong hash.
-55. Email delivery has an unknown provider result.
-56. A Synesthesia music request is duplicated.
-57. Two operators try to start different music tracks.
-58. Convex is unavailable during active reviews.
-59. The venue loses primary internet access.
-60. A backup is restored to staging.
-61. An intelligence run loses authority while active.
-62. A separate authorized person signs the completed rehearsal.
+54. An external participant replaces an unsuitable Google display name with the name the event should use, while a VIT participant cannot edit the verified name.
+55. Participant and operations forms show product-styled field errors without native browser bubbles, and the profile write rejects short or placeholder phone values even when client validation is bypassed.
+56. An update asset has the wrong hash.
+57. Email delivery has an unknown provider result.
+58. A Synesthesia music request is duplicated.
+59. Two operators try to start different music tracks.
+60. Convex is unavailable during active reviews.
+61. The venue loses primary internet access.
+62. A backup is restored to staging.
+63. An intelligence run loses authority while active.
+64. A separate authorized person signs the completed rehearsal.
 
 ## 16. Training
 

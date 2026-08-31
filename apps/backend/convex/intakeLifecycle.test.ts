@@ -53,6 +53,7 @@ describe("participant intake lifecycle", () => {
     await participant.mutation(api.participants.saveProfile, {
       eventSlug: fixture.eventSlug,
       participantPolicyVersionId: fixture.participantPolicyId,
+      fullName: "Anika Shah",
       phone: "+91 90000 00000",
       gender: "female",
       yearOfStudy: "first",

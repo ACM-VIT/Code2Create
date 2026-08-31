@@ -523,6 +523,7 @@ describe("participant onboarding lifecycle", () => {
     await expect(participant.mutation(api.participants.saveProfile, {
       eventSlug: fixture.eventSlug,
       participantPolicyVersionId: fixture.policyId,
+      fullName: "Aarav Krishnan",
       phone: "+91 90000 00000",
       gender: "male",
       yearOfStudy: "not_applicable",
@@ -532,9 +533,35 @@ describe("participant onboarding lifecycle", () => {
       clientOperationId: "external-profile-without-year",
     })).rejects.toThrow("current year of study");
 
+    await expect(participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "second",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "external-profile-without-name",
+    })).rejects.toThrow("appear for the event");
+
+    await expect(participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Aarav Krishnan",
+      phone: "1234",
+      gender: "male",
+      yearOfStudy: "second",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "external-profile-placeholder-phone",
+    })).rejects.toThrow("10 to 15 digits");
+
     const saved = await participant.mutation(api.participants.saveProfile, {
       eventSlug: fixture.eventSlug,
       participantPolicyVersionId: fixture.policyId,
+      fullName: "Aarav Krishnan",
       phone: "+91 90000 00000",
       gender: "male",
       yearOfStudy: "second",
@@ -546,8 +573,8 @@ describe("participant onboarding lifecycle", () => {
     const me = await participant.query(api.participants.me, { eventSlug: fixture.eventSlug });
     expect(me?.profile).toMatchObject({
       id: saved.profileId,
-      fullName: "Aarav Menon",
-      phone: "+91 90000 00000",
+      fullName: "Aarav Krishnan",
+      phone: "+919000000000",
       gender: "male",
       yearOfStudy: "second",
       externalUniversity: "Example University",
@@ -556,7 +583,7 @@ describe("participant onboarding lifecycle", () => {
     });
   });
 
-  test("preserves a provider-authoritative one-character Google display name", async () => {
+  test("lets an external participant replace an unusable Google display name", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const fixture = await seedParticipant(backend);
@@ -577,6 +604,7 @@ describe("participant onboarding lifecycle", () => {
     await participant.mutation(api.participants.saveProfile, {
       eventSlug: fixture.eventSlug,
       participantPolicyVersionId: fixture.policyId,
+      fullName: "Q Li",
       phone: "+91 90000 00000",
       gender: "female",
       yearOfStudy: "third",
@@ -587,7 +615,7 @@ describe("participant onboarding lifecycle", () => {
     });
 
     const me = await participant.query(api.participants.me, { eventSlug: fixture.eventSlug });
-    expect(me?.profile?.fullName).toBe("Q");
+    expect(me?.profile?.fullName).toBe("Q Li");
   });
 
   test("transfers team leadership and its exact grants through an idempotent acceptance", async () => {

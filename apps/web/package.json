@@ -25,6 +25,7 @@
     "@code2create/client-observability": "workspace:*",
     "@code2create/domain": "workspace:*",
     "@code2create/web-auth": "workspace:*",
+    "@code2create/web-forms": "workspace:*",
     "@convex-dev/better-auth": "^0.12.5",
     "@convex-dev/presence": "0.4.0",
     "@floating-ui/react": "^0.27.20",

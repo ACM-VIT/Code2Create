@@ -4,6 +4,7 @@ import {
   installBrowserChunkRecovery,
 } from '@code2create/client-observability'
 import { Code2CreateAuthProvider, createCode2CreateAuthClient } from '@code2create/web-auth'
+import { FormValidationBoundary } from '@code2create/web-forms'
 import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
@@ -48,7 +49,7 @@ function render(children: ReactNode) {
         development: import.meta.env.DEV,
       }}
     >
-      {children}
+      <FormValidationBoundary>{children}</FormValidationBoundary>
     </ClientObservabilityProvider>,
   )
 }

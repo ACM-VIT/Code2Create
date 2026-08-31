@@ -123,3 +123,4 @@ export * from "./permissions.ts";
 export * from "./operationsEpisodes.ts";
 export * from "./ideaIntelligence.ts";
 export * from "./intelligenceAgents.ts";
+export * from "./participantProfile.ts";

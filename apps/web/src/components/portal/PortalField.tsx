@@ -4,7 +4,7 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from 'react'
-import { useId } from 'react'
+import { forwardRef, useId } from 'react'
 
 const control =
   'w-full rounded-petal-xs border border-petal-edge-soft bg-wash/45 px-3.5 py-2.5 text-[13.5px] text-fg transition-colors placeholder:text-fg/45 focus:border-rose-light focus:outline-none disabled:opacity-60'
@@ -21,11 +21,13 @@ export function PortalLabel({ children }: { children: ReactNode }) {
 export function PortalField({
   label,
   hint,
+  error,
   children,
   className = '',
 }: {
   label: string
   hint?: string
+  error?: string | null
   children: (id: string) => ReactNode
   className?: string
 }) {
@@ -37,13 +39,20 @@ export function PortalField({
         {hint ? <span className="opacity-60"> · {hint}</span> : null}
       </PortalLabel>
       {children(id)}
+      {error ? (
+        <span role="alert" className="mt-1.5 block text-[11.5px] leading-snug text-rose-light">
+          {error}
+        </span>
+      ) : null}
     </label>
   )
 }
 
-export function PortalInput({ className = '', ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={`${control} ${className}`} />
-}
+export const PortalInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
+  function PortalInput({ className = '', ...props }, ref) {
+    return <input ref={ref} {...props} className={`${control} ${className}`} />
+  },
+)
 
 export function PortalSelect({
   className = '',

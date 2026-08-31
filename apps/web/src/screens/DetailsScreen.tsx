@@ -1,13 +1,17 @@
 import { api } from '@code2create/backend/api'
 import {
+  normalizeParticipantName,
+  normalizeParticipantPhone,
   participantGenderLabels,
+  participantNameValidationError,
+  participantPhoneValidationError,
   studyYearLabels,
   vitResidenceTypeLabels,
   type ParticipantGender,
   type VitResidenceType,
 } from '@code2create/domain'
 import { useMutation } from 'convex/react'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { AccountBadge } from '../components/portal/AccountBadge'
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalButton } from '../components/portal/PortalButton'
@@ -44,7 +48,7 @@ function parseStudyYear(value: string): StudyYear | null {
   }
 }
 
-/** Google-derived identity is read-only; participants provide event-only details. */
+/** VIT identity stays verified; external participants provide their event-facing name. */
 export function DetailsScreen({
   me,
   canWriteProfile,
@@ -58,7 +62,10 @@ export function DetailsScreen({
   const existing = me.profile
   const saveProfile = useMutation(api.participants.saveProfile)
   const acceptPolicy = useMutation(api.participants.acceptPolicy)
+  const [fullName, setFullName] = useState(existing?.fullName ?? me.person.displayName)
   const [phone, setPhone] = useState(existing?.phone ?? '')
+  const [fullNameTouched, setFullNameTouched] = useState(false)
+  const [phoneTouched, setPhoneTouched] = useState(false)
   const [gender, setGender] = useState<ParticipantGender | ''>(existing?.gender ?? '')
   const [yearOfStudy, setYearOfStudy] = useState<StudyYear | ''>(existing?.yearOfStudy ?? '')
   const [residenceType, setResidenceType] = useState<VitResidenceType | ''>(
@@ -71,15 +78,27 @@ export function DetailsScreen({
   const [accepted, setAccepted] = useState(me.participantPolicy.accepted)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const fullNameInputRef = useRef<HTMLInputElement>(null)
+  const phoneInputRef = useRef<HTMLInputElement>(null)
   const operations = useOperationRunner()
   const savePending = operations.hasPending('profile-save')
   const acceptPending = operations.hasPending('participant-policy-accept')
-
-  if (!membership) return null
-  const vitStudentIdentity = membership.participantClass === 'vit_student'
+  const vitStudentIdentity = membership?.participantClass === 'vit_student'
     ? membership.vitStudentIdentity
     : null
-  const vitStudent = membership.participantClass === 'vit_student'
+  const vitStudent = membership?.participantClass === 'vit_student'
+  const fullNameError = vitStudent ? null : participantNameValidationError(fullName)
+  const phoneError = participantPhoneValidationError(phone)
+
+  useEffect(() => {
+    fullNameInputRef.current?.setCustomValidity(fullNameError ?? '')
+  }, [fullNameError])
+
+  useEffect(() => {
+    phoneInputRef.current?.setCustomValidity(phoneError ?? '')
+  }, [phoneError])
+
+  if (!membership) return null
   if (vitStudent && !vitStudentIdentity) return null
   const policy = me.participantPolicy.policy
   const policyAlreadyAccepted = me.participantPolicy.accepted
@@ -91,12 +110,8 @@ export function DetailsScreen({
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!gender) {
-      setError('Choose Male or Female.')
-      return
-    }
-    if (!vitStudent && !yearOfStudy) {
-      setError('Choose your current year of study.')
+    if (!gender || (!vitStudent && !yearOfStudy)) {
+      setError('Complete the highlighted fields before continuing.')
       return
     }
     setBusy(true)
@@ -120,10 +135,15 @@ export function DetailsScreen({
           saveProfile({
             eventSlug,
             participantPolicyVersionId: me.participantPolicy.id,
-            phone,
+            phone: normalizeParticipantPhone(phone),
             gender,
             ...(!vitStudent && yearOfStudy
-              ? { yearOfStudy, externalUniversity, externalCollege }
+              ? {
+                  fullName: normalizeParticipantName(fullName),
+                  yearOfStudy,
+                  externalUniversity,
+                  externalCollege,
+                }
               : {}),
             ...(vitStudent && residenceType
               ? {
@@ -179,25 +199,54 @@ export function DetailsScreen({
           <form onSubmit={submit}>
             <fieldset disabled={disabled} className="contents">
               <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
-                <PortalField label="full name" hint="from Google">
+                <PortalField
+                  label="full name"
+                  hint={vitStudent ? 'verified' : 'editable'}
+                  error={!vitStudent && fullNameTouched ? fullNameError : null}
+                >
                   {(id) => (
                     <PortalInput
+                      ref={fullNameInputRef}
                       id={id}
-                      readOnly
-                      value={vitStudentIdentity?.fullName ?? me.person.displayName}
+                      autoComplete="name"
+                      maxLength={100}
+                      minLength={2}
+                      readOnly={vitStudent}
+                      required={!vitStudent}
+                      value={vitStudentIdentity?.fullName ?? fullName}
+                      onBlur={() => {
+                        if (vitStudent) return
+                        setFullNameTouched(true)
+                        setFullName((current) => normalizeParticipantName(current))
+                      }}
+                      onChange={(event) => {
+                        setFullNameTouched(true)
+                        setFullName(event.currentTarget.value)
+                      }}
                     />
                   )}
                 </PortalField>
 
-                <PortalField label="phone">
+                <PortalField label="phone" error={phoneTouched ? phoneError : null}>
                   {(id) => (
                     <PortalInput
+                      ref={phoneInputRef}
                       id={id}
+                      autoComplete="tel"
                       inputMode="tel"
-                      minLength={7}
+                      maxLength={24}
+                      placeholder="+91 98765 43210"
                       required
+                      type="tel"
                       value={phone}
-                      onChange={(event) => setPhone(event.target.value)}
+                      onBlur={() => {
+                        setPhoneTouched(true)
+                        setPhone((current) => normalizeParticipantPhone(current))
+                      }}
+                      onChange={(event) => {
+                        setPhoneTouched(true)
+                        setPhone(event.currentTarget.value)
+                      }}
                     />
                   )}
                 </PortalField>
@@ -343,7 +392,7 @@ export function DetailsScreen({
                           value={yearOfStudy}
                           onChange={(event) => {
                             const nextYear = parseStudyYear(event.target.value)
-                            if (nextYear) setYearOfStudy(nextYear)
+                            setYearOfStudy(nextYear ?? '')
                           }}
                         >
                           <option value="">Select year of study</option>

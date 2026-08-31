@@ -1,4 +1,10 @@
 import { ConvexError, v } from "convex/values";
+import {
+  normalizeParticipantName,
+  normalizeParticipantPhone,
+  participantNameValidationError,
+  participantPhoneValidationError,
+} from "@code2create/domain";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -704,6 +710,7 @@ export const saveProfile = mutation({
   args: {
     eventSlug: v.string(),
     participantPolicyVersionId: v.id("participantPolicyVersions"),
+    fullName: v.optional(v.string()),
     phone: v.string(),
     gender: participantGender,
     yearOfStudy: v.optional(studyYear),
@@ -721,6 +728,7 @@ export const saveProfile = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const requestFingerprint = operationFingerprint([
       args.participantPolicyVersionId,
+      args.fullName ?? null,
       args.phone,
       args.gender,
       args.yearOfStudy ?? null,
@@ -778,8 +786,18 @@ export const saveProfile = mutation({
       : null;
     const fullName = vitStudentIdentity
       ? vitStudentIdentity.fullName
-      : person.displayName;
-    const phone = normalizedText(args.phone, "Phone", 7, 24);
+      : normalizeParticipantName(args.fullName ?? "");
+    const fullNameError = vitStudentIdentity
+      ? null
+      : participantNameValidationError(fullName);
+    if (fullNameError) {
+      throw new ConvexError({ code: "INVALID_PARTICIPANT_NAME", message: fullNameError });
+    }
+    const phoneError = participantPhoneValidationError(args.phone);
+    if (phoneError) {
+      throw new ConvexError({ code: "INVALID_PHONE", message: phoneError });
+    }
+    const phone = normalizeParticipantPhone(args.phone);
     const yearOfStudy = vitStudentIdentity?.yearOfStudy ?? args.yearOfStudy;
     if (!yearOfStudy || yearOfStudy === "not_applicable") {
       throw new ConvexError({

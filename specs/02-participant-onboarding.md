@@ -12,7 +12,7 @@ Before the applicable deadline, an eligible participant can accept policy, updat
 
 ## 2. Participant profile
 
-The portal collects only fields that Google does not provide.
+The portal uses Google identity as authentication evidence. It still lets an external participant enter the real name that the event should use because a Google display name can be incomplete, informal, or unrelated to the participant's legal or preferred event name. A VIT participant's verified identity fields remain read-only.
 
 All participants provide:
 
@@ -29,6 +29,8 @@ Google identity claims are authentication evidence, not configurable profile fie
 A VIT student can also provide a campus when policy permits it. A VIT student can also provide hostel residence: day scholar, or one current Vellore hostel block plus room number. Men's S block has become ladies' S block. Men's hostel includes B block. An external participant can also provide city and country.
 
 The participant policy marks phone, VIT registration number, programme, campus, VIT hostel details, city, and country as `not_collected | optional | required`. Hostel details are one field: a required or optional residence choice. A hostel block always requires a room number. A day scholar has no room. Full name, institution, and year or current role are required. Sensitive eligibility, dietary, and accessibility facts use protected evidence or support routes. No profile or contact field enters proposal AI input.
+
+Profile forms use the product's own inline validation presentation instead of browser validation bubbles. The browser and server apply the same semantic name and phone rules. Phone input accepts common spacing and punctuation, stores a normalized number, and rejects short values, repeated digits, obvious sequences, and other placeholder text such as `00000` or `1234`. Client validation is guidance only; every write repeats the rule on the server.
 
 One immutable participant-policy version owns profile fields, team bounds, notices, the privacy URL, the fresh-project acknowledgement, and the final-submission warning. VIT students and external participants always form separate teams. Each participant accepts the exact current version. A later publication does not edit an earlier profile or consent record.
 
