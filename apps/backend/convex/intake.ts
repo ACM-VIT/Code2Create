@@ -48,7 +48,6 @@ import {
   intakeSequenceComplete,
   loadActiveIntakeAnswers,
   loadCurrentIntakeResponses,
-  replaceCurrentIntakeQuestions,
   replaceIntakeQuestionsAfter,
 } from "./lib/intakeQuestions";
 import { intakeWorkpool } from "./workpools";
@@ -1141,17 +1140,6 @@ async function deleteWorkingField(
   if (workingField) await ctx.db.delete(workingField._id);
 }
 
-async function deleteTeamWorkingFields(
-  ctx: MutationCtx,
-  teamId: Id<"teams">,
-) {
-  const fields = await ctx.db
-    .query("intakeWorkingFields")
-    .withIndex("by_team", (index) => index.eq("teamId", teamId))
-    .take(4);
-  await Promise.all(fields.map((field) => ctx.db.delete(field._id)));
-}
-
 export const autosaveWorkingField = mutation({
   args: {
     eventSlug: v.string(),
@@ -1326,11 +1314,43 @@ export const saveInitialIdea = mutation({
       teamId: team._id,
       sourceUpdatedAt: now,
     });
+    const currentResponses = existing
+      ? await loadCurrentIntakeResponses(ctx, existing._id)
+      : [];
+    const fixedResponses = currentResponses.filter(
+      ({ question }) => question.source === "fixed",
+    );
+    const invalidatedResponses = currentResponses.filter(
+      ({ question }) => question.ordinal > pinnedPolicy.normalized.deterministicFollowUpCount,
+    );
+    const fixedSequenceComplete =
+      fixedResponses.length === pinnedPolicy.normalized.deterministicFollowUpCount &&
+      fixedResponses.every(
+        ({ question }, index) =>
+          question.ordinal === index + 1 && question.state === "answered",
+      );
+    const shouldGenerateAdaptiveQuestion =
+      fixedSequenceComplete &&
+      pinnedPolicy.normalized.deterministicFollowUpCount <
+        pinnedPolicy.normalized.maximumFollowUpCount;
     let draftId: Id<"projectDrafts">;
     if (existing) {
-      await replaceCurrentIntakeQuestions(ctx, existing._id);
+      await replaceIntakeQuestionsAfter(
+        ctx,
+        existing._id,
+        pinnedPolicy.normalized.deterministicFollowUpCount,
+      );
+      for (const { question } of invalidatedResponses) {
+        await deleteWorkingField(ctx, team._id, {
+          kind: "follow_up",
+          questionId: question._id,
+        });
+      }
       await ctx.db.patch(existing._id, {
-        stage: "follow_up",
+        stage:
+          fixedSequenceComplete && !shouldGenerateAdaptiveQuestion
+            ? "review"
+            : "follow_up",
         initialIdea: idea,
         noveltyCorpusVersionId: novelty?.corpusVersionId,
         noveltyEvaluatedInputFingerprint: undefined,
@@ -1370,15 +1390,41 @@ export const saveInitialIdea = mutation({
     });
     const persistedDraft = await ctx.db.get(draftId);
     if (!persistedDraft) throw new Error("The project draft did not persist.");
-    await createFixedIntakeQuestion(ctx, {
-      draft: persistedDraft,
-      policy: pinnedPolicy.policy,
-      normalizedPolicy: pinnedPolicy.normalized,
-      ordinal: 1,
-      sourceAnswerVersionIds: [initialAnswer._id],
-      now,
-    });
-    await deleteTeamWorkingFields(ctx, team._id);
+    if (existing) {
+      for (const { question } of fixedResponses) {
+        const earlierFixedAnswerIds = fixedResponses.flatMap((response) =>
+          response.question.ordinal < question.ordinal && response.answer
+            ? [response.answer._id]
+            : [],
+        );
+        await ctx.db.patch(question._id, {
+          sourceAnswerVersionIds: [initialAnswer._id, ...earlierFixedAnswerIds],
+        });
+      }
+    } else {
+      await createFixedIntakeQuestion(ctx, {
+        draft: persistedDraft,
+        policy: pinnedPolicy.policy,
+        normalizedPolicy: pinnedPolicy.normalized,
+        ordinal: 1,
+        sourceAnswerVersionIds: [initialAnswer._id],
+        now,
+      });
+    }
+    await deleteWorkingField(ctx, team._id, { kind: "idea" });
+
+    if (shouldGenerateAdaptiveQuestion) {
+      await intakeWorkpool.enqueueAction(
+        ctx,
+        internal.intelligence.interpretIdea,
+        { draftId },
+        {
+          retry: false,
+          onComplete: internal.intelligence.intakeGenerationFinished,
+          context: { draftId, draftVersion },
+        },
+      );
+    }
 
     await ctx.scheduler.runAfter(0, internal.novelty.indexDraftIdea, {
       draftId,

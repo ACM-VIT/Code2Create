@@ -18,11 +18,10 @@ export type WorkingCopyReconciliation =
   | { kind: 'unchanged' }
   | { kind: 'acknowledge'; revision: number }
   | { kind: 'continue'; revision: number }
-  | { kind: 'adopt'; dirty: boolean; revision: number; value: string }
+  | { kind: 'adopt'; revision: number; value: string }
   | { kind: 'conflict' }
 
 export function reconcileWorkingCopy(args: {
-  confirmedValue: string
   knownRevision: number
   localDirty: boolean
   localValue: string
@@ -34,7 +33,6 @@ export function reconcileWorkingCopy(args: {
   if (!args.localDirty) {
     return {
       kind: 'adopt',
-      dirty: args.serverValue !== args.confirmedValue,
       revision: args.serverRevision,
       value: args.serverValue,
     }

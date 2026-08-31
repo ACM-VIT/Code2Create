@@ -221,10 +221,14 @@ function IntakeStage({
 
 /** The conflict banner shared by the idea and follow-up editors. */
 function ConflictNotice({
+  cloudLabel,
+  cloudValue,
   message,
   onUseSaved,
   onKeepMine,
 }: {
+  cloudLabel?: string
+  cloudValue?: string | undefined
   message: string
   onUseSaved: () => void
   onKeepMine: () => void
@@ -235,6 +239,16 @@ function ConflictNotice({
       className="mb-4 rounded-petal-xs border border-petal-edge-soft bg-wash/50 px-4 py-3"
     >
       <p className="text-[12.5px] text-fg/75">{message}</p>
+      {cloudValue !== undefined ? (
+        <div className="mt-3 border-l border-rose-light/25 pl-3">
+          <span className="block text-[10.5px] tracking-[.04em] text-fg/35">
+            {cloudLabel ?? 'cloud version'}
+          </span>
+          <p className="mt-1 whitespace-pre-line wrap-anywhere text-[12.5px] leading-relaxed text-fg/35">
+            {cloudValue}
+          </p>
+        </div>
+      ) : null}
       <div className="mt-2 flex gap-4">
         <PortalTextButton type="button" onClick={onUseSaved}>
           Use saved version
@@ -326,7 +340,7 @@ function IntakeWorkspace({
   const initialSavedVersion = draft?.version ?? 0
   const [idea, setIdea] = useState(recoveredIdea?.value ?? initialWorkingIdea)
   const [ideaDirty, setIdeaDirty] = useState(
-    (recoveredIdea?.value ?? initialWorkingIdea) !== initialSavedIdea,
+    recoveredIdea !== null && recoveredIdea.value !== initialWorkingIdea,
   )
   const ideaBase = useRef({
     value: initialSavedIdea,
@@ -420,7 +434,7 @@ function IntakeWorkspace({
       ideaBase.current = { value: savedValue, version: savedVersion }
       ideaWorkingRevision.current = serverWorkingRevision
       setIdea(serverWorkingValue)
-      setIdeaDirty(serverWorkingValue !== savedValue)
+      setIdeaDirty(false)
       setIdeaConflict(false)
       clearSessionDraft(ideaStorageKey)
       return
@@ -436,7 +450,7 @@ function IntakeWorkspace({
         ideaBase.current = { value: savedValue, version: savedVersion }
         ideaWorkingRevision.current = serverWorkingRevision
         setIdea(serverWorkingValue)
-        setIdeaDirty(serverWorkingValue !== savedValue)
+        setIdeaDirty(false)
         setIdeaConflict(false)
         clearSessionDraft(ideaStorageKey)
         return
@@ -446,7 +460,6 @@ function IntakeWorkspace({
       }
     }
     const reconciliation = reconcileWorkingCopy({
-      confirmedValue: savedValue,
       knownRevision: ideaWorkingRevision.current,
       localDirty: ideaDirty,
       localValue: idea,
@@ -466,7 +479,7 @@ function IntakeWorkspace({
     }
     if (reconciliation.kind === 'adopt') {
       setIdea(reconciliation.value)
-      setIdeaDirty(reconciliation.dirty)
+      setIdeaDirty(false)
       setIdeaConflict(false)
     }
     clearSessionDraft(ideaStorageKey)
@@ -655,14 +668,21 @@ function IntakeWorkspace({
     onSaved: (result, savedValue) => {
       pendingIdeaAutosave.current = null
       ideaWorkingRevision.current = result.revision
-      if (savedValue === idea) clearSessionDraft(ideaStorageKey)
+      if (savedValue === idea) {
+        setIdeaDirty(false)
+        clearSessionDraft(ideaStorageKey)
+      }
       setError(null)
     },
     onError: (autosaveError) => {
       pendingIdeaAutosave.current = null
       const message = readableError(autosaveError)
-      if (message.includes('newer text')) setIdeaConflict(true)
-      setError(message)
+      if (message.includes('newer text')) {
+        setIdeaConflict(true)
+        setError(null)
+      } else {
+        setError(message)
+      }
     },
   })
 
@@ -907,17 +927,22 @@ function IntakeWorkspace({
           <form onSubmit={submitIdea}>
             {ideaConflict ? (
               <ConflictNotice
+                cloudLabel={ideaEditorLabel === 'You'
+                  ? 'cloud version from your other session'
+                  : `${ideaEditorLabel}'s cloud version`}
+                cloudValue={workingIdea?.value ?? draft?.initialIdea}
                 message={`${ideaEditorLabel} saved a newer idea. Your text is still here.`}
                 onUseSaved={() => {
                   const savedValue = workingIdea?.value ?? draft?.initialIdea ?? ''
                   setIdea(savedValue)
-                  setIdeaDirty(savedValue !== (draft?.initialIdea ?? ''))
+                  setIdeaDirty(false)
                   setIdeaConflict(false)
                   ideaBase.current = {
                     value: draft?.initialIdea ?? '',
                     version: draft?.version ?? 0,
                   }
                   ideaWorkingRevision.current = workingIdea?.revision ?? 0
+                  pendingIdeaAutosave.current = null
                   clearSessionDraft(ideaStorageKey)
                 }}
                 onKeepMine={() => {
@@ -926,6 +951,8 @@ function IntakeWorkspace({
                     version: draft?.version ?? 0,
                   }
                   ideaWorkingRevision.current = workingIdea?.revision ?? 0
+                  pendingIdeaAutosave.current = null
+                  setIdeaDirty(true)
                   setIdeaConflict(false)
                   retryIdeaAutosave()
                   writeVersionedSessionDraft(ideaStorageKey, {

@@ -388,6 +388,47 @@ describe("participant intake lifecycle", () => {
       draftId: savedIdea.draftId,
       providerAvailable: false,
     });
+    const adaptiveFixture = await backend.run(async (ctx) => {
+      const draft = await ctx.db.get(savedIdea.draftId);
+      if (!draft) throw new Error("The intake draft is missing before adaptive-question setup.");
+      const activeAnswers = await ctx.db
+        .query("intakeAnswerVersions")
+        .withIndex("by_draft_status", (index) =>
+          index.eq("draftId", draft._id).eq("status", "active"),
+        )
+        .collect();
+      const now = Date.now();
+      const questionId = await ctx.db.insert("intakeGeneratedQuestions", {
+        eventId: draft.eventId,
+        teamId: draft.teamId,
+        draftId: draft._id,
+        ordinal: 3,
+        text: "What would make this useful beyond the first request?",
+        purposeKey: "experience",
+        answerLength: "short",
+        source: "model",
+        sourceAnswerVersionIds: activeAnswers.map((answer) => answer._id),
+        intakePolicyVersionId: draft.intakePolicyVersionId,
+        state: "answered",
+        validationCategory: "test_adaptive_question",
+        answeredAt: now,
+        createdAt: now,
+      });
+      const answerId = await ctx.db.insert("intakeAnswerVersions", {
+        eventId: draft.eventId,
+        teamId: draft.teamId,
+        draftId: draft._id,
+        promptKey: "introduction_follow_up_3",
+        generatedQuestionId: questionId,
+        answerVersion: 1,
+        value: "It coordinates the handoff and confirms that somebody actually responded.",
+        status: "active",
+        writtenByMembershipId: fixture.membershipId,
+        writtenAt: now,
+        clientOperationId: "intake-adaptive-answer-fixture",
+      });
+      return { answerId, questionId };
+    });
     const reviewBeforeAnswerEdit = await participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
     });
@@ -395,14 +436,71 @@ describe("participant intake lifecycle", () => {
     if (!reviewBeforeAnswerEdit?.draft || !firstAnsweredQuestion) {
       throw new Error("The review did not retain its answered questions.");
     }
-    const questionIdsBeforeAnswerEdit = reviewBeforeAnswerEdit.draft.followUps.map(
+    const fixedResponsesBeforeIdeaEdit = reviewBeforeAnswerEdit.draft.followUps.filter(
+      (question) => question.source === "fixed",
+    );
+    const questionIdsBeforeAnswerEdit = fixedResponsesBeforeIdeaEdit.map(
       (question) => question.id,
     );
+    const answersBeforeIdeaEdit = fixedResponsesBeforeIdeaEdit.map(
+      (question) => question.answer,
+    );
+    const ideaAfterFixedAnswers = `${idea} A small wording update clarifies the expected demand signal.`;
+    const ideaRevision = await participant.mutation(api.intake.saveInitialIdea, {
+      eventSlug: fixture.eventSlug,
+      idea: ideaAfterFixedAnswers,
+      expectedDraftVersion: reviewBeforeAnswerEdit.draft.version,
+      clientOperationId: "intake-idea-revise-after-fixed-answers",
+    });
+    expect(ideaRevision.draftVersion).toBe(reviewBeforeAnswerEdit.draft.version + 1);
+    const reviewAfterIdeaEdit = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!reviewAfterIdeaEdit?.draft) {
+      throw new Error("The idea revision did not retain the fixed responses.");
+    }
+    expect(reviewAfterIdeaEdit.draft).toMatchObject({
+      stage: "follow_up",
+      initialIdea: ideaAfterFixedAnswers,
+      followUps: questionIdsBeforeAnswerEdit.map((id, index) => ({
+        id,
+        source: "fixed",
+        state: "answered",
+        answer: answersBeforeIdeaEdit[index],
+      })),
+    });
+    await expect(backend.run(async (ctx) => ({
+      answer: await ctx.db.get(adaptiveFixture.answerId),
+      question: await ctx.db.get(adaptiveFixture.questionId),
+    }))).resolves.toMatchObject({
+      answer: { status: "inactive_for_route" },
+      question: { state: "replaced" },
+    });
+    await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
+      draftId: savedIdea.draftId,
+      providerAvailable: false,
+    });
+    const reviewAfterIdeaRegeneration = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!reviewAfterIdeaRegeneration?.draft) {
+      throw new Error("The revised idea did not complete question regeneration.");
+    }
+    expect(reviewAfterIdeaRegeneration.draft).toMatchObject({
+      stage: "review",
+      initialIdea: ideaAfterFixedAnswers,
+      followUps: questionIdsBeforeAnswerEdit.map((id, index) => ({
+        id,
+        source: "fixed",
+        state: "answered",
+        answer: answersBeforeIdeaEdit[index],
+      })),
+    });
     await participant.mutation(api.intake.reviseFollowUp, {
       eventSlug: fixture.eventSlug,
       questionId: firstAnsweredQuestion.id,
       answer: `${firstFollowUpAnswer} The first release focuses on mobility requests.`,
-      expectedDraftVersion: reviewBeforeAnswerEdit.draft.version,
+      expectedDraftVersion: reviewAfterIdeaRegeneration.draft.version,
       clientOperationId: "intake-follow-up-revise",
     });
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
@@ -470,7 +568,7 @@ describe("participant intake lifecycle", () => {
       teamId: team.teamId,
       teamVersion: 2,
       draftVersion: freshness.draftVersion,
-      initialIdea: idea,
+      initialIdea: ideaAfterFixedAnswers,
       freshnessAttested: true,
       memberCount: 2,
       members: [
@@ -614,7 +712,7 @@ describe("participant intake lifecycle", () => {
     expect(submitted).toMatchObject({
       currentRole: "lead",
       project: {
-        initialIdea: idea,
+        initialIdea: ideaAfterFixedAnswers,
       },
       application: { state: "submitted", contentVersion: 1 },
       canEdit: true,
@@ -661,7 +759,7 @@ describe("participant intake lifecycle", () => {
       });
       return { humanReviewId, assignmentId };
     });
-    const revisedIdea = `${idea} It also shows volunteers which request needs help next.`;
+    const revisedIdea = `${ideaAfterFixedAnswers} It also shows volunteers which request needs help next.`;
     const revisionRequest = {
       eventSlug: fixture.eventSlug,
       applicationId: submitted.application.id,

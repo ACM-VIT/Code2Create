@@ -35,7 +35,6 @@ test('does not create an empty recovered draft', () => {
 
 test('acknowledges a block deletion that reached the collaborative working copy', () => {
   assert.deepEqual(reconcileWorkingCopy({
-    confirmedValue: 'The original longer idea with a block that was removed.',
     knownRevision: 2,
     localDirty: true,
     localValue: 'The shorter idea.',
@@ -47,7 +46,6 @@ test('acknowledges a block deletion that reached the collaborative working copy'
 
 test('adopts a working-copy update when the local editor is idle', () => {
   assert.deepEqual(reconcileWorkingCopy({
-    confirmedValue: 'Confirmed idea',
     knownRevision: 1,
     localDirty: false,
     localValue: 'Confirmed idea',
@@ -56,7 +54,6 @@ test('adopts a working-copy update when the local editor is idle', () => {
     serverValue: 'Updated working idea',
   }), {
     kind: 'adopt',
-    dirty: true,
     revision: 2,
     value: 'Updated working idea',
   })
@@ -64,7 +61,6 @@ test('adopts a working-copy update when the local editor is idle', () => {
 
 test('keeps a real concurrent working-copy edit as a conflict', () => {
   assert.deepEqual(reconcileWorkingCopy({
-    confirmedValue: 'Confirmed idea',
     knownRevision: 1,
     localDirty: true,
     localValue: 'My deletion',
@@ -76,7 +72,6 @@ test('keeps a real concurrent working-copy edit as a conflict', () => {
 
 test('keeps newer typing when the server echoes an earlier in-flight save', () => {
   assert.deepEqual(reconcileWorkingCopy({
-    confirmedValue: 'Original idea',
     knownRevision: 1,
     localDirty: true,
     localValue: 'Newest local idea',
