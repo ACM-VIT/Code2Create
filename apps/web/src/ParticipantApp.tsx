@@ -425,10 +425,12 @@ function PortalNotice({
 }) {
   return (
     <PortalScene tree="right" {...(header ? { header } : {})}>
-      <PetalCard className="max-w-[560px] px-8 py-7">
-        <h1 className="mb-3 font-display font-light tracking-[-.01em] text-2xl lg:text-3xl">{title}</h1>
-        <p className="text-[13px] leading-relaxed text-fg/60">{body}</p>
-      </PetalCard>
+      <div className="w-full max-w-[560px]">
+        <PetalCard className="px-8 py-7">
+          <h1 className="mb-3 font-display font-light tracking-[-.01em] text-2xl lg:text-3xl">{title}</h1>
+          <p className="text-[13px] leading-relaxed text-fg/60">{body}</p>
+        </PetalCard>
+      </div>
     </PortalScene>
   )
 }

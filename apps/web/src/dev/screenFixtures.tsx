@@ -444,15 +444,17 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
     )],
   ['notice', () => (
       <PortalScene tree="right" header={account}>
-        <PetalCard className="max-w-[560px] px-8 py-7">
-          <h1 className="mb-3 font-display font-light tracking-[-.01em] text-2xl lg:text-3xl">
-            Team access is unavailable.
-          </h1>
-          <p className="text-[13px] leading-relaxed text-fg/60">
-            You are still on your team. You cannot create or join another team until an organizer
-            restores access.
-          </p>
-        </PetalCard>
+        <div className="w-full max-w-[560px]">
+          <PetalCard className="px-8 py-7">
+            <h1 className="mb-3 font-display font-light tracking-[-.01em] text-2xl lg:text-3xl">
+              Team access is unavailable.
+            </h1>
+            <p className="text-[13px] leading-relaxed text-fg/60">
+              You are still on your team. You cannot create or join another team until an organizer
+              restores access.
+            </p>
+          </PetalCard>
+        </div>
       </PortalScene>
     )],
   ['f1', () => (
