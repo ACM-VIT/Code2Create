@@ -6,6 +6,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNod
 import { Link, NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { TeamPanel } from './components/TeamPanel'
 import { AccountBadge } from './components/portal/AccountBadge'
+import { DelayedBonsai } from './components/portal/DelayedBonsai'
 import { PetalCard } from './components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from './components/portal/PortalButton'
 import { PortalError } from './components/portal/PortalField'
@@ -465,7 +466,7 @@ function PortalHeader({
 }
 
 function PortalLoading() {
-  return <PortalScene tree="left">{null}</PortalScene>
+  return <PortalScene tree="left"><DelayedBonsai /></PortalScene>
 }
 
 function SwitchTeamScreen({
@@ -653,7 +654,7 @@ function PendingTeamScreen({
 }
 
 function PortalContentLoading() {
-  return null
+  return <DelayedBonsai compact />
 }
 
 function preloadIntegrations() {

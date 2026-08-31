@@ -6,6 +6,7 @@ import { lazy, Suspense } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { eventSlug } from './lib/config'
 import { EntryScreen } from './screens/EntryScreen'
+import { DelayedBonsai } from './components/portal/DelayedBonsai'
 import { PortalScene } from './components/portal/PortalScene'
 import './App.css'
 
@@ -65,5 +66,5 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
 }
 
 function LoadingScreen() {
-  return <PortalScene tree="both">{null}</PortalScene>
+  return <PortalScene tree="both"><DelayedBonsai /></PortalScene>
 }

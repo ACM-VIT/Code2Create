@@ -1,5 +1,6 @@
 import { flushSync } from 'react-dom'
 import { useEffect, useRef, useState } from 'react'
+import { DelayedBonsai } from '../components/portal/DelayedBonsai'
 import { ScreenFixture } from './screenFixtures'
 import { GALLERY_SCREENS } from './screenList'
 
@@ -86,6 +87,11 @@ export function ScreenGallery() {
           >
             <ScreenFixture id={active.id} />
           </div>
+          {pendingScreenId ? (
+            <div className="fixed inset-0 z-[9998] grid place-items-center bg-wash/8 backdrop-blur-[1px]">
+              <DelayedBonsai />
+            </div>
+          ) : null}
           <div className="fixed top-3 left-1/2 z-[9999] flex -translate-x-1/2 items-center overflow-hidden rounded-full border border-rose/50 bg-wash/92 font-mono text-[11px] text-rose-light shadow-lg backdrop-blur-md">
             <button type="button" disabled={!previous || pendingScreenId !== null} onClick={() => previous && showScreen(previous.id)} className="px-3 py-1.5 hover:text-fg disabled:opacity-25">←</button>
             <span className="border-x border-rose/25 px-3.5 py-1.5">
