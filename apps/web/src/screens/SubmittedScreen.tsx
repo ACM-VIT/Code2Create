@@ -222,6 +222,13 @@ function SubmittedWorkspace({
   )
   const eventIsLive = confirmed && currentPhase !== undefined
   const canEditProposal = intake.canEdit && phaseTime < intake.applicationsCloseAt
+  const proposalEditStatus = canEditProposal
+    ? `editable until ${formatEventTime(intake.applicationsCloseAt, event.timezone)}`
+    : phaseTime >= intake.applicationsCloseAt
+      ? 'submission window closed'
+      : intake.currentRole !== 'lead'
+        ? 'only team leader can edit'
+        : 'submission is read-only'
   const teamEditable = phaseTime < team.membershipEditableUntil
   const canManageTeam = team.currentRole === 'lead' && teamEditable
 
@@ -283,9 +290,7 @@ function SubmittedWorkspace({
             {team.name}
           </h1>
           <p className="mb-7 text-xs text-fg/50">
-            {canEditProposal
-              ? `editable until ${formatEventTime(intake.applicationsCloseAt, event.timezone)}`
-              : 'submission window closed'}{' '}
+            {proposalEditStatus}{' '}
             ·{' '}
             <button
               type="button"
