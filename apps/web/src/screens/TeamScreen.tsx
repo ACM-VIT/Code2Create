@@ -68,7 +68,7 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
         'team-create',
         (clientOperationId) => () => createTeam({ eventSlug, name, clientOperationId }),
       )
-      navigate('/', { replace: true })
+      navigate('/', { replace: true, viewTransition: true })
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -85,7 +85,7 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
         'team-join',
         (clientOperationId) => () => joinTeam({ eventSlug, code, clientOperationId }),
       )
-      navigate('/', { replace: true })
+      navigate('/', { replace: true, viewTransition: true })
     } catch (caught) {
       setError(readableError(caught))
     } finally {

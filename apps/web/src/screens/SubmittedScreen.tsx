@@ -345,7 +345,7 @@ function SubmittedWorkspace({
             <span aria-hidden className="hidden h-3.5 w-px bg-rose/40 sm:block" />
             <span>
               team{' '}
-              <Link to="/team" className="text-rose-light underline-offset-4 hover:underline">
+              <Link to="/team" viewTransition className="text-rose-light underline-offset-4 hover:underline">
                 {canManageTeam ? 'manage team' : 'view team'}
               </Link>
             </span>
@@ -786,7 +786,7 @@ function EventLiveScene({
               ) : null}
               {capabilities?.integrations ? (
                 <p className="mt-3 mb-0 text-xs">
-                  <Link to="/integrations" className="text-rose-light underline-offset-4 hover:underline">
+                  <Link to="/integrations" viewTransition className="text-rose-light underline-offset-4 hover:underline">
                     manage repos + Figma →
                   </Link>
                 </p>
@@ -858,11 +858,11 @@ function EventLiveScene({
                   </a>
                 ) : null}
                 {capabilities?.supportRead ? (
-                  <Link to="/support" className="text-rose-light">
+                  <Link to="/support" viewTransition className="text-rose-light">
                     support
                   </Link>
                 ) : null}
-                <Link to="/more" className="text-rose-light">
+                <Link to="/more" viewTransition className="text-rose-light">
                   more
                 </Link>
               </span>

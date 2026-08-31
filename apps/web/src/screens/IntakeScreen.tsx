@@ -24,6 +24,7 @@ import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { reconcileWorkingCopy, shouldRecoverFollowUpDraft } from '../lib/intakeCollaboration'
 import { useOperationRunner } from '../lib/operations'
+import { recoverProposalRevision } from '../lib/proposalRevision'
 import {
   clearSessionDraft,
   readVersionedSessionDraft,
@@ -746,8 +747,19 @@ function IntakeWorkspace({
         clientOperationId: crypto.randomUUID(),
       })
     },
-    onSaved: (result) => {
+    onSaved: (result, savedValue) => {
       setRevisionBaseVersion(result.draftVersion)
+      if (editingFollowUp) {
+        const storageKey = `c2c:${eventSlug}:${team.id}:review:${editingFollowUp.id}`
+        if (savedValue === editedFollowUpAnswer) {
+          clearSessionDraft(storageKey)
+        } else {
+          writeVersionedSessionDraft(storageKey, {
+            base: String(result.draftVersion),
+            value: editedFollowUpAnswer,
+          })
+        }
+      }
       setError(null)
     },
     onError: (autosaveError) => setError(readableError(autosaveError)),
@@ -1469,9 +1481,18 @@ function IntakeWorkspace({
                   ? {}
                   : {
                       onEdit: () => {
+                        const storageKey = `c2c:${eventSlug}:${team.id}:review:${followUp.id}`
+                        const recovered = readVersionedSessionDraft(storageKey)
+                        const savedAnswer = followUp.answer ?? ''
+                        const revision = recoverProposalRevision(
+                          savedAnswer,
+                          preview.draftVersion,
+                          recovered,
+                        )
                         setEditingFollowUpId(followUp.id)
-                        setEditedFollowUpAnswer(followUp.answer ?? '')
-                        setRevisionBaseVersion(preview.draftVersion)
+                        setEditedFollowUpAnswer(revision.answer)
+                        setRevisionBaseVersion(revision.baseDraftVersion)
+                        if (!revision.recovered) clearSessionDraft(storageKey)
                       },
                     })}
               >
@@ -1486,7 +1507,17 @@ function IntakeWorkspace({
                       disabled={busy}
                       value={editedFollowUpAnswer}
                       onChange={(event) => {
-                        setEditedFollowUpAnswer(event.target.value)
+                        const nextAnswer = event.target.value
+                        setEditedFollowUpAnswer(nextAnswer)
+                        if (revisionBaseVersion !== null) {
+                          writeVersionedSessionDraft(
+                            `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
+                            {
+                              base: String(revisionBaseVersion),
+                              value: nextAnswer,
+                            },
+                          )
+                        }
                         setError(null)
                         markEditing('follow_up', followUp.id)
                       }}
@@ -1501,9 +1532,19 @@ function IntakeWorkspace({
                         onUseSaved={() => {
                           setEditedFollowUpAnswer(followUp.answer ?? '')
                           setRevisionBaseVersion(preview.draftVersion)
+                          clearSessionDraft(
+                            `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
+                          )
                         }}
                         onKeepMine={() => {
                           setRevisionBaseVersion(preview.draftVersion)
+                          writeVersionedSessionDraft(
+                            `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
+                            {
+                              base: String(preview.draftVersion),
+                              value: editedFollowUpAnswer,
+                            },
+                          )
                           retryRevisionAutosave()
                         }}
                       />
@@ -1523,6 +1564,9 @@ function IntakeWorkspace({
                             draft.intakePolicy.followUpAnswerMinLength
                         }
                         onClick={() => {
+                          clearSessionDraft(
+                            `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
+                          )
                           setEditingFollowUpId(null)
                           setRevisionBaseVersion(null)
                           stopEditing()

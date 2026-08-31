@@ -1,3 +1,5 @@
+import type { VersionedSessionDraft } from './sessionDraft'
+
 export type ProposalRevisionBase<ProjectVersionId extends string = string> = {
   applicationContentVersion: number
   projectVersionId: ProjectVersionId
@@ -21,4 +23,31 @@ export function proposalRevisionBaseFingerprint(base: ProposalRevisionBase) {
     base.projectVersionId,
     base.projectVersion,
   ].join(':')
+}
+
+export function recoverProposalRevision(
+  savedAnswer: string,
+  currentDraftVersion: number,
+  stored: VersionedSessionDraft | null,
+) {
+  if (stored === null || stored.value === savedAnswer) {
+    return {
+      answer: savedAnswer,
+      baseDraftVersion: currentDraftVersion,
+      recovered: false,
+    }
+  }
+  const baseDraftVersion = Number(stored.base)
+  if (!Number.isSafeInteger(baseDraftVersion) || baseDraftVersion < 0) {
+    return {
+      answer: savedAnswer,
+      baseDraftVersion: currentDraftVersion,
+      recovered: false,
+    }
+  }
+  return {
+    answer: stored.value,
+    baseDraftVersion,
+    recovered: true,
+  }
 }

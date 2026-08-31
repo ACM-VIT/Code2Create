@@ -444,14 +444,14 @@ export function TeamLobbyScreen({
               })}`}
             </span>
             <span aria-hidden className="text-fg/30">·</span>
-            <Link to="/" className="py-1 text-rose-light">
+            <Link to="/" viewTransition className="py-1 text-rose-light">
               back home
             </Link>
           </div>
         ) : (
           <p className="mt-7 text-[13px] text-fg/45">
             changes closed{' · '}
-            <Link to="/" className="text-rose-light">
+            <Link to="/" viewTransition className="text-rose-light">
               back home
             </Link>
           </p>
