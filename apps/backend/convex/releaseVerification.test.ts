@@ -351,9 +351,12 @@ async function seedReleaseFixture(
       membershipId: participantMembershipId,
       participantClass: "external_participant",
       fullName: "Participant Release",
+      phone: "+91 90000 00000",
+      gender: "female",
       institution: "Fixture University",
       yearOfStudy: "first",
-      externalCountry: "India",
+      externalUniversity: "Fixture University",
+      externalCollege: "Fixture College",
       profileVersion: 1,
       updatedAt: now,
     });

@@ -505,6 +505,57 @@ describe("participant onboarding lifecycle", () => {
     })).rejects.toThrow("Applications are closed");
   }, 10_000);
 
+  test("requires an external participant's year, university, college, phone, and binary gender", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "external-profile-policy-accept",
+    });
+
+    await expect(participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "not_applicable",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "external-profile-without-year",
+    })).rejects.toThrow("current year of study");
+
+    const saved = await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "second",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "external-profile-complete",
+    });
+    const me = await participant.query(api.participants.me, { eventSlug: fixture.eventSlug });
+    expect(me?.profile).toMatchObject({
+      id: saved.profileId,
+      fullName: "Aarav Menon",
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "second",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      isComplete: true,
+    });
+  });
+
   test("transfers team leadership and its exact grants through an idempotent acceptance", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
@@ -1115,15 +1166,18 @@ describe("participant onboarding lifecycle", () => {
     await expect(participant.mutation(api.participants.saveProfile, {
       eventSlug: fixture.eventSlug,
       participantPolicyVersionId: fixture.policyId,
-      vitCampus: "Vellore",
+      phone: "+91 90000 00000",
+      gender: "male",
       expectedProfileVersion: 0,
       clientOperationId: "hostel-missing-residence",
-    })).rejects.toThrow("Hostel residence is required");
+    })).rejects.toThrow("day scholar or hosteller");
 
     await expect(participant.mutation(api.participants.saveProfile, {
       eventSlug: fixture.eventSlug,
       participantPolicyVersionId: fixture.policyId,
-      vitCampus: "Vellore",
+      phone: "+91 90000 00000",
+      gender: "male",
+      vitResidenceType: "hosteller",
       vitHostelResidence: "mh_s",
       expectedProfileVersion: 0,
       clientOperationId: "hostel-retired-mens-s-block",
@@ -1132,7 +1186,9 @@ describe("participant onboarding lifecycle", () => {
     await expect(participant.mutation(api.participants.saveProfile, {
       eventSlug: fixture.eventSlug,
       participantPolicyVersionId: fixture.policyId,
-      vitCampus: "Vellore",
+      phone: "+91 90000 00000",
+      gender: "male",
+      vitResidenceType: "hosteller",
       vitHostelResidence: "mh_b",
       expectedProfileVersion: 0,
       clientOperationId: "hostel-missing-room",
@@ -1141,17 +1197,21 @@ describe("participant onboarding lifecycle", () => {
     await expect(participant.mutation(api.participants.saveProfile, {
       eventSlug: fixture.eventSlug,
       participantPolicyVersionId: fixture.policyId,
-      vitCampus: "Vellore",
-      vitHostelResidence: "day_scholar",
+      phone: "+91 90000 00000",
+      gender: "female",
+      vitResidenceType: "day_scholar",
+      vitHostelResidence: "lh_s",
       vitHostelRoomNumber: "412",
       expectedProfileVersion: 0,
       clientOperationId: "hostel-day-scholar-room",
-    })).rejects.toThrow("Day scholars do not have a hostel room number");
+    })).rejects.toThrow("Day scholars do not have a hostel block or room number");
 
     const ladies = await participant.mutation(api.participants.saveProfile, {
       eventSlug: fixture.eventSlug,
       participantPolicyVersionId: fixture.policyId,
-      vitCampus: "Vellore",
+      phone: "+91 90000 00000",
+      gender: "female",
+      vitResidenceType: "hosteller",
       vitHostelResidence: "lh_s",
       vitHostelRoomNumber: "412",
       expectedProfileVersion: 0,
@@ -1162,6 +1222,8 @@ describe("participant onboarding lifecycle", () => {
     });
     expect(afterLadies?.profile).toMatchObject({
       id: ladies.profileId,
+      gender: "female",
+      vitResidenceType: "hosteller",
       vitHostelResidence: "lh_s",
       vitHostelRoomNumber: "412",
       isComplete: true,
@@ -1170,7 +1232,9 @@ describe("participant onboarding lifecycle", () => {
     const mens = await participant.mutation(api.participants.saveProfile, {
       eventSlug: fixture.eventSlug,
       participantPolicyVersionId: fixture.policyId,
-      vitCampus: "Vellore",
+      phone: "+91 90000 00000",
+      gender: "male",
+      vitResidenceType: "hosteller",
       vitHostelResidence: "mh_b",
       vitHostelRoomNumber: "108",
       expectedProfileVersion: ladies.profileVersion,
@@ -1181,6 +1245,8 @@ describe("participant onboarding lifecycle", () => {
     });
     expect(afterMens?.profile).toMatchObject({
       id: mens.profileId,
+      gender: "male",
+      vitResidenceType: "hosteller",
       vitHostelResidence: "mh_b",
       vitHostelRoomNumber: "108",
       isComplete: true,
@@ -1189,8 +1255,9 @@ describe("participant onboarding lifecycle", () => {
     await participant.mutation(api.participants.saveProfile, {
       eventSlug: fixture.eventSlug,
       participantPolicyVersionId: fixture.policyId,
-      vitCampus: "Vellore",
-      vitHostelResidence: "day_scholar",
+      phone: "+91 90000 00000",
+      gender: "male",
+      vitResidenceType: "day_scholar",
       expectedProfileVersion: mens.profileVersion,
       clientOperationId: "hostel-day-scholar",
     });
@@ -1198,9 +1265,10 @@ describe("participant onboarding lifecycle", () => {
       eventSlug: fixture.eventSlug,
     });
     expect(afterDayScholar?.profile).toMatchObject({
-      vitHostelResidence: "day_scholar",
+      vitResidenceType: "day_scholar",
       isComplete: true,
     });
+    expect(afterDayScholar?.profile?.vitHostelResidence).toBeUndefined();
     expect(afterDayScholar?.profile?.vitHostelRoomNumber).toBeUndefined();
     expect(provisioned.created).toBe(true);
   });

@@ -73,28 +73,28 @@ describe("participant policy lifecycle", () => {
     const policy = normalizeParticipantPolicy({
       ...defaultParticipantPolicy,
       vitHostelResidenceCatalog: [
-        { stableKey: " day_scholar ", label: " Day scholar ", kind: "day_scholar" },
         { stableKey: "mh_new_annex", label: " New annex ", kind: "mens" },
+        { stableKey: "lh_new_annex", label: " New ladies annex ", kind: "ladies" },
       ],
     });
     expect(policy.vitHostelResidenceCatalog).toEqual([
-      { stableKey: "day_scholar", label: "Day scholar", kind: "day_scholar" },
       { stableKey: "mh_new_annex", label: "New annex", kind: "mens" },
+      { stableKey: "lh_new_annex", label: "New ladies annex", kind: "ladies" },
     ]);
     expect(() => normalizeParticipantPolicy({
       ...defaultParticipantPolicy,
       vitHostelResidenceCatalog: [
-        { stableKey: "day_scholar", label: "Day scholar", kind: "day_scholar" },
-        { stableKey: "day_scholar", label: "Duplicate", kind: "mens" },
+        { stableKey: "mh_a", label: "A block", kind: "mens" },
+        { stableKey: "mh_a", label: "Duplicate", kind: "ladies" },
       ],
     })).toThrow("duplicated");
     expect(() => normalizeParticipantPolicy({
       ...defaultParticipantPolicy,
       vitHostelResidenceCatalog: [
         { stableKey: "mh_a", label: "A block", kind: "mens" },
-        { stableKey: "lh_a", label: "A block", kind: "ladies" },
+        { stableKey: "mh_b", label: "B block", kind: "mens" },
       ],
-    })).toThrow("exactly one day-scholar");
+    })).toThrow("at least one men's and one ladies' block");
   });
 
   test("VIT hostel completeness requires a current block and room, or day scholar", async () => {
@@ -107,10 +107,8 @@ describe("participant policy lifecycle", () => {
         yearOfStudy: "third",
         vitRegistrationNumber: "24TST0001",
         vitProgramme: "TST",
-        vitCampus: "Vellore",
-        currentRole: undefined,
-        externalCity: undefined,
-        externalCountry: undefined,
+        externalUniversity: undefined,
+        externalCollege: undefined,
       });
       const membership = await ctx.db.get(fixture.membershipId);
       const policy = await ctx.db.get(fixture.policyId);
@@ -123,6 +121,7 @@ describe("participant policy lifecycle", () => {
       if (!blockOnly) throw new Error("The hostel block-only profile is missing.");
       expect(isProfileCompleteForPolicy(blockOnly, membership, policy)).toBe(false);
       await ctx.db.patch(incomplete._id, {
+        vitResidenceType: "hosteller",
         vitHostelResidence: "mh_b",
         vitHostelRoomNumber: "108",
       });
@@ -130,7 +129,8 @@ describe("participant policy lifecycle", () => {
       if (!hosteller) throw new Error("The hosteller profile is missing.");
       expect(isProfileCompleteForPolicy(hosteller, membership, policy)).toBe(true);
       await ctx.db.patch(incomplete._id, {
-        vitHostelResidence: "day_scholar",
+        vitResidenceType: "day_scholar",
+        vitHostelResidence: undefined,
         vitHostelRoomNumber: undefined,
       });
       const dayScholar = await ctx.db.get(incomplete._id);
@@ -167,7 +167,7 @@ describe("participant policy lifecycle", () => {
     expect(drafts).toHaveLength(1);
   });
 
-  test("publication makes current-policy acceptance and new required fields explicit", async () => {
+  test("publication makes current-policy acceptance explicit", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "publication");
     const before = await backend.run(async (ctx) => {
@@ -179,7 +179,7 @@ describe("participant policy lifecycle", () => {
     });
     expect(before).toBe(true);
 
-    const nextPolicy = { ...policy("Second", 5), phoneField: "required" as const };
+    const nextPolicy = policy("Second", 5);
     const draft = await backend.run((ctx) => saveParticipantPolicyDraft(ctx, {
       event: fixture.event,
       actorPersonId: fixture.personId,
@@ -212,11 +212,6 @@ describe("participant policy lifecycle", () => {
       const profile = await ctx.db.get(fixture.profileId);
       const membership = await ctx.db.get(fixture.membershipId);
       if (!profile || !membership) throw new Error("The participant profile state is missing.");
-      await ctx.db.patch(profile._id, {
-        phone: "+91 90000 00000",
-        profileVersion: profile.profileVersion + 1,
-        updatedAt: fixture.now + 3,
-      });
       await ctx.db.patch(membership._id, {
         acceptedParticipantPolicyVersionIds: [fixture.policyId, draft.policyVersionId],
         updatedAt: fixture.now + 3,
@@ -600,9 +595,12 @@ async function seedFixture(
       membershipId,
       participantClass: "external_participant",
       fullName: "Aarav Menon",
+      phone: "+91 90000 00000",
+      gender: "male",
       institution: "Example University",
       yearOfStudy: "third",
-      externalCountry: "India",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
       profileVersion: 1,
       updatedAt: now,
     });

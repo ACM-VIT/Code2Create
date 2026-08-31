@@ -1,4 +1,4 @@
-export type VitHostelResidenceKind = "day_scholar" | "mens" | "ladies";
+export type VitHostelResidenceKind = "mens" | "ladies";
 
 export type VitHostelResidenceCatalogEntry = {
   stableKey: string;
@@ -7,7 +7,6 @@ export type VitHostelResidenceCatalogEntry = {
 };
 
 export const defaultVitHostelResidenceCatalog: VitHostelResidenceCatalogEntry[] = [
-  { stableKey: "day_scholar", label: "Day scholar", kind: "day_scholar" },
   { stableKey: "mh_a", label: "A block", kind: "mens" },
   { stableKey: "mh_b", label: "B block", kind: "mens" },
   { stableKey: "mh_c", label: "C block", kind: "mens" },
@@ -43,12 +42,6 @@ export function findVitHostelResidenceCatalogEntry(
   value: string,
 ) {
   return catalog.find((entry) => entry.stableKey === value) ?? null;
-}
-
-export function isVitHostelResidenceCatalogBlock(
-  entry: VitHostelResidenceCatalogEntry,
-) {
-  return entry.kind !== "day_scholar";
 }
 
 export function vitHostelResidenceCatalogLabel(

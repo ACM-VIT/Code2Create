@@ -329,7 +329,7 @@ export const members = query({
         teamMemberId: member._id,
         membershipId: member.membershipId,
         role: member.role,
-        displayName: profile?.preferredName ?? profile?.fullName ?? memberPerson.displayName,
+        displayName: profile?.fullName ?? memberPerson.displayName,
         ...(profile?.institution !== undefined ? { institution: profile.institution } : {}),
         participantClass: eventMembership.participantClass,
       };

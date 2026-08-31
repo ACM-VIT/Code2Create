@@ -708,7 +708,7 @@ export const sessionRoster = query({
       visible.push({
         membershipId: membership._id,
         displayName:
-          profile?.preferredName ?? profile?.fullName ?? participantPerson.displayName,
+          profile?.fullName ?? participantPerson.displayName,
         ...(team ? { teamName: team.name } : {}),
         expectation: participant.expectation,
         state: participant.state,

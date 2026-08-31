@@ -234,7 +234,7 @@ export async function refreshSubmittedApplicationRoster(
       role: member.teamMember.role,
       participantClass: member.membership.participantClass,
       displayName:
-        member.profile.preferredName ?? member.profile.fullName ?? member.person.displayName,
+        member.profile.fullName ?? member.person.displayName,
       institution: member.profile.institution,
       yearOfStudy: member.profile.yearOfStudy,
       profileVersion: member.profile.profileVersion,

@@ -1,15 +1,16 @@
 import { api } from '@code2create/backend/api'
 import {
-  findVitHostelResidenceCatalogEntry,
-  isVitHostelResidenceCatalogBlock,
+  participantGenderLabels,
   studyYearLabels,
+  vitResidenceTypeLabels,
+  type ParticipantGender,
+  type VitResidenceType,
 } from '@code2create/domain'
 import { useMutation } from 'convex/react'
 import { useState, type FormEvent } from 'react'
-import { PortalScene } from '../components/portal/PortalScene'
+import { AccountBadge } from '../components/portal/AccountBadge'
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalButton } from '../components/portal/PortalButton'
-import { AccountBadge } from '../components/portal/AccountBadge'
 import {
   PortalCheckRow,
   PortalError,
@@ -17,6 +18,7 @@ import {
   PortalInput,
   PortalSelect,
 } from '../components/portal/PortalField'
+import { PortalScene } from '../components/portal/PortalScene'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
@@ -24,29 +26,9 @@ import type { ParticipantMe } from '../types'
 
 /** The policy page on the event site; the privacy notice URL stays config-driven. */
 const participantPolicyUrl = 'https://c2c.acmvit.in/policy'
+const vitInstitutionName = 'Vellore Institute of Technology, Vellore'
 
 type StudyYear = NonNullable<ParticipantMe['profile']>['yearOfStudy']
-type HostelCatalog = ParticipantMe['participantPolicy']['policy']['vitHostelResidenceCatalog']
-
-function hostelDetailsPayload(
-  catalog: HostelCatalog,
-  residenceValue: string,
-  roomNumber: string,
-) {
-  const residence = findVitHostelResidenceCatalogEntry(catalog, residenceValue)
-  if (!residence) return {}
-  return {
-    vitHostelResidence: residence.stableKey,
-    ...(isVitHostelResidenceCatalogBlock(residence) && roomNumber
-      ? { vitHostelRoomNumber: roomNumber }
-      : {}),
-  }
-}
-
-function hostelBlockSelected(catalog: HostelCatalog, value: string) {
-  const residence = findVitHostelResidenceCatalogEntry(catalog, value)
-  return residence !== null && isVitHostelResidenceCatalogBlock(residence)
-}
 
 function parseStudyYear(value: string): StudyYear | null {
   switch (value) {
@@ -56,19 +38,13 @@ function parseStudyYear(value: string): StudyYear | null {
     case 'fourth':
     case 'fifth_or_later':
     case 'postgraduate':
-    case 'not_applicable':
       return value
     default:
       return null
   }
 }
 
-/**
- * Onboarding step two (mockup f0b): the details Google cannot tell us, with
- * policy consent inline. Accepting the policy and saving the profile are two
- * independent idempotent commands behind one Continue, so a partial failure
- * retries cleanly.
- */
+/** Google-derived identity is read-only; participants provide event-only details. */
 export function DetailsScreen({
   me,
   canWriteProfile,
@@ -82,17 +58,16 @@ export function DetailsScreen({
   const existing = me.profile
   const saveProfile = useMutation(api.participants.saveProfile)
   const acceptPolicy = useMutation(api.participants.acceptPolicy)
-  const [fullName, setFullName] = useState(existing?.fullName ?? me.person.displayName)
-  const [preferredName, setPreferredName] = useState(existing?.preferredName ?? '')
   const [phone, setPhone] = useState(existing?.phone ?? '')
-  const [institution, setInstitution] = useState(existing?.institution ?? '')
-  const [yearOfStudy, setYearOfStudy] = useState(existing?.yearOfStudy ?? 'first')
-  const [currentRole, setCurrentRole] = useState(existing?.currentRole ?? '')
-  const [campus, setCampus] = useState(existing?.vitCampus ?? '')
+  const [gender, setGender] = useState<ParticipantGender | ''>(existing?.gender ?? '')
+  const [yearOfStudy, setYearOfStudy] = useState<StudyYear | ''>(existing?.yearOfStudy ?? '')
+  const [residenceType, setResidenceType] = useState<VitResidenceType | ''>(
+    existing?.vitResidenceType ?? '',
+  )
   const [hostelResidence, setHostelResidence] = useState(existing?.vitHostelResidence ?? '')
   const [hostelRoomNumber, setHostelRoomNumber] = useState(existing?.vitHostelRoomNumber ?? '')
-  const [externalCity, setExternalCity] = useState(existing?.externalCity ?? '')
-  const [externalCountry, setExternalCountry] = useState(existing?.externalCountry ?? '')
+  const [externalUniversity, setExternalUniversity] = useState(existing?.externalUniversity ?? '')
+  const [externalCollege, setExternalCollege] = useState(existing?.externalCollege ?? '')
   const [accepted, setAccepted] = useState(me.participantPolicy.accepted)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -109,9 +84,21 @@ export function DetailsScreen({
   const policy = me.participantPolicy.policy
   const policyAlreadyAccepted = me.participantPolicy.accepted
   const disabled = busy || savePending
+  const hostelKind = gender === 'male' ? 'mens' : gender === 'female' ? 'ladies' : null
+  const visibleHostelBlocks = hostelKind
+    ? policy.vitHostelResidenceCatalog.filter((residence) => residence.kind === hostelKind)
+    : []
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    if (!gender) {
+      setError('Choose Male or Female.')
+      return
+    }
+    if (!vitStudent && !yearOfStudy) {
+      setError('Choose your current year of study.')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -133,28 +120,18 @@ export function DetailsScreen({
           saveProfile({
             eventSlug,
             participantPolicyVersionId: me.participantPolicy.id,
-            ...(!vitStudent ? { fullName } : {}),
-            ...(preferredName ? { preferredName } : {}),
-            ...(policy.phoneField !== 'not_collected' && phone ? { phone } : {}),
-            ...(!vitStudent ? { institution, yearOfStudy } : {}),
-            ...(!vitStudent && yearOfStudy === 'not_applicable' && currentRole
-              ? { currentRole }
+            phone,
+            gender,
+            ...(!vitStudent && yearOfStudy
+              ? { yearOfStudy, externalUniversity, externalCollege }
               : {}),
-            ...(vitStudent && policy.vitCampusField !== 'not_collected' && campus
-              ? { vitCampus: campus }
-              : {}),
-            ...(vitStudent && policy.vitHostelDetailsField !== 'not_collected'
-              ? hostelDetailsPayload(
-                  policy.vitHostelResidenceCatalog,
-                  hostelResidence,
-                  hostelRoomNumber,
-                )
-              : {}),
-            ...(!vitStudent && policy.externalCityField !== 'not_collected' && externalCity
-              ? { externalCity }
-              : {}),
-            ...(!vitStudent && policy.externalCountryField !== 'not_collected' && externalCountry
-              ? { externalCountry }
+            ...(vitStudent && residenceType
+              ? {
+                  vitResidenceType: residenceType,
+                  ...(residenceType === 'hosteller'
+                    ? { vitHostelResidence: hostelResidence, vitHostelRoomNumber: hostelRoomNumber }
+                    : {}),
+                }
               : {}),
             expectedProfileVersion: existing?.profileVersion ?? 0,
             clientOperationId,
@@ -180,10 +157,10 @@ export function DetailsScreen({
     return (
       <PortalScene tree="right" header={header}>
         <PetalCard className="max-w-[560px] px-8 py-7">
-          <h1 className="mb-3 font-display font-light tracking-[-.01em] text-3xl">Profile editing is unavailable.</h1>
-          <p className="text-[13px] text-fg/60">
-            Ask an organizer if this looks wrong.
-          </p>
+          <h1 className="mb-3 font-display font-light tracking-[-.01em] text-3xl">
+            Profile editing is unavailable.
+          </h1>
+          <p className="text-[13px] text-fg/60">Ask an organizer if this looks wrong.</p>
         </PetalCard>
       </PortalScene>
     )
@@ -200,264 +177,183 @@ export function DetailsScreen({
           <form onSubmit={submit}>
             <fieldset disabled={disabled} className="contents">
               <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
-                {vitStudentIdentity ? (
-                  <PortalField label="full name" hint="verified">
-                    {(id) => <PortalInput id={id} readOnly value={vitStudentIdentity.fullName} />}
-                  </PortalField>
-                ) : (
-                  <PortalField label="full name">
-                    {(id) => (
-                      <PortalInput
-                        id={id}
-                        required
-                        value={fullName}
-                        onChange={(event) => setFullName(event.target.value)}
-                      />
-                    )}
-                  </PortalField>
-                )}
-                <PortalField label="preferred name" hint="optional">
+                <PortalField label="full name" hint="from Google">
                   {(id) => (
                     <PortalInput
                       id={id}
-                      placeholder="what should we call you?"
-                      value={preferredName}
-                      onChange={(event) => setPreferredName(event.target.value)}
+                      readOnly
+                      value={vitStudentIdentity?.fullName ?? me.person.displayName}
                     />
                   )}
                 </PortalField>
 
-                {policy.phoneField !== 'not_collected' ? (
-                  <PortalField
-                    label="phone"
-                    {...(policy.phoneField === 'optional' ? { hint: 'optional' } : {})}
-                  >
-                    {(id) => (
-                      <PortalInput
-                        id={id}
-                        inputMode="tel"
-                        required={policy.phoneField === 'required'}
-                        value={phone}
-                        onChange={(event) => setPhone(event.target.value)}
-                      />
-                    )}
-                  </PortalField>
-                ) : null}
+                <PortalField label="phone">
+                  {(id) => (
+                    <PortalInput
+                      id={id}
+                      inputMode="tel"
+                      minLength={7}
+                      required
+                      value={phone}
+                      onChange={(event) => setPhone(event.target.value)}
+                    />
+                  )}
+                </PortalField>
 
-                {vitStudentIdentity ? (
-                  <PortalField label="college or university" hint="verified">
-                    {(id) => <PortalInput id={id} readOnly value="Vellore Institute of Technology" />}
-                  </PortalField>
-                ) : (
-                  <PortalField label="college, university, or organisation">
-                    {(id) => (
-                      <PortalInput
-                        id={id}
-                        required
-                        value={institution}
-                        onChange={(event) => setInstitution(event.target.value)}
-                      />
-                    )}
-                  </PortalField>
-                )}
-
-                {vitStudentIdentity ? (
-                  <PortalField label="year of study" hint="auto">
-                    {(id) => (
-                      <PortalInput
-                        id={id}
-                        readOnly
-                        value={studyYearLabels[vitStudentIdentity.yearOfStudy]}
-                      />
-                    )}
-                  </PortalField>
-                ) : (
-                  <PortalField label="year of study">
-                    {(id) => (
-                      <PortalSelect
-                        id={id}
-                        value={yearOfStudy}
-                        onChange={(event) => {
-                          const nextYear = parseStudyYear(event.target.value)
-                          if (nextYear) setYearOfStudy(nextYear)
-                        }}
-                      >
-                        <option value="first">First year</option>
-                        <option value="second">Second year</option>
-                        <option value="third">Third year</option>
-                        <option value="fourth">Fourth year</option>
-                        <option value="fifth_or_later">Fifth year or later</option>
-                        <option value="postgraduate">Postgraduate</option>
-                        <option value="not_applicable">Not a student</option>
-                      </PortalSelect>
-                    )}
-                  </PortalField>
-                )}
-
-                {!vitStudent && yearOfStudy === 'not_applicable' ? (
-                  <PortalField label="current role">
-                    {(id) => (
-                      <PortalInput
-                        id={id}
-                        required
-                        value={currentRole}
-                        onChange={(event) => setCurrentRole(event.target.value)}
-                      />
-                    )}
-                  </PortalField>
-                ) : null}
+                <PortalField label="gender">
+                  {(id) => (
+                    <PortalSelect
+                      id={id}
+                      required
+                      value={gender}
+                      onChange={(event) => {
+                        const nextGender = event.target.value as ParticipantGender | ''
+                        setGender(nextGender)
+                        setHostelResidence('')
+                        setHostelRoomNumber('')
+                      }}
+                    >
+                      <option value="">Select gender</option>
+                      <option value="male">{participantGenderLabels.male}</option>
+                      <option value="female">{participantGenderLabels.female}</option>
+                    </PortalSelect>
+                  )}
+                </PortalField>
 
                 {vitStudentIdentity ? (
                   <>
-                    {policy.vitRegistrationNumberField !== 'not_collected' ? (
-                      <PortalField
-                        label="registration number"
-                        hint="verified"
-                      >
-                        {(id) => (
-                          <PortalInput
-                            id={id}
-                            className="font-mono"
-                            readOnly
-                            value={vitStudentIdentity.registrationNumber}
-                          />
-                        )}
-                      </PortalField>
-                    ) : null}
-                    {policy.vitProgrammeField !== 'not_collected' ? (
-                      <PortalField
-                        label="programme code"
-                        hint="auto"
-                      >
-                        {(id) => (
-                          <PortalInput
-                            id={id}
-                            readOnly
-                            value={vitStudentIdentity.programmeCode}
-                          />
-                        )}
-                      </PortalField>
-                    ) : null}
-                    {policy.vitCampusField !== 'not_collected' ? (
-                      <PortalField
-                        label="campus"
-                        {...(policy.vitCampusField === 'optional' ? { hint: 'optional' } : {})}
-                      >
-                        {(id) => (
-                          <PortalInput
-                            id={id}
-                            required={policy.vitCampusField === 'required'}
-                            value={campus}
-                            onChange={(event) => setCampus(event.target.value)}
-                          />
-                        )}
-                      </PortalField>
-                    ) : null}
-                    {policy.vitHostelDetailsField !== 'not_collected' ? (
-                      <>
-                        <PortalField
-                          label="hostel"
-                          {...(policy.vitHostelDetailsField === 'optional' ? { hint: 'optional' } : {})}
+                    <PortalField label="college or university" hint="fixed">
+                      {(id) => <PortalInput id={id} readOnly value={vitInstitutionName} />}
+                    </PortalField>
+                    <PortalField label="year of study" hint="auto">
+                      {(id) => (
+                        <PortalInput
+                          id={id}
+                          readOnly
+                          value={studyYearLabels[vitStudentIdentity.yearOfStudy]}
+                        />
+                      )}
+                    </PortalField>
+                    <PortalField label="registration number" hint="verified">
+                      {(id) => (
+                        <PortalInput
+                          id={id}
+                          className="font-mono"
+                          readOnly
+                          value={vitStudentIdentity.registrationNumber}
+                        />
+                      )}
+                    </PortalField>
+                    <PortalField label="programme code" hint="auto">
+                      {(id) => (
+                        <PortalInput id={id} readOnly value={vitStudentIdentity.programmeCode} />
+                      )}
+                    </PortalField>
+                    <PortalField label="residence">
+                      {(id) => (
+                        <PortalSelect
+                          id={id}
+                          required
+                          value={residenceType}
+                          onChange={(event) => {
+                            const nextType = event.target.value as VitResidenceType | ''
+                            setResidenceType(nextType)
+                            setHostelResidence('')
+                            setHostelRoomNumber('')
+                          }}
                         >
+                          <option value="">Select residence</option>
+                          <option value="day_scholar">
+                            {vitResidenceTypeLabels.day_scholar}
+                          </option>
+                          <option value="hosteller">{vitResidenceTypeLabels.hosteller}</option>
+                        </PortalSelect>
+                      )}
+                    </PortalField>
+                    {residenceType === 'hosteller' ? (
+                      <>
+                        <PortalField label="hostel block">
                           {(id) => (
                             <PortalSelect
                               id={id}
-                              required={policy.vitHostelDetailsField === 'required'}
+                              required
+                              disabled={!hostelKind}
                               value={hostelResidence}
                               onChange={(event) => {
-                                const nextResidence = event.target.value
-                                setHostelResidence(nextResidence)
-                                const parsed = findVitHostelResidenceCatalogEntry(
-                                  policy.vitHostelResidenceCatalog,
-                                  nextResidence,
-                                )
-                                if (!parsed || !isVitHostelResidenceCatalogBlock(parsed)) {
-                                  setHostelRoomNumber('')
-                                }
+                                setHostelResidence(event.target.value)
+                                setHostelRoomNumber('')
                               }}
                             >
-                              <option value="">Select residence</option>
-                              {policy.vitHostelResidenceCatalog
-                                .filter((residence) => residence.kind === 'day_scholar')
-                                .map((residence) => (
-                                  <option key={residence.stableKey} value={residence.stableKey}>
-                                    {residence.label}
-                                  </option>
-                                ))}
-                              <optgroup label="Men's hostel">
-                                {policy.vitHostelResidenceCatalog
-                                  .filter((residence) => residence.kind === 'mens')
-                                  .map((residence) => (
-                                  <option key={residence.stableKey} value={residence.stableKey}>
-                                    {residence.label}
-                                  </option>
-                                ))}
-                              </optgroup>
-                              <optgroup label="Ladies' hostel">
-                                {policy.vitHostelResidenceCatalog
-                                  .filter((residence) => residence.kind === 'ladies')
-                                  .map((residence) => (
-                                  <option key={residence.stableKey} value={residence.stableKey}>
-                                    {residence.label}
-                                  </option>
-                                ))}
-                              </optgroup>
+                              <option value="">
+                                {hostelKind ? 'Select hostel block' : 'Select gender first'}
+                              </option>
+                              {visibleHostelBlocks.map((residence) => (
+                                <option key={residence.stableKey} value={residence.stableKey}>
+                                  {residence.label}
+                                </option>
+                              ))}
                             </PortalSelect>
                           )}
                         </PortalField>
-                        {hostelBlockSelected(
-                          policy.vitHostelResidenceCatalog,
-                          hostelResidence,
-                        ) ? (
-                          <PortalField label="room number">
-                            {(id) => (
-                              <PortalInput
-                                id={id}
-                                required
-                                className="font-mono"
-                                inputMode="text"
-                                autoCapitalize="characters"
-                                value={hostelRoomNumber}
-                                onChange={(event) => setHostelRoomNumber(event.target.value)}
-                              />
-                            )}
-                          </PortalField>
-                        ) : null}
+                        <PortalField label="room number">
+                          {(id) => (
+                            <PortalInput
+                              id={id}
+                              required
+                              className="font-mono"
+                              inputMode="text"
+                              autoCapitalize="characters"
+                              value={hostelRoomNumber}
+                              onChange={(event) => setHostelRoomNumber(event.target.value)}
+                            />
+                          )}
+                        </PortalField>
                       </>
                     ) : null}
                   </>
                 ) : (
                   <>
-                    {policy.externalCityField !== 'not_collected' ? (
-                      <PortalField
-                        label="city"
-                        {...(policy.externalCityField === 'optional' ? { hint: 'optional' } : {})}
-                      >
-                        {(id) => (
-                          <PortalInput
-                            id={id}
-                            required={policy.externalCityField === 'required'}
-                            value={externalCity}
-                            onChange={(event) => setExternalCity(event.target.value)}
-                          />
-                        )}
-                      </PortalField>
-                    ) : null}
-                    {policy.externalCountryField !== 'not_collected' ? (
-                      <PortalField
-                        label="country"
-                        {...(policy.externalCountryField === 'optional' ? { hint: 'optional' } : {})}
-                      >
-                        {(id) => (
-                          <PortalInput
-                            id={id}
-                            required={policy.externalCountryField === 'required'}
-                            value={externalCountry}
-                            onChange={(event) => setExternalCountry(event.target.value)}
-                          />
-                        )}
-                      </PortalField>
-                    ) : null}
+                    <PortalField label="university">
+                      {(id) => (
+                        <PortalInput
+                          id={id}
+                          required
+                          value={externalUniversity}
+                          onChange={(event) => setExternalUniversity(event.target.value)}
+                        />
+                      )}
+                    </PortalField>
+                    <PortalField label="college">
+                      {(id) => (
+                        <PortalInput
+                          id={id}
+                          required
+                          value={externalCollege}
+                          onChange={(event) => setExternalCollege(event.target.value)}
+                        />
+                      )}
+                    </PortalField>
+                    <PortalField label="year of study">
+                      {(id) => (
+                        <PortalSelect
+                          id={id}
+                          required
+                          value={yearOfStudy}
+                          onChange={(event) => {
+                            const nextYear = parseStudyYear(event.target.value)
+                            if (nextYear) setYearOfStudy(nextYear)
+                          }}
+                        >
+                          <option value="">Select year of study</option>
+                          <option value="first">First year</option>
+                          <option value="second">Second year</option>
+                          <option value="third">Third year</option>
+                          <option value="fourth">Fourth year</option>
+                          <option value="fifth_or_later">Fifth year or later</option>
+                          <option value="postgraduate">Postgraduate</option>
+                        </PortalSelect>
+                      )}
+                    </PortalField>
                   </>
                 )}
               </div>
@@ -487,9 +383,7 @@ export function DetailsScreen({
                     privacy notice
                   </a>
                 </PortalCheckRow>
-                <p className="mt-2 pl-6 text-[11.5px] text-fg/45">
-                  {policy.profileNotice}
-                </p>
+                <p className="mt-2 pl-6 text-[11.5px] text-fg/45">{policy.profileNotice}</p>
               </div>
             </fieldset>
 

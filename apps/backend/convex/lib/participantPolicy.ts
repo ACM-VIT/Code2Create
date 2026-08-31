@@ -1,7 +1,6 @@
 import {
   defaultVitHostelResidenceCatalog,
   findVitHostelResidenceCatalogEntry,
-  isVitHostelResidenceCatalogBlock,
   type VitHostelResidenceCatalogEntry,
   type VitHostelResidenceKind,
 } from "@code2create/domain";
@@ -14,16 +13,7 @@ import { fingerprintText, normalizedLongText, normalizedText } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
-export const profileFieldMode = v.union(
-  v.literal("not_collected"),
-  v.literal("optional"),
-  v.literal("required"),
-);
-
-export type ProfileFieldMode = "not_collected" | "optional" | "required";
-
 export const vitHostelResidenceKind = v.union(
-  v.literal("day_scholar"),
   v.literal("mens"),
   v.literal("ladies"),
 );
@@ -39,13 +29,6 @@ export const participantPolicyInput = v.object({
   teamMinimumSize: v.number(),
   teamMaximumSize: v.number(),
   mixedParticipantClassesAllowed: v.boolean(),
-  phoneField: profileFieldMode,
-  vitRegistrationNumberField: profileFieldMode,
-  vitProgrammeField: profileFieldMode,
-  vitCampusField: profileFieldMode,
-  externalCityField: profileFieldMode,
-  externalCountryField: profileFieldMode,
-  vitHostelDetailsField: profileFieldMode,
   vitHostelResidenceCatalog: v.array(vitHostelResidenceCatalogEntry),
   profileNotice: v.string(),
   projectTextNotice: v.string(),
@@ -59,13 +42,6 @@ export type ParticipantPolicy = {
   teamMinimumSize: number;
   teamMaximumSize: number;
   mixedParticipantClassesAllowed: boolean;
-  phoneField: ProfileFieldMode;
-  vitRegistrationNumberField: ProfileFieldMode;
-  vitProgrammeField: ProfileFieldMode;
-  vitCampusField: ProfileFieldMode;
-  externalCityField: ProfileFieldMode;
-  externalCountryField: ProfileFieldMode;
-  vitHostelDetailsField: ProfileFieldMode;
   vitHostelResidenceCatalog: VitHostelResidenceCatalogEntry[];
   profileNotice: string;
   projectTextNotice: string;
@@ -82,13 +58,6 @@ export const defaultParticipantPolicy: ParticipantPolicy = {
   teamMinimumSize: 2,
   teamMaximumSize: 5,
   mixedParticipantClassesAllowed: false,
-  phoneField: "optional",
-  vitRegistrationNumberField: "required",
-  vitProgrammeField: "required",
-  vitCampusField: "required",
-  externalCityField: "optional",
-  externalCountryField: "required",
-  vitHostelDetailsField: "required",
   vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
   profileNotice:
     "We use these details to establish event eligibility, contact you about operations, and run Code2Create.",
@@ -132,11 +101,12 @@ function normalizeVitHostelResidenceCatalog(
 ) {
   if (catalog.length < 2 || catalog.length > maximumVitHostelResidenceCount) {
     invalidPolicy(
-      `The VIT residence catalogue must contain 2 to ${maximumVitHostelResidenceCount} entries.`,
+      `The VIT hostel block catalogue must contain 2 to ${maximumVitHostelResidenceCount} entries.`,
     );
   }
   const stableKeys = new Set<string>();
-  let dayScholarCount = 0;
+  let mensCount = 0;
+  let ladiesCount = 0;
   const normalized = catalog.map((entry, index) => {
     const stableKey = entry.stableKey.trim().toLowerCase();
     if (!/^[a-z][a-z0-9_]{1,39}$/.test(stableKey)) {
@@ -149,18 +119,18 @@ function normalizeVitHostelResidenceCatalog(
     }
     stableKeys.add(stableKey);
     const kind: VitHostelResidenceKind = entry.kind;
-    if (kind === "day_scholar") dayScholarCount += 1;
+    if (kind === "mens") mensCount += 1;
+    if (kind === "ladies") ladiesCount += 1;
     return {
       stableKey,
       label: normalizedText(entry.label, `VIT residence ${index + 1} label`, 2, 80),
       kind,
     };
   });
-  if (dayScholarCount !== 1) {
-    invalidPolicy("The VIT residence catalogue must contain exactly one day-scholar entry.");
-  }
-  if (normalized.every((entry) => entry.kind === "day_scholar")) {
-    invalidPolicy("The VIT residence catalogue must contain at least one hostel block.");
+  if (mensCount === 0 || ladiesCount === 0) {
+    invalidPolicy(
+      "The VIT hostel block catalogue must contain at least one men's and one ladies' block.",
+    );
   }
   return normalized;
 }
@@ -200,13 +170,6 @@ export function normalizeParticipantPolicy(input: ParticipantPolicy): Participan
     teamMinimumSize,
     teamMaximumSize,
     mixedParticipantClassesAllowed: false,
-    phoneField: input.phoneField,
-    vitRegistrationNumberField: input.vitRegistrationNumberField,
-    vitProgrammeField: input.vitProgrammeField,
-    vitCampusField: input.vitCampusField,
-    externalCityField: input.externalCityField,
-    externalCountryField: input.externalCountryField,
-    vitHostelDetailsField: input.vitHostelDetailsField,
     vitHostelResidenceCatalog: normalizeVitHostelResidenceCatalog(
       input.vitHostelResidenceCatalog,
     ),
@@ -235,13 +198,6 @@ export function participantPolicyFromDocument(
     teamMinimumSize: policy.teamMinimumSize,
     teamMaximumSize: policy.teamMaximumSize,
     mixedParticipantClassesAllowed: policy.mixedParticipantClassesAllowed,
-    phoneField: policy.phoneField,
-    vitRegistrationNumberField: policy.vitRegistrationNumberField,
-    vitProgrammeField: policy.vitProgrammeField,
-    vitCampusField: policy.vitCampusField,
-    externalCityField: policy.externalCityField,
-    externalCountryField: policy.externalCountryField,
-    vitHostelDetailsField: policy.vitHostelDetailsField,
     vitHostelResidenceCatalog: policy.vitHostelResidenceCatalog,
     profileNotice: policy.profileNotice,
     projectTextNotice: policy.projectTextNotice,
@@ -330,28 +286,25 @@ export async function participantPolicyPublicationIssue(
   return null;
 }
 
-function requiredValue(mode: ProfileFieldMode, value: string | undefined) {
-  return mode !== "required" || value !== undefined;
-}
-
 function hostelDetailsComplete(
   profile: Doc<"participantProfiles">,
-  mode: ProfileFieldMode,
   catalog: readonly VitHostelResidenceCatalogEntry[],
 ) {
-  if (mode === "not_collected") return true;
-  if (profile.vitHostelResidence === undefined) {
-    return mode === "optional" && profile.vitHostelRoomNumber === undefined;
+  if (profile.vitResidenceType === "day_scholar") {
+    return (
+      profile.vitHostelResidence === undefined
+      && profile.vitHostelRoomNumber === undefined
+    );
   }
+  if (profile.vitResidenceType !== "hosteller") return false;
+  if (profile.vitHostelResidence === undefined) return false;
   const residence = findVitHostelResidenceCatalogEntry(
     catalog,
     profile.vitHostelResidence,
   );
   if (!residence) return false;
-  if (!isVitHostelResidenceCatalogBlock(residence)) {
-    return profile.vitHostelRoomNumber === undefined;
-  }
-  return profile.vitHostelRoomNumber !== undefined;
+  const expectedKind = profile.gender === "male" ? "mens" : "ladies";
+  return residence.kind === expectedKind && profile.vitHostelRoomNumber !== undefined;
 }
 
 export function isProfileCompleteForPolicy(
@@ -366,27 +319,25 @@ export function isProfileCompleteForPolicy(
     !membership.acceptedParticipantPolicyVersionIds.includes(policy._id) ||
     profile.fullName.length === 0 ||
     profile.institution.length === 0 ||
-    !requiredValue(policy.phoneField, profile.phone)
+    profile.phone.length === 0
   ) {
     return false;
   }
   if (profile.participantClass === "vit_student") {
     return (
       profile.yearOfStudy !== "not_applicable" &&
-      requiredValue(policy.vitRegistrationNumberField, profile.vitRegistrationNumber) &&
-      requiredValue(policy.vitProgrammeField, profile.vitProgramme) &&
-      requiredValue(policy.vitCampusField, profile.vitCampus) &&
+      profile.vitRegistrationNumber !== undefined &&
+      profile.vitProgramme !== undefined &&
       hostelDetailsComplete(
         profile,
-        policy.vitHostelDetailsField,
         policy.vitHostelResidenceCatalog,
       )
     );
   }
   return (
-    (profile.yearOfStudy !== "not_applicable" || profile.currentRole !== undefined) &&
-    requiredValue(policy.externalCityField, profile.externalCity) &&
-    requiredValue(policy.externalCountryField, profile.externalCountry)
+    profile.yearOfStudy !== "not_applicable" &&
+    profile.externalUniversity !== undefined &&
+    profile.externalCollege !== undefined
   );
 }
 

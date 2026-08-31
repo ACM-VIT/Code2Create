@@ -341,12 +341,14 @@ async function buildSnapshot(
           : undefined;
       return {
         participantReference: membership._id,
-        name: profile?.preferredName ?? profile?.fullName ?? "Profile incomplete",
+        name: profile?.fullName ?? "Profile incomplete",
         ...(profile?.phone ? { phone: profile.phone } : {}),
         ...(profile?.vitRegistrationNumber
           ? { vitRegistrationNumber: profile.vitRegistrationNumber }
           : {}),
-        ...(profile?.vitHostelResidence !== undefined
+        ...(profile?.vitResidenceType === "day_scholar"
+          ? { vitHostelResidence: "Day scholar" }
+          : profile?.vitHostelResidence !== undefined
           ? {
               vitHostelResidence: vitHostelResidenceLabel(
                 participantPolicy.vitHostelResidenceCatalog,
@@ -556,7 +558,7 @@ function vitHostelResidenceLabel(
   catalog: readonly {
     stableKey: string;
     label: string;
-    kind: "day_scholar" | "mens" | "ladies";
+    kind: "mens" | "ladies";
   }[],
   stableKey: string,
 ) {

@@ -33,7 +33,7 @@ describe("VIT student identity", () => {
   });
 
   test("uses the canonical institution name for internal profiles", () => {
-    expect(vitInstitutionName).toBe("Vellore Institute of Technology");
+    expect(vitInstitutionName).toBe("Vellore Institute of Technology, Vellore");
   });
 
   test.each([

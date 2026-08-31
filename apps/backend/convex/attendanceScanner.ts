@@ -132,7 +132,7 @@ async function scannerReceipt(
     ...(participantPerson
       ? {
           participantName:
-            profile?.preferredName ?? profile?.fullName ?? participantPerson.displayName,
+            profile?.fullName ?? participantPerson.displayName,
         }
       : {}),
   };

@@ -1816,7 +1816,7 @@ export const submissionPreview = query({
       }
       return {
         membershipId: eventMembership._id,
-        displayName: profile?.preferredName ?? profile?.fullName ?? memberPerson.displayName,
+        displayName: profile?.fullName ?? memberPerson.displayName,
         role: activeMember.role,
         submissionReady:
           eventMembership.eligibilityStatus === "eligible" &&
@@ -2270,7 +2270,7 @@ export const materializeSubmissionRoster = internalMutation({
         role: teamMember.role,
         participantClass: membership.participantClass,
         displayName:
-          profile.preferredName ?? profile.fullName ?? memberPerson.displayName,
+          profile.fullName ?? memberPerson.displayName,
         institution: profile.institution,
         yearOfStudy: profile.yearOfStudy,
         profileVersion: profile.profileVersion,

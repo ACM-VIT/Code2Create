@@ -304,7 +304,7 @@ async function participantForReceipt(
   const team = teamMember ? await ctx.db.get(teamMember.teamId) : null;
   return {
     membershipId: membership._id,
-    displayName: profile?.preferredName ?? profile?.fullName ?? person.displayName,
+    displayName: profile?.fullName ?? person.displayName,
     ...(team ? { teamName: team.name } : {}),
     ...(profile?.vitRegistrationNumber
       ? { vitRegistrationNumber: profile.vitRegistrationNumber }

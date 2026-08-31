@@ -15,18 +15,11 @@ import {
 
 type Configuration = FunctionReturnType<typeof api.participantPolicyConfiguration.current>
 type Policy = Configuration['publishedPolicy']['policy']
-type FieldMode = Policy['phoneField']
 type HostelResidence = Policy['vitHostelResidenceCatalog'][number]
 type PolicyOperationResult =
   | FunctionReturnType<typeof api.participantPolicyConfiguration.createDraft>
   | FunctionReturnType<typeof api.participantPolicyConfiguration.publish>
   | FunctionReturnType<typeof api.participantPolicyConfiguration.updateApplicationDeadlines>
-
-const fieldModes: { value: FieldMode; label: string }[] = [
-  { value: 'not_collected', label: 'Do not collect' },
-  { value: 'optional', label: 'Optional' },
-  { value: 'required', label: 'Required' },
-]
 
 const operationDescriptors = [
   {
@@ -281,7 +274,7 @@ export function ParticipantPolicyConfiguration({
       {!operationPending && configuration.canDraft ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(configuration.draftPolicy)}
-          description="Team rules, profile fields, notices, and the final submission warning."
+          description="Team rules, hostel blocks, notices, and the final submission warning."
           title={configuration.draftPolicy ? 'Continue participant-form draft' : 'Edit participant form'}
         >
         <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
@@ -303,29 +296,25 @@ export function ParticipantPolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Profile fields" description="VIT names and institution come from the verified student account; campus, hostel block, and room are supplied by the participant.">
-            <div className="intake-policy-grid">
-              <FieldModeSelect label="Phone" value={policy.phoneField} onChange={(value) => updatePolicy('phoneField', value)} />
-              <FieldModeSelect label="VIT registration number" value={policy.vitRegistrationNumberField} onChange={(value) => updatePolicy('vitRegistrationNumberField', value)} />
-              <FieldModeSelect label="VIT programme" value={policy.vitProgrammeField} onChange={(value) => updatePolicy('vitProgrammeField', value)} />
-              <FieldModeSelect label="VIT campus" value={policy.vitCampusField} onChange={(value) => updatePolicy('vitCampusField', value)} />
-              <FieldModeSelect label="VIT hostel block and room" value={policy.vitHostelDetailsField} onChange={(value) => updatePolicy('vitHostelDetailsField', value)} />
-              <FieldModeSelect label="External participant city" value={policy.externalCityField} onChange={(value) => updatePolicy('externalCityField', value)} />
-              <FieldModeSelect label="External participant country" value={policy.externalCountryField} onChange={(value) => updatePolicy('externalCountryField', value)} />
-            </div>
+          <PolicySection title="Required profile fields" description="These fields are fixed so participant records stay complete and operationally useful.">
+            <p className="notice">
+              Everyone provides phone, Male or Female gender, and year of study. VIT identity is
+              derived from Google and VIT students choose day scholar or hosteller. External
+              participants provide university and college.
+            </p>
           </PolicySection>
 
           <PolicySection
-            title="VIT residence catalogue"
-            description="Published entries appear in the participant hostel selector. Stable keys are stored on profiles; labels and grouping are participant-facing."
+            title="VIT hostel block catalogue"
+            description="Published blocks appear for hostellers after they select Male or Female. Stable keys are stored on profiles; labels and grouping are participant-facing."
           >
             <div className="phase-card-list">
               {policy.vitHostelResidenceCatalog.map((residence, index) => (
                 <article className="phase-card" key={`${residence.stableKey}:${index}`}>
                   <header className="configuration-card-heading">
                     <div>
-                      <span>Residence {index + 1}</span>
-                      <strong>{residence.label || 'Unnamed residence'}</strong>
+                      <span>Hostel block {index + 1}</span>
+                      <strong>{residence.label || 'Unnamed block'}</strong>
                     </div>
                     {policy.vitHostelResidenceCatalog.length > 2 ? (
                       <button className="text-button" type="button" onClick={() => removeHostelResidence(index)}>
@@ -363,7 +352,6 @@ export function ParticipantPolicyConfiguration({
                           kind: readHostelResidenceKind(event.currentTarget.value),
                         })}
                       >
-                        <option value="day_scholar">Day scholar</option>
                         <option value="mens">Men's hostel</option>
                         <option value="ladies">Ladies' hostel</option>
                       </select>
@@ -378,9 +366,9 @@ export function ParticipantPolicyConfiguration({
               type="button"
               onClick={addHostelResidence}
             >
-              Add residence
+              Add hostel block
             </button>
-            <p className="notice">Keep exactly one day-scholar entry and at least one hostel block.</p>
+            <p className="notice">Keep at least one Men's and one Ladies' hostel block.</p>
           </PolicySection>
 
           <PolicySection title="Participant notice" description="The project-question AI never receives profile fields.">
@@ -445,42 +433,18 @@ function indiaTimestampToInput(timestamp: number) {
   return new Date(timestamp + 5.5 * 60 * 60 * 1_000).toISOString().slice(0, 16)
 }
 
-function FieldModeSelect({
-  label,
-  value,
-  onChange,
-}: {
-  label: string
-  value: FieldMode
-  onChange: (value: FieldMode) => void
-}) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(readFieldMode(event.currentTarget.value))}>
-        {fieldModes.map((mode) => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
-      </select>
-    </label>
-  )
-}
-
-function readFieldMode(value: string): FieldMode {
-  if (value === 'not_collected' || value === 'optional' || value === 'required') return value
-  throw new Error('Invalid profile field mode.')
-}
-
 function readHostelResidenceKind(value: string): HostelResidence['kind'] {
-  if (value === 'day_scholar' || value === 'mens' || value === 'ladies') return value
+  if (value === 'mens' || value === 'ladies') return value
   throw new Error('Invalid VIT residence group.')
 }
 
 function nextHostelResidenceKey(catalog: Policy['vitHostelResidenceCatalog']) {
   const stableKeys = new Set(catalog.map((residence) => residence.stableKey))
   for (let suffix = 1; suffix <= 64; suffix += 1) {
-    const candidate = `residence_${suffix}`
+    const candidate = `hostel_${suffix}`
     if (!stableKeys.has(candidate)) return candidate
   }
-  throw new Error('The VIT residence catalogue is full.')
+  throw new Error('The VIT hostel block catalogue is full.')
 }
 
 function PolicySection({
