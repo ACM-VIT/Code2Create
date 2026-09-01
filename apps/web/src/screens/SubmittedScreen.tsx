@@ -15,6 +15,7 @@ import { ProjectCheckpointsPanel } from '../components/ProjectCheckpointsPanel'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
+import { useVersionedState } from '@code2create/web-forms'
 import { PortalScene } from '../components/portal/PortalScene'
 import { PetalCard } from '../components/portal/PetalCard'
 import { Petal } from '../components/portal/Petal'
@@ -188,19 +189,14 @@ function SubmittedWorkspace({
   const [celebrating, setCelebrating] = useState(consumeSubmissionCelebration)
   const [error, setError] = useState<string | null>(null)
   const event = publicState.event
-  const phaseClock = useRef({
-    serverNow: intake.serverNow,
-    clientNow: performance.now(),
-  })
-  const [phaseTime, setPhaseTime] = useState(intake.serverNow)
+  const [phaseClock, setPhaseClock] = useState(() => ({
+    sourceServerNow: intake.serverNow,
+    phaseTime: intake.serverNow,
+  }))
+  const phaseTime = phaseClock.sourceServerNow === intake.serverNow
+    ? phaseClock.phaseTime
+    : intake.serverNow
   const phases = event?.phases
-  useEffect(() => {
-    phaseClock.current = {
-      serverNow: intake.serverNow,
-      clientNow: performance.now(),
-    }
-    setPhaseTime(intake.serverNow)
-  }, [intake.serverNow])
   useEffect(() => {
     const nextBoundary = [
       ...(phases?.flatMap((phase) => [phase.startsAt, phase.endsAt]) ?? []),
@@ -209,17 +205,19 @@ function SubmittedWorkspace({
       .filter((timestamp) => timestamp > phaseTime)
       .toSorted((left, right) => left - right)[0]
     if (nextBoundary === undefined) return
+    const observedAt = performance.now()
+    const observedServerNow = phaseTime
     const timer = window.setTimeout(
       () => {
-        const currentClientNow = performance.now()
-        setPhaseTime(
-          phaseClock.current.serverNow + currentClientNow - phaseClock.current.clientNow,
-        )
+        setPhaseClock({
+          sourceServerNow: intake.serverNow,
+          phaseTime: observedServerNow + performance.now() - observedAt,
+        })
       },
       Math.min(nextBoundary - phaseTime + 100, 2_147_000_000),
     )
     return () => window.clearTimeout(timer)
-  }, [intake.applicationsCloseAt, phaseTime, phases])
+  }, [intake.applicationsCloseAt, intake.serverNow, phaseTime, phases])
   if (!event) {
     return <p className="notice notice-error" role="alert">Event details are unavailable right now.</p>
   }
@@ -934,6 +932,7 @@ function ProposalSummary({
       proposalRevisionBaseFingerprint(latest)
     ) return
     if (editing || hasRecoveredDraft) {
+      // oxlint-disable-next-line react/set-state-in-effect -- A newer server revision must surface as a conflict without replacing the operator's local draft.
       setEditConflict(true)
       return
     }
@@ -1272,26 +1271,17 @@ function InformationResponsePanel({
   const respondToInformationRequest = useMutation(api.admissions.respondToInformationRequest)
   const responseAttempt = useMutationAttempt<FunctionReturnType<typeof api.admissions.respondToInformationRequest>>()
   const responsePending = responseAttempt.hasPending(`information-response:${request.id}`)
-  const [draft, setDraft] = useState(() => ({
+  const draftState = useVersionedState(request.id, {
     requestId: request.id,
     answers: request.questions.map((question) => ({
       questionKey: question.questionKey,
       answer: '',
     })),
-  }))
+  })
+  const draft = draftState.value
+  const setDraft = draftState.update
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (draft.requestId === request.id) return
-    setDraft({
-      requestId: request.id,
-      answers: request.questions.map((question) => ({
-        questionKey: question.questionKey,
-        answer: '',
-      })),
-    })
-  }, [draft.requestId, request])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()

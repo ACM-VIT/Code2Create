@@ -2,7 +2,7 @@ import { api } from '@code2create/backend/api'
 import { TZDateMini } from '@date-fns/tz'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
 import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
@@ -17,6 +17,7 @@ import {
   type ConfigurationOperationDescriptor,
   useConfigurationOperations,
 } from '../lib/configurationOperations'
+import { useVersionedState } from '@code2create/web-forms'
 
 type Configuration = FunctionReturnType<typeof api.phaseConfiguration.current>
 type Schedule = NonNullable<Configuration['publishedSchedule']>
@@ -94,30 +95,26 @@ export function PhaseConfiguration({
       ? { eventSlug, draftScheduleId: configuration.draftSchedule.id }
       : 'skip',
   )
-  const [phases, setPhases] = useState<EditorPhase[]>([])
-  const [loadedSchedule, setLoadedSchedule] = useState('')
+  const schedule = configuration?.draftSchedule ?? configuration?.publishedSchedule
+  const sourceKey = schedule
+    ? `${schedule.id}:${schedule.checksum}`
+    : `empty:${configuration?.timezone ?? 'loading'}`
+  const phaseState = useVersionedState<EditorPhase[]>(
+    sourceKey,
+    schedule && configuration
+      ? schedule.phases.map((phase) => toEditorPhase(phase, configuration.timezone))
+      : phaseDefaults.map((phase) => ({ ...phase, startsAt: '', endsAt: '' })),
+  )
+  const phases = phaseState.value
+  const setPhases = phaseState.update
   const [draftReason, setDraftReason] = useState('Aligned with the event run sheet')
   const [publishReason, setPublishReason] = useState('Checked and approved for participant display')
-  const [publishArmed, setPublishArmed] = useState(false)
+  const publishState = useVersionedState(sourceKey, false)
+  const publishArmed = publishState.value
+  const setPublishArmed = publishState.replace
   const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('phase-schedule-draft')
   const publishPending = operations.hasPending('phase-schedule-publish')
-
-  useEffect(() => {
-    if (!configuration) return
-    const schedule = configuration.draftSchedule ?? configuration.publishedSchedule
-    const sourceKey = schedule
-      ? `${schedule.id}:${schedule.checksum}`
-      : `empty:${configuration.timezone}`
-    if (sourceKey === loadedSchedule) return
-    setPhases(
-      schedule
-        ? schedule.phases.map((phase) => toEditorPhase(phase, configuration.timezone))
-        : phaseDefaults.map((phase) => ({ ...phase, startsAt: '', endsAt: '' })),
-    )
-    setLoadedSchedule(sourceKey)
-    setPublishArmed(false)
-  }, [configuration, loadedSchedule])
 
   if (configuration === undefined) {
     return (

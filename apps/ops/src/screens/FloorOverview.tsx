@@ -2,7 +2,7 @@ import { api } from '@code2create/backend/api'
 import { floorAreaLabels, floorAreas, floorMappingStateLabels } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { useState, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { Link } from 'react-router-dom'
 
 import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
@@ -11,6 +11,7 @@ import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from '../comp
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
+import { useVersionedState } from '@code2create/web-forms'
 
 type FloorOverviewResult = NonNullable<FunctionReturnType<typeof api.floorOperations.overview>>
 type FloorZoneView = FloorOverviewResult['zones'][number]
@@ -37,6 +38,13 @@ type SelectedLandmark = {
   zoneKey: ZoneEditor['stableKey']
   landmarkKey: LandmarkEditor['stableKey']
 }
+type FloorEditorState = {
+  planName: string
+  zones: ZoneEditor[]
+  publishArmed: boolean
+  freezeArmed: boolean
+  selectedLandmark: SelectedLandmark | null
+}
 
 export function FloorOverview({
   canReadLocations,
@@ -61,28 +69,57 @@ export function FloorOverview({
   const publish = useMutation(api.floorConfiguration.publish)
   const freeze = useMutation(api.floorConfiguration.freeze)
   const operations = useOperationRunner<FloorOperationResult>()
-  const [planName, setPlanName] = useState('Code2Create hall map')
-  const [zones, setZones] = useState<ZoneEditor[]>(() => [newEditorZone()])
-  const [loadedPlan, setLoadedPlan] = useState('')
+  const [emptyEditor] = useState<FloorEditorState>(() => ({
+    planName: 'Code2Create hall map',
+    zones: [newEditorZone()],
+    publishArmed: false,
+    freezeArmed: false,
+    selectedLandmark: null,
+  }))
+  const source = configuration?.draftPlan ?? configuration?.publishedPlan
+  const sourceKey = source ? `${source.id}:${source.version}` : 'new-plan'
+  const editorState = useVersionedState<FloorEditorState>(
+    sourceKey,
+    source
+      ? {
+          planName: source.name,
+          zones: toEditorZones(source.zones),
+          publishArmed: false,
+          freezeArmed: false,
+          selectedLandmark: null,
+        }
+      : emptyEditor,
+  )
+  const {
+    planName,
+    zones,
+    publishArmed,
+    freezeArmed,
+    selectedLandmark,
+  } = editorState.value
+  const setPlanName = (planName: string) => editorState.update((current) => ({
+    ...current,
+    planName,
+  }))
+  const setZones = (update: (current: ZoneEditor[]) => ZoneEditor[]) => {
+    editorState.update((current) => ({ ...current, zones: update(current.zones) }))
+  }
+  const setPublishArmed = (publishArmed: boolean) => editorState.update((current) => ({
+    ...current,
+    publishArmed,
+  }))
+  const setFreezeArmed = (freezeArmed: boolean) => editorState.update((current) => ({
+    ...current,
+    freezeArmed,
+  }))
+  const setSelectedLandmark = (selectedLandmark: SelectedLandmark | null) => {
+    editorState.update((current) => ({ ...current, selectedLandmark }))
+  }
   const [draftReason, setDraftReason] = useState('Prepared from the verified hall layout')
   const [publishReason, setPublishReason] = useState('Published after walking the hall layout')
   const [freezeReason, setFreezeReason] = useState('All accepted teams were physically mapped and checked')
-  const [publishArmed, setPublishArmed] = useState(false)
-  const [freezeArmed, setFreezeArmed] = useState(false)
-  const [selectedLandmark, setSelectedLandmark] = useState<SelectedLandmark | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!configuration || view !== 'configuration') return
-    const source = configuration.draftPlan ?? configuration.publishedPlan
-    const sourceKey = source ? `${source.id}:${source.version}` : 'new-plan'
-    if (sourceKey === loadedPlan) return
-    setPlanName(source?.name ?? 'Code2Create hall map')
-    setZones(source ? toEditorZones(source.zones) : [newEditorZone()])
-    setSelectedLandmark(null)
-    setLoadedPlan(sourceKey)
-  }, [configuration, loadedPlan, view])
 
   if (
     (canReadConfiguration && configuration === undefined) ||

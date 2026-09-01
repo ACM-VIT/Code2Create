@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery } from 'convex/react'
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 
 import { AccessManagementDisclosure } from './AccessManagementDisclosure'
 import { eventSlug } from '../lib/config'
@@ -130,10 +130,16 @@ function BatchGrantForm({
     draftForDefinition(detail, firstDefinition),
   ])
   const [validUntil, setValidUntil] = useState('')
+  const [now, setNow] = useState(Date.now)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const pending = operations.hasPending('permission-grant-batch')
+  useEffect(() => {
+    if (!validUntil) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000)
+    return () => window.clearInterval(timer)
+  }, [validUntil])
   const selectedCeilings = drafts.map((draft) => selectedCeiling(detail, draft))
   const expiry = validUntil ? new Date(validUntil).getTime() : undefined
   const exactScopes = drafts.map(exactDraftScope)
@@ -141,7 +147,7 @@ function BatchGrantForm({
   const expiryValid = expiry === undefined
     ? detail.canGrantAny
     : Number.isFinite(expiry) &&
-      expiry > Date.now() &&
+      expiry > now &&
       selectedCeilings.every((ceiling) => ceiling === undefined || expiry <= ceiling.validUntil)
   const ready = drafts.length >= 2 &&
     reason.trim().length >= 5 &&
@@ -217,7 +223,10 @@ function BatchGrantForm({
             required={!detail.canGrantAny}
             type="datetime-local"
             value={validUntil}
-            onChange={(event) => setValidUntil(event.target.value)}
+            onChange={(event) => {
+              setValidUntil(event.target.value)
+              setNow(Date.now())
+            }}
           />
         </label>
         <label className="field permission-batch-reason">

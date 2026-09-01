@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
 import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
@@ -12,6 +12,7 @@ import {
   type ConfigurationOperationDescriptor,
   useConfigurationOperations,
 } from '../lib/configurationOperations'
+import { useVersionedState } from '@code2create/web-forms'
 
 type CurrentConfiguration = FunctionReturnType<typeof api.admissionPolicyConfiguration.current>
 type AdmissionConfiguration = CurrentConfiguration['publishedRelease']['configuration']
@@ -70,24 +71,24 @@ export function AdmissionPolicyConfiguration({
   const operations = useConfigurationOperations<AdmissionPolicyOperationResult>(
     operationDescriptors,
   )
-  const [configuration, setConfiguration] = useState<AdmissionConfiguration | null>(null)
-  const [loadedRelease, setLoadedRelease] = useState('')
+  const source = current ? current.draftRelease ?? current.publishedRelease : null
+  const sourceKey = source
+    ? `${source.policyId}:${source.policyChecksum}:${source.modelChecksum ?? 'disabled'}`
+    : 'loading'
+  const configurationState = useVersionedState<AdmissionConfiguration | null>(
+    sourceKey,
+    source?.configuration ?? null,
+  )
+  const configuration = configurationState.value
+  const setConfiguration = configurationState.update
   const [draftReason, setDraftReason] = useState('')
   const [publishReason, setPublishReason] = useState('')
-  const [publishArmed, setPublishArmed] = useState(false)
+  const publishState = useVersionedState(sourceKey, false)
+  const publishArmed = publishState.value
+  const setPublishArmed = publishState.replace
   const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('admission-policy-draft')
   const publishPending = operations.hasPending('admission-policy-publish')
-
-  useEffect(() => {
-    if (!current) return
-    const source = current.draftRelease ?? current.publishedRelease
-    const sourceKey = `${source.policyId}:${source.policyChecksum}:${source.modelChecksum ?? 'disabled'}`
-    if (sourceKey === loadedRelease) return
-    setConfiguration(source.configuration)
-    setLoadedRelease(sourceKey)
-    setPublishArmed(false)
-  }, [current, loadedRelease])
 
   if (current === undefined || configuration === null) {
     return (

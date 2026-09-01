@@ -1,6 +1,6 @@
 import { useFlueAgent } from '@flue/react'
 import { createFlueClient, type FlueConversationMessage } from '@flue/sdk'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { OperationsIntelligenceStreamAccess } from '@code2create/domain'
 
@@ -29,12 +29,10 @@ export function useIntelligenceStream(args: {
   loadAccess: () => Promise<OperationsIntelligenceStreamAccess>
   streamKey: string
 }) {
-  const loadAccessRef = useRef(args.loadAccess)
-  loadAccessRef.current = args.loadAccess
   const providerState = useMemo(() => ({
     key: args.streamKey,
-    provider: createIntelligenceStreamHeaderProvider(() => loadAccessRef.current()),
-  }), [args.streamKey])
+    provider: createIntelligenceStreamHeaderProvider(args.loadAccess),
+  }), [args.loadAccess, args.streamKey])
   const provider = providerState.provider
   const streamKey = providerState.key
   const [accessState, setAccessState] = useState<{
@@ -46,14 +44,16 @@ export function useIntelligenceStream(args: {
   const [historyState, setHistoryState] = useState<HistoryState>(() =>
     emptyHistoryState(args.streamKey),
   )
-  const conversationUrl = accessState.key === streamKey ? accessState.url : undefined
-  const accessError = accessState.key === streamKey ? accessState.error : undefined
+  const conversationUrl = args.enabled && accessState.key === streamKey
+    ? accessState.url
+    : undefined
+  const accessError = args.enabled && accessState.key === streamKey
+    ? accessState.error
+    : undefined
 
   useEffect(() => {
     if (!args.enabled) {
       provider.invalidate()
-      setAccessState({ key: streamKey })
-      setHistoryState(emptyHistoryState(streamKey))
       return
     }
     let active = true
@@ -168,11 +168,13 @@ export function useIntelligenceStream(args: {
   return {
     ...agent,
     accessError,
-    historyCanLoadMore: historyState.key === streamKey && historyState.hasEarlier,
-    historyLoadError: historyState.key === streamKey ? historyState.error : undefined,
-    historyLoading: historyState.key === streamKey && historyState.loading,
+    historyCanLoadMore: args.enabled && historyState.key === streamKey && historyState.hasEarlier,
+    historyLoadError: args.enabled && historyState.key === streamKey
+      ? historyState.error
+      : undefined,
+    historyLoading: args.enabled && historyState.key === streamKey && historyState.loading,
     loadOlder,
-    messages,
+    messages: args.enabled ? messages : [],
     reconnect,
   }
 }

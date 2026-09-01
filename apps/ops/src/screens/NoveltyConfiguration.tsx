@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useAction, useMutation, useQuery } from 'convex/react'
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useState, type ChangeEvent, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
 import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
@@ -14,6 +14,7 @@ import {
 } from '../lib/configurationOperations'
 import { readableError } from '../lib/errors'
 import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
+import { useVersionedState } from '@code2create/web-forms'
 
 type Configuration = FunctionReturnType<typeof api.noveltyConfiguration.current>
 type Policy = FunctionReturnType<typeof api.noveltyConfiguration.defaults>
@@ -50,32 +51,40 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
   const replaceEntries = useAction(api.noveltyConfiguration.replaceEntries)
   const publish = useMutation(api.noveltyConfiguration.publish)
   const operations = useConfigurationOperations<NoveltyOperationResult>(operationDescriptors)
-  const [policy, setPolicy] = useState<Policy | null>(null)
-  const [entriesText, setEntriesText] = useState('')
-  const [loadedSource, setLoadedSource] = useState('')
+  const source = configuration?.draftCorpus ?? configuration?.publishedCorpus
+  const sourceKey = !configuration || !defaults
+    ? 'loading'
+    : source
+      ? `${source.id}:${source.revision}`
+      : 'defaults'
+  const policyState = useVersionedState<Policy | null>(
+    sourceKey,
+    defaults
+      ? {
+          ...(source?.policy ?? defaults),
+          distinctSimilarityBoundary: defaults.distinctSimilarityBoundary,
+          commonSimilarityBoundary: defaults.commonSimilarityBoundary,
+        }
+      : null,
+  )
+  const policy = policyState.value
+  const setPolicy = policyState.update
+  const entriesState = useVersionedState(
+    sourceKey,
+    JSON.stringify(source?.entries ?? exampleEntries(), null, 2),
+  )
+  const entriesText = entriesState.value
+  const setEntriesText = entriesState.replace
   const [draftReason, setDraftReason] = useState('Updated live originality feedback')
   const [importReason, setImportReason] = useState('Reviewed past projects for idea comparison')
   const [publishReason, setPublishReason] = useState('Approved the live idea comparison')
-  const [publishArmed, setPublishArmed] = useState(false)
+  const publishState = useVersionedState(sourceKey, false)
+  const publishArmed = publishState.value
+  const setPublishArmed = publishState.replace
   const { busy, error, operationPending, pendingOperation, setError } = operations
   const draftPending = operations.hasPending('novelty-corpus-draft')
   const importPending = operations.hasPending('novelty-corpus-import')
   const publishPending = operations.hasPending('novelty-corpus-publish')
-
-  useEffect(() => {
-    if (!configuration || !defaults) return
-    const source = configuration.draftCorpus ?? configuration.publishedCorpus
-    const sourceKey = source ? `${source.id}:${source.revision}` : 'defaults'
-    if (sourceKey === loadedSource) return
-    setPolicy({
-      ...(source?.policy ?? defaults),
-      distinctSimilarityBoundary: defaults.distinctSimilarityBoundary,
-      commonSimilarityBoundary: defaults.commonSimilarityBoundary,
-    })
-    setEntriesText(JSON.stringify(source?.entries ?? exampleEntries(), null, 2))
-    setLoadedSource(sourceKey)
-    setPublishArmed(false)
-  }, [configuration, defaults, loadedSource])
 
   if (configuration === undefined || defaults === undefined || policy === null) {
     return (

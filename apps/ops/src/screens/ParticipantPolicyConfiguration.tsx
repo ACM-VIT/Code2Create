@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
 import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
@@ -12,6 +12,7 @@ import {
   type ConfigurationOperationDescriptor,
   useConfigurationOperations,
 } from '../lib/configurationOperations'
+import { useVersionedState } from '@code2create/web-forms'
 
 type Configuration = FunctionReturnType<typeof api.participantPolicyConfiguration.current>
 type Policy = Configuration['publishedPolicy']['policy']
@@ -55,11 +56,18 @@ export function ParticipantPolicyConfiguration({
       ? { eventSlug, draftPolicyId: configuration.draftPolicy.id }
       : 'skip',
   )
-  const [policy, setPolicy] = useState<Policy | null>(null)
-  const [loadedPolicy, setLoadedPolicy] = useState('')
+  const source = configuration
+    ? configuration.draftPolicy ?? configuration.publishedPolicy
+    : null
+  const sourceKey = source ? `${source.id}:${source.checksum}` : 'loading'
+  const policyState = useVersionedState<Policy | null>(sourceKey, source?.policy ?? null)
+  const policy = policyState.value
+  const setPolicy = policyState.update
   const [draftReason, setDraftReason] = useState('')
   const [publishReason, setPublishReason] = useState('')
-  const [publishArmed, setPublishArmed] = useState(false)
+  const publishState = useVersionedState(sourceKey, false)
+  const publishArmed = publishState.value
+  const setPublishArmed = publishState.replace
   const [externalDeadline, setExternalDeadline] = useState<string | null>(null)
   const [vitDeadline, setVitDeadline] = useState<string | null>(null)
   const [deadlineReason, setDeadlineReason] = useState('')
@@ -67,16 +75,6 @@ export function ParticipantPolicyConfiguration({
   const draftPending = operations.hasPending('participant-policy-draft')
   const publishPending = operations.hasPending('participant-policy-publish')
   const deadlinesPending = operations.hasPending('participant-deadlines-update')
-
-  useEffect(() => {
-    if (!configuration) return
-    const source = configuration.draftPolicy ?? configuration.publishedPolicy
-    const sourceKey = `${source.id}:${source.checksum}`
-    if (sourceKey === loadedPolicy) return
-    setPolicy(source.policy)
-    setLoadedPolicy(sourceKey)
-    setPublishArmed(false)
-  }, [configuration, loadedPolicy])
 
   if (configuration === undefined || policy === null) {
     return (

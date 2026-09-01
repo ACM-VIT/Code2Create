@@ -7,7 +7,7 @@ import {
 import { TZDateMini } from '@date-fns/tz'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 
 import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
@@ -15,6 +15,7 @@ import { PendingOperationRecovery } from '../components/PendingOperationRecovery
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
+import { useVersionedState } from '@code2create/web-forms'
 
 type DraftSession = {
   id: string
@@ -53,10 +54,22 @@ type CreateDraftArgs = FunctionArgs<typeof api.attendanceConfiguration.createDra
 type SessionInput = CreateDraftArgs['sessions'][number]
 type StationInput = CreateDraftArgs['stations'][number]
 type ZoneInput = CreateDraftArgs['zones'][number]
+type AttendanceConfiguration = FunctionReturnType<typeof api.attendanceConfiguration.current>
+type AttendanceEditorSource = NonNullable<AttendanceConfiguration['editorSource']>
 type PendingAttendanceOperation = {
   kind: 'draft' | 'publish'
   title: string
   action: string
+}
+type AttendanceEditorState = {
+  planName: string
+  zones: DraftZone[]
+  barcodeSymbology: BarcodeSymbology | ''
+  offlineQueueMaxScans: string
+  offlineQueueMaxAgeSeconds: string
+  sessions: DraftSession[]
+  stations: DraftStation[]
+  publishArmed: boolean
 }
 
 const sessionKinds: readonly { value: SessionInput['kind']; label: string }[] = [
@@ -110,19 +123,66 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
   const configuration = useQuery(api.attendanceConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.attendanceConfiguration.createDraft)
   const publish = useMutation(api.attendanceConfiguration.publish)
-  const [planName, setPlanName] = useState('Code2Create hacking sessions')
-  const [zones, setZones] = useState<DraftZone[]>(() => [newZone('Main hack hall', 'main_hack_hall')])
-  const [barcodeSymbology, setBarcodeSymbology] = useState<BarcodeSymbology | ''>('')
-  const [offlineQueueMaxScans, setOfflineQueueMaxScans] = useState('8')
-  const [offlineQueueMaxAgeSeconds, setOfflineQueueMaxAgeSeconds] = useState('180')
-  const [sessions, setSessions] = useState<DraftSession[]>(() => [newSession('main_hack_hall')])
-  const [stations, setStations] = useState<DraftStation[]>(() => [
-    newStation('main_hack_hall', 'Main hall entrance'),
-  ])
-  const [loadedSource, setLoadedSource] = useState('')
+  const [emptyEditor] = useState<AttendanceEditorState>(() => ({
+    planName: 'Code2Create hacking sessions',
+    zones: [newZone('Main hack hall', 'main_hack_hall')],
+    barcodeSymbology: '',
+    offlineQueueMaxScans: '8',
+    offlineQueueMaxAgeSeconds: '180',
+    sessions: [newSession('main_hack_hall')],
+    stations: [newStation('main_hack_hall', 'Main hall entrance')],
+    publishArmed: false,
+  }))
+  const source = configuration?.editorSource
+  const timezone = publicState?.event?.timezone
+  const sourceKey = source && timezone
+    ? `${source.planVersionId}:${source.version}`
+    : source
+      ? 'timezone-loading'
+      : 'empty'
+  const editorState = useVersionedState<AttendanceEditorState>(
+    sourceKey,
+    source && timezone ? attendanceEditorFromSource(source, timezone) : emptyEditor,
+  )
+  const {
+    planName,
+    zones,
+    barcodeSymbology,
+    offlineQueueMaxScans,
+    offlineQueueMaxAgeSeconds,
+    sessions,
+    stations,
+    publishArmed,
+  } = editorState.value
+  const replaceEditorField = <Key extends keyof AttendanceEditorState>(
+    key: Key,
+    value: AttendanceEditorState[Key],
+  ) => editorState.update((current) => ({ ...current, [key]: value }))
+  const setPlanName = (value: string) => replaceEditorField('planName', value)
+  const setBarcodeSymbology = (value: BarcodeSymbology | '') => {
+    replaceEditorField('barcodeSymbology', value)
+  }
+  const setOfflineQueueMaxScans = (value: string) => {
+    replaceEditorField('offlineQueueMaxScans', value)
+  }
+  const setOfflineQueueMaxAgeSeconds = (value: string) => {
+    replaceEditorField('offlineQueueMaxAgeSeconds', value)
+  }
+  const setPublishArmed = (value: boolean) => replaceEditorField('publishArmed', value)
+  const setZones = (next: DraftZone[] | ((current: DraftZone[]) => DraftZone[])) => {
+    editorState.update((current) => ({
+      ...current,
+      zones: typeof next === 'function' ? next(current.zones) : next,
+    }))
+  }
+  const setSessions = (next: (current: DraftSession[]) => DraftSession[]) => {
+    editorState.update((current) => ({ ...current, sessions: next(current.sessions) }))
+  }
+  const setStations = (next: (current: DraftStation[]) => DraftStation[]) => {
+    editorState.update((current) => ({ ...current, stations: next(current.stations) }))
+  }
   const [draftReason, setDraftReason] = useState('Prepared for event-day attendance rehearsal')
   const [publishReason, setPublishReason] = useState('Published after attendance rehearsal')
-  const [publishArmed, setPublishArmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const draftAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceConfiguration.createDraft>>()
@@ -144,51 +204,9 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
       : null
   const operationPending = pendingOperation !== null
 
-  useEffect(() => {
-    const source = configuration?.editorSource
-    const timezone = publicState?.event?.timezone
-    if (!source || !timezone) return
-    const sourceKey = `${source.planVersionId}:${source.version}`
-    if (sourceKey === loadedSource) return
-    setPlanName(source.name)
-    setZones(source.zones.map((zone) => ({
-      stableKey: zone.stableKey,
-      name: zone.name,
-      safeCapacity: zone.safeCapacity === undefined ? '' : `${zone.safeCapacity}`,
-    })))
-    setBarcodeSymbology(source.vitBarcodeSymbologies[0] ?? '')
-    setOfflineQueueMaxScans(`${source.offlineQueueMaxScans}`)
-    setOfflineQueueMaxAgeSeconds(`${source.offlineQueueMaxAgeSeconds}`)
-    setSessions(source.sessions.map((session) => ({
-      id: session.stableKey,
-      stableKey: session.stableKey,
-      name: session.name,
-      kind: session.kind,
-      requirement: session.requirement,
-      expectedCohort: session.expectedCohort,
-      zoneKey: session.zoneKey,
-      startsAt: localDateTimeValue(session.startsAt, timezone),
-      endsAt: localDateTimeValue(session.endsAt, timezone),
-      checkInOpensAt: localDateTimeValue(session.checkInOpensAt, timezone),
-      checkInClosesAt: localDateTimeValue(session.checkInClosesAt, timezone),
-      awayAlertMinutes: session.awayAlertAfterMinutes === undefined ? '' : `${session.awayAlertAfterMinutes}`,
-    })))
-    setStations(source.stations.map((station) => ({
-      stableKey: station.stableKey,
-      name: station.name,
-      zoneKey: station.zoneKey,
-      mode: station.mode ?? '',
-      sessionKey: station.sessionKey ?? '',
-      allowedCredentialKinds: [...(station.allowedCredentialKinds ?? [])],
-    })))
-    setLoadedSource(sourceKey)
-    setPublishArmed(false)
-  }, [configuration, loadedSource, publicState])
-
   if (publicState === undefined || configuration === undefined) {
     return <p className="muted">Loading attendance setup…</p>
   }
-  const timezone = publicState.event?.timezone
   if (!timezone) return <p className="notice error">The event timezone is not configured.</p>
   const stationConfigurationRequired = configuration.editorSource?.stations.some(
     (station) => station.mode === undefined || station.allowedCredentialKinds === undefined,
@@ -697,10 +715,52 @@ function newStation(zoneKey: string, name: string): DraftStation {
   }
 }
 
+function attendanceEditorFromSource(
+  source: AttendanceEditorSource,
+  timezone: string,
+): AttendanceEditorState {
+  return {
+    planName: source.name,
+    zones: source.zones.map((zone) => ({
+      stableKey: zone.stableKey,
+      name: zone.name,
+      safeCapacity: zone.safeCapacity === undefined ? '' : `${zone.safeCapacity}`,
+    })),
+    barcodeSymbology: source.vitBarcodeSymbologies[0] ?? '',
+    offlineQueueMaxScans: `${source.offlineQueueMaxScans}`,
+    offlineQueueMaxAgeSeconds: `${source.offlineQueueMaxAgeSeconds}`,
+    sessions: source.sessions.map((session) => ({
+      id: session.stableKey,
+      stableKey: session.stableKey,
+      name: session.name,
+      kind: session.kind,
+      requirement: session.requirement,
+      expectedCohort: session.expectedCohort,
+      zoneKey: session.zoneKey,
+      startsAt: localDateTimeValue(session.startsAt, timezone),
+      endsAt: localDateTimeValue(session.endsAt, timezone),
+      checkInOpensAt: localDateTimeValue(session.checkInOpensAt, timezone),
+      checkInClosesAt: localDateTimeValue(session.checkInClosesAt, timezone),
+      awayAlertMinutes: session.awayAlertAfterMinutes === undefined
+        ? ''
+        : `${session.awayAlertAfterMinutes}`,
+    })),
+    stations: source.stations.map((station) => ({
+      stableKey: station.stableKey,
+      name: station.name,
+      zoneKey: station.zoneKey,
+      mode: station.mode ?? '',
+      sessionKey: station.sessionKey ?? '',
+      allowedCredentialKinds: [...(station.allowedCredentialKinds ?? [])],
+    })),
+    publishArmed: false,
+  }
+}
+
 function updateStation(
   stableKey: string,
   patch: Partial<DraftStation>,
-  setStations: React.Dispatch<React.SetStateAction<DraftStation[]>>,
+  setStations: (update: (current: DraftStation[]) => DraftStation[]) => void,
 ) {
   setStations((current) => current.map((station) => (
     station.stableKey === stableKey ? { ...station, ...patch } : station

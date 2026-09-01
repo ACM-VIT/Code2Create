@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import { useMutation, useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { formatCompactDateTime } from '../lib/dateTime'
@@ -29,7 +29,10 @@ export function OperationsBrief({
   const [requesting, setRequesting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
-  const [traceOpen, setTraceOpen] = useState(false)
+  const [tracePreference, setTracePreference] = useState<{
+    briefId: string | undefined
+    open: boolean
+  }>({ briefId: undefined, open: false })
   const generate = async () => {
     setRequesting(true)
     setError(null)
@@ -57,10 +60,9 @@ export function OperationsBrief({
     brief?.state === 'accepted'
   const requestPending = operations.hasPending('request')
   const currentBriefId = brief?.id
-
-  useEffect(() => {
-    if (currentBriefId !== undefined && inProgress) setTraceOpen(true)
-  }, [currentBriefId, inProgress])
+  const traceOpen = tracePreference.briefId === currentBriefId
+    ? tracePreference.open
+    : currentBriefId !== undefined && inProgress
 
   return (
     <section className="card-surface intelligence-brief" aria-labelledby="intelligence-brief-heading">
@@ -93,7 +95,7 @@ export function OperationsBrief({
       {canRead && brief ? (
         <button
           className="text-button intelligence-brief-trace-toggle"
-          onClick={() => setTraceOpen((open) => !open)}
+          onClick={() => setTracePreference({ briefId: currentBriefId, open: !traceOpen })}
           type="button"
         >
           {traceOpen ? 'Hide agent trace' : inProgress ? 'Show live agent trace' : 'View agent trace'}

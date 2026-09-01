@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { PETAL_RADIUS } from './Petals'
 
@@ -47,10 +47,13 @@ export function SubmitCelebration({ onDone }: { onDone: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [fading, setFading] = useState(false)
   const [burst, setBurst] = useState(false)
-  const petals = useMemo(makeBurst, [])
+  const [petals] = useState(makeBurst)
   const onDoneRef = useRef(onDone)
-  onDoneRef.current = onDone
   const finishRef = useRef<() => void>(() => {})
+
+  useEffect(() => {
+    onDoneRef.current = onDone
+  }, [onDone])
 
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {

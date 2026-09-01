@@ -2,7 +2,7 @@ import { api } from '@code2create/backend/api'
 import { TZDateMini } from '@date-fns/tz'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
 import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
@@ -13,6 +13,7 @@ import {
   type ConfigurationOperationDescriptor,
   useConfigurationOperations,
 } from '../lib/configurationOperations'
+import { useVersionedState } from '@code2create/web-forms'
 
 type Configuration = FunctionReturnType<typeof api.integrationPolicyConfiguration.current>
 type Policy = Configuration['publishedPolicy']['policy']
@@ -63,24 +64,24 @@ export function IntegrationPolicyConfiguration({
       ? { eventSlug, draftPolicyId: configuration.draftPolicy.id }
       : 'skip',
   )
-  const [policy, setPolicy] = useState<EditorPolicy | null>(null)
-  const [loadedPolicy, setLoadedPolicy] = useState('')
+  const source = configuration
+    ? configuration.draftPolicy ?? configuration.publishedPolicy
+    : null
+  const sourceKey = source ? `${source.id}:${source.checksum}` : 'loading'
+  const policyState = useVersionedState<EditorPolicy | null>(
+    sourceKey,
+    source && configuration ? toEditorPolicy(source.policy, configuration.timezone) : null,
+  )
+  const policy = policyState.value
+  const setPolicy = policyState.update
   const [draftReason, setDraftReason] = useState('')
   const [publishReason, setPublishReason] = useState('')
-  const [publishArmed, setPublishArmed] = useState(false)
+  const publishState = useVersionedState(sourceKey, false)
+  const publishArmed = publishState.value
+  const setPublishArmed = publishState.replace
   const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('integration-policy-draft')
   const publishPending = operations.hasPending('integration-policy-publish')
-
-  useEffect(() => {
-    if (!configuration) return
-    const source = configuration.draftPolicy ?? configuration.publishedPolicy
-    const sourceKey = `${source.id}:${source.checksum}`
-    if (sourceKey === loadedPolicy) return
-    setPolicy(toEditorPolicy(source.policy, configuration.timezone))
-    setLoadedPolicy(sourceKey)
-    setPublishArmed(false)
-  }, [configuration, loadedPolicy])
 
   if (configuration === undefined || policy === null) {
     return (

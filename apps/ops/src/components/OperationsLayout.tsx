@@ -1,6 +1,6 @@
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import { Icon, type IconName } from './Icon'
 import { IncidentBanner } from './IncidentBanner'
@@ -30,19 +30,10 @@ export function OperationsLayout({
   const activeToolIsInDisclosure = navigation.some((group) => group.items.some((item) => (
     location.pathname === item.to || location.pathname.startsWith(`${item.to}/`)
   )))
-  const [toolsOpen, setToolsOpen] = useState(activeToolIsInDisclosure)
-  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
+  const [toolsOpen, setToolsOpen] = useState(false)
   const activeItem = [...nowItems, ...navigation.flatMap((group) => group.items)].find((item) => (
     location.pathname === item.to || location.pathname.startsWith(`${item.to}/`)
   ))
-
-  useEffect(() => {
-    if (activeToolIsInDisclosure) setToolsOpen(true)
-  }, [activeToolIsInDisclosure])
-
-  useEffect(() => {
-    setMobileNavigationOpen(false)
-  }, [location.pathname])
 
   return (
     <div
@@ -67,7 +58,7 @@ export function OperationsLayout({
           {navigation.length > 0 ? (
             <details
               className="navigation-rest"
-              open={toolsOpen}
+              open={activeToolIsInDisclosure || toolsOpen}
               onToggle={(event) => setToolsOpen(event.currentTarget.open)}
             >
               <summary>All workspaces</summary>
@@ -87,8 +78,7 @@ export function OperationsLayout({
         </nav>
         <nav aria-label="Operations" className="mobile-navigation">
           <details
-            open={mobileNavigationOpen}
-            onToggle={(event) => setMobileNavigationOpen(event.currentTarget.open)}
+            key={location.pathname}
           >
             <summary>
               <span>{activeItem?.label ?? 'Workspaces'}</span>

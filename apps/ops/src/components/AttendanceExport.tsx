@@ -47,6 +47,8 @@ const fieldOptions: Array<{ field: ExportField; label: string }> = [
   { field: 'session_ends_at', label: 'Session end' },
 ]
 
+const monotonicNow = () => performance.now()
+
 export default function AttendanceExport({ session }: { session: AttendanceSession }) {
   const exports = useQuery(api.attendanceExports.list, {
     eventSlug,
@@ -61,7 +63,7 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
   const [busy, setBusy] = useState(false)
   const [downloadBusyId, setDownloadBusyId] = useState<string | null>(null)
   const [downloadLinks, setDownloadLinks] = useState<Record<string, DownloadLink>>({})
-  const [downloadClock, setDownloadClock] = useState(() => performance.now())
+  const [downloadClock, setDownloadClock] = useState(monotonicNow)
   const [error, setError] = useState<string | null>(null)
   const requestAttempt = useMutationAttempt<FunctionReturnType<typeof api.attendanceExports.request>>()
   const requestPending = requestAttempt.hasPending('attendance-export-request')
@@ -73,8 +75,8 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
       .toSorted((left, right) => left - right)[0]
     if (nextExpiry === undefined) return
     const timer = window.setTimeout(
-      () => setDownloadClock(performance.now()),
-      Math.max(nextExpiry - performance.now(), 0) + 25,
+      () => setDownloadClock(monotonicNow()),
+      Math.max(nextExpiry - monotonicNow(), 0) + 25,
     )
     return () => window.clearTimeout(timer)
   }, [downloadClock, downloadLinks])
@@ -121,7 +123,7 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
     setError(null)
     try {
       const result = await prepareDownload({ eventSlug, exportId: record.id })
-      const clientNow = performance.now()
+      const clientNow = monotonicNow()
       setDownloadLinks((current) => ({
         ...current,
         [record.id]: { ...result, clientNow },

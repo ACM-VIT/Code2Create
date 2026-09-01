@@ -3,7 +3,7 @@ import { eventRoleLabels } from '@code2create/domain'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import * as Papa from 'papaparse'
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 
 import { Icon, type IconName } from '../components/Icon'
@@ -60,8 +60,8 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
     rows: ImportRow[]
   } | null>(null)
   const [sourceName, setSourceName] = useState('')
-  const [validFrom, setValidFrom] = useState('')
-  const [validUntil, setValidUntil] = useState('')
+  const [validFromOverride, setValidFrom] = useState<string | null>(null)
+  const [validUntilOverride, setValidUntil] = useState<string | null>(null)
   const [bundleVersionIds, setBundleVersionIds] = useState<BundleVersionId[]>([])
   const [reason, setReason] = useState('')
   const [fileInputKey, setFileInputKey] = useState(0)
@@ -70,15 +70,6 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const preview = useQuery(api.rosters.previewImport, previewRequest ?? 'skip')
-
-  useEffect(() => {
-    if (!workspace) return
-    setValidFrom((current) => current || localDateTime(workspace.recommendedValidFrom))
-    const recommendedEnd = workspace.recommendedValidUntil
-    if (recommendedEnd !== undefined) {
-      setValidUntil((current) => current || localDateTime(recommendedEnd))
-    }
-  }, [workspace])
 
   if (workspace === undefined) {
     return (
@@ -91,6 +82,12 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
   }
 
   const entries = workspace.canReadAll ? rosterPage.results : workspace.entries
+  const validFrom = validFromOverride ?? localDateTime(workspace.recommendedValidFrom)
+  const validUntil = validUntilOverride ?? (
+    workspace.recommendedValidUntil === undefined
+      ? ''
+      : localDateTime(workspace.recommendedValidUntil)
+  )
   const loadingPeople = workspace.canReadAll && rosterPage.status === 'LoadingFirstPage'
   const waiting = entries.filter((entry) => entry.status === 'pending').length
   const signedIn = entries.filter((entry) => entry.status === 'claimed').length

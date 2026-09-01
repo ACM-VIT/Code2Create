@@ -10,13 +10,14 @@ import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 
-import Lanterns, { Wind, lanternAt } from './Lanterns.js';
+import Lanterns, { Wind } from './Lanterns.js';
+import { lanternAt } from './lanternLayout.js';
 import Fireworks, { type FireworksHandle } from './Fireworks.js';
 import Branches from './Branches.js';
 import Rosette from './Rosette.js';
 import { useFallingLadder } from './fallingLadder/index.js';
-import Cards, {
-  Emblem,
+import Cards, { Emblem } from './Cards.js';
+import {
   LAYOUT,
   LOGO,
   CARD_RATIO,
@@ -25,7 +26,7 @@ import Cards, {
   LOGO_BAND,
   STAR,
   STAR_REACH,
-} from './Cards.js';
+} from './cardLayout.js';
 import { Plant, createBloomTimeline } from '../timeline/botanical.js';
 import { eventRegistrationUrl } from '../lib/config.js';
 import FaqBoard from './FaqBoard.js';

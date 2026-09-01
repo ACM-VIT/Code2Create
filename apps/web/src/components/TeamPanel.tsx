@@ -49,21 +49,14 @@ export function TeamPanel({
   const actionPending = leavePending || removePending
   const operationPending = transferPending || responsePending || actionPending
   const canManage = editable && team.currentRole === 'lead'
+  const transferObserved = transferPending && transferTargetId !== null && members.some(
+    (member) => member.membershipId === transferTargetId && member.role === 'lead',
+  )
 
   useEffect(() => {
-    if (
-      !transferPending
-      || transferTargetId === null
-      || !members.some(
-        (member) => member.membershipId === transferTargetId && member.role === 'lead',
-      )
-    ) {
-      return
-    }
+    if (!transferObserved) return
     operations.confirmExactObservation('lead-transfer')
-    setTransferTargetId(null)
-    setError(null)
-  }, [members, operations, transferPending, transferTargetId])
+  }, [operations, transferObserved])
 
   const copyJoinLink = async () => {
     const link = `${window.location.origin}/join/${team.publicCode}`

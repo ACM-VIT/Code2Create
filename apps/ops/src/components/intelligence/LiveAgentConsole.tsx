@@ -3,7 +3,6 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
-  useEffect,
   useId,
   useLayoutEffect,
   useMemo,
@@ -17,6 +16,7 @@ import {
   type SafeAgentTimelineItem,
 } from './liveAgentProjection'
 import { LoadingState, StatusText } from './LoadingState'
+import { useVersionedState } from '@code2create/web-forms'
 
 export type LiveAgentConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'offline'
 export type LiveAgentTerminalState = 'none' | 'completed' | 'failed' | 'aborted'
@@ -81,14 +81,18 @@ export function LiveAgentConsole({
   const stickToLiveTailRef = useRef(true)
   const promptId = useId()
   const promptHintId = useId()
-  const [prompt, setPrompt] = useState('')
+  const composerState = useVersionedState(
+    `${composerResetKey}`,
+    { prompt: '', submitFailed: false },
+  )
+  const { prompt, submitFailed } = composerState.value
+  const setPrompt = (prompt: string) => {
+    composerState.update((current) => ({ ...current, prompt }))
+  }
+  const setSubmitFailed = (submitFailed: boolean) => {
+    composerState.update((current) => ({ ...current, submitFailed }))
+  }
   const [submitting, setSubmitting] = useState(false)
-  const [submitFailed, setSubmitFailed] = useState(false)
-
-  useEffect(() => {
-    setPrompt('')
-    setSubmitFailed(false)
-  }, [composerResetKey])
 
   useLayoutEffect(() => {
     const timelineElement = timelineRef.current
@@ -362,11 +366,8 @@ function ThinkingTrace({
   state: 'streaming' | 'done'
   text: string
 }) {
-  const [open, setOpen] = useState(state === 'streaming')
-
-  useEffect(() => {
-    setOpen(state === 'streaming')
-  }, [state])
+  const [preference, setPreference] = useState({ state, open: state === 'streaming' })
+  const open = preference.state === state ? preference.open : state === 'streaming'
 
   return (
     <div data-timeline-id={id}>
@@ -374,7 +375,7 @@ function ThinkingTrace({
         aria-expanded={open}
         className="-mx-1.5 flex w-fit cursor-pointer items-center gap-2 rounded-[6px] border-0 bg-transparent px-1.5 py-1 transition-colors duration-100 hover:bg-hover-2"
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => setPreference({ state, open: !open })}
       >
         <Glyph className="text-ink-3" name="sparkle" size={16} />
         <span className={state === 'streaming'

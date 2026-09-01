@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
-import { type FormEvent, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useDeferredValue, useMemo, useState } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
 import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
@@ -18,6 +18,7 @@ import {
   cloneAutonomyPolicy,
   type AutonomyPolicy,
 } from '../lib/autonomyPolicy'
+import { useVersionedState } from '@code2create/web-forms'
 
 type AutonomyPolicyOperationResult =
   | FunctionReturnType<typeof api.operationsAutonomyPolicyConfiguration.createDraft>
@@ -70,12 +71,22 @@ export function IntelligencePolicyConfiguration({
       ? { eventSlug, draftPolicyId: configuration.draftPolicy.id }
       : 'skip',
   )
-  const [policy, setPolicy] = useState<AutonomyPolicy | null>(null)
-  const [loadedPolicy, setLoadedPolicy] = useState('')
+  const source = configuration
+    ? configuration.draftPolicy ?? configuration.publishedPolicy
+    : null
+  const sourceKey = source ? `${source.id}:${source.checksum}` : 'loading'
+  const policyState = useVersionedState<AutonomyPolicy | null>(
+    sourceKey,
+    source ? cloneAutonomyPolicy(source.policy) : null,
+  )
+  const policy = policyState.value
+  const setPolicy = policyState.update
   const [draftReason, setDraftReason] = useState('')
   const [publishReason, setPublishReason] = useState('')
   const [disableReason, setDisableReason] = useState('')
-  const [publishArmed, setPublishArmed] = useState(false)
+  const publishState = useVersionedState(sourceKey, false)
+  const publishArmed = publishState.value
+  const setPublishArmed = publishState.replace
   const [disableArmed, setDisableArmed] = useState(false)
   const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('autonomy-policy-draft')
@@ -91,16 +102,6 @@ export function IntelligencePolicyConfiguration({
     )
     return [...byId.values()]
   }, [configuration, ownerOptionsPage.results])
-
-  useEffect(() => {
-    if (!configuration) return
-    const source = configuration.draftPolicy ?? configuration.publishedPolicy
-    const sourceKey = `${source.id}:${source.checksum}`
-    if (sourceKey === loadedPolicy) return
-    setPolicy(cloneAutonomyPolicy(source.policy))
-    setLoadedPolicy(sourceKey)
-    setPublishArmed(false)
-  }, [configuration, loadedPolicy])
 
   if (configuration === undefined || policy === null) {
     return (

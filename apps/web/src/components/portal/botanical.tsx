@@ -653,6 +653,7 @@ interface BloomTimelineOptions {
   moments?: boolean
 }
 
+// oxlint-disable-next-line react/only-export-components -- The GSAP timeline and SVG intentionally share one private botanical geometry model.
 export function createBloomTimeline(
   story: HTMLElement,
   { moments = true }: BloomTimelineOptions = {},

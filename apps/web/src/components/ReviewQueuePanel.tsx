@@ -20,33 +20,18 @@ type TeamQr = {
   tableLabel?: string
 }
 
-type ServerClock = {
-  serverNow: number
-  clientNow: number
-}
-
 export function ReviewQueuePanel() {
   const queue = useQuery(api.participantReview.current, { eventSlug })
   const mintTeamQr = useMutation(api.participantReview.mintTeamQr)
   const mintingRef = useRef(false)
   const [teamQr, setTeamQr] = useState<TeamQr | null>(null)
   const [now, setNow] = useState(() => performance.now())
-  const [serverClock, setServerClock] = useState<ServerClock | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const teamQrState = useQuery(
     api.participantReview.teamQrState,
     teamQr ? { eventSlug, tokenId: teamQr.tokenId } : 'skip',
   )
-  const queueServerNow = queue?.serverNow
-
-  useEffect(() => {
-    if (queueServerNow === undefined) return
-    const clientNow = performance.now()
-    setServerClock({ serverNow: queueServerNow, clientNow })
-    setNow(clientNow)
-  }, [queueServerNow])
-
   useEffect(() => {
     if (!teamQr) return
     const timer = window.setInterval(() => {
@@ -57,12 +42,6 @@ export function ReviewQueuePanel() {
     }, 1_000)
     return () => window.clearInterval(timer)
   }, [teamQr])
-
-  useEffect(() => {
-    if (!queue?.estimate) return
-    const timer = window.setInterval(() => setNow(performance.now()), 30_000)
-    return () => window.clearInterval(timer)
-  }, [queue?.estimate])
 
   const showTeamQr = async () => {
     if (!queue?.review?.canShowTeamQr || mintingRef.current) return
@@ -99,9 +78,6 @@ export function ReviewQueuePanel() {
   }
   if (!queue) return null
 
-  const currentServerNow = serverClock?.serverNow === queue.serverNow
-    ? serverClock.serverNow + now - serverClock.clientNow
-    : queue.serverNow
   const qrServerNow = teamQr ? teamQr.serverNow + now - teamQr.clientNow : 0
   const secondsLeft = teamQr
     ? Math.max(0, Math.ceil((teamQr.expiresAt - qrServerNow) / 1_000))
@@ -114,7 +90,6 @@ export function ReviewQueuePanel() {
     teamQr.reviewSessionId === queue.review.id
     ? teamQr
     : null
-  const waitEstimate = queue.estimate ? queueWaitName(queue.estimate, currentServerNow) : null
 
   return (
     <section className="attendance-panel" aria-labelledby="review-queue-heading">
@@ -147,10 +122,16 @@ export function ReviewQueuePanel() {
             <dd>{queue.panel.name}</dd>
           </div>
         ) : null}
-        {waitEstimate ? (
+        {queue.estimate ? (
           <div>
             <dt>Estimated wait</dt>
-            <dd>{waitEstimate}</dd>
+            <dd>
+              <EstimatedWait
+                estimate={queue.estimate}
+                key={queue.serverNow}
+                serverNow={queue.serverNow}
+              />
+            </dd>
           </div>
         ) : queue.state === 'queued' && queue.round.isPaused ? (
           <div>
@@ -199,6 +180,26 @@ export function ReviewQueuePanel() {
       {error ? <p className="notice notice-error" role="alert">{error}</p> : null}
     </section>
   )
+}
+
+function EstimatedWait({
+  estimate,
+  serverNow,
+}: {
+  estimate: NonNullable<
+    NonNullable<FunctionReturnType<typeof api.participantReview.current>>['estimate']
+  >
+  serverNow: number
+}) {
+  const [clock] = useState(() => ({ serverNow, clientNow: performance.now() }))
+  const [now, setNow] = useState(clock.clientNow)
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(performance.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  return queueWaitName(estimate, clock.serverNow + now - clock.clientNow)
 }
 
 function queueStateCopy(state: TeamRoundState, teamsAhead?: number) {

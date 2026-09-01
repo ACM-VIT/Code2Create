@@ -461,6 +461,7 @@ function IntakeWorkspace({
     if (!ideaDirty) {
       ideaBase.current = { value: savedValue, version: savedVersion }
       ideaWorkingRevision.current = serverWorkingRevision
+      // oxlint-disable-next-line react/set-state-in-effect -- This reconciles the collaborative server working copy after its version changes.
       setIdea(serverWorkingValue)
       setIdeaDirty(false)
       setIdeaConflict(false)
@@ -605,6 +606,7 @@ function IntakeWorkspace({
     if (reconciliation.kind === 'unchanged') return
     if (reconciliation.kind === 'conflict') {
       if (reviewAnswerEdit.conflict) return
+      // oxlint-disable-next-line react/set-state-in-effect -- Preserve the local answer and mark the remote revision conflict explicitly.
       setReviewAnswerEdit((current) => current ? { ...current, conflict: true } : null)
       setError(null)
       return
@@ -641,6 +643,7 @@ function IntakeWorkspace({
     if (reconciliation.kind === 'unchanged') return
     if (reconciliation.kind === 'conflict') {
       if (additionalInformationEdit.conflict) return
+      // oxlint-disable-next-line react/set-state-in-effect -- Preserve the local answer and mark the remote revision conflict explicitly.
       setAdditionalInformationEdit((current) => current ? { ...current, conflict: true } : null)
       setError(null)
       return
@@ -665,6 +668,7 @@ function IntakeWorkspace({
       noveltyCorpusVersionId !== null && savedNoveltyScore !== null && savedIdeaMatches
 
     if (hasSavedSignal) {
+      // oxlint-disable-next-line react/set-state-in-effect -- Seed the async novelty state machine from the authoritative saved signal.
       setNoveltyState({
         status: 'ready',
         signal: {
