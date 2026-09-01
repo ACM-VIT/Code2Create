@@ -38,16 +38,16 @@ The event stores one deadline for external participants and one later or equal d
 
 ## 3. GitHub contribution step
 
-After the profile is complete and before team creation or joining, each participant must connect a GitHub account and star `sgl-project/sglang`. The screen has one staged action:
+After the profile is complete and before team creation or joining, each participant must connect a GitHub account and star `sgl-project/sglang`. The screen has two clear actions:
 
 - before connection, it shows **Connect GitHub**;
 - after connection, the backend checks whether the verified account already stars the repository;
-- an existing star completes the step immediately, while a missing star shows the verified GitHub login, a link to SGLang, and **Check my star**; and
-- after the backend verifies the star, onboarding continues to team setup.
+- an existing star completes the step immediately, while a missing star shows the verified GitHub login and **Star SGLang**; and
+- **Star SGLang** stars the repository through GitHub and continues to team setup.
 
-There is no skip action. Opening the repository does not complete the step. The participant stars the repository on GitHub, then the server checks the authenticated account's exact star state before recording completion. One GitHub account can complete this step for only one participant in the event. A pending imported-roster assignment also waits at this boundary.
+There is no skip action. One GitHub account can complete this step for only one participant in the event. A pending imported-roster assignment also waits at this boundary.
 
-The OAuth request uses state and PKCE through direct GitHub App user authorization with Starring read access. GitHub does not require the App to be installed for this authorization. The participant step requires only the App client ID and client secret; it does not load the App private key or an installation token. After identifying the account, the backend reads its exact star state. An existing star creates the durable completion without storing the access token. Otherwise, the server encrypts the short-lived token, uses it only to verify the star after the participant confirms, and deletes it immediately after success. An abandoned authorization expires within eight hours. This participant-scoped authorization is separate from the later team-scoped GitHub App installation used for repository evidence.
+The OAuth request uses state and PKCE through a classic GitHub OAuth App and requests only `public_repo`, the narrowest classic scope that can star a public repository. The participant step uses dedicated OAuth client credentials and never loads the separate GitHub App private key or an installation token. After identifying the account, the backend reads its exact star state. An existing star creates the durable completion immediately. Otherwise, the server encrypts the OAuth token, uses it once to star SGLang, revokes the OAuth grant, and deletes the encrypted token after success. An abandoned authorization expires within eight hours. This participant-scoped OAuth App is separate from the later team-scoped GitHub App installation used for repository evidence.
 
 Existing participants who already have an active team do not return to this new onboarding gate. Team creation, joining, and imported-roster claim all enforce the completion on the server for participants who have not joined a team.
 

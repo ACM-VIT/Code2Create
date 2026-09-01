@@ -3,9 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   githubRepositoryIsStarred,
-  githubUserAuthorizationConfiguration,
-  githubUserAuthorizationUrl,
-  githubUserGrantRevocationRequest,
+  githubOAuthGrantRevocationRequest,
+  githubStarAuthorizationUrl,
+  githubStarOAuthConfiguration,
+  githubUserStarRequest,
   isGitHubRateLimit,
   timedGitHubFetch,
 } from "./githubClient";
@@ -17,28 +18,28 @@ describe("GitHub request boundary", () => {
   });
 
   it("starts participant authorization without repository installation credentials", () => {
-    vi.stubEnv("GITHUB_APP_CLIENT_ID", "participant-authorization-client");
-    vi.stubEnv("GITHUB_APP_CLIENT_SECRET", "participant-authorization-secret");
+    vi.stubEnv("GITHUB_CLIENT_ID", "participant-authorization-client");
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "participant-authorization-secret");
     vi.stubEnv("GITHUB_APP_ID", "");
     vi.stubEnv("GITHUB_APP_PRIVATE_KEY", "");
 
-    expect(githubUserAuthorizationConfiguration()).toEqual({
+    expect(githubStarOAuthConfiguration()).toEqual({
       clientId: "participant-authorization-client",
       clientSecret: "participant-authorization-secret",
     });
   });
 
   it("refuses to start participant OAuth when either credential is absent", () => {
-    vi.stubEnv("GITHUB_APP_CLIENT_ID", "participant-authorization-client");
-    vi.stubEnv("GITHUB_APP_CLIENT_SECRET", "");
+    vi.stubEnv("GITHUB_CLIENT_ID", "participant-authorization-client");
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "");
 
-    expect(() => githubUserAuthorizationConfiguration()).toThrow(
-      "Participant GitHub authorization",
+    expect(() => githubStarOAuthConfiguration()).toThrow(
+      "GitHub star OAuth App",
     );
   });
 
   it("forces an account choice for every participant authorization", () => {
-    const authorizationUrl = new URL(githubUserAuthorizationUrl({
+    const authorizationUrl = new URL(githubStarAuthorizationUrl({
       clientId: "participant-authorization-client",
       redirectUri: "https://participant.example.test/onboarding/github/callback",
       state: "opaque-state",
@@ -53,27 +54,49 @@ describe("GitHub request boundary", () => {
       state: "opaque-state",
       code_challenge: "pkce-challenge",
       code_challenge_method: "S256",
+      scope: "public_repo",
       prompt: "select_account",
     });
   });
 
-  it("revokes the GitHub App grant instead of only forgetting its local token", () => {
-    const request = githubUserGrantRevocationRequest(
-      { clientId: "Iv1.participant", clientSecret: "app-secret" },
-      "ghu_participant_token",
+  it("uses GitHub's documented empty-body star request", () => {
+    const request = githubUserStarRequest(
+      "gho_participant_token",
+      "sgl-project",
+      "sglang",
+    );
+
+    expect(request).toEqual({
+      url: "https://api.github.com/user/starred/sgl-project/sglang",
+      init: {
+        method: "PUT",
+        headers: {
+          accept: "application/vnd.github+json",
+          authorization: "Bearer gho_participant_token",
+          "content-length": "0",
+          "x-github-api-version": "2026-03-10",
+        },
+      },
+    });
+  });
+
+  it("revokes the OAuth App grant instead of only forgetting its local token", () => {
+    const request = githubOAuthGrantRevocationRequest(
+      { clientId: "Ov1.participant", clientSecret: "app-secret" },
+      "gho_participant_token",
     );
 
     expect(request.url).toBe(
-      "https://api.github.com/applications/Iv1.participant/grant",
+      "https://api.github.com/applications/Ov1.participant/grant",
     );
     expect(request.init.method).toBe("DELETE");
     expect(request.init.headers).toMatchObject({
       accept: "application/vnd.github+json",
-      authorization: `Basic ${Buffer.from("Iv1.participant:app-secret").toString("base64")}`,
+      authorization: `Basic ${Buffer.from("Ov1.participant:app-secret").toString("base64")}`,
       "content-type": "application/json",
     });
     expect(request.init.body).toBe(
-      JSON.stringify({ access_token: "ghu_participant_token" }),
+      JSON.stringify({ access_token: "gho_participant_token" }),
     );
   });
 

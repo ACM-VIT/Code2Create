@@ -39,8 +39,9 @@ Then open `http://127.0.0.1:6791` and use an admin key from the staging secret
 inventory. Do not expose port 6791 in the Azure network security group.
 
 The VM system identity reads only the staging Key Vault secrets. The database
-has private VNet access only and seven days of managed backups. Google OAuth and
-the GitHub, Figma, email, voice, and native-push integrations remain deliberately
+has private VNet access only and seven days of managed backups. The participant
+GitHub OAuth App must be configured separately from the read-only team GitHub App.
+Figma, email, voice, and native-push integrations remain deliberately
 unconfigured until their staging registrations are approved.
 
 The participant and operations Workers were deployed manually with the Azure

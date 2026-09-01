@@ -101,11 +101,11 @@ One active membership exists per event/person.
 
 ### `githubStarSetupIntents`
 
-One short-lived, participant-scoped GitHub App user authorization attempt. It stores the event, membership, person, hashed state, encrypted PKCE verifier, exact redirect URI, status, claim lease, expiry, and completion or failure metadata. The callback must contain the matching state and OAuth code. The App is not installed on the participant's account or organization. Raw OAuth state and tokens are never stored. A scheduled mutation expires unused attempts.
+One short-lived, participant-scoped classic GitHub OAuth App authorization attempt. It stores the event, membership, person, hashed state, encrypted PKCE verifier, exact redirect URI, status, claim lease, expiry, and completion or failure metadata. The callback must contain the matching state and OAuth code. Raw OAuth state and tokens are never stored. A scheduled mutation expires unused attempts.
 
 ### `githubStarAuthorizations`
 
-One temporary GitHub user authorization for a participant who connected GitHub but has not completed the star. It stores the event, membership, person, GitHub user ID/login, encrypted access token, hard expiry, and an optimistic provider-call lease. One GitHub user can be active for only one membership in an event. The record is deleted immediately after successful completion or when its authorization expires.
+One temporary GitHub OAuth authorization for a participant who connected GitHub but has not completed the star. It stores the event, membership, person, GitHub user ID/login, encrypted access token, hard expiry, and an optimistic provider-call lease. One GitHub user can be active for only one membership in an event. After the star succeeds, the provider grant is revoked and the record is deleted immediately.
 
 ### `githubStarCompletions`
 

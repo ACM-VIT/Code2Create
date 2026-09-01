@@ -11,8 +11,6 @@ import { convexErrorCode, readableError } from '../lib/errors'
 import type { GitHubStarConnectionResult, GitHubStarGateState } from '../types'
 
 const callbackAttempts = new Map<string, Promise<GitHubStarConnectionResult>>()
-const sglangRepositoryUrl = 'https://github.com/sgl-project/sglang'
-
 type InterludeFailure = {
   code: string | null
   message: string
@@ -29,7 +27,7 @@ export function SglangInterlude({
 }) {
   const beginConnection = useAction(api.githubStarActions.beginConnection)
   const completeConnection = useAction(api.githubStarActions.completeConnection)
-  const star = useAction(api.githubStarActions.star)
+  const starRepository = useAction(api.githubStarActions.star)
   const disconnectGitHub = useAction(api.githubStarActions.disconnect)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -42,7 +40,7 @@ export function SglangInterlude({
     if (!code || !oauthState) return { kind: 'invalid' as const }
     return { kind: 'complete' as const, code, oauthState }
   }, [callback, searchParams])
-  const [busy, setBusy] = useState<'callback' | 'connect' | 'disconnect' | 'verify' | null>(
+  const [busy, setBusy] = useState<'callback' | 'connect' | 'disconnect' | 'star' | null>(
     callbackValues?.kind === 'complete' ? 'callback' : null,
   )
   const [failure, setFailure] = useState<InterludeFailure | null>(null)
@@ -97,11 +95,11 @@ export function SglangInterlude({
     }
   }
 
-  const checkStar = async () => {
-    setBusy('verify')
+  const star = async () => {
+    setBusy('star')
     setFailure(null)
     try {
-      await star({ eventSlug })
+      await starRepository({ eventSlug })
       setBusy(null)
     } catch (reason) {
       setBusy(null)
@@ -179,13 +177,7 @@ export function SglangInterlude({
 
         <div className="mt-8 flex min-h-[96px] flex-col items-center gap-3.5">
           {state.connected && state.githubLogin ? (
-            <div className="flex max-w-[480px] flex-col gap-1.5">
-              <p className="m-0 text-[13px] text-fg/55">connected as @{state.githubLogin}</p>
-              <p className="m-0 text-[13px] leading-relaxed text-fg/65">
-                Open SGLang on GitHub and click <strong className="font-semibold text-fg/85">Star</strong>.
-                Then come back here and check your star.
-              </p>
-            </div>
+            <p className="m-0 text-[13px] text-fg/55">connected as @{state.githubLogin}</p>
           ) : null}
           {displayedError ? (
             <p role="alert" className="m-0 max-w-[440px] text-[13px] leading-relaxed text-rose-light">
@@ -203,39 +195,22 @@ export function SglangInterlude({
             </PortalButton>
           ) : (
             <>
-              {state.connected ? (
-                <div className="flex flex-col items-center gap-2.5 sm:flex-row">
-                  <PortalButton
-                    type="button"
-                    disabled={busy !== null || state.completed}
-                    onClick={() => window.open(sglangRepositoryUrl, '_blank', 'noopener,noreferrer')}
-                    className="min-w-[210px]"
-                  >
-                    1. Open SGLang on GitHub ↗
-                  </PortalButton>
-                  <PortalButton
-                    type="button"
-                    disabled={busy !== null || state.completed}
-                    onClick={() => void checkStar()}
-                    className="min-w-[190px]"
-                  >
-                    {busy === 'verify' ? 'Checking…' : '2. Check my star'}
-                  </PortalButton>
-                </div>
-              ) : (
-                <PortalButton
-                  type="button"
-                  disabled={busy !== null || state.completed}
-                  onClick={() => void connect()}
-                  className="min-w-[190px]"
-                >
-                  {busy === 'callback'
-                    ? 'Connecting…'
-                    : busy === 'connect'
-                      ? 'Opening GitHub…'
-                      : 'Connect GitHub'}
-                </PortalButton>
-              )}
+              <PortalButton
+                type="button"
+                disabled={busy !== null || state.completed}
+                onClick={state.connected ? () => void star() : () => void connect()}
+                className="min-w-[190px]"
+              >
+                {busy === 'callback'
+                  ? 'Connecting…'
+                  : busy === 'connect'
+                    ? 'Opening GitHub…'
+                    : busy === 'star'
+                      ? 'Starring…'
+                      : state.connected
+                        ? 'Star SGLang'
+                        : 'Connect GitHub'}
+              </PortalButton>
               {state.connected ? (
                 <PortalTextButton
                   type="button"

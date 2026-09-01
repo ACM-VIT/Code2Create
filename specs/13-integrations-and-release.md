@@ -805,6 +805,7 @@ Before launch, rehearse rotation for:
 - Better Auth secret;
 - Google client secret;
 - OpenAI API key;
+- GitHub star OAuth App client secret;
 - GitHub App private key and webhook secret;
 - Figma client secret and file-webhook passcodes;
 - token-encryption key;
