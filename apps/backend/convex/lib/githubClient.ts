@@ -5,19 +5,40 @@ import { App, Octokit, RequestError } from "octokit";
 
 const githubApiVersion = "2026-03-10";
 const githubRequestTimeoutMs = 30_000;
+const githubUserAuthorizeUrl = "https://github.com/login/oauth/authorize";
 
-export function githubAppInstallationUrl(args: { appSlug: string; state: string }) {
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(args.appSlug)) {
-    throw new Error("The GitHub App slug is invalid.");
+export function githubUserAuthorizationUrl(args: {
+  clientId: string;
+  redirectUri: string;
+  state: string;
+  codeChallenge: string;
+}) {
+  const authorizationUrl = new URL(githubUserAuthorizeUrl);
+  authorizationUrl.searchParams.set("client_id", args.clientId);
+  authorizationUrl.searchParams.set("redirect_uri", args.redirectUri);
+  authorizationUrl.searchParams.set("state", args.state);
+  authorizationUrl.searchParams.set("code_challenge", args.codeChallenge);
+  authorizationUrl.searchParams.set("code_challenge_method", "S256");
+  authorizationUrl.searchParams.set("prompt", "select_account");
+  return authorizationUrl.toString();
+}
+
+export function githubUserStarRequest(accessToken: string, owner: string, repo: string) {
+  if (!accessToken || !owner || !repo) {
+    throw new Error("The GitHub star request is incomplete.");
   }
-  if (!/^[A-Za-z0-9_-]{32,256}$/.test(args.state)) {
-    throw new Error("The GitHub installation state is invalid.");
-  }
-  const installationUrl = new URL(
-    `https://github.com/apps/${args.appSlug}/installations/new`,
-  );
-  installationUrl.searchParams.set("state", args.state);
-  return installationUrl.toString();
+  return {
+    url: `https://api.github.com/user/starred/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+    init: {
+      method: "PUT",
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${accessToken}`,
+        "content-length": "0",
+        "x-github-api-version": githubApiVersion,
+      },
+    } satisfies RequestInit,
+  };
 }
 
 export function isGitHubRateLimit(
@@ -135,17 +156,6 @@ export function githubUserAuthorizationConfiguration(): GitHubUserAuthorizationC
     clientId: requiredUserAuthorizationEnvironment("GITHUB_APP_CLIENT_ID"),
     clientSecret: requiredUserAuthorizationEnvironment("GITHUB_APP_CLIENT_SECRET"),
   };
-}
-
-export function githubAppSlug() {
-  const slug = requiredUserAuthorizationEnvironment("GITHUB_APP_SLUG");
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
-    throw new ConvexError({
-      code: "GITHUB_NOT_CONFIGURED",
-      message: "The participant GitHub App slug is invalid.",
-    });
-  }
-  return slug;
 }
 
 export async function githubRepositoryIsStarred(

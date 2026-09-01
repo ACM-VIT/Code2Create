@@ -12,13 +12,12 @@ import { action } from "./_generated/server";
 import { readBoundedJsonResponse } from "./lib/boundedHttpBody";
 import {
   GitHubOctokit,
-  githubAppInstallationUrl,
-  githubAppSlug,
   githubRepositoryIsStarred,
   githubUserAuthorizationConfiguration,
+  githubUserAuthorizationUrl,
   githubUserGrantRevocationRequest,
+  githubUserStarRequest,
   isGitHubRateLimit,
-  safeGitHubId,
   timedGitHubFetch,
 } from "./lib/githubClient";
 import { decryptProviderSecret, encryptProviderSecret } from "./lib/providerSecrets";
@@ -45,23 +44,11 @@ const githubUser = z.object({
   login: z.string().min(1).max(100),
 });
 
-const githubInstallationPage = z.object({
-  total_count: z.number().int().nonnegative(),
-  installations: z.array(z.object({
-    id: z.number().int().positive(),
-    app_slug: z.string().min(1),
-    target_type: z.string().min(1),
-    account: githubUser.nullable(),
-    permissions: z.object({
-      metadata: z.enum(["read", "write"]),
-    }).passthrough(),
-  })),
-});
-
 type SetupClaim =
   | {
       kind: "verify";
       intentId: Id<"githubStarSetupIntents">;
+      pkceVerifierCiphertext: string;
       redirectUri: string;
     }
   | { kind: "completed" };
@@ -120,68 +107,6 @@ function invalidCallback(): never {
   });
 }
 
-function installationIdFromCallback(value: string) {
-  if (!/^[1-9][0-9]*$/.test(value) || value.length > 16) return invalidCallback();
-  try {
-    return String(safeGitHubId(value, "Installation ID"));
-  } catch {
-    return invalidCallback();
-  }
-}
-
-async function requireParticipantInstallation(
-  octokit: InstanceType<typeof GitHubOctokit>,
-  installationId: string,
-  user: z.infer<typeof githubUser>,
-) {
-  const expectedInstallationId = safeGitHubId(installationId, "Installation ID");
-  const expectedAppSlug = githubAppSlug();
-  let page = 1;
-  let inspected = 0;
-  while (page <= 100) {
-    const response = await octokit.request("GET /user/installations", {
-      per_page: 100,
-      page,
-    });
-    const parsedPage = githubInstallationPage.safeParse(response.data);
-    if (!parsedPage.success) {
-      throw new ConvexError({
-        code: "GITHUB_RESPONSE_INVALID",
-        message: "GitHub returned an invalid App installation. Connect GitHub again.",
-      });
-    }
-    const installation = parsedPage.data.installations.find(
-      (candidate) => candidate.id === expectedInstallationId,
-    );
-    if (installation) {
-      if (
-        installation.app_slug !== expectedAppSlug ||
-        installation.target_type !== "User" ||
-        installation.account?.id !== user.id
-      ) {
-        throw new ConvexError({
-          code: "GITHUB_INSTALLATION_ACCOUNT_MISMATCH",
-          message:
-            "Install the Code2Create GitHub App on the same personal account you authorized.",
-        });
-      }
-      return;
-    }
-    inspected += parsedPage.data.installations.length;
-    if (
-      inspected >= parsedPage.data.total_count ||
-      parsedPage.data.installations.length === 0
-    ) {
-      break;
-    }
-    page += 1;
-  }
-  throw new ConvexError({
-    code: "GITHUB_INSTALLATION_REQUIRED",
-    message: "Install the Code2Create GitHub App on your personal account, then try again.",
-  });
-}
-
 function providerFailure(error: unknown) {
   if (error instanceof ConvexError) return error;
   if (error instanceof RequestError) {
@@ -201,7 +126,7 @@ function providerFailure(error: unknown) {
       return new ConvexError({
         code: "GITHUB_STAR_PERMISSION_REQUIRED",
         message:
-          "GitHub did not grant the installed Code2Create App access to star repositories. Disconnect GitHub, then connect it again.",
+          "GitHub did not allow Code2Create to star the repository. Disconnect GitHub, then connect it again and approve star access.",
       });
     }
   }
@@ -233,29 +158,32 @@ async function revokeGitHubUserGrant(accessToken: string) {
 
 export const beginConnection = action({
   args: { eventSlug: v.string() },
-  returns: v.object({ installationUrl: v.string() }),
-  handler: async (ctx, args): Promise<{ installationUrl: string }> => {
-    githubUserAuthorizationConfiguration();
-    const appSlug = githubAppSlug();
+  returns: v.object({ authorizationUrl: v.string() }),
+  handler: async (ctx, args): Promise<{ authorizationUrl: string }> => {
+    const configuration = githubUserAuthorizationConfiguration();
     const state = randomBytes(32).toString("base64url");
+    const verifier = randomBytes(48).toString("base64url");
+    const challenge = createHash("sha256").update(verifier, "utf8").digest("base64url");
     const redirectUri = callbackUri();
-    const installationUrl = githubAppInstallationUrl({ appSlug, state });
     await ctx.runMutation(internal.githubStarGate.createSetupIntent, {
       eventSlug: args.eventSlug,
       stateDigest: opaqueDigest(state),
+      pkceVerifierCiphertext: encryptProviderSecret(verifier),
       redirectUri,
     });
-    return { installationUrl };
+    return {
+      authorizationUrl: githubUserAuthorizationUrl({
+        clientId: configuration.clientId,
+        redirectUri,
+        state,
+        codeChallenge: challenge,
+      }),
+    };
   },
 });
 
 export const completeConnection = action({
-  args: {
-    eventSlug: v.string(),
-    state: v.string(),
-    code: v.string(),
-    installationId: v.string(),
-  },
+  args: { eventSlug: v.string(), state: v.string(), code: v.string() },
   returns: v.union(
     v.object({ state: v.literal("connected"), githubLogin: v.string() }),
     v.object({ state: v.literal("completed") }),
@@ -269,7 +197,6 @@ export const completeConnection = action({
     ) {
       return invalidCallback();
     }
-    const installationId = installationIdFromCallback(args.installationId);
     const attemptId = randomUUID();
     const claim: SetupClaim = await ctx.runMutation(
       internal.githubStarGate.claimSetupIntent,
@@ -284,6 +211,7 @@ export const completeConnection = action({
         client_secret: configuration.clientSecret,
         code: args.code,
         redirect_uri: claim.redirectUri,
+        code_verifier: decryptProviderSecret(claim.pkceVerifierCiphertext),
       });
       const response = await timedGitHubFetch(githubTokenUrl, {
         method: "POST",
@@ -322,11 +250,6 @@ export const completeConnection = action({
           message: "GitHub returned an invalid account. Connect GitHub again.",
         });
       }
-      await requireParticipantInstallation(
-        octokit,
-        installationId,
-        parsedUser.data,
-      );
       const alreadyStarred = await githubRepositoryIsStarred(
         (route, options) => octokit.request(route, options),
         repositoryOwner,
@@ -396,21 +319,34 @@ export const star = action({
   returns: v.object({ githubLogin: v.string(), completedAt: v.number() }),
   handler: async (ctx, args): Promise<{ githubLogin: string; completedAt: number }> => {
     const attemptId = randomUUID();
-    const claim: StarClaim = await ctx.runMutation(internal.githubStarGate.claimStar, {
-      eventSlug: args.eventSlug,
-      attemptId,
-    });
+    const claim: StarClaim = await ctx.runMutation(
+      internal.githubStarGate.claimStar,
+      { eventSlug: args.eventSlug, attemptId },
+    );
     if (claim.kind === "completed") {
       return { githubLogin: claim.githubLogin, completedAt: claim.completedAt };
     }
     try {
-      const octokit = new GitHubOctokit({
-        auth: decryptProviderSecret(claim.accessTokenCiphertext),
-      });
-      await octokit.request("PUT /user/starred/{owner}/{repo}", {
-        owner: repositoryOwner,
-        repo: repositoryName,
-      });
+      const accessToken = decryptProviderSecret(claim.accessTokenCiphertext);
+      const request = githubUserStarRequest(
+        accessToken,
+        repositoryOwner,
+        repositoryName,
+      );
+      const response = await timedGitHubFetch(request.url, request.init);
+      if (response.status !== 204 && response.status !== 304) {
+        await response.body?.cancel();
+        throw new RequestError("GitHub rejected the repository star.", response.status, {
+          request: { method: "PUT", url: request.url, headers: {} },
+          response: {
+            data: null,
+            status: response.status,
+            url: request.url,
+            headers: Object.fromEntries(response.headers),
+          },
+        });
+      }
+      await response.body?.cancel();
       return await ctx.runMutation(internal.githubStarGate.finishStar, {
         eventSlug: args.eventSlug,
         authorizationId: claim.authorizationId,

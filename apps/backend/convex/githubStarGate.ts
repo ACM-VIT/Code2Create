@@ -206,6 +206,7 @@ export const finishDisconnect = internalMutation({
       for (const intent of intents) {
         await ctx.db.patch(intent._id, {
           status: "expired",
+          pkceVerifierCiphertext: undefined,
           attemptId: undefined,
           claimExpiresAt: undefined,
           completedAt: Date.now(),
@@ -221,6 +222,7 @@ export const createSetupIntent = internalMutation({
   args: {
     eventSlug: v.string(),
     stateDigest: v.string(),
+    pkceVerifierCiphertext: v.string(),
     redirectUri: v.string(),
   },
   returns: v.object({ intentId: v.id("githubStarSetupIntents") }),
@@ -250,6 +252,7 @@ export const createSetupIntent = internalMutation({
       membershipId: membership._id,
       personId: person._id,
       stateDigest: args.stateDigest,
+      pkceVerifierCiphertext: args.pkceVerifierCiphertext,
       redirectUri: args.redirectUri,
       status: "pending",
       expiresAt,
@@ -266,6 +269,7 @@ const setupClaim = v.union(
   v.object({
     kind: v.literal("verify"),
     intentId: v.id("githubStarSetupIntents"),
+    pkceVerifierCiphertext: v.string(),
     redirectUri: v.string(),
   }),
   v.object({ kind: v.literal("completed") }),
@@ -297,6 +301,7 @@ export const claimSetupIntent = internalMutation({
     if (intent.expiresAt <= now || intent.status === "expired") {
       await ctx.db.patch(intent._id, {
         status: "expired",
+        pkceVerifierCiphertext: undefined,
         claimExpiresAt: undefined,
       });
       throw new ConvexError({
@@ -316,6 +321,12 @@ export const claimSetupIntent = internalMutation({
         message: "This GitHub connection is already being verified.",
       });
     }
+    if (!intent.pkceVerifierCiphertext) {
+      throw new ConvexError({
+        code: "GITHUB_SETUP_INVALID",
+        message: "This GitHub connection is invalid. Start again.",
+      });
+    }
     await ctx.db.patch(intent._id, {
       status: "verifying",
       attemptId: args.attemptId,
@@ -324,6 +335,7 @@ export const claimSetupIntent = internalMutation({
     return {
       kind: "verify",
       intentId: intent._id,
+      pkceVerifierCiphertext: intent.pkceVerifierCiphertext,
       redirectUri: intent.redirectUri,
     };
   },
@@ -444,6 +456,7 @@ export const finishSetupIntent = internalMutation({
     if (membershipCompletion) {
       await ctx.db.patch(intent._id, {
         status: "completed",
+        pkceVerifierCiphertext: undefined,
         completedAt: now,
         claimExpiresAt: undefined,
       });
@@ -495,6 +508,7 @@ export const finishSetupIntent = internalMutation({
       });
       await ctx.db.patch(intent._id, {
         status: "completed",
+        pkceVerifierCiphertext: undefined,
         authorizationId: undefined,
         completedAt: completion.completedAt,
         claimExpiresAt: undefined,
@@ -516,6 +530,7 @@ export const finishSetupIntent = internalMutation({
     });
     await ctx.db.patch(intent._id, {
       status: "completed",
+      pkceVerifierCiphertext: undefined,
       authorizationId,
       completedAt: now,
       claimExpiresAt: undefined,
@@ -541,6 +556,7 @@ export const failSetupIntent = internalMutation({
     if (intent?.status === "verifying" && intent.attemptId === args.attemptId) {
       await ctx.db.patch(intent._id, {
         status: "failed",
+        pkceVerifierCiphertext: undefined,
         failureCode: args.failureCode,
         completedAt: Date.now(),
         claimExpiresAt: undefined,
@@ -558,6 +574,7 @@ export const expireSetupIntent = internalMutation({
     if (intent && (intent.status === "pending" || intent.status === "verifying")) {
       await ctx.db.patch(intent._id, {
         status: "expired",
+        pkceVerifierCiphertext: undefined,
         claimExpiresAt: undefined,
       });
     }

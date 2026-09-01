@@ -42,7 +42,6 @@ OPENAI_API_KEY=$(read_secret openai-api-key)
 NOVELTY_GLOBAL_REQUESTS_PER_MINUTE=1800
 NOVELTY_INDEX_REQUESTS_PER_MINUTE=300
 GITHUB_APP_ID=$(read_secret github-app-id)
-GITHUB_APP_SLUG=code2create-7-0
 GITHUB_APP_CLIENT_ID=$(read_secret github-app-client-id)
 GITHUB_APP_CLIENT_SECRET=$(read_secret github-app-client-secret)
 GITHUB_WEBHOOK_SECRET=$(read_secret github-webhook-secret)

@@ -569,6 +569,7 @@ describe("participant onboarding lifecycle", () => {
     const setup = await participant.mutation(internal.githubStarGate.createSetupIntent, {
       eventSlug: fixture.eventSlug,
       stateDigest: "github-gate-state-digest",
+      pkceVerifierCiphertext: "encrypted-verifier",
       redirectUri: "https://participant.example.test/onboarding/github/callback",
     });
     const setupClaim = await participant.mutation(internal.githubStarGate.claimSetupIntent, {
@@ -579,6 +580,7 @@ describe("participant onboarding lifecycle", () => {
     expect(setupClaim).toEqual({
       kind: "verify",
       intentId: setup.intentId,
+      pkceVerifierCiphertext: "encrypted-verifier",
       redirectUri: "https://participant.example.test/onboarding/github/callback",
     });
     if (setupClaim.kind !== "verify") throw new Error("The setup intent was not claimed.");
@@ -602,22 +604,31 @@ describe("participant onboarding lifecycle", () => {
       githubLogin: "aarav-github",
     });
 
-    const starClaim = await participant.mutation(internal.githubStarGate.claimStar, {
-      eventSlug: fixture.eventSlug,
-      attemptId: "github-gate-star-attempt",
-    });
+    const starClaim = await participant.mutation(
+      internal.githubStarGate.claimStar,
+      {
+        eventSlug: fixture.eventSlug,
+        attemptId: "github-gate-star-attempt",
+      },
+    );
     expect(starClaim.kind).toBe("star");
     if (starClaim.kind !== "star") throw new Error("The star authorization was not claimed.");
-    const completed = await participant.mutation(internal.githubStarGate.finishStar, {
-      eventSlug: fixture.eventSlug,
-      authorizationId: starClaim.authorizationId,
-      attemptId: "github-gate-star-attempt",
-    });
-    const replayed = await participant.mutation(internal.githubStarGate.finishStar, {
-      eventSlug: fixture.eventSlug,
-      authorizationId: starClaim.authorizationId,
-      attemptId: "github-gate-star-attempt",
-    });
+    const completed = await participant.mutation(
+      internal.githubStarGate.finishStar,
+      {
+        eventSlug: fixture.eventSlug,
+        authorizationId: starClaim.authorizationId,
+        attemptId: "github-gate-star-attempt",
+      },
+    );
+    const replayed = await participant.mutation(
+      internal.githubStarGate.finishStar,
+      {
+        eventSlug: fixture.eventSlug,
+        authorizationId: starClaim.authorizationId,
+        attemptId: "github-gate-star-attempt",
+      },
+    );
     expect(replayed).toEqual(completed);
     await expect(participant.query(api.githubStarGate.current, {
       eventSlug: fixture.eventSlug,
@@ -670,6 +681,7 @@ describe("participant onboarding lifecycle", () => {
     await participant.mutation(internal.githubStarGate.createSetupIntent, {
       eventSlug: fixture.eventSlug,
       stateDigest: "github-disconnect-connected-state",
+      pkceVerifierCiphertext: "encrypted-verifier",
       redirectUri: "https://participant.example.test/onboarding/github/callback",
     });
     const connectedClaim = await participant.mutation(
@@ -698,6 +710,7 @@ describe("participant onboarding lifecycle", () => {
       {
         eventSlug: fixture.eventSlug,
         stateDigest: "github-disconnect-open-state",
+        pkceVerifierCiphertext: "another-encrypted-verifier",
         redirectUri: "https://participant.example.test/onboarding/github/callback",
       },
     );
@@ -768,6 +781,7 @@ describe("participant onboarding lifecycle", () => {
     await participant.mutation(internal.githubStarGate.createSetupIntent, {
       eventSlug: fixture.eventSlug,
       stateDigest: "existing-star-state-digest",
+      pkceVerifierCiphertext: "encrypted-verifier",
       redirectUri: "https://participant.example.test/onboarding/github/callback",
     });
     const claim = await participant.mutation(internal.githubStarGate.claimSetupIntent, {
@@ -1701,6 +1715,7 @@ describe("participant onboarding lifecycle", () => {
         membershipId: fixture.membershipId,
         personId: fixture.personId,
         stateDigest: "staging-reset-state",
+        pkceVerifierCiphertext: "staging-reset-encrypted-verifier",
         redirectUri: "http://localhost:4173/onboarding/github/callback",
         status: "pending",
         expiresAt: fixture.now + 60_000,

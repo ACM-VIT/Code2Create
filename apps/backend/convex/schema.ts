@@ -3847,6 +3847,8 @@ export default defineSchema({
     membershipId: v.id("eventMemberships"),
     personId: v.id("people"),
     stateDigest: v.string(),
+    // Present only until the one-time callback is consumed or expires.
+    pkceVerifierCiphertext: v.optional(v.string()),
     redirectUri: v.string(),
     status: v.union(
       v.literal("pending"),

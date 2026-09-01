@@ -101,7 +101,7 @@ One active membership exists per event/person.
 
 ### `githubStarSetupIntents`
 
-One short-lived, participant-scoped GitHub App installation and authorization attempt. It stores the event, membership, person, hashed state, exact redirect URI, status, claim lease, expiry, and completion or failure metadata. The callback must contain both the App installation ID and OAuth code. The server verifies that installation against the authorized personal account before storing a token. Raw OAuth state and tokens are never stored. A scheduled mutation expires unused attempts.
+One short-lived, participant-scoped GitHub App user authorization attempt. It stores the event, membership, person, hashed state, encrypted PKCE verifier, exact redirect URI, status, claim lease, expiry, and completion or failure metadata. The callback must contain the matching state and OAuth code. The App is not installed on the participant's account or organization. Raw OAuth state and tokens are never stored. A scheduled mutation expires unused attempts.
 
 ### `githubStarAuthorizations`
 

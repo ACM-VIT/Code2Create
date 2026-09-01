@@ -2,11 +2,11 @@ import { RequestError } from "octokit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  githubAppInstallationUrl,
-  githubAppSlug,
   githubRepositoryIsStarred,
   githubUserAuthorizationConfiguration,
+  githubUserAuthorizationUrl,
   githubUserGrantRevocationRequest,
+  githubUserStarRequest,
   isGitHubRateLimit,
   timedGitHubFetch,
 } from "./githubClient";
@@ -38,35 +38,45 @@ describe("GitHub request boundary", () => {
     );
   });
 
-  it("starts with the configured GitHub App installation", () => {
-    vi.stubEnv("GITHUB_APP_SLUG", "code2create-7-0");
-
-    expect(githubAppSlug()).toBe("code2create-7-0");
-    const installationUrl = new URL(githubAppInstallationUrl({
-      appSlug: githubAppSlug(),
-      state: "opaque-installation-state-value-123456",
+  it("forces an account choice for every participant authorization", () => {
+    const authorizationUrl = new URL(githubUserAuthorizationUrl({
+      clientId: "participant-authorization-client",
+      redirectUri: "https://participant.example.test/onboarding/github/callback",
+      state: "opaque-state",
+      codeChallenge: "pkce-challenge",
     }));
-    expect(installationUrl.origin).toBe("https://github.com");
-    expect(installationUrl.pathname).toBe(
-      "/apps/code2create-7-0/installations/new",
-    );
-    expect(Object.fromEntries(installationUrl.searchParams)).toEqual({
-      state: "opaque-installation-state-value-123456",
+
+    expect(authorizationUrl.origin).toBe("https://github.com");
+    expect(authorizationUrl.pathname).toBe("/login/oauth/authorize");
+    expect(Object.fromEntries(authorizationUrl.searchParams)).toEqual({
+      client_id: "participant-authorization-client",
+      redirect_uri: "https://participant.example.test/onboarding/github/callback",
+      state: "opaque-state",
+      code_challenge: "pkce-challenge",
+      code_challenge_method: "S256",
+      prompt: "select_account",
     });
   });
 
-  it("rejects an unsafe GitHub App slug", () => {
-    vi.stubEnv("GITHUB_APP_SLUG", "../another-app");
+  it("uses GitHub's documented user-token star request", () => {
+    const request = githubUserStarRequest(
+      "ghu_participant_token",
+      "sgl-project",
+      "sglang",
+    );
 
-    expect(() => githubAppSlug()).toThrow("App slug is invalid");
-    expect(() => githubAppInstallationUrl({
-      appSlug: "another/app",
-      state: "opaque-installation-state-value-123456",
-    })).toThrow("App slug is invalid");
-    expect(() => githubAppInstallationUrl({
-      appSlug: "code2create-7-0",
-      state: "short",
-    })).toThrow("installation state is invalid");
+    expect(request).toEqual({
+      url: "https://api.github.com/user/starred/sgl-project/sglang",
+      init: {
+        method: "PUT",
+        headers: {
+          accept: "application/vnd.github+json",
+          authorization: "Bearer ghu_participant_token",
+          "content-length": "0",
+          "x-github-api-version": "2026-03-10",
+        },
+      },
+    });
   });
 
   it("revokes the GitHub App grant instead of only forgetting its local token", () => {
