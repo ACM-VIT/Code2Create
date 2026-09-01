@@ -17,14 +17,14 @@ export function AccountBadge({
   onSignOut?: () => void
 }) {
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center">
       <div
         title={[email ?? name, detail].filter(Boolean).join(' · ')}
         className="flex size-10 flex-none items-center justify-center rounded-full border-2 border-ring-lead bg-avatar-lead text-[11px] font-semibold lg:size-12 lg:text-[12.5px]"
       >
         {initialsOf(name)}
       </div>
-      {onSignOut ? <SignOutCircle onSignOut={onSignOut} className="-ml-1" /> : null}
+      {onSignOut ? <SignOutCircle onSignOut={onSignOut} className="-ml-2 lg:-ml-2.5" /> : null}
     </div>
   )
 }

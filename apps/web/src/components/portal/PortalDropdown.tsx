@@ -204,8 +204,11 @@ export function PortalSelect({
       size({
         padding: 12,
         apply({ rects, availableHeight, elements }) {
-          elements.floating.style.width = `${rects.reference.width}px`
-          elements.floating.style.maxHeight = `${Math.max(160, Math.min(availableHeight - 8, 288))}px`
+          elements.floating.style.setProperty('--dropdown-width', `${rects.reference.width}px`)
+          elements.floating.style.setProperty(
+            '--dropdown-max-height',
+            `${Math.max(160, Math.min(availableHeight - 8, 288))}px`,
+          )
         },
       }),
     ],
@@ -293,12 +296,19 @@ export function PortalSelect({
       {isMounted ? (
         <FloatingPortal>
           <FloatingFocusManager context={context} modal={false} initialFocus={-1}>
+            {/* Two elements on purpose: Floating UI places the menu with a
+                transform, so the scale-in has to live on a child or it
+                overwrites the placement and the menu lands in the corner. */}
             <div
               ref={setFloating}
-              style={{ ...floatingStyles, ...transitionStyles }}
-              className="z-[60] overflow-y-auto rounded-petal-xs border border-petal-edge bg-[image:var(--roster-bg)] p-1 shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-lg"
+              style={floatingStyles}
+              className="z-[60] w-[var(--dropdown-width)]"
               {...getFloatingProps()}
             >
+              <div
+                style={transitionStyles}
+                className="max-h-[var(--dropdown-max-height)] overflow-y-auto rounded-petal-xs border border-petal-edge bg-[image:var(--roster-bg)] p-1 shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-lg"
+              >
               <FloatingList elementsRef={elementsRef} labelsRef={labelsRef}>
                 <ul ref={listRef} className="relative m-0 list-none p-0">
                   {highlight ? (
@@ -324,6 +334,7 @@ export function PortalSelect({
                   </DropdownContext.Provider>
                 </ul>
               </FloatingList>
+              </div>
             </div>
           </FloatingFocusManager>
         </FloatingPortal>

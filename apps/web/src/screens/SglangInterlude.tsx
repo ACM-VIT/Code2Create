@@ -113,8 +113,8 @@ export function SglangInterlude({
         <h1 className="mb-6 font-display font-light tracking-[-.01em] text-balance text-[28px] leading-[1.25] lg:text-[38px]">
           Star SGLang to continue
         </h1>
-        <div className="space-y-4 text-pretty text-[15px] leading-[1.75] text-fg/70">
-          <p className="m-0">
+        <div className="mx-auto max-w-[560px] space-y-[18px] text-left text-[15px] leading-[1.7] text-fg/70">
+          <p className="m-0 text-pretty">
             SGLang is one of the fastest and most capable open-source inference engines today,
             outperforming vLLM across a range of workloads while serving{' '}
             <strong className="font-semibold text-fg/90">
@@ -126,7 +126,7 @@ export function SglangInterlude({
             </strong>
             .
           </p>
-          <p className="m-0">
+          <p className="m-0 text-pretty">
             ACM-VIT is proud to contribute to SGLang&apos;s open source ecosystem. Our alum{' '}
             <a
               href="https://github.com/adarshxs"
@@ -141,23 +141,11 @@ export function SglangInterlude({
             become an{' '}
             <strong className="font-semibold text-fg/90">ML Engineer at Hugging Face</strong>.
           </p>
-          <p className="m-0">
+          <p className="m-0 text-pretty">
             The SGLang team has also been incredibly generous in supporting and sponsoring
             Code2Create.
           </p>
-          <p className="m-0 font-semibold text-fg/90">
-            Connect your GitHub and star{' '}
-            <a
-              href="https://github.com/sgl-project/sglang"
-              target="_blank"
-              rel="noreferrer"
-              className="text-rose-light underline underline-offset-[3px]"
-            >
-              <code className="font-mono text-[.92em]">sgl-project/sglang</code> ↗
-            </a>
-            .
-          </p>
-          <p className="m-0">
+          <p className="m-0 text-pretty">
             It takes a few seconds, supports a project our own community contributes to, and helps
             one of the strongest open source projects continue growing.
           </p>
