@@ -46,7 +46,7 @@ type ApplicationState = CurrentApplication['state']
 type InformationRequest = NonNullable<CurrentApplication['informationRequest']>
 
 const additionalInformationLabel =
-  'Any additional information or links you want to share (please, no PPTs)'
+  'Additional information or links (optional, please no PPTs)'
 
 const deliveryStatusCopy: Record<ParticipantDeliveryState, string> = {
   pending: 'Email queued.',
@@ -1121,7 +1121,7 @@ function ProposalSummary({
                 maxLength={intake.editRules.additionalInformationMaxLength}
                 value={draft.additionalInformation}
                 disabled={busy || pending}
-                placeholder="Share a website, repository, document, demo link, or anything else useful."
+                placeholder="Optional: share a website, repository, document, demo link, or anything else useful."
                 onChange={(event) => {
                   const value = event.currentTarget.value
                   const nextDraft = { ...draft, additionalInformation: value }

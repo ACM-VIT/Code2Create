@@ -52,7 +52,7 @@ import type { CurrentIntake, CurrentTeam, CurrentTeamMember } from '../types'
 type NoveltyBand = 'familiar' | 'developing' | 'distinct'
 
 const additionalInformationLabel =
-  'Any additional information or links you want to share (please, no PPTs)'
+  'Additional information or links (optional, please no PPTs)'
 
 // The pill's plain-speak read of each band: how close the idea sits to
 // what other teams are writing.
@@ -1839,7 +1839,7 @@ function IntakeWorkspace({
                     maxLength={preview.additionalInformationMaxLength}
                     disabled={busy}
                     value={additionalInformationEdit?.value ?? ''}
-                    placeholder="Share a website, repository, document, demo link, or anything else useful."
+                    placeholder="Optional: share a website, repository, document, demo link, or anything else useful."
                     onChange={(event) => {
                       const value = event.currentTarget.value
                       setAdditionalInformationEdit((current) => current
