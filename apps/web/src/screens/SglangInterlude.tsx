@@ -116,7 +116,7 @@ export function SglangInterlude({
         {/* Centred copy only reads evenly when each paragraph is short enough
             to balance, so the measure stays tight and every one is three
             lines at most. */}
-        <div className="mx-auto max-w-[620px] space-y-6 text-[15px] leading-[1.7] text-fg/70">
+        <div className="mx-auto flex max-w-[620px] flex-col gap-5 text-[15px] leading-[1.7] text-fg/70">
           <p className="m-0 text-balance">
             SGLang is the leading open-source inference engine, outperforming vLLM across many
             workloads and serving{' '}
