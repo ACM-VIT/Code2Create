@@ -5,6 +5,23 @@ import { App, Octokit, RequestError } from "octokit";
 
 const githubApiVersion = "2026-03-10";
 const githubRequestTimeoutMs = 30_000;
+const githubUserAuthorizeUrl = "https://github.com/login/oauth/authorize";
+
+export function githubUserAuthorizationUrl(args: {
+  clientId: string;
+  redirectUri: string;
+  state: string;
+  codeChallenge: string;
+}) {
+  const authorizationUrl = new URL(githubUserAuthorizeUrl);
+  authorizationUrl.searchParams.set("client_id", args.clientId);
+  authorizationUrl.searchParams.set("redirect_uri", args.redirectUri);
+  authorizationUrl.searchParams.set("state", args.state);
+  authorizationUrl.searchParams.set("code_challenge", args.codeChallenge);
+  authorizationUrl.searchParams.set("code_challenge_method", "S256");
+  authorizationUrl.searchParams.set("prompt", "select_account");
+  return authorizationUrl.toString();
+}
 
 export function isGitHubRateLimit(
   status: number,

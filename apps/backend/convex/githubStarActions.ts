@@ -14,12 +14,12 @@ import {
   GitHubOctokit,
   githubRepositoryIsStarred,
   githubUserAuthorizationConfiguration,
+  githubUserAuthorizationUrl,
   isGitHubRateLimit,
   timedGitHubFetch,
 } from "./lib/githubClient";
 import { decryptProviderSecret, encryptProviderSecret } from "./lib/providerSecrets";
 
-const githubAuthorizeUrl = "https://github.com/login/oauth/authorize";
 const githubTokenUrl = "https://github.com/login/oauth/access_token";
 const repositoryOwner = "sgl-project";
 const repositoryName = "sglang";
@@ -148,13 +148,14 @@ export const beginConnection = action({
       pkceVerifierCiphertext: encryptProviderSecret(verifier),
       redirectUri,
     });
-    const authorizationUrl = new URL(githubAuthorizeUrl);
-    authorizationUrl.searchParams.set("client_id", configuration.clientId);
-    authorizationUrl.searchParams.set("redirect_uri", redirectUri);
-    authorizationUrl.searchParams.set("state", state);
-    authorizationUrl.searchParams.set("code_challenge", challenge);
-    authorizationUrl.searchParams.set("code_challenge_method", "S256");
-    return { authorizationUrl: authorizationUrl.toString() };
+    return {
+      authorizationUrl: githubUserAuthorizationUrl({
+        clientId: configuration.clientId,
+        redirectUri,
+        state,
+        codeChallenge: challenge,
+      }),
+    };
   },
 });
 

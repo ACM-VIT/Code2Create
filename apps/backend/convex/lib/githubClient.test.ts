@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   githubRepositoryIsStarred,
   githubUserAuthorizationConfiguration,
+  githubUserAuthorizationUrl,
   isGitHubRateLimit,
   timedGitHubFetch,
 } from "./githubClient";
@@ -33,6 +34,26 @@ describe("GitHub request boundary", () => {
     expect(() => githubUserAuthorizationConfiguration()).toThrow(
       "Participant GitHub authorization",
     );
+  });
+
+  it("forces an account choice for every participant authorization", () => {
+    const authorizationUrl = new URL(githubUserAuthorizationUrl({
+      clientId: "participant-authorization-client",
+      redirectUri: "https://participant.example.test/onboarding/github/callback",
+      state: "opaque-state",
+      codeChallenge: "pkce-challenge",
+    }));
+
+    expect(authorizationUrl.origin).toBe("https://github.com");
+    expect(authorizationUrl.pathname).toBe("/login/oauth/authorize");
+    expect(Object.fromEntries(authorizationUrl.searchParams)).toEqual({
+      client_id: "participant-authorization-client",
+      redirect_uri: "https://participant.example.test/onboarding/github/callback",
+      state: "opaque-state",
+      code_challenge: "pkce-challenge",
+      code_challenge_method: "S256",
+      prompt: "select_account",
+    });
   });
 
   it("recognizes an existing star without changing it", async () => {
