@@ -113,12 +113,15 @@ export function SglangInterlude({
         <h1 className="mb-6 font-display font-light tracking-[-.01em] text-balance text-[28px] leading-[1.25] lg:text-[38px]">
           Star SGLang to continue
         </h1>
-        <div className="mx-auto max-w-[560px] space-y-[18px] text-left text-[15px] leading-[1.7] text-fg/70">
-          <p className="m-0 text-pretty">
-            SGLang is one of the fastest and most capable open-source inference engines today,
-            outperforming vLLM across a range of workloads while serving{' '}
+        {/* Centred copy only reads evenly when each paragraph is short enough
+            to balance, so the measure stays tight and every one is three
+            lines at most. */}
+        <div className="mx-auto max-w-[620px] space-y-6 text-[15px] leading-[1.7] text-fg/70">
+          <p className="m-0 text-balance">
+            SGLang is the leading open-source inference engine, outperforming vLLM across many
+            workloads and serving{' '}
             <strong className="font-semibold text-fg/90">
-              trillions of tokens every day across 400,000+ GPUs
+              trillions of tokens daily across 400,000+ GPUs
             </strong>{' '}
             at companies like{' '}
             <strong className="font-semibold text-fg/90">
@@ -126,8 +129,8 @@ export function SglangInterlude({
             </strong>
             .
           </p>
-          <p className="m-0 text-pretty">
-            ACM-VIT is proud to contribute to SGLang&apos;s open source ecosystem. Our alum{' '}
+          <p className="m-0 text-balance">
+            ACM-VIT contributes to SGLang, and our alum{' '}
             <a
               href="https://github.com/adarshxs"
               target="_blank"
@@ -136,18 +139,13 @@ export function SglangInterlude({
             >
               Adarsh Shriwalmath ↗
             </a>{' '}
-            started as a contributor, became a{' '}
-            <strong className="font-semibold text-fg/90">maintainer</strong>, and later went on to
-            become an{' '}
+            went from contributor to maintainer to{' '}
             <strong className="font-semibold text-fg/90">ML Engineer at Hugging Face</strong>.
           </p>
-          <p className="m-0 text-pretty">
-            The SGLang team has also been incredibly generous in supporting and sponsoring
-            Code2Create.
-          </p>
-          <p className="m-0 text-pretty">
-            It takes a few seconds, supports a project our own community contributes to, and helps
-            one of the strongest open source projects continue growing.
+          <p className="m-0 text-balance">
+            The SGLang team also generously sponsors{' '}
+            <strong className="font-semibold text-fg/90">Code2Create</strong>, and all they ask is
+            that you take a few seconds to star the project.
           </p>
         </div>
 
