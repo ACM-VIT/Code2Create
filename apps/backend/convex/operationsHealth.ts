@@ -38,6 +38,7 @@ const scannerHeartbeatWindowMs = 2 * 60 * 1_000;
 const shortJobWindowMs = 5 * 60 * 1_000;
 const exportWindowMs = 15 * 60 * 1_000;
 const intakeJobWindowMs = 2 * 60 * 1_000;
+const noveltyPreviewStallWindowMs = 20 * 1_000;
 const recentModelFailureWindowMs = 15 * 60 * 1_000;
 const playbackAcknowledgementAllowanceMs = 2 * 60 * 1_000;
 
@@ -227,6 +228,34 @@ function admissionStateBefore(
     .take(queryLimit);
 }
 
+function noveltyStateBefore(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  state: "running",
+  before: number,
+) {
+  return ctx.db
+    .query("noveltyPreviewRequests")
+    .withIndex("by_event_state_requested", (index) =>
+      index.eq("eventId", eventId).eq("state", state).lt("requestedAt", before),
+    )
+    .take(queryLimit);
+}
+
+function noveltyStateSince(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  state: "unavailable" | "failed",
+  since: number,
+) {
+  return ctx.db
+    .query("noveltyPreviewRequests")
+    .withIndex("by_event_state_requested", (index) =>
+      index.eq("eventId", eventId).eq("state", state).gt("requestedAt", since),
+    )
+    .take(queryLimit);
+}
+
 function admissionStateSince(
   ctx: QueryCtx,
   eventId: Id<"events">,
@@ -260,9 +289,26 @@ async function intelligenceHealth(
     "rate_limited",
     "failed",
   ];
-  const [intakeStalls, pendingAdmissionStalls, runningAdmissionStalls, intakeFailures, admissionFailures] =
+  const [
+    intakeStalls,
+    noveltyStalls,
+    noveltyUnavailable,
+    noveltyFailed,
+    pendingAdmissionStalls,
+    runningAdmissionStalls,
+    intakeFailures,
+    admissionFailures,
+  ] =
     await Promise.all([
       intakeStateBefore(ctx, eventId, "running", generatedAt - intakeJobWindowMs),
+      noveltyStateBefore(ctx, eventId, "running", generatedAt - noveltyPreviewStallWindowMs),
+      noveltyStateSince(
+        ctx,
+        eventId,
+        "unavailable",
+        generatedAt - recentModelFailureWindowMs,
+      ),
+      noveltyStateSince(ctx, eventId, "failed", generatedAt - recentModelFailureWindowMs),
       admissionStateBefore(ctx, eventId, "pending", generatedAt - shortJobWindowMs),
       admissionStateBefore(ctx, eventId, "running", generatedAt - shortJobWindowMs),
       Promise.all(
@@ -296,6 +342,12 @@ async function intelligenceHealth(
       recent_intake_fallbacks: boundedCount(
         flatIntakeFailures.map((interpretation) => interpretation.createdAt),
       ),
+      novelty_preview_stalls: boundedCount(
+        noveltyStalls.map((request) => request.requestedAt),
+      ),
+      recent_novelty_unavailable: boundedCount(
+        [...noveltyUnavailable, ...noveltyFailed].map((request) => request.requestedAt),
+      ),
       admission_analysis_stalls: boundedCount(
         [...pendingAdmissionStalls, ...runningAdmissionStalls].map(
           (recommendation) => recommendation.createdAt,
@@ -307,6 +359,9 @@ async function intelligenceHealth(
     },
     coverage: [
       ...coverageMarker(intakeStalls, generatedAt),
+      ...coverageMarker(noveltyStalls, generatedAt),
+      ...coverageMarker(noveltyUnavailable, generatedAt),
+      ...coverageMarker(noveltyFailed, generatedAt),
       ...coverageMarker(pendingAdmissionStalls, generatedAt),
       ...coverageMarker(runningAdmissionStalls, generatedAt),
       ...intakeFailures.flatMap((rows) => coverageMarker(rows, generatedAt)),

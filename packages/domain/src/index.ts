@@ -1,6 +1,12 @@
 export const participantClasses = ["vit_student", "external_participant"] as const;
 export type ParticipantClass = (typeof participantClasses)[number];
 
+export const participantGenders = ["male", "female"] as const;
+export type ParticipantGender = (typeof participantGenders)[number];
+
+export const vitResidenceTypes = ["day_scholar", "hosteller"] as const;
+export type VitResidenceType = (typeof vitResidenceTypes)[number];
+
 export const studyYears = [
   "first",
   "second",
@@ -109,6 +115,7 @@ export * from "./intelligenceRecommendations.ts";
 export * from "./operationsAutonomy.ts";
 export * from "./email.ts";
 export * from "./voice.ts";
+export * from "./hostel.ts";
 export * from "./labels.ts";
 export * from "./eventStage.ts";
 export * from "./synesthesia.ts";
@@ -116,3 +123,4 @@ export * from "./permissions.ts";
 export * from "./operationsEpisodes.ts";
 export * from "./ideaIntelligence.ts";
 export * from "./intelligenceAgents.ts";
+export * from "./participantProfile.ts";

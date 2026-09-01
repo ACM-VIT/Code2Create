@@ -1,6 +1,6 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest, type TestConvex } from "convex-test";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { api, components } from "./_generated/api";
 import { defaultDeterministicIntakePolicy } from "./lib/intakePolicy.ts";
@@ -9,7 +9,9 @@ import {
   eventOwnerPermissionKeys,
   isPermissionKey,
   permissionCatalog,
+  type PermissionKey,
 } from "./lib/permissionCatalog.ts";
+import { insertPermissionGrant } from "./lib/permissions.ts";
 import { supremeSelfPermissionKeys } from "./lib/rolePermissions.ts";
 import schema from "./schema.ts";
 
@@ -20,6 +22,11 @@ const betterAuthModules = import.meta.glob(
 type BackendTest = TestConvex<typeof schema>;
 
 describe("event bootstrap", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUTH_SITE_URL", "http://localhost:3211");
+    vi.stubEnv("PARTICIPANT_SITE_URL", "http://localhost:4173");
+    vi.stubEnv("OPERATIONS_SITE_URL", "http://localhost:4174");
+  });
   afterEach(() => vi.unstubAllEnvs());
 
   test("derives every non-event-wide self permission for Supreme", () => {
@@ -65,6 +72,7 @@ describe("event bootstrap", () => {
       eventSlug: "code2create-7",
       eventName: "Code2Create 7.0",
       timezone: "Asia/Kolkata",
+      externalApplicationsCloseAt: startsAt - 24 * 60 * 60 * 1_000,
       applicationsCloseAt: startsAt - 24 * 60 * 60 * 1_000,
       vitEmailDomains: ["vitstudent.ac.in"],
       participantPolicy: defaultParticipantPolicy,
@@ -101,6 +109,7 @@ describe("event bootstrap", () => {
       eventSlug: "code2create-7",
     });
     expect(operationsAccess).toMatchObject({
+      isSupreme: true,
       eventLifecycle: true,
       accessPeople: true,
       health: true,
@@ -199,6 +208,7 @@ describe("event bootstrap", () => {
         status: "draft",
         startsAt,
         endsAt,
+        externalApplicationsCloseAt: startsAt - 24 * 60 * 60 * 1_000,
         applicationsCloseAt: startsAt - 24 * 60 * 60 * 1_000,
       });
       expect(event?.publishedParticipantPolicyId).toBeDefined();
@@ -269,6 +279,7 @@ describe("event bootstrap", () => {
       eventSlug: "code2create-7",
       eventName: "Code2Create 7.0",
       timezone: "Asia/Kolkata",
+      externalApplicationsCloseAt: startsAt - 24 * 60 * 60 * 1_000,
       applicationsCloseAt: startsAt - 24 * 60 * 60 * 1_000,
       vitEmailDomains: ["vitstudent.ac.in"],
       participantPolicy: defaultParticipantPolicy,
@@ -299,6 +310,233 @@ describe("event bootstrap", () => {
         maxActiveFigmaFilesPerTeam: 10,
       },
     })).rejects.toThrow("already has an event");
+  });
+
+  test("synchronizes missing Supreme catalog keys without re-assigning the role", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const identity = await createGoogleIdentity(backend, "owner@example.test");
+    const owner = backend.withIdentity({
+      subject: identity.authUserId,
+      sessionId: identity.authSessionId,
+    });
+    const seeded = await seedSupremeOrganizer(backend, {
+      authUserId: identity.authUserId,
+      email: "owner@example.test",
+      omitPermissionKeys: ["team.roster.import"],
+    });
+
+    const importGrantCount = await backend.run(async (ctx) => {
+      const grants = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_subject_permission_status", (index) =>
+          index
+            .eq("eventAccessSubjectId", seeded.subjectId)
+            .eq("permissionKey", "team.roster.import")
+            .eq("status", "active"),
+        )
+        .take(1);
+      return grants.length;
+    });
+    expect(importGrantCount).toBe(0);
+
+    const synchronized = await owner.mutation(api.access.synchronizeSupremePermissions, {
+      eventSlug: seeded.eventSlug,
+    });
+    expect(synchronized.createdCount).toBeGreaterThan(0);
+    expect(synchronized.accessVersion).toBe(seeded.accessVersion + 1);
+
+    await backend.run(async (ctx) => {
+      const grants = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_subject_permission_status", (index) =>
+          index
+            .eq("eventAccessSubjectId", seeded.subjectId)
+            .eq("permissionKey", "team.roster.import")
+            .eq("status", "active"),
+        )
+        .take(1);
+      expect(grants).toHaveLength(1);
+      const subject = await ctx.db.get(seeded.subjectId);
+      expect(subject?.accessVersion).toBe(seeded.accessVersion + 1);
+      const audits = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_target_time", (index) =>
+          index
+            .eq("targetType", "event_access_subject")
+            .eq("targetId", seeded.subjectId),
+        )
+        .take(8);
+      expect(audits.some((event) => event.action === "access.supreme_permissions_synchronized")).toBe(
+        true,
+      );
+    });
+  });
+
+  test("keeps Supreme role assignment inside the assigner's grant ceiling", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const identity = await createGoogleIdentity(backend, "role-owner@example.test");
+    const organizer = backend.withIdentity({
+      subject: identity.authUserId,
+      sessionId: identity.authSessionId,
+    });
+    const seeded = await seedEventOrganizer(backend, {
+      authUserId: identity.authUserId,
+      email: "role-owner@example.test",
+      role: "jc",
+    });
+    const target = await backend.run(async (ctx) => {
+      const now = Date.now();
+      const personId = await ctx.db.insert("people", {
+        authUserId: `role-target-${crypto.randomUUID()}`,
+        googleSubject: `role-target-google-${crypto.randomUUID()}`,
+        verifiedEmail: `role-target-${crypto.randomUUID()}@example.test`,
+        displayName: "Role target",
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const subjectId = await ctx.db.insert("eventAccessSubjects", {
+        eventId: seeded.eventId,
+        personId,
+        emailNormalized: `role-target-${crypto.randomUUID()}@example.test`,
+        displayName: "Role target",
+        status: "active",
+        linkedBy: "access_invitation",
+        accessVersion: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await insertPermissionGrant(ctx, {
+        eventId: seeded.eventId,
+        personId: seeded.personId,
+        eventAccessSubjectId: seeded.subjectId,
+        permissionKey: "access.roles.assign",
+        scopeType: "person",
+        scopeId: personId,
+        sourceType: "manual",
+        sourceId: "role-assignment-only",
+        grantedByPersonId: seeded.personId,
+        reason: "Role assignment fixture",
+      });
+      return { personId, subjectId };
+    });
+
+    await expect(organizer.mutation(api.accessRoles.set, {
+      eventSlug: seeded.eventSlug,
+      targetPersonId: target.personId,
+      role: "supreme",
+      expectedAccessVersion: 1,
+      reason: "Assign event ownership",
+      clientOperationId: "role-ceiling-denied",
+    })).rejects.toThrow("Scoped grant authority cannot create permission-administration authority");
+
+    await backend.run((ctx) => insertPermissionGrant(ctx, {
+      eventId: seeded.eventId,
+      personId: seeded.personId,
+      eventAccessSubjectId: seeded.subjectId,
+      permissionKey: "access.permissions.grant_any",
+      scopeType: "event",
+      sourceType: "manual",
+      sourceId: "role-assignment-grant-ceiling",
+      grantedByPersonId: seeded.personId,
+      reason: "Role assignment ceiling fixture",
+    }));
+    await expect(organizer.mutation(api.accessRoles.set, {
+      eventSlug: seeded.eventSlug,
+      targetPersonId: target.personId,
+      role: "supreme",
+      expectedAccessVersion: 1,
+      reason: "Assign event ownership",
+      clientOperationId: "role-ceiling-allowed",
+    })).resolves.toMatchObject({ accessVersion: 2 });
+
+    await expect(organizer.mutation(api.accessRoles.set, {
+      eventSlug: seeded.eventSlug,
+      targetPersonId: target.personId,
+      role: "board",
+      expectedAccessVersion: 2,
+      reason: "Replace event ownership",
+      clientOperationId: "role-revoke-ceiling-denied",
+    })).rejects.toThrow("Scoped revoke authority cannot revoke permission-administration authority");
+
+    await backend.run((ctx) => insertPermissionGrant(ctx, {
+      eventId: seeded.eventId,
+      personId: seeded.personId,
+      eventAccessSubjectId: seeded.subjectId,
+      permissionKey: "access.permissions.revoke_any",
+      scopeType: "event",
+      sourceType: "manual",
+      sourceId: "role-assignment-revoke-ceiling",
+      grantedByPersonId: seeded.personId,
+      reason: "Role removal ceiling fixture",
+    }));
+    await expect(organizer.mutation(api.accessRoles.set, {
+      eventSlug: seeded.eventSlug,
+      targetPersonId: target.personId,
+      role: "board",
+      expectedAccessVersion: 2,
+      reason: "Replace event ownership",
+      clientOperationId: "role-revoke-ceiling-allowed",
+    })).resolves.toMatchObject({ accessVersion: 3 });
+
+    await backend.run(async (ctx) => {
+      const role = await ctx.db
+        .query("eventRoles")
+        .withIndex("by_event_person_status", (index) =>
+          index
+            .eq("eventId", seeded.eventId)
+            .eq("personId", target.personId)
+            .eq("status", "active"),
+        )
+        .unique();
+      expect(role?.role).toBe("board");
+      const grant = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_subject_permission_status", (index) =>
+          index
+            .eq("eventAccessSubjectId", target.subjectId)
+            .eq("permissionKey", "access.permissions.grant_any")
+            .eq("status", "active"),
+        )
+        .unique();
+      expect(grant).toBeNull();
+    });
+  });
+
+  test("does not grant Supreme catalog keys to a non-Supreme organizer", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const identity = await createGoogleIdentity(backend, "jc@example.test");
+    const organizer = backend.withIdentity({
+      subject: identity.authUserId,
+      sessionId: identity.authSessionId,
+    });
+    const seeded = await seedEventOrganizer(backend, {
+      authUserId: identity.authUserId,
+      email: "jc@example.test",
+      role: "jc",
+    });
+
+    await expect(
+      organizer.mutation(api.access.synchronizeSupremePermissions, {
+        eventSlug: seeded.eventSlug,
+      }),
+    ).rejects.toThrow("Only a Supreme organizer can synchronize Supreme catalog permissions.");
+
+    await backend.run(async (ctx) => {
+      const grants = await ctx.db
+        .query("permissionGrants")
+        .withIndex("by_subject_permission_status", (index) =>
+          index
+            .eq("eventAccessSubjectId", seeded.subjectId)
+            .eq("permissionKey", "team.roster.import")
+            .eq("status", "active"),
+        )
+        .take(1);
+      expect(grants).toHaveLength(0);
+    });
   });
 
   test("does not offer setup to an unconfigured Google account", async () => {
@@ -340,6 +578,7 @@ describe("event bootstrap", () => {
         eventSlug: "attacker-event",
         eventName: "Attacker event",
         timezone: "Asia/Kolkata",
+        externalApplicationsCloseAt: Date.UTC(2027, 6, 16, 3, 30),
         applicationsCloseAt: Date.UTC(2027, 6, 17, 3, 30),
         vitEmailDomains: ["vitstudent.ac.in"],
         participantPolicy: defaultParticipantPolicy,
@@ -402,12 +641,123 @@ async function createGoogleIdentity(backend: BackendTest, email: string) {
       authUserId,
       googleSubject: `google:${email}`,
       verifiedEmail: email,
+      displayName: "Event owner",
       tokenIssuedAt: now - 1_000,
       tokenExpiresAt: now + 60 * 60 * 1_000,
       verifiedAt: now,
     });
   });
   return { authUserId, authSessionId };
+}
+
+async function seedSupremeOrganizer(
+  backend: BackendTest,
+  args: {
+    authUserId: string;
+    email: string;
+    omitPermissionKeys: readonly PermissionKey[];
+  },
+) {
+  const omitted = new Set<PermissionKey>(args.omitPermissionKeys);
+  const seeded = await seedEventOrganizer(backend, {
+    authUserId: args.authUserId,
+    email: args.email,
+    role: "supreme",
+  });
+  await backend.run(async (ctx) => {
+    const assignerKey = crypto.randomUUID();
+    const assignedByPersonId = await ctx.db.insert("people", {
+      authUserId: `assigner-${assignerKey}`,
+      googleSubject: `google:assigner-${assignerKey}`,
+      verifiedEmail: `assigner-${assignerKey}@example.test`,
+      displayName: "Original role assigner",
+      status: "active",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    for (const permissionKey of eventOwnerPermissionKeys) {
+      if (omitted.has(permissionKey)) continue;
+      await insertPermissionGrant(ctx, {
+        eventId: seeded.eventId,
+        personId: seeded.personId,
+        eventAccessSubjectId: seeded.subjectId,
+        permissionKey,
+        scopeType: "event",
+        sourceType: "role_template",
+        sourceId: seeded.roleId,
+        grantedByPersonId: assignedByPersonId,
+        reason: "Supreme role authority",
+      });
+    }
+  });
+  return seeded;
+}
+
+async function seedEventOrganizer(
+  backend: BackendTest,
+  args: {
+    authUserId: string;
+    email: string;
+    role: "supreme" | "jc";
+  },
+) {
+  const now = Date.now();
+  const eventSlug = `supreme-sync-${crypto.randomUUID()}`;
+  return backend.run(async (ctx) => {
+    const personId = await ctx.db.insert("people", {
+      authUserId: args.authUserId,
+      googleSubject: `google:${args.email}`,
+      verifiedEmail: args.email,
+      displayName: args.email,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const eventId = await ctx.db.insert("events", {
+      slug: eventSlug,
+      name: "Supreme permission sync fixture",
+      timezone: "Asia/Kolkata",
+      status: "draft",
+      vitEmailDomains: ["vitstudent.ac.in"],
+      externalApplicationsCloseAt: now + 86_400_000,
+      applicationsCloseAt: now + 86_400_000,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const subjectId = await ctx.db.insert("eventAccessSubjects", {
+      eventId,
+      personId,
+      emailNormalized: args.email,
+      displayName: args.email,
+      status: "active",
+      linkedBy: "access_invitation",
+      accessVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const roleId = await ctx.db.insert("eventRoles", {
+      eventId,
+      personId,
+      eventAccessSubjectId: subjectId,
+      role: args.role,
+      validFrom: now,
+      status: "active",
+      sourceType: "manual",
+      sourceId: `fixture-role:${personId}`,
+      assignedByPersonId: personId,
+      createdAt: now,
+      reason: "Fixture role",
+    });
+    return {
+      eventSlug,
+      eventId,
+      personId,
+      subjectId,
+      roleId,
+      accessVersion: 1,
+    };
+  });
 }
 
 function documentId(value: unknown, label: string): string {

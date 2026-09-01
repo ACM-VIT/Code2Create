@@ -13,8 +13,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -440,7 +438,6 @@ export const publish = mutation({
       permissionKey: "configuration.intelligence.publish",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const reason = normalizedText(args.reason, "Publication reason", 5, 500);
     const clientOperationId = normalizedText(args.clientOperationId, "Operation ID", 8, 120);
     const checksum = normalizedDigest(args.expectedDraftChecksum);
@@ -559,7 +556,6 @@ export const disable = mutation({
       permissionKey: "configuration.intelligence.publish",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const reason = normalizedText(args.reason, "Disable reason", 5, 500);
     const clientOperationId = normalizedText(args.clientOperationId, "Operation ID", 8, 120);
     const requestFingerprint = operationFingerprint([event._id, reason]);

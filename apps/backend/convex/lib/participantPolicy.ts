@@ -1,31 +1,35 @@
+import {
+  defaultVitHostelResidenceCatalog,
+  findVitHostelResidenceCatalogEntry,
+  type VitHostelResidenceCatalogEntry,
+  type VitHostelResidenceKind,
+} from "@code2create/domain";
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { maximumReviewTeamsPerEvent } from "./reviewLimits";
+import { maximumApplicantTeamsPerEvent } from "./reviewLimits";
 import { fingerprintText, normalizedLongText, normalizedText } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
-export const profileFieldMode = v.union(
-  v.literal("not_collected"),
-  v.literal("optional"),
-  v.literal("required"),
+export const vitHostelResidenceKind = v.union(
+  v.literal("mens"),
+  v.literal("ladies"),
 );
 
-export type ProfileFieldMode = "not_collected" | "optional" | "required";
+export const vitHostelResidenceCatalogEntry = v.object({
+  stableKey: v.string(),
+  label: v.string(),
+  kind: vitHostelResidenceKind,
+});
 
 export const participantPolicyInput = v.object({
   label: v.string(),
   teamMinimumSize: v.number(),
   teamMaximumSize: v.number(),
   mixedParticipantClassesAllowed: v.boolean(),
-  phoneField: profileFieldMode,
-  vitRegistrationNumberField: profileFieldMode,
-  vitProgrammeField: profileFieldMode,
-  vitCampusField: profileFieldMode,
-  externalCityField: profileFieldMode,
-  externalCountryField: profileFieldMode,
+  vitHostelResidenceCatalog: v.array(vitHostelResidenceCatalogEntry),
   profileNotice: v.string(),
   projectTextNotice: v.string(),
   privacyNoticeUrl: v.string(),
@@ -38,12 +42,7 @@ export type ParticipantPolicy = {
   teamMinimumSize: number;
   teamMaximumSize: number;
   mixedParticipantClassesAllowed: boolean;
-  phoneField: ProfileFieldMode;
-  vitRegistrationNumberField: ProfileFieldMode;
-  vitProgrammeField: ProfileFieldMode;
-  vitCampusField: ProfileFieldMode;
-  externalCityField: ProfileFieldMode;
-  externalCountryField: ProfileFieldMode;
+  vitHostelResidenceCatalog: VitHostelResidenceCatalogEntry[];
   profileNotice: string;
   projectTextNotice: string;
   privacyNoticeUrl: string;
@@ -56,23 +55,18 @@ export const freshProjectAttestation =
 
 export const defaultParticipantPolicy: ParticipantPolicy = {
   label: "Participant policy · 1",
-  teamMinimumSize: 1,
-  teamMaximumSize: 4,
-  mixedParticipantClassesAllowed: true,
-  phoneField: "optional",
-  vitRegistrationNumberField: "required",
-  vitProgrammeField: "required",
-  vitCampusField: "required",
-  externalCityField: "optional",
-  externalCountryField: "required",
+  teamMinimumSize: 2,
+  teamMaximumSize: 5,
+  mixedParticipantClassesAllowed: false,
+  vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
   profileNotice:
-    "We use these details to establish event eligibility, contact you about operations, and run Code2Create.",
+    "We use these details to run Code2Create.",
   projectTextNotice:
-    "Project answers may be processed by the published intake and novelty services. Do not include contact details, credentials, or other unnecessary personal information.",
+    "We may process submissions with AI tools to help us review.",
   privacyNoticeUrl: "https://code2create.in/privacy",
   freshProjectAttestation,
   finalSubmissionWarning:
-    "Submitting locks this exact team. You can edit the proposal until the published application deadline.",
+    "You can edit the team and proposal until the final deadline.",
 };
 
 function invalidPolicy(message: string): never {
@@ -100,11 +94,55 @@ function normalizedHttpsUrl(value: string, label: string) {
   return url.toString();
 }
 
+const maximumVitHostelResidenceCount = 64;
+
+function normalizeVitHostelResidenceCatalog(
+  catalog: readonly VitHostelResidenceCatalogEntry[],
+) {
+  if (catalog.length < 2 || catalog.length > maximumVitHostelResidenceCount) {
+    invalidPolicy(
+      `The VIT hostel block catalogue must contain 2 to ${maximumVitHostelResidenceCount} entries.`,
+    );
+  }
+  const stableKeys = new Set<string>();
+  let mensCount = 0;
+  let ladiesCount = 0;
+  const normalized = catalog.map((entry, index) => {
+    const stableKey = entry.stableKey.trim().toLowerCase();
+    if (!/^[a-z][a-z0-9_]{1,39}$/.test(stableKey)) {
+      invalidPolicy(
+        `VIT residence ${index + 1} needs a 2 to 40 character lowercase stable key.`,
+      );
+    }
+    if (stableKeys.has(stableKey)) {
+      invalidPolicy(`VIT residence stable key “${stableKey}” is duplicated.`);
+    }
+    stableKeys.add(stableKey);
+    const kind: VitHostelResidenceKind = entry.kind;
+    if (kind === "mens") mensCount += 1;
+    if (kind === "ladies") ladiesCount += 1;
+    return {
+      stableKey,
+      label: normalizedText(entry.label, `VIT residence ${index + 1} label`, 2, 80),
+      kind,
+    };
+  });
+  if (mensCount === 0 || ladiesCount === 0) {
+    invalidPolicy(
+      "The VIT hostel block catalogue must contain at least one men's and one ladies' block.",
+    );
+  }
+  return normalized;
+}
+
 export function normalizeParticipantPolicy(input: ParticipantPolicy): ParticipantPolicy {
   const teamMinimumSize = positiveWholeNumber(input.teamMinimumSize, "Minimum team size");
   const teamMaximumSize = positiveWholeNumber(input.teamMaximumSize, "Maximum team size");
   if (teamMaximumSize < teamMinimumSize) {
     invalidPolicy("Maximum team size cannot be smaller than minimum team size.");
+  }
+  if (input.mixedParticipantClassesAllowed) {
+    invalidPolicy("VIT students and external participants must form separate teams.");
   }
   const freshAttestation = normalizedLongText(
     input.freshProjectAttestation,
@@ -122,22 +160,19 @@ export function normalizeParticipantPolicy(input: ParticipantPolicy): Participan
     400,
   );
   const warningText = finalSubmissionWarning.toLocaleLowerCase("en");
-  if (!["team", "lock", "edit", "deadline"].every((term) => warningText.includes(term))) {
+  if (!["team", "proposal", "edit", "deadline"].every((term) => warningText.includes(term))) {
     invalidPolicy(
-      "The final-submission warning must say that the team locks and the proposal remains editable until the deadline.",
+      "The final-submission warning must say that the team and proposal remain editable until the deadline.",
     );
   }
   return {
     label: normalizedText(input.label, "Policy label", 3, 80),
     teamMinimumSize,
     teamMaximumSize,
-    mixedParticipantClassesAllowed: input.mixedParticipantClassesAllowed,
-    phoneField: input.phoneField,
-    vitRegistrationNumberField: input.vitRegistrationNumberField,
-    vitProgrammeField: input.vitProgrammeField,
-    vitCampusField: input.vitCampusField,
-    externalCityField: input.externalCityField,
-    externalCountryField: input.externalCountryField,
+    mixedParticipantClassesAllowed: false,
+    vitHostelResidenceCatalog: normalizeVitHostelResidenceCatalog(
+      input.vitHostelResidenceCatalog,
+    ),
     profileNotice: normalizedLongText(input.profileNotice, "Profile notice", 20, 600),
     projectTextNotice: normalizedLongText(
       input.projectTextNotice,
@@ -163,12 +198,7 @@ export function participantPolicyFromDocument(
     teamMinimumSize: policy.teamMinimumSize,
     teamMaximumSize: policy.teamMaximumSize,
     mixedParticipantClassesAllowed: policy.mixedParticipantClassesAllowed,
-    phoneField: policy.phoneField,
-    vitRegistrationNumberField: policy.vitRegistrationNumberField,
-    vitProgrammeField: policy.vitProgrammeField,
-    vitCampusField: policy.vitCampusField,
-    externalCityField: policy.externalCityField,
-    externalCountryField: policy.externalCountryField,
+    vitHostelResidenceCatalog: policy.vitHostelResidenceCatalog,
     profileNotice: policy.profileNotice,
     projectTextNotice: policy.projectTextNotice,
     privacyNoticeUrl: policy.privacyNoticeUrl,
@@ -211,30 +241,19 @@ export async function loadPublishedParticipantCapacity(ctx: ReadCtx, event: Doc<
 export async function participantPolicyPublicationIssue(
   ctx: ReadCtx,
   event: Doc<"events">,
-  previous: ParticipantPolicy,
   candidate: ParticipantPolicy,
 ) {
   const participantCapacity = await loadPublishedParticipantCapacity(ctx, event);
   if (candidate.teamMaximumSize > participantCapacity) {
     return `Maximum team size cannot exceed the published participant capacity of ${participantCapacity}.`;
   }
-  const restrictsParticipantClasses =
-    previous.mixedParticipantClassesAllowed && !candidate.mixedParticipantClassesAllowed;
-  if (
-    candidate.teamMinimumSize <= previous.teamMinimumSize &&
-    candidate.teamMaximumSize >= previous.teamMaximumSize &&
-    !restrictsParticipantClasses
-  ) {
-    return null;
-  }
-
   const teams = await ctx.db
     .query("teams")
     .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
-    .take(maximumReviewTeamsPerEvent + 1);
-  if (teams.length > maximumReviewTeamsPerEvent) {
+    .take(maximumApplicantTeamsPerEvent + 1);
+  if (teams.length > maximumApplicantTeamsPerEvent) {
     throw new Error(
-      `The event exceeds the supported limit of ${maximumReviewTeamsPerEvent} teams.`,
+      `The event exceeds the supported applicant limit of ${maximumApplicantTeamsPerEvent} teams.`,
     );
   }
   for (const team of teams) {
@@ -258,7 +277,6 @@ export async function participantPolicyPublicationIssue(
       return `Team “${team.name}” has fewer than ${candidate.teamMinimumSize} active members. Complete its roster before publishing this team-size limit.`;
     }
     if (
-      restrictsParticipantClasses &&
       team.activeVitMemberCount > 0 &&
       team.activeExternalMemberCount > 0
     ) {
@@ -268,8 +286,25 @@ export async function participantPolicyPublicationIssue(
   return null;
 }
 
-function requiredValue(mode: ProfileFieldMode, value: string | undefined) {
-  return mode !== "required" || value !== undefined;
+function hostelDetailsComplete(
+  profile: Doc<"participantProfiles">,
+  catalog: readonly VitHostelResidenceCatalogEntry[],
+) {
+  if (profile.vitResidenceType === "day_scholar") {
+    return (
+      profile.vitHostelResidence === undefined
+      && profile.vitHostelRoomNumber === undefined
+    );
+  }
+  if (profile.vitResidenceType !== "hosteller") return false;
+  if (profile.vitHostelResidence === undefined) return false;
+  const residence = findVitHostelResidenceCatalogEntry(
+    catalog,
+    profile.vitHostelResidence,
+  );
+  if (!residence) return false;
+  const expectedKind = profile.gender === "male" ? "mens" : "ladies";
+  return residence.kind === expectedKind && profile.vitHostelRoomNumber !== undefined;
 }
 
 export function isProfileCompleteForPolicy(
@@ -284,22 +319,25 @@ export function isProfileCompleteForPolicy(
     !membership.acceptedParticipantPolicyVersionIds.includes(policy._id) ||
     profile.fullName.length === 0 ||
     profile.institution.length === 0 ||
-    !requiredValue(policy.phoneField, profile.phone)
+    profile.phone.length === 0
   ) {
     return false;
   }
   if (profile.participantClass === "vit_student") {
     return (
       profile.yearOfStudy !== "not_applicable" &&
-      requiredValue(policy.vitRegistrationNumberField, profile.vitRegistrationNumber) &&
-      requiredValue(policy.vitProgrammeField, profile.vitProgramme) &&
-      requiredValue(policy.vitCampusField, profile.vitCampus)
+      profile.vitRegistrationNumber !== undefined &&
+      profile.vitProgramme !== undefined &&
+      hostelDetailsComplete(
+        profile,
+        policy.vitHostelResidenceCatalog,
+      )
     );
   }
   return (
-    (profile.yearOfStudy !== "not_applicable" || profile.currentRole !== undefined) &&
-    requiredValue(policy.externalCityField, profile.externalCity) &&
-    requiredValue(policy.externalCountryField, profile.externalCountry)
+    profile.yearOfStudy !== "not_applicable" &&
+    profile.externalUniversity !== undefined &&
+    profile.externalCollege !== undefined
   );
 }
 
@@ -404,7 +442,6 @@ export async function publishParticipantPolicy(
   const publicationIssue = await participantPolicyPublicationIssue(
     ctx,
     args.event,
-    previousNormalized,
     normalized,
   );
   if (publicationIssue) {

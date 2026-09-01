@@ -90,7 +90,7 @@ The system does not store, log, or export the raw barcode value. It does not use
 
 One event cannot bind the same active barcode fingerprint to two people. A rebind after card replacement or incorrect enrollment requires `attendance.credential.rebind` for the exact person. An explicit event-wide grant can also authorize it. The operator also needs a provisioned current-plan phone with station-read access. The phone or station grant alone cannot replace a participant's binding.
 
-The participant first presents a fresh portal QR. The QR resolves the exact membership without showing a barcode value. Staff compare the new card with the returned identity details. They enter a reason and use a Google session created within the last 15 minutes.
+The participant first presents a fresh portal QR. The QR resolves the exact membership without showing a barcode value. Staff compare the new card with the returned identity details. They enter a reason and use a current scoped authorization.
 
 The first scan claims the resolution's credential slot for the exact replacement and pending credential. It creates a pending replacement that expires after five minutes. An existing active card remains active during this period. A suspended card remains unusable.
 
@@ -103,7 +103,7 @@ The second scan must use the same resolution, operator, phone, station, and memb
 
 A stale version cannot change the current binding. A reused or mismatched resolution cannot change it. A same-card attempt, different second scan, duplicate active fingerprint, expired attempt, or competing replacement also cannot change it. The old binding remains in history. It stops resolving on the first online scan after the replacement commits.
 
-Suspension is an independent one-way command. It requires `attendance.credential.suspend` for the exact participant or an explicit event-wide grant. Staff must use an assigned current-plan phone. They must scan a fresh participant portal QR, confirm visible identity, and give a reason. Their Google session must be less than 15 minutes old.
+Suspension is an independent one-way command. It requires `attendance.credential.suspend` for the exact participant or an explicit event-wide grant. Staff must use an assigned current-plan phone. They must scan a fresh participant portal QR, confirm visible identity, and give a reason. Their scoped authorization must still be active.
 
 The server checks the active credential and version. One transaction then changes the credential to `suspended` and cancels each unfinished successor. The old barcode fails at the next online attendance scan.
 
@@ -167,9 +167,9 @@ The arrival button does not record presence. Credential controls do not issue or
 
 Arrival authority is person-scoped. `attendance.venue_check_in.read`, `.record`, `.override_identity`, and `.reverse` are independent exact-person permissions. Each permission can also have an explicit event-wide scope. The phone also needs its current exact-station `attendance.station.read` assignment.
 
-A normal record confirms the visible VIT ID for a VIT student. For an external participant, it confirms the event-approved external photo ID. A no-ID recovery uses only `.override_identity`. It requires a bounded reason and a Google session created within the last 15 minutes. The system stores it as `approved_exception`.
+A normal record confirms the visible VIT ID for a VIT student. For an external participant, it confirms the event-approved external photo ID. A no-ID recovery uses only `.override_identity`. It requires a bounded reason and a current scoped authorization. The system stores it as `approved_exception`.
 
-A reversal requires its separate permission, current check-in version, reason, and fresh session. Neither exception nor reversal changes venue or session presence.
+A reversal requires its separate permission, current check-in version, reason, and current authorization. Neither exception nor reversal changes venue or session presence.
 
 Repetitive VIT ID scanning is operated on provisioned phones that passed the actual-card and lighting rehearsal. VIT barcodes and attendance QR use the same Attendance camera mode, while the event app mounts separate Review and Hall map modes for their separately prefixed team credentials and server commands.
 
@@ -275,7 +275,7 @@ Opening a case freezes these values:
 - the confirmation time and late flag;
 - the latest evidence event.
 
-Staff evidence access, case opening, and case decision use independent exact-session permissions. The permissions are `attendance.remedy.read`, `attendance.remedy.open`, and `attendance.remedy.decide`. Participant read and open permissions are self-scoped. Staff case opening and decision require a Google session created within the last 15 minutes. A role label cannot replace a grant.
+Staff evidence access, case opening, and case decision use independent exact-session permissions. The permissions are `attendance.remedy.read`, `attendance.remedy.open`, and `attendance.remedy.decide`. Participant read and open permissions are self-scoped. Staff case opening and decision require a current scoped authorization. A role label cannot replace a grant.
 
 An authorized decision-maker can approve a reviewed replacement result with valid duration and confirmation facts. The decision-maker can also decline and keep the result. Approval updates the derived participant and session result with the applicable counter shard in one transaction. It does not change scanner events or presence intervals.
 
@@ -325,7 +325,7 @@ Attendance duration and temporary exits never enter a judging score or GitHub/Fi
 
 ## 9. Scan command and realtime update
 
-Enrolled VIT ID barcodes, external-badge QR, and portal QR all reach the same protected scanner command. A staffed missing or incorrect transition uses the separate fresh-authenticated reconciliation command and the same presence ledger/projections; it does not impersonate a scanner device.
+Enrolled VIT ID barcodes, external-badge QR, and portal QR all reach the same protected scanner command. A staffed missing or incorrect transition uses the separate authorized reconciliation command and the same presence ledger/projections; it does not impersonate a scanner device.
 
 The request contains:
 
@@ -404,7 +404,7 @@ Protected actions include:
 
 An emergency roll call selects a prepared attendance session in `ready`, `open`, or `closing`. The expected cohort and zone are therefore frozen and physically meaningful. The operator names it as an incident or drill.
 
-Start requires `attendance.roll_call.start` for the exact session. It also requires the current session version, a reason, an idempotent operation ID, and a Google session created within the last 15 minutes. A zone can have only one active roll call.
+Start requires `attendance.roll_call.start` for the exact session. It also requires the current session version, a reason, an idempotent operation ID, and a current scoped authorization. A zone can have only one active roll call.
 
 Start records these values atomically:
 
@@ -419,9 +419,9 @@ The command initializes a fixed set of sharded counters. It does not copy one th
 
 An identifiable export requires `attendance.export.identifiable` for the exact prepared session. An explicit event-wide grant can satisfy this scope. The operator selects columns from a fixed allowlist, gives a purpose, and chooses a lifetime from 15 minutes through seven days. The request sends that duration, and the mutation derives the absolute expiry from server time.
 
-The request requires the current session version. It also requires a Google session created within 15 minutes and an idempotent operation ID. One consistent Convex query captures at most 1,200 cohort rows. A bounded export worker creates a CSV that is safe from formula injection. It stores the file in private KMS-backed S3.
+The request requires the current session version. It also requires current scoped authorization and an idempotent operation ID. One consistent Convex query captures at most 1,200 cohort rows. A bounded export worker creates a CSV that is safe from formula injection. It stores the file in private KMS-backed S3.
 
-Only the requester can download the file. Download rechecks the grant, fresh session, expiry, export version, and checksum. It returns a signed URL that expires after 60 seconds or at export expiry, whichever occurs first. The file does not include exact movement history, credential values or fingerprints, QR values, bearer material, or exception reasons.
+Only the requester can download the file. Download rechecks the grant, current authorization, expiry, export version, and checksum. It returns a signed URL that expires after 60 seconds or at export expiry, whichever occurs first. The file does not include exact movement history, credential values or fingerprints, QR values, bearer material, or exception reasons.
 
 The default dashboard is operational, not punitive. It prioritises unknown states, unsafe occupancy, long-away alerts, offline stations, and review blockers rather than ranking participants by hours.
 
@@ -438,11 +438,11 @@ During a short connection loss:
 - Backup connectivity or another online station is the preferred recovery.
 - After reconnection, the phone sends events in device order. It shows accepted, duplicate, rejected, or needs-review results.
 
-Staffed participant resolution, venue check-in, identity exception, reversal, and credential setup remain online-only. They require a current single-use portal QR and current permission state. Some actions also require a fresh Google session. These actions never enter the offline scan queue.
+Staffed participant resolution, venue check-in, identity exception, reversal, and credential setup remain online-only. They require a current single-use portal QR and current permission state. Some actions also require a current scoped authorization. These actions never enter the offline scan queue.
 
 The phone saves each scan before online transmission. If the response is uncertain, replay uses the same operation ID and semantic request. A server commit and retry therefore resolve to one receipt. A definite server rejection removes the row. A connection failure keeps it. The phone deletes the row after a definite receipt, definite rejection, or short recovery expiry. The queue is not another attendance database.
 
-If the scanner battery or camera fails, staff change the method or device. A VIT student can use the portal QR without changing the VIT ID barcode binding. If backend failure exceeds the incident threshold, operations can open an attendance-backend incident. Before paper entry starts, two different fresh-authenticated people must approve paper mode. Each person must hold `incident.manual_mode.approve` for the exact incident.
+If the scanner battery or camera fails, staff change the method or device. A VIT student can use the portal QR without changing the VIT ID barcode binding. If backend failure exceeds the incident threshold, operations can open an attendance-backend incident. Before paper entry starts, two different authorized people must approve paper mode. Each person must hold `incident.manual_mode.approve` for the exact incident.
 
 The paper sheet comes from a current restricted emergency pack. Staff prepare the pack while the backend and private storage are healthy. The pack contains one prefilled sheet for each active station and current session. It also contains the requested spare sheets. Each sheet has a serial in the attendance manual-import format.
 
@@ -450,7 +450,7 @@ Preparing or printing the pack does not open an incident. It does not satisfy ei
 
 The first operator enters one numbered sheet for a single transition. The sheet must use an open session and compatible session station. The operator resolves 1–25 participant references against the frozen cohort. The operator attaches one compressed JPEG source under 900 KB.
 
-A different fresh-authenticated person verifies the sheet. This person must hold `attendance.manual_sheet.verify` and `attendance.manual_sheet.source.read` for the exact session. The verifier inspects the protected source and imports or rejects the sheet.
+A different authorized person verifies the sheet. This person must hold `attendance.manual_sheet.verify` and `attendance.manual_sheet.source.read` for the exact session. The verifier inspects the protected source and imports or rejects the sheet.
 
 Import requires the original-paper filing attestation. It creates append-only `manual_import` events through the scanner transition logic. Newer online evidence wins. An older paper row becomes linked `needs_review` evidence and does not rewrite current presence.
 
@@ -478,7 +478,7 @@ Import requires the original-paper filing attestation. It creates append-only `m
 - Normal venue check-in, approved no-ID exception, and reversal fail independently without their exact person permission; a station grant, credential permission, or role label cannot substitute.
 - One membership/event has at most one active venue check-in. Reversal preserves the prior row, decrements only the sharded arrival projection, and a later valid arrival creates a new row.
 - Recording or reversing arrival creates no presence event, venue state, interval, session participant/result, judging fact, or score change.
-- The team reaches `checked_in` only after every active locked member has a current venue check-in; a reversal at that milestone returns it to `confirmed` without rewriting a later active event phase.
+- The team reaches `checked_in` only after every member of its deadline-frozen roster has a current venue check-in; a reversal at that milestone returns it to `confirmed` without rewriting a later active event phase.
 - The same participant can check into every configured hacking session without receiving a new account or badge.
 - An enrolled VIT ID barcode, external event-badge QR, and portal QR produce the same accepted domain transition.
 - A portal QR cannot be used for another participant, event, session scope, or incompatible station; direction remains server-owned station configuration.
@@ -501,7 +501,7 @@ Import requires the original-paper filing attestation. It creates append-only `m
 - Making a disabled station available never revives the old phone or operator grants; provisioning creates a fresh installation secret and assignment.
 - Replacing a published attendance plan fails while any old session is preparing, open, or closing. A successful replacement atomically disables the old plan's stations, and no old-plan station can scan against the new plan.
 - A contradictory offline replay becomes needs review and cannot overwrite a newer accepted state.
-- A live manual correction requires exact-session authority, current session and participant versions, a reason, and a Google session created within 15 minutes. It adds a linked compensating event and changes the interval projection atomically. It fails after close starts.
+- A live manual correction requires exact-session authority, current session and participant versions, a reason, and current scoped authorization. It adds a linked compensating event and changes the interval projection atomically. It fails after close starts.
 - A finalized-result review opens only after session close completes. It freezes the exact result and evidence snapshot, permits one open case, and rejects stale decisions. Participant self read/open and staff read/open/decide boundaries remain independent.
 - Approval of a finalized-result review changes only the derived participant result and its counter shard. It records before and after values and a participant-facing note. It does not change a presence event or interval. Decline keeps the result.
 - An emergency roll call uses a prepared session cohort. It separates inside, temporarily out, not arrived, departed, elsewhere, and unknown people. Its sharded total equals expected. It freezes final counts without stopping ordinary scans.

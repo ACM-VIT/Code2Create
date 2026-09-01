@@ -2,9 +2,11 @@
 
 import type {
   ApplicationDecision,
+  ParticipantGender,
   ParticipantClass,
   RepositoryKind,
   StudyYear,
+  VitResidenceType,
 } from "./index.ts";
 
 export type TeamRoundState =
@@ -348,6 +350,16 @@ export const criterionAssessmentLabels: Record<CriterionAssessment, string> = {
 export const participantClassLabels: Record<ParticipantClass, string> = {
   vit_student: "VIT student",
   external_participant: "External participant",
+};
+
+export const participantGenderLabels: Record<ParticipantGender, string> = {
+  male: "Male",
+  female: "Female",
+};
+
+export const vitResidenceTypeLabels: Record<VitResidenceType, string> = {
+  day_scholar: "Day scholar",
+  hosteller: "Hosteller",
 };
 
 export const studyYearLabels: Record<StudyYear, string> = {

@@ -1,22 +1,21 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import type { IntakePolicy } from "./intakePolicy";
+import {
+  fixedQuestionForOrdinal,
+  type IntakePolicy,
+} from "./intakePolicy";
 import { fingerprintText } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
 type CurrentIntakeQuestion = Doc<"intakeGeneratedQuestions"> & {
-  state: "active" | "answered" | "skipped";
+  state: "active" | "answered";
 };
 
 function isCurrentQuestion(
   question: Doc<"intakeGeneratedQuestions">,
 ): question is CurrentIntakeQuestion {
-  return (
-    question.state === "active" ||
-    question.state === "answered" ||
-    question.state === "skipped"
-  );
+  return question.state === "active" || question.state === "answered";
 }
 
 export async function loadCurrentIntakeQuestions(
@@ -185,12 +184,36 @@ export async function createIntakeQuestion(
   });
 }
 
+export async function createFixedIntakeQuestion(
+  ctx: MutationCtx,
+  args: {
+    draft: Doc<"projectDrafts">;
+    policy: Doc<"intakePolicyVersions">;
+    normalizedPolicy: IntakePolicy;
+    ordinal: number;
+    sourceAnswerVersionIds: Id<"intakeAnswerVersions">[];
+    now: number;
+  },
+) {
+  const question = fixedQuestionForOrdinal(args.normalizedPolicy, args.ordinal);
+  return createIntakeQuestion(ctx, {
+    draft: args.draft,
+    policy: args.policy,
+    ordinal: args.ordinal,
+    text: question.text,
+    purposeKey: question.purposeKey,
+    answerLength: question.answerLength,
+    source: "fixed",
+    sourceAnswerVersionIds: args.sourceAnswerVersionIds,
+    validationCategory: "published_fixed_question",
+    now: args.now,
+  });
+}
+
 export function nextQuestionOrdinal(
   responses: readonly { question: Doc<"intakeGeneratedQuestions"> }[],
 ) {
-  const completed = responses.filter(
-    ({ question }) => question.state === "answered" || question.state === "skipped",
-  );
+  const completed = responses.filter(({ question }) => question.state === "answered");
   if (completed.length !== responses.length) return null;
   return completed.length + 1;
 }
@@ -205,7 +228,7 @@ export function intakeSequenceComplete(
     responses.every(
       ({ question }, index) =>
         question.ordinal === index + 1 &&
-        (question.state === "answered" || question.state === "skipped"),
+        question.state === "answered",
     )
   );
 }

@@ -30,6 +30,7 @@ export function cloudflareWorkerName(
 export function cloudflareDeployArguments(
   baseName: string,
   environment: ReleaseEnvironment,
+  configPath = 'dist/wrangler.json',
 ) {
   const releaseId = required(environment, 'VITE_RELEASE_ID')
   if (releaseId.length > 120) {
@@ -40,7 +41,7 @@ export function cloudflareDeployArguments(
     'wrangler',
     'deploy',
     '--config',
-    'dist/wrangler.json',
+    configPath,
     '--name',
     cloudflareWorkerName(baseName, environment),
     '--strict',
@@ -52,8 +53,9 @@ export function cloudflareDeployArguments(
 if (import.meta.main) {
   const baseName = process.argv[2]
   if (!baseName) throw new Error('Pass the Cloudflare Worker base name.')
+  const configPath = process.argv[3]
 
-  const result = spawnSync('pnpm', cloudflareDeployArguments(baseName, process.env), {
+  const result = spawnSync('pnpm', cloudflareDeployArguments(baseName, process.env, configPath), {
     env: process.env,
     stdio: 'inherit',
   })

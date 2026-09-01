@@ -774,7 +774,6 @@ async function seedParticipantDelivery(
           answerLength: "short",
           source: "fallback",
           answer: "Event participants",
-          skipped: false,
         },
       ],
       lockedRosterSnapshotId,

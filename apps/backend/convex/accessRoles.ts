@@ -7,9 +7,11 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
+import {
+  requireGrantAuthorities,
+  requireRevokeAuthorities,
+} from "./lib/permissionDelegation";
 import {
   findOperation,
   operationFingerprint,
@@ -17,7 +19,10 @@ import {
   storedOperationVersion,
 } from "./lib/operations";
 import { requirePermission, revokeSourceGrants } from "./lib/permissions";
-import { grantSupremeRolePermissions } from "./lib/rolePermissions";
+import {
+  grantSupremeRolePermissions,
+  supremeRolePermissionPlans,
+} from "./lib/rolePermissions";
 import { normalizedText } from "./lib/strings";
 import { eventRole } from "./values";
 
@@ -73,7 +78,6 @@ export const set = mutation({
       scopeType: "person",
       scopeId: args.targetPersonId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const targetSubject = await requireEventSubject(
       ctx,
       event._id,
@@ -94,6 +98,39 @@ export const set = mutation({
           .eq("status", "active"),
       )
       .unique();
+    const rolePermissionPlans = supremeRolePermissionPlans(targetSubject._id);
+    const roleAuthorityGrantIds: Id<"permissionGrants">[] = [];
+    if (args.role === "supreme") {
+      const authority = await requireGrantAuthorities(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: actorSubject._id,
+        actorPersonId: person._id,
+        actions: rolePermissionPlans.map((plan) => ({
+          permissionKey: plan.permissionKey,
+          scopeType: plan.scopeType,
+          ...(plan.scopeType === "event" ? {} : { scopeId: plan.scopeId }),
+          targetPersonId: args.targetPersonId,
+        })),
+      });
+      roleAuthorityGrantIds.push(...authority.grantIds);
+    }
+    if (currentRole?.role === "supreme" && args.role !== "supreme") {
+      const authority = await requireRevokeAuthorities(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: actorSubject._id,
+        actions: rolePermissionPlans.map((plan) => ({
+          permissionKey: plan.permissionKey,
+          scopeType: plan.scopeType,
+          ...(plan.scopeType === "event" ? {} : { scopeId: plan.scopeId }),
+          targetPersonId: args.targetPersonId,
+        })),
+      });
+      roleAuthorityGrantIds.push(...authority.grantIds);
+    }
+    const auditGrantIds = [...new Set([
+      ...authorizingGrantIds,
+      ...roleAuthorityGrantIds,
+    ])];
     if ((currentRole?.role ?? null) === args.role) {
       let accessVersion = targetSubject.accessVersion;
       if (args.role === "supreme" && currentRole) {
@@ -112,7 +149,7 @@ export const set = mutation({
             eventId: event._id,
             actorPersonId: person._id,
             permissionKey: "access.roles.assign",
-            grantIds: authorizingGrantIds,
+            grantIds: auditGrantIds,
             scopeType: "person",
             scopeId: args.targetPersonId,
             action: "access.supreme_permissions_synchronized",
@@ -190,7 +227,7 @@ export const set = mutation({
       eventId: event._id,
       actorPersonId: person._id,
       permissionKey: "access.roles.assign",
-      grantIds: authorizingGrantIds,
+      grantIds: auditGrantIds,
       scopeType: "person",
       scopeId: args.targetPersonId,
       action: "access.role_label_changed",

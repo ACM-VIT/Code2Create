@@ -34,7 +34,7 @@ Staff actions use separate grants:
 - `synesthesia.access.suspend`; and
 - `synesthesia.access.restore`.
 
-A role label does not grant a music action. Playback permission does not grant moderation or report access.
+The role string is never checked for a music action; only a materialized permission grant can allow one. Playback permission does not grant moderation or report access.
 
 ## 4. Catalog
 

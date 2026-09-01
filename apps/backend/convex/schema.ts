@@ -66,6 +66,7 @@ import {
   noveltyCorpusStatus,
   noveltyPreviewState,
   participantClass,
+  participantGender,
   participantEligibilityStatus,
   participantOnboardingStatus,
   projectCheckpointKey,
@@ -98,11 +99,13 @@ import {
   songQueueMode,
   songRequestState,
   studyYear,
+  vitResidenceType,
   supportCaseCategory,
   supportCaseState,
   synesthesiaWindowKind,
   synesthesiaWindowStatus,
   teamRoundState,
+  teamRosterEntryStatus,
   teamStatus,
   venueCheckInStatus,
   venueIdentityCheckMethod,
@@ -243,6 +246,7 @@ export default defineSchema({
     publishedFloorPlanVersionId: v.optional(v.id("floorPlanVersions")),
     publishedIntegrationPolicyId: v.optional(v.id("integrationPolicyVersions")),
     publishedCommunicationsPolicyId: v.optional(v.id("communicationsPolicyVersions")),
+    externalApplicationsCloseAt: v.optional(v.number()),
     applicationsCloseAt: v.number(),
     startsAt: v.optional(v.number()),
     endsAt: v.optional(v.number()),
@@ -267,36 +271,14 @@ export default defineSchema({
     teamMinimumSize: v.number(),
     teamMaximumSize: v.number(),
     mixedParticipantClassesAllowed: v.boolean(),
-    phoneField: v.union(
-      v.literal("not_collected"),
-      v.literal("optional"),
-      v.literal("required"),
-    ),
-    vitRegistrationNumberField: v.union(
-      v.literal("not_collected"),
-      v.literal("optional"),
-      v.literal("required"),
-    ),
-    vitProgrammeField: v.union(
-      v.literal("not_collected"),
-      v.literal("optional"),
-      v.literal("required"),
-    ),
-    vitCampusField: v.union(
-      v.literal("not_collected"),
-      v.literal("optional"),
-      v.literal("required"),
-    ),
-    externalCityField: v.union(
-      v.literal("not_collected"),
-      v.literal("optional"),
-      v.literal("required"),
-    ),
-    externalCountryField: v.union(
-      v.literal("not_collected"),
-      v.literal("optional"),
-      v.literal("required"),
-    ),
+    vitHostelResidenceCatalog: v.array(v.object({
+      stableKey: v.string(),
+      label: v.string(),
+      kind: v.union(
+        v.literal("mens"),
+        v.literal("ladies"),
+      ),
+    })),
     profileNotice: v.string(),
     projectTextNotice: v.string(),
     privacyNoticeUrl: v.string(),
@@ -515,6 +497,26 @@ export default defineSchema({
       filterFields: ["corpusVersionId"],
     }),
 
+  noveltyTeamIdeas: defineTable({
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+    inputFingerprint: v.string(),
+    lifecycle: v.union(
+      v.literal("editing"),
+      v.literal("saved"),
+      v.literal("submitted"),
+    ),
+    embedding: v.array(v.float64()),
+    sourceUpdatedAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_team", ["teamId"])
+    .vectorIndex("by_event_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
+      filterFields: ["eventId"],
+    }),
+
   noveltyPreviewRequests: defineTable({
     eventId: v.id("events"),
     teamId: v.id("teams"),
@@ -526,10 +528,14 @@ export default defineSchema({
     state: noveltyPreviewState,
     score: v.optional(v.number()),
     band: v.optional(noveltyBand),
+    effectiveSimilarTeams: v.optional(v.number()),
+    comparedTeamCount: v.optional(v.number()),
     nearestSimilarity: v.optional(v.number()),
     nearestThemeLabel: v.optional(v.string()),
     reflectionPrompt: v.optional(v.string()),
     providerRequestId: v.optional(v.string()),
+    providerRemainingRequests: v.optional(v.number()),
+    providerRequestReset: v.optional(v.string()),
     agentOperationId: v.optional(v.string()),
     agentOutputChecksum: v.optional(v.string()),
     agentVersion: v.optional(v.string()),
@@ -540,6 +546,7 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_team_requested", ["teamId", "requestedAt"])
+    .index("by_team_state_requested", ["teamId", "state", "requestedAt"])
     .index("by_team_fingerprint_requested", ["teamId", "inputFingerprint", "requestedAt"])
     .index("by_team_client_request", ["teamId", "clientRequestId"])
     .index("by_event_state_requested", ["eventId", "state", "requestedAt"]),
@@ -561,6 +568,7 @@ export default defineSchema({
     authUserId: v.string(),
     googleSubject: v.string(),
     verifiedEmail: v.string(),
+    displayName: v.optional(v.string()),
     hostedDomain: v.optional(v.string()),
     tokenIssuedAt: v.number(),
     tokenExpiresAt: v.number(),
@@ -694,11 +702,68 @@ export default defineSchema({
     .index("by_import_row", ["rosterImportId", "sourceRowNumber"])
     .index("by_claimed_person", ["eventId", "claimedByPersonId"]),
 
+  teamRosterImports: defineTable({
+    eventId: v.id("events"),
+    sourceName: v.string(),
+    sourceFileName: v.optional(v.string()),
+    previewChecksum: v.string(),
+    rowCount: v.number(),
+    createdCount: v.number(),
+    replacedCount: v.number(),
+    unchangedCount: v.number(),
+    alreadyOnTeamCount: v.number(),
+    waitingForLeadCount: v.number(),
+    identityConflictCount: v.number(),
+    appliedNowCount: v.number(),
+    reason: v.string(),
+    authorizingGrantIds: v.array(v.id("permissionGrants")),
+    createdByPersonId: v.id("people"),
+    clientOperationId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_event_created", ["eventId", "createdAt"])
+    .index("by_event_operation", ["eventId", "clientOperationId"]),
+
+  teamRosterEntries: defineTable({
+    eventId: v.id("events"),
+    teamRosterImportId: v.id("teamRosterImports"),
+    sourceRowNumber: v.number(),
+    emailNormalized: v.optional(v.string()),
+    vitRegistrationNumber: v.optional(v.string()),
+    displayName: v.string(),
+    teamName: v.string(),
+    role: memberRole,
+    status: teamRosterEntryStatus,
+    version: v.number(),
+    createdByPersonId: v.id("people"),
+    createdAt: v.number(),
+    claimedByMembershipId: v.optional(v.id("eventMemberships")),
+    claimedTeamId: v.optional(v.id("teams")),
+    claimedAt: v.optional(v.number()),
+    supersededByEntryId: v.optional(v.id("teamRosterEntries")),
+  })
+    .index("by_event_email_status", ["eventId", "emailNormalized", "status"])
+    .index("by_event_vit_registration_status", [
+      "eventId",
+      "vitRegistrationNumber",
+      "status",
+    ])
+    .index("by_event_team_status", ["eventId", "teamName", "status"])
+    .index("by_event_status", ["eventId", "status"])
+    .index("by_import_row", ["teamRosterImportId", "sourceRowNumber"])
+    .index("by_event_created", ["eventId", "createdAt"]),
+
   eventMemberships: defineTable({
     eventId: v.id("events"),
     personId: v.id("people"),
     eventAccessSubjectId: v.id("eventAccessSubjects"),
     participantClass,
+    vitStudentIdentity: v.optional(v.object({
+      fullName: v.string(),
+      registrationNumber: v.string(),
+      programmeCode: v.string(),
+      yearOfStudy: studyYear,
+    })),
     eligibilityStatus: participantEligibilityStatus,
     onboardingStatus: participantOnboardingStatus,
     acceptedParticipantPolicyVersionIds: v.array(v.id("participantPolicyVersions")),
@@ -709,7 +774,8 @@ export default defineSchema({
     .index("by_event_person", ["eventId", "personId"])
     .index("by_person", ["personId"])
     .index("by_event_status", ["eventId", "eligibilityStatus"])
-    .index("by_event_onboarding_status", ["eventId", "onboardingStatus"]),
+    .index("by_event_onboarding_status", ["eventId", "onboardingStatus"])
+    .index("by_event_vit_registration", ["eventId", "vitStudentIdentity.registrationNumber"]),
 
   eventRoles: defineTable({
     eventId: v.id("events"),
@@ -826,16 +892,17 @@ export default defineSchema({
     membershipId: v.id("eventMemberships"),
     participantClass,
     fullName: v.string(),
-    preferredName: v.optional(v.string()),
-    phone: v.optional(v.string()),
+    phone: v.string(),
+    gender: participantGender,
     institution: v.string(),
     yearOfStudy: studyYear,
-    currentRole: v.optional(v.string()),
     vitRegistrationNumber: v.optional(v.string()),
     vitProgramme: v.optional(v.string()),
-    vitCampus: v.optional(v.string()),
-    externalCity: v.optional(v.string()),
-    externalCountry: v.optional(v.string()),
+    vitResidenceType: v.optional(vitResidenceType),
+    vitHostelResidence: v.optional(v.string()),
+    vitHostelRoomNumber: v.optional(v.string()),
+    externalUniversity: v.optional(v.string()),
+    externalCollege: v.optional(v.string()),
     profileVersion: v.number(),
     updatedAt: v.number(),
   })
@@ -862,6 +929,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_event_code", ["eventId", "publicCode"])
+    .index("by_event_name", ["eventId", "name"])
     .index("by_event_status", ["eventId", "status"]),
 
   teamMembers: defineTable({
@@ -877,7 +945,12 @@ export default defineSchema({
     ),
     joinedAt: v.number(),
     leftAt: v.optional(v.number()),
-    source: v.union(v.literal("created"), v.literal("code"), v.literal("invitation")),
+    source: v.union(
+      v.literal("created"),
+      v.literal("code"),
+      v.literal("invitation"),
+      v.literal("backfill"),
+    ),
   })
     .index("by_team_status", ["teamId", "status"])
     .index("by_event_membership_status", ["eventId", "membershipId", "status"])
@@ -1522,6 +1595,7 @@ export default defineSchema({
     intakePolicyVersionId: v.id("intakePolicyVersions"),
     stage: projectDraftStage,
     initialIdea: v.optional(v.string()),
+    additionalInformation: v.optional(v.string()),
     noveltyCorpusVersionId: v.optional(v.id("noveltyCorpusVersions")),
     noveltyEvaluatedInputFingerprint: v.optional(v.string()),
     noveltyScore: v.optional(v.number()),
@@ -1538,6 +1612,20 @@ export default defineSchema({
   })
     .index("by_team", ["teamId"])
     .index("by_event_intake_policy", ["eventId", "intakePolicyVersionId"]),
+
+  intakeWorkingFields: defineTable({
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+    kind: v.union(v.literal("idea"), v.literal("follow_up")),
+    questionId: v.optional(v.id("intakeGeneratedQuestions")),
+    value: v.string(),
+    baseDraftVersion: v.number(),
+    revision: v.number(),
+    writtenByMembershipId: v.id("eventMemberships"),
+    updatedAt: v.number(),
+  })
+    .index("by_team", ["teamId"])
+    .index("by_team_kind_question", ["teamId", "kind", "questionId"]),
 
   intakeAnswerVersions: defineTable({
     eventId: v.id("events"),
@@ -1571,7 +1659,7 @@ export default defineSchema({
     text: v.string(),
     purposeKey: intakeQuestionPurpose,
     answerLength: intakeAnswerLength,
-    source: v.union(v.literal("model"), v.literal("fallback")),
+    source: v.union(v.literal("fixed"), v.literal("model"), v.literal("fallback")),
     sourceAnswerVersionIds: v.array(v.id("intakeAnswerVersions")),
     intakePolicyVersionId: v.id("intakePolicyVersions"),
     interpretationId: v.optional(v.id("intakeInterpretations")),
@@ -1579,7 +1667,6 @@ export default defineSchema({
     state: v.union(
       v.literal("active"),
       v.literal("answered"),
-      v.literal("skipped"),
       v.literal("replaced"),
       v.literal("stale"),
     ),
@@ -1637,6 +1724,7 @@ export default defineSchema({
     teamId: v.id("teams"),
     version: v.number(),
     initialIdea: v.string(),
+    additionalInformation: v.optional(v.string()),
     intakePolicyVersionId: v.id("intakePolicyVersions"),
     intakeResponses: v.array(
       v.object({
@@ -1645,9 +1733,8 @@ export default defineSchema({
         question: v.string(),
         purposeKey: intakeQuestionPurpose,
         answerLength: intakeAnswerLength,
-        source: v.union(v.literal("model"), v.literal("fallback")),
-        answer: v.optional(v.string()),
-        skipped: v.boolean(),
+        source: v.union(v.literal("fixed"), v.literal("model"), v.literal("fallback")),
+        answer: v.string(),
       }),
     ),
     lockedRosterSnapshotId: v.id("teamSubmissionAttempts"),
@@ -1689,6 +1776,13 @@ export default defineSchema({
         sourceProjectVersionId: v.id("projectVersions"),
         editedByMembershipId: v.id("eventMemberships"),
         editedAt: v.number(),
+      }),
+    ),
+    rosterRevision: v.optional(
+      v.object({
+        sourceProjectVersionId: v.id("projectVersions"),
+        changedByMembershipId: v.id("eventMemberships"),
+        changedAt: v.number(),
       }),
     ),
     sourceDraftVersion: v.number(),
@@ -1769,6 +1863,7 @@ export default defineSchema({
     submittedAt: v.number(),
   })
     .index("by_team", ["teamId"])
+    .index("by_event_submitted", ["eventId", "submittedAt"])
     .index("by_event_state_submitted", ["eventId", "state", "submittedAt"]),
 
   participantNotificationDestinations: defineTable({
@@ -3746,6 +3841,62 @@ export default defineSchema({
     .index("by_state_digest", ["stateDigest"])
     .index("by_status", ["status"])
     .index("by_team_status", ["teamId", "status"]),
+
+  githubStarSetupIntents: defineTable({
+    eventId: v.id("events"),
+    membershipId: v.id("eventMemberships"),
+    personId: v.id("people"),
+    stateDigest: v.string(),
+    pkceVerifierCiphertext: v.optional(v.string()),
+    redirectUri: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("verifying"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("expired"),
+    ),
+    attemptId: v.optional(v.string()),
+    claimExpiresAt: v.optional(v.number()),
+    authorizationId: v.optional(v.id("githubStarAuthorizations")),
+    failureCode: v.optional(v.string()),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_state_digest", ["stateDigest"])
+    .index("by_membership_status", ["membershipId", "status"])
+    .index("by_status", ["status"]),
+
+  githubStarAuthorizations: defineTable({
+    eventId: v.id("events"),
+    membershipId: v.id("eventMemberships"),
+    personId: v.id("people"),
+    githubUserId: v.string(),
+    githubLogin: v.string(),
+    accessTokenCiphertext: v.string(),
+    expiresAt: v.number(),
+    status: v.union(v.literal("active"), v.literal("starring")),
+    attemptId: v.optional(v.string()),
+    claimExpiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_event_membership", ["eventId", "membershipId"])
+    .index("by_event_github_user", ["eventId", "githubUserId"]),
+
+  githubStarCompletions: defineTable({
+    eventId: v.id("events"),
+    membershipId: v.id("eventMemberships"),
+    personId: v.id("people"),
+    githubUserId: v.string(),
+    githubLogin: v.string(),
+    repositoryOwner: v.string(),
+    repositoryName: v.string(),
+    completedAt: v.number(),
+  })
+    .index("by_event_membership", ["eventId", "membershipId"])
+    .index("by_event_github_user", ["eventId", "githubUserId"]),
 
   githubInstallationConnections: defineTable({
     eventId: v.id("events"),

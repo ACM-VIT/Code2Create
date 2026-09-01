@@ -4,6 +4,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { admissionDecision } from "../values";
 import { loadPublishedParticipantPolicy } from "./participantPolicy";
+import { admissionRecommendationModel } from "./ideaSubmissionAi";
 import { fingerprintText, normalizedLongText, normalizedText } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -482,22 +483,6 @@ async function ensureReleaseLabelIsAvailable(
   }
 }
 
-async function ensureModelReleaseLabelIsAvailable(
-  ctx: ReadCtx,
-  eventId: Id<"events">,
-  version: string,
-) {
-  const rows = await ctx.db
-    .query("admissionModelConfigVersions")
-    .withIndex("by_event_version", (index) =>
-      index.eq("eventId", eventId).eq("version", version),
-    )
-    .collect();
-  if (rows.some((row) => row.status === "published" || row.status === "superseded")) {
-    invalidPolicy("That admission model release label has already been published.");
-  }
-}
-
 async function ensureAdmissionConfigurationOpen(ctx: ReadCtx, eventId: Id<"events">) {
   const [firstApplication, validatingSubmission, finalizingSubmission] = await Promise.all([
     ctx.db
@@ -536,7 +521,10 @@ export async function saveAdmissionConfigurationDraft(
   },
 ) {
   await ensureAdmissionConfigurationOpen(ctx, args.event._id);
-  const configuration = normalizeAdmissionConfiguration(args.configuration);
+  const configuration = normalizeAdmissionConfiguration({
+    ...args.configuration,
+    model: admissionRecommendationModel,
+  });
   const policyContent = admissionPolicyForConfiguration(configuration);
   const policyChecksum = admissionPolicyChecksum(policyContent);
   const modelChecksum = configuration.model
@@ -570,13 +558,6 @@ export async function saveAdmissionConfigurationDraft(
     };
   }
   await ensureReleaseLabelIsAvailable(ctx, args.event._id, configuration.version);
-  if (configuration.model) {
-    await ensureModelReleaseLabelIsAvailable(
-      ctx,
-      args.event._id,
-      configuration.model.version,
-    );
-  }
   if (currentModel) await ctx.db.patch(currentModel._id, { status: "retired" });
   if (currentDraft) await ctx.db.patch(currentDraft._id, { status: "retired" });
   const policyVersionId = await ctx.db.insert("admissionPolicyVersions", {
@@ -648,9 +629,6 @@ export async function publishAdmissionConfiguration(
     invalidPolicy("Participant capacity cannot be smaller than the maximum team size.");
   }
   await ensureReleaseLabelIsAvailable(ctx, args.event._id, draft.version);
-  if (draftModel) {
-    await ensureModelReleaseLabelIsAvailable(ctx, args.event._id, draftModel.version);
-  }
   const published = await loadPublishedAdmissionConfiguration(ctx, args.event);
   const oldCapacity = await ctx.db
     .query("admissionCapacityBuckets")

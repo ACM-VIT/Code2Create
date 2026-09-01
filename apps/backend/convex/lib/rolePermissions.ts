@@ -6,7 +6,11 @@ import {
   permissionCatalog,
   type PermissionKey,
 } from "./permissionCatalog";
-import { insertPermissionGrant } from "./permissions";
+import {
+  currentSourceGrants,
+  insertPermissionGrantGroup,
+  type PermissionGrantPlan,
+} from "./permissions";
 
 export const supremeSelfPermissionKeys: readonly PermissionKey[] = Object.keys(
   permissionCatalog,
@@ -16,6 +20,22 @@ export const supremeSelfPermissionKeys: readonly PermissionKey[] = Object.keys(
     const definition = permissionCatalog[permissionKey];
     return !definition.eventWide && definition.scopes.some((scope) => scope === "self");
   });
+
+export function supremeRolePermissionPlans(
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+): readonly PermissionGrantPlan[] {
+  return [
+    ...eventOwnerPermissionKeys.map((permissionKey) => ({
+      permissionKey,
+      scopeType: "event" as const,
+    })),
+    ...supremeSelfPermissionKeys.map((permissionKey) => ({
+      permissionKey,
+      scopeType: "self" as const,
+      scopeId: eventAccessSubjectId,
+    })),
+  ];
+}
 
 export async function grantSupremeRolePermissions(
   ctx: MutationCtx,
@@ -27,35 +47,71 @@ export async function grantSupremeRolePermissions(
     grantedByPersonId: Id<"people">;
   },
 ) {
-  let createdCount = 0;
-  for (const permissionKey of eventOwnerPermissionKeys) {
-    const result = await insertPermissionGrant(ctx, {
-      eventId: args.eventId,
-      personId: args.personId,
-      eventAccessSubjectId: args.eventAccessSubjectId,
-      permissionKey,
-      scopeType: "event",
-      sourceType: "role_template",
-      sourceId: args.roleId,
-      grantedByPersonId: args.grantedByPersonId,
-      reason: "Supreme role authority",
+  const missingGrants = await missingSupremeRolePermissionPlans(ctx, args);
+  if (missingGrants.length === 0) return 0;
+  const result = await insertPermissionGrantGroup(ctx, {
+    eventId: args.eventId,
+    personId: args.personId,
+    eventAccessSubjectId: args.eventAccessSubjectId,
+    sourceType: "role_template",
+    sourceId: args.roleId,
+    grantedByPersonId: args.grantedByPersonId,
+    reason: "Supreme role authority",
+    grants: missingGrants,
+  });
+  return result.createdCount;
+}
+
+export async function missingSupremeRolePermissionPlans(
+  ctx: MutationCtx,
+  args: {
+    eventId: Id<"events">;
+    personId: Id<"people">;
+    eventAccessSubjectId: Id<"eventAccessSubjects">;
+    roleId: Id<"eventRoles">;
+  },
+) {
+  const plannedGrants = supremeRolePermissionPlans(args.eventAccessSubjectId);
+  const currentGrants = await currentSourceGrants(ctx, {
+    eventId: args.eventId,
+    sourceType: "role_template",
+    sourceId: args.roleId,
+  });
+  const currentGrantKeys = new Set<string>();
+  for (const grant of currentGrants) {
+    if (!isPermissionKey(grant.permissionKey)) {
+      throw new Error("A Supreme role template contains an unknown permission.");
+    }
+    if (
+      grant.personId !== args.personId ||
+      grant.eventAccessSubjectId !== args.eventAccessSubjectId
+    ) {
+      throw new Error("A Supreme role template targets the wrong event account.");
+    }
+    const key = permissionGrantKey({
+      permissionKey: grant.permissionKey,
+      scopeType: grant.scopeType,
+      scopeId: grant.scopeId,
     });
-    if (result.created) createdCount += 1;
+    if (currentGrantKeys.has(key)) {
+      throw new Error("A Supreme role template owns duplicate permission scopes.");
+    }
+    currentGrantKeys.add(key);
   }
-  for (const permissionKey of supremeSelfPermissionKeys) {
-    const result = await insertPermissionGrant(ctx, {
-      eventId: args.eventId,
-      personId: args.personId,
-      eventAccessSubjectId: args.eventAccessSubjectId,
-      permissionKey,
-      scopeType: "self",
-      scopeId: args.eventAccessSubjectId,
-      sourceType: "role_template",
-      sourceId: args.roleId,
-      grantedByPersonId: args.grantedByPersonId,
-      reason: "Supreme role authority",
-    });
-    if (result.created) createdCount += 1;
-  }
-  return createdCount;
+  const missingGrants = plannedGrants.filter(
+    (grant) => !currentGrantKeys.has(permissionGrantKey(grant)),
+  );
+  return missingGrants;
+}
+
+function permissionGrantKey(grant: {
+  permissionKey: PermissionKey;
+  scopeType: PermissionGrantPlan["scopeType"];
+  scopeId?: string | undefined;
+}) {
+  return JSON.stringify([
+    grant.permissionKey,
+    grant.scopeType,
+    grant.scopeType === "event" ? null : grant.scopeId,
+  ]);
 }

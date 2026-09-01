@@ -1,3 +1,7 @@
+import {
+  findVitHostelResidenceCatalogEntry,
+  vitHostelResidenceCatalogLabel,
+} from "@code2create/domain";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -11,8 +15,6 @@ import { floorLocationDescription, nearestLandmarkName } from "./lib/floor";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -21,6 +23,7 @@ import {
   storedOperationVersion,
 } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
+import { loadPublishedParticipantPolicy } from "./lib/participantPolicy";
 import { normalizedText } from "./lib/strings";
 import { appendEmergencyPackReadFactById } from "./lib/operationsAutonomyReadFacts/incidentReadiness";
 import {
@@ -54,6 +57,8 @@ const rosterRow = v.object({
   name: v.string(),
   phone: v.optional(v.string()),
   vitRegistrationNumber: v.optional(v.string()),
+  vitHostelResidence: v.optional(v.string()),
+  vitHostelRoomNumber: v.optional(v.string()),
   participantClass,
   eligibilityStatus: participantEligibilityStatus,
   teamName: v.optional(v.string()),
@@ -198,10 +203,13 @@ async function buildSnapshot(
   ctx: QueryCtx,
   event: Doc<"events">,
 ) {
-  const { normalized: communicationsPolicy } = await loadPublishedCommunicationsPolicy(
-    ctx,
-    event,
-  );
+  const [
+    { normalized: communicationsPolicy },
+    { normalized: participantPolicy },
+  ] = await Promise.all([
+    loadPublishedCommunicationsPolicy(ctx, event),
+    loadPublishedParticipantPolicy(ctx, event),
+  ]);
   const attendancePlanId = event.publishedAttendancePlanVersionId;
   const floorPlanId = event.publishedFloorPlanVersionId;
   const snapshotAt = Date.now();
@@ -331,10 +339,23 @@ async function buildSnapshot(
           : undefined;
       return {
         participantReference: membership._id,
-        name: profile?.preferredName ?? profile?.fullName ?? "Profile incomplete",
+        name: profile?.fullName ?? "Profile incomplete",
         ...(profile?.phone ? { phone: profile.phone } : {}),
         ...(profile?.vitRegistrationNumber
           ? { vitRegistrationNumber: profile.vitRegistrationNumber }
+          : {}),
+        ...(profile?.vitResidenceType === "day_scholar"
+          ? { vitHostelResidence: "Day scholar" }
+          : profile?.vitHostelResidence !== undefined
+          ? {
+              vitHostelResidence: vitHostelResidenceLabel(
+                participantPolicy.vitHostelResidenceCatalog,
+                profile.vitHostelResidence,
+              ),
+            }
+          : {}),
+        ...(profile?.vitHostelRoomNumber !== undefined
+          ? { vitHostelRoomNumber: profile.vitHostelRoomNumber }
           : {}),
         participantClass: membership.participantClass,
         eligibilityStatus: membership.eligibilityStatus,
@@ -531,6 +552,18 @@ async function buildSnapshot(
   };
 }
 
+function vitHostelResidenceLabel(
+  catalog: readonly {
+    stableKey: string;
+    label: string;
+    kind: "mens" | "ladies";
+  }[],
+  stableKey: string,
+) {
+  const residence = findVitHostelResidenceCatalogEntry(catalog, stableKey);
+  return residence ? vitHostelResidenceCatalogLabel(residence) : stableKey;
+}
+
 export const generationFinished = exportWorkpool.defineOnComplete<
   DataModel,
   typeof packIdValidator
@@ -578,7 +611,6 @@ export const request = mutation({
       permissionKey: "emergency_pack.prepare",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -841,7 +873,6 @@ async function requirePrintAccess(
     permissionKey: "emergency_pack.print",
     scopeType: "event",
   });
-  await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
   if (pack.status !== "ready" || pack.expiresAt <= Date.now()) {
     throw new ConvexError({
       code: "EMERGENCY_PACK_NOT_AVAILABLE",

@@ -1,19 +1,24 @@
 import { api } from '@code2create/backend/api'
 import { useMutation, useQuery } from 'convex/react'
+import type { FunctionArgs } from 'convex/server'
 import { useCallback, useEffect, useRef } from 'react'
 
 import { eventSlug } from '../lib/config'
 
 export type EditingSurface = 'idea' | 'follow_up' | 'proposal_revision'
+type EditingQuestionId = NonNullable<
+  FunctionArgs<typeof api.intakePresence.heartbeat>['questionId']
+>
 
-const heartbeatMs = 4_000
-const idleMs = 7_000
+const heartbeatMs = 10_000
+const idleMs = 16_000
 
 type ActiveSession = {
   generation: number
   sessionId: string
   sessionToken: string | null
   surface: EditingSurface
+  questionId?: EditingQuestionId
 }
 
 export function useEditingPresence(enabled = true) {
@@ -50,6 +55,7 @@ export function useEditingPresence(enabled = true) {
     void heartbeatMutation({
       eventSlug,
       surface: session.surface,
+      ...(session.questionId !== undefined ? { questionId: session.questionId } : {}),
       sessionId: session.sessionId,
     }).then((result) => {
       const current = activeSession.current
@@ -64,16 +70,24 @@ export function useEditingPresence(enabled = true) {
     }).catch(() => undefined)
   }, [disconnectMutation, heartbeatMutation])
 
-  const markEditing = useCallback((surface: EditingSurface) => {
+  const markEditing = useCallback((
+    surface: EditingSurface,
+    questionId?: EditingQuestionId,
+  ) => {
     if (!enabled) return
     let session = activeSession.current
-    if (!session || session.surface !== surface) {
+    if (
+      !session ||
+      session.surface !== surface ||
+      session.questionId !== questionId
+    ) {
       stopEditing()
       session = {
         generation: generation.current,
         sessionId: crypto.randomUUID(),
         sessionToken: null,
         surface,
+        ...(questionId !== undefined ? { questionId } : {}),
       }
       activeSession.current = session
       sendHeartbeat(session)

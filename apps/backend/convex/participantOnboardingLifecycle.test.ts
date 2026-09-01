@@ -1,8 +1,9 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest, type TestConvex } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
-import { api, components } from "./_generated/api";
+import { api, components, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import {
   defaultParticipantPolicy,
   normalizeParticipantPolicy,
@@ -11,6 +12,10 @@ import {
 import { insertPermissionGrant } from "./lib/permissions.ts";
 import schema from "./schema.ts";
 
+process.env.AUTH_SITE_URL = "http://localhost:3211";
+process.env.PARTICIPANT_SITE_URL = "http://localhost:4173";
+process.env.OPERATIONS_SITE_URL = "http://localhost:4174";
+
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 const betterAuthModules = import.meta.glob(
   "../node_modules/@convex-dev/better-auth/src/component/**/*.ts",
@@ -18,7 +23,7 @@ const betterAuthModules = import.meta.glob(
 type BackendTest = TestConvex<typeof schema>;
 
 describe("participant onboarding lifecycle", () => {
-  test("keeps consent explicit while allowing team creation before profile completion", async () => {
+  test("requires consent, a complete profile, and the GitHub star before team setup", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const fixture = await seedParticipant(backend);
@@ -64,6 +69,39 @@ describe("participant onboarding lifecycle", () => {
             .eq("clientOperationId", acceptance.clientOperationId),
         )
         .collect()).toHaveLength(1);
+    });
+
+    await expect(participant.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Quiet Circuit",
+      clientOperationId: "team-before-profile",
+    })).rejects.toThrow("Complete your participant details");
+
+    await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Aarav Menon",
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "third",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "complete-profile-before-team",
+    });
+    await expect(participant.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Quiet Circuit",
+      clientOperationId: "team-before-github-star",
+    })).rejects.toThrow("star sgl-project/sglang");
+    await backend.run(async (ctx) => {
+      expect((await ctx.db.get(fixture.membershipId))?.onboardingStatus).toBe("github_required");
+    });
+    await completeGitHubStar(backend, fixture, {
+      personId: fixture.personId,
+      membershipId: fixture.membershipId,
+      githubUserId: "1001",
+      githubLogin: "aarav-test",
     });
 
     await backend.run(async (ctx) => {
@@ -136,7 +174,7 @@ describe("participant onboarding lifecycle", () => {
           index.eq("teamId", created.teamId).eq("status", "active"),
         )
         .collect();
-      expect(membership?.onboardingStatus).toBe("profile_required");
+      expect(membership?.onboardingStatus).toBe("project_required");
       expect(teamMembers).toHaveLength(1);
       expect(teamMembers[0]?.membershipId).toBe(fixture.membershipId);
       expect(teamMembers[0]?.role).toBe("lead");
@@ -474,9 +512,9 @@ describe("participant onboarding lifecycle", () => {
         });
       }
       await ctx.db.patch(created.teamId, {
-        activeMemberCount: 5,
+        activeMemberCount: 6,
         activeVitMemberCount: 0,
-        activeExternalMemberCount: 5,
+        activeExternalMemberCount: 6,
       });
     });
     await expect(
@@ -500,6 +538,285 @@ describe("participant onboarding lifecycle", () => {
       clientOperationId: "leave-after-applications-close",
     })).rejects.toThrow("Applications are closed");
   }, 10_000);
+
+  test("settles the GitHub connection and star with idempotent transactional claims", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "github-gate-policy",
+    });
+    await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Aarav Menon",
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "third",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "github-gate-profile",
+    });
+
+    const setup = await participant.mutation(internal.githubStarGate.createSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      stateDigest: "github-gate-state-digest",
+      pkceVerifierCiphertext: "encrypted-verifier",
+      redirectUri: "https://participant.example.test/onboarding/github/callback",
+    });
+    const setupClaim = await participant.mutation(internal.githubStarGate.claimSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      stateDigest: "github-gate-state-digest",
+      attemptId: "github-gate-setup-attempt",
+    });
+    expect(setupClaim.kind).toBe("verify");
+    if (setupClaim.kind !== "verify") throw new Error("The setup intent was not claimed.");
+    expect(setupClaim.intentId).toBe(setup.intentId);
+    await participant.mutation(internal.githubStarGate.finishSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      intentId: setupClaim.intentId,
+      attemptId: "github-gate-setup-attempt",
+      githubUserId: "2001",
+      githubLogin: "aarav-github",
+      authorization: {
+        kind: "connected",
+        accessTokenCiphertext: "encrypted-access-token",
+        authorizationExpiresAt: Date.now() + 60_000,
+      },
+    });
+    await expect(participant.query(api.githubStarGate.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      connected: true,
+      completed: false,
+      githubLogin: "aarav-github",
+    });
+
+    const starClaim = await participant.mutation(internal.githubStarGate.claimStar, {
+      eventSlug: fixture.eventSlug,
+      attemptId: "github-gate-star-attempt",
+    });
+    expect(starClaim.kind).toBe("star");
+    if (starClaim.kind !== "star") throw new Error("The star authorization was not claimed.");
+    const completed = await participant.mutation(internal.githubStarGate.finishStar, {
+      eventSlug: fixture.eventSlug,
+      authorizationId: starClaim.authorizationId,
+      attemptId: "github-gate-star-attempt",
+    });
+    const replayed = await participant.mutation(internal.githubStarGate.finishStar, {
+      eventSlug: fixture.eventSlug,
+      authorizationId: starClaim.authorizationId,
+      attemptId: "github-gate-star-attempt",
+    });
+    expect(replayed).toEqual(completed);
+    await expect(participant.query(api.githubStarGate.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      connected: true,
+      completed: true,
+      githubLogin: "aarav-github",
+    });
+    await backend.run(async (ctx) => {
+      expect(await ctx.db
+        .query("githubStarAuthorizations")
+        .withIndex("by_event_membership", (index) =>
+          index.eq("eventId", fixture.eventId).eq("membershipId", fixture.membershipId),
+        )
+        .unique()).toBeNull();
+      expect((await ctx.db.get(fixture.membershipId))?.onboardingStatus).toBe("team_required");
+    });
+  });
+
+  test("completes GitHub onboarding immediately when the account already stars SGLang", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "existing-star-policy",
+    });
+    await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Aarav Menon",
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "third",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "existing-star-profile",
+    });
+
+    await participant.mutation(internal.githubStarGate.createSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      stateDigest: "existing-star-state-digest",
+      pkceVerifierCiphertext: "encrypted-verifier",
+      redirectUri: "https://participant.example.test/onboarding/github/callback",
+    });
+    const claim = await participant.mutation(internal.githubStarGate.claimSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      stateDigest: "existing-star-state-digest",
+      attemptId: "existing-star-attempt",
+    });
+    if (claim.kind !== "verify") throw new Error("The setup intent was not claimed.");
+    const settled = await participant.mutation(internal.githubStarGate.finishSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      intentId: claim.intentId,
+      attemptId: "existing-star-attempt",
+      githubUserId: "2002",
+      githubLogin: "already-supports-sglang",
+      authorization: { kind: "already_starred" },
+    });
+
+    expect(settled).toMatchObject({
+      kind: "completed",
+      githubLogin: "already-supports-sglang",
+    });
+    await expect(participant.query(api.githubStarGate.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      connected: true,
+      completed: true,
+      githubLogin: "already-supports-sglang",
+    });
+    await backend.run(async (ctx) => {
+      expect(await ctx.db
+        .query("githubStarAuthorizations")
+        .withIndex("by_event_membership", (index) =>
+          index.eq("eventId", fixture.eventId).eq("membershipId", fixture.membershipId),
+        )
+        .unique()).toBeNull();
+      expect((await ctx.db.get(fixture.membershipId))?.onboardingStatus).toBe("team_required");
+    });
+  });
+
+  test("requires an external participant's year, university, college, phone, and binary gender", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "external-profile-policy-accept",
+    });
+
+    await expect(participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Aarav Krishnan",
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "not_applicable",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "external-profile-without-year",
+    })).rejects.toThrow("current year of study");
+
+    await expect(participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "second",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "external-profile-without-name",
+    })).rejects.toThrow("appear for the event");
+
+    await expect(participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Aarav Krishnan",
+      phone: "1234",
+      gender: "male",
+      yearOfStudy: "second",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "external-profile-placeholder-phone",
+    })).rejects.toThrow("10 to 15 digits");
+
+    const saved = await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Aarav Krishnan",
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "second",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "external-profile-complete",
+    });
+    const me = await participant.query(api.participants.me, { eventSlug: fixture.eventSlug });
+    expect(me?.profile).toMatchObject({
+      id: saved.profileId,
+      fullName: "Aarav Krishnan",
+      phone: "+919000000000",
+      gender: "male",
+      yearOfStudy: "second",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      isComplete: true,
+    });
+  });
+
+  test("lets an external participant replace an unusable Google display name", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.personId, { displayName: "Q" });
+    });
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "short-google-name-policy-accept",
+    });
+
+    await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Q Li",
+      phone: "+91 90000 00000",
+      gender: "female",
+      yearOfStudy: "third",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "short-google-name-profile-save",
+    });
+
+    const me = await participant.query(api.participants.me, { eventSlug: fixture.eventSlug });
+    expect(me?.profile?.fullName).toBe("Q Li");
+  });
 
   test("transfers team leadership and its exact grants through an idempotent acceptance", async () => {
     const backend = convexTest(schema, modules);
@@ -526,6 +843,20 @@ describe("participant onboarding lifecycle", () => {
       participantPolicyVersionId: fixture.policyId,
       accepted: true,
       clientOperationId: "next-lead-policy-acceptance",
+    });
+    await completeExternalOnboarding(backend, fixture, {
+      personId: fixture.personId,
+      membershipId: fixture.membershipId,
+      fullName: "Aarav Menon",
+      githubUserId: "1002",
+      githubLogin: "aarav-lead",
+    });
+    await completeExternalOnboarding(backend, fixture, {
+      personId: nextLead.personId,
+      membershipId: nextLead.membershipId,
+      fullName: "Meera Rao",
+      githubUserId: "1003",
+      githubLogin: "meera-next-lead",
     });
 
     const created = await currentLeadClient.mutation(api.teams.create, {
@@ -621,6 +952,699 @@ describe("participant onboarding lifecycle", () => {
       expect(newLeadGrants[0]?.scopeId).toBe(created.teamId);
     });
   }, 10_000);
+
+  test("switches a sole lead to another team transactionally", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const host = await seedAdditionalParticipant(backend, fixture);
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    const hostClient = backend.withIdentity({
+      subject: host.authUserId,
+      sessionId: host.authSessionId,
+    });
+
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "sole-lead-policy-acceptance",
+    });
+    await hostClient.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "host-policy-acceptance",
+    });
+    await completeExternalOnboarding(backend, fixture, {
+      personId: fixture.personId,
+      membershipId: fixture.membershipId,
+      fullName: "Aarav Menon",
+      githubUserId: "1004",
+      githubLogin: "aarav-switch",
+    });
+    await completeExternalOnboarding(backend, fixture, {
+      personId: host.personId,
+      membershipId: host.membershipId,
+      fullName: "Meera Rao",
+      githubUserId: "1005",
+      githubLogin: "meera-host",
+    });
+
+    const created = await participant.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Solo Circuit",
+      clientOperationId: "sole-lead-create",
+    });
+    const hostTeam = await hostClient.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Host Circuit",
+      clientOperationId: "host-team-create",
+    });
+
+    const currentTeam = await participant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(currentTeam).toMatchObject({
+      id: created.teamId,
+      currentRole: "lead",
+      activeMemberCount: 1,
+      canLeave: true,
+    });
+    if (!currentTeam) throw new Error("The sole lead team view is missing.");
+
+    await expect(participant.mutation(api.teams.switchTeam, {
+      eventSlug: fixture.eventSlug,
+      fromTeamId: created.teamId,
+      expectedFromTeamVersion: currentTeam.version,
+      code: "NOTREAL",
+      clientOperationId: "sole-lead-invalid-switch",
+    })).rejects.toThrow("not active");
+    expect(
+      await participant.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).toMatchObject({
+      id: created.teamId,
+      currentRole: "lead",
+      activeMemberCount: 1,
+    });
+
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(created.teamId, { version: currentTeam.version + 1 });
+    });
+    await expect(participant.mutation(api.teams.switchTeam, {
+      eventSlug: fixture.eventSlug,
+      fromTeamId: created.teamId,
+      expectedFromTeamVersion: currentTeam.version,
+      code: hostTeam.publicCode,
+      clientOperationId: "sole-lead-stale-switch",
+    })).rejects.toThrow("changed");
+    const refreshedTeam = await participant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!refreshedTeam) throw new Error("The refreshed sole-lead team view is missing.");
+
+    const switchRequest = {
+      eventSlug: fixture.eventSlug,
+      fromTeamId: created.teamId,
+      expectedFromTeamVersion: refreshedTeam.version,
+      code: hostTeam.publicCode,
+      clientOperationId: "sole-lead-switch",
+    } as const;
+    const switched = await participant.mutation(api.teams.switchTeam, switchRequest);
+    expect(switched.teamId).toBe(hostTeam.teamId);
+    await expect(participant.mutation(api.teams.switchTeam, switchRequest)).resolves.toEqual(switched);
+
+    await backend.run(async (ctx) => {
+      const withdrawn = await ctx.db.get(created.teamId);
+      expect(withdrawn?.status).toBe("withdrawn");
+      expect(withdrawn?.activeMemberCount).toBe(0);
+      const member = await ctx.db
+        .query("teamMembers")
+        .withIndex("by_event_membership_status", (index) =>
+          index
+            .eq("eventId", fixture.eventId)
+            .eq("membershipId", fixture.membershipId)
+            .eq("status", "left"),
+        )
+        .unique();
+      expect(member?.teamId).toBe(created.teamId);
+      expect(member?.role).toBe("lead");
+    });
+    expect(
+      await participant.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).toMatchObject({
+      id: hostTeam.teamId,
+      currentRole: "member",
+      activeMemberCount: 2,
+      canLeave: true,
+    });
+  }, 10_000);
+
+  test("joins an imported roster team automatically during provision", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const importerAuthUserId = await createAuthUser(
+      backend,
+      fixture.now,
+      "Roster Organizer",
+      "roster-organizer@example.test",
+    );
+    const importerAuthSessionId = await createAuthSession(
+      backend,
+      importerAuthUserId,
+      fixture.now,
+      "participant-onboarding-roster-organizer-session",
+    );
+    await backend.run(async (ctx) => {
+      const importerPersonId = await ctx.db.insert("people", {
+        authUserId: importerAuthUserId,
+        googleSubject: "participant-onboarding-roster-organizer-subject",
+        verifiedEmail: "roster-organizer@example.test",
+        displayName: "Roster Organizer",
+        status: "active",
+        createdAt: fixture.now,
+        updatedAt: fixture.now,
+      });
+      const importerSubjectId = await ctx.db.insert("eventAccessSubjects", {
+        eventId: fixture.eventId,
+        personId: importerPersonId,
+        emailNormalized: "roster-organizer@example.test",
+        displayName: "Roster Organizer",
+        status: "active",
+        linkedBy: "participant_provisioning",
+        accessVersion: 1,
+        createdAt: fixture.now,
+        updatedAt: fixture.now,
+      });
+      for (const permissionKey of [
+        "team.roster.read",
+        "team.roster.import",
+        "team.roster.revoke",
+      ] as const) {
+        await insertPermissionGrant(ctx, {
+          eventId: fixture.eventId,
+          personId: importerPersonId,
+          eventAccessSubjectId: importerSubjectId,
+          permissionKey,
+          scopeType: "event",
+          sourceType: "manual",
+          sourceId: importerSubjectId,
+          reason: "Participant onboarding roster fixture",
+        });
+      }
+    });
+    const importer = backend.withIdentity({
+      subject: importerAuthUserId,
+      sessionId: importerAuthSessionId,
+    });
+
+    const preview = await importer.query(api.teamRosters.previewImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "Imported teams",
+      rows: [
+        {
+          rowNumber: 2,
+          identity: "roster-lead@example.test",
+          displayName: "Roster Lead",
+          teamName: "Backfill Team",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          identity: "participant@example.test",
+          displayName: "Aarav Menon",
+          teamName: "Backfill Team",
+          role: "member",
+        },
+      ],
+      reason: "Committee team assignments",
+    });
+    await importer.mutation(api.teamRosters.confirmImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "Imported teams",
+      rows: [
+        {
+          rowNumber: 2,
+          identity: "roster-lead@example.test",
+          displayName: "Roster Lead",
+          teamName: "Backfill Team",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          identity: "participant@example.test",
+          displayName: "Aarav Menon",
+          teamName: "Backfill Team",
+          role: "member",
+        },
+      ],
+      reason: "Committee team assignments",
+      previewChecksum: preview.previewChecksum,
+      clientOperationId: "onboarding-roster-import-once",
+    });
+    vi.useFakeTimers();
+    try {
+      await backend.finishAllScheduledFunctions(() => vi.runAllTimers());
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    const beforeProvision = await participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(beforeProvision?.pendingTeam).toMatchObject({
+      teamName: "Backfill Team",
+      role: "member",
+      status: "waiting_for_lead",
+    });
+
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("googleIdentityClaims", {
+        authUserId: fixture.authUserId,
+        googleSubject: "participant-onboarding-google-subject",
+        verifiedEmail: "participant@example.test",
+        displayName: "Aarav Menon",
+        tokenIssuedAt: fixture.now,
+        tokenExpiresAt: fixture.now + 3_600_000,
+        verifiedAt: fixture.now,
+      });
+    });
+    await completeExternalOnboarding(backend, fixture, {
+      personId: fixture.personId,
+      membershipId: fixture.membershipId,
+      fullName: "Aarav Menon",
+      githubUserId: "1006",
+      githubLogin: "aarav-roster-member",
+    });
+    await participant.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "external_participant",
+    });
+
+    const leadAuthUserId = await createAuthUser(
+      backend,
+      fixture.now,
+      "Roster Lead",
+      "roster-lead@example.test",
+    );
+    const leadAuthSessionId = await createAuthSession(
+      backend,
+      leadAuthUserId,
+      fixture.now,
+      "participant-onboarding-roster-lead-session",
+    );
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("googleIdentityClaims", {
+        authUserId: leadAuthUserId,
+        googleSubject: "participant-onboarding-roster-lead-subject",
+        verifiedEmail: "roster-lead@example.test",
+        displayName: "Roster Lead",
+        tokenIssuedAt: fixture.now,
+        tokenExpiresAt: fixture.now + 3_600_000,
+        verifiedAt: fixture.now,
+      });
+    });
+    const lead = backend.withIdentity({
+      subject: leadAuthUserId,
+      sessionId: leadAuthSessionId,
+    });
+    await lead.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "external_participant",
+    });
+    const provisionedLead = await lead.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!provisionedLead?.membership) throw new Error("The roster lead was not provisioned.");
+    await completeExternalOnboarding(backend, fixture, {
+      personId: provisionedLead.person.id,
+      membershipId: provisionedLead.membership.id,
+      fullName: "Roster Lead",
+      githubUserId: "1007",
+      githubLogin: "roster-lead",
+    });
+    await lead.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "external_participant",
+    });
+    const leadTeam = await lead.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(leadTeam?.name).toBe("Backfill Team");
+    expect(leadTeam?.activeMemberCount).toBe(2);
+
+    const afterLeadProvision = await participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(afterLeadProvision?.pendingTeam).toBeNull();
+
+    await participant.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "external_participant",
+    });
+    const memberTeam = await participant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(memberTeam?.id).toBe(leadTeam?.id);
+    await backend.run(async (ctx) => {
+      const memberRows = await ctx.db
+        .query("teamMembers")
+        .withIndex("by_event_membership_status", (index) =>
+          index
+            .eq("eventId", fixture.eventId)
+            .eq("membershipId", fixture.membershipId)
+            .eq("status", "active"),
+        )
+        .collect();
+      expect(memberRows).toHaveLength(1);
+      expect(memberRows[0]?.role).toBe("member");
+      expect(memberRows[0]?.source).toBe("backfill");
+    });
+  }, 10_000);
+
+  test("provisions a VIT identity from the verified Google name instead of the mutable auth name", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const email = "identity-check@vitstudent.ac.in";
+    const authUserId = await createAuthUser(
+      backend,
+      fixture.now,
+      "Example Student 24TST0001",
+      email,
+    );
+    const authSessionId = await createAuthSession(
+      backend,
+      authUserId,
+      fixture.now,
+      "participant-onboarding-vit-session",
+    );
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("googleIdentityClaims", {
+        authUserId,
+        googleSubject: "participant-onboarding-vit-subject",
+        verifiedEmail: email,
+        displayName: "Example Student 24TST0001",
+        hostedDomain: "vitstudent.ac.in",
+        tokenIssuedAt: fixture.now,
+        tokenExpiresAt: fixture.now + 3_600_000,
+        verifiedAt: fixture.now,
+      });
+    });
+    await backend.mutation(components.betterAuth.adapter.updateOne, {
+      input: {
+        model: "user",
+        update: {
+          name: "Different Student 24TST9999",
+          updatedAt: fixture.now + 1,
+        },
+        where: [{ field: "_id", operator: "eq", value: authUserId }],
+      },
+    });
+    const participant = backend.withIdentity({
+      subject: authUserId,
+      sessionId: authSessionId,
+    });
+
+    const provisioned = await participant.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "vit_student",
+    });
+    const before = await participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(before?.membership).toMatchObject({
+      id: provisioned.membershipId,
+      participantClass: "vit_student",
+      vitStudentIdentity: {
+        fullName: "Example Student",
+        registrationNumber: "24TST0001",
+        programmeCode: "TST",
+        yearOfStudy: "third",
+      },
+    });
+    expect(before?.person.displayName).toBe("Example Student 24TST0001");
+
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(provisioned.membershipId, { vitStudentIdentity: undefined });
+    });
+    await expect(participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      membership: {
+        id: provisioned.membershipId,
+        vitStudentIdentity: {
+          registrationNumber: "24TST0001",
+        },
+      },
+    });
+    await expect(participant.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "vit_student",
+    })).resolves.toEqual({ membershipId: provisioned.membershipId, created: false });
+    await backend.run(async (ctx) => {
+      const repaired = await ctx.db.get(provisioned.membershipId);
+      expect(repaired?.vitStudentIdentity?.registrationNumber).toBe("24TST0001");
+    });
+
+    await backend.run(async (ctx) => {
+      if (!before) throw new Error("The provisioned participant is missing.");
+      await ctx.db.patch(before.person.id, {
+        displayName: "Updated Google Name",
+        updatedAt: fixture.now + 1,
+      });
+    });
+
+    await expect(participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      membership: {
+        id: provisioned.membershipId,
+        vitStudentIdentity: {
+          registrationNumber: "24TST0001",
+        },
+      },
+    });
+
+    await backend.run(async (ctx) => {
+      const googleIdentity = await ctx.db
+        .query("googleIdentityClaims")
+        .withIndex("by_auth_user", (index) => index.eq("authUserId", authUserId))
+        .unique();
+      if (!googleIdentity) throw new Error("The VIT Google identity is missing.");
+      await Promise.all([
+        ctx.db.patch(provisioned.membershipId, { vitStudentIdentity: undefined }),
+        ctx.db.patch(googleIdentity._id, { displayName: "Example Student" }),
+      ]);
+    });
+    await expect(participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      membership: {
+        id: provisioned.membershipId,
+        vitStudentIdentity: null,
+      },
+    });
+  });
+
+  test("collects a current VIT hostel block and room, or day scholar, for internal participants", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const email = "hostel-check@vitstudent.ac.in";
+    const authUserId = await createAuthUser(
+      backend,
+      fixture.now,
+      "Hostel Student 24TST0002",
+      email,
+    );
+    const authSessionId = await createAuthSession(
+      backend,
+      authUserId,
+      fixture.now,
+      "participant-onboarding-hostel-session",
+    );
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("googleIdentityClaims", {
+        authUserId,
+        googleSubject: "participant-onboarding-hostel-subject",
+        verifiedEmail: email,
+        displayName: "Hostel Student 24TST0002",
+        hostedDomain: "vitstudent.ac.in",
+        tokenIssuedAt: fixture.now,
+        tokenExpiresAt: fixture.now + 3_600_000,
+        verifiedAt: fixture.now,
+      });
+    });
+    const participant = backend.withIdentity({
+      subject: authUserId,
+      sessionId: authSessionId,
+    });
+    const provisioned = await participant.mutation(api.participants.provision, {
+      eventSlug: fixture.eventSlug,
+      participantClass: "vit_student",
+    });
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "hostel-policy-accept",
+    });
+
+    await expect(participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      phone: "+91 90000 00000",
+      gender: "male",
+      expectedProfileVersion: 0,
+      clientOperationId: "hostel-missing-residence",
+    })).rejects.toThrow("day scholar or hosteller");
+
+    await expect(participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      phone: "+91 90000 00000",
+      gender: "male",
+      vitResidenceType: "hosteller",
+      vitHostelResidence: "mh_s",
+      expectedProfileVersion: 0,
+      clientOperationId: "hostel-retired-mens-s-block",
+    })).rejects.toThrow("current VIT hostel block");
+
+    await expect(participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      phone: "+91 90000 00000",
+      gender: "male",
+      vitResidenceType: "hosteller",
+      vitHostelResidence: "mh_b",
+      expectedProfileVersion: 0,
+      clientOperationId: "hostel-missing-room",
+    })).rejects.toThrow("hostel room number");
+
+    await expect(participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      phone: "+91 90000 00000",
+      gender: "female",
+      vitResidenceType: "day_scholar",
+      vitHostelResidence: "lh_s",
+      vitHostelRoomNumber: "412",
+      expectedProfileVersion: 0,
+      clientOperationId: "hostel-day-scholar-room",
+    })).rejects.toThrow("Day scholars do not have a hostel block or room number");
+
+    const ladies = await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      phone: "+91 90000 00000",
+      gender: "female",
+      vitResidenceType: "hosteller",
+      vitHostelResidence: "lh_s",
+      vitHostelRoomNumber: "412",
+      expectedProfileVersion: 0,
+      clientOperationId: "hostel-ladies-s-block",
+    });
+    const afterLadies = await participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(afterLadies?.profile).toMatchObject({
+      id: ladies.profileId,
+      gender: "female",
+      vitResidenceType: "hosteller",
+      vitHostelResidence: "lh_s",
+      vitHostelRoomNumber: "412",
+      isComplete: true,
+    });
+
+    const mens = await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      phone: "+91 90000 00000",
+      gender: "male",
+      vitResidenceType: "hosteller",
+      vitHostelResidence: "mh_b",
+      vitHostelRoomNumber: "108",
+      expectedProfileVersion: ladies.profileVersion,
+      clientOperationId: "hostel-mens-b-block",
+    });
+    const afterMens = await participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(afterMens?.profile).toMatchObject({
+      id: mens.profileId,
+      gender: "male",
+      vitResidenceType: "hosteller",
+      vitHostelResidence: "mh_b",
+      vitHostelRoomNumber: "108",
+      isComplete: true,
+    });
+
+    await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      phone: "+91 90000 00000",
+      gender: "male",
+      vitResidenceType: "day_scholar",
+      expectedProfileVersion: mens.profileVersion,
+      clientOperationId: "hostel-day-scholar",
+    });
+    const afterDayScholar = await participant.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(afterDayScholar?.profile).toMatchObject({
+      vitResidenceType: "day_scholar",
+      isComplete: true,
+    });
+    expect(afterDayScholar?.profile?.vitHostelResidence).toBeUndefined();
+    expect(afterDayScholar?.profile?.vitHostelRoomNumber).toBeUndefined();
+    expect(provisioned.created).toBe(true);
+  });
+
+  test("staging participant reset removes every GitHub star onboarding record", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("githubStarSetupIntents", {
+        eventId: fixture.eventId,
+        membershipId: fixture.membershipId,
+        personId: fixture.personId,
+        stateDigest: "staging-reset-state",
+        redirectUri: "http://localhost:4173/onboarding/github/callback",
+        status: "pending",
+        expiresAt: fixture.now + 60_000,
+        createdAt: fixture.now,
+      });
+      await ctx.db.insert("githubStarAuthorizations", {
+        eventId: fixture.eventId,
+        membershipId: fixture.membershipId,
+        personId: fixture.personId,
+        githubUserId: "staging-reset-user",
+        githubLogin: "staging-reset-user",
+        accessTokenCiphertext: "encrypted-test-token",
+        expiresAt: fixture.now + 60_000,
+        status: "active",
+        createdAt: fixture.now,
+        updatedAt: fixture.now,
+      });
+      await ctx.db.insert("githubStarCompletions", {
+        eventId: fixture.eventId,
+        membershipId: fixture.membershipId,
+        personId: fixture.personId,
+        githubUserId: "staging-reset-user",
+        githubLogin: "staging-reset-user",
+        repositoryOwner: "sgl-project",
+        repositoryName: "sglang",
+        completedAt: fixture.now,
+      });
+    });
+
+    const previousEnvironment = process.env.C2C_DEPLOYMENT_ENVIRONMENT;
+    process.env.C2C_DEPLOYMENT_ENVIRONMENT = "staging";
+    try {
+      await backend.mutation(internal.stagingSetup.resetParticipantTestingData, {
+        eventSlug: fixture.eventSlug,
+      });
+    } finally {
+      if (previousEnvironment === undefined) delete process.env.C2C_DEPLOYMENT_ENVIRONMENT;
+      else process.env.C2C_DEPLOYMENT_ENVIRONMENT = previousEnvironment;
+    }
+
+    await backend.run(async (ctx) => {
+      expect(await ctx.db.query("githubStarSetupIntents").collect()).toHaveLength(0);
+      expect(await ctx.db.query("githubStarAuthorizations").collect()).toHaveLength(0);
+      expect(await ctx.db.query("githubStarCompletions").collect()).toHaveLength(0);
+    });
+  });
 });
 
 async function seedParticipant(backend: BackendTest) {
@@ -644,7 +1668,8 @@ async function seedParticipant(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      externalApplicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,
@@ -810,6 +1835,65 @@ async function seedAdditionalParticipant(
     }
     return { authUserId, authSessionId, personId, subjectId, membershipId };
   });
+}
+
+async function completeGitHubStar(
+  backend: BackendTest,
+  fixture: Awaited<ReturnType<typeof seedParticipant>>,
+  args: {
+    personId: Id<"people">;
+    membershipId: Id<"eventMemberships">;
+    githubUserId: string;
+    githubLogin: string;
+  },
+) {
+  await backend.run(async (ctx) => {
+    const now = Date.now();
+    await ctx.db.insert("githubStarCompletions", {
+      eventId: fixture.eventId,
+      membershipId: args.membershipId,
+      personId: args.personId,
+      githubUserId: args.githubUserId,
+      githubLogin: args.githubLogin,
+      repositoryOwner: "sgl-project",
+      repositoryName: "sglang",
+      completedAt: now,
+    });
+    await ctx.db.patch(args.membershipId, {
+      onboardingStatus: "team_required",
+      updatedAt: now,
+    });
+  });
+}
+
+async function completeExternalOnboarding(
+  backend: BackendTest,
+  fixture: Awaited<ReturnType<typeof seedParticipant>>,
+  args: {
+    personId: Id<"people">;
+    membershipId: Id<"eventMemberships">;
+    fullName: string;
+    githubUserId: string;
+    githubLogin: string;
+  },
+) {
+  await backend.run(async (ctx) => {
+    await ctx.db.insert("participantProfiles", {
+      eventId: fixture.eventId,
+      membershipId: args.membershipId,
+      participantClass: "external_participant",
+      fullName: args.fullName,
+      phone: "+91 90000 00000",
+      gender: "male",
+      institution: "Example University",
+      yearOfStudy: "third",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      profileVersion: 1,
+      updatedAt: Date.now(),
+    });
+  });
+  await completeGitHubStar(backend, fixture, args);
 }
 
 async function createAuthUser(

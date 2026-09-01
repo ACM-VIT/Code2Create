@@ -50,11 +50,15 @@ describe("participant policy lifecycle", () => {
     expect(() => normalizeParticipantPolicy({
       ...defaultParticipantPolicy,
       finalSubmissionWarning: "Please check everything carefully before submitting this application.",
-    })).toThrow("team locks and the proposal remains editable until the deadline");
+    })).toThrow("team and proposal remain editable until the deadline");
     expect(participantClassesMeetPolicy(
       ["vit_student", "external_participant"],
       { ...defaultParticipantPolicy, mixedParticipantClassesAllowed: false },
     )).toBe(false);
+    expect(() => normalizeParticipantPolicy({
+      ...defaultParticipantPolicy,
+      mixedParticipantClassesAllowed: true,
+    })).toThrow("must form separate teams");
     expect(normalizeParticipantPolicy({
       ...defaultParticipantPolicy,
       teamMaximumSize: 24,
@@ -63,6 +67,76 @@ describe("participant policy lifecycle", () => {
       ...defaultParticipantPolicy,
       teamMinimumSize: 0,
     })).toThrow("positive whole number");
+  });
+
+  test("normalizes an Ops-managed VIT residence catalogue", () => {
+    const policy = normalizeParticipantPolicy({
+      ...defaultParticipantPolicy,
+      vitHostelResidenceCatalog: [
+        { stableKey: "mh_new_annex", label: " New annex ", kind: "mens" },
+        { stableKey: "lh_new_annex", label: " New ladies annex ", kind: "ladies" },
+      ],
+    });
+    expect(policy.vitHostelResidenceCatalog).toEqual([
+      { stableKey: "mh_new_annex", label: "New annex", kind: "mens" },
+      { stableKey: "lh_new_annex", label: "New ladies annex", kind: "ladies" },
+    ]);
+    expect(() => normalizeParticipantPolicy({
+      ...defaultParticipantPolicy,
+      vitHostelResidenceCatalog: [
+        { stableKey: "mh_a", label: "A block", kind: "mens" },
+        { stableKey: "mh_a", label: "Duplicate", kind: "ladies" },
+      ],
+    })).toThrow("duplicated");
+    expect(() => normalizeParticipantPolicy({
+      ...defaultParticipantPolicy,
+      vitHostelResidenceCatalog: [
+        { stableKey: "mh_a", label: "A block", kind: "mens" },
+        { stableKey: "mh_b", label: "B block", kind: "mens" },
+      ],
+    })).toThrow("at least one men's and one ladies' block");
+  });
+
+  test("VIT hostel completeness requires a current block and room, or day scholar", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, "hostel-complete");
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.membershipId, { participantClass: "vit_student" });
+      await ctx.db.patch(fixture.profileId, {
+        participantClass: "vit_student",
+        yearOfStudy: "third",
+        vitRegistrationNumber: "24TST0001",
+        vitProgramme: "TST",
+        externalUniversity: undefined,
+        externalCollege: undefined,
+      });
+      const membership = await ctx.db.get(fixture.membershipId);
+      const policy = await ctx.db.get(fixture.policyId);
+      if (!membership || !policy) throw new Error("The hostel completeness fixture is missing.");
+      const incomplete = await ctx.db.get(fixture.profileId);
+      if (!incomplete) throw new Error("The hostel completeness profile is missing.");
+      expect(isProfileCompleteForPolicy(incomplete, membership, policy)).toBe(false);
+      await ctx.db.patch(incomplete._id, { vitHostelResidence: "mh_b" });
+      const blockOnly = await ctx.db.get(incomplete._id);
+      if (!blockOnly) throw new Error("The hostel block-only profile is missing.");
+      expect(isProfileCompleteForPolicy(blockOnly, membership, policy)).toBe(false);
+      await ctx.db.patch(incomplete._id, {
+        vitResidenceType: "hosteller",
+        vitHostelResidence: "mh_b",
+        vitHostelRoomNumber: "108",
+      });
+      const hosteller = await ctx.db.get(incomplete._id);
+      if (!hosteller) throw new Error("The hosteller profile is missing.");
+      expect(isProfileCompleteForPolicy(hosteller, membership, policy)).toBe(true);
+      await ctx.db.patch(incomplete._id, {
+        vitResidenceType: "day_scholar",
+        vitHostelResidence: undefined,
+        vitHostelRoomNumber: undefined,
+      });
+      const dayScholar = await ctx.db.get(incomplete._id);
+      if (!dayScholar) throw new Error("The day-scholar profile is missing.");
+      expect(isProfileCompleteForPolicy(dayScholar, membership, policy)).toBe(true);
+    });
   });
 
   test("allows one competing draft from the same observed state", async () => {
@@ -93,7 +167,7 @@ describe("participant policy lifecycle", () => {
     expect(drafts).toHaveLength(1);
   });
 
-  test("publication makes current-policy acceptance and new required fields explicit", async () => {
+  test("publication makes current-policy acceptance explicit", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "publication");
     const before = await backend.run(async (ctx) => {
@@ -105,7 +179,7 @@ describe("participant policy lifecycle", () => {
     });
     expect(before).toBe(true);
 
-    const nextPolicy = { ...policy("Second", 5), phoneField: "required" as const };
+    const nextPolicy = policy("Second", 5);
     const draft = await backend.run((ctx) => saveParticipantPolicyDraft(ctx, {
       event: fixture.event,
       actorPersonId: fixture.personId,
@@ -138,11 +212,6 @@ describe("participant policy lifecycle", () => {
       const profile = await ctx.db.get(fixture.profileId);
       const membership = await ctx.db.get(fixture.membershipId);
       if (!profile || !membership) throw new Error("The participant profile state is missing.");
-      await ctx.db.patch(profile._id, {
-        phone: "+91 90000 00000",
-        profileVersion: profile.profileVersion + 1,
-        updatedAt: fixture.now + 3,
-      });
       await ctx.db.patch(membership._id, {
         acceptedParticipantPolicyVersionIds: [fixture.policyId, draft.policyVersionId],
         updatedAt: fixture.now + 3,
@@ -458,7 +527,8 @@ async function seedFixture(
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      externalApplicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,
@@ -525,9 +595,12 @@ async function seedFixture(
       membershipId,
       participantClass: "external_participant",
       fullName: "Aarav Menon",
+      phone: "+91 90000 00000",
+      gender: "male",
       institution: "Example University",
       yearOfStudy: "third",
-      externalCountry: "India",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
       profileVersion: 1,
       updatedAt: now,
     });

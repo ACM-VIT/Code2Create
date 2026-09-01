@@ -99,9 +99,17 @@ export function ProjectEvidence({
       {review.project.intakeResponses.map((response) => (
         <View key={response.ordinal}>
           <Text style={styles.question}>{response.question}</Text>
-          <Text style={styles.body}>{response.skipped ? 'Skipped by team' : response.answer}</Text>
+          <Text style={styles.body}>{response.answer}</Text>
         </View>
       ))}
+      {review.project.additionalInformation ? (
+        <View>
+          <Text style={styles.question}>
+            Any additional information or links you want to share (please, no PPTs)
+          </Text>
+          <Text selectable style={styles.body}>{review.project.additionalInformation}</Text>
+        </View>
+      ) : null}
       <View style={styles.evidenceHeader}>
         <Text style={styles.sectionLabel}>Team update</Text>
       </View>

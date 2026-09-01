@@ -4,9 +4,10 @@ import { JOURNEY_STOPS, leapTo } from '../lib/journeyLeap.js';
 
 const links = [
   { label: 'About', at: JOURNEY_STOPS.about },
-  { label: 'FAQs', at: JOURNEY_STOPS.faqs },
-  { label: 'Timeline', at: JOURNEY_STOPS.timeline },
   { label: 'Stats', at: JOURNEY_STOPS.stats },
+  { label: 'Sponsors', at: JOURNEY_STOPS.sponsors },
+  { label: 'Timeline', at: JOURNEY_STOPS.timeline },
+  { label: 'FAQs', at: JOURNEY_STOPS.faqs },
 ];
 
 export default function Navbar() {
@@ -49,7 +50,7 @@ export default function Navbar() {
           <span />
         </button>
 
-        <div className="navbar__links" data-open={open}>
+        <div className="navbar__links" data-open={open ? 'true' : 'false'}>
           {links.map((link) => (
             <a key={link.label} href="#top" onClick={(event) => goTo(event, link.at)}>
               {link.label}

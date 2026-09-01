@@ -14,8 +14,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -112,7 +110,6 @@ export const transition = mutation({
       permissionKey: "event.lifecycle.manage",
       scopeType: "event",
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (event.version !== args.expectedEventVersion) {
       throw new ConvexError({
         code: "EVENT_CHANGED",
@@ -221,6 +218,54 @@ export const closeRegistrationAtDeadline = internalMutation({
           applicationsCloseAt: event.applicationsCloseAt,
         }),
         reason: "The configured application deadline passed",
+        serverTime: now,
+      });
+    }
+    return null;
+  },
+});
+
+export const markExternalRegistrationClosedAtDeadline = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    expectedExternalApplicationsCloseAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get(args.eventId);
+    if (
+      !event ||
+      event.externalApplicationsCloseAt !==
+        args.expectedExternalApplicationsCloseAt ||
+      event.status !== "registration_open" ||
+      Date.now() < args.expectedExternalApplicationsCloseAt ||
+      event.updatedAt >= args.expectedExternalApplicationsCloseAt
+    ) {
+      return null;
+    }
+    const now = Date.now();
+    await ctx.db.patch(event._id, { updatedAt: now });
+    if (event.createdByPersonId !== undefined) {
+      await ctx.db.insert("auditEvents", {
+        eventId: event._id,
+        actorPersonId: event.createdByPersonId,
+        authorizingPermissionKey: "configured_external_application_deadline",
+        authorizingGrantIds: [],
+        resolvedScopeType: "event",
+        action: "event_external_registration_closed_at_deadline",
+        targetType: "event",
+        targetId: event._id,
+        previousSummary: JSON.stringify({
+          status: event.status,
+          externalApplicationsCloseAt: event.externalApplicationsCloseAt,
+          externalRegistrationOpen: true,
+        }),
+        nextSummary: JSON.stringify({
+          status: event.status,
+          externalApplicationsCloseAt: event.externalApplicationsCloseAt,
+          externalRegistrationOpen: false,
+        }),
+        reason: "The external-participant application deadline passed",
         serverTime: now,
       });
     }

@@ -19,8 +19,6 @@ import { teamRoundTableLabel } from "./lib/floor";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -447,7 +445,6 @@ export const start = mutation({
       scopeType: "round",
       scopeId: round._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (await activeRoundPause(ctx, round._id)) {
       throw new ConvexError({
         code: "ROUND_PAUSED",
@@ -1615,7 +1612,6 @@ export const retry = mutation({
       scopeType: "round",
       scopeId: round._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (
       exportRecord.state !== "failed" ||
       exportRecord.version !== args.expectedExportVersion ||
@@ -1711,7 +1707,6 @@ export const downloadContext = internalQuery({
       scopeType: "round",
       scopeId: exportRecord.roundId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (
       !exportRecord.files ||
       !["uploaded", "verified"].includes(exportRecord.state)
@@ -1755,7 +1750,6 @@ export const recordDownload = internalMutation({
       scopeType: "round",
       scopeId: exportRecord.roundId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (!["uploaded", "verified"].includes(exportRecord.state)) {
       throw new ConvexError({
         code: "ROUND_EXPORT_NOT_AVAILABLE",
@@ -1891,7 +1885,6 @@ export const verificationContext = internalQuery({
         scopeType: "round",
         scopeId: exportRecord.roundId,
       }),
-      requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs),
     ]);
     const round = await requireRound(ctx, event._id, exportRecord.roundId);
     if (!args.filesOpened || !args.countsMatch) {
@@ -1981,7 +1974,6 @@ export const completeVerification = internalMutation({
         scopeId: exportRecord.roundId,
       }),
     ]);
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const round = await requireRound(ctx, event._id, exportRecord.roundId);
     if (
       !args.filesOpened ||
@@ -2113,7 +2105,6 @@ export const reopen = mutation({
       scopeType: "round",
       scopeId: round._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const [release, laterRounds] = await Promise.all([
       ctx.db
         .query("scoreReleaseVersions")

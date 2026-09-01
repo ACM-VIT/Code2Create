@@ -245,6 +245,65 @@ describe("event lifecycle", () => {
       vi.useRealTimers();
     }
   });
+
+  test("refreshes realtime reads once when the external deadline arrives", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedOperator(backend);
+    const eventBefore = await backend.run(async (ctx) => ctx.db.get(fixture.eventId));
+    if (!eventBefore?.externalApplicationsCloseAt) {
+      throw new Error("The external deadline fixture is missing.");
+    }
+    const request = {
+      eventId: fixture.eventId,
+      expectedExternalApplicationsCloseAt:
+        eventBefore.externalApplicationsCloseAt,
+    } as const;
+
+    await backend.mutation(
+      internal.eventLifecycle.markExternalRegistrationClosedAtDeadline,
+      request,
+    );
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(eventBefore.externalApplicationsCloseAt);
+    try {
+      await backend.mutation(
+        internal.eventLifecycle.markExternalRegistrationClosedAtDeadline,
+        request,
+      );
+      await backend.mutation(
+        internal.eventLifecycle.markExternalRegistrationClosedAtDeadline,
+        request,
+      );
+      const result = await backend.run(async (ctx) => {
+        const event = await ctx.db.get(fixture.eventId);
+        const auditEvents = await ctx.db
+          .query("auditEvents")
+          .withIndex("by_event_time", (index) =>
+            index.eq("eventId", fixture.eventId),
+          )
+          .collect();
+        return {
+          status: event?.status,
+          version: event?.version,
+          updatedAt: event?.updatedAt,
+          deadlineAuditCount: auditEvents.filter(
+            (auditEvent) =>
+              auditEvent.action ===
+              "event_external_registration_closed_at_deadline",
+          ).length,
+        };
+      });
+      expect(result).toEqual({
+        status: "registration_open",
+        version: 1,
+        updatedAt: eventBefore.externalApplicationsCloseAt,
+        deadlineAuditCount: 1,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 async function lifecycleState(backend: BackendTest, eventId: Awaited<ReturnType<typeof seedOperator>>["eventId"]) {
@@ -286,6 +345,7 @@ async function seedOperator(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
+      externalApplicationsCloseAt: now + 12 * 60 * 60 * 1_000,
       applicationsCloseAt: now + 86_400_000,
       startsAt: now + 2 * 86_400_000,
       endsAt: now + 2 * 86_400_000 + 60_000,

@@ -96,7 +96,7 @@ export async function createTestSubmissionSnapshot(
       personId: person._id,
       role: teamMember.role,
       participantClass: membership.participantClass,
-      displayName: profile?.preferredName ?? profile?.fullName ?? person.displayName,
+      displayName: profile?.fullName ?? person.displayName,
       institution: profile?.institution ?? "Fixture institution",
       yearOfStudy: profile?.yearOfStudy ?? "not_applicable",
       profileVersion: profile?.profileVersion ?? 1,

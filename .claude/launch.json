@@ -2,15 +2,45 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "apps/web",
+        "dev"
+      ],
+      "port": 5180
+    },
+    {
+      "name": "web-alt",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "apps/web",
+        "dev",
+        "--port",
+        "5183"
+      ],
+      "port": 5183
+    },
+    {
       "name": "ops",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--dir", "apps/ops", "dev"],
+      "runtimeArgs": [
+        "--dir",
+        "apps/ops",
+        "dev"
+      ],
       "port": 5181
     },
     {
       "name": "landing",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--dir", "apps/landing", "dev"],
+      "runtimeArgs": [
+        "--dir",
+        "apps/landing",
+        "dev"
+      ],
       "port": 5182
     }
   ]

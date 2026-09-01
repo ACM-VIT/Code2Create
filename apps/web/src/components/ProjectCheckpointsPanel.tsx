@@ -97,6 +97,7 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
 
   useEffect(() => {
     if (!remoteDraftChanged || localDraftDirty || busy !== null || operationPending) return
+    // oxlint-disable-next-line react/set-state-in-effect -- Adopt a newer collaborative draft only after proving the local editor is clean.
     setUpdateText(serverDraft.updateText)
     setFollowUpAnswer(serverDraft.followUpAnswer)
     setLoadedDraft(serverDraft)

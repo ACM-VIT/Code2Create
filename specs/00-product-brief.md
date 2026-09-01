@@ -28,7 +28,7 @@ The product must prevent these failures:
 | JC | Hold suggested station, table, queue, support, verification, runner, or playback grants |
 | External Judge | Hold assigned-panel, presence, and own-scorecard grants |
 
-The only role labels are `Supreme`, `Board`, `SC`, `JC`, and `External Judge`. A role label does not authorize an action. Each protected action requires an atomic permission grant for one person, one scope, and one validity window. A person can receive a grant without a role label.
+The only role labels are `Supreme`, `Board`, `SC`, `JC`, and `External Judge`. Protected functions never authorize from the label itself; each action requires an atomic permission grant for one person, one scope, and one validity window. Assigning Supreme atomically materializes its code-owned role template only when the assigner can grant every permission in that template. A person can still receive a grant without a role label.
 
 ## 3. Product surfaces
 
@@ -40,7 +40,7 @@ The participant portal is a Vite web application. It provides:
 - VIT-student and external-participant profiles;
 - realtime team formation and leadership transfer;
 - free-text proposal intake;
-- two friendly AI follow-up questions;
+- two fixed proposal questions followed by up to two useful AI follow-ups;
 - a non-blocking live novelty number above the idea text box;
 - proposal submission and revision;
 - admission status and information requests;
@@ -54,13 +54,13 @@ The participant portal is a Vite web application. It provides:
 - review history; and
 - Synesthesia music requests and votes.
 
-One published participant-policy version controls profile fields, team bounds, mixed-team eligibility, notices, consent text, and the membership-lock warning. Each participant accepts the exact current version. A later publication does not rewrite an earlier profile, proposal version, or consent record.
+One published participant-policy version controls profile fields, team bounds, notices, consent text, and the final-submission warning. VIT students and external participants always form separate teams. Each participant accepts the exact current policy version. A later publication does not rewrite an earlier profile, proposal version, or consent record.
 
-The proposal starts with **What is your project about?** The team writes free text. The server stores that text before model work starts. The AI then asks two short, friendly questions. The second follow-up is the third total question in the introduction and cannot be omitted. The AI cannot choose participant state, admission state, review state, or judging state. A published fallback supplies either question when the AI is unavailable.
+The proposal starts with **What is your project about?** The team writes free text. The server stores that text, then asks two published questions: **What problem are you solving, and who has it?** and **How will your solution work in practice?** Both require answers. Only then may the AI ask zero, one, or two short questions about material context that is still missing. A generated question must be grounded in the team’s answers and specific to that project. A model failure adds no generic filler question and cannot block review. The AI cannot choose participant state, admission state, review state, or judging state.
 
 The live novelty feature is separate from the follow-up-question flow. It shows only one directional number from 0 through 100 above the idea text box. It has no label such as familiar or distinct. It shows no prior-project text, theme, or reflection prompt. A stale or failed request cannot block editing or submission. The number is absent from applications, admission analysis, human admission review, reviewer evidence, judging, awards, and exports.
 
-Final submission locks team membership. It does not lock proposal content. The current team lead can revise the submitted proposal until the event's authoritative `applicationsCloseAt` deadline. Every save creates an immutable proposal version. A revision makes all earlier human-review outputs and AI admission outputs stale. The system must create new review inputs before a human can publish a decision for the revised proposal.
+Final submission sends the current team and proposal for review. Team membership, leadership, and proposal content remain editable until the deadline for the team's participant class. Every accepted change creates a new immutable application version. A post-submission team or proposal change makes all earlier human-review outputs and AI admission outputs stale. The system must create new review inputs before a human can publish a decision for the changed application. At the applicable deadline, the latest valid team and proposal version becomes final.
 
 ### Reviewer app
 
@@ -74,7 +74,7 @@ Reviewer paging uses a reusable outbound-calling service. The service sends push
 
 The operations dashboard is a separate Vite web application. It provides permission-scoped workspaces for event setup, access, applications, admission, panels, reviewer paging, attendance, team-location mapping, queues, reviews, judging, integrations, support, incidents, rehearsal, and Synesthesia.
 
-The dashboard shows accepted state and legal next actions. Each protected command rechecks the caller's exact permission, target scope, current version, and fresh-authentication requirement in the mutation that writes the result.
+The dashboard shows accepted state and legal next actions. Each protected command rechecks the caller's exact permission, target scope, current version, and current authorization requirement in the mutation that writes the result.
 
 ## 4. Core workflows
 
@@ -83,11 +83,11 @@ The dashboard shows accepted state and legal next actions. Each protected comman
 1. Each participant signs in with Google and completes the permitted profile fields.
 2. A participant creates or joins one team.
 3. The team maintains exactly one lead. Leadership transfer requires acceptance by the new lead.
-4. The team writes its proposal and answers two follow-up questions.
+4. The team writes its proposal, answers two fixed questions, and answers up to two generated questions when useful.
 5. The lead previews the active member list and current proposal.
-6. Final submission locks the member list and creates the first immutable proposal version.
-7. The lead can create later proposal versions until `applicationsCloseAt`.
-8. Each revision invalidates stale human-review and AI-admission outputs.
+6. Final submission creates the first immutable team and proposal snapshot.
+7. The team can change membership or leadership, and the lead can revise the proposal, until the deadline for that team's participant class.
+8. Each accepted change creates a new immutable application version and invalidates stale human-review and AI-admission outputs.
 9. Authorized humans review the current version and control the admission decision.
 10. The system sends generic status email. The authenticated portal shows the decision and next steps.
 
@@ -159,16 +159,26 @@ Judging uses the published judging rubric, reviewer assignments, independent sco
 
 ## 8. Initial scale envelope
 
-Capacity tests use this initial envelope until registration supplies final counts:
+The online application round and the offline event have different capacity shapes.
+
+The application release test uses:
+
+- 3,000 simultaneous authenticated participant clients;
+- up to 1,500 applicant teams before admission;
+- a 60-second connection ramp, followed by two minutes at steady state;
+- active team editing, autosave, and presence traffic; and
+- a novelty-preview burst that may shed optional checks but cannot delay a save or submission.
+
+The offline event test uses:
 
 - 1,200 simultaneous live clients;
 - 60 attendance scan attempts per second;
-- 200 to 330 teams;
+- no more than 400 accepted teams;
 - up to 60 concurrent reviews;
 - 300 reconnects or queue reads near a round start; and
 - 150 operational writes per minute during the busiest review period.
 
-The rehearsal must replace these assumptions with the registered team count, panel count, and round schedule.
+The rehearsal must replace these assumptions with the registered participant count, applicant and accepted team counts, panel count, and round schedule.
 
 ## 9. Acceptance outcomes
 
@@ -177,7 +187,8 @@ The production release must satisfy these outcomes:
 - Every application decision points to the current immutable proposal version and admission-policy version.
 - A proposal revision before `applicationsCloseAt` makes earlier review and AI outputs unusable.
 - No proposal edit is accepted after `applicationsCloseAt`.
-- Final submission locks membership but does not lock proposal content before the deadline.
+- Team membership, leadership, and proposal content remain editable after submission until the applicable class deadline.
+- Every accepted post-submission team change creates a new immutable roster and proposal snapshot and invalidates stale review and AI output.
 - Every final admission outcome identifies the authorized human actor.
 - Active offers and confirmations do not exceed approved participant capacity.
 - VIT ID barcode and QR scans update one participant identity without duplicate presence intervals.
@@ -201,8 +212,8 @@ The production release must satisfy these outcomes:
 
 Board and the named owners must publish these values before the applicable release gate:
 
-- team-size and mixed-team rules;
-- `applicationsOpenAt` and authoritative `applicationsCloseAt`;
+- team-size rules;
+- the external-participant and VIT-student application deadlines;
 - participant profile fields, notices, and consent text;
 - fresh-project and pre-start-work rules;
 - admission criteria, human-review minimum, model policy, capacity, waitlist order, and offer deadline;

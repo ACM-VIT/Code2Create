@@ -463,7 +463,7 @@ export const releaseRehearsalTemplate = [
     62,
     "review_operations",
     "A review call races participant movement below the published minimum",
-    "The ordinary call leaves the team queued and creates no review records; a valid fresh-authenticated exact-team exception creates one review and one immutable waiver, and start later accepts only current presence or that same review's waiver.",
+    "The ordinary call leaves the team queued and creates no review records; a valid exact-team exception creates one review and one immutable waiver, and start later accepts only current presence or that same review's waiver.",
     "Ask the team to regroup or have an independently authorised operator record the reasoned exception; never change attendance, queue time, or judging state to force the call.",
   ),
 ] satisfies readonly RehearsalTemplateScenario[];

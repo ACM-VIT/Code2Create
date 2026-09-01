@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useState, type ChangeEvent, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
 import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
@@ -12,12 +12,12 @@ import {
   type ConfigurationOperationDescriptor,
   useConfigurationOperations,
 } from '../lib/configurationOperations'
+import { useVersionedState } from '@code2create/web-forms'
 
 type Configuration = FunctionReturnType<typeof api.intakePolicyConfiguration.current>
 type Policy = Configuration['publishedPolicy']['policy']
 type Purpose = Policy['allowedPurposeKeys'][number]
 type AnswerLength = Policy['fallbackQuestions'][number]['answerLength']
-type AssistedModel = Extract<Policy['model'], { mode: 'assisted' }>
 type IntakePolicyOperationResult =
   | FunctionReturnType<typeof api.intakePolicyConfiguration.createDraft>
   | FunctionReturnType<typeof api.intakePolicyConfiguration.publish>
@@ -46,18 +46,6 @@ const operationDescriptors = [
   },
 ] satisfies readonly ConfigurationOperationDescriptor[]
 
-const assistedModelTemplate: AssistedModel = {
-  mode: 'assisted',
-  modelId: '',
-  systemInstruction:
-    'Generate one short, supportive follow-up question for a hackathon team. Use only the supplied source identifiers. Never score, rank, reject, discourage, or request personal information.',
-  instructionVersion: 'intake-instruction-v1',
-  schemaVersion: 'intake-output-v1',
-  redactionVersion: 'intake-redaction-v1',
-  questionPolicyVersion: 'intake-question-policy-v1',
-  evaluationSuiteVersion: 'intake-evaluation-v1',
-}
-
 export function IntakePolicyConfiguration({
   tabs,
 }: {
@@ -73,24 +61,24 @@ export function IntakePolicyConfiguration({
       ? { eventSlug, draftPolicyId: configuration.draftPolicy.id }
       : 'skip',
   )
-  const [policy, setPolicy] = useState<Policy | null>(null)
-  const [loadedPolicy, setLoadedPolicy] = useState('')
+  const source = configuration
+    ? configuration.draftPolicy ?? configuration.publishedPolicy
+    : null
+  const sourceKey = source ? `${source.id}:${source.checksum}` : 'loading'
+  const policyState = useVersionedState<Policy | null>(
+    sourceKey,
+    source ? clonePolicy(source.policy) : null,
+  )
+  const policy = policyState.value
+  const setPolicy = policyState.update
   const [draftReason, setDraftReason] = useState('Refined the participant introduction')
   const [publishReason, setPublishReason] = useState('Validated for new participant intakes')
-  const [publishArmed, setPublishArmed] = useState(false)
+  const publishState = useVersionedState(sourceKey, false)
+  const publishArmed = publishState.value
+  const setPublishArmed = publishState.replace
   const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('intake-policy-draft')
   const publishPending = operations.hasPending('intake-policy-publish')
-
-  useEffect(() => {
-    if (!configuration) return
-    const source = configuration.draftPolicy ?? configuration.publishedPolicy
-    const sourceKey = `${source.id}:${source.checksum}`
-    if (sourceKey === loadedPolicy) return
-    setPolicy(clonePolicy(source.policy))
-    setLoadedPolicy(sourceKey)
-    setPublishArmed(false)
-  }, [configuration, loadedPolicy])
 
   if (configuration === undefined || policy === null) {
     return (
@@ -129,13 +117,6 @@ export function IntakePolicyConfiguration({
         patternIndex === index ? { ...pattern, ...patch } : pattern
       )),
     } : current)
-  }
-
-  const updateAssistedModel = (patch: Partial<AssistedModel>) => {
-    setPolicy((current) => {
-      if (!current || current.model.mode !== 'assisted') return current
-      return { ...current, model: { ...current.model, ...patch } }
-    })
   }
 
   const saveDraft = (event: FormEvent) => {
@@ -184,7 +165,7 @@ export function IntakePolicyConfiguration({
 
       <dl className="catalog-summary">
         <div><dt>Status</dt><dd>Ready</dd></div>
-        <div><dt>Question source</dt><dd>{configuration.publishedPolicy.policy.model.mode === 'assisted' ? 'AI-assisted' : 'Fixed'}</dd></div>
+        <div><dt>Question source</dt><dd>AI with safe fallback</dd></div>
         <div><dt>Teams writing</dt><dd>{configuration.publishedPolicy.activeDraftCount}</dd></div>
       </dl>
 
@@ -256,7 +237,7 @@ export function IntakePolicyConfiguration({
       {!operationPending && configuration.canDraft ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(configuration.draftPolicy)}
-          description="Participant copy, answer limits, fallback questions, and question source."
+          description="Participant copy, answer limits, question goals, and safe fallbacks."
           title={configuration.draftPolicy ? 'Continue idea-question draft' : 'Edit idea questions'}
         >
         <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
@@ -290,10 +271,10 @@ export function IntakePolicyConfiguration({
                 <input disabled value="Two" />
               </label>
             </div>
-            <p className="muted intake-policy-note">Every introduction asks two follow-up questions. Assisted mode writes them from the team’s current answers.</p>
+            <p className="muted intake-policy-note">Every introduction asks these two questions first. The platform may then ask up to two project-specific questions when useful.</p>
           </PolicySection>
 
-          <PolicySection title="Question goals" description="Assisted questions use one of these reviewed goals.">
+          <PolicySection title="Generated question goals" description="Any additional question uses one of these reviewed goals.">
             <div className="intake-purpose-list">
               {purposeOptions.map((purpose) => (
                 <label key={purpose}>
@@ -313,7 +294,7 @@ export function IntakePolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Fallback questions" description="Used in fixed mode and when assisted questions are unavailable.">
+          <PolicySection title="Fixed questions" description="Every team answers these before any generated question.">
             <div className="phase-card-list">
               {policy.fallbackQuestions.map((question) => (
                 <article className="phase-card" key={question.ordinal}>
@@ -366,40 +347,6 @@ export function IntakePolicyConfiguration({
             >
               Add pattern
             </button>
-          </PolicySection>
-
-          <PolicySection title="Question source" description="Assisted questions fall back to the fixed ones when unavailable.">
-            <label className="field intake-policy-mode">
-              <span>Mode</span>
-              <select
-                value={policy.model.mode}
-                onChange={(event) => setPolicy((current) => current ? {
-                  ...current,
-                  model: parseModelMode(event.target.value) === 'deterministic'
-                    ? { mode: 'deterministic' }
-                    : current.model.mode === 'assisted'
-                      ? current.model
-                      : assistedModelTemplate,
-                } : current)}
-              >
-                <option value="deterministic">Fixed questions</option>
-                <option value="assisted">Assisted questions</option>
-              </select>
-            </label>
-            {policy.model.mode === 'assisted' ? (
-              <details className="configuration-advanced">
-                <summary>Model release settings</summary>
-                <div className="intake-assisted-fields">
-                  <label className="field"><span>Model</span><input required spellCheck={false} value={policy.model.modelId} onChange={(event) => updateAssistedModel({ modelId: event.target.value })} /></label>
-                  <label className="field full-field"><span>System instruction</span><textarea required value={policy.model.systemInstruction} onChange={(event) => updateAssistedModel({ systemInstruction: event.target.value })} /></label>
-                  <label className="field"><span>Instruction version</span><input required spellCheck={false} value={policy.model.instructionVersion} onChange={(event) => updateAssistedModel({ instructionVersion: event.target.value })} /></label>
-                  <label className="field"><span>Schema version</span><input required spellCheck={false} value={policy.model.schemaVersion} onChange={(event) => updateAssistedModel({ schemaVersion: event.target.value })} /></label>
-                  <label className="field"><span>Redaction version</span><input required spellCheck={false} value={policy.model.redactionVersion} onChange={(event) => updateAssistedModel({ redactionVersion: event.target.value })} /></label>
-                  <label className="field"><span>Question-policy version</span><input required spellCheck={false} value={policy.model.questionPolicyVersion} onChange={(event) => updateAssistedModel({ questionPolicyVersion: event.target.value })} /></label>
-                  <label className="field"><span>Evaluation-suite version</span><input required spellCheck={false} value={policy.model.evaluationSuiteVersion} onChange={(event) => updateAssistedModel({ evaluationSuiteVersion: event.target.value })} /></label>
-                </div>
-              </details>
-            ) : null}
           </PolicySection>
 
           </fieldset>
@@ -481,11 +428,6 @@ function parseAnswerLength(value: string): AnswerLength {
   const length = answerLengthOptions.find((candidate) => candidate === value)
   if (!length) throw new Error('The selected answer length is invalid.')
   return length
-}
-
-function parseModelMode(value: string): Policy['model']['mode'] {
-  if (value === 'deterministic' || value === 'assisted') return value
-  throw new Error('The selected question source is invalid.')
 }
 
 function humanize(value: string) {

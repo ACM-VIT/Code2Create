@@ -32,6 +32,9 @@ export async function createAdmissionRecommendation(
     projectVersionId: args.project._id,
     projectVersion: args.project.version,
     initialIdea: args.project.initialIdea,
+    ...(args.project.additionalInformation !== undefined
+      ? { additionalInformation: args.project.additionalInformation }
+      : {}),
     intakeResponses: args.project.intakeResponses,
     admissionInformationResponses: args.project.admissionInformationResponses ?? [],
     experienceBand: args.application.experienceBand,

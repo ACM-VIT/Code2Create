@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
 import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
@@ -12,21 +12,22 @@ import {
   type ConfigurationOperationDescriptor,
   useConfigurationOperations,
 } from '../lib/configurationOperations'
+import { useVersionedState } from '@code2create/web-forms'
 
 type Configuration = FunctionReturnType<typeof api.participantPolicyConfiguration.current>
 type Policy = Configuration['publishedPolicy']['policy']
-type FieldMode = Policy['phoneField']
+type HostelResidence = Policy['vitHostelResidenceCatalog'][number]
 type PolicyOperationResult =
   | FunctionReturnType<typeof api.participantPolicyConfiguration.createDraft>
   | FunctionReturnType<typeof api.participantPolicyConfiguration.publish>
-
-const fieldModes: { value: FieldMode; label: string }[] = [
-  { value: 'not_collected', label: 'Do not collect' },
-  { value: 'optional', label: 'Optional' },
-  { value: 'required', label: 'Required' },
-]
+  | FunctionReturnType<typeof api.participantPolicyConfiguration.updateApplicationDeadlines>
 
 const operationDescriptors = [
+  {
+    slot: 'participant-deadlines-update',
+    title: 'Finish updating the application deadlines',
+    action: 'Confirm earlier update',
+  },
   {
     slot: 'participant-policy-publish',
     title: 'Finish publishing the participant rules',
@@ -47,6 +48,7 @@ export function ParticipantPolicyConfiguration({
   const configuration = useQuery(api.participantPolicyConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.participantPolicyConfiguration.createDraft)
   const publish = useMutation(api.participantPolicyConfiguration.publish)
+  const updateApplicationDeadlines = useMutation(api.participantPolicyConfiguration.updateApplicationDeadlines)
   const operations = useConfigurationOperations<PolicyOperationResult>(operationDescriptors)
   const validation = useQuery(
     api.participantPolicyConfiguration.validateDraft,
@@ -54,24 +56,25 @@ export function ParticipantPolicyConfiguration({
       ? { eventSlug, draftPolicyId: configuration.draftPolicy.id }
       : 'skip',
   )
-  const [policy, setPolicy] = useState<Policy | null>(null)
-  const [loadedPolicy, setLoadedPolicy] = useState('')
+  const source = configuration
+    ? configuration.draftPolicy ?? configuration.publishedPolicy
+    : null
+  const sourceKey = source ? `${source.id}:${source.checksum}` : 'loading'
+  const policyState = useVersionedState<Policy | null>(sourceKey, source?.policy ?? null)
+  const policy = policyState.value
+  const setPolicy = policyState.update
   const [draftReason, setDraftReason] = useState('')
   const [publishReason, setPublishReason] = useState('')
-  const [publishArmed, setPublishArmed] = useState(false)
+  const publishState = useVersionedState(sourceKey, false)
+  const publishArmed = publishState.value
+  const setPublishArmed = publishState.replace
+  const [externalDeadline, setExternalDeadline] = useState<string | null>(null)
+  const [vitDeadline, setVitDeadline] = useState<string | null>(null)
+  const [deadlineReason, setDeadlineReason] = useState('')
   const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('participant-policy-draft')
   const publishPending = operations.hasPending('participant-policy-publish')
-
-  useEffect(() => {
-    if (!configuration) return
-    const source = configuration.draftPolicy ?? configuration.publishedPolicy
-    const sourceKey = `${source.id}:${source.checksum}`
-    if (sourceKey === loadedPolicy) return
-    setPolicy(source.policy)
-    setLoadedPolicy(sourceKey)
-    setPublishArmed(false)
-  }, [configuration, loadedPolicy])
+  const deadlinesPending = operations.hasPending('participant-deadlines-update')
 
   if (configuration === undefined || policy === null) {
     return (
@@ -86,6 +89,33 @@ export function ParticipantPolicyConfiguration({
 
   const updatePolicy = <Key extends keyof Policy>(key: Key, value: Policy[Key]) => {
     setPolicy((current) => current ? { ...current, [key]: value } : current)
+  }
+
+  const updateHostelResidence = (index: number, patch: Partial<HostelResidence>) => {
+    updatePolicy(
+      'vitHostelResidenceCatalog',
+      policy.vitHostelResidenceCatalog.map((residence, residenceIndex) =>
+        residenceIndex === index ? { ...residence, ...patch } : residence,
+      ),
+    )
+  }
+
+  const addHostelResidence = () => {
+    updatePolicy('vitHostelResidenceCatalog', [
+      ...policy.vitHostelResidenceCatalog,
+      {
+        stableKey: nextHostelResidenceKey(policy.vitHostelResidenceCatalog),
+        label: 'New block',
+        kind: 'mens',
+      },
+    ])
+  }
+
+  const removeHostelResidence = (index: number) => {
+    updatePolicy(
+      'vitHostelResidenceCatalog',
+      policy.vitHostelResidenceCatalog.filter((_, residenceIndex) => residenceIndex !== index),
+    )
   }
 
   const saveDraft = (event: FormEvent) => {
@@ -115,6 +145,33 @@ export function ParticipantPolicyConfiguration({
     }), () => setPublishArmed(false))
   }
 
+  const saveDeadlines = (event: FormEvent) => {
+    event.preventDefault()
+    const externalApplicationsCloseAt = indiaInputToTimestamp(
+      externalDeadline ?? indiaTimestampToInput(
+        configuration.applicationDeadlines.externalApplicationsCloseAt,
+      ),
+    )
+    const vitApplicationsCloseAt = indiaInputToTimestamp(
+      vitDeadline ?? indiaTimestampToInput(
+        configuration.applicationDeadlines.vitApplicationsCloseAt,
+      ),
+    )
+    if (externalApplicationsCloseAt === null || vitApplicationsCloseAt === null) return
+    void operations.run('participant-deadlines-update', (clientOperationId) => () => updateApplicationDeadlines({
+      eventSlug,
+      externalApplicationsCloseAt,
+      vitApplicationsCloseAt,
+      expectedEventVersion: configuration.eventVersion,
+      reason: deadlineReason,
+      clientOperationId,
+    }), () => {
+      setExternalDeadline(null)
+      setVitDeadline(null)
+      setDeadlineReason('')
+    })
+  }
+
   const confirmPendingOperation = () => {
     void operations.retryPending(() => setPublishArmed(false))
   }
@@ -125,14 +182,40 @@ export function ParticipantPolicyConfiguration({
       <header className="page-heading configuration-heading">
         <div>
           <h1>Participant form</h1>
-          <p className="muted">Controls profile collection, team eligibility, consent text, and the final lock warning.</p>
+          <p className="muted">Controls profile collection, team eligibility, consent text, and the final submission warning.</p>
         </div>
       </header>
+
+      <form className="catalog-review" onSubmit={saveDeadlines}>
+        <div className="section-heading">
+          <div><p className="muted">Application window</p><h2>Submission deadlines</h2></div>
+        </div>
+        <div className="intake-policy-grid">
+          <label className="field">
+            <span>External participants · India time</span>
+            <input disabled={deadlinesPending || !configuration.canPublish} required type="datetime-local" value={externalDeadline ?? indiaTimestampToInput(configuration.applicationDeadlines.externalApplicationsCloseAt)} onChange={(event) => setExternalDeadline(event.currentTarget.value)} />
+          </label>
+          <label className="field">
+            <span>VIT students · India time</span>
+            <input disabled={deadlinesPending || !configuration.canPublish} required type="datetime-local" value={vitDeadline ?? indiaTimestampToInput(configuration.applicationDeadlines.vitApplicationsCloseAt)} onChange={(event) => setVitDeadline(event.currentTarget.value)} />
+          </label>
+          <label className="field field-wide">
+            <span>Why this changed</span>
+            <input disabled={deadlinesPending || !configuration.canPublish} minLength={5} required value={deadlineReason} onChange={(event) => setDeadlineReason(event.currentTarget.value)} />
+          </label>
+        </div>
+        {configuration.canPublish ? (
+          <button className="secondary" disabled={busy || deadlineReason.trim().length < 5} type="submit">
+            {deadlinesPending ? 'Confirm earlier update' : 'Update deadlines'}
+          </button>
+        ) : <p className="notice">You can view these deadlines but cannot change them.</p>}
+      </form>
 
       <dl className="catalog-summary">
         <div><dt>Status</dt><dd>Ready</dd></div>
         <div><dt>Team size</dt><dd>{configuration.publishedPolicy.policy.teamMinimumSize}–{configuration.publishedPolicy.policy.teamMaximumSize}</dd></div>
-        <div><dt>Mixed teams</dt><dd>{configuration.publishedPolicy.policy.mixedParticipantClassesAllowed ? 'Allowed' : 'Not allowed'}</dd></div>
+        <div><dt>Team eligibility</dt><dd>VIT and external teams stay separate</dd></div>
+        <div><dt>VIT residences</dt><dd>{configuration.publishedPolicy.policy.vitHostelResidenceCatalog.length}</dd></div>
       </dl>
 
       {pendingOperation ? (
@@ -189,7 +272,7 @@ export function ParticipantPolicyConfiguration({
       {!operationPending && configuration.canDraft ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(configuration.draftPolicy)}
-          description="Team rules, profile fields, notices, and the final submission warning."
+          description="Team rules, hostel blocks, notices, and the final submission warning."
           title={configuration.draftPolicy ? 'Continue participant-form draft' : 'Edit participant form'}
         >
         <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
@@ -207,22 +290,83 @@ export function ParticipantPolicyConfiguration({
                 <span>Maximum members</span>
                 <input required type="number" min={1} max={configuration.participantCapacity} value={policy.teamMaximumSize} onChange={(event) => updatePolicy('teamMaximumSize', event.currentTarget.valueAsNumber)} />
               </label>
-              <label className="check-row field-wide">
-                <input type="checkbox" checked={policy.mixedParticipantClassesAllowed} onChange={(event) => updatePolicy('mixedParticipantClassesAllowed', event.currentTarget.checked)} />
-                <span>Allow VIT students and external participants on the same team</span>
-              </label>
+              <p className="notice field-wide">VIT students and external participants form separate teams.</p>
             </div>
           </PolicySection>
 
-          <PolicySection title="Profile fields" description="Full name, institution, and year or current role are always required.">
-            <div className="intake-policy-grid">
-              <FieldModeSelect label="Phone" value={policy.phoneField} onChange={(value) => updatePolicy('phoneField', value)} />
-              <FieldModeSelect label="VIT registration number" value={policy.vitRegistrationNumberField} onChange={(value) => updatePolicy('vitRegistrationNumberField', value)} />
-              <FieldModeSelect label="VIT programme" value={policy.vitProgrammeField} onChange={(value) => updatePolicy('vitProgrammeField', value)} />
-              <FieldModeSelect label="VIT campus" value={policy.vitCampusField} onChange={(value) => updatePolicy('vitCampusField', value)} />
-              <FieldModeSelect label="External participant city" value={policy.externalCityField} onChange={(value) => updatePolicy('externalCityField', value)} />
-              <FieldModeSelect label="External participant country" value={policy.externalCountryField} onChange={(value) => updatePolicy('externalCountryField', value)} />
+          <PolicySection title="Required profile fields" description="These fields are fixed so participant records stay complete and operationally useful.">
+            <p className="notice">
+              Everyone provides phone, Male or Female gender, and year of study. VIT identity is
+              derived from Google and VIT students choose day scholar or hosteller. External
+              participants provide university and college.
+            </p>
+          </PolicySection>
+
+          <PolicySection
+            title="VIT hostel block catalogue"
+            description="Published blocks appear for hostellers after they select Male or Female. Stable keys are stored on profiles; labels and grouping are participant-facing."
+          >
+            <div className="phase-card-list">
+              {policy.vitHostelResidenceCatalog.map((residence, index) => (
+                <article className="phase-card" key={`${residence.stableKey}:${index}`}>
+                  <header className="configuration-card-heading">
+                    <div>
+                      <span>Hostel block {index + 1}</span>
+                      <strong>{residence.label || 'Unnamed block'}</strong>
+                    </div>
+                    {policy.vitHostelResidenceCatalog.length > 2 ? (
+                      <button className="text-button" type="button" onClick={() => removeHostelResidence(index)}>
+                        Remove
+                      </button>
+                    ) : null}
+                  </header>
+                  <div className="intake-policy-grid">
+                    <label className="field">
+                      <span>Stable key</span>
+                      <input
+                        required
+                        minLength={2}
+                        maxLength={40}
+                        pattern="[a-z][a-z0-9_]+"
+                        value={residence.stableKey}
+                        onChange={(event) => updateHostelResidence(index, { stableKey: event.currentTarget.value })}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Participant label</span>
+                      <input
+                        required
+                        minLength={2}
+                        maxLength={80}
+                        value={residence.label}
+                        onChange={(event) => updateHostelResidence(index, { label: event.currentTarget.value })}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Group</span>
+                      <select
+                        value={residence.kind}
+                        onChange={(event) => updateHostelResidence(index, {
+                          kind: readHostelResidenceKind(event.currentTarget.value),
+                        })}
+                      >
+                        <option value="mens">Men's hostel</option>
+                        <option value="ladies">Ladies' hostel</option>
+                      </select>
+                    </label>
+                  </div>
+                </article>
+              ))}
             </div>
+            <button
+              className="secondary intake-policy-add"
+              disabled={policy.vitHostelResidenceCatalog.length >= 64}
+              type="button"
+              onClick={addHostelResidence}
+            >
+              Add hostel block
+            </button>
+            <p className="notice">Keep at least one Men's and one Ladies' hostel block.</p>
           </PolicySection>
 
           <PolicySection title="Participant notice" description="The project-question AI never receives profile fields.">
@@ -253,7 +397,7 @@ export function ParticipantPolicyConfiguration({
                 <textarea disabled value={policy.freshProjectAttestation} />
               </label>
               <label className="field field-wide">
-                <span>Final lock warning</span>
+                <span>Final submission warning</span>
                 <textarea required minLength={40} maxLength={400} value={policy.finalSubmissionWarning} onChange={(event) => updatePolicy('finalSubmissionWarning', event.currentTarget.value)} />
               </label>
             </div>
@@ -278,28 +422,27 @@ export function ParticipantPolicyConfiguration({
   )
 }
 
-function FieldModeSelect({
-  label,
-  value,
-  onChange,
-}: {
-  label: string
-  value: FieldMode
-  onChange: (value: FieldMode) => void
-}) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(readFieldMode(event.currentTarget.value))}>
-        {fieldModes.map((mode) => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
-      </select>
-    </label>
-  )
+function indiaInputToTimestamp(value: string) {
+  const timestamp = Date.parse(`${value}:00+05:30`)
+  return Number.isSafeInteger(timestamp) && timestamp > 0 ? timestamp : null
 }
 
-function readFieldMode(value: string): FieldMode {
-  if (value === 'not_collected' || value === 'optional' || value === 'required') return value
-  throw new Error('Invalid profile field mode.')
+function indiaTimestampToInput(timestamp: number) {
+  return new Date(timestamp + 5.5 * 60 * 60 * 1_000).toISOString().slice(0, 16)
+}
+
+function readHostelResidenceKind(value: string): HostelResidence['kind'] {
+  if (value === 'mens' || value === 'ladies') return value
+  throw new Error('Invalid VIT residence group.')
+}
+
+function nextHostelResidenceKey(catalog: Policy['vitHostelResidenceCatalog']) {
+  const stableKeys = new Set(catalog.map((residence) => residence.stableKey))
+  for (let suffix = 1; suffix <= 64; suffix += 1) {
+    const candidate = `hostel_${suffix}`
+    if (!stableKeys.has(candidate)) return candidate
+  }
+  throw new Error('The VIT hostel block catalogue is full.')
 }
 
 function PolicySection({

@@ -158,7 +158,7 @@ If the camera fails, the reviewer can type the fallback code. A backend rejectio
 
 When the review starts, the app caches the context required to finish that active review:
 
-- submitted initial idea and ordered follow-up question/answer snapshots written by the team;
+- submitted initial idea, ordered follow-up question/answer snapshots, and optional additional information or links written by the team;
 - the immutable intake-policy and generated-question references behind that submitted sequence;
 - server-assigned event phase and fresh-project attestation;
 - problem, user, and evidence;

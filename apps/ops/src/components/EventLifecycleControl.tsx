@@ -1,14 +1,20 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
+import { useVersionedState } from '@code2create/web-forms'
 
 type Lifecycle = FunctionReturnType<typeof api.eventLifecycle.current>
 type LifecycleStatus = Lifecycle['status']
+type TransitionDraft = {
+  targetStatus: LifecycleStatus | null
+  reason: string
+  error: string | null
+}
 
 const statusCopy: Readonly<Record<LifecycleStatus, { label: string; detail: string }>> = {
   draft: {
@@ -37,23 +43,27 @@ export function EventLifecycleControl() {
   const lifecycle = useQuery(api.eventLifecycle.current, { eventSlug })
   const transitionEvent = useMutation(api.eventLifecycle.transition)
   const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.eventLifecycle.transition>>()
-  const [targetStatus, setTargetStatus] = useState<LifecycleStatus | null>(null)
-  const [reason, setReason] = useState('')
+  const transitionState = useVersionedState<TransitionDraft>(
+    lifecycle ? `${lifecycle.eventVersion}` : 'loading',
+    { targetStatus: null, reason: '', error: null },
+  )
+  const { targetStatus, reason, error } = transitionState.value
+  const setTargetStatus = (targetStatus: LifecycleStatus | null) => {
+    transitionState.update((current) => ({ ...current, targetStatus }))
+  }
+  const setReason = (reason: string) => {
+    transitionState.update((current) => ({ ...current, reason }))
+  }
+  const setError = (error: string | null) => {
+    transitionState.update((current) => ({ ...current, error }))
+  }
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const operationSlot = 'event-lifecycle-transition'
 
   const selectedTransition = lifecycle?.transitions.find(
     (transition) => transition.targetStatus === targetStatus,
   )
   const operationPending = operationAttempt.hasPending(operationSlot)
-
-  useEffect(() => {
-    if (operationPending || targetStatus === null || selectedTransition !== undefined) return
-    setTargetStatus(null)
-    setReason('')
-    setError(null)
-  }, [operationPending, selectedTransition, targetStatus])
 
   if (lifecycle === undefined) return <p className="muted">Loading event state…</p>
   const current = statusCopy[lifecycle.status]

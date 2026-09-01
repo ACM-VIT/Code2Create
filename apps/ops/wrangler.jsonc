@@ -12,7 +12,13 @@
       "name": "code2create-operations-staging"
     },
     "production": {
-      "name": "code2create-operations"
+      "name": "code2create-operations",
+      "routes": [
+        {
+          "pattern": "ops.c2c.sh",
+          "custom_domain": true
+        }
+      ]
     }
   }
 }

@@ -10,16 +10,22 @@ import {
   admissionIntelligenceReadSignatureContext,
   verifyServiceBody,
 } from "@code2create/domain";
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 import { ConvexError, v, type Infer } from "convex/values";
 import { z } from "zod";
 
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  action,
   httpAction,
+  internalAction,
   internalQuery,
   mutation,
-  query,
+  type ActionCtx,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
@@ -36,7 +42,10 @@ import {
 } from "./lib/permissions";
 import { noveltyInputFingerprint } from "./lib/novelty";
 import { redactProjectText } from "./lib/projectText";
-import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits";
+import {
+  maximumApplicantTeamsPerEvent,
+  maximumReviewerAssignmentsPerEvent,
+} from "./lib/reviewLimits";
 import {
   admissionAiDisposition,
   admissionDecision,
@@ -138,10 +147,15 @@ const experienceBands = [
 ] as const;
 
 type CohortRow = {
-  application: Doc<"applications">;
-  team: Doc<"teams">;
-  project: Doc<"projectVersions">;
-  draft: Doc<"projectDrafts"> | null;
+  applicationId: Id<"applications">;
+  teamId: Id<"teams">;
+  teamName: string;
+  state: Doc<"applications">["state"];
+  experienceBand: Doc<"applications">["experienceBand"];
+  submittedAt: number;
+  assignedReviewCount: number;
+  initialIdea: string;
+  novelty: ReturnType<typeof noveltySignal>;
   teamSize: number;
   minimumHumanReviews: number;
   reviewSignal: { accept: number; waitlist: number; decline: number; needsInformation: number };
@@ -157,6 +171,16 @@ type CohortRow = {
     }[];
   } | null;
 };
+
+type CohortRowPage = {
+  page: CohortRow[];
+  isDone: boolean;
+  continueCursor: string;
+  splitCursor?: string | null;
+  pageStatus?: "SplitRecommended" | "SplitRequired" | null;
+};
+
+const admissionCohortPageSize = 20;
 
 function noveltySignal(draft: Doc<"projectDrafts"> | null, submittedIdea: string) {
   if (
@@ -176,97 +200,28 @@ function noveltySignal(draft: Doc<"projectDrafts"> | null, submittedIdea: string
   };
 }
 
-/** Loads only current-version recorded human-review and AI signals. */
-async function loadAdmissionCohortRows(ctx: QueryCtx, event: Doc<"events">) {
-  const applications = await ctx.db
-    .query("applications")
-    .withIndex("by_event_state_submitted", (index) => index.eq("eventId", event._id))
-    .take(maximumReviewTeamsPerEvent + 1);
-  if (applications.length > maximumReviewTeamsPerEvent) {
-    throw new Error(
-      `Admission cohort reads support at most ${maximumReviewTeamsPerEvent} event teams.`,
-    );
-  }
-  const policies = new Map<Id<"admissionPolicyVersions">, Doc<"admissionPolicyVersions">>();
+/** Reads the event through bounded transactions instead of one whole-cohort query. */
+async function loadAdmissionCohortRows(ctx: ActionCtx, eventId: Id<"events">) {
   const rows: CohortRow[] = [];
-  for (const application of applications) {
-    const [team, project, draft] = await Promise.all([
-      ctx.db.get(application.teamId),
-      ctx.db.get(application.submittedProjectVersionId),
-      ctx.db
-        .query("projectDrafts")
-        .withIndex("by_team", (index) => index.eq("teamId", application.teamId))
-        .unique(),
-    ]);
-    if (!team || !project) continue;
-    let policy = policies.get(application.admissionPolicyVersionId);
-    if (!policy) {
-      const loaded = await ctx.db.get(application.admissionPolicyVersionId);
-      if (!loaded || loaded.eventId !== event._id) continue;
-      policies.set(application.admissionPolicyVersionId, loaded);
-      policy = loaded;
-    }
-    const [reviews, recommendation] = await Promise.all([
-      ctx.db
-        .query("admissionHumanReviews")
-        .withIndex("by_application_status", (index) =>
-          index.eq("applicationId", application._id).eq("status", "active"),
-        )
-        .collect(),
-      application.aiRecommendationId
-        ? ctx.db.get(application.aiRecommendationId)
-        : Promise.resolve(null),
-    ]);
-    const currentReviews = reviews.filter(
-      (review) => review.applicationContentVersion === application.contentVersion,
-    );
-    const reviewSignal = { accept: 0, waitlist: 0, decline: 0, needsInformation: 0 };
-    for (const review of currentReviews) {
-      if (review.recommendation === "accept") reviewSignal.accept += 1;
-      else if (review.recommendation === "waitlist") reviewSignal.waitlist += 1;
-      else if (review.recommendation === "decline") reviewSignal.decline += 1;
-      else reviewSignal.needsInformation += 1;
-    }
-    // Match the AI currency check used by admissions.decide.
-    const aiCurrent = Boolean(
-      recommendation &&
-        recommendation.state === "succeeded" &&
-        recommendation.applicationContentVersion === application.contentVersion &&
-        recommendation.projectVersionId === project._id &&
-        recommendation.admissionPolicyVersionId === application.admissionPolicyVersionId &&
-        recommendation.recommendation,
-    );
-    const ai = recommendation
-      ? {
-          state: recommendation.state,
-          current: aiCurrent,
-          ...(aiCurrent && recommendation.recommendation
-            ? { recommendation: recommendation.recommendation }
-            : {}),
-          ...(aiCurrent && recommendation.confidence
-            ? { confidence: recommendation.confidence }
-            : {}),
-          criterionAssessments: aiCurrent
-            ? recommendation.criterionAssessments.map((assessment) => ({
-                criterionKey: assessment.criterionKey,
-                assessment: assessment.assessment,
-              }))
-            : [],
-        }
-      : null;
-    rows.push({
-      application,
-      team,
-      project,
-      draft,
-      teamSize: project.lockedMemberCount,
-      minimumHumanReviews: policy.minimumHumanReviews,
-      reviewSignal,
-      completedCurrentReviews: currentReviews.length,
-      ai,
+  let cursor: string | null = null;
+  while (true) {
+    const page: CohortRowPage = await ctx.runQuery(internal.admissionCohort.cohortRowPage, {
+      eventId,
+      paginationOpts: {
+        cursor,
+        numItems: admissionCohortPageSize,
+        maximumRowsRead: admissionCohortPageSize,
+      },
     });
+    if (rows.length + page.page.length > maximumApplicantTeamsPerEvent) {
+      throw new Error(
+        `Admission cohort reads support at most ${maximumApplicantTeamsPerEvent} applicant teams.`,
+      );
+    }
+    rows.push(...page.page);
+    if (page.isDone) return rows;
+    cursor = page.continueCursor;
   }
-  return rows;
 }
 
 async function requirePublishedAdmissionPolicy(ctx: QueryCtx, event: Doc<"events">) {
@@ -287,9 +242,9 @@ async function requirePublishedAdmissionPolicy(ctx: QueryCtx, event: Doc<"events
 
 function candidateSignals(row: CohortRow): AdmissionCohortSignals {
   return {
-    applicationId: row.application._id,
+    applicationId: row.applicationId,
     teamSize: row.teamSize,
-    submittedAt: row.application.submittedAt,
+    submittedAt: row.submittedAt,
     reviewAccepts: row.reviewSignal.accept,
     reviewDeclines: row.reviewSignal.decline,
     aiRecommendation: row.ai?.current ? (row.ai.recommendation ?? null) : null,
@@ -298,10 +253,10 @@ function candidateSignals(row: CohortRow): AdmissionCohortSignals {
 
 function rosterEntry(row: CohortRow) {
   return {
-    applicationId: row.application._id,
-    teamId: row.team._id,
-    teamName: row.team.name,
-    state: row.application.state,
+    applicationId: row.applicationId,
+    teamId: row.teamId,
+    teamName: row.teamName,
+    state: row.state,
     teamSize: row.teamSize,
   };
 }
@@ -309,15 +264,15 @@ function rosterEntry(row: CohortRow) {
 function candidateView(row: CohortRow, selection: ReturnType<typeof selectAdmissionCohort>[number]) {
   const decidable = row.completedCurrentReviews >= row.minimumHumanReviews;
   return {
-    applicationId: row.application._id,
-    teamId: row.team._id,
-    teamName: row.team.name,
-    state: row.application.state,
-    submittedAt: row.application.submittedAt,
-    experienceBand: row.application.experienceBand,
+    applicationId: row.applicationId,
+    teamId: row.teamId,
+    teamName: row.teamName,
+    state: row.state,
+    submittedAt: row.submittedAt,
+    experienceBand: row.experienceBand,
     teamSize: row.teamSize,
     reviewCoverage: {
-      assigned: row.application.assignedReviewCount,
+      assigned: row.assignedReviewCount,
       completed: row.completedCurrentReviews,
       required: row.minimumHumanReviews,
       decidable,
@@ -325,7 +280,7 @@ function candidateView(row: CohortRow, selection: ReturnType<typeof selectAdmiss
     },
     reviewSignal: row.reviewSignal,
     ...(row.ai ? { aiRecommendation: row.ai } : {}),
-    novelty: noveltySignal(row.draft, row.project.initialIdea),
+    novelty: row.novelty,
     rank: selection.rank,
     cumulativePeople: selection.cumulativePeople,
     entryCapacityPeople: selection.entryCapacityPeople,
@@ -335,20 +290,19 @@ function candidateView(row: CohortRow, selection: ReturnType<typeof selectAdmiss
 
 /** Computes whole-event arithmetic before grant-based row filtering. */
 async function buildAdmissionCohortView(
-  ctx: QueryCtx,
-  event: Doc<"events">,
+  ctx: ActionCtx,
+  eventId: Id<"events">,
+  policy: Infer<typeof cohortPolicyView>,
   requestedCapacityPeople: number | undefined,
 ) {
-  const policy = await requirePublishedAdmissionPolicy(ctx, event);
   const capacityPeople = normalizedCapacityPeople(
     requestedCapacityPeople ?? policy.overallParticipantCapacity,
   );
-  const rows = await loadAdmissionCohortRows(ctx, event);
-  const committedRows = rows.filter((row) => committedStates.has(row.application.state));
-  const candidateRows = rows.filter((row) => candidateStates.has(row.application.state));
+  const rows = await loadAdmissionCohortRows(ctx, eventId);
+  const committedRows = rows.filter((row) => committedStates.has(row.state));
+  const candidateRows = rows.filter((row) => candidateStates.has(row.state));
   const decidedOutRows = rows.filter(
-    (row) =>
-      !committedStates.has(row.application.state) && !candidateStates.has(row.application.state),
+    (row) => !committedStates.has(row.state) && !candidateStates.has(row.state),
   );
   const committedPeople = committedRows.reduce((total, row) => total + row.teamSize, 0);
   const selection = selectAdmissionCohort(
@@ -356,7 +310,7 @@ async function buildAdmissionCohortView(
     capacityPeople,
     committedPeople,
   );
-  const rowById = new Map(candidateRows.map((row) => [row.application._id as string, row]));
+  const rowById = new Map(candidateRows.map((row) => [row.applicationId as string, row]));
   const candidates = selection.map((selected) => {
     const row = rowById.get(selected.applicationId);
     if (!row) throw new Error("A ranked cohort candidate lost its source row.");
@@ -500,8 +454,139 @@ const cohortPolicyView = v.object({
   criteria: v.array(v.object({ criterionKey: v.string(), label: v.string() })),
 });
 
-/** Builds one live-grant matcher per permission instead of querying per row. */
-async function applicationGrantMatcher(
+const cohortRowView = v.object({
+  applicationId: v.id("applications"),
+  teamId: v.id("teams"),
+  teamName: v.string(),
+  state: applicationState,
+  experienceBand: admissionExperienceBand,
+  submittedAt: v.number(),
+  assignedReviewCount: v.number(),
+  initialIdea: v.string(),
+  novelty: noveltySignalView,
+  teamSize: v.number(),
+  minimumHumanReviews: v.number(),
+  reviewSignal: reviewSignalView,
+  completedCurrentReviews: v.number(),
+  ai: v.union(v.null(), aiRecommendationView),
+});
+
+const cohortRowPageView = paginationResultValidator(cohortRowView);
+
+/** Hydrates one bounded application page inside one database transaction. */
+export const cohortRowPage = internalQuery({
+  args: { eventId: v.id("events"), paginationOpts: paginationOptsValidator },
+  returns: cohortRowPageView,
+  handler: async (ctx, args) => {
+    const applicationPage = await ctx.db
+      .query("applications")
+      .withIndex("by_event_submitted", (index) => index.eq("eventId", args.eventId))
+      .paginate(args.paginationOpts);
+    const policies = new Map<Id<"admissionPolicyVersions">, Doc<"admissionPolicyVersions">>();
+    const page: CohortRow[] = [];
+    for (const application of applicationPage.page) {
+      const [team, project, draft] = await Promise.all([
+        ctx.db.get(application.teamId),
+        ctx.db.get(application.submittedProjectVersionId),
+        ctx.db
+          .query("projectDrafts")
+          .withIndex("by_team", (index) => index.eq("teamId", application.teamId))
+          .unique(),
+      ]);
+      if (!team || !project) {
+        throw new Error("An admission cohort application has incomplete team or project data.");
+      }
+      let policy = policies.get(application.admissionPolicyVersionId);
+      if (!policy) {
+        const loaded = await ctx.db.get(application.admissionPolicyVersionId);
+        if (!loaded || loaded.eventId !== args.eventId) {
+          throw new Error("An admission cohort application has invalid policy data.");
+        }
+        policies.set(application.admissionPolicyVersionId, loaded);
+        policy = loaded;
+      }
+      const [reviews, recommendation] = await Promise.all([
+        ctx.db
+          .query("admissionHumanReviews")
+          .withIndex("by_application_status", (index) =>
+            index.eq("applicationId", application._id).eq("status", "active"),
+          )
+          .take(maximumReviewerAssignmentsPerEvent + 1),
+        application.aiRecommendationId
+          ? ctx.db.get(application.aiRecommendationId)
+          : Promise.resolve(null),
+      ]);
+      if (reviews.length > maximumReviewerAssignmentsPerEvent) {
+        throw new Error(
+          `An application has more than ${maximumReviewerAssignmentsPerEvent} active reviews.`,
+        );
+      }
+      const currentReviews = reviews.filter(
+        (review) => review.applicationContentVersion === application.contentVersion,
+      );
+      const reviewSignal = { accept: 0, waitlist: 0, decline: 0, needsInformation: 0 };
+      for (const review of currentReviews) {
+        if (review.recommendation === "accept") reviewSignal.accept += 1;
+        else if (review.recommendation === "waitlist") reviewSignal.waitlist += 1;
+        else if (review.recommendation === "decline") reviewSignal.decline += 1;
+        else reviewSignal.needsInformation += 1;
+      }
+      const aiCurrent = Boolean(
+        recommendation &&
+          recommendation.state === "succeeded" &&
+          recommendation.applicationContentVersion === application.contentVersion &&
+          recommendation.projectVersionId === project._id &&
+          recommendation.admissionPolicyVersionId === application.admissionPolicyVersionId &&
+          recommendation.recommendation,
+      );
+      const ai = recommendation
+        ? {
+            state: recommendation.state,
+            current: aiCurrent,
+            ...(aiCurrent && recommendation.recommendation
+              ? { recommendation: recommendation.recommendation }
+              : {}),
+            ...(aiCurrent && recommendation.confidence
+              ? { confidence: recommendation.confidence }
+              : {}),
+            criterionAssessments: aiCurrent
+              ? recommendation.criterionAssessments.map((assessment) => ({
+                  criterionKey: assessment.criterionKey,
+                  assessment: assessment.assessment,
+                }))
+              : [],
+          }
+        : null;
+      page.push({
+        applicationId: application._id,
+        teamId: team._id,
+        teamName: team.name,
+        state: application.state,
+        experienceBand: application.experienceBand,
+        submittedAt: application.submittedAt,
+        assignedReviewCount: application.assignedReviewCount,
+        initialIdea: project.initialIdea,
+        novelty: noveltySignal(draft, project.initialIdea),
+        teamSize: project.lockedMemberCount,
+        minimumHumanReviews: policy.minimumHumanReviews,
+        reviewSignal,
+        completedCurrentReviews: currentReviews.length,
+        ai,
+      });
+    }
+    return { ...applicationPage, page };
+  },
+});
+
+const applicationAccessView = v.object({
+  eventWide: v.boolean(),
+  applicationIds: v.array(v.id("applications")),
+});
+
+type ApplicationAccess = Infer<typeof applicationAccessView>;
+
+/** Loads one permission's live event/application scope without querying per row. */
+async function applicationGrantAccess(
   ctx: QueryCtx,
   args: {
     eventId: Id<"events">;
@@ -519,16 +604,94 @@ async function applicationGrantMatcher(
   const eventWide = live.some(
     (grant) => grant.scopeType === "event" && grant.scopeId === undefined,
   );
-  const scoped = new Set(
-    live
-      .filter((grant) => grant.scopeType === "application" && grant.scopeId !== undefined)
-      .map((grant) => grant.scopeId),
-  );
-  return (applicationId: Id<"applications">) => eventWide || scoped.has(applicationId);
+  const applicationIds = live.flatMap((grant) => {
+    if (grant.scopeType !== "application" || grant.scopeId === undefined) return [];
+    const applicationId = ctx.db.normalizeId("applications", grant.scopeId);
+    return applicationId ? [applicationId] : [];
+  });
+  return { eventWide, applicationIds };
 }
 
+function applicationGrantMatcher(access: ApplicationAccess) {
+  const scoped = new Set<Id<"applications">>(access.applicationIds);
+  return (applicationId: Id<"applications">) => access.eventWide || scoped.has(applicationId);
+}
+
+async function publishedCohortPolicy(ctx: QueryCtx, event: Doc<"events">) {
+  const policy = await requirePublishedAdmissionPolicy(ctx, event);
+  return {
+    version: policy.version,
+    minimumHumanReviews: policy.minimumHumanReviews,
+    overallParticipantCapacity: policy.overallParticipantCapacity,
+    criteria: policy.criteria.map((criterion) => ({
+      criterionKey: criterion.criterionKey,
+      label: criterion.label,
+    })),
+  };
+}
+
+export const cohortContextRead = internalQuery({
+  args: { eventId: v.id("events") },
+  returns: v.object({ eventId: v.id("events"), policy: cohortPolicyView }),
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get(args.eventId);
+    if (!event) throw new Error("The admission cohort event no longer exists.");
+    return { eventId: event._id, policy: await publishedCohortPolicy(ctx, event) };
+  },
+});
+
+const operatorCohortAccessView = v.object({
+  eventId: v.id("events"),
+  policy: cohortPolicyView,
+  applicationRead: applicationAccessView,
+  profileContextRead: applicationAccessView,
+  aiRecommendationRead: applicationAccessView,
+});
+
+export const operatorCohortAccess = internalQuery({
+  args: { eventSlug: v.string() },
+  returns: operatorCohortAccessView,
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "application.read",
+      scopeType: "event",
+    });
+    const [applicationRead, profileContextRead, aiRecommendationRead, policy] =
+      await Promise.all([
+        applicationGrantAccess(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "application.read",
+        }),
+        applicationGrantAccess(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "application.profile_context.read",
+        }),
+        applicationGrantAccess(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "application.ai_recommendation.read",
+        }),
+        publishedCohortPolicy(ctx, event),
+      ]);
+    return {
+      eventId: event._id,
+      policy,
+      applicationRead,
+      profileContextRead,
+      aiRecommendationRead,
+    };
+  },
+});
+
 /** Filters rows and sensitive fields through the standard application grants. */
-export const cohort = query({
+export const cohort = action({
   args: {
     eventSlug: v.string(),
     capacityPeople: v.optional(v.number()),
@@ -544,27 +707,19 @@ export const cohort = query({
     hiddenApplicationCount: v.number(),
   }),
   handler: async (ctx, args) => {
-    const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { person } = await requireCurrentPerson(ctx);
-    const subject = await requireEventSubject(ctx, event._id, person._id);
-    const view = await buildAdmissionCohortView(ctx, event, args.capacityPeople);
-    const [canReadApplication, canReadProfile, canReadAi] = await Promise.all([
-      applicationGrantMatcher(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "application.read",
-      }),
-      applicationGrantMatcher(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "application.profile_context.read",
-      }),
-      applicationGrantMatcher(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "application.ai_recommendation.read",
-      }),
-    ]);
+    const access: Infer<typeof operatorCohortAccessView> = await ctx.runQuery(
+      internal.admissionCohort.operatorCohortAccess,
+      { eventSlug: args.eventSlug },
+    );
+    const view = await buildAdmissionCohortView(
+      ctx,
+      access.eventId,
+      access.policy,
+      args.capacityPeople,
+    );
+    const canReadApplication = applicationGrantMatcher(access.applicationRead);
+    const canReadProfile = applicationGrantMatcher(access.profileContextRead);
+    const canReadAi = applicationGrantMatcher(access.aiRecommendationRead);
     let hiddenApplicationCount = 0;
     const visible = <T extends { applicationId: Id<"applications"> }>(entries: T[]) =>
       entries.filter((entry) => {
@@ -743,7 +898,7 @@ const intelligenceCohortRowsPerSide = maximumIntelligenceCohortWindow / 2;
  * Only the decision boundary is useful to the model; whole-cohort rows remain
  * on the human workspace and never consume the Worker's bounded response.
  */
-export const cohortRead = internalQuery({
+export const cohortRead = internalAction({
   args: { eventId: v.id("events"), capacityPeople: v.optional(v.number()) },
   returns: v.object({
     generatedAt: v.number(),
@@ -764,9 +919,16 @@ export const cohortRead = internalQuery({
     candidates: v.array(internalCandidateView),
   }),
   handler: async (ctx, args) => {
-    const event = await ctx.db.get(args.eventId);
-    if (!event) throw new Error("The admission read event no longer exists.");
-    const view = await buildAdmissionCohortView(ctx, event, args.capacityPeople);
+    const context: { eventId: Id<"events">; policy: Infer<typeof cohortPolicyView> } =
+      await ctx.runQuery(internal.admissionCohort.cohortContextRead, {
+        eventId: args.eventId,
+      });
+    const view = await buildAdmissionCohortView(
+      ctx,
+      context.eventId,
+      context.policy,
+      args.capacityPeople,
+    );
     const firstOutIndex = view.candidates.findIndex((candidate) => !candidate.suggestedIn);
     const boundaryIndex = firstOutIndex === -1 ? view.candidates.length : firstOutIndex;
     const startIndex = Math.max(0, boundaryIndex - intelligenceCohortRowsPerSide);
@@ -811,7 +973,7 @@ const searchMatchView = v.object({
 const maximumSearchMatches = 25;
 
 /** Conjunctive text search that returns only stored signals and redacted excerpts. */
-export const submissionSearchRead = internalQuery({
+export const submissionSearchRead = internalAction({
   args: { eventId: v.id("events"), searchQuery: v.string(), limit: v.number() },
   returns: v.object({
     generatedAt: v.number(),
@@ -821,8 +983,10 @@ export const submissionSearchRead = internalQuery({
   }),
   handler: async (ctx, args) => {
     const generatedAt = Date.now();
-    const event = await ctx.db.get(args.eventId);
-    if (!event) throw new Error("The admission read event no longer exists.");
+    const context: { eventId: Id<"events">; policy: Infer<typeof cohortPolicyView> } =
+      await ctx.runQuery(internal.admissionCohort.cohortContextRead, {
+        eventId: args.eventId,
+      });
     const limit = Math.max(1, Math.min(maximumSearchMatches, Math.floor(args.limit)));
     const tokens = args.searchQuery
       .trim()
@@ -833,28 +997,28 @@ export const submissionSearchRead = internalQuery({
     if (tokens.length === 0) {
       return { generatedAt, searchQuery: args.searchQuery, matches: [], truncated: false };
     }
-    const rows = await loadAdmissionCohortRows(ctx, event);
+    const rows = await loadAdmissionCohortRows(ctx, context.eventId);
     const matched = rows.filter((row) => {
       const haystack = [
-        row.team.name,
-        row.project.initialIdea,
+        row.teamName,
+        row.initialIdea,
       ]
         .join("\n")
         .toLocaleLowerCase("en");
       return tokens.every((token) => haystack.includes(token));
     });
-    matched.sort((left, right) => left.application.submittedAt - right.application.submittedAt);
+    matched.sort((left, right) => left.submittedAt - right.submittedAt);
     const matches = matched.slice(0, limit).map((row) => ({
-      applicationId: row.application._id,
-      teamId: row.team._id,
-      teamName: row.team.name,
-      state: row.application.state,
-      experienceBand: row.application.experienceBand,
+      applicationId: row.applicationId,
+      teamId: row.teamId,
+      teamName: row.teamName,
+      state: row.state,
+      experienceBand: row.experienceBand,
       teamSize: row.teamSize,
-      ideaExcerpt: redactProjectText(row.project.initialIdea).slice(0, 240),
-      novelty: noveltySignal(row.draft, row.project.initialIdea),
+      ideaExcerpt: redactProjectText(row.initialIdea).slice(0, 240),
+      novelty: row.novelty,
       reviewCoverage: {
-        assigned: row.application.assignedReviewCount,
+        assigned: row.assignedReviewCount,
         completed: row.completedCurrentReviews,
         required: row.minimumHumanReviews,
         decidable: row.completedCurrentReviews >= row.minimumHumanReviews,
@@ -937,13 +1101,13 @@ export const admissionIntelligenceReadEndpoint = httpAction(async (ctx, request)
   }
   const data =
     read === "admission_cohort"
-      ? await ctx.runQuery(internal.admissionCohort.cohortRead, {
+      ? await ctx.runAction(internal.admissionCohort.cohortRead, {
           eventId: resolved.eventId,
           ...(parsed.data.capacityPeople !== undefined
             ? { capacityPeople: parsed.data.capacityPeople }
             : {}),
         })
-      : await ctx.runQuery(internal.admissionCohort.submissionSearchRead, {
+      : await ctx.runAction(internal.admissionCohort.submissionSearchRead, {
           eventId: resolved.eventId,
           searchQuery: parsed.data.query ?? "",
           limit: parsed.data.limit ?? maximumSearchMatches,

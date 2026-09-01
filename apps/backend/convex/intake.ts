@@ -8,7 +8,11 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { loadPublishedAdmissionConfiguration } from "./lib/admissionPolicy";
 import { createAdmissionRecommendation } from "./lib/admissionRecommendation";
-import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
+import {
+  applicationsCloseAtFor,
+  requireEventBySlug,
+  requireRegistrationOpen,
+} from "./lib/events";
 import {
   findCurrentPerson,
   requireCurrentPerson,
@@ -30,6 +34,8 @@ import {
   participantPolicyFromDocument,
 } from "./lib/participantPolicy";
 import { normalizeEmail, normalizedLongText } from "./lib/strings";
+import { noveltyInputFingerprint } from "./lib/novelty";
+import { invalidateTeamNoveltyIndex } from "./lib/noveltyIndex";
 import {
   intakePolicyChecksum,
   intakePolicyFromDocument,
@@ -38,12 +44,13 @@ import {
   requirePublishedIntakePolicy,
 } from "./lib/intakePolicy";
 import {
-  deactivateCurrentQuestionAnswer,
+  createFixedIntakeQuestion,
   intakeSequenceComplete,
+  loadActiveIntakeAnswers,
   loadCurrentIntakeResponses,
   replaceIntakeQuestionsAfter,
-  replaceCurrentIntakeQuestions,
 } from "./lib/intakeQuestions";
+import { ideaQuestionEndToEndDeadlineMs } from "./lib/ideaSubmissionAi";
 import { intakeWorkpool } from "./workpools";
 import { teamClassesMeetPolicy, teamRosterCounts } from "./lib/teamRoster";
 import {
@@ -53,6 +60,20 @@ import {
   applicationState,
   projectDraftStage,
 } from "./values";
+
+const additionalInformationMaxLength = 4_000;
+
+function normalizedAdditionalInformation(value: string) {
+  const normalized = value.trim().replace(/\r\n/g, "\n");
+  if (normalized.length > additionalInformationMaxLength) {
+    throw new ConvexError({
+      code: "INVALID_FIELD",
+      field: "Additional information",
+      message: `Additional information must be at most ${additionalInformationMaxLength} characters.`,
+    });
+  }
+  return normalized || undefined;
+}
 
 const currentDraftView = v.object({
   id: v.id("projectDrafts"),
@@ -70,6 +91,7 @@ const currentDraftView = v.object({
   }),
   stage: projectDraftStage,
   initialIdea: v.optional(v.string()),
+  additionalInformation: v.optional(v.string()),
   novelty: v.union(
     v.null(),
     v.object({
@@ -102,13 +124,32 @@ const currentDraftView = v.object({
       question: v.string(),
       purposeKey: v.string(),
       answerLength: v.union(v.literal("short"), v.literal("medium")),
-      source: v.union(v.literal("model"), v.literal("fallback")),
-      state: v.union(v.literal("active"), v.literal("answered"), v.literal("skipped")),
+      source: v.union(v.literal("fixed"), v.literal("model"), v.literal("fallback")),
+      state: v.union(v.literal("active"), v.literal("answered")),
       answer: v.optional(v.string()),
     }),
   ),
   freshnessAttested: v.boolean(),
+  lastEditedByMembershipId: v.id("eventMemberships"),
   version: v.number(),
+});
+
+const intakeWorkingField = v.union(
+  v.object({ kind: v.literal("idea") }),
+  v.object({
+    kind: v.literal("follow_up"),
+    questionId: v.id("intakeGeneratedQuestions"),
+  }),
+);
+
+const intakeWorkingFieldView = v.object({
+  kind: v.union(v.literal("idea"), v.literal("follow_up")),
+  questionId: v.optional(v.id("intakeGeneratedQuestions")),
+  value: v.string(),
+  baseDraftVersion: v.number(),
+  revision: v.number(),
+  writtenByMembershipId: v.id("eventMemberships"),
+  updatedAt: v.number(),
 });
 
 const participantApplicationView = v.object({
@@ -147,8 +188,7 @@ const participantApplicationView = v.object({
 
 const proposalRevisionResponseInput = v.object({
   questionId: v.id("intakeGeneratedQuestions"),
-  answer: v.optional(v.string()),
-  skipped: v.boolean(),
+  answer: v.string(),
 });
 
 const proposalRevisionResult = v.object({
@@ -166,6 +206,13 @@ const storedProposalRevisionResult = z.object({
 });
 
 type ReadCtx = QueryCtx | MutationCtx;
+
+function requiredIntakeAnswerValue(answer: Doc<"intakeAnswerVersions"> | null) {
+  if (!answer) {
+    throw new Error("An answered intake question has no active answer version.");
+  }
+  return answer.value;
+}
 
 const participantNoveltyConfiguration = v.object({
   corpusVersionId: v.id("noveltyCorpusVersions"),
@@ -240,7 +287,7 @@ export async function currentReadTeamContext(ctx: QueryCtx, eventSlug: string) {
     scopeId: team._id,
   });
   if (readGrantIds.length === 0) return null;
-  return { event, member, team };
+  return { event, membership, member, team };
 }
 
 async function participantApplicationForTeam(
@@ -354,18 +401,25 @@ export const current = query({
       applicationsCloseAt: v.number(),
       currentRole: v.union(v.literal("lead"), v.literal("member")),
       draft: v.union(v.null(), currentDraftView),
+      workingFields: v.array(intakeWorkingFieldView),
       application: v.union(v.null(), participantApplicationView),
     }),
   ),
   handler: async (ctx, args) => {
     const context = await currentReadTeamContext(ctx, args.eventSlug);
     if (!context) return null;
-    const { event, member, team } = context;
+    const { event, membership, member, team } = context;
     const draft = await ctx.db
       .query("projectDrafts")
       .withIndex("by_team", (index) => index.eq("teamId", team._id))
       .unique();
-    const participantApplication = await participantApplicationForTeam(ctx, event, team);
+    const [participantApplication, storedWorkingFields] = await Promise.all([
+      participantApplicationForTeam(ctx, event, team),
+      ctx.db
+        .query("intakeWorkingFields")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .take(4),
+    ]);
     let visibleDraft: Infer<typeof currentDraftView> | null = null;
     if (draft) {
       const [pinnedPolicy, followUps, novelty] = await Promise.all([
@@ -389,6 +443,9 @@ export const current = query({
         },
         stage: draft.stage,
         ...(draft.initialIdea !== undefined ? { initialIdea: draft.initialIdea } : {}),
+        ...(draft.additionalInformation !== undefined
+          ? { additionalInformation: draft.additionalInformation }
+          : {}),
         novelty,
         noveltySignal:
           draft.initialIdea &&
@@ -417,15 +474,31 @@ export const current = query({
           ...(answer ? { answer: answer.value } : {}),
         })),
         freshnessAttested: Boolean(draft.freshnessAttestedAt),
+        lastEditedByMembershipId: draft.lastEditedByMembershipId,
         version: draft.version,
       };
     }
     return {
       teamId: team._id,
       teamVersion: team.version,
-      applicationsCloseAt: event.applicationsCloseAt,
+      applicationsCloseAt: applicationsCloseAtFor(event, membership.participantClass),
       currentRole: member.role,
       draft: visibleDraft,
+      workingFields: participantApplication
+        ? []
+        : storedWorkingFields
+            .filter((field) => field.baseDraftVersion === (draft?.version ?? 0))
+            .map((field) => ({
+              kind: field.kind,
+              ...(field.questionId !== undefined
+                ? { questionId: field.questionId }
+                : {}),
+              value: field.value,
+              baseDraftVersion: field.baseDraftVersion,
+              revision: field.revision,
+              writtenByMembershipId: field.writtenByMembershipId,
+              updatedAt: field.updatedAt,
+            })),
       application: participantApplication?.view ?? null,
     };
   },
@@ -441,12 +514,12 @@ export const submitted = query({
       project: v.object({
         id: v.id("projectVersions"),
         initialIdea: v.string(),
+        additionalInformation: v.optional(v.string()),
         intakeResponses: v.array(
           v.object({
             questionId: v.id("intakeGeneratedQuestions"),
             question: v.string(),
-            answer: v.optional(v.string()),
-            skipped: v.boolean(),
+            answer: v.string(),
           }),
         ),
         version: v.number(),
@@ -456,6 +529,7 @@ export const submitted = query({
         initialIdeaMaxLength: v.number(),
         followUpAnswerMinLength: v.number(),
         followUpAnswerMaxLength: v.number(),
+        additionalInformationMaxLength: v.number(),
       }),
       applicationsCloseAt: v.number(),
       canEdit: v.boolean(),
@@ -465,8 +539,12 @@ export const submitted = query({
   handler: async (ctx, args) => {
     const context = await currentReadTeamContext(ctx, args.eventSlug);
     if (!context) return null;
-    const { event, member, team } = context;
+    const { event, membership, member, team } = context;
     const now = Date.now();
+    const applicationsCloseAt = applicationsCloseAtFor(
+      event,
+      membership.participantClass,
+    );
     const participantApplication = await participantApplicationForTeam(ctx, event, team);
     if (!participantApplication) return null;
     const project = await ctx.db.get(
@@ -499,11 +577,13 @@ export const submitted = query({
       project: {
         id: project._id,
         initialIdea: project.initialIdea,
+        ...(project.additionalInformation !== undefined
+          ? { additionalInformation: project.additionalInformation }
+          : {}),
         intakeResponses: project.intakeResponses.map((response) => ({
           questionId: response.questionId,
           question: response.question,
-          ...(response.answer !== undefined ? { answer: response.answer } : {}),
-          skipped: response.skipped,
+          answer: response.answer,
         })),
         version: project.version,
       },
@@ -512,11 +592,12 @@ export const submitted = query({
         initialIdeaMaxLength: normalizedPolicy.initialIdeaMaxLength,
         followUpAnswerMinLength: normalizedPolicy.followUpAnswerMinLength,
         followUpAnswerMaxLength: normalizedPolicy.followUpAnswerMaxLength,
+        additionalInformationMaxLength,
       },
-      applicationsCloseAt: event.applicationsCloseAt,
+      applicationsCloseAt,
       canEdit:
         member.role === "lead" &&
-        now < event.applicationsCloseAt &&
+        now < applicationsCloseAt &&
         ["submitted", "under_review"].includes(
           participantApplication.application.state,
         ),
@@ -529,11 +610,11 @@ export const reviseSubmission = mutation({
   args: {
     eventSlug: v.string(),
     applicationId: v.id("applications"),
-    expectedApplicationVersion: v.number(),
     expectedApplicationContentVersion: v.number(),
     expectedProjectVersionId: v.id("projectVersions"),
     expectedProjectVersion: v.number(),
     initialIdea: v.string(),
+    additionalInformation: v.string(),
     responses: v.array(proposalRevisionResponseInput),
     clientOperationId: v.string(),
   },
@@ -543,11 +624,11 @@ export const reviseSubmission = mutation({
       await currentTeamContext(ctx, args.eventSlug);
     const requestFingerprint = operationFingerprint([
       args.applicationId,
-      args.expectedApplicationVersion,
       args.expectedApplicationContentVersion,
       args.expectedProjectVersionId,
       args.expectedProjectVersion,
       args.initialIdea,
+      args.additionalInformation,
       JSON.stringify(args.responses),
     ]);
     const prior = await findOperation(ctx, {
@@ -574,7 +655,7 @@ export const reviseSubmission = mutation({
     }
 
     const now = Date.now();
-    if (now >= event.applicationsCloseAt) {
+    if (now >= applicationsCloseAtFor(event, membership.participantClass)) {
       throw new ConvexError({
         code: "APPLICATION_DEADLINE_PASSED",
         message: "The application deadline has passed.",
@@ -604,10 +685,7 @@ export const reviseSubmission = mutation({
         message: "That application is unavailable.",
       });
     }
-    if (
-      application.version !== args.expectedApplicationVersion ||
-      application.contentVersion !== args.expectedApplicationContentVersion
-    ) {
+    if (application.contentVersion !== args.expectedApplicationContentVersion) {
       throw new ConvexError({
         code: "APPLICATION_CHANGED",
         message: "The application changed. Review the current proposal before saving.",
@@ -660,6 +738,9 @@ export const reviseSubmission = mutation({
       policy.initialIdeaMinLength,
       policy.initialIdeaMaxLength,
     );
+    const additionalInformation = normalizedAdditionalInformation(
+      args.additionalInformation,
+    );
     if (
       args.responses.length !== project.intakeResponses.length ||
       args.responses.some(
@@ -675,20 +756,12 @@ export const reviseSubmission = mutation({
     const intakeResponses = project.intakeResponses.map((response, index) => {
       const input = args.responses[index];
       if (!input) throw new Error("A validated proposal response is missing.");
-      if (input.skipped ? input.answer !== undefined : input.answer === undefined) {
-        throw new ConvexError({
-          code: "INVALID_FOLLOW_UP_RESPONSE",
-          message: "Answer each question or skip it, but not both.",
-        });
-      }
-      const answer = input.answer === undefined
-        ? undefined
-        : normalizedLongText(
-            input.answer,
-            "Follow-up answer",
-            policy.followUpAnswerMinLength,
-            policy.followUpAnswerMaxLength,
-          );
+      const answer = normalizedLongText(
+        input.answer,
+        "Follow-up answer",
+        policy.followUpAnswerMinLength,
+        policy.followUpAnswerMaxLength,
+      );
       return {
         questionId: response.questionId,
         ordinal: response.ordinal,
@@ -696,18 +769,17 @@ export const reviseSubmission = mutation({
         purposeKey: response.purposeKey,
         answerLength: response.answerLength,
         source: response.source,
-        ...(answer !== undefined ? { answer } : {}),
-        skipped: input.skipped,
+        answer,
       };
     });
     const unchanged =
       project.initialIdea === initialIdea &&
+      project.additionalInformation === additionalInformation &&
       project.intakeResponses.every((response, index) => {
         const next = intakeResponses[index];
         return next !== undefined &&
           response.questionId === next.questionId &&
-          response.answer === next.answer &&
-          response.skipped === next.skipped;
+          response.answer === next.answer;
       });
     if (unchanged) {
       const result = {
@@ -729,6 +801,11 @@ export const reviseSubmission = mutation({
       });
       return result;
     }
+
+    await invalidateTeamNoveltyIndex(ctx, {
+      teamId: team._id,
+      sourceUpdatedAt: now,
+    });
 
     const [admissionConfiguration, activeReviews, activeAssignments, priorRecommendation] =
       await Promise.all([
@@ -757,6 +834,7 @@ export const reviseSubmission = mutation({
       teamId: team._id,
       version: project.version + 1,
       initialIdea,
+      ...(additionalInformation !== undefined ? { additionalInformation } : {}),
       intakePolicyVersionId: project.intakePolicyVersionId,
       intakeResponses,
       lockedRosterSnapshotId: project.lockedRosterSnapshotId,
@@ -811,6 +889,11 @@ export const reviseSubmission = mutation({
       completedReviewCount: 0,
       contentVersion: nextContentVersion,
       version: application.version + 1,
+    });
+    await ctx.scheduler.runAfter(0, internal.novelty.indexSubmittedProjectIdea, {
+      projectVersionId,
+      inputFingerprint: noveltyInputFingerprint(initialIdea),
+      sourceUpdatedAt: now,
     });
     const [updatedApplication, updatedProject] = await Promise.all([
       ctx.db.get(application._id),
@@ -1006,6 +1089,34 @@ function requireDraftVersion(actual: number, expected: number) {
   }
 }
 
+async function enqueueIntakeInterpretation(
+  ctx: MutationCtx,
+  args: {
+    draftId: Id<"projectDrafts">;
+    draftVersion: number;
+    enqueuedAt: number;
+  },
+) {
+  await intakeWorkpool.enqueueAction(
+    ctx,
+    internal.intelligence.interpretIdea,
+    { draftId: args.draftId },
+    {
+      retry: false,
+      onComplete: internal.intelligence.intakeGenerationFinished,
+      context: {
+        draftId: args.draftId,
+        draftVersion: args.draftVersion,
+      },
+    },
+  );
+  await ctx.scheduler.runAfter(
+    ideaQuestionEndToEndDeadlineMs,
+    internal.intelligence.expireQueuedIntakeInterpretation,
+    args,
+  );
+}
+
 async function saveAnswerVersion(
   ctx: MutationCtx,
   args: {
@@ -1058,6 +1169,150 @@ async function saveAnswerVersion(
   return answerVersion;
 }
 
+function workingFieldQuestionId(
+  field: Infer<typeof intakeWorkingField>,
+) {
+  return field.kind === "follow_up" ? field.questionId : undefined;
+}
+
+async function findWorkingField(
+  ctx: ReadCtx,
+  teamId: Id<"teams">,
+  field: Infer<typeof intakeWorkingField>,
+) {
+  return await ctx.db
+    .query("intakeWorkingFields")
+    .withIndex("by_team_kind_question", (index) =>
+      index
+        .eq("teamId", teamId)
+        .eq("kind", field.kind)
+        .eq("questionId", workingFieldQuestionId(field)),
+    )
+    .unique();
+}
+
+async function deleteWorkingField(
+  ctx: MutationCtx,
+  teamId: Id<"teams">,
+  field: Infer<typeof intakeWorkingField>,
+) {
+  const workingField = await findWorkingField(ctx, teamId, field);
+  if (workingField) await ctx.db.delete(workingField._id);
+}
+
+export const autosaveWorkingField = mutation({
+  args: {
+    eventSlug: v.string(),
+    field: intakeWorkingField,
+    value: v.string(),
+    baseDraftVersion: v.number(),
+    baseCommittedValue: v.string(),
+    expectedRevision: v.number(),
+  },
+  returns: v.object({ revision: v.number(), updatedAt: v.number() }),
+  handler: async (ctx, args) => {
+    const { event, membership, team } = await currentTeamContext(
+      ctx,
+      args.eventSlug,
+    );
+    requireRegistrationOpen(event, membership.participantClass);
+    requireEditableTeam(team);
+    const [application, draft] = await Promise.all([
+      ctx.db
+        .query("applications")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique(),
+      ctx.db
+        .query("projectDrafts")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique(),
+    ]);
+    if (application) {
+      throw new ConvexError({
+        code: "APPLICATION_ALREADY_SUBMITTED",
+        message: "This application has been submitted. Edit its current proposal instead.",
+      });
+    }
+    const draftVersion = draft?.version ?? 0;
+    const pinnedPolicy = draft
+      ? await requirePinnedIntakePolicy(ctx, draft)
+      : await requirePublishedIntakePolicy(ctx, event);
+    const maximumLength = args.field.kind === "idea"
+      ? pinnedPolicy.normalized.initialIdeaMaxLength
+      : pinnedPolicy.normalized.followUpAnswerMaxLength;
+    if (args.value.length > maximumLength) {
+      throw new ConvexError({
+        code: "DRAFT_TOO_LONG",
+        message: `Keep this response within ${maximumLength} characters.`,
+      });
+    }
+    let followUpQuestion: Doc<"intakeGeneratedQuestions"> | null = null;
+    if (args.field.kind === "follow_up") {
+      followUpQuestion = await ctx.db.get(args.field.questionId);
+      if (
+        !draft ||
+        !followUpQuestion ||
+        followUpQuestion.eventId !== event._id ||
+        followUpQuestion.teamId !== team._id ||
+        followUpQuestion.draftId !== draft._id ||
+        followUpQuestion.state !== "active"
+      ) {
+        throw new ConvexError({
+          code: "FOLLOW_UP_CHANGED",
+          message: "That follow-up changed. Your text is still on this device.",
+        });
+      }
+    }
+    if (draftVersion !== args.baseDraftVersion) {
+      const committedValueUnchanged = args.field.kind === "idea"
+        ? (draft?.initialIdea ?? "") === args.baseCommittedValue
+        : followUpQuestion?.state === "active" && args.baseCommittedValue === "";
+      if (!committedValueUnchanged) {
+        requireDraftVersion(draftVersion, args.baseDraftVersion);
+      }
+    }
+    const existing = await findWorkingField(ctx, team._id, args.field);
+    if ((existing?.revision ?? 0) !== args.expectedRevision) {
+      throw new ConvexError({
+        code: "WORKING_FIELD_CHANGED",
+        message: "A teammate saved newer text in this field. Your text is still here.",
+      });
+    }
+    if (
+      existing?.value === args.value &&
+      existing.baseDraftVersion === draftVersion
+    ) {
+      return { revision: existing.revision, updatedAt: existing.updatedAt };
+    }
+    const now = Date.now();
+    const revision = (existing?.revision ?? 0) + 1;
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        value: args.value,
+        baseDraftVersion: draftVersion,
+        revision,
+        writtenByMembershipId: membership._id,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("intakeWorkingFields", {
+        eventId: event._id,
+        teamId: team._id,
+        kind: args.field.kind,
+        ...(args.field.kind === "follow_up"
+          ? { questionId: args.field.questionId }
+          : {}),
+        value: args.value,
+        baseDraftVersion: draftVersion,
+        revision,
+        writtenByMembershipId: membership._id,
+        updatedAt: now,
+      });
+    }
+    return { revision, updatedAt: now };
+  },
+});
+
 export const saveInitialIdea = mutation({
   args: {
     eventSlug: v.string(),
@@ -1085,7 +1340,7 @@ export const saveInitialIdea = mutation({
       requestFingerprint,
     );
     if (replay) return { draftId: replay._id, draftVersion: replay.version };
-    requireRegistrationOpen(event);
+    requireRegistrationOpen(event, membership.participantClass);
     requireEditableTeam(team);
     const existing = await ctx.db
       .query("projectDrafts")
@@ -1106,6 +1361,12 @@ export const saveInitialIdea = mutation({
     if (
       existing?.initialIdea === idea
     ) {
+      await deleteWorkingField(ctx, team._id, { kind: "idea" });
+      await ctx.scheduler.runAfter(0, internal.novelty.indexDraftIdea, {
+        draftId: existing._id,
+        inputFingerprint: noveltyInputFingerprint(idea),
+        sourceUpdatedAt: now,
+      });
       await recordDraftOperation(ctx, {
         eventId: event._id,
         personId: person._id,
@@ -1118,11 +1379,47 @@ export const saveInitialIdea = mutation({
       return { draftId: existing._id, draftVersion: existing.version };
     }
     const draftVersion = (existing?.version ?? 0) + 1;
+    await invalidateTeamNoveltyIndex(ctx, {
+      teamId: team._id,
+      sourceUpdatedAt: now,
+    });
+    const currentResponses = existing
+      ? await loadCurrentIntakeResponses(ctx, existing._id)
+      : [];
+    const fixedResponses = currentResponses.filter(
+      ({ question }) => question.source === "fixed",
+    );
+    const invalidatedResponses = currentResponses.filter(
+      ({ question }) => question.ordinal > pinnedPolicy.normalized.deterministicFollowUpCount,
+    );
+    const fixedSequenceComplete =
+      fixedResponses.length === pinnedPolicy.normalized.deterministicFollowUpCount &&
+      fixedResponses.every(
+        ({ question }, index) =>
+          question.ordinal === index + 1 && question.state === "answered",
+      );
+    const shouldGenerateAdaptiveQuestion =
+      fixedSequenceComplete &&
+      pinnedPolicy.normalized.deterministicFollowUpCount <
+        pinnedPolicy.normalized.maximumFollowUpCount;
     let draftId: Id<"projectDrafts">;
     if (existing) {
-      await replaceCurrentIntakeQuestions(ctx, existing._id);
+      await replaceIntakeQuestionsAfter(
+        ctx,
+        existing._id,
+        pinnedPolicy.normalized.deterministicFollowUpCount,
+      );
+      for (const { question } of invalidatedResponses) {
+        await deleteWorkingField(ctx, team._id, {
+          kind: "follow_up",
+          questionId: question._id,
+        });
+      }
       await ctx.db.patch(existing._id, {
-        stage: "follow_up",
+        stage:
+          fixedSequenceComplete && !shouldGenerateAdaptiveQuestion
+            ? "review"
+            : "follow_up",
         initialIdea: idea,
         noveltyCorpusVersionId: novelty?.corpusVersionId,
         noveltyEvaluatedInputFingerprint: undefined,
@@ -1151,7 +1448,7 @@ export const saveInitialIdea = mutation({
       });
     }
 
-    await saveAnswerVersion(ctx, {
+    const initialAnswer = await saveAnswerVersion(ctx, {
       eventId: event._id,
       teamId: team._id,
       draftId,
@@ -1160,13 +1457,41 @@ export const saveInitialIdea = mutation({
       value: idea,
       clientOperationId: args.clientOperationId,
     });
+    const persistedDraft = await ctx.db.get(draftId);
+    if (!persistedDraft) throw new Error("The project draft did not persist.");
+    if (existing) {
+      for (const { question } of fixedResponses) {
+        const earlierFixedAnswerIds = fixedResponses.flatMap((response) =>
+          response.question.ordinal < question.ordinal && response.answer
+            ? [response.answer._id]
+            : [],
+        );
+        await ctx.db.patch(question._id, {
+          sourceAnswerVersionIds: [initialAnswer._id, ...earlierFixedAnswerIds],
+        });
+      }
+    } else {
+      await createFixedIntakeQuestion(ctx, {
+        draft: persistedDraft,
+        policy: pinnedPolicy.policy,
+        normalizedPolicy: pinnedPolicy.normalized,
+        ordinal: 1,
+        sourceAnswerVersionIds: [initialAnswer._id],
+        now,
+      });
+    }
+    await deleteWorkingField(ctx, team._id, { kind: "idea" });
 
-    await intakeWorkpool.enqueueAction(
-      ctx,
-      internal.intelligence.interpretIdea,
-      { draftId },
-      { retry: false },
-    );
+    if (shouldGenerateAdaptiveQuestion) {
+      await enqueueIntakeInterpretation(ctx, { draftId, draftVersion, enqueuedAt: now });
+    }
+
+    await ctx.scheduler.runAfter(0, internal.novelty.indexDraftIdea, {
+      draftId,
+      inputFingerprint: noveltyInputFingerprint(idea),
+      sourceUpdatedAt: now,
+    });
+
     await recordDraftOperation(ctx, {
       eventId: event._id,
       personId: person._id,
@@ -1201,8 +1526,7 @@ export const respondToFollowUp = mutation({
   args: {
     eventSlug: v.string(),
     questionId: v.id("intakeGeneratedQuestions"),
-    answer: v.optional(v.string()),
-    skipped: v.boolean(),
+    answer: v.string(),
     expectedDraftVersion: v.number(),
     clientOperationId: v.string(),
   },
@@ -1213,8 +1537,7 @@ export const respondToFollowUp = mutation({
       team._id,
       args.questionId,
       args.expectedDraftVersion,
-      args.answer ?? null,
-      args.skipped,
+      args.answer,
     ]);
     const replay = await replayDraftOperation(
       ctx,
@@ -1225,7 +1548,7 @@ export const respondToFollowUp = mutation({
       requestFingerprint,
     );
     if (replay) return { draftVersion: replay.version };
-    requireRegistrationOpen(event);
+    requireRegistrationOpen(event, membership.participantClass);
     requireEditableTeam(team);
     const draft = await ctx.db
       .query("projectDrafts")
@@ -1251,20 +1574,13 @@ export const respondToFollowUp = mutation({
         message: "That follow-up is no longer active. Review the current question.",
       });
     }
-    if (args.skipped ? args.answer !== undefined : args.answer === undefined) {
-      throw new ConvexError({
-        code: "INVALID_FOLLOW_UP_RESPONSE",
-        message: "Answer the question or skip it, but not both.",
-      });
-    }
     const { normalized: policy } = await requirePinnedIntakePolicy(ctx, draft);
     const responses = await loadCurrentIntakeResponses(ctx, draft._id);
     if (
       responses.some(
         ({ question: row }) =>
           row.ordinal < question.ordinal &&
-          row.state !== "answered" &&
-          row.state !== "skipped",
+          row.state !== "answered",
       )
     ) {
       throw new ConvexError({
@@ -1272,47 +1588,60 @@ export const respondToFollowUp = mutation({
         message: "Complete the earlier follow-up first.",
       });
     }
-    if (args.answer !== undefined) {
-      const answer = normalizedLongText(
-        args.answer,
-        "Follow-up answer",
-        policy.followUpAnswerMinLength,
-        policy.followUpAnswerMaxLength,
-      );
-      await saveAnswerVersion(ctx, {
-        eventId: event._id,
-        teamId: team._id,
-        draftId: draft._id,
-        membershipId: membership._id,
-        promptKey: `introduction_follow_up_${question.ordinal}`,
-        value: answer,
-        generatedQuestionId: question._id,
-        clientOperationId: args.clientOperationId,
-      });
-    }
+    const answer = normalizedLongText(
+      args.answer,
+      "Follow-up answer",
+      policy.followUpAnswerMinLength,
+      policy.followUpAnswerMaxLength,
+    );
+    await saveAnswerVersion(ctx, {
+      eventId: event._id,
+      teamId: team._id,
+      draftId: draft._id,
+      membershipId: membership._id,
+      promptKey: `introduction_follow_up_${question.ordinal}`,
+      value: answer,
+      generatedQuestionId: question._id,
+      clientOperationId: args.clientOperationId,
+    });
+    await deleteWorkingField(ctx, team._id, {
+      kind: "follow_up",
+      questionId: question._id,
+    });
     const draftVersion = draft.version + 1;
     const now = Date.now();
     await ctx.db.patch(question._id, {
-      state: args.skipped ? "skipped" : "answered",
+      state: "answered",
       answeredAt: now,
     });
-    const needsAnotherInterpretation =
-      question.ordinal < policy.maximumFollowUpCount &&
-      (policy.model.mode === "assisted" ||
-        question.ordinal < policy.deterministicFollowUpCount);
+    const nextOrdinal = question.ordinal + 1;
+    const needsAnotherInterpretation = nextOrdinal <= policy.maximumFollowUpCount;
+    if (nextOrdinal <= policy.deterministicFollowUpCount) {
+      const activeAnswers = await loadActiveIntakeAnswers(ctx, draft._id);
+      await createFixedIntakeQuestion(ctx, {
+        draft,
+        policy: (await requirePinnedIntakePolicy(ctx, draft)).policy,
+        normalizedPolicy: policy,
+        ordinal: nextOrdinal,
+        sourceAnswerVersionIds: activeAnswers.map((answer) => answer._id),
+        now,
+      });
+    }
     await ctx.db.patch(draft._id, {
       stage: needsAnotherInterpretation ? "follow_up" : "review",
       version: draftVersion,
       lastEditedByMembershipId: membership._id,
       updatedAt: now,
     });
-    if (needsAnotherInterpretation) {
-      await intakeWorkpool.enqueueAction(
-        ctx,
-        internal.intelligence.interpretIdea,
-        { draftId: draft._id },
-        { retry: false },
-      );
+    if (
+      needsAnotherInterpretation &&
+      nextOrdinal > policy.deterministicFollowUpCount
+    ) {
+      await enqueueIntakeInterpretation(ctx, {
+        draftId: draft._id,
+        draftVersion,
+        enqueuedAt: now,
+      });
     }
     await recordDraftOperation(ctx, {
       eventId: event._id,
@@ -1331,8 +1660,7 @@ export const reviseFollowUp = mutation({
   args: {
     eventSlug: v.string(),
     questionId: v.id("intakeGeneratedQuestions"),
-    answer: v.optional(v.string()),
-    skipped: v.boolean(),
+    answer: v.string(),
     expectedDraftVersion: v.number(),
     clientOperationId: v.string(),
   },
@@ -1343,8 +1671,7 @@ export const reviseFollowUp = mutation({
       team._id,
       args.questionId,
       args.expectedDraftVersion,
-      args.answer ?? null,
-      args.skipped,
+      args.answer,
     ]);
     const replay = await replayDraftOperation(
       ctx,
@@ -1355,7 +1682,7 @@ export const reviseFollowUp = mutation({
       requestFingerprint,
     );
     if (replay) return { draftVersion: replay.version };
-    requireRegistrationOpen(event);
+    requireRegistrationOpen(event, membership.participantClass);
     requireEditableTeam(team);
     const draft = await ctx.db
       .query("projectDrafts")
@@ -1368,19 +1695,13 @@ export const reviseFollowUp = mutation({
       });
     }
     requireDraftVersion(draft.version, args.expectedDraftVersion);
-    if (args.skipped ? args.answer !== undefined : args.answer === undefined) {
-      throw new ConvexError({
-        code: "INVALID_FOLLOW_UP_RESPONSE",
-        message: "Answer the question or skip it, but not both.",
-      });
-    }
     const responses = await loadCurrentIntakeResponses(ctx, draft._id);
     const response = responses.find(({ question }) => question._id === args.questionId);
     if (
       !response ||
       response.question.teamId !== team._id ||
       response.question.eventId !== event._id ||
-      (response.question.state !== "answered" && response.question.state !== "skipped")
+      response.question.state !== "answered"
     ) {
       throw new ConvexError({
         code: "FOLLOW_UP_CHANGED",
@@ -1388,17 +1709,13 @@ export const reviseFollowUp = mutation({
       });
     }
     const { normalized: policy } = await requirePinnedIntakePolicy(ctx, draft);
-    const answer = args.answer === undefined
-      ? null
-      : normalizedLongText(
-          args.answer,
-          "Follow-up answer",
-          policy.followUpAnswerMinLength,
-          policy.followUpAnswerMaxLength,
-        );
-    const unchanged = args.skipped
-      ? response.question.state === "skipped"
-      : response.question.state === "answered" && response.answer?.value === answer;
+    const answer = normalizedLongText(
+      args.answer,
+      "Follow-up answer",
+      policy.followUpAnswerMinLength,
+      policy.followUpAnswerMaxLength,
+    );
+    const unchanged = response.answer?.value === answer;
     const now = Date.now();
     if (unchanged) {
       await recordDraftOperation(ctx, {
@@ -1413,29 +1730,27 @@ export const reviseFollowUp = mutation({
       return { draftVersion: draft.version };
     }
 
-    if (answer === null) {
-      await deactivateCurrentQuestionAnswer(ctx, response.question._id);
-    } else {
-      await saveAnswerVersion(ctx, {
-        eventId: event._id,
-        teamId: team._id,
-        draftId: draft._id,
-        membershipId: membership._id,
-        promptKey: `introduction_follow_up_${response.question.ordinal}`,
-        value: answer,
-        generatedQuestionId: response.question._id,
-        clientOperationId: args.clientOperationId,
-      });
-    }
+    await saveAnswerVersion(ctx, {
+      eventId: event._id,
+      teamId: team._id,
+      draftId: draft._id,
+      membershipId: membership._id,
+      promptKey: `introduction_follow_up_${response.question.ordinal}`,
+      value: answer,
+      generatedQuestionId: response.question._id,
+      clientOperationId: args.clientOperationId,
+    });
     await ctx.db.patch(response.question._id, {
-      state: args.skipped ? "skipped" : "answered",
+      state: "answered",
       answeredAt: now,
     });
-    await replaceIntakeQuestionsAfter(ctx, draft._id, response.question.ordinal);
+    const regenerateAfterOrdinal = Math.max(
+      response.question.ordinal,
+      policy.deterministicFollowUpCount,
+    );
+    await replaceIntakeQuestionsAfter(ctx, draft._id, regenerateAfterOrdinal);
     const needsAnotherInterpretation =
-      response.question.ordinal < policy.maximumFollowUpCount &&
-      (policy.model.mode === "assisted" ||
-        response.question.ordinal < policy.deterministicFollowUpCount);
+      regenerateAfterOrdinal < policy.maximumFollowUpCount;
     const draftVersion = draft.version + 1;
     await ctx.db.patch(draft._id, {
       stage: needsAnotherInterpretation ? "follow_up" : "review",
@@ -1444,18 +1759,99 @@ export const reviseFollowUp = mutation({
       updatedAt: now,
     });
     if (needsAnotherInterpretation) {
-      await intakeWorkpool.enqueueAction(
-        ctx,
-        internal.intelligence.interpretIdea,
-        { draftId: draft._id },
-        { retry: false },
-      );
+      await enqueueIntakeInterpretation(ctx, {
+        draftId: draft._id,
+        draftVersion,
+        enqueuedAt: now,
+      });
     }
     await recordDraftOperation(ctx, {
       eventId: event._id,
       personId: person._id,
       clientOperationId: args.clientOperationId,
       commandName: "intake.follow_up.revise",
+      requestFingerprint,
+      draftId: draft._id,
+      createdAt: now,
+    });
+    return { draftVersion };
+  },
+});
+
+export const saveAdditionalInformation = mutation({
+  args: {
+    eventSlug: v.string(),
+    value: v.string(),
+    baseValue: v.string(),
+    expectedDraftVersion: v.number(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({ draftVersion: v.number() }),
+  handler: async (ctx, args) => {
+    const { event, person, membership, team } = await currentTeamContext(
+      ctx,
+      args.eventSlug,
+    );
+    const requestFingerprint = operationFingerprint([
+      team._id,
+      args.expectedDraftVersion,
+      args.baseValue,
+      args.value,
+    ]);
+    const replay = await replayDraftOperation(
+      ctx,
+      event._id,
+      person._id,
+      args.clientOperationId,
+      "intake.additional_information.save",
+      requestFingerprint,
+    );
+    if (replay) return { draftVersion: replay.version };
+    requireRegistrationOpen(event, membership.participantClass);
+    requireEditableTeam(team);
+    const draft = await ctx.db
+      .query("projectDrafts")
+      .withIndex("by_team", (index) => index.eq("teamId", team._id))
+      .unique();
+    if (!draft?.initialIdea || draft.stage !== "review") {
+      throw new ConvexError({
+        code: "ADDITIONAL_INFORMATION_NOT_EDITABLE",
+        message: "Additional information can be edited after the project questions are complete.",
+      });
+    }
+    const additionalInformation = normalizedAdditionalInformation(args.value);
+    const baseAdditionalInformation = normalizedAdditionalInformation(args.baseValue);
+    if (
+      draft.version !== args.expectedDraftVersion &&
+      draft.additionalInformation !== baseAdditionalInformation
+    ) {
+      requireDraftVersion(draft.version, args.expectedDraftVersion);
+    }
+    const now = Date.now();
+    if (draft.additionalInformation === additionalInformation) {
+      await recordDraftOperation(ctx, {
+        eventId: event._id,
+        personId: person._id,
+        clientOperationId: args.clientOperationId,
+        commandName: "intake.additional_information.save",
+        requestFingerprint,
+        draftId: draft._id,
+        createdAt: now,
+      });
+      return { draftVersion: draft.version };
+    }
+    const draftVersion = draft.version + 1;
+    await ctx.db.patch(draft._id, {
+      additionalInformation,
+      version: draftVersion,
+      lastEditedByMembershipId: membership._id,
+      updatedAt: now,
+    });
+    await recordDraftOperation(ctx, {
+      eventId: event._id,
+      personId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "intake.additional_information.save",
       requestFingerprint,
       draftId: draft._id,
       createdAt: now,
@@ -1488,7 +1884,7 @@ export const setFreshnessAttestation = mutation({
       requestFingerprint,
     );
     if (replay) return { draftVersion: replay.version };
-    requireRegistrationOpen(event);
+    requireRegistrationOpen(event, membership.participantClass);
     requireEditableTeam(team);
     const draft = await ctx.db
       .query("projectDrafts")
@@ -1528,17 +1924,19 @@ export const submissionPreview = query({
       teamName: v.string(),
       teamVersion: v.number(),
       draftVersion: v.number(),
+      lastEditedByMembershipId: v.id("eventMemberships"),
       applicationsCloseAt: v.number(),
       initialIdea: v.optional(v.string()),
+      additionalInformation: v.optional(v.string()),
+      additionalInformationMaxLength: v.number(),
       followUps: v.array(
         v.object({
           id: v.id("intakeGeneratedQuestions"),
           ordinal: v.number(),
           question: v.string(),
           purposeKey: v.string(),
-          source: v.union(v.literal("model"), v.literal("fallback")),
-          answer: v.optional(v.string()),
-          skipped: v.boolean(),
+          source: v.union(v.literal("fixed"), v.literal("model"), v.literal("fallback")),
+          answer: v.string(),
         }),
       ),
       freshnessAttested: v.boolean(),
@@ -1629,7 +2027,7 @@ export const submissionPreview = query({
       }
       return {
         membershipId: eventMembership._id,
-        displayName: profile?.preferredName ?? profile?.fullName ?? memberPerson.displayName,
+        displayName: profile?.fullName ?? memberPerson.displayName,
         role: activeMember.role,
         submissionReady:
           eventMembership.eligibilityStatus === "eligible" &&
@@ -1658,22 +2056,30 @@ export const submissionPreview = query({
       );
     }
     if (!draft.freshnessAttestedAt) blockers.push("Accept the fresh-project rule.");
-    if (Date.now() >= event.applicationsCloseAt) blockers.push("The application deadline has passed.");
+    const applicationsCloseAt = applicationsCloseAtFor(
+      event,
+      membership.participantClass,
+    );
+    if (Date.now() >= applicationsCloseAt) blockers.push("The application deadline has passed.");
     return {
       teamId: team._id,
       teamName: team.name,
       teamVersion: team.version,
       draftVersion: draft.version,
-      applicationsCloseAt: event.applicationsCloseAt,
+      lastEditedByMembershipId: draft.lastEditedByMembershipId,
+      applicationsCloseAt,
       ...(draft.initialIdea !== undefined ? { initialIdea: draft.initialIdea } : {}),
+      ...(draft.additionalInformation !== undefined
+        ? { additionalInformation: draft.additionalInformation }
+        : {}),
+      additionalInformationMaxLength,
       followUps: followUps.map(({ question, answer }) => ({
         id: question._id,
         ordinal: question.ordinal,
         question: question.text,
         purposeKey: question.purposeKey,
         source: question.source,
-        ...(answer ? { answer: answer.value } : {}),
-        skipped: question.state === "skipped",
+        answer: requiredIntakeAnswerValue(answer),
       })),
       freshnessAttested: Boolean(draft.freshnessAttestedAt),
       memberCount: rosterCounts.activeMemberCount,
@@ -1774,14 +2180,6 @@ export const submit = mutation({
       };
     }
 
-    requireRegistrationOpen(event);
-    if (Date.now() >= event.applicationsCloseAt) {
-      throw new ConvexError({
-        code: "APPLICATION_DEADLINE_PASSED",
-        message: "The application deadline has passed.",
-      });
-    }
-
     const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
     if (participantPolicy.policy._id !== args.participantPolicyVersionId) {
       throw new ConvexError({
@@ -1792,6 +2190,7 @@ export const submit = mutation({
 
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const membership = await requireMembership(ctx, event._id, person._id);
+    requireRegistrationOpen(event, membership.participantClass);
     const member = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
@@ -1806,7 +2205,10 @@ export const submit = mutation({
     }
     const team = await ctx.db.get(member.teamId);
     if (!team || team.membershipLocked) {
-      throw new ConvexError({ code: "SUBMISSION_LOCKED", message: "This team is already locked." });
+      throw new ConvexError({
+        code: "SUBMISSION_LOCKED",
+        message: "This application has already been submitted.",
+      });
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -2083,7 +2485,7 @@ export const materializeSubmissionRoster = internalMutation({
         role: teamMember.role,
         participantClass: membership.participantClass,
         displayName:
-          profile.preferredName ?? profile.fullName ?? memberPerson.displayName,
+          profile.fullName ?? memberPerson.displayName,
         institution: profile.institution,
         yearOfStudy: profile.yearOfStudy,
         profileVersion: profile.profileVersion,
@@ -2214,6 +2616,9 @@ export const finalizeSubmission = internalMutation({
       teamId: team._id,
       version: (previousProjectVersion?.version ?? 0) + 1,
       initialIdea: draft.initialIdea,
+      ...(draft.additionalInformation !== undefined
+        ? { additionalInformation: draft.additionalInformation }
+        : {}),
       intakePolicyVersionId: pinnedPolicy.policy._id,
       intakeResponses: intakeResponses.map(({ question, answer }) => ({
         questionId: question._id,
@@ -2222,8 +2627,7 @@ export const finalizeSubmission = internalMutation({
         purposeKey: question.purposeKey,
         answerLength: question.answerLength,
         source: question.source,
-        ...(answer ? { answer: answer.value } : {}),
-        skipped: question.state === "skipped",
+        answer: requiredIntakeAnswerValue(answer),
       })),
       lockedRosterSnapshotId: attempt._id,
       lockedMemberCount: attempt.processedMemberCount,
@@ -2284,6 +2688,11 @@ export const finalizeSubmission = internalMutation({
       version: draft.version + 1,
       updatedAt: now,
     });
+    await ctx.scheduler.runAfter(0, internal.novelty.indexDraftIdea, {
+      draftId: draft._id,
+      inputFingerprint: noveltyInputFingerprint(draft.initialIdea),
+      sourceUpdatedAt: now,
+    });
     await ctx.db.patch(attempt._id, {
       state: "complete",
       projectVersionId,
@@ -2308,7 +2717,7 @@ export const finalizeSubmission = internalMutation({
       grantIds: attempt.authorizingGrantIds,
       scopeType: "team",
       scopeId: team._id,
-      action: "application.submitted_and_team_locked",
+      action: "application.submitted",
       targetType: "application",
       targetId: applicationId,
       previousSummary: JSON.stringify({
@@ -2318,7 +2727,7 @@ export const finalizeSubmission = internalMutation({
       nextSummary: JSON.stringify({
         projectVersionId,
         memberCount: attempt.processedMemberCount,
-        lockedAt: attempt.createdAt,
+        submittedAt: attempt.createdAt,
       }),
       reason: "Team lead explicitly confirmed final submission",
     });

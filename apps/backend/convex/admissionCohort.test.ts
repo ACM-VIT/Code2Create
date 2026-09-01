@@ -29,6 +29,7 @@ import {
   participantPolicyChecksum,
 } from "./lib/participantPolicy.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
+import { maximumApplicantTeamsPerEvent } from "./lib/reviewLimits.ts";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import schema from "./schema.ts";
 
@@ -138,7 +139,7 @@ describe("admission cohort query and decisions", () => {
       subject: fixture.operatorAuthUserId,
       sessionId: fixture.operatorAuthSessionId,
     });
-    const view = await operator.query(api.admissionCohort.cohort, {
+    const view = await operator.action(api.admissionCohort.cohort, {
       eventSlug: fixture.eventSlug,
       capacityPeople: 3,
     });
@@ -174,33 +175,82 @@ describe("admission cohort query and decisions", () => {
       shortfall: 1,
     });
     expect(decidable?.experienceBand).toBe("early_year");
-    const published = await operator.query(api.admissionCohort.cohort, {
+    const published = await operator.action(api.admissionCohort.cohort, {
       eventSlug: fixture.eventSlug,
     });
     expect(published.capacityPeople).toBe(100);
     expect(published.candidates.map((entry) => entry.suggestedIn)).toEqual([true, true, true]);
   });
 
-  test("rows are gated by application.read exactly as the admissions list gates them", async () => {
+  test("reads a cohort across bounded database pages", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend, { extraTeams: 18 });
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    const view = await operator.action(api.admissionCohort.cohort, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(view.candidates).toHaveLength(21);
+    expect(view.candidates.map((candidate) => candidate.rank)).toEqual(
+      Array.from({ length: 21 }, (_, index) => index + 1),
+    );
+  });
+
+  test("reads the configured maximum applicant cohort without one oversized transaction", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend, {
+      extraTeams: maximumApplicantTeamsPerEvent - 3,
+    });
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    const view = await operator.action(api.admissionCohort.cohort, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(view.candidates).toHaveLength(maximumApplicantTeamsPerEvent);
+    expect(view.candidates[0]).toMatchObject({ rank: 1, teamName: "Steady Loom" });
+    expect(view.candidates.at(-1)).toMatchObject({
+      rank: maximumApplicantTeamsPerEvent,
+      teamName: `Additional Team ${maximumApplicantTeamsPerEvent - 3}`,
+    });
+  }, 120_000);
+
+  test("refuses a cohort that exceeds the configured applicant ceiling", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend, {
+      extraTeams: maximumApplicantTeamsPerEvent - 2,
+    });
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    await expect(operator.action(api.admissionCohort.cohort, {
+      eventSlug: fixture.eventSlug,
+    })).rejects.toThrow(
+      `Admission cohort reads support at most ${maximumApplicantTeamsPerEvent} applicant teams.`,
+    );
+  }, 120_000);
+
+  test("requires event-wide application read for the whole-event cohort", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);
     const onlooker = backend.withIdentity({
       subject: fixture.onlookerAuthUserId,
       sessionId: fixture.onlookerAuthSessionId,
     });
-    const view = await onlooker.query(api.admissionCohort.cohort, {
+    await expect(onlooker.action(api.admissionCohort.cohort, {
       eventSlug: fixture.eventSlug,
       capacityPeople: 3,
-    });
-    expect(view.candidates).toEqual([]);
-    expect(view.hiddenApplicationCount).toBe(3);
-    expect(view.summary.committedPeople).toBe(0);
+    })).rejects.toThrow("permission");
     const stranger = backend.withIdentity({
       subject: fixture.strangerAuthUserId,
       sessionId: fixture.strangerAuthSessionId,
     });
     await expect(
-      stranger.query(api.admissionCohort.cohort, {
+      stranger.action(api.admissionCohort.cohort, {
         eventSlug: fixture.eventSlug,
         capacityPeople: 3,
       }),
@@ -560,7 +610,10 @@ async function insertPolicyChain(
   };
 }
 
-async function seedCohortFixture(backend: BackendTest) {
+async function seedCohortFixture(
+  backend: BackendTest,
+  options: { extraTeams?: number } = {},
+) {
   const now = Date.now();
   const eventSlug = `cohort-${crypto.randomUUID()}`;
   const operatorAuthUserId = await createAuthUser(backend, now, "operator");
@@ -770,6 +823,16 @@ async function seedCohortFixture(backend: BackendTest) {
         { reviewerPersonId: secondReviewer.personId, recommendation: "decline" },
       ],
     });
+    for (let index = 0; index < (options.extraTeams ?? 0); index += 1) {
+      await insertTeam({
+        name: `Additional Team ${index + 1}`,
+        publicCode: `MORE${String(index + 1).padStart(2, "0")}`,
+        size: 1,
+        band: "first_year",
+        submittedAt: now + index + 1,
+        reviews: [],
+      });
+    }
 
     return {
       eventSlug,

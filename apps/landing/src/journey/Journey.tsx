@@ -10,12 +10,14 @@ import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 
-import Lanterns, { Wind, lanternAt } from './Lanterns.js';
+import Lanterns, { Wind } from './Lanterns.js';
+import { lanternAt } from './lanternLayout.js';
+import Fireworks, { type FireworksHandle } from './Fireworks.js';
 import Branches from './Branches.js';
 import Rosette from './Rosette.js';
 import { useFallingLadder } from './fallingLadder/index.js';
-import Cards, {
-  Emblem,
+import Cards, { Emblem } from './Cards.js';
+import {
   LAYOUT,
   LOGO,
   CARD_RATIO,
@@ -24,20 +26,27 @@ import Cards, {
   LOGO_BAND,
   STAR,
   STAR_REACH,
-} from './Cards.js';
+} from './cardLayout.js';
 import { Plant, createBloomTimeline } from '../timeline/botanical.js';
 import { eventRegistrationUrl } from '../lib/config.js';
+import FaqBoard from './FaqBoard.js';
 import type { PetalFieldHandle } from './Petals.js';
 import './journey.css';
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
 
+/* The embedded preview loads the page with the document hidden, so rAF — and
+   with it the ticker, the scrub and every cue — never fires there. Handing
+   the internals to the console lets a test drive time by hand, the same way
+   the petal field's __step does. */
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  Object.assign(window, { __gsap: gsap, __scrollTrigger: ScrollTrigger });
+}
+
 /* Each About chapter is fronted by one of the five cards. */
 const CHAPTERS = [
-  /* Cards are dealt in fan order: each chapter lifts the next card from the
-     left, so the hand empties leftmost to rightmost — the 10 for C2C, the
-     ace for ACM-VIT, the king for ACM, the queen for ACM-W, the jack for
-     VIT. */
+  /* Chapters follow the hand from left to right: ace for C2C, king for
+     ACM-VIT, queen for ACM-W, jack for ACM, and 10 for VIT. */
   {
     title: 'Code2Create',
     wordmark: true,
@@ -56,19 +65,19 @@ const CHAPTERS = [
     ],
   },
   {
-    title: 'ACM',
-    card: 2,
-    body: [
-      'The Association for Computing Machinery is the world’s largest computing society, uniting over 100,000 educators, researchers, and professionals to advance computing as a science and a profession.',
-      'Through 860 chapters, 38 Special Interest Groups, and the ACM Digital Library, it champions technical excellence, shapes public policy, and honors breakthroughs with the prestigious A.M. Turing Award.',
-    ],
-  },
-  {
     title: 'ACM-W',
-    card: 3,
+    card: 2,
     body: [
       'ACM-W at VIT brings together women interested in STEM and innovation, with a welcoming space to learn, connect, and grow through workshops, mentorship, and meaningful conversations.',
       'We help students discover their strengths, build confidence, and encourage more women to make their mark in STEM.',
+    ],
+  },
+  {
+    title: 'ACM',
+    card: 3,
+    body: [
+      'The Association for Computing Machinery is the world’s largest computing society, uniting over 100,000 educators, researchers, and professionals to advance computing as a science and a profession.',
+      'Through 860 chapters, 38 Special Interest Groups, and the ACM Digital Library, it champions technical excellence, shapes public policy, and honors breakthroughs with the prestigious A.M. Turing Award.',
     ],
   },
   {
@@ -97,37 +106,37 @@ const TIMELINE_PHASES = [
   },
   {
     title: 'Opening Ceremony',
-    when: '7 Sep · 2:00 – 3:00 PM IST',
+    when: '6 Sep · 2:00 – 3:00 PM IST',
     line: 'The hackathon opens with the ceremony, followed by a walkthrough of the rules, judging criteria and important event information.',
   },
   {
     title: 'Round 1: Ideation & Early Build',
-    when: '7 Sep, 3:00 PM – 8 Sep, 12:00 AM IST',
+    when: '6 Sep, 3:00 PM – 7 Sep, 12:00 AM IST',
     line: 'Teams refine their ideas and start building their initial implementation and designs in preparation for the first review.',
   },
   {
     title: 'Round 2: Progress Review',
-    when: '8 Sep · 1:00 – 5:00 AM IST',
+    when: '7 Sep · 1:00 – 5:00 AM IST',
     line: 'Teams present their idea, progress and implementation plan to mentors and judges and receive feedback.',
   },
   {
     title: 'Round 3: Hacking Session',
-    when: '8 Sep · 8:00 AM – 7:00 PM IST',
+    when: '7 Sep · 8:00 AM – 7:00 PM IST',
     line: 'Teams continue building and improving their projects based on feedback from the previous review.',
   },
   {
     title: 'Round 4: Final Review Prep',
-    when: '8 Sep, 9:00 PM – 9 Sep, 12:00 AM IST',
+    when: '7 Sep, 9:00 PM – 8 Sep, 12:00 AM IST',
     line: 'Teams keep working on their projects and prepare their prototype and demo for the final evaluation round.',
   },
   {
     title: 'Round 5: Prototype Evaluation',
-    when: '9 Sep · 1:00 – 5:00 AM IST · eliminatory',
+    when: '8 Sep · 1:00 – 5:00 AM IST · eliminatory',
     line: 'Teams demonstrate a functional prototype, its core features and their overall technical implementation. The highest-performing teams qualify for the final judging round.',
   },
   {
     title: 'Round 6: Final Pitches & Judging',
-    when: '9 Sep · 9:00 AM – 3:00 PM IST',
+    when: '8 Sep · 9:00 AM – 3:00 PM IST',
     line: 'Finalists complete and deploy their solutions, then present them to the judging panel through a live demo and pitch. Winners are announced and felicitated at the closing ceremony.',
   },
 ];
@@ -210,8 +219,6 @@ const FAQ = [
 ];
 
 interface JourneyProps {
-  onFaqToggle(id: string): void
-  openFaq: string | null
   petalsRef: RefObject<PetalFieldHandle | null>
 }
 
@@ -229,9 +236,10 @@ function emberStyle(ember: (typeof EMBERS)[number]): EmberStyle {
   };
 }
 
-export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProps) {
+export default function Journey({ petalsRef }: JourneyProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const fireworksRef = useRef<FireworksHandle>(null);
 
   /* Two ladders side by side, or one long one on a phone. Every question is on
      the page either way — a phone used to be shown half of them. */
@@ -364,6 +372,10 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
 
       gsap.set(ridges.mid, { yPercent: 120 });
       gsap.set(q('.lantern__label'), { autoAlpha: 0 });
+      /* The title begins below the stage. Because the sponsor layer sits
+         behind the near ridge, its scroll-linked rise emerges from the hills
+         instead of fading into an arbitrary point in the sky. */
+      gsap.set(q('.sponsors__title'), { autoAlpha: 0, y: '36svh' });
       gsap.set(panels, { autoAlpha: 0, xPercent: 8 });
       gsap.set(q('.bonsai'), { xPercent: 135, autoAlpha: 0 });
       gsap.set(q('.branches'), { autoAlpha: 1 });
@@ -511,24 +523,45 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
 
       tl.to(q('.lantern__label'), { autoAlpha: 1, duration: 3, stagger: 0.8 }, 86);
 
-      /* H — the wind takes the lanterns away and the hills leave the frame
-         entirely; nothing of them should be visible once the bonsai is on. */
+      /* H — the wind takes the lanterns away. The hills HOLD: the sponsor
+         volley fires from behind them, so they stay for one more act. */
       tl.to(q('.lantern__label'), { autoAlpha: 0, duration: 2.5 }, 94)
         .to(q('.wind'), { autoAlpha: 0, duration: 4 }, 96)
         .to(
           lanterns,
           { x: '86vw', y: '-52vh', autoAlpha: 0, duration: 13, stagger: 0.7, ease: 'power2.in' },
           95,
-        )
-        .to([ridges.near, ridges.mid], { yPercent: 130, duration: 9, ease: 'power2.inOut' }, 95)
-        .to(ridges.far, { yPercent: 130, duration: 9, ease: 'power2.inOut' }, 96)
+        );
+
+      /* H2 — the sponsor volley. The heading climbs from below the foreground
+         ridge, and every firecracker phase is scrubbed by this same timeline.
+         Stop the wheel and the shell stops; reverse it and the shell rewinds. */
+      tl.to(
+        q('.sponsors__title'),
+        { autoAlpha: 1, y: 0, duration: 7, ease: 'power3.out' },
+        103,
+      ).to(
+        q('.sponsors__title'),
+        { autoAlpha: 0, y: '-5svh', duration: 3, ease: 'power2.in' },
+        137,
+      );
+
+      /* Each scroll span contains launch, crack, and letter formation. */
+      const SPONSOR_CUES = [108, 120];
+      const SPONSOR_SCROLL_SPAN = 9;
+      const SPONSORS_OFF = 138;
+
+      /* H3 — only now, with the volley spent, do the hills leave the frame
+         entirely; nothing of them should be visible once the bonsai is on. */
+      tl.to([ridges.near, ridges.mid], { yPercent: 130, duration: 9, ease: 'power2.inOut' }, 141)
+        .to(ridges.far, { yPercent: 130, duration: 9, ease: 'power2.inOut' }, 142)
         /* With the hills gone the rose in the sky would sit exposed at the
            bottom of the frame and read as a section edge; wash it out. */
-        .to(q('.sky-dim'), { autoAlpha: 1, duration: 10, ease: 'power1.inOut' }, 95);
+        .to(q('.sky-dim'), { autoAlpha: 1, duration: 10, ease: 'power1.inOut' }, 141);
 
       /* I — the bonsai slides in from the right and blooms inside a swirl of
          petals that crosses the whole frame. */
-      tl.to(q('.bonsai'), { xPercent: 0, autoAlpha: 1, duration: 6, ease: 'power3.out' }, 104);
+      tl.to(q('.bonsai'), { xPercent: 0, autoAlpha: 1, duration: 6, ease: 'power3.out' }, 150);
 
       /* The great blossom behind the day card: it fades up with the act and
          turns slowly under the scroll — those stay scrubbed — but the five
@@ -538,8 +571,8 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
          in REAL time — 0.55s with a little overshoot — the moment the
          playhead crosses its mark, exactly the way the ladder act is cued,
          so the sequence reads petal by petal at any scroll speed and folds
-         back petal by petal on the way up. The container still goes fully
-         dark by 129, so the FAQ act opens on a bare stage. */
+         back petal by petal on the way up. The container is fully dark well
+         before the act ends, so the FAQ act opens on a bare stage. */
       const rosette = q('.rosette')[0];
       const rosettePetals = q('.rosette__petal');
       gsap.set(rosette, { xPercent: -50, yPercent: -50, autoAlpha: 0, rotation: -24 });
@@ -549,15 +582,15 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
         rotation: -9,
         transformOrigin: '50% 100%',
       });
-      tl.to(rosette, { autoAlpha: 0.85, duration: 2.5 }, 105)
-        .to(rosette, { rotation: 36, duration: 122, ease: 'none' }, 105)
-        .to(rosette, { autoAlpha: 0, duration: 2.6 }, 227.4);
+      tl.to(rosette, { autoAlpha: 0.85, duration: 2.5 }, 151)
+        .to(rosette, { rotation: 36, duration: 122, ease: 'none' }, 151)
+        .to(rosette, { autoAlpha: 0, duration: 2.6 }, 273.4);
 
       const petalShown = rosettePetals.map(() => false);
       const rosetteCue = (progress: number) => {
         const at = progress * tl.duration();
         rosettePetals.forEach((petal, index) => {
-          const wanted = at >= 108 + index * 22;
+          const wanted = at >= 154 + index * 22;
           if (wanted === petalShown[index]) return;
           petalShown[index] = wanted;
           gsap.to(
@@ -584,12 +617,12 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
       };
 
       /* Scoped to the bonsai so it does not also grab the branch flowers.
-         The timeline act runs at five times its old scroll span (104–234),
-         and the bloom is timed to complete at 209 — the moment the LAST
+         The timeline act runs at five times its old scroll span (150–280),
+         and the bloom is timed to complete at 255 — the moment the LAST
          phase card arrives — so the pot is fully grown exactly when the
          schedule finishes telling itself. */
       const bonsaiBloom = createBloomTimeline(q('.bonsai')[0], { moments: false });
-      tl.add(bonsaiBloom.duration(104), 105);
+      tl.add(bonsaiBloom.duration(104), 151);
 
       /* Fade and rise only — no blur() in these: a filter tween on live text
          repaints the card on every scrubbed frame, and this act already pays
@@ -597,10 +630,10 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
          holds until the container fades. */
       const days = q('.day');
       gsap.set(days, { autoAlpha: 0, y: 26 });
-      tl.to(q('.days'), { autoAlpha: 1, duration: 2 }, 106);
+      tl.to(q('.days'), { autoAlpha: 1, duration: 2 }, 152);
       const DAY_SLOT = 115 / days.length;
       days.forEach((day, index) => {
-        const at = 106 + index * DAY_SLOT;
+        const at = 152 + index * DAY_SLOT;
         /* Strictly sequential: the outgoing card is fully gone before the next
            one starts to rise. Overlapping the two crossfaded a pair of
            half-opaque boxes over each other, which read as ghosting. */
@@ -609,7 +642,7 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
           tl.to(day, { autoAlpha: 0, y: -26, duration: DAY_SLOT * 0.26 }, at + DAY_SLOT * 0.7);
         }
       });
-      tl.to(q('.days'), { autoAlpha: 0, duration: 3 }, 221);
+      tl.to(q('.days'), { autoAlpha: 0, duration: 3 }, 267);
 
       /*
        * J/K — the bonsai leaves, and the FAQ act takes over. The boughs being
@@ -618,31 +651,31 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
        * timeline's only job is to say when. Scrolling back up past the cue
        * reels the ladder in again.
        *
-       * The bonsai is fully out at 230.5 — exactly the reel's door — so
+       * The bonsai is fully out at 276.5 — exactly the reel's door — so
        * while the rig is being hauled off, the stage behind it is bare:
        * no act re-enters until the reel has finished and the door opens.
        */
-      tl.to(q('.bonsai'), { xPercent: 135, autoAlpha: 0, duration: 4, ease: 'power2.in' }, 226.5);
+      tl.to(q('.bonsai'), { xPercent: 135, autoAlpha: 0, duration: 4, ease: 'power2.in' }, 272.5);
 
-      const FAQ_CUE = 234;
-      /* Hysteresis: the fall cues at 234, but the reel does not begin until
-         the scroll has climbed clearly back past 231.5 — hiding the answers
+      const FAQ_CUE = 280;
+      /* Hysteresis: the fall cues at 280, but the reel does not begin until
+         the scroll has climbed clearly back past 277.5 — hiding the answers
          takes a deliberate bit of excess scroll, not a grazed threshold. */
-      const FAQ_OFF = 231.5;
+      const FAQ_OFF = 277.5;
       /* The act's doors, in timeline seconds. While the ladder is FALLING
          the scroll is walled at EXIT — deliberately BEFORE the camera
-         tilt's span (236.5+), so the drop always settles onto a still
+         tilt's span (282.5+), so the drop always settles onto a still
          stage and the pan only begins once the rig is home; the ladder can
          never be dragged upward mid-appearance again. While REELING the
          scroll holds at ENTRY, where the stage behind the rig is bare (the
-         bonsai act's furniture is gone by 230.5). */
-      const FAQ_EXIT = 236;
-      const FAQ_ENTRY = 230.5;
+         bonsai act's furniture is gone by 276.5). */
+      const FAQ_EXIT = 282;
+      const FAQ_ENTRY = 276.5;
 
       /* L — the FAQ act's scroll span, ending the moment the shed reaches
-         full at 244: the fall keeps playing into the footer on its own, so
+         full at 290: the fall keeps playing into the footer on its own, so
          holding the timeline open past it only made dead scroll. */
-      tl.to({}, { duration: 8 }, 236);
+      tl.to({}, { duration: 8 }, 282);
 
       /* M — the camera tilt. On layouts where the ladder is taller than the
          frame — a phone's single column, a short tablet — the whole act pans
@@ -665,7 +698,7 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
         [faqBranches, faqShell],
         { y: 0 },
         { y: () => -faqOverflow(), duration: 7.5, ease: 'none', immediateRender: false },
-        236.5,
+        282.5,
       );
 
       /* ---------------- petals, cued off overall progress ------------- */
@@ -682,6 +715,23 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
         ladder.setActive(faqOn);
       };
 
+      /* Firework progress comes only from scroll. Past its own span a sponsor
+         holds in its resolved state until the act exits; crossing backward
+         plays the exact same positions in reverse. */
+      const sponsorCue = (progress: number) => {
+        const api = fireworksRef.current;
+        if (!api) return;
+        const at = progress * tl.duration();
+        SPONSOR_CUES.forEach((mark, index) => {
+          const active = at >= mark && at < SPONSORS_OFF;
+          const fireworkProgress = active
+            ? gsap.utils.clamp(0, 1, (at - mark) / SPONSOR_SCROLL_SPAN)
+            : 0;
+          const twinklePhase = active ? (at - mark) / SPONSOR_SCROLL_SPAN : 0;
+          api.setProgress(index, fireworkProgress, twinklePhase);
+        });
+      };
+
       const petalCue = (progress: number) => {
         const api = petalsRef.current;
         if (!api) return;
@@ -692,13 +742,13 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
            timeline's routed river cannot be layered behind the FAQ ladder —
            instead it is retired outright the moment the FAQ act owns the
            stage, and rebuilt when the scroll returns to the timeline. */
-        /* The purge boundary matches the reel's hysteresis line (231.5),
+        /* The purge boundary matches the reel's hysteresis line (277.5),
            not the fall cue: between the two the rig can still be out, and
            a river alive there painted straight over the planks. And while
            the act is mid-play in either direction, the river stays dead
            regardless of where the scroll sits — it may never cross the
            rig. */
-        api.setPurge('path', at >= 231.5 || ladder.getBusy() !== null);
+        api.setPurge('path', at >= 277.5 || ladder.getBusy() !== null);
 
         if (at < 15) {
           /* Strictly the hero: shed from the canopy itself, and sparsely. */
@@ -711,22 +761,23 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
           api.setMode('drift');
           api.setWind(3.4);
           api.setIntensity(0.08 * ramp(71, 77) * (1 - ramp(96, 103)));
-        } else if (at >= 103 && at < 231.5) {
+        } else if (at >= 149 && at < 277.5) {
           /* Carried slowly along the act's own route — down the left, across
              the floor, up the right — rather than milling about the middle. */
           api.setMode('path');
           api.setWind(0);
-          api.setIntensity(ramp(103, 108));
-        } else if (at >= 237) {
+          api.setIntensity(ramp(149, 154));
+        } else if (at >= 283) {
           /* Shed by the boughs, and still falling as the footer takes over —
              a light fall, so the questions stay the point of the act. */
           api.setMode('drift');
           api.setWind(0.5);
-          api.setIntensity(0.085 * ramp(237, 244));
+          api.setIntensity(0.085 * ramp(283, 290));
         } else {
-          /* Between acts. Handing the mode to 'drift' marks any routed
-             petals as strangers, which die fast — a quick scroll into the
-             FAQ act must not carry the timeline's river along with it. */
+          /* Between acts — which now includes the sponsor volley, whose sky
+             stays clear for the shells. Handing the mode to 'drift' marks any
+             routed petals as strangers, which die fast — a quick scroll into
+             the FAQ act must not carry the timeline's river along with it. */
           api.setMode('drift');
           api.setIntensity(0);
         }
@@ -781,12 +832,14 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
           petalCue(self.progress);
           ladderCue(self.progress);
           rosetteCue(self.progress);
+          sponsorCue(self.progress);
           gate(self);
         },
         onRefresh: (self) => {
           petalCue(self.progress);
           ladderCue(self.progress);
           rosetteCue(self.progress);
+          sponsorCue(self.progress);
         },
       });
 
@@ -807,7 +860,10 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
       petalCue(0);
       /* Cue again once mounting has fully settled, so the opening state cannot
          depend on which component attached its ref first. */
-      requestAnimationFrame(() => petalCue(trigger.progress));
+      const settledCue = requestAnimationFrame(() => {
+        petalCue(trigger.progress);
+        sponsorCue(trigger.progress);
+      });
 
       /* The stage is built from large artwork that is still decoding when the
          trigger is created, so its end offset can come out unmeasured. Force a
@@ -828,6 +884,7 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
       }
 
       return () => {
+        cancelAnimationFrame(settledCue);
         window.removeEventListener('load', refresh);
         window.removeEventListener('scroll', guard);
         window.removeEventListener('journey:leap', leap);
@@ -864,6 +921,7 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
 
         <Wind />
         <Lanterns stageRef={stageRef} />
+        <Fireworks ref={fireworksRef} />
         <Cards />
 
         <div className="ridge ridge--near" aria-hidden="true" />
@@ -886,7 +944,7 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
             <img src="/assets/svg/btn-box.svg" alt="" aria-hidden="true" />
             <span>Register now</span>
           </a>
-          <p className="hero-venue">7th September, 2026 · Anna Auditorium, VIT Vellore</p>
+          <p className="hero-venue">6th September, 2026 · Anna Auditorium, VIT Vellore</p>
         </div>
 
         {/* ---------- about chapters ---------- */}
@@ -932,42 +990,7 @@ export default function Journey({ onFaqToggle, openFaq, petalsRef }: JourneyProp
         {/* ---------- FAQs ---------- */}
         <div className="faq-shell" id="faqs">
           <h2 className="visually-hidden">Frequently asked questions</h2>
-          <div className="faq-columns">
-            {ladderColumns.map((column, columnIndex) => (
-              <ul className="faq-column" key={columnIndex}>
-                <span className="rope rope--near" aria-hidden="true" />
-                <span className="rope rope--far" aria-hidden="true" />
-                {column.map((item) => {
-                  const open = openFaq === item.id;
-                  return (
-                    <li className="plank" key={item.id}>
-                      <h3 className="plank__heading">
-                        <button
-                          className="plank__face"
-                          type="button"
-                          aria-expanded={open}
-                          aria-controls={`faq-${item.id}`}
-                          onClick={() => onFaqToggle(item.id)}
-                        >
-                          <span>{item.q}</span>
-                          <svg
-                            className="plank__chevron"
-                            viewBox="0 0 16 16"
-                            aria-hidden="true"
-                          >
-                            <path d="M 3 5.5 L 8 10.5 L 13 5.5" />
-                          </svg>
-                        </button>
-                      </h3>
-                      <div className="plank__answer" id={`faq-${item.id}`} data-open={open}>
-                        <p>{item.a ?? 'Answers go live closer to the event. Watch this space.'}</p>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            ))}
-          </div>
+          <FaqBoard columns={ladderColumns} />
         </div>
       </div>
     </div>

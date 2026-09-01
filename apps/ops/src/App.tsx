@@ -1,11 +1,15 @@
 import { api } from '@code2create/backend/api'
 import { ClientObservabilityIdentity } from '@code2create/client-observability'
 import { type EventStage, eventRoleLabels, eventStageGuidance } from '@code2create/domain'
-import type { Code2CreateAuthClient } from '@code2create/web-auth'
+import {
+  GoogleFedCmButton,
+  signInWithGooglePopup,
+  type Code2CreateAuthClient,
+} from '@code2create/web-auth'
 import type { FunctionReturnType } from 'convex/server'
 import { AuthLoading, Authenticated, Unauthenticated, useMutation, useQuery } from 'convex/react'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import {
   OperationsLayout,
@@ -91,6 +95,9 @@ const ProjectCheckpointOverview = lazy(() =>
 const Roster = lazy(() =>
   import('./screens/Roster').then((module) => ({ default: module.Roster })),
 )
+const TeamRoster = lazy(() =>
+  import('./screens/TeamRoster').then((module) => ({ default: module.TeamRoster })),
+)
 const PermissionBundles = lazy(() =>
   import('./screens/PermissionBundles').then((module) => ({ default: module.PermissionBundles })),
 )
@@ -139,6 +146,7 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
         <SignIn
           authClient={authClient}
           googleConfigured={publicState.auth.googleConfigured}
+          googleClientId={publicState.auth.googleClientId}
         />
       </Unauthenticated>
       <Authenticated>
@@ -168,7 +176,18 @@ function Operations({
   const access = useQuery(api.access.operationsCapabilities, { eventSlug })
   const invitation = useQuery(api.accessInvitations.mine, { eventSlug })
   const roster = useQuery(api.rosters.mine, { eventSlug })
+  const synchronizeSupremePermissions = useMutation(api.access.synchronizeSupremePermissions)
+  const supremeSync = useOperationRunner()
+  const supremeSyncStarted = useRef(false)
   const { data: session } = authClient.useSession()
+  useEffect(() => {
+    if (!access?.isSupreme || supremeSyncStarted.current) return
+    supremeSyncStarted.current = true
+    void supremeSync.run(
+      'supreme-permissions-sync',
+      () => () => synchronizeSupremePermissions({ eventSlug }),
+    ).catch(() => undefined)
+  }, [access, supremeSync, synchronizeSupremePermissions])
   if (access === undefined || invitation === undefined || roster === undefined) {
     return <GateBoot status="Loading your event access…" />
   }
@@ -200,7 +219,8 @@ function Operations({
   const canInvite = capabilities.invitations
   const canReadBundles = capabilities.bundles
   const canReadRoster = capabilities.roster
-  const canViewAccess = canReadPeople || canInvite || canReadBundles || canReadRoster
+  const canReadTeamRoster = capabilities.teamRoster
+  const canViewAccess = canReadPeople || canInvite || canReadBundles || canReadRoster || canReadTeamRoster
   const canViewIntegrations = capabilities.integrations
   const canViewProjectCheckpoints = capabilities.projectCheckpoints
   const canViewReviews = capabilities.reviews
@@ -576,6 +596,7 @@ function Operations({
                 canBrowsePeople={canBrowsePeople}
                 canReadPeople={canReadPeople}
                 canReadRoster={canReadRoster}
+                canReadTeamRoster={canReadTeamRoster}
                 serverNow={serverNow}
               />
             )}
@@ -597,6 +618,16 @@ function Operations({
             element={(
               <Suspense fallback={<p className="muted">Loading roster…</p>}>
                 <Roster canReadBundles={canReadBundles} />
+              </Suspense>
+            )}
+          />
+        ) : null}
+        {canReadTeamRoster ? (
+          <Route
+            path="/access/team-roster"
+            element={(
+              <Suspense fallback={<p className="muted">Loading participant teams…</p>}>
+                <TeamRoster />
               </Suspense>
             )}
           />
@@ -650,7 +681,9 @@ function RosterClaim({
         <p className="muted">
           You are listed as {roster.displayName} · {eventRoleLabels[roster.role]} under {roster.email}.
         </p>
-        {roster.bundles.length > 0 ? (
+        {roster.role === 'supreme' ? (
+          <p className="notice">Supreme access includes every event permission.</p>
+        ) : roster.bundles.length > 0 ? (
           <ul className="claim-bundle-list">
             {roster.bundles.map((bundle) => (
               <li key={`${bundle.label}:${bundle.version}`}>{bundle.label}</li>
@@ -736,34 +769,60 @@ function NoOperationsAccess({ authClient }: { authClient: Code2CreateAuthClient 
 function SignIn({
   authClient,
   googleConfigured,
+  googleClientId,
 }: {
   authClient: Code2CreateAuthClient
   googleConfigured: boolean
+  googleClientId: string | null
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const signIn = async () => {
+  const fallbackSignIn = async () => {
     setBusy(true)
     setError(null)
     try {
-      const result = await authClient.signIn.social({ provider: 'google', callbackURL: window.location.href })
-      if (result.error) setError('Google sign-in could not be completed. Try again.')
+      const result = await signInWithGooglePopup(authClient, window.location.href)
+      if (result.error) setError(popupErrorMessage(result.error.code))
     } catch {
-      setError('Google sign-in could not be completed. Try again.')
+      setError(popupErrorMessage(undefined))
     } finally {
       setBusy(false)
     }
   }
+
+function popupErrorMessage(code: string | undefined) {
+  if (code === 'POPUP_BLOCKED') return 'Allow pop-ups for this site, then try again.'
+  if (code === 'POPUP_CLOSED') return 'Google sign-in was closed before it finished.'
+  if (code === 'POPUP_TIMEOUT') return 'Google sign-in took too long. Try again.'
+  return 'Google sign-in could not be completed. Try again.'
+}
   return (
     <Gate
       error={error}
       title="Operations"
     >
-      <GateAction
-        disabled={!googleConfigured || busy}
-        label={busy ? 'Opening Google…' : 'Continue with Google'}
-        onClick={() => void signIn()}
-      />
+      {googleClientId ? (
+        <GoogleFedCmButton
+          authClient={authClient}
+          clientId={googleClientId}
+          loading={<GateAction disabled label="Loading Google…" />}
+          pending={<GateAction disabled label="Signing in…" />}
+          fallback={(
+            <GateAction
+              disabled={busy}
+              label={busy ? 'Opening Google…' : 'Continue with Google'}
+              onClick={() => void fallbackSignIn()}
+            />
+          )}
+          onError={(message) => setError(message)}
+        />
+      ) : (
+        <GateAction
+          disabled={!googleConfigured || busy}
+          label={busy ? 'Opening Google…' : 'Continue with Google'}
+          onClick={() => void fallbackSignIn()}
+        />
+      )}
       {!googleConfigured ? (
         <p className="gate-error">Google sign-in is unavailable. Check the event’s authentication setup.</p>
       ) : null}

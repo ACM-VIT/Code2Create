@@ -43,27 +43,26 @@ export function OperationsCopilotConsole({
   const operations = useOperationRunner<TurnResult>()
   const [pendingTurn, setPendingTurn] = useState<PendingTurn>()
   const [activeSubmissionId, setActiveSubmissionId] = useState<string>()
-  const [composerResetKey, setComposerResetKey] = useState(0)
 
   const clearPendingTurn = useCallback(() => {
     setPendingTurn(undefined)
   }, [])
+  const observedPendingSubmissionId = pendingTurn !== undefined && canRead
+    ? observedSubmissionId(stream.messages, pendingTurn.turnId)
+    : undefined
 
   useEffect(() => {
-    if (pendingTurn === undefined || !canRead) return
-    const submissionId = observedSubmissionId(stream.messages, pendingTurn.turnId)
-    if (submissionId === undefined) return
+    if (observedPendingSubmissionId === undefined) return
     operations.confirmExactObservation('copilot-turn')
-    setActiveSubmissionId(submissionId)
-    clearPendingTurn()
-    setComposerResetKey((key) => key + 1)
-  }, [canRead, clearPendingTurn, operations, pendingTurn, stream.messages])
+  }, [observedPendingSubmissionId, operations])
 
   const observedActiveSubmissionId = latestActiveSubmissionId(
     stream.messages,
     stream.settlements,
   )
-  const durableActiveSubmissionId = observedActiveSubmissionId ?? activeSubmissionId
+  const durableActiveSubmissionId = observedActiveSubmissionId
+    ?? observedPendingSubmissionId
+    ?? activeSubmissionId
 
   const submitPrompt = useCallback(async (prompt: string) => {
     try {
@@ -102,7 +101,7 @@ export function OperationsCopilotConsole({
       composerDisabled={!canGenerate}
       composerPendingConfirmation={hasPendingTurn}
       composerRequiresConnection={false}
-      composerResetKey={composerResetKey}
+      composerResetKey={observedPendingSubmissionId === undefined ? 0 : 1}
       connectionState={connectionState}
       emptyDescription={canRead
         ? 'Ask about review flow, attendance, floor mapping, support load, or admissions.'

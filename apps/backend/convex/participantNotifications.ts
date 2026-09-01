@@ -10,9 +10,7 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
   requireMembership,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -380,7 +378,6 @@ export const retry = mutation({
       scopeType: "person",
       scopeId: source.personId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (source.version !== args.expectedDeliveryVersion) {
       throw new ConvexError({
         code: "DELIVERY_CHANGED",
@@ -589,7 +586,6 @@ export const disableDestination = mutation({
       scopeType: "person",
       scopeId: destination.personId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (
       destination.version !== args.expectedDestinationVersion ||
       destination.status !== "active"

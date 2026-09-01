@@ -1,5 +1,6 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import aggregateTest from "@convex-dev/aggregate/test";
+import { defaultVitHostelResidenceCatalog } from "@code2create/domain";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { convexTest, type TestConvex } from "convex-test";
@@ -1436,13 +1437,8 @@ async function seedLiveReview(backend: BackendTest, fixture: Fixture) {
       label: "Fixture participant policy",
       teamMinimumSize: 1,
       teamMaximumSize: 4,
-      mixedParticipantClassesAllowed: true,
-      phoneField: "not_collected",
-      vitRegistrationNumberField: "required",
-      vitProgrammeField: "not_collected",
-      vitCampusField: "not_collected",
-      externalCityField: "not_collected",
-      externalCountryField: "not_collected",
+      mixedParticipantClassesAllowed: false,
+      vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
       profileNotice: "Fixture profile notice.",
       projectTextNotice: "Fixture project notice.",
       privacyNoticeUrl: "https://example.test/privacy",

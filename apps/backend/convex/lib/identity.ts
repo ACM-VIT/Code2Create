@@ -2,26 +2,54 @@ import { ConvexError } from "convex/values";
 
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { authComponent, createAuth } from "../auth";
+import { authComponent } from "../auth";
 import { normalizeEmail } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
-export const sensitiveCommandSessionMaxAgeMs = 15 * 60 * 1_000;
+export async function stagingParticipantAccessAllowed(
+  ctx: ReadCtx,
+  eventId: Doc<"events">["_id"],
+  email: string,
+) {
+  if (process.env.C2C_DEPLOYMENT_ENVIRONMENT?.trim() !== "staging") return true;
+  const emailNormalized = normalizeEmail(email);
+  const [pending, claimed] = await Promise.all([
+    ctx.db
+      .query("rosterEntries")
+      .withIndex("by_event_email_status", (query) =>
+        query
+          .eq("eventId", eventId)
+          .eq("emailNormalized", emailNormalized)
+          .eq("status", "pending"),
+      )
+      .first(),
+    ctx.db
+      .query("rosterEntries")
+      .withIndex("by_event_email_status", (query) =>
+        query
+          .eq("eventId", eventId)
+          .eq("emailNormalized", emailNormalized)
+          .eq("status", "claimed"),
+      )
+      .first(),
+  ]);
+  const now = Date.now();
+  return [pending, claimed].some(
+    (entry) => entry !== null && entry.validFrom <= now && now < entry.validUntil,
+  );
+}
 
-export function authSessionCreatedAtMs(value: unknown) {
-  if (value instanceof Date) {
-    const timestamp = value.getTime();
-    if (Number.isFinite(timestamp)) return timestamp;
-  }
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
-    return value;
-  }
-  if (typeof value === "string") {
-    const timestamp = Date.parse(value);
-    if (Number.isFinite(timestamp)) return timestamp;
-  }
-  throw new Error("Better Auth returned an invalid session creation time.");
+export async function requireStagingParticipantAccess(
+  ctx: ReadCtx,
+  eventId: Doc<"events">["_id"],
+  email: string,
+) {
+  if (await stagingParticipantAccessAllowed(ctx, eventId, email)) return;
+  throw new ConvexError({
+    code: "STAGING_PARTICIPANT_NOT_INVITED",
+    message: "This staging portal is available only to invited testers.",
+  });
 }
 
 export async function requireAuthUser(ctx: ReadCtx) {
@@ -36,11 +64,11 @@ export async function requireAuthUser(ctx: ReadCtx) {
 }
 
 export async function findCurrentPerson(ctx: ReadCtx) {
-  const user = await authComponent.safeGetAuthUser(ctx);
-  if (!user) return null;
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) return null;
   return ctx.db
     .query("people")
-    .withIndex("by_auth_user", (query) => query.eq("authUserId", user._id))
+    .withIndex("by_auth_user", (query) => query.eq("authUserId", identity.subject))
     .unique();
 }
 
@@ -71,37 +99,19 @@ export async function requireVerifiedGoogleIdentity(ctx: ReadCtx) {
       message: "Sign out and complete Google authentication again before continuing.",
     });
   }
-  return { user, googleIdentity };
-}
-
-export async function requireFreshAuthSession(
-  ctx: ReadCtx,
-  maximumAgeMs: number,
-) {
-  const current = await currentAuthSessionFreshness(ctx, maximumAgeMs);
-  if (!current.fresh) {
+  if (!googleIdentity.displayName) {
     throw new ConvexError({
-      code: "FRESH_AUTH_REQUIRED",
-      message: "Verify with Google again before performing this sensitive action.",
+      code: "GOOGLE_IDENTITY_REFRESH_REQUIRED",
+      message: "Sign out and complete Google authentication again before continuing.",
     });
   }
-  return { sessionId: current.sessionId, createdAt: current.createdAt };
-}
-
-type AuthSessionFreshness =
-  | { fresh: false }
-  | { fresh: true; sessionId: string; createdAt: number };
-
-export async function currentAuthSessionFreshness(
-  ctx: ReadCtx,
-  maximumAgeMs: number,
-): Promise<AuthSessionFreshness> {
-  const { auth, headers } = await authComponent.getAuth(createAuth, ctx);
-  const current = await auth.api.getSession({ headers });
-  if (!current) return { fresh: false };
-  const createdAt = authSessionCreatedAtMs(current.session.createdAt);
-  if (Date.now() - createdAt >= maximumAgeMs) return { fresh: false };
-  return { fresh: true, sessionId: current.session.id, createdAt };
+  return {
+    user,
+    googleIdentity: {
+      ...googleIdentity,
+      displayName: googleIdentity.displayName,
+    },
+  };
 }
 
 export async function refreshExistingPersonIdentity(
@@ -176,7 +186,7 @@ export async function ensurePerson(
 ): Promise<{
   user: Awaited<ReturnType<typeof requireAuthUser>>;
   person: Doc<"people">;
-  googleIdentity: Doc<"googleIdentityClaims">;
+  googleIdentity: Awaited<ReturnType<typeof requireVerifiedGoogleIdentity>>["googleIdentity"];
 }> {
   const { user, googleIdentity } = await requireVerifiedGoogleIdentity(ctx);
   const existing = await ctx.db
@@ -202,7 +212,7 @@ export async function ensurePerson(
     const person = await refreshExistingPersonIdentity(ctx, {
       person: existing,
       verifiedEmail,
-      displayName: user.name,
+      displayName: googleIdentity.displayName,
       now,
     });
     return { user, person, googleIdentity };
@@ -236,7 +246,7 @@ export async function ensurePerson(
     authUserId: user._id,
     googleSubject: googleIdentity.googleSubject,
     verifiedEmail,
-    displayName: user.name,
+    displayName: googleIdentity.displayName,
     status: "active",
     createdAt: now,
     updatedAt: now,
@@ -282,6 +292,11 @@ export async function requireMembership(
       code: "PARTICIPANT_MEMBERSHIP_REQUIRED",
       message: "An active participant membership is required.",
     });
+  }
+  if (process.env.C2C_DEPLOYMENT_ENVIRONMENT?.trim() === "staging") {
+    const person = await ctx.db.get(personId);
+    if (!person) throw new Error("The participant person does not exist.");
+    await requireStagingParticipantAccess(ctx, eventId, person.verifiedEmail);
   }
   return membership;
 }

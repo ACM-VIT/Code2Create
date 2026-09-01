@@ -6,6 +6,18 @@ export const participantClass = v.union(
 );
 export type ParticipantClass = Infer<typeof participantClass>;
 
+export const participantGender = v.union(
+  v.literal("male"),
+  v.literal("female"),
+);
+export type ParticipantGender = Infer<typeof participantGender>;
+
+export const vitResidenceType = v.union(
+  v.literal("day_scholar"),
+  v.literal("hosteller"),
+);
+export type VitResidenceType = Infer<typeof vitResidenceType>;
+
 export const participantEligibilityStatus = v.union(
   v.literal("pending"),
   v.literal("eligible"),
@@ -16,6 +28,7 @@ export type ParticipantEligibilityStatus = Infer<typeof participantEligibilitySt
 
 export const participantOnboardingStatus = v.union(
   v.literal("profile_required"),
+  v.literal("github_required"),
   v.literal("team_required"),
   v.literal("project_required"),
   v.literal("ready_to_submit"),
@@ -924,6 +937,17 @@ export const rosterEntryStatus = v.union(
   v.literal("superseded"),
   v.literal("expired"),
 );
+
+export const teamRosterEntryStatus = v.union(
+  v.literal("pending"),
+  v.literal("waiting_for_lead"),
+  v.literal("identity_conflict"),
+  v.literal("claimed"),
+  v.literal("skipped_has_team"),
+  v.literal("revoked"),
+  v.literal("superseded"),
+);
+export type TeamRosterEntryStatus = Infer<typeof teamRosterEntryStatus>;
 
 export const attentionSeverity = v.union(
   v.literal("critical"),

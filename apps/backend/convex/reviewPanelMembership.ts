@@ -9,8 +9,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -210,7 +208,6 @@ export const swapPanelMember = mutation({
       scopeType: "panel",
       scopeId: panel._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const round = await ctx.db.get(panel.roundId);
     if (!round) throw new Error("A review panel no longer resolves to its round.");
     if (

@@ -34,10 +34,10 @@ Deliver:
 - team create and join;
 - team leadership transfer;
 - free-text proposal intake;
-- two friendly AI follow-up questions;
-- deterministic fallback questions;
+- two required fixed proposal questions;
+- up to two grounded AI follow-up questions;
 - the live novelty number above the idea text box;
-- final preview and membership lock;
+- final preview and first immutable team snapshot;
 - immutable proposal versions;
 - lead revision before `applicationsCloseAt`;
 - stale human-review and AI-output invalidation;
@@ -50,6 +50,16 @@ Deliver:
 - participant support.
 
 Exit when two participant classes can form a valid team, transfer leadership, submit, revise before the deadline, receive a current-version human decision, and reload the same state on another device. Repeat the flow with OpenAI disabled.
+
+The participant release test also proves these boundaries:
+
+- a VIT membership created before the verified identity snapshot remains readable and repairs idempotently;
+- the configured event year accepts first through fourth year and current fifth-or-later registration cohorts without a release-year table;
+- changing idea text removes older saved, submitted, and editing vectors before replacement provider work;
+- a timeout, missing key, rate limit, or invalid embedding after an edit leaves novelty unavailable and never keeps the previous idea active;
+- an in-flight preview for older text settles stale and cannot reinsert a vector;
+- whole-idea retrieval stores one vector per team lifecycle and repeated rows from one team count once; and
+- synthetic density cases cover no close teams, a small cluster, a common cluster, and hundreds of teams while submission remains available.
 
 ## 4. Slice 2: attendance and location
 
@@ -207,7 +217,7 @@ The release ID must appear in each client and audit record where it helps incide
 
 Test:
 
-- role labels do not imply permissions;
+- protected functions never authorize from role labels; any role assignment template is materialized and ceiling-checked as atomic grants;
 - grants enforce person, event, resource, and validity scope;
 - bundle application creates explicit grants;
 - concurrent grant and revoke behavior;
@@ -215,13 +225,14 @@ Test:
 - one-team membership;
 - one-lead invariant;
 - accepted leadership transfer;
-- membership lock;
+- post-submission team changes before the applicable deadline;
+- rejection of participant team changes at or after the applicable deadline;
 - proposal revision before the deadline;
 - rejection at or after the deadline;
 - immutable proposal versions;
 - stale review and AI invalidation;
-- one-to-two-question limit;
-- deterministic AI fallback;
+- two-fixed-plus-zero-to-two-generated question contract;
+- no-model and invalid-model completion without filler questions;
 - stale novelty rejection;
 - no novelty use in admission or judging;
 - human control of admission;
@@ -246,7 +257,7 @@ Test:
 - realtime team updates;
 - leadership transfer;
 - free-text proposal flow;
-- two follow-up questions, including the required third total question;
+- two fixed questions followed by zero, one, or two generated questions;
 - novelty number position above the idea box;
 - no novelty label, theme, or prompt;
 - final membership-lock preview;
@@ -295,7 +306,24 @@ Test:
 
 ## 14. Load checks
 
-The first load run uses:
+The idea-submission release first runs the checked-in Convex realtime driver with:
+
+- 3,000 simultaneous authenticated participant clients and one distinct staging identity per client;
+- the shared public shell plus identity-scoped participant and intake subscriptions per client;
+- a 60-second ramp and at least two minutes at steady state;
+- up to 1,500 applicant teams;
+- active team presence at the ten-second heartbeat interval;
+- staggered autosaves from teams with two through five active editors;
+- a burst of novelty previews above the configured provider budget; and
+- generated-question requests that fill the intake Workpool while proposal saves and submissions continue.
+
+The authenticated run passes only when every supplied token resolves to a distinct, fully onboarded participant in a valid team, at least 99.5% of clients receive both initial results, subscription errors stay at or below 0.5%, initial-result p95 is at most five seconds, p99 is at most ten seconds, and the driver event-loop p99 stays at or below 250 milliseconds. The reported maximum clients in one team must not exceed the event's published team maximum. A public-only run proves transport capacity but cannot replace the authenticated result. Run the driver from a separate machine against a dedicated production-shaped staging target.
+
+Run the driver's separate `idea-editing` profile against a disposable `load-*` event with ordinary unsubmitted teams and a published staging novelty corpus. It spreads 25% of eligible participant clients across production presence heartbeats, chooses one committing writer per active team, and calls the working-field autosave and novelty paths. Other active teammates stay subscribed and present without turning expected optimistic conflicts into load failures. Autosave and presence p95 must be at or below two seconds, novelty action p99 at or below ten seconds, and failed workload operations must stay at or below one percent. Rate-limited novelty may return **Unavailable**; it must not become an action error or slow or block proposal editing.
+
+Run the separate `intake-burst` profile against a second fresh disposable `load-*` event. Supply every team member, with exactly one authenticated lead per team and no existing draft or application. The driver commits the idea through each lead, answers the two fixed questions, waits through the real adaptive Workpool path, and requires at least 99% of teams to reach review. Every team must see exactly two fixed questions, no team may see more than two model questions, and the run must contain at least one validated model question so a no-key or all-fallback deployment cannot pass. Save and answer p95 must be at most two seconds. Adaptive resolution p99 must remain inside 21 seconds, including propagation around the server's 20-second terminal deadline. A clear proposal may correctly receive no model question.
+
+The offline-event load run uses:
 
 - 1,200 live clients;
 - 60 attendance scans per second;
@@ -306,9 +334,9 @@ The first load run uses:
 - push and phone escalation bursts; and
 - a full attendance-session open and close.
 
-The final load run uses registered counts and the published schedule.
+The final load run uses registered counts and the published schedule. If either count exceeds its earlier envelope, the larger count becomes the required test input.
 
-The test must measure mutation latency, subscription delay, scan queue age, page-to-acknowledgement time, call escalation time, provider work age, and error rate.
+The test must measure initial subscription latency, update delay, mutation latency, Workpool queue age, novelty success/unavailable/rate-limit rates, generated-question end-to-end time, scan queue age, page-to-acknowledgement time, call escalation time, provider work age, error rate, and load-driver saturation. Optional AI degradation is acceptable only when editing and submission stay available.
 
 ## 15. Required rehearsal scenarios
 
@@ -367,15 +395,17 @@ The stored rehearsal must include these cases:
 51. A support reply races a staff state change.
 52. A permission is revoked during a protected command.
 53. A device uses an old Expo runtime.
-54. An update asset has the wrong hash.
-55. Email delivery has an unknown provider result.
-56. A Synesthesia music request is duplicated.
-57. Two operators try to start different music tracks.
-58. Convex is unavailable during active reviews.
-59. The venue loses primary internet access.
-60. A backup is restored to staging.
-61. An intelligence run loses authority while active.
-62. A separate authorized person signs the completed rehearsal.
+54. An external participant replaces an unsuitable Google display name with the name the event should use, while a VIT participant cannot edit the verified name.
+55. Participant and operations forms show product-styled field errors without native browser bubbles, and the profile write rejects short or placeholder phone values even when client validation is bypassed.
+56. An update asset has the wrong hash.
+57. Email delivery has an unknown provider result.
+58. A Synesthesia music request is duplicated.
+59. Two operators try to start different music tracks.
+60. Convex is unavailable during active reviews.
+61. The venue loses primary internet access.
+62. A backup is restored to staging.
+63. An intelligence run loses authority while active.
+64. A separate authorized person signs the completed rehearsal.
 
 ## 16. Training
 

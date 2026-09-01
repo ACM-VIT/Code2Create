@@ -54,11 +54,27 @@ describe("participant intake lifecycle", () => {
       eventSlug: fixture.eventSlug,
       participantPolicyVersionId: fixture.participantPolicyId,
       fullName: "Anika Shah",
-      institution: "Example Institute of Technology",
+      phone: "+91 90000 00000",
+      gender: "female",
       yearOfStudy: "first",
-      externalCountry: "India",
+      externalUniversity: "Example University",
+      externalCollege: "Example Institute of Technology",
       expectedProfileVersion: 0,
       clientOperationId: "intake-profile-save",
+    });
+    await backend.run(async (ctx) => {
+      const membership = await ctx.db.get(fixture.membershipId);
+      if (!membership) throw new Error("The intake membership is missing.");
+      await ctx.db.insert("githubStarCompletions", {
+        eventId: membership.eventId,
+        membershipId: fixture.membershipId,
+        personId: membership.personId,
+        githubUserId: "intake-github-user-1",
+        githubLogin: "anika-intake",
+        repositoryOwner: "sgl-project",
+        repositoryName: "sglang",
+        completedAt: Date.now(),
+      });
     });
     const team = await participant.mutation(api.teams.create, {
       eventSlug: fixture.eventSlug,
@@ -124,7 +140,11 @@ describe("participant intake lifecycle", () => {
         joinedAt: event.createdAt,
         source: "code",
       });
-      for (const permissionKey of ["team.read", "team.project.write"] as const) {
+      for (const permissionKey of [
+        "team.read",
+        "team.project.write",
+        "team.lead.accept",
+      ] as const) {
         await insertPermissionGrant(ctx, {
           eventId: event._id,
           personId,
@@ -167,7 +187,11 @@ describe("participant intake lifecycle", () => {
     expect(await participant.query(api.intakePresence.list, {
       eventSlug: fixture.eventSlug,
     })).toEqual([
-      { membershipId: secondMembershipId, surface: "idea" },
+      {
+        membershipId: secondMembershipId,
+        surface: "idea",
+        label: "the idea",
+      },
     ]);
     await secondParticipant.mutation(api.intakePresence.disconnect, {
       sessionToken: secondPresence.sessionToken,
@@ -176,18 +200,123 @@ describe("participant intake lifecycle", () => {
       eventSlug: fixture.eventSlug,
     })).toEqual([]);
 
-    const idea = "A shared campus tool that routes accessibility requests to volunteers who can help.";
+    const initialIdea = "A shared campus tool that routes accessibility requests to volunteers who can help.";
+    const idea = `${initialIdea} It prioritizes requests by the help needed.`;
+    await expect(participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "idea" },
+      value: initialIdea,
+      baseDraftVersion: 0,
+      baseCommittedValue: "",
+      expectedRevision: 0,
+    })).resolves.toMatchObject({ revision: 1 });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      workingFields: [{
+        kind: "idea",
+        value: initialIdea,
+        baseDraftVersion: 0,
+        revision: 1,
+        writtenByMembershipId: fixture.membershipId,
+      }],
+    });
+    const shortenedWorkingIdea = "A campus tool that routes accessibility requests to volunteers.";
+    await expect(participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "idea" },
+      value: shortenedWorkingIdea,
+      baseDraftVersion: 0,
+      baseCommittedValue: "",
+      expectedRevision: 1,
+    })).resolves.toMatchObject({ revision: 2 });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      workingFields: [{
+        kind: "idea",
+        value: shortenedWorkingIdea,
+        baseDraftVersion: 0,
+        revision: 2,
+        writtenByMembershipId: fixture.membershipId,
+      }],
+    });
+    await expect(participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "idea" },
+      value: "",
+      baseDraftVersion: 0,
+      baseCommittedValue: "",
+      expectedRevision: 2,
+    })).resolves.toMatchObject({ revision: 3 });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      workingFields: [{
+        kind: "idea",
+        value: "",
+        baseDraftVersion: 0,
+        revision: 3,
+        writtenByMembershipId: fixture.membershipId,
+      }],
+    });
+    await expect(secondParticipant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "idea" },
+      value: `${initialIdea} A conflicting rewrite.`,
+      baseDraftVersion: 0,
+      baseCommittedValue: "",
+      expectedRevision: 0,
+    })).rejects.toThrow("newer text");
     const savedIdea = await participant.mutation(api.intake.saveInitialIdea, {
       eventSlug: fixture.eventSlug,
-      idea,
+      idea: initialIdea,
       expectedDraftVersion: 0,
       clientOperationId: "intake-idea-save",
     });
     expect(savedIdea.draftVersion).toBe(1);
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({ workingFields: [] });
 
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: savedIdea.draftId,
-      modelAvailable: false,
+      providerAvailable: false,
+    });
+    const firstQuestionState = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    const firstQuestion = firstQuestionState?.draft?.followUps.find(
+      (question) => question.state === "active",
+    );
+    if (!firstQuestionState?.draft || !firstQuestion) {
+      throw new Error("The first idea did not produce its follow-up.");
+    }
+    await participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "idea" },
+      value: idea,
+      baseDraftVersion: firstQuestionState.draft.version,
+      baseCommittedValue: initialIdea,
+      expectedRevision: 0,
+    });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      draft: { followUps: [{ id: firstQuestion.id, state: "active" }] },
+    });
+    const revisedIdeaSave = await participant.mutation(api.intake.saveInitialIdea, {
+      eventSlug: fixture.eventSlug,
+      idea,
+      expectedDraftVersion: firstQuestionState.draft.version,
+      clientOperationId: "intake-idea-revise",
+    });
+    expect(revisedIdeaSave.draftVersion).toBe(firstQuestionState.draft.version + 1);
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      draft: { followUps: [{ state: "active", source: "fixed" }] },
+      workingFields: [],
     });
     const withQuestion = await participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
@@ -200,18 +329,66 @@ describe("participant intake lifecycle", () => {
     }
     expect(withQuestion.draft.stage).toBe("follow_up");
 
+    await expect(
+      secondParticipant.mutation(api.intakePresence.heartbeat, {
+        eventSlug: fixture.eventSlug,
+        surface: "follow_up",
+        sessionId: "ravi-missing-question-session",
+      }),
+    ).rejects.toThrow("requires its exact question");
+    const secondFollowUpPresence = await secondParticipant.mutation(
+      api.intakePresence.heartbeat,
+      {
+        eventSlug: fixture.eventSlug,
+        surface: "follow_up",
+        questionId: activeQuestion.id,
+        sessionId: "ravi-follow-up-session",
+      },
+    );
+    await expect(
+      participant.query(api.intakePresence.list, { eventSlug: fixture.eventSlug }),
+    ).resolves.toEqual([
+      {
+        membershipId: secondMembershipId,
+        surface: "follow_up",
+        questionId: activeQuestion.id,
+        label: activeQuestion.question,
+      },
+    ]);
+    await secondParticipant.mutation(api.intakePresence.disconnect, {
+      sessionToken: secondFollowUpPresence.sessionToken,
+    });
+
+    await expect(
+      participant.mutation(api.intake.respondToFollowUp, {
+        eventSlug: fixture.eventSlug,
+        questionId: activeQuestion.id,
+        answer: "",
+        expectedDraftVersion: withQuestion.draft.version,
+        clientOperationId: "intake-follow-up-empty-answer",
+      }),
+    ).rejects.toThrow("Follow-up answer must be between");
+
+    const firstFollowUpAnswer =
+      "Students with temporary or permanent access needs would use it first.";
+    await expect(participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "follow_up", questionId: activeQuestion.id },
+      value: firstFollowUpAnswer,
+      baseDraftVersion: withQuestion.draft.version,
+      baseCommittedValue: "",
+      expectedRevision: 0,
+    })).resolves.toMatchObject({ revision: 1 });
     await participant.mutation(api.intake.respondToFollowUp, {
       eventSlug: fixture.eventSlug,
       questionId: activeQuestion.id,
-      answer: "Students with temporary or permanent access needs would use it first.",
-      skipped: false,
+      answer: firstFollowUpAnswer,
       expectedDraftVersion: withQuestion.draft.version,
       clientOperationId: "intake-follow-up-answer",
     });
-    await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
-      draftId: savedIdea.draftId,
-      modelAvailable: false,
-    });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({ workingFields: [] });
     const withThirdQuestion = await participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
     });
@@ -221,20 +398,204 @@ describe("participant intake lifecycle", () => {
     if (!withThirdQuestion?.draft || !thirdQuestion) {
       throw new Error("The third total intake question did not become visible.");
     }
-    const answeredThirdQuestion = await participant.mutation(api.intake.respondToFollowUp, {
+    await participant.mutation(api.intake.respondToFollowUp, {
       eventSlug: fixture.eventSlug,
       questionId: thirdQuestion.id,
       answer: "We want to finish a reliable request handoff and completion update.",
-      skipped: false,
       expectedDraftVersion: withThirdQuestion.draft.version,
       clientOperationId: "intake-third-question-answer",
     });
+    await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
+      draftId: savedIdea.draftId,
+      providerAvailable: false,
+    });
+    const adaptiveFixture = await backend.run(async (ctx) => {
+      const draft = await ctx.db.get(savedIdea.draftId);
+      if (!draft) throw new Error("The intake draft is missing before adaptive-question setup.");
+      const activeAnswers = await ctx.db
+        .query("intakeAnswerVersions")
+        .withIndex("by_draft_status", (index) =>
+          index.eq("draftId", draft._id).eq("status", "active"),
+        )
+        .collect();
+      const now = Date.now();
+      const questionId = await ctx.db.insert("intakeGeneratedQuestions", {
+        eventId: draft.eventId,
+        teamId: draft.teamId,
+        draftId: draft._id,
+        ordinal: 3,
+        text: "What would make this useful beyond the first request?",
+        purposeKey: "experience",
+        answerLength: "short",
+        source: "model",
+        sourceAnswerVersionIds: activeAnswers.map((answer) => answer._id),
+        intakePolicyVersionId: draft.intakePolicyVersionId,
+        state: "answered",
+        validationCategory: "test_adaptive_question",
+        answeredAt: now,
+        createdAt: now,
+      });
+      const answerId = await ctx.db.insert("intakeAnswerVersions", {
+        eventId: draft.eventId,
+        teamId: draft.teamId,
+        draftId: draft._id,
+        promptKey: "introduction_follow_up_3",
+        generatedQuestionId: questionId,
+        answerVersion: 1,
+        value: "It coordinates the handoff and confirms that somebody actually responded.",
+        status: "active",
+        writtenByMembershipId: fixture.membershipId,
+        writtenAt: now,
+        clientOperationId: "intake-adaptive-answer-fixture",
+      });
+      return { answerId, questionId };
+    });
+    const reviewBeforeAnswerEdit = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    const firstAnsweredQuestion = reviewBeforeAnswerEdit?.draft?.followUps[0];
+    if (!reviewBeforeAnswerEdit?.draft || !firstAnsweredQuestion) {
+      throw new Error("The review did not retain its answered questions.");
+    }
+    const fixedResponsesBeforeIdeaEdit = reviewBeforeAnswerEdit.draft.followUps.filter(
+      (question) => question.source === "fixed",
+    );
+    const questionIdsBeforeAnswerEdit = fixedResponsesBeforeIdeaEdit.map(
+      (question) => question.id,
+    );
+    const answersBeforeIdeaEdit = fixedResponsesBeforeIdeaEdit.map(
+      (question) => question.answer,
+    );
+    const ideaAfterFixedAnswers = `${idea} A small wording update clarifies the expected demand signal.`;
+    const ideaRevision = await participant.mutation(api.intake.saveInitialIdea, {
+      eventSlug: fixture.eventSlug,
+      idea: ideaAfterFixedAnswers,
+      expectedDraftVersion: reviewBeforeAnswerEdit.draft.version,
+      clientOperationId: "intake-idea-revise-after-fixed-answers",
+    });
+    expect(ideaRevision.draftVersion).toBe(reviewBeforeAnswerEdit.draft.version + 1);
+    const reviewAfterIdeaEdit = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!reviewAfterIdeaEdit?.draft) {
+      throw new Error("The idea revision did not retain the fixed responses.");
+    }
+    expect(reviewAfterIdeaEdit.draft).toMatchObject({
+      stage: "follow_up",
+      initialIdea: ideaAfterFixedAnswers,
+      followUps: questionIdsBeforeAnswerEdit.map((id, index) => ({
+        id,
+        source: "fixed",
+        state: "answered",
+        answer: answersBeforeIdeaEdit[index],
+      })),
+    });
+    await expect(backend.run(async (ctx) => ({
+      answer: await ctx.db.get(adaptiveFixture.answerId),
+      question: await ctx.db.get(adaptiveFixture.questionId),
+    }))).resolves.toMatchObject({
+      answer: { status: "inactive_for_route" },
+      question: { state: "replaced" },
+    });
+    await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
+      draftId: savedIdea.draftId,
+      providerAvailable: false,
+    });
+    const reviewAfterIdeaRegeneration = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!reviewAfterIdeaRegeneration?.draft) {
+      throw new Error("The revised idea did not complete question regeneration.");
+    }
+    expect(reviewAfterIdeaRegeneration.draft).toMatchObject({
+      stage: "review",
+      initialIdea: ideaAfterFixedAnswers,
+      followUps: questionIdsBeforeAnswerEdit.map((id, index) => ({
+        id,
+        source: "fixed",
+        state: "answered",
+        answer: answersBeforeIdeaEdit[index],
+      })),
+    });
+    await participant.mutation(api.intake.reviseFollowUp, {
+      eventSlug: fixture.eventSlug,
+      questionId: firstAnsweredQuestion.id,
+      answer: `${firstFollowUpAnswer} The first release focuses on mobility requests.`,
+      expectedDraftVersion: reviewAfterIdeaRegeneration.draft.version,
+      clientOperationId: "intake-follow-up-revise",
+    });
+    await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
+      draftId: savedIdea.draftId,
+      providerAvailable: false,
+    });
+    const reviewAfterAnswerEdit = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!reviewAfterAnswerEdit?.draft) {
+      throw new Error("The revised intake did not return to review.");
+    }
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      draft: {
+        stage: "review",
+        followUps: questionIdsBeforeAnswerEdit.map((id) => ({ id })),
+      },
+    });
+    const additionalInformation =
+      "Our working notes and demo links are at https://example.com/accessibility-demo.";
+    await expect(participant.mutation(api.intake.saveAdditionalInformation, {
+      eventSlug: fixture.eventSlug,
+      value: "x".repeat(4_001),
+      baseValue: "",
+      expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
+      clientOperationId: "intake-additional-information-too-long",
+    })).rejects.toThrow("at most 4000 characters");
     const freshness = await participant.mutation(api.intake.setFreshnessAttestation, {
       eventSlug: fixture.eventSlug,
       accepted: true,
-      expectedDraftVersion: answeredThirdQuestion.draftVersion,
+      expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
       clientOperationId: "intake-freshness-confirm",
     });
+    await expect(participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "idea" },
+      value: ideaAfterFixedAnswers,
+      baseDraftVersion: reviewAfterAnswerEdit.draft.version,
+      baseCommittedValue: ideaAfterFixedAnswers,
+      expectedRevision: 0,
+    })).resolves.toMatchObject({ revision: 1 });
+    await participant.mutation(api.intake.saveInitialIdea, {
+      eventSlug: fixture.eventSlug,
+      idea: ideaAfterFixedAnswers,
+      expectedDraftVersion: freshness.draftVersion,
+      clientOperationId: "intake-idea-acknowledge-after-unrelated-edit",
+    });
+    await expect(participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "idea" },
+      value: `${ideaAfterFixedAnswers} A conflicting local edit.`,
+      baseDraftVersion: reviewAfterAnswerEdit.draft.version,
+      baseCommittedValue: idea,
+      expectedRevision: 0,
+    })).rejects.toThrow("changed in another session");
+    const additionalInformationSave = await participant.mutation(
+      api.intake.saveAdditionalInformation,
+      {
+        eventSlug: fixture.eventSlug,
+        value: `  ${additionalInformation}  `,
+        baseValue: "",
+        expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
+        clientOperationId: "intake-additional-information-save",
+      },
+    );
+    await expect(participant.mutation(api.intake.saveAdditionalInformation, {
+      eventSlug: fixture.eventSlug,
+      value: "A different stale edit must not replace the saved information.",
+      baseValue: "",
+      expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
+      clientOperationId: "intake-additional-information-conflict",
+    })).rejects.toThrow("changed in another session");
 
     const blockedPreview = await participant.query(api.intake.submissionPreview, {
       eventSlug: fixture.eventSlug,
@@ -257,9 +618,12 @@ describe("participant intake lifecycle", () => {
         membershipId: membership._id,
         participantClass: "external_participant",
         fullName: "Ravi Menon",
+        phone: "+91 90000 00001",
+        gender: "male",
         institution: "Example Institute of Technology",
         yearOfStudy: "first",
-        externalCountry: "India",
+        externalUniversity: "Example University",
+        externalCollege: "Example Institute of Technology",
         profileVersion: 1,
         updatedAt: Date.now(),
       });
@@ -272,8 +636,9 @@ describe("participant intake lifecycle", () => {
     expect(preview).toMatchObject({
       teamId: team.teamId,
       teamVersion: 2,
-      draftVersion: freshness.draftVersion,
-      initialIdea: idea,
+      draftVersion: additionalInformationSave.draftVersion,
+      initialIdea: ideaAfterFixedAnswers,
+      additionalInformation,
       freshnessAttested: true,
       memberCount: 2,
       members: [
@@ -299,6 +664,44 @@ describe("participant intake lifecycle", () => {
       participantPolicyVersionId: preview.participantPolicyVersionId,
       clientOperationId: "intake-final-submit",
     } as const;
+    await backend.run(async (ctx) => {
+      const membership = await ctx.db.get(secondMembershipId);
+      if (!membership) throw new Error("The second participant membership is missing.");
+      await insertPermissionGrant(ctx, {
+        eventId: membership.eventId,
+        personId: membership.personId,
+        eventAccessSubjectId: membership.eventAccessSubjectId,
+        permissionKey: "application.submit",
+        scopeType: "team",
+        scopeId: team.teamId,
+        sourceType: "manual",
+        sourceId: membership._id,
+        reason: "Prove that submission still requires current team leadership",
+      });
+    });
+    await expect(
+      secondParticipant.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).resolves.toMatchObject({
+      currentRole: "member",
+      canSubmitApplication: false,
+    });
+    await expect(
+      secondParticipant.mutation(api.intake.submit, {
+        ...submitRequest,
+        clientOperationId: "intake-member-cannot-submit",
+      }),
+    ).rejects.toThrow("Only the team lead can submit");
+    const answeredQuestion = preview.followUps[0];
+    if (!answeredQuestion) throw new Error("The submission preview has no follow-up question.");
+    const editingPresence = await secondParticipant.mutation(
+      api.intakePresence.heartbeat,
+      {
+        eventSlug: fixture.eventSlug,
+        surface: "follow_up",
+        questionId: answeredQuestion.id,
+        sessionId: "ravi-editing-before-submit",
+      },
+    );
     const submitGrantId = await backend.run(async (ctx) => {
       const membership = await ctx.db.get(fixture.membershipId);
       if (!membership) throw new Error("The participant membership is missing.");
@@ -344,6 +747,9 @@ describe("participant intake lifecycle", () => {
     ).resolves.toMatchObject({ canSubmitApplication: true });
     const started = await participant.mutation(api.intake.submit, submitRequest);
     expect(started.state).toBe("validating");
+    await secondParticipant.mutation(api.intakePresence.disconnect, {
+      sessionToken: editingPresence.sessionToken,
+    });
 
     const lockedTeam = await backend.run((ctx) => ctx.db.get(team.teamId));
     expect(lockedTeam).toMatchObject({
@@ -356,7 +762,7 @@ describe("participant intake lifecycle", () => {
       idea: `${idea} Updated after confirmation.`,
       expectedDraftVersion: preview.draftVersion,
       clientOperationId: "intake-write-after-lock",
-    })).rejects.toThrow("locked");
+    })).rejects.toThrow("submitted");
 
     await backend.mutation(internal.intake.materializeSubmissionRoster, {
       submissionAttemptId: started.submissionAttemptId,
@@ -376,7 +782,8 @@ describe("participant intake lifecycle", () => {
     expect(submitted).toMatchObject({
       currentRole: "lead",
       project: {
-        initialIdea: idea,
+        initialIdea: ideaAfterFixedAnswers,
+        additionalInformation,
       },
       application: { state: "submitted", contentVersion: 1 },
       canEdit: true,
@@ -386,7 +793,7 @@ describe("participant intake lifecycle", () => {
       eventSlug: fixture.eventSlug,
       surface: "idea",
       sessionId: "locked-idea-session",
-    })).rejects.toThrow("locked");
+    })).rejects.toThrow("submitted");
     await expect(participant.mutation(api.intakePresence.heartbeat, {
       eventSlug: fixture.eventSlug,
       surface: "proposal_revision",
@@ -419,22 +826,24 @@ describe("participant intake lifecycle", () => {
         state: "under_review",
         assignedReviewCount: 1,
         completedReviewCount: 1,
+        version: submitted.application.version + 1,
       });
       return { humanReviewId, assignmentId };
     });
-    const revisedIdea = `${idea} It also shows volunteers which request needs help next.`;
+    const revisedIdea = `${ideaAfterFixedAnswers} It also shows volunteers which request needs help next.`;
+    const revisedAdditionalInformation =
+      "Updated demo: https://example.com/accessibility-demo-v2\nRepository: https://example.com/repo";
     const revisionRequest = {
       eventSlug: fixture.eventSlug,
       applicationId: submitted.application.id,
-      expectedApplicationVersion: submitted.application.version,
       expectedApplicationContentVersion: submitted.application.contentVersion,
       expectedProjectVersionId: submitted.project.id,
       expectedProjectVersion: submitted.project.version,
       initialIdea: revisedIdea,
+      additionalInformation: revisedAdditionalInformation,
       responses: submitted.project.intakeResponses.map((response) => ({
         questionId: response.questionId,
         answer: "Students with access needs would use the updated workflow first.",
-        skipped: false,
       })),
       clientOperationId: "intake-proposal-revision",
     } as const;
@@ -444,7 +853,7 @@ describe("participant intake lifecycle", () => {
     );
     expect(revision).toMatchObject({
       projectVersion: 2,
-      applicationVersion: submitted.application.version + 1,
+      applicationVersion: submitted.application.version + 2,
       applicationContentVersion: 2,
     });
     await expect(
@@ -453,7 +862,12 @@ describe("participant intake lifecycle", () => {
     await expect(
       participant.query(api.intake.submitted, { eventSlug: fixture.eventSlug }),
     ).resolves.toMatchObject({
-      project: { id: revision.projectVersionId, initialIdea: revisedIdea, version: 2 },
+      project: {
+        id: revision.projectVersionId,
+        initialIdea: revisedIdea,
+        additionalInformation: revisedAdditionalInformation,
+        version: 2,
+      },
       application: { contentVersion: 2 },
     });
 
@@ -501,6 +915,217 @@ describe("participant intake lifecycle", () => {
       confirmedByMembershipId: fixture.membershipId,
       confirmedAt: stored.attempt?.createdAt,
     });
+
+    const thirdAuthUserId = await createAuthUser(
+      backend,
+      Date.now(),
+      "Meera Kapoor",
+      "meera@example.test",
+    );
+    const thirdAuthSessionId = await createAuthSession(
+      backend,
+      thirdAuthUserId,
+      Date.now(),
+      "meera-intake-session-token",
+    );
+    const thirdMembershipId = await backend.run(async (ctx) => {
+      const event = await ctx.db
+        .query("events")
+        .withIndex("by_slug", (index) => index.eq("slug", fixture.eventSlug))
+        .unique();
+      if (!event) throw new Error("The intake event is missing.");
+      const personId = await ctx.db.insert("people", {
+        authUserId: thirdAuthUserId,
+        googleSubject: "meera-intake-google-subject",
+        verifiedEmail: "meera@example.test",
+        displayName: "Meera Kapoor",
+        status: "active",
+        createdAt: event.createdAt,
+        updatedAt: event.createdAt,
+      });
+      const subjectId = await ctx.db.insert("eventAccessSubjects", {
+        eventId: event._id,
+        personId,
+        emailNormalized: "meera@example.test",
+        displayName: "Meera Kapoor",
+        status: "active",
+        linkedBy: "participant_provisioning",
+        accessVersion: 1,
+        createdAt: event.createdAt,
+        updatedAt: event.createdAt,
+      });
+      const membershipId = await ctx.db.insert("eventMemberships", {
+        eventId: event._id,
+        personId,
+        eventAccessSubjectId: subjectId,
+        participantClass: "external_participant",
+        eligibilityStatus: "eligible",
+        onboardingStatus: "project_required",
+        acceptedParticipantPolicyVersionIds: [fixture.participantPolicyId],
+        createdAt: event.createdAt,
+        updatedAt: event.createdAt,
+      });
+      await ctx.db.insert("participantProfiles", {
+        eventId: event._id,
+        membershipId,
+        participantClass: "external_participant",
+        fullName: "Meera Kapoor",
+        phone: "+91 90000 00002",
+        gender: "female",
+        institution: "Example Institute of Technology",
+        yearOfStudy: "first",
+        externalUniversity: "Example University",
+        externalCollege: "Example Institute of Technology",
+        profileVersion: 1,
+        updatedAt: event.createdAt,
+      });
+      await ctx.db.insert("githubStarCompletions", {
+        eventId: event._id,
+        membershipId,
+        personId,
+        githubUserId: "intake-github-user-3",
+        githubLogin: "meera-intake",
+        repositoryOwner: "sgl-project",
+        repositoryName: "sglang",
+        completedAt: event.createdAt,
+      });
+      await insertPermissionGrant(ctx, {
+        eventId: event._id,
+        personId,
+        eventAccessSubjectId: subjectId,
+        permissionKey: "team.join",
+        scopeType: "self",
+        scopeId: membershipId,
+        sourceType: "participant_membership",
+        sourceId: membershipId,
+        reason: "Submitted roster revision fixture",
+      });
+      return membershipId;
+    });
+    const thirdParticipant = backend.withIdentity({
+      subject: thirdAuthUserId,
+      sessionId: thirdAuthSessionId,
+    });
+    await thirdParticipant.mutation(api.teams.join, {
+      eventSlug: fixture.eventSlug,
+      code: team.publicCode,
+      clientOperationId: "join-after-final-submission",
+    });
+    const afterJoin = await participant.query(api.intake.submitted, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(afterJoin).toMatchObject({
+      application: { contentVersion: 3 },
+      project: { version: 3 },
+    });
+    const rosterAfterJoin = await participant.query(api.teams.members, {
+      eventSlug: fixture.eventSlug,
+      paginationOpts: { numItems: 5, cursor: null },
+    });
+    const thirdTeamMember = rosterAfterJoin.page.find(
+      (member) => member.membershipId === thirdMembershipId,
+    );
+    const secondTeamMember = rosterAfterJoin.page.find(
+      (member) => member.membershipId === secondMembershipId,
+    );
+    if (!thirdTeamMember) throw new Error("The joined submitted-team member is missing.");
+    if (!secondTeamMember) throw new Error("The existing submitted-team member is missing.");
+    const teamAfterJoin = await participant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!teamAfterJoin) throw new Error("The submitted team disappeared after a member joined.");
+    await participant.mutation(api.teams.removeMember, {
+      eventSlug: fixture.eventSlug,
+      teamId: team.teamId,
+      targetTeamMemberId: thirdTeamMember.teamMemberId,
+      expectedTeamVersion: teamAfterJoin.version,
+      clientOperationId: "remove-after-final-submission",
+    });
+    await expect(participant.query(api.intake.submitted, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      application: { contentVersion: 4 },
+      project: { version: 4 },
+    });
+
+    const minimumSizeTeam = await participant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!minimumSizeTeam) throw new Error("The submitted team is missing at minimum size.");
+    await expect(participant.mutation(api.teams.removeMember, {
+      eventSlug: fixture.eventSlug,
+      teamId: team.teamId,
+      targetTeamMemberId: secondTeamMember.teamMemberId,
+      expectedTeamVersion: minimumSizeTeam.version,
+      clientOperationId: "reject-invalid-submitted-roster",
+    })).rejects.toThrow("must keep 2 to 5 eligible members");
+    await expect(participant.query(api.intake.submitted, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      application: { contentVersion: 4 },
+      project: { version: 4 },
+    });
+
+    const teamBeforeTransfer = await participant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!teamBeforeTransfer) throw new Error("The submitted team is missing before transfer.");
+    const transfer = await participant.mutation(api.teams.requestLeadershipTransfer, {
+      eventSlug: fixture.eventSlug,
+      toMembershipId: secondMembershipId,
+      expectedTeamVersion: teamBeforeTransfer.version,
+      clientOperationId: "transfer-after-final-submission",
+    });
+    await secondParticipant.mutation(api.teams.respondToLeadershipTransfer, {
+      eventSlug: fixture.eventSlug,
+      transferId: transfer.transferId,
+      accept: true,
+      clientOperationId: "accept-transfer-after-final-submission",
+    });
+    await expect(secondParticipant.query(api.intake.submitted, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      currentRole: "lead",
+      application: { contentVersion: 5 },
+      project: { version: 5 },
+    });
+    const currentSnapshot = await backend.run(async (ctx) => {
+      const currentTeam = await ctx.db.get(team.teamId);
+      const currentProject = currentTeam?.lockedProjectVersionId
+        ? await ctx.db.get(currentTeam.lockedProjectVersionId)
+        : null;
+      return { currentTeam, currentProject };
+    });
+    expect(currentSnapshot.currentProject).toMatchObject({
+      lockedMemberCount: 2,
+      lockedLeadMembershipId: secondMembershipId,
+      rosterRevision: {
+        changedByMembershipId: secondMembershipId,
+      },
+    });
+
+    await backend.run(async (ctx) => {
+      const event = await ctx.db
+        .query("events")
+        .withIndex("by_slug", (index) => index.eq("slug", fixture.eventSlug))
+        .unique();
+      if (!event) throw new Error("The intake event is missing at deadline close.");
+      await ctx.db.patch(event._id, {
+        externalApplicationsCloseAt: Date.now() - 1,
+        version: event.version + 1,
+        updatedAt: Date.now(),
+      });
+    });
+    const closedTeam = await secondParticipant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!closedTeam) throw new Error("The submitted team is missing after the deadline.");
+    await expect(secondParticipant.mutation(api.teams.requestLeadershipTransfer, {
+      eventSlug: fixture.eventSlug,
+      toMembershipId: fixture.membershipId,
+      expectedTeamVersion: closedTeam.version,
+      clientOperationId: "transfer-after-deadline",
+    })).rejects.toThrow("Applications are closed");
   }, 15_000);
 });
 
@@ -525,7 +1150,8 @@ async function seedFixture(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      externalApplicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,

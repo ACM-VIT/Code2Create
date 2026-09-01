@@ -77,7 +77,7 @@ Key fields:
 - claimed person/subject, claim operation ID, and claimed time when claimed;
 - revoking person, revoke operation ID/reason, and revoked time when revoked.
 
-At most one effective pending invitation exists for an event/email. Creation, claim, and revocation are idempotent operations. Creation and revocation require event-scoped `access.subjects.invite` plus a Google session created within the last 15 minutes. Claim requires the exact verified Google email, not a permission grant. Claim, revoke, and the version-guarded scheduled expiry all read and write the same invitation record, so only one state transition commits. A delayed expiry job cannot invalidate a claim because its expected version no longer matches.
+At most one effective pending invitation exists for an event/email. Creation, claim, and revocation are idempotent operations. Creation and revocation require event-scoped `access.subjects.invite` plus a current scoped authorization. Claim requires the exact verified Google email, not a permission grant. Claim, revoke, and the version-guarded scheduled expiry all read and write the same invitation record, so only one state transition commits. A delayed expiry job cannot invalidate a claim because its expected version no longer matches.
 
 ### `eventMemberships`
 
@@ -90,14 +90,28 @@ Key fields:
 - `eventId`, `personId`, `eventAccessSubjectId`
 - `participantClass: vit_student | external | none`
 - `eligibilityStatus: pending | eligible | rejected | suspended`
-- `onboardingStatus: profile_required | team_required | project_required | ready_to_submit | submitted | selected | offer_pending | accepted`
+- `onboardingStatus: profile_required | github_required | team_required | project_required | ready_to_submit | submitted | selected | offer_pending | accepted`
 - exact `acceptedParticipantPolicyVersionIds`;
 - `googleHostedDomain?`
 - `createdAt`, `updatedAt`
 
 One active membership exists per event/person.
 
-`selected` means the human acceptance is published but no offer is open. `offer_pending` means the exact locked roster has reserved places and awaits its locked lead. `accepted` is deliberately the final membership state after offer confirmation and is the only one of those three that enables attendance, hall mapping, and review queues.
+`github_required` means the profile is complete but the participant has not completed the mandatory SGLang contribution step. The server requires a `githubStarCompletion` before team creation, team joining, or imported-roster claim.
+
+### `githubStarSetupIntents`
+
+One short-lived, participant-scoped GitHub OAuth attempt. It stores the event, membership, person, hashed state, encrypted PKCE verifier, exact redirect URI, status, claim lease, expiry, and completion or failure metadata. Raw OAuth state and tokens are never stored. A scheduled mutation expires unused attempts.
+
+### `githubStarAuthorizations`
+
+One temporary GitHub user authorization for a participant who connected GitHub but has not completed the star. It stores the event, membership, person, GitHub user ID/login, encrypted access token, hard expiry, and an optimistic provider-call lease. One GitHub user can be active for only one membership in an event. The record is deleted immediately after successful completion or when its authorization expires.
+
+### `githubStarCompletions`
+
+One durable completion per event/membership. It stores the participant and GitHub identities, the fixed `sgl-project/sglang` repository identity, and server completion time. The same GitHub user cannot complete the step for two participants in one event. It stores no OAuth credential.
+
+`selected` means the human acceptance is published but no offer is open. `offer_pending` means the exact deadline-frozen roster has reserved places and awaits its current lead. `accepted` is deliberately the final membership state after offer confirmation and is the only one of those three that enables attendance, hall mapping, and review queues.
 
 ### `eventRoles`
 
@@ -115,9 +129,9 @@ Key fields:
 - `createdAt`, assignment reason;
 - `endedAt?`, `endedByPersonId?`, and `endReason?` for replaced, revoked, or expired rows.
 
-Protected functions do not query this table to authorize a request. The role is used for roster grouping, display, training, and suggesting a default permission bundle. Changing it changes no grant. Applying the new suggestion or removing prior template-sourced grants is a separate, previewed, separately authorized batch.
+Protected functions do not query this table to authorize a request. The role is used for roster grouping, display, training, and selecting a code-owned default template. The role command expands that template, validates every grant or removal against the actor's separate ceiling, and changes only `role_template` grants attributed to the affected role row. Versioned permission bundles remain separate.
 
-The deployed set command checks `access.roles.assign` for the target person, the subject's optimistic `accessVersion`, a session created within the last 15 minutes, and a reason. It ends the one active row before inserting a replacement and increments the subject version in the same transaction. Clearing a label inserts no sentinel row.
+The deployed set command checks `access.roles.assign` for the target person, the subject's optimistic `accessVersion`, a current scoped authorization, and a reason. It expands the selected and prior templates before writing, checks every planned addition/removal against the actor's grant/revoke ceiling, ends the one active row, revokes only that row's template grants, inserts a replacement when requested, materializes the replacement template, and increments the subject version in the same transaction. Clearing a role inserts no sentinel row.
 
 ### `rosterImports`
 
@@ -148,7 +162,7 @@ Key fields:
 - optional claimed person, event access subject, event role, permission-grant batch IDs, Better Auth user, Google subject, operation, and time;
 - optional superseding row/time, revoker/operation/reason/time, or expiry time.
 
-Claiming reloads and checksum-validates the import and every pinned bundle version. Creating/reusing the event subject, creating or validating its role label, materialising every missing atomic bundle grant, completing their source-attributed batches, linking the verified identity, and marking the row claimed happen in one mutation. A later import never edits a claimed row.
+Claiming reloads and checksum-validates the import and every pinned bundle version. Creating/reusing the event subject, creating or validating its role, materializing its code-owned template when one exists, materializing every missing atomic bundle grant, completing their source-attributed batches, linking the verified identity, and marking the row claimed happen in one mutation. A later import never edits a claimed row.
 
 ### Code-owned permission catalog
 
@@ -157,7 +171,7 @@ Permissions are definitions in version-controlled server code, not editable data
 - one stable key and plain-language purpose;
 - allowed scope types and whether event-wide scope is legal;
 - a closed schema for optional constraints;
-- fresh-authentication, reason, device, and audit requirements;
+- current authorization, reason, device, and audit requirements;
 - the protected queries/commands allowed to require that key.
 
 Permission-key meaning is immutable. A newly protected operation or broader scope gets a new key rather than silently expanding existing grants. Safety constraints may narrow immediately; removing a key requires a migration that finds affected grants first.
@@ -243,7 +257,7 @@ The schema does not predeclare placeholder scope types. A later feature adds its
 
 `access.permissions.grant_any` is event-scoped and can grant any catalog key to any event-linked person. `access.permissions.revoke_any` separately revokes grants in that event; neither implies the other. Each `access.permissions.grant_scoped` or `access.permissions.revoke_scoped` row names one non-administrative permission key, one exact legal resource scope, an exact active target person or the explicit `any_event_person` value, and a required expiry. For grant authority, that same time is the latest expiry it may issue. Several delegation rows are required for several keys or resources. Target-owned self, reviewer-page, and reviewer-owned scorecard scopes cannot use the broad target boundary.
 
-Grant and revoke commands reject cross-event targets, unknown or wildcard keys, missing/foreign scopes, invalid constraint combinations, an excluded target person, expiry beyond the actor’s ceiling, and self-escalation. Reading another person’s grants, looking up event people, assigning a role label, importing a roster, publishing/applying/migrating bundles, granting, and revoking are independent permission checks.
+Grant and revoke commands reject cross-event targets, unknown or wildcard keys, missing/foreign scopes, invalid constraint combinations, an excluded target person, expiry beyond the actor’s ceiling, and self-escalation. Reading another person’s grants, looking up event people, assigning a role, importing a roster, publishing/applying/migrating bundles, granting, and revoking remain independent permission checks; a templated role assignment must satisfy both `access.roles.assign` and every applicable grant/revoke ceiling.
 
 Direct grant and revoke batches contain one to twenty unique entries for one event access subject. A grant batch has one optional common expiry and one reason. A revoke batch names only current active or scheduled grant IDs and has one reason. The command validates every row and every authorizing grant before the first write. One batch cannot mix unrestricted and delegated authority. A successful grant batch uses `access.grant_batch:<clientOperationId>` as the common manual or delegated source, stores each grant as an ordinary `permissionGrants` row, advances the subject's `accessVersion` at most once, and records one aggregate operation result and audit event. A successful revoke batch revokes every selected row, advances the version once, and records the same aggregate evidence. These direct operations do not create `permissionGrantBatches`; that table remains provenance for versioned permission-bundle applications and migrations.
 
@@ -252,8 +266,6 @@ Grant authority never satisfies the underlying protected function. Scoped grant 
 Grant creation stores a future row as `scheduled` and atomically schedules state-checked internal mutations at its start and optional end. A 15-second repair sweep reads bounded `status + validFrom` and `status + validUntil` index ranges; when more due rows remain, it immediately schedules another batch. Exact jobs advance the affected subject’s `accessVersion`; a repair batch advances each affected subject once. Every path reloads current status, so revocation or supersession makes stale work a no-op. Protected functions also compare server time to `validFrom`/`validUntil`; delayed expiry materialization can make history briefly stale but can never extend access.
 
 The row-insert boundary validates that `eventId`, `personId`, and `eventAccessSubjectId` identify one active account, then returns the exact grant ID and whether it created a row. Commands group related row inserts and advance the subject once only when that group created something. An idempotent source retry returns existing IDs and leaves `accessVersion` unchanged. A brand-new subject is committed with its initial grant set and version `1`; no client can observe the subject before that transaction commits.
-
-The operations client does not treat a completed OAuth popup as proof that the protected command may resume. It reads `freshAuthenticationStatus` through the current Convex identity. Only a `fresh: true` result releases the one shared waiting operation. The client then retries the same immutable mutation closure and operation ID once. Closing the prompt rejects the local wait and performs no domain write.
 
 ### `reviewerDevices`
 
@@ -284,9 +296,12 @@ Key fields:
 - college/university/institution/organization and current year-of-study or current-role key;
 - participant-class and deterministic admissions experience-band source fields;
 - VIT registration/programme/campus fields when applicable;
+- VIT hostel residence from the closed Vellore catalog (day scholar, men's blocks including B, ladies' blocks including S) and room number when the residence is a hostel block;
 - external city/country fields when the accepted policy permits them;
 - `profileVersion`
 - `updatedAt`
+
+For VIT participants, the stored full name comes from the verified VIT Google identity and cannot be replaced by the client. External participants send an event-facing full name because their Google display name is not authoritative. Contact numbers are normalized before storage. Shared domain validation rejects malformed or obvious placeholder names and numbers on both the client and the server.
 
 Completeness is derived against an exact policy version; it is not stored as a boolean that can become stale after publication. Sensitive dietary, accessibility, or eligibility material belongs in its protected support/evidence record rather than this profile.
 
@@ -295,7 +310,7 @@ Completeness is derived against an exact policy version; it is not stored as a b
 ### `events`
 
 - name, slug, timezone;
-- authoritative `applicationsOpenAt` and `applicationsCloseAt`, check-in windows, and event window;
+- authoritative `externalApplicationsCloseAt` and VIT `applicationsCloseAt`, check-in windows, and event window;
 - status;
 - active participant, admission, communications, attendance, integration, security, retention, and Synesthesia configuration IDs;
 - published event-phase-schedule, project-checkpoint-plan, atomic intake-policy, novelty-corpus, admission-policy, and admission-model-configuration version IDs;
@@ -311,15 +326,15 @@ One immutable registration and team-policy release.
 
 - `eventId`, monotonic numeric version, and `status: draft | published | superseded | retired`;
 - participant-facing label;
-- positive whole-number team minimum/maximum chosen by operations, with the maximum no greater than the current published admission participant capacity, and whether VIT/external mixed teams are allowed;
-- `not_collected | optional | required` modes for phone, VIT registration number, VIT programme, VIT campus, external city, and external country;
+- positive whole-number team minimum/maximum chosen by operations, with the maximum no greater than the current published admission participant capacity;
+- `not_collected | optional | required` modes for phone, VIT registration number, VIT programme, VIT campus, VIT hostel details, external city, and external country;
 - profile-use notice, project-text processing notice, and credential-free HTTPS privacy-notice URL;
-- the fixed fresh-project acknowledgment and a bounded final warning that states that team membership locks;
+- the fixed fresh-project acknowledgment and a bounded final warning that states that the current application is submitted for review and team and proposal changes remain open until the applicable deadline;
 - checksum, creator/time, and optional publication time.
 
-One event has at most one draft and one published row. Draft replacement is optimistic and retires the previous draft. Publication revalidates the complete content, admission capacity, exact draft/checksum/event version, recent Google session, and reason. When the minimum increases, maximum decreases, or mixed teams become disallowed, the same transaction reads the bounded non-withdrawn event-team set and enough indexed active-member rows to prove every roster conforms. Withdrawn teams are history and do not block a future policy. An incompatible current roster blocks publication, and a concurrent join conflicts with that proof. A valid publication supersedes the old row and moves `events.publishedParticipantPolicyId` in the same transaction. `events` no longer duplicates team-size, warning, or participant-policy strings.
+One event has at most one draft and one published row. Draft replacement is optimistic and retires the previous draft. Publication revalidates the complete content, admission capacity, exact draft/checksum/event version, recent Google session, and reason. When the minimum increases or maximum decreases, the same transaction reads the bounded non-withdrawn event-team set and enough indexed active-member rows to prove every roster conforms. Withdrawn teams are history and do not block a future policy. An incompatible current roster blocks publication, and a concurrent join conflicts with that proof. A valid publication supersedes the old row and moves `events.publishedParticipantPolicyId` in the same transaction. `events` no longer duplicates team-size, warning, or participant-policy strings.
 
-Event memberships retain the exact policy IDs that their owner accepted. Participant reads derive current completeness from membership acceptance, the published policy, and saved profile fields. An eligible participant can create or join a team after accepting the current publication even when the profile is incomplete. Join also checks capacity and the mixed-class rule. Final preview returns the exact policy ID and warning. Submission rechecks that ID, every active member's acceptance and complete profile, team bounds, mixed-class rule, draft, lead, and `applicationsCloseAt` in one transaction. It then pins the policy ID in the proposal snapshot and membership lock.
+Event memberships retain the exact policy IDs that their owner accepted. Participant reads derive current completeness from membership acceptance, the published policy, and saved profile fields. An eligible participant can create or join a team after accepting the current publication even when the profile is incomplete. Join also checks capacity and requires every active member to have the same verified class. Final preview returns the exact policy ID, warning, and class-specific deadline. Submission rechecks that ID, every active member's acceptance and complete profile, team bounds, single-class roster, draft, lead, and applicable deadline in one transaction. It then pins the policy ID in the first immutable application snapshot. A later team change repeats those checks and creates a replacement current snapshot in the same transaction as the change.
 
 ### `communicationsPolicyVersions`
 
@@ -363,13 +378,13 @@ The unauthenticated event projection exposes only the current published rows and
 
 ### `intakePolicyVersions`
 
-One immutable version owns the complete pre-event introduction contract. These values publish together because splitting the shell, route, fallbacks, safety wording, and model settings would allow combinations that were never reviewed.
+One immutable version owns the complete pre-event introduction contract. These values publish together because splitting the shell, fixed questions, generated route, safety wording, and model settings would allow combinations that were never reviewed.
 
 - `eventId`, monotonic version, and `status: draft | published | superseded | retired`;
 - fixed opening **Hello.**, fixed first prompt **What is your project about?**, concise help text, and initial-answer limits;
-- follow-up answer limits, fixed minimum of one, fixed maximum of two, deterministic question count, and generated-question length limit;
+- follow-up answer limits, two required fixed questions, zero-to-two generated questions, and the generated-question length limit;
 - unique allowed purpose keys from `user | problem | experience | event_goal | tradeoff | risk`;
-- exactly two ordered fallback questions with text, purpose, and `short | medium` answer length;
+- exactly two ordered fixed questions with text, purpose, and `short | medium` answer length;
 - required prohibited wording plus optional additional blocked terms;
 - zero to twenty reviewed common-idea patterns `{ stableKey, description, supportiveQuestionGuidance }`;
 - model contract `{ mode: deterministic }` or `{ mode: assisted, modelId, systemInstruction, instructionVersion, schemaVersion, redactionVersion, questionPolicyVersion, evaluationSuiteVersion }`;
@@ -377,7 +392,7 @@ One immutable version owns the complete pre-event introduction contract. These v
 
 `events.publishedIntakePolicyId` points to the one published version. At most one draft exists. Saving a changed complete draft retires the previous draft; publishing requires that exact draft ID and checksum, the current event version, a recent Google session, and a reason. It marks the old published row `superseded` and moves the event pointer in the same transaction. A participant draft pins the published ID when the first idea is saved and never adopts a later publication.
 
-The normalizer enforces the exact opening copy, numeric bounds, one-to-two-question contract, unique purposes and blocked terms, required safety terms, contiguous fallback ordinals, single-question fallback wording, allowed fallback purposes, unique pattern keys, and bounded assisted-model settings. Common-idea patterns contain no prior participant text, institution, outcome, embedding, or copied summary. They can guide a supportive question but cannot become an admission criterion.
+The normalizer enforces the exact opening copy, numeric bounds, two-fixed-plus-two-optional contract, unique purposes and blocked terms, required safety terms, contiguous fixed-question ordinals, single-question wording, allowed purposes, unique pattern keys, and bounded assisted-model settings. Generated output must reference active answer versions and provide one to three grounding terms copied from those answers. At least one grounding term must appear in the question. Common-idea patterns contain no prior participant text, institution, outcome, embedding, or copied summary. They can guide a supportive question but cannot become an admission criterion.
 
 ### `noveltyCorpusVersions`
 
@@ -401,7 +416,18 @@ Only one draft and one published row may exist per event. Draft creation require
 - one finite 1,536-value embedding produced by `text-embedding-3-small`;
 - creation time.
 
-A corpus contains 5 to 200 entries. Source keys are unique. Source years cannot be later than the current server year. Summaries are bounded and non-identifying. The importer checks contact, identifier, and credential patterns before provider work. It embeds the complete normalized set without a dimensions override. It validates each provider result and replaces all child rows in one transaction. A partial provider batch never becomes a ready corpus.
+A corpus contains 5 to 300 entries. Source keys are unique. Source years cannot be later than the current server year. Summaries are bounded and non-identifying. The importer checks contact, identifier, and credential patterns before provider work. It embeds the complete normalized set without a dimensions override. It validates each provider result and replaces all child rows in one transaction. A partial provider batch never becomes a ready corpus.
+
+### `noveltyTeamIdeas`
+
+- `eventId`, `teamId`, and input fingerprint;
+- lifecycle `editing | saved | submitted`;
+- one finite native 1,536-value complete-idea embedding;
+- source update time and index update time.
+
+The table stores no raw idea. One team has at most one current row for editing and one current durable row for saved or submitted text. Each row is the complete idea; the provider request, response, and retrieval path contain no segment embeddings. Editing rows expire after the short live-edit window. If retrieval sees both rows, the durable row is authoritative and the editing row does not add or replace that team's density contribution. An authoritative idea change deletes all older rows and makes running preview requests stale in the same transaction. Provider failure after that transaction leaves no current replacement row and therefore cannot preserve an obsolete idea in density results.
+
+Saved and submitted replacement indexing uses the rate-limiter component under a background-only sharded reservation budget. The default sustained budget is 300 embeddings per minute and is deployment-configurable through `NOVELTY_INDEX_REQUESTS_PER_MINUTE`; at most 1,500 future tokens can be reserved. A delayed action carries only record IDs, fingerprints, timestamps, retry count, and reservation state. It reloads the authoritative draft or submitted version before external work. Provider failure gets no more than two retries, and each retry reserves new background capacity. Participant preview capacity and proposal writes do not wait for this drain.
 
 ### `noveltyPreviewRequests`
 
@@ -409,16 +435,18 @@ A corpus contains 5 to 200 entries. Source keys are unique. Source years cannot 
 - client request ID, normalized input fingerprint, and character count, but no raw idea text;
 - `state: running | succeeded | unavailable | failed | stale`;
 - optional whole-number score and internal nearest similarity;
-- optional provider request ID, latency, non-sensitive failure category, and request/completion time.
+- optional provider request ID, remaining-request/reset headers, latency, non-sensitive failure category, and request/completion time.
 
-One team/client-request range makes the public action idempotent. A second use with different input fails. A successful same-team/corpus/fingerprint row may be reused for 30 minutes, and a bounded team/time range enforces the published minute limit. A sensitive-looking idea returns unavailable before a request row or provider call exists. Only a current successful request may be copied onto the mutable project draft; preview rows never become application, admission, review, or score evidence.
+One team/client-request range makes the public action idempotent. A second use with different input fails. Exact running work for one team/input coalesces, and a successful same-team/corpus/fingerprint row may be reused for 30 seconds. The rate-limiter component enforces a sharded deployment budget and the published per-team minute budget without scanning preview history. A denied capacity request is settled as unavailable so event health includes load shedding. A sensitive-looking idea returns unavailable before a request row or provider call exists. Only a current successful request may be copied onto the mutable project draft; preview rows never become application, admission, review, or score evidence.
+
+`noveltyPreviewRequests.by_team_state_requested` lets an accepted idea edit invalidate only that team's running requests without a table scan. A late action cannot store a team vector from a stale request.
 
 ### `admissionPolicyVersions`
 
 One immutable release owns the complete human admissions contract.
 
 - `eventId`, unique public version label, and `status: draft | published | superseded | retired`;
-- explicit `aiRecommendationMode: enabled | disabled`;
+- the code-owned AI recommendation release marker;
 - minimum human-review count from one through five and a positive whole-number overall participant capacity chosen by operations;
 - one through twelve uniquely keyed criteria, each with a label and complete guidance for `firstYear`, `earlyYear`, `laterYear`, `postgraduateOrProfessional`, and `mixedOrExternal`;
 - four through twenty uniquely keyed human decision reasons, each permitting one or more of `accept | waitlist | decline | needs_information`, with every disposition covered by at least one reason;
@@ -428,13 +456,13 @@ The policy uses different guidance for each experience band. It is the public ad
 
 ### `admissionModelConfigVersions`
 
-The optional model release is a child of exactly one admission-policy version.
+The model release is a code-owned child of exactly one admission-policy version.
 
 - `eventId`, owning `admissionPolicyVersionId`, unique release label, and the same lifecycle status as its policy;
 - approved OpenAI model ID plus prompt, Structured Output schema, and evaluation-suite version labels;
 - checksum, creator/time, and optional publication time.
 
-Draft replacement retires the previous policy and its model together. Publication checks the exact policy/model IDs and checksums, event version, fresh Google session, reason, and idempotent operation ID. One mutation supersedes the prior pair, publishes the new pair or explicit human-only policy, creates its empty overall `admissionCapacityBuckets` row, and moves both event pointers. An enabled policy must have its own matching model; a disabled policy has neither a model row nor model pointer.
+Draft replacement retires the previous policy and its model together. Publication checks the exact policy/model IDs and checksums, event version, current scoped authorization, reason, and idempotent operation ID. One mutation supersedes the prior pair, publishes the new pair, creates its empty overall `admissionCapacityBuckets` row, and moves both event pointers. Every new policy has its own matching model; provider failure affects only the advisory result and never blocks human review.
 
 The first validating or finalizing submission attempt, and then the first submitted application, permanently closes admission draft replacement and publication for the event. Submission start pins the published pair on its durable attempt. Successful finalization copies that policy ID to the immutable proposal version and application. A publication and submission race has one serial result.
 
@@ -448,11 +476,11 @@ Participant, admission, intake, novelty, phase, checkpoint, communications, and 
 - novelty import owns corpus safety, native embedding width, complete-set replacement, and similarity boundaries;
 - phase validation owns the five ordered windows;
 - checkpoint validation owns its three ordered definitions and phase references; and
-- admission validation owns complete band guidance, human-review coverage, capacity, human reason coverage, and the optional paired model limits.
+- admission validation owns complete band guidance, human-review coverage, capacity, and human reason coverage; the platform owns the paired model release.
 
-The release suite covers assisted generation, deterministic mode, invalid/refused/timed-out model output, question-policy rejection, one-question early stop, two-question completion, answer revision, late completion, and publication while participants are active. A referenced evaluation-suite version is audit metadata; the application must not claim that publication ran an external suite unless the release record proves it.
+The release suite covers both fixed questions, no generated question, one or two generated questions, invalid/refused/timed-out model output, grounding rejection, answer revision and regeneration, late completion, and publication while participants are active. A referenced evaluation-suite version is audit metadata; the application must not claim that publication ran an external suite unless the release record proves it.
 
-Admission publication treats the human policy and optional model as one release. Human review remains available when the policy explicitly disables AI or a configured model later fails.
+Admission publication treats the human policy and its model as one release. Human review remains available when the configured provider later fails.
 
 ### `reviewRounds`
 
@@ -502,7 +530,7 @@ The criterion array is frozen after publication. Scorecards store its version ID
 - lead membership ID;
 - `status: forming | profile_in_progress | submitted | admitted | confirmed | checked_in | active | completed | withdrawn | disqualified`;
 - authoritative active-member, VIT-member, and external-member counts maintained with every active-member transition;
-- membership-lock state, current submission-attempt ID, current proposal-version ID, locked time, and exact participant-policy version ID used for the lock;
+- submission-materialization state, current submission-attempt ID, current proposal-version ID, first-submitted time, and exact participant-policy version ID used for submission;
 - `version`;
 - created/updated time.
 
@@ -515,11 +543,11 @@ The criterion array is frozen after publication. Scorecards store its version ID
 
 The mutation that adds an active member first queries `by_event_membership_status`, preventing a person from joining two active teams in the same event.
 
-Exactly one active team member has `role: lead`. Ordinary membership and role mutations require the team to be unlocked.
+Exactly one active team member has `role: lead`. Ordinary membership and role mutations require server time before the deadline for the team's verified participant class. When an application exists, the same transaction must also refresh its immutable roster and proposal snapshot or reject the team change.
 
 ### `teamSubmissionAttempts` and `teamSubmissionMembers`
 
-One durable attempt owns final-submission materialization. The attempt pins the event, team, draft, requester, authorizing grants, operation fingerprint, source and locked versions, participant and admission policies, pagination cursor, processed class and year projections, terminal result, and a bounded failure code and message. Its state is `validating | finalizing | complete | failed`.
+One durable attempt owns final-submission materialization. A completed synthetic attempt also records each accepted post-submission roster revision. The attempt pins the event, team, draft, requester, authorizing grants, operation fingerprint, source and snapshot versions, participant and admission policies, pagination cursor, processed class and year projections, terminal result, and a bounded failure code and message. Its state is `validating | finalizing | complete | failed`.
 
 `teamSubmissionMembers` stores one immutable row per active member for that attempt: stable ordinal, team-member/membership/person IDs, role and participant class, display/profile fields, verified destination email, and materialization time. Indexed pages by attempt are the roster consumed by applications, offers, notifications, and review projections. No submitted document embeds an operations-configurable roster-sized array.
 
@@ -539,7 +567,7 @@ One durable attempt owns final-submission materialization. The attempt pins the 
 - `state: pending | accepted | declined | canceled | expired | stale`;
 - requested/decided actor and time, expiry, and client operation ID.
 
-Acceptance checks that both memberships are still active and the team is unlocked, then changes the two roles, lead pointer, and assignment-sourced team-lead grants atomically. A later membership/lead/version change makes an old request stale.
+Acceptance checks that both memberships are still active, the expected team version is current, and the applicable deadline has not passed. It then changes the two roles, lead pointer, assignment-sourced team-lead grants, and any current application snapshot atomically. A later membership, lead, or version change makes an old request stale.
 
 ### `projectDrafts`
 
@@ -548,11 +576,22 @@ One mutable draft per team.
 - `eventId`, `teamId`, and required immutable `intakePolicyVersionId`;
 - `stage: opening | follow_up | review | submitted`;
 - initial idea;
+- optional additional information or links, stored as plain text after the intake questions;
 - optional pinned novelty-corpus version ID; optional fingerprint, whole-number score, request ID, and evaluation time for the latest signal that still matches the saved idea;
 - freshness-attestation actor/time;
 - `version`, last editor, updated time.
 
 `projectDrafts.by_event_intake_policy` supports exact active-pin counts for publication review. The draft receives its intake pin at creation. Its first saved idea also pins the current published novelty corpus when one is available. Every later novelty request names and validates that exact pin. Publication never moves it. Changing the idea clears the copied score. Completion can restore one only when its input fingerprint still matches. Questions and answers live in append-only tables. Later checkpoints use separate `teamCheckpointDrafts` records.
+
+### `intakeWorkingFields`
+
+Short-lived server autosave for one team's current idea or exact follow-up field:
+
+- event, team, field kind, and optional generated-question ID;
+- verbatim partial value and the authoritative draft version it is based on;
+- small field revision, last writing membership, and update time.
+
+One row exists per team and field. A write checks the exact working-field revision and the committed value that editor started from. A newer global draft version is accepted when this exact committed field is unchanged; a change to the same field conflicts. This prevents a delayed browser request from overwriting a teammate's newer text without turning an unrelated proposal change into a false conflict. These rows are the recovery and collaboration layer only: autosave does not advance intake, regenerate a question, create an application version, or run AI. `Next` commits the displayed value into the authoritative draft and removes the working field. Replacing the initial idea removes all old working fields because the question route changes.
 
 ### `intakeAnswerVersions`
 
@@ -577,7 +616,7 @@ Immutable model-written follow-ups and their validation outcome.
 - exact source answer-version IDs;
 - pinned intake-policy-version ID and optional matched published idea-pattern key;
 - `source: model | fallback`;
-- `state: active | answered | skipped | replaced | stale`;
+- `state: active | answered | replaced | stale`;
 - deterministic validation result and non-sensitive rejection category;
 - interpretation ID and created time.
 
@@ -598,24 +637,26 @@ Model-produced, non-authoritative drafts.
 
 This record cannot become a participant answer, application decision, route assignment, or score. Raw answer text is not copied into job or error metadata.
 
+The intake Workpool has 32 participant-critical slots. Enqueue also schedules one version-bound 20-second end-to-end deadline. If work is still queued, the deadline writes a terminal `disabled` interpretation for that exact input and advances to review. If provider work is running, it settles it as timed out. Either row prevents late queued work from reopening the question.
+
 ### `projectVersions`
 
 Immutable submitted proposal versions.
 
 - `eventId`, `teamId`
 - project version number;
-- verbatim initial idea and ordered current intake responses `{ questionId, ordinal, question, purposeKey, answerLength, source, answer?, skipped }`;
+- verbatim initial idea, optional additional information or links, and ordered current intake responses `{ questionId, ordinal, question, purposeKey, answerLength, source, answer }`;
 - required intake-policy-version ID;
 - `fresh_for_event` attestation with exact participant-policy version ID and accepted member/time;
-- locked roster-snapshot ID, locked member count, and locked lead membership ID;
+- immutable roster-snapshot ID, snapshot member count, and snapshot lead membership ID;
 - final confirmation `{ participantPolicyVersionId, previewedDraftVersion, previewedTeamVersion, confirmedBy, confirmedAt }`;
 - exact participant- and admission-policy version IDs;
 - optional cumulative admission-information response snapshots, each carrying the request ID, source project-version ID, exact question keys/text and participant answers, responding membership, and response time;
+- optional proposal-revision provenance and optional roster-revision provenance, each pointing to the source project version and actor/time;
 - source draft version;
-- version reason `initial_submission | lead_revision | information_response | operations_member_correction`;
 - submitted by/at.
 
-The initial application proposal version is immutable. The current lead can append a revised version before `applicationsCloseAt`. A requested-information response also appends an immutable version. Each later version copies the locked member snapshot, attestation, and confirmation facts and adds current content. It does not edit an earlier version. Repository, Figma, demo, and later checkpoint state remain in separate team-scoped records and evidence snapshots.
+The initial application proposal version is immutable. The current lead can append a revised version before the applicable class deadline. A valid membership or leadership change appends a version with a fresh immutable roster snapshot. A requested-information response also appends an immutable version. Each later version copies unchanged attestation and confirmation facts, records its provenance, and carries the current team and content. It does not edit an earlier version. Repository, Figma, demo, and later checkpoint state remain in separate team-scoped records and evidence snapshots.
 
 ### `projectCheckpointPlanVersions` and `projectCheckpointDefinitions`
 
@@ -669,6 +710,8 @@ One pre-event application per team/event.
 
 Any accepted lead revision or information response moves `currentProposalVersionId` to the new immutable version. It increments `contentVersion` and returns the state to `under_review`. It clears invalid decision and AI pointers, supersedes human reviews for older content, and resets current completed review coverage. It leaves earlier proposal, review, and model rows as history.
 
+The aggregate admissions cohort is assembled through bounded internal pages ordered by immutable `submittedAt`. One page hydrates at most 20 applications with their bounded related projections. The public whole-event action requires event-wide `application.read`, applies the caller's separate profile/AI visibility grants to every row, and refuses to cross the 1,500-team applicant release envelope. Mutable state transitions do not reorder the scan.
+
 ### `admissionInformationRequests`
 
 One immutable organizer question set and its single response lifecycle.
@@ -680,7 +723,7 @@ One immutable organizer question set and its single response lifecycle.
 - optional ordered answers, response proposal-version ID, responding locked-lead membership, and response time;
 - requesting person/time, optional superseded time, and optimistic version.
 
-A new needs-information decision supersedes the current open row before it inserts a replacement. A response requires the current application pointer, source proposal and content versions, exact question order, current request version, and current locked membership snapshot. The current lead must appear in the team and immutable snapshot. One transaction appends the proposal version and answers the request. The same transaction advances the application pointer, supersedes active human reviews, rebinds active assignments, makes pending or running AI analysis stale, and creates a fresh policy-pinned recommendation. An operation replay returns the same response version.
+A new needs-information decision supersedes the current open row before it inserts a replacement. A response requires the current application pointer, source proposal and content versions, exact question order, current request version, and deadline-frozen membership snapshot. The current lead must appear in the team and immutable snapshot. One transaction appends the proposal version and answers the request. The same transaction advances the application pointer, supersedes active human reviews, rebinds active assignments, makes pending or running AI analysis stale, and creates a fresh policy-pinned recommendation. An operation replay returns the same response version.
 
 ### `admissionReviewAssignments`
 
@@ -732,7 +775,7 @@ A manual retry never edits this row. `application.ai_recommendation.run` can cre
 - decision actor/time/reason when terminal;
 - `version`.
 
-Sending an offer reserves participant capacity for the locked member snapshot in the same mutation. Confirmation verifies the same set for event check-in. It does not create or change the membership lock. Expiry, decline, or revocation releases the reservation. A scheduled expiry carries the expected offer version. Confirmation or another terminal transition makes the worker a no-op.
+Sending an offer reserves participant capacity for the deadline-frozen member snapshot in the same mutation. Confirmation verifies the same set for event check-in. It does not create or change team membership. Expiry, decline, or revocation releases the reservation. A scheduled expiry carries the expected offer version. Confirmation or another terminal transition makes the worker a no-op.
 
 ### `admissionCapacityBuckets`
 
@@ -913,13 +956,13 @@ Expectation building runs before session open. Ordinary finalization moves a ses
 
 For a VIT ID, the lookup fingerprint is `HMAC-SHA-256(event lookup key, canonical(barcode-profile key, normalized decoded value))`. It is a pseudonymous lookup value, not a biometric. The raw barcode value is never stored. For an external printed QR, the server derives the lookup value from a random 32-byte base64url bearer and stores only that HMAC plus the non-secret short printed reference. A badge bearer or printed reference used by any prior credential row is never rebound. One active lookup fingerprint maps to one event membership, and one active credential of each applicable kind exists per membership.
 
-Initial enrollment and rebinding both begin with the participant's short-lived portal QR and a provisioned current-plan phone. The first barcode command must claim the fresh resolution's unused credential slot for that exact workflow and pending credential. The second scan accepts only that claimed resolution on the same operator/phone/station/member; it may finish during the pending row's five-minute lifetime even if the original two-minute begin window has passed. An ordinary enrollment requires `attendance.credential.enrol` for that station and refuses a membership with an active, suspended, or already-pending VIT binding. A rebind instead requires `attendance.credential.rebind` for the participant's exact person, a Google session younger than 15 minutes, the current active-or-suspended credential/version, a visible identity confirmation, and a reason. The first different-card scan creates only an expiring pending row. The second matching scan changes the old row to `replaced` and the new row to `active` in one transaction. An active old card remains usable until that transaction commits; a suspended old card remains unusable. The pending fingerprint is never accepted for attendance. An expiry job can revoke only the unchanged pending version, so it cannot undo a verified replacement.
+Initial enrollment and rebinding both begin with the participant's short-lived portal QR and a provisioned current-plan phone. The first barcode command must claim the fresh resolution's unused credential slot for that exact workflow and pending credential. The second scan accepts only that claimed resolution on the same operator/phone/station/member; it may finish during the pending row's five-minute lifetime even if the original two-minute begin window has passed. An ordinary enrollment requires `attendance.credential.enrol` for that station and refuses a membership with an active, suspended, or already-pending VIT binding. A rebind instead requires `attendance.credential.rebind` for the participant's exact person, a current scoped authorization, the current active-or-suspended credential/version, a visible identity confirmation, and a reason. The first different-card scan creates only an expiring pending row. The second matching scan changes the old row to `replaced` and the new row to `active` in one transaction. An active old card remains usable until that transaction commits; a suspended old card remains unusable. The pending fingerprint is never accepted for attendance. An expiry job can revoke only the unchanged pending version, so it cannot undo a verified replacement.
 
 VIT suspension is a separate exact-person transition under `attendance.credential.suspend`, not part of station enrollment or an implicit rebind. It requires the same fresh unused credential-resolution slot, participant-first identity, current-plan phone, station-read access, visible identity confirmation, recent Google session, reason, and active credential/version. One mutation claims that slot, changes `active` to `suspended`, increments the version, and revokes every pending VIT successor that points to that credential. There is no `suspended → active` command. A later recovery must use `attendance.credential.rebind` and a different card; the resolver continues to treat the suspended row as current so station-level enrollment cannot bypass that boundary.
 
-External-badge setup uses the same fresh portal-QR participant resolution but three independent exact-person permissions: `attendance.badge.issue`, `attendance.badge.replace`, and `attendance.badge.revoke`. Each begin/revoke claims the unused credential slot for its exact action and credential; a two-scan issue/replacement can finish only against that claim from the same operator/phone/station/member. The operator also needs `attendance.station.read` on the assigned current-plan phone; that station grant confers no badge action. Issue and replacement require visible identity confirmation and a Google session younger than 15 minutes. The first badge scan inserts only a pending row, returns the derived short reference for comparison with the physical card, and schedules version-checked expiry. The matching second scan activates an issue or atomically marks the old row `replaced` and the successor `active`. Replacement additionally checks the current old credential/version and a reason. Revocation checks its own permission, current version, identity confirmation, fresh session, and reason, then claims the resolution slot and retires the active badge plus any pending successor in one transaction. Raw bearers exist only inside the action that HMACs them; they never enter a mutation argument visible to clients, table, audit summary, operation record, export, or log.
+External-badge setup uses the same fresh portal-QR participant resolution but three independent exact-person permissions: `attendance.badge.issue`, `attendance.badge.replace`, and `attendance.badge.revoke`. Each begin/revoke claims the unused credential slot for its exact action and credential; a two-scan issue/replacement can finish only against that claim from the same operator/phone/station/member. The operator also needs `attendance.station.read` on the assigned current-plan phone; that station grant confers no badge action. Issue and replacement require visible identity confirmation and a current scoped authorization. The first badge scan inserts only a pending row, returns the derived short reference for comparison with the physical card, and schedules version-checked expiry. The matching second scan activates an issue or atomically marks the old row `replaced` and the successor `active`. Replacement additionally checks the current old credential/version and a reason. Revocation checks its own permission, current version, identity confirmation, current authorization, and reason, then claims the resolution slot and retires the active badge plus any pending successor in one transaction. Raw bearers exist only inside the action that HMACs them; they never enter a mutation argument visible to clients, table, audit summary, operation record, export, or log.
 
-The same participant-first resolution supports staffed venue arrival without coupling it to credential mutation. It consumes one current portal QR and requires the assigned phone’s exact-station read grant. It returns the confirmed member/team/class, minimum identity fields, physical-credential state, latest venue check-in, and independent action flags. It also returns an opaque two-minute resolution ID bound to that operator, phone, station, and member. `attendance.venue_check_in.record` checks that unused resolution, the exact person, current provisioned `venue_entry` station, visible class-appropriate ID match, and stable operation ID. `.override_identity` replaces only that normal identity method and additionally requires a fresh Google session and reason. `.reverse` requires a separate unused resolution, the active row/version, fresh session, and reason. Each successful arrival action consumes the resolution’s venue-action slot in the same transaction. A direct membership-ID call or second action cannot bypass a new QR scan. Record inserts one new row and increments one deterministic aggregate shard. Reversal marks that row and decrements the same shard. When all active locked members have current rows, a `confirmed` team advances to `checked_in`. Reversal returns that coarse milestone to `confirmed`, but never rewinds an already `active` team. Review call/start eligibility never trusts that coarse milestone. It reads the active roster and each member's current venue-presence projection. None of the staffed-arrival mutations calls the presence-transition engine.
+The same participant-first resolution supports staffed venue arrival without coupling it to credential mutation. It consumes one current portal QR and requires the assigned phone’s exact-station read grant. It returns the confirmed member/team/class, minimum identity fields, physical-credential state, latest venue check-in, and independent action flags. It also returns an opaque two-minute resolution ID bound to that operator, phone, station, and member. `attendance.venue_check_in.record` checks that unused resolution, the exact person, current provisioned `venue_entry` station, visible class-appropriate ID match, and stable operation ID. `.override_identity` replaces only that normal identity method and additionally requires a current scoped authorization and reason. `.reverse` requires a separate unused resolution, the active row/version, current authorization, and reason. Each successful arrival action consumes the resolution’s venue-action slot in the same transaction. A direct membership-ID call or second action cannot bypass a new QR scan. Record inserts one new row and increments one deterministic aggregate shard. Reversal marks that row and decrements the same shard. When all members of the deadline-frozen roster have current rows, a `confirmed` team advances to `checked_in`. Reversal returns that coarse milestone to `confirmed`, but never rewinds an already `active` team. Review call/start eligibility never trusts that coarse milestone. It reads the active roster and each member's current venue-presence projection. None of the staffed-arrival mutations calls the presence-transition engine.
 
 ### `attendanceBarcodeKeySets`
 
@@ -1027,7 +1070,7 @@ One operational projection per confirmed locked team.
 - current inside-member count;
 - monotonic `version` and update time.
 
-Confirmation inserts the zeroed row in the offer transaction. An accepted venue entry or exit moves its inside count in the same mutation as the member's venue projection. Locked membership makes the active count stable. Review-board, call, start, and waiver paths read this row; it is a derived attendance projection, not team-authored data or a judging fact.
+Confirmation inserts the zeroed row in the offer transaction. An accepted venue entry or exit moves its inside count in the same mutation as the member's venue projection. The deadline-frozen roster makes the active count stable. Review-board, call, start, and waiver paths read this row; it is a derived attendance projection, not team-authored data or a judging fact.
 
 ### `sessionAttendance`
 
@@ -1109,7 +1152,7 @@ Start creates only the non-empty fixed shards. Every count is non-negative and t
 - opaque private-S3 object key, approved region/bucket, byte count, and SHA-256 when ready;
 - requested/completed/failed times and a non-sensitive failure category.
 
-There is no exported-row table and no paginated snapshot assembler. The client sends a relative lifetime, never its wall-clock expiry; the request mutation derives `expiresAt` from server time. Generation reads the exact session cohort and the selected identity/profile fields in one consistent query, capped at 1,200 rows, then writes a formula-safe CSV through the bounded export worker. Query responses never expose the storage location. A requester-owned ready record yields a signed URL bounded to the earlier of 60 seconds or export expiry only after exact-session permission, fresh-auth, expiry, export-version, and checksum checks run again and the download is audited.
+There is no exported-row table and no paginated snapshot assembler. The client sends a relative lifetime, never its wall-clock expiry; the request mutation derives `expiresAt` from server time. Generation reads the exact session cohort and the selected identity/profile fields in one consistent query, capped at 1,200 rows, then writes a formula-safe CSV through the bounded export worker. Query responses never expose the storage location. A requester-owned ready record yields a signed URL bounded to the earlier of 60 seconds or export expiry only after exact-session permission, current authorization, expiry, export-version, and checksum checks run again and the download is audited.
 
 ### `emergencyPacks`
 
@@ -1259,7 +1302,7 @@ One immutable participant-availability exception for one review.
 - authorizing permission-grant IDs;
 - granting person, reason, and server creation time.
 
-The call path may create this row only while the team is below the published minimum and the actor holds `review.participant_availability.waive` for that exact team or the event. A post-call command may use an exact-review, exact-team, or event grant while the review is still awaiting presence. Both require a Google session created within 15 minutes. The row never changes venue presence, attendance results, queue time, or judging values, and a canceled review does not transfer it to a replacement session.
+The call path may create this row only while the team is below the published minimum and the actor holds `review.participant_availability.waive` for that exact team or the event. A post-call command may use an exact-review, exact-team, or event grant while the review is still awaiting presence. Both require current scoped authorization. The row never changes venue presence, attendance results, queue time, or judging values, and a canceled review does not transfer it to a replacement session.
 
 ### `reviewCommitments`
 
@@ -1925,7 +1968,7 @@ One append-only provider attempt for one locked team member and published admiss
 - optional Cloudflare message ID, provider-accepted/last-event/sent/delivered/completed times, deterministic last provider-event ID for equal-time ordering, and non-sensitive provider error code;
 - `version`, created/updated time.
 
-Each admission or offer transition creates retry zero for every locked member after resolving the current published communications policy. A delivery remains current only while its template and application version still match the authoritative application state. It renders from its pinned published-or-superseded policy. A manual retry copies the same pin. A later publication cannot silently rewrite queued wording. `by_root_retry` proves that a manual source is still latest. `by_application_membership_created` loads one member row without scanning the application. `by_destination_state` suppresses only queued work for one address. `by_provider_message` joins lifecycle events that can race the send response. A structured Cloudflare error that proves non-acceptance can enter the bounded automatic retry schedule. Cloudflare documents no send idempotency key. Therefore, a timeout, invalid/contradictory response, or expired lease becomes terminal `unknown` and cannot be reclaimed. A manual retry creates a new ID/row only from a definite failure. Delivery is transport telemetry. It never proves that the participant read or accepted the decision or offer.
+Each admission or offer transition creates retry zero for every member of the deadline-frozen application roster after resolving the current published communications policy. A delivery remains current only while its template and application version still match the authoritative application state. It renders from its pinned published-or-superseded policy. A manual retry copies the same pin. A later publication cannot silently rewrite queued wording. `by_root_retry` proves that a manual source is still latest. `by_application_membership_created` loads one member row without scanning the application. `by_destination_state` suppresses only queued work for one address. `by_provider_message` joins lifecycle events that can race the send response. A structured Cloudflare error that proves non-acceptance can enter the bounded automatic retry schedule. Cloudflare documents no send idempotency key. Therefore, a timeout, invalid/contradictory response, or expired lease becomes terminal `unknown` and cannot be reclaimed. A manual retry creates a new ID/row only from a definite failure. Delivery is transport telemetry. It never proves that the participant read or accepted the decision or offer.
 
 ### `participantNotificationProviderEvents`
 
@@ -2068,7 +2111,10 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `noveltyCorpusVersions.by_event_version` | Allocate and inspect immutable corpus history |
 | `noveltyCorpusEntries.by_corpus_source` | Enforce one curated source key inside a corpus and replace its bounded set |
 | `noveltyCorpusEntries.by_corpus_embedding` | Search native 1,536-value vectors inside one pinned corpus |
-| `noveltyPreviewRequests.by_team_requested` | Enforce the bounded per-team request rate and inspect recent work |
+| `noveltyTeamIdeas.by_team` | Replace or invalidate one team's bounded current novelty rows without scanning the event |
+| `noveltyTeamIdeas.by_event_embedding` | Search current complete-idea vectors inside one event without exposing another team's text |
+| `noveltyPreviewRequests.by_team_requested` | Inspect one team's recent preview work; rate enforcement lives in the transactional rate-limiter component |
+| `noveltyPreviewRequests.by_team_state_requested` | Invalidate one team's running previews in the same transaction as an accepted idea edit |
 | `noveltyPreviewRequests.by_team_fingerprint_requested` | Reuse one recent successful comparison for unchanged team text |
 | `noveltyPreviewRequests.by_team_client_request` | Resolve one idempotent participant preview request |
 | `noveltyPreviewRequests.by_event_state_requested` | Read bounded aggregate provider health without project text |
@@ -2077,6 +2123,8 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `teamMembers.by_team_status_role` | Return the live roster and enforce one active lead |
 | `teamLeadershipTransfers.by_team_state` | Resolve one pending accepted/stale leadership handoff |
 | `projectDrafts.by_event_intake_policy` | Count active participant drafts pinned to one intake policy |
+| `intakeWorkingFields.by_team` | Load the bounded collaborative working fields for one team |
+| `intakeWorkingFields.by_team_kind_question` | Enforce one autosaved value and revision for one exact idea or follow-up field |
 | `intakeAnswerVersions.by_draft_prompt_status` | Resolve one current answer for a draft prompt |
 | `intakeAnswerVersions.by_generated_question_status` | Couple a current answer to its exact immutable question |
 | `intakeGeneratedQuestions.by_draft_ordinal` | Enforce and resume one current follow-up per ordinal |
@@ -2084,6 +2132,7 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `intakeInterpretations.by_event_state_created` | Bound recent fallback and stalled-running checks for aggregate event health |
 | `projectVersions.by_team_version` | Load exact reviewer context |
 | `applications.by_event_state` | Admission queues and capacity |
+| `applications.by_event_submitted` | Page the complete admissions cohort in immutable submission order without state-transition cursor gaps |
 | `admissionReviewAssignments.by_application_reviewer_state` | Enforce one active routing row per application/reviewer |
 | `admissionReviewAssignments.by_event_reviewer_state_assigned` | Page one person's active/completed review work |
 | `admissionReviewAssignments.by_application_state_assigned` | Read assignment coverage and bounded history for one application |
@@ -2193,6 +2242,11 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `teamIntegrations.by_event_team_provider` | One shared provider binding per team |
 | `teamIntegrations.by_event_provider_state` | Operations health board |
 | `githubInstallations.by_event_installation` | Resolve an App webhook installation |
+| `githubStarSetupIntents.by_state_digest` | Claim one participant OAuth callback without storing raw state |
+| `githubStarAuthorizations.by_event_membership` | Load the one temporary GitHub authorization for a participant |
+| `githubStarAuthorizations.by_event_github_user` | Prevent one GitHub user from authorizing two participants in an event |
+| `githubStarCompletions.by_event_membership` | Enforce the mandatory onboarding boundary for one participant |
+| `githubStarCompletions.by_event_github_user` | Prevent one GitHub user from completing the boundary twice in an event |
 | `githubRepositoryBindings.by_event_repository_state` | Route a repository event and prevent duplicate use |
 | `githubRepositoryBindings.by_integration_state_order` | Ordered active repository set for one team |
 | `githubRepositoryBindings.by_event_state_sync_updated` | Count only current setup/active bindings in an exact sync state and age window |
@@ -2239,7 +2293,7 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `outboundCallProviderEvents.by_provider_event` | Deduplicate at-least-once call-provider callbacks |
 | `participantNotificationDestinations.by_event_person_channel` | Resolve one current verified-email destination per event person |
 | `participantNotificationDeliveries.by_root_retry` | Prove a manual retry source is still the latest append-only attempt |
-| `participantNotificationDeliveries.by_application_membership_created` | Show each locked member's current decision-delivery state |
+| `participantNotificationDeliveries.by_application_membership_created` | Show each deadline-frozen roster member's current decision-delivery state |
 | `participantNotificationDeliveries.by_destination_state` | Suppress queued work for one disabled address without scanning deliveries |
 | `participantNotificationDeliveries.by_event_state_updated` | Bound current terminal/pending delivery checks by event |
 | `participantNotificationDeliveries.by_event_state_claim` | Find sending attempts whose processing claim expired |
@@ -2286,7 +2340,7 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 
 ### `permissionBundles.workspace` and `permissionBundles.detail`
 
-Return the code-owned permission catalog plus at most 100 active stable bundles covered by the caller's exact `access.permission_bundles.read` grants. Draft contents appear only for a readable exact bundle. Editing requires independent publish coverage for that same bundle; creating a new stable identity requires event-wide read and publish authority. A save checks the stable object's version and current draft revision. Publication checks the same pointers again, requires a fresh Google session and reason, retires the previous published version, and publishes the draft atomically.
+Return the code-owned permission catalog plus at most 100 active stable bundles covered by the caller's exact `access.permission_bundles.read` grants. Draft contents appear only for a readable exact bundle. Editing requires independent publish coverage for that same bundle; creating a new stable identity requires event-wide read and publish authority. A save checks the stable object's version and current draft revision. Publication checks the same pointers again, requires a current scoped authorization and reason, retires the previous published version, and publishes the draft atomically.
 
 ### `permissionBundles.applicableToTarget` and `permissionBundles.previewApplication`
 
@@ -2294,7 +2348,7 @@ Return only current published bundles for which the caller can read and apply th
 
 ### `permissionBundles.apply`
 
-Recomputes the full preview. The command requires a Google session created within the last 15 minutes. It checks the preview checksum and target access version. One Convex mutation writes the grant batch, every missing atomic grant, one target access-version increment, the audit event, and the idempotent operation result. An exact client-operation retry returns the recorded batch result. The command cannot partially apply a bundle or continue after bundle, target, resource, permission, session, or version authority changed.
+Recomputes the full preview. The command requires a current scoped authorization. It checks the preview checksum and target access version. One Convex mutation writes the grant batch, every missing atomic grant, one target access-version increment, the audit event, and the idempotent operation result. An exact client-operation retry returns the recorded batch result. The command cannot partially apply a bundle or continue after bundle, target, resource, permission, session, or version authority changed.
 
 ### `rosters.workspace`, `rosters.list`, and `rosters.mine`
 
@@ -2302,7 +2356,7 @@ Recomputes the full preview. The command requires a Google session created withi
 
 `rosters.mine` is identity-scoped rather than permission-scoped. It returns only one unexpired pending row whose normalized email exactly equals the current verified Google email, plus the pinned bundle labels/versions needed for confirmation. It validates import and bundle provenance before returning. It exposes no other roster row.
 
-`rosters.previewImport` validates the bounded CSV request and resolves row outcomes and selected bundles without writing. `rosters.confirmImport` recomputes that state, checks the preview checksum and fresh Google session, then stores the import, new rows, superseded rows, expiry schedule, audit event, and operation result atomically. `rosters.claim` and `rosters.revoke` use the current row version and idempotency key; claim requires the matching verified identity, while revoke requires exact-row or event-wide `access.roster.revoke` and fresh authentication.
+`rosters.previewImport` validates the bounded CSV request and resolves row outcomes and selected bundles without writing. `rosters.confirmImport` recomputes that state, checks the preview checksum and current scoped authorization, then stores the import, new rows, superseded rows, expiry schedule, audit event, and operation result atomically. `rosters.claim` and `rosters.revoke` use the current row version and idempotency key; claim requires the matching verified identity, while revoke requires exact-row or event-wide `access.roster.revoke` and current authorization.
 
 ### Participant home composition
 
@@ -2350,7 +2404,7 @@ Requires event-scoped `emergency_pack.read` and returns at most the ten newest p
 
 ### `participant.intake`
 
-Returns the current fixed or generated prompt and accepted answer, save, or skip state. It also returns phase and checkpoint progress, the live team roster, lead and invite capability, membership-lock state, freshness attestation, proposal preview, current immutable proposal version, authoritative application deadline, and next allowed action. It returns the latest novelty number only when the stored fingerprint matches the saved idea. It never returns an embedding, similarity, corpus entry, theme, prompt, provider request ID, system instruction, another team's text, or model diagnostics.
+Returns the current fixed or generated prompt and accepted answer state. It also returns phase and checkpoint progress, the live team roster, lead and invite capability, submission-materialization state, freshness attestation, proposal preview, current immutable proposal version, deadline for the team's verified class, and next allowed action. It returns the latest novelty number only when the stored fingerprint matches the saved idea. It never returns an embedding, similarity, corpus entry, theme, prompt, provider request ID, system instruction, another team's text, or model diagnostics.
 
 ### `noveltyConfiguration.current`
 
@@ -2366,7 +2420,7 @@ Returns the caller's team-owned GitHub repository set and Figma file set. It ret
 
 ### `admissions.reviewQueue`
 
-Returns active or completed `admissionReviewAssignments` for the current person only after the matching exact `application.review.read` grant is still active. The row includes the locked member snapshot, current proposal version, and the caller's own current recommendation. `application.profile_context.read` adds permitted class and year context, deterministic band, and band-specific guidance. `application.ai_recommendation.read` adds the current structured AI state and record. Peer human recommendations appear only after the caller submits a current-content recommendation. Contact, eligibility evidence, and judging data never enter this query. Role is not read.
+Returns active or completed `admissionReviewAssignments` for the current person only after the matching exact `application.review.read` grant is still active. The row includes the current immutable member snapshot, current proposal version, and the caller's own current recommendation. `application.profile_context.read` adds permitted class and year context, deterministic band, and band-specific guidance. `application.ai_recommendation.read` adds the current structured AI state and record. Peer human recommendations appear only after the caller submits a current-content recommendation. Contact, eligibility evidence, and judging data never enter this query. Role is not read.
 
 ### `admissions.detail`
 
@@ -2410,7 +2464,7 @@ One server-owned action reads current operational parents and compound event/sta
 
 Requires event-scoped `event.lifecycle.read`. It returns the current event status/version, whether the caller independently holds `event.lifecycle.manage`, and only the legal next transitions. Each next transition contains its current setup blockers as stable keys and product labels. It returns no participant, application, review, or score record.
 
-`eventLifecycle.transition` requires `event.lifecycle.manage`, a Google session created within 15 minutes, the exact current event version, a reason, and an idempotent operation ID. It rechecks the transition path and blockers in the write transaction. It then increments the event version and records the authorizing grants and before and after states. The applications-open and applications-closed display follows server time and the published application window. Participant profile, team, intake, submission, and revision mutations recheck `applicationsOpenAt` and `applicationsCloseAt` after operation replay and before new work. Leaving `live` also disables the autonomy scheduler, revokes its active run, persists Worker abort intent, and starts resumable inbox cleanup.
+`eventLifecycle.transition` requires `event.lifecycle.manage`, current scoped authorization, the exact current event version, a reason, and an idempotent operation ID. It rechecks the transition path and blockers in the write transaction. It then increments the event version and records the authorizing grants and before and after states. The applications-open and applications-closed display follows server time and the two published class deadlines. Participant profile, team, intake, submission, and revision mutations resolve the verified class and recheck its deadline after operation replay and before new work. Leaving `live` also disables the autonomy scheduler, revokes its active run, persists Worker abort intent, and starts resumable inbox cleanup.
 
 ### `operationsIntelligence.latest`
 
@@ -2428,7 +2482,7 @@ Requires event-scoped `operations.intelligence.read` independently from health r
 
 ### `operationsAutonomyPolicyConfiguration.current`
 
-Requires `configuration.intelligence.read`. It returns the immutable published autonomy policy, optional current draft, current non-superseded scheduler state, event version, the exact selected owner with current read/generate capability, and booleans for the caller's independently resolved draft, validation, and publication grants. `ownerOptionsPage` separately searches or cursor-pages active event accounts with the required read grant and reports their generate capability; it has no event-population cap, and clients continue through sparse pages until `isDone`. Validation requires its own key. Draft replacement and publication are idempotent optimistic mutations; publication also requires fresh authentication and revalidates the exact draft checksum server-side. `disable` resolves the current state transactionally rather than trusting a displayed version, revokes authority immediately, and starts durable cancellation/abort cleanup.
+Requires `configuration.intelligence.read`. It returns the immutable published autonomy policy, optional current draft, current non-superseded scheduler state, event version, the exact selected owner with current read/generate capability, and booleans for the caller's independently resolved draft, validation, and publication grants. `ownerOptionsPage` separately searches or cursor-pages active event accounts with the required read grant and reports their generate capability; it has no event-population cap, and clients continue through sparse pages until `isDone`. Validation requires its own key. Draft replacement and publication are idempotent optimistic mutations; publication also requires current authorization and revalidates the exact draft checksum server-side. `disable` resolves the current state transactionally rather than trusting a displayed version, revokes authority immediately, and starts durable cancellation/abort cleanup.
 
 ### `operationsAutonomy.status`, `history`, `queuedWork`, and `startManual`
 
@@ -2442,7 +2496,7 @@ Requires exact event-scoped `configuration.participant.read`. It returns the imm
 
 ### `communicationsPolicyConfiguration.current`
 
-Requires exact event-scoped `configuration.communications.read`. It returns the immutable published policy, optional current draft, event timezone/version, and independent draft/validation/publication capability flags. Validation has its own permission and returns only checksum issues plus a participant-visible diff. Draft replacement and publication are idempotent optimistic mutations; publication also requires current event/draft/checksum, fresh authentication, a reason, and complete server-side revalidation.
+Requires exact event-scoped `configuration.communications.read`. It returns the immutable published policy, optional current draft, event timezone/version, and independent draft/validation/publication capability flags. Validation has its own permission and returns only checksum issues plus a participant-visible diff. Draft replacement and publication are idempotent optimistic mutations; publication also requires current event/draft/checksum, current authorization, a reason, and complete server-side revalidation.
 
 ### `attendance.scannerNow`
 
@@ -2468,7 +2522,7 @@ Requires exact event-scoped `configuration.intake.read` and returns the publishe
 
 ### `operations.intakeHealth`
 
-Returns answer-save and interpretation latency, Workpool depth/age, success/refusal/invalid/question-policy-rejection/timeout/rate-limit/fallback counts, skips by purpose/fallback key, aggregate question-length/quality evaluation metrics, and affected configuration versions. It excludes answer text, generated-question text, contact data, and provider payloads.
+Returns answer-save and interpretation latency, Workpool depth/age, success/refusal/invalid/question-policy-rejection/timeout/rate-limit/fallback counts, aggregate question-length/quality evaluation metrics, and affected configuration versions. It excludes answer text, generated-question text, contact data, and provider payloads.
 
 ### `scoreGovernance.completeness`, `scoreGovernance.completenessReviews`, `scoreGovernance.roundValueCriteria`, and `scoreGovernance.roundValues`
 
@@ -2499,7 +2553,7 @@ Requires `synesthesia.report.read` for the exact request or the event. It pages 
 
 ### `roundExports.workspace`
 
-Requires exact-round score-completeness read access. It returns the current round/export versions, starter, revision, lifecycle state, frozen counts, failure, verifier, and independent booleans for start/read/verify/retry/reopen. File sizes and short hashes appear only with `round.export.read`; keys, bucket, and object-version IDs never reach the browser. A download URL is released only after a final fresh-authenticated mutation rechecks the exact round grant, export version, selected file manifest and object version, checksum, and remaining 60-second expiry, then audits the open. The starter is never offered verification even if that person holds both grants.
+Requires exact-round score-completeness read access. It returns the current round/export versions, starter, revision, lifecycle state, frozen counts, failure, verifier, and independent booleans for start/read/verify/retry/reopen. File sizes and short hashes appear only with `round.export.read`; keys, bucket, and object-version IDs never reach the browser. A download URL is released only after a final authorized mutation rechecks the exact round grant, export version, selected file manifest and object version, checksum, and remaining 60-second expiry, then audits the open. The starter is never offered verification even if that person holds both grants.
 
 Subscriptions update only when records read by the query change. Screens use stable IDs and preserve local focus while data refreshes.
 
@@ -2508,9 +2562,9 @@ Subscriptions update only when records read by the query change. Screens use sta
 | Area | Main commands |
 | --- | --- |
 | Identity/access | provision participant, preview/confirm/list/revoke roster and claim own exact-email row, claim/revoke access invitation, suspend/reactivate event subject, assign/replace role label, preview/apply/migrate permission bundle, grant/revoke one permission, batch grant/revoke, register/revoke device |
-| Team/proposal | create/join/leave team, request/accept/decline/cancel lead transfer, start/resume intake, save answer, request a debounced novelty preview, skip generated question, accept fresh-project attestation, preview membership lock, submit and lock membership, revise submitted proposal before the deadline, start/confirm team integration, add/classify/reorder/archive/replace repository |
+| Team/proposal | create/join/leave team, request/accept/decline/cancel lead transfer, start/resume intake, save answer, request a debounced novelty preview, accept fresh-project attestation, preview final submission, submit the current application snapshot, revise the submitted team or proposal before the applicable deadline, start/confirm team integration, add/classify/reorder/archive/replace repository |
 | Configuration | draft/validate/publish participant, admission, intake, phase, checkpoint, accepted-team communications, and operations-autonomy policy versions; create novelty draft, replace its complete curated entry set, and publish its exact ready revision under four independent novelty grants |
-| Admissions | assign application, retry the current failed/stale structured AI recommendation, submit own human recommendation, request information, prepare/use/clear/override/publish human decision, correct locked snapshot under exception, send/respond/expire offer |
+| Admissions | assign application, retry the current failed/stale structured AI recommendation, submit own human recommendation, request information, prepare/use/clear/override/publish human decision, correct the deadline-frozen snapshot under exception, send/respond/expire offer |
 | Communications | read/draft/validate/publish next-steps/Discord/notification policy under four independent event grants, enqueue a policy-pinned participant status notice, record provider result, retry/disable an exact destination, grant/revoke call consent, send push first, claim/cancel a consented call escalation, and record call-provider events |
 | Venue | resolve one fresh participant QR; record/read staffed venue check-in, approved identity exception, or reversal under independent person scopes; assign/freeze table; report mismatch |
 | Attendance | draft/validate/publish plan, schedule/open/extend/close/cancel session, enrol/suspend/rebind VIT ID barcode, issue/revoke external badge, mint own portal QR, assign/disable/make available station, record scan, reconcile live transition, request/open/approve/decline finalized-result review, excuse expectation, open/close roll call, purpose-limited export, enter/upload/read/verify numbered paper sheet |
@@ -2563,7 +2617,7 @@ An exact start/end job and the repair sweep both reload the grant and transition
 
 ### Bundle migration versus manual override
 
-A bundle migration selects one retired source version and at most five exact completed application batches. Preview binds the source and destination version checksums, source batch/grant state, target access versions, resolved destination bindings, validity, destination-source history, and every diff action. Confirmation reruns the same reads with current authorization and fresh authentication. A concurrent source revocation, target access change, destination application, bundle publication, event-end change, or binding-resource change can commit first and change the checksum/version. It can instead conflict with the mutation. In both cases, the old confirmation writes nothing and needs a new preview.
+A bundle migration selects one retired source version and at most five exact completed application batches. Preview binds the source and destination version checksums, source batch/grant state, target access versions, resolved destination bindings, validity, destination-source history, and every diff action. Confirmation reruns the same reads with current authorization. A concurrent source revocation, target access change, destination application, bundle publication, event-end change, or binding-resource change can commit first and change the checksum/version. It can instead conflict with the mutation. In both cases, the old confirmation writes nothing and needs a new preview.
 
 The successful mutation creates or reuses current-version grants. It supersedes only current grants from the selected old batches. It preserves explicitly inactive old- or destination-version identities and advances each affected subject once. It completes every per-target migration batch, records one audit event, and stores one idempotent operation result. Manual grants and other bundle sources are not selected, so they remain. All selected people commit or none do.
 
@@ -2593,15 +2647,11 @@ Both mutations query active membership by event/person. One commits; the other r
 
 ### Leadership transfer versus team change
 
-Accepting a transfer checks its pending ID, both active memberships, expected team version, and unlocked state. A concurrent leave, removal, second transfer, or final submission commits first or loses on retry. The losing action returns the current lead/lock state; it cannot leave zero or two active leads or retain stale lead grants.
+Accepting a transfer checks its pending ID, both active memberships, expected team version, and applicable deadline. A concurrent leave, removal, second transfer, or final submission commits first or loses on retry. The losing action returns the current lead and team state; it cannot leave zero or two active leads or retain stale lead grants. If an application exists, acceptance also creates its next immutable roster snapshot in the same transaction.
 
 ### Two answer saves
 
-Both carry the expected intake-session version. One commits a new immutable answer version. The other retries against the changed session and returns the current prompt/answer instead of replacing it.
-
-### Answer versus skip
-
-Both carry the expected session version and generated-question ID. The first accepted command changes the question from `active` to `answered` or `skipped` and advances the session. The loser returns the accepted state; it cannot create a second answer or advance another ordinal.
+Both carry the expected intake-session version. One commits a new immutable answer version. The other retries against the changed session and returns the current prompt/answer instead of replacing it. Ephemeral collaboration presence names the exact other membership and exact idea or question being edited. The browser preserves unsaved tab-local text, but it creates a recovery notice only when the committed draft records a different membership as its last editor.
 
 ### Late model interpretation
 
@@ -2609,7 +2659,11 @@ The completion mutation compares session, active answer IDs, input checksum, and
 
 ### Final submission versus membership change
 
-The preview records the draft, team, authoritative member counts, and lead versions. Submission start requires exact-team `application.submit`. It reads those values, `applicationsCloseAt`, and the idempotency key in one mutation. It then creates a durable attempt and writes the membership lock. Bounded mutations page the stable active roster into immutable member rows and finalize the proposal and application only after row totals and class totals equal the team projection and pinned policy. A concurrent join, leave, lead transfer, profile edit, answer edit, or submit-grant revocation either commits first and makes the preview stale or sees the lock and fails. A failed validation releases the lock and retains the failed attempt.
+The preview records the draft, team, authoritative member counts, and lead versions. Submission start requires the current lead and exact-team `application.submit`; granting that permission to a non-lead is insufficient. It reads those values, the applicable class deadline, and the idempotency key in one mutation. Editing presence remains advisory and cannot become a stale-tab veto. The lead is warned when another member is typing and submits the exact committed preview. The mutation then creates a durable attempt and uses an internal materialization guard to hold the previewed state. Bounded mutations page that stable active roster into immutable member rows and finalize the proposal and application only after row totals and class totals equal the team projection and pinned policy. A concurrent join, leave, lead transfer, profile edit, committed answer edit, or submit-grant revocation either commits first and makes the preview stale or reaches the transient guard and retries after materialization. A presence heartbeat and a working-field autosave do not alter the committed preview. A failed validation releases the guard and retains the failed attempt. A completed submission does not use that guard to block later team changes.
+
+### Submitted team change versus review or AI completion
+
+Each join, leave, removal, switch, or accepted leadership transfer checks the applicable class deadline and its ordinary team invariants. When the team has an active submitted application, the same transaction rechecks team bounds, participant class, profile completeness, current participant-policy acceptance, and exactly one lead. It materializes a fresh roster snapshot, creates a new immutable project version with roster-revision provenance, advances the application content version, keeps active assignments on that new version, and supersedes stale human and AI output. If any step fails, the membership or leadership change also fails. Review or AI work for the prior version can commit first and then be superseded, or retry after the change and become stale.
 
 ### Proposal revision versus review, AI completion, or deadline
 
@@ -2637,7 +2691,7 @@ Completion compares the application/project version, input checksum, experience-
 
 ### Admission publication versus first submission
 
-Publication requires both the event application range and the indexed validating/finalizing submission-attempt range to be empty. Submission start reads the current published admission pair, writes its pinned attempt, and locks the team in one mutation. Convex's transaction conflicts serialize a race. If publication commits first, submission retries and pins the new policy. If submission starts first, publication retries, observes the active attempt, and fails with `ADMISSION_POLICY_FROZEN`. The policy pointer, optional model pointer, capacity bucket, immutable project, and application cannot represent different releases.
+Publication requires both the event application range and the indexed validating/finalizing submission-attempt range to be empty. Submission start reads the current published admission pair and writes its pinned attempt and transient materialization guard in one mutation. Convex's transaction conflicts serialize a race. If publication commits first, submission retries and pins the new policy. If submission starts first, publication retries, observes the active attempt, and fails with `ADMISSION_POLICY_FROZEN`. The policy pointer, optional model pointer, capacity bucket, immutable project, and application cannot represent different releases.
 
 ### Config publication during an active session
 
@@ -2665,7 +2719,7 @@ The scan and close mutation serialize on the session/version and participant int
 
 ### Physical credential replacement versus old-card scan
 
-The first replacement scan creates no active binding change. The second matching scan marks the previous VIT ID barcode or external badge `replaced` and activates the verified successor in one mutation. An old-card scan that commits first remains a valid historical event. Replacement commits after it. An old-card scan that retries after replacement is rejected and cannot change presence. The pending-attempt expiry checks the unchanged pending version, so it cannot race past verification. A concurrent version-checked VIT suspension or external-badge revocation can win instead. It atomically retires the old credential and pending successor. Verification then fails without activating either record. A later VIT recovery starts a new rebind from the suspended version. If only the success response is lost, a newly identified retry first reauthorizes the person, station, device, and fresh session. It then recognizes the exact already-committed IDs, versions, relationships, lookup, reference, and reason. It returns success without repeating the write or audit event.
+The first replacement scan creates no active binding change. The second matching scan marks the previous VIT ID barcode or external badge `replaced` and activates the verified successor in one mutation. An old-card scan that commits first remains a valid historical event. Replacement commits after it. An old-card scan that retries after replacement is rejected and cannot change presence. The pending-attempt expiry checks the unchanged pending version, so it cannot race past verification. A concurrent version-checked VIT suspension or external-badge revocation can win instead. It atomically retires the old credential and pending successor. Verification then fails without activating either record. A later VIT recovery starts a new rebind from the suspended version. If only the success response is lost, a newly identified retry first reauthorizes the person, station, device, and current authorization. It then recognizes the exact already-committed IDs, versions, relationships, lookup, reference, and reason. It returns success without repeating the write or audit event.
 
 ### Offline exit and newer online return
 
@@ -2777,7 +2831,7 @@ The start-close mutation reads the current round, active-pause range, team state
 
 The export action is not trusted as a state transition. It pages only the frozen entries, recomputes selected results, writes exact-version S3 objects, reads them back, then submits the current export version to a completion mutation. A stale worker, retry, changed round pointer, mismatched count, different S3 object version, or checksum mismatch cannot publish `uploaded`.
 
-Verification first rechecks exact read/verify grants, fresh authentication, two-person separation, attestations, and versions; then reads the recorded S3 object versions and hashes outside the transaction. Its final mutation repeats every permission, actor, state, snapshot-pointer, and expected-version check before changing export and round together. Two verifiers may perform reads, but only one current mutation closes; the other receives a changed-version result. Reopen similarly checks the verified export and active snapshot pointers, feedback release, later-round state, and both expected versions before superseding the export and reopening in one transaction.
+Verification first rechecks exact read/verify grants, current authorization, two-person separation, attestations, and versions; then reads the recorded S3 object versions and hashes outside the transaction. Its final mutation repeats every permission, actor, state, snapshot-pointer, and expected-version check before changing export and round together. Two verifiers may perform reads, but only one current mutation closes; the other receives a changed-version result. Reopen similarly checks the verified export and active snapshot pointers, feedback release, later-round state, and both expected versions before superseding the export and reopening in one transaction.
 
 ## 17. Data retention
 
@@ -2788,7 +2842,7 @@ Board must set exact periods. The schema supports separate policies:
 - attendance credential records, short-lived QR tokens and staffed resolutions, raw scan attempts, accepted presence events, intervals, derived results, roll calls, identifiable exports, and restricted emergency packs as separate retention classes;
 - floor plans, team-location history, short-lived team QR digests, and mapping claims as separate retention classes;
 - intake answer versions, generated questions, model interpretations, submitted proposal versions, team checkpoint drafts, and immutable checkpoint submissions;
-- immutable curated novelty corpus versions/entries and short-lived novelty preview request metadata as separate retention classes; preview rows contain no raw idea, while copied draft signals expire with the mutable draft;
+- immutable curated novelty corpus versions/entries, short-lived novelty preview request metadata, and no-text team-density vectors as separate retention classes; preview and team-density rows contain no raw idea, editing vectors expire quickly, obsolete durable vectors are deleted when accepted text changes, and copied draft signals expire with the mutable draft;
 - admission AI recommendations, human application reviews/decisions, and their policy/source links as separate retention classes;
 - participant notification content/delivery metadata and disabled destinations;
 - provider credentials;
@@ -2819,7 +2873,7 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - Applying a bundle creates individually inspectable grants; editing the bundle changes nobody until an explicit migration batch completes.
 - A bundle migration requires independent exact bundle and target authority, accepts no more than five exact source applications, rechecks the full preview and access versions, and commits every selected person or none.
 - Migration supersedes only current grants attributed to the selected old applications; manual/other bundle sources remain, and an explicitly revoked old or destination grant is not resurrected.
-- Changing a role label changes no permission grant; bundle application and removal require separate exact permissions and previews.
+- Changing a templated role changes only the source-attributed grants owned by the prior and selected role rows, after validating every addition/removal against the actor's ceiling; bundle application remains separate.
 - Revoking one of several matching grants preserves access until the final matching grant is revoked or expires.
 - A future grant is stored as scheduled, cannot authorize early, and records activation only through a current-state transition.
 - Exact lifecycle jobs and the bounded repair sweep never reactivate a revoked or superseded grant, and expiry is enforced from server time even before `expiredAt` is written.
@@ -2836,7 +2890,7 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - Rehearsal read, manage, execute, and complete fail independently at exact-run and event scope; a workstream owner or role label with no matching grant sees nothing.
 - A run starts only when each copied workstream has one active accountable event person and no other run is active. Ownership creates no grant.
 - Scenario updates require an active run and current scenario version, append exactly one action, preserve terminal history through an explicit rerun, and resolve a repeated operation without duplication.
-- Final sign-off requires all 62 current scenarios to be passed, a current run version, the separate complete grant, and fresh authentication; a concurrent scenario change cannot cross the completion boundary.
+- Final sign-off requires all 62 current scenarios to be passed, a current run version, the separate complete grant, and current authorization; a concurrent scenario change cannot cross the completion boundary.
 - Participant profile records distinguish full/preferred name, permitted contact, institution, current year/role, and class-specific fields, while model inputs exclude those identity/contact values.
 - A Synesthesia catalog entry is unique by event/provider/track, participant search is bounded to active tracks allowed by the current published window, and no media/provider token is stored.
 - One window/track has one request; one participant/request has one vote and one report; one window has at most one playing request.
@@ -2849,21 +2903,23 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - One team/checkpoint key has at most one immutable submission. It records the accepted schedule/window, due/close boundary, timing, source draft version, and actor.
 - Participant checkpoint submission never creates or changes queue, team-round, review, evidence-provider, evaluation, or score state. Late or missing is context, not an automatic penalty.
 - A review evidence transaction pins only a checkpoint submission that already existed at its capture time; reviewer reads and verified exports follow that exact ID after later team or provider changes.
-- Every introduction asks exactly two follow-ups and terminates through valid generated questions or published deterministic fallbacks. Later checkpoints use their separately published fixed questions and do not reuse this route.
-- A novelty corpus publishes only from one complete 5–200-entry ready set whose embeddings are finite native 1,536-value `text-embedding-3-small` outputs. Draft, entry replacement, publication, and read fail independently without their exact event grants.
+- Every introduction asks two published fixed questions. It then asks at most two validated, grounded generated questions and can terminate without either. Later checkpoints use their separately published fixed questions and do not reuse this route.
+- A novelty corpus publishes only from one complete 5–300-entry ready set whose embeddings are finite native 1,536-value `text-embedding-3-small` outputs. Draft, entry replacement, publication, and read fail independently without their exact event grants.
 - A novelty request stores no raw idea, performs no provider call for sensitive-looking text, applies the event's exact team rate limit, and returns only one whole-number result.
 - A repeated preview ID cannot create another row or name different text. Provider failure leaves intake usable. A completion attaches only while the saved idea fingerprint and pinned corpus match.
+- A changed saved or submitted idea invalidates older team vectors and running previews in its accepting transaction. Provider failure cannot keep the previous idea searchable, and an older action cannot reinsert it.
+- Whole-idea retrieval stores at most one row per team lifecycle. Editing and durable rows collapse to one strongest match per team before density is calculated.
 - Novelty number and similarity are absent from proposal versions, admission-model input, human admission evidence, review evidence, judging records, and score exports.
 - A model result with unknown IDs, stale answers, invalid schema, a repeated/compound/overlong/prohibited question, refusal, or late completion changes no authoritative project field or visible prompt.
-- Every submitted follow-up snapshot retains its immutable question ID, ordinal, wording, purpose, source, and participant answer or skipped state.
+- Every submitted follow-up snapshot retains its immutable question ID, ordinal, wording, purpose, source, and participant answer.
 - Editing an answer or publishing configuration cannot erase answer history or rewrite an immutable proposal version.
 - A participant cannot hold two active team memberships.
-- One active team has exactly one lead; an accepted transfer atomically moves role/grants, and no ordinary transfer can run after final submission.
-- Final submission explicitly confirms and atomically starts a durable membership freeze for one exact draft, roster projection, and lead. Bounded resumable mutations materialize the exact active-member rows before the application exists. Stale previews and later ordinary membership commands fail.
-- The current lead can append immutable proposal versions before `applicationsCloseAt`. Each revision advances the current content pointer and invalidates stale human and AI output. The member snapshot remains locked.
+- One active team has exactly one lead; an accepted transfer atomically moves role/grants and refreshes any submitted application snapshot before the applicable deadline.
+- Final submission explicitly confirms and atomically starts durable materialization for one exact draft, roster projection, and lead. Bounded resumable mutations materialize the exact active-member rows before the application exists. Stale previews fail, but completed submission does not block later valid team commands.
+- Before the deadline for the team's verified class, a valid roster, lead, or proposal revision advances the current immutable application snapshot and invalidates stale human and AI output. At the deadline, the latest snapshot becomes final.
 - Participant-policy read, draft, validation, and publication fail independently. Two writers from one observed draft state leave one current draft; stale publication changes neither policy pointer nor event version.
 - Publishing a participant policy edits no membership or profile. Completeness is derived from the current immutable version. Consent appends that exact version to the event membership once. A participant must accept it before saving a profile, creating or joining a team, or submitting the project.
-- Team creation, joins, leaves, and removals load the current participant policy inside their transaction and maintain authoritative class-aware counts on the team root. Roster UI reads paginate independently of the configured maximum. Creation and join require eligibility plus current acceptance, but they do not require profile completion. Submission start pins that policy and validates root counts. Its bounded roster materializer enforces complete class-aware profiles, exact counts, team bounds, and mixed-class eligibility before pinning the policy ID in the immutable proposal version and membership lock.
+- Team creation, joins, leaves, and removals load the current participant policy inside their transaction and maintain authoritative class-aware counts on the team root. Roster UI reads paginate independently of the configured maximum. Creation and join require eligibility plus current acceptance, but they do not require profile completion. They reject any roster that would contain both participant classes. Submission start pins that policy and validates root counts. Its bounded roster materializer enforces complete class-aware profiles, exact counts, team bounds, and one verified class before pinning the policy ID in the first immutable proposal version. A post-submission team change repeats the full submitted-roster validation and writes the next snapshot atomically.
 - Admission-policy read, draft, validation, and publication fail independently. A complete policy and its optional model replace and publish together; two competing draft saves leave one current pair, and a stale publication changes neither event pointer nor capacity.
 - Publication creates one zero-reserved overall capacity bucket for the exact policy and atomically moves the policy/model pointers. An enabled policy always has one matching model child; disabled mode has no model pointer and never blocks human review.
 - The first application submission freezes the event's admission release. A concurrent publication either commits first and becomes the application's pin or loses without changing any policy, model, capacity, project, or application row.
@@ -2871,14 +2927,14 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - A structured AI admission recommendation is source- and policy-versioned, applies the deterministic year/study band, uses no numeric judging score, and cannot mutate application state, capacity, offer, queue, or judging records.
 - A human admission decision records the actor/reason and whether the AI recommendation was used, cleared, overridden, stale, or unavailable. Model failure never blocks the decision.
 - A manual AI retry needs `application.ai_recommendation.run`, the current failed/stale recommendation, and current optimistic versions. It preserves the prior row, creates one replacement per operation, reveals no result without read authority, and has no human-decision side effect.
-- Human acceptance reserves no capacity. Sending an offer atomically reserves the exact immutable locked roster against overall capacity. Only one reservation can be active for the application.
-- Only the locked lead with exact-team response authority can confirm or decline an open offer. Confirmation preserves the reservation and is the only admission transition that enables attendance, hall mapping, and review queues.
-- Decline, scheduled expiry, and reasoned revocation release the exact reservation once. Repeated/stale expiry work cannot release twice or undo confirmation, and revocation returns the team to selected state without unlocking its submitted roster.
+- Human acceptance reserves no capacity. Sending an offer atomically reserves the exact immutable deadline-frozen roster against overall capacity. Only one reservation can be active for the application.
+- Only the current lead with exact-team response authority can confirm or decline an open offer. Confirmation preserves the reservation and is the only admission transition that enables attendance, hall mapping, and review queues.
+- Decline, scheduled expiry, and reasoned revocation release the exact reservation once. Repeated or stale expiry work cannot release twice or undo confirmation, and revocation returns the team to selected state without changing its deadline-frozen roster.
 - Communications-policy read, draft, validation, and publication fail independently. Two writers from one observed draft state leave one current draft. Stale publication changes neither the policy pointer nor the event version.
 - An unauthenticated event read exposes no accepted-team venue, next step, or Discord field. An exact-team participant projection returns the current published policy only for `accepted | offer_sent | confirmed`. Waitlisted, declined, submitted, and unrelated teams receive no policy payload.
 - Publishing a new communications policy updates eligible portals without changing an already queued delivery's pinned policy/wording. An important state change creates a deduplicated official notification delivery whose receipt is not treated as acknowledgment.
 - Publishing an admission decision creates one delivery per locked team member in the same transaction, while provider failure cannot change or roll back the portal decision.
-- A needs-information decision has exactly one or two questions and at most one current open request. Only the current locked lead can answer every current question once. The roster lock remains unchanged.
+- A needs-information decision has exactly one or two questions and at most one current open request. Only the current lead can answer every current question once. The deadline-frozen roster remains unchanged.
 - An information response creates one newer immutable project/content version, supersedes prior current-content human reviews, rebinds active assignments, and starts fresh optional admission analysis. A stale response, duplicate operation, or late older AI completion cannot alter the new application state.
 - A participant self query returns only that membership's minimal transport state. Detailed delivery rows and commands independently require exact-person communications read/manage grants.
 - Only a structured provider non-acceptance can retry automatically. An ambiguous request or expired lease becomes `unknown`. A manual retry creates a new linked row only from the latest definite failure. Concurrent retry, stale versions, a changed/disabled verified email, and an unknown outcome cannot create another attempt.
@@ -2889,7 +2945,7 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - Call-provider callbacks are append-only and idempotent. Provider acceptance is not reviewer acknowledgement. Consent revocation prevents later claims.
 - An update release cannot become current until every hash-addressed asset and the immutable signed release record exist. Repeated identical publication is idempotent, different content under one ID conflicts, and two expected-current activations produce exactly one winner.
 - One staffed venue check-in, current-presence projection, and session result have distinct ownership and cannot satisfy one another accidentally.
-- Staffed arrival requires an assigned current-plan venue-entry phone plus an independent exact-person record grant. The no-ID exception and reversal use their own exact-person keys, fresh authentication, reasons, stable operation IDs, and current versions.
+- Staffed arrival requires an assigned current-plan venue-entry phone plus an independent exact-person record grant. The no-ID exception and reversal use their own exact-person keys, current authorization, reasons, stable operation IDs, and current versions.
 - One membership has at most one active venue check-in. Reversal preserves the prior row and changes only its sharded aggregate/team milestone; a later arrival inserts a new row after another fresh staffed resolution. Neither path writes a presence event, interval, venue projection, session participant/result, or judging state.
 - A physical-credential command cannot use a membership ID without the matching fresh staffed resolution. One resolution claims at most one credential action/target, and a two-scan completion cannot switch operator, phone, station, member, action, or pending credential.
 - Every published attendance session freezes an expected participant set and preserves its plan/version.
@@ -2906,7 +2962,7 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - An emergency roll call uses one prepared session cohort, has separate exact-session read/start/close grants, preserves one starting snapshot/checksum, permits one active record per zone, keeps sharded live counts equal to expected, and freezes final counts against later scans.
 - An identifiable attendance export uses one prepared session and one consistent query, enforces its cohort/field/expiry bounds, owns the file to its requester, protects it with a private checksum manifest and short signed URL, and never includes bearer or exact movement evidence.
 - An emergency pack contains accepted participants only, uses one bounded consistent snapshot, has one collision-checked serial namespace, source/document checksums, exact-version private storage, a four-hour life, and separately enforced prepare/read/print grants.
-- Pack metadata reveals no roster, serial prefix, storage coordinate, or print URL. A print-open requires fresh authentication, is audited before URL delivery, cannot outlive pack expiry, and changes no incident/manual-mode state.
+- Pack metadata reveals no roster, serial prefix, storage coordinate, or print URL. A print-open requires current authorization, is audited before URL delivery, cannot outlive pack expiry, and changes no incident/manual-mode state.
 - Manual attendance mode requires two different incident approvals. Paper entry, protected-source read, and independent verification are separate exact-session permissions, and the entrant cannot verify their own sheet.
 - A submitted paper sheet has immutable resolved rows and source checksum, imports each line at most once through the ordinary transition engine, preserves newer evidence as authoritative, and blocks session close/incident resolution until decided.
 - A paper review is limited to an existing active review, freezes the exact panel/rubric/evidence/assignment/scorecard context, requires every signed reviewer and assigned criterion, and uses separate exact-review read, enter, protected-source, and verify permissions.
@@ -2934,9 +2990,9 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - Exact-case and event-wide support read/manage grants remain distinct. An owner, role label, linked team/review/session, or self create grant cannot substitute for either one.
 - A support retry creates one case or timeline action. Two concurrent case updates cannot cross the optimistic version, every staff update has an audit reason, and timeline actions are never edited in place.
 - Support state and public replies converge across authorized participant, event-app, and operations views, while no support command can change attendance, queue, admission, team, integration evidence, review, score, or access records.
-- A round-wide pause requires a readable active review-backend incident plus independent exact-round `review.round.pause`; resuming requires independent exact-round `review.round.resume`. Both use fresh authentication, reasons, stable operation IDs, and current versions.
+- A round-wide pause requires a readable active review-backend incident plus independent exact-round `review.round.pause`; resuming requires independent exact-round `review.round.resume`. Both use current authorization, reasons, stable operation IDs, and current versions.
 - One round has at most one active pause. While it exists, queue placement and already-started review work continue, but a new team call, new review start, round close, and linked incident resolution fail transactionally.
-- Review call and start use the team projection updated atomically by current venue presence, rather than staffed-arrival or team-status milestones. A below-minimum call/start needs one immutable exception authorized for the exact team/review with fresh authentication; that exception changes no attendance or score state and cannot carry to another review.
+- Review call and start use the team projection updated atomically by current venue presence, rather than staffed-arrival or team-status milestones. A below-minimum call/start needs one immutable exception authorized for the exact team/review with current authorization; that exception changes no attendance or score state and cannot carry to another review.
 - Participant and reviewer projections expose only generic pause state. Incident title, summary, and pause reason require the caller's separate `incident.read` grant for the exact incident.
 - Attendance cannot alter admission, project, integration evidence, rubric, scorecard, or evaluation records.
 - One team and one panel cannot enter two active review sessions.

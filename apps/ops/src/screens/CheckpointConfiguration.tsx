@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
@@ -13,6 +13,7 @@ import {
   type ConfigurationOperationDescriptor,
   useConfigurationOperations,
 } from '../lib/configurationOperations'
+import { useVersionedState } from '@code2create/web-forms'
 
 type Configuration = FunctionReturnType<typeof api.checkpointConfiguration.current>
 type Plan = NonNullable<Configuration['publishedPlan']>
@@ -93,35 +94,31 @@ export function CheckpointConfiguration({
       ? { eventSlug, draftPlanId: configuration.draftPlan.id }
       : 'skip',
   )
-  const [definitions, setDefinitions] = useState<EditorDefinition[]>([])
-  const [loadedPlan, setLoadedPlan] = useState('')
+  const plan = configuration?.draftPlan ?? configuration?.publishedPlan
+  const sourceKey = plan ? `${plan.id}:${plan.checksum}` : 'empty'
+  const definitionState = useVersionedState<EditorDefinition[]>(
+    sourceKey,
+    plan
+      ? plan.definitions.map((definition) => ({
+          checkpointKey: definition.checkpointKey,
+          phaseKey: definition.phaseKey,
+          displayName: definition.displayName,
+          prompt: definition.prompt,
+          followUpQuestion: definition.followUpQuestion,
+          graceMinutes: definition.graceMinutes,
+        }))
+      : defaults.map((definition) => ({ ...definition })),
+  )
+  const definitions = definitionState.value
+  const setDefinitions = definitionState.update
   const [draftReason, setDraftReason] = useState('Aligned with the participant event flow')
   const [publishReason, setPublishReason] = useState('Checked against the published event phases')
-  const [publishArmed, setPublishArmed] = useState(false)
+  const publishState = useVersionedState(sourceKey, false)
+  const publishArmed = publishState.value
+  const setPublishArmed = publishState.replace
   const { busy, error, operationPending, pendingOperation } = operations
   const draftPending = operations.hasPending('checkpoint-draft')
   const publishPending = operations.hasPending('checkpoint-publish')
-
-  useEffect(() => {
-    if (!configuration) return
-    const plan = configuration.draftPlan ?? configuration.publishedPlan
-    const sourceKey = plan ? `${plan.id}:${plan.checksum}` : 'empty'
-    if (sourceKey === loadedPlan) return
-    setDefinitions(
-      plan
-        ? plan.definitions.map((definition) => ({
-            checkpointKey: definition.checkpointKey,
-            phaseKey: definition.phaseKey,
-            displayName: definition.displayName,
-            prompt: definition.prompt,
-            followUpQuestion: definition.followUpQuestion,
-            graceMinutes: definition.graceMinutes,
-          }))
-        : defaults.map((definition) => ({ ...definition })),
-    )
-    setLoadedPlan(sourceKey)
-    setPublishArmed(false)
-  }, [configuration, loadedPlan])
 
   if (configuration === undefined) return (
       <section className="intake-policy-shell">

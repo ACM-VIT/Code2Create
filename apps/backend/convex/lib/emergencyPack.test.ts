@@ -23,6 +23,8 @@ const snapshot: EmergencyPackSnapshot = {
       name: "Ishaan <script>alert(1)</script>",
       phone: "+91 90000 00000",
       vitRegistrationNumber: "22BCE0001",
+      vitHostelResidence: "Ladies' hostel · S block",
+      vitHostelRoomNumber: "412",
       participantClass: "vit_student",
       eligibilityStatus: "eligible",
       teamName: "Parallel Labs",
@@ -125,6 +127,8 @@ test("builds the live snapshot and the requested numbered paper forms", () => {
   assert.match(result.html, /North entry/);
   assert.match(result.html, /Intermediate rubric/);
   assert.match(result.html, /Venue network recovery rehearsal/);
+  assert.match(result.html, /Ladies&#039; hostel · S block/);
+  assert.match(result.html, />412</);
 });
 
 test("escapes identifiable and configuration text in the self-contained document", () => {

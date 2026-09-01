@@ -6,8 +6,8 @@ import { validateWebReleaseEnvironment } from './webEnvironment.ts'
 function validBuildEnvironment(): Record<string, string | undefined> {
   return {
     CLOUDFLARE_ENV: 'staging',
-    VITE_CONVEX_URL: 'https://example.convex.cloud',
-    VITE_CONVEX_SITE_URL: 'https://example.convex.site',
+    VITE_CONVEX_URL: 'https://realtime-staging.c2c.sh',
+    VITE_CONVEX_SITE_URL: 'https://api-staging.c2c.sh',
     VITE_DEPLOYMENT_ENVIRONMENT: 'staging',
     VITE_EVENT_SLUG: 'code2create-7',
     VITE_RELEASE_ID: 'release-42',
@@ -48,6 +48,25 @@ test('rejects a deployment-environment mismatch', () => {
   assert.throws(
     () => validateWebReleaseEnvironment('operations', 'build', environment),
     /VITE_DEPLOYMENT_ENVIRONMENT must match CLOUDFLARE_ENV/u,
+  )
+})
+
+test('accepts the production Convex origins only for production', () => {
+  const environment = validBuildEnvironment()
+  environment.CLOUDFLARE_ENV = 'production'
+  environment.VITE_DEPLOYMENT_ENVIRONMENT = 'production'
+  environment.VITE_CONVEX_URL = 'https://realtime.c2c.sh'
+  environment.VITE_CONVEX_SITE_URL = 'https://api.c2c.sh'
+  assert.doesNotThrow(() => validateWebReleaseEnvironment('participant', 'deploy', environment))
+})
+
+test('rejects staging Convex origins in a production build', () => {
+  const environment = validBuildEnvironment()
+  environment.CLOUDFLARE_ENV = 'production'
+  environment.VITE_DEPLOYMENT_ENVIRONMENT = 'production'
+  assert.throws(
+    () => validateWebReleaseEnvironment('participant', 'deploy', environment),
+    /VITE_CONVEX_URL must be https:\/\/realtime\.c2c\.sh for production/u,
   )
 })
 

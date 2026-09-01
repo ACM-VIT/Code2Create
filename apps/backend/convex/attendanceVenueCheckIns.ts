@@ -8,8 +8,6 @@ import { requireAssignedDevice, requireStationPermission } from "./lib/attendanc
 import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -165,7 +163,6 @@ export const record = internalMutation({
         ? normalizedText(args.reason ?? "", "Identity exception reason", 5, 300)
         : undefined;
     if (args.identityCheckKind === "approved_exception") {
-      await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     }
     const identityCheckMethod: RecordedResult["identityCheckMethod"] =
       args.identityCheckKind === "approved_exception"
@@ -297,7 +294,6 @@ export const reverse = internalMutation({
       scopeType: "person",
       scopeId: membership.personId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const reason = normalizedText(args.reason, "Reversal reason", 5, 300);
     const now = Date.now();
     const resolution = await requireAvailableStaffedVenueResolution(ctx, {

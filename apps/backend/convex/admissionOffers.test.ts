@@ -486,7 +486,6 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
           answerLength: "short",
           source: "fallback",
           answer: "The floor operations team.",
-          skipped: false,
         },
       ],
       lockedRosterSnapshotId,

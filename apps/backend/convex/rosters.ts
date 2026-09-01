@@ -13,11 +13,9 @@ import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import {
   ensurePerson,
+  requireAuthUser,
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  requireVerifiedGoogleIdentity,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   bundleBindingRequirements,
@@ -41,6 +39,7 @@ import {
   requirePermission,
 } from "./lib/permissions";
 import { selfScopeKind } from "./lib/grantScopes";
+import { grantSupremeRolePermissions } from "./lib/rolePermissions";
 import { normalizeEmail, normalizedText } from "./lib/strings";
 import { eventRoleLabels } from "@code2create/domain";
 
@@ -662,6 +661,14 @@ async function prepareImport(
     permissionKey: "access.roster.import",
     scopeType: "event",
   });
+  const roleGrantIds = normalized.rows.some((row) => row.role === "supreme")
+    ? await requirePermission(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: actorSubjectId,
+        permissionKey: "access.permissions.grant_any",
+        scopeType: "event",
+      })
+    : [];
   const bundleContext = await selectedBundles(ctx, {
     eventId: event._id,
     actorSubjectId,
@@ -752,7 +759,11 @@ async function prepareImport(
     rows,
     counts,
     authorizingGrantIds: [
-      ...new Set([...rosterGrantIds, ...bundleContext.authorizingGrantIds]),
+      ...new Set([
+        ...rosterGrantIds,
+        ...roleGrantIds,
+        ...bundleContext.authorizingGrantIds,
+      ]),
     ],
   };
 }
@@ -864,7 +875,6 @@ export const confirmImport = mutation({
         message: "The roster, bundle versions, or import settings changed. Review the import again.",
       });
     }
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const now = Date.now();
     const rosterImportId = await ctx.db.insert("rosterImports", {
       eventId: event._id,
@@ -1030,17 +1040,19 @@ export const mine = query({
   ),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { googleIdentity } = await requireVerifiedGoogleIdentity(ctx);
+    const user = await requireAuthUser(ctx);
+    const email = normalizeEmail(user.email);
     const entry = await ctx.db
       .query("rosterEntries")
       .withIndex("by_event_email_status", (index) =>
         index
           .eq("eventId", event._id)
-          .eq("emailNormalized", googleIdentity.verifiedEmail)
+          .eq("emailNormalized", email)
           .eq("status", "pending"),
       )
       .unique();
-    if (!entry || entry.validUntil <= Date.now()) return null;
+    const now = Date.now();
+    if (!entry || entry.validFrom > now || entry.validUntil <= now) return null;
     const rosterImport = await ctx.db.get("rosterImports", entry.rosterImportId);
     if (!rosterImport || rosterImport.eventId !== event._id) {
       throw new Error("Roster import provenance is missing.");
@@ -1222,6 +1234,12 @@ export const claim = mutation({
       });
     }
     const now = Date.now();
+    if (entry.validFrom > now) {
+      throw new ConvexError({
+        code: "ROSTER_ENTRY_NOT_ACTIVE",
+        message: "This roster entry is not active yet.",
+      });
+    }
     if (entry.validUntil <= now) {
       throw new ConvexError({
         code: "ROSTER_ENTRY_EXPIRED",
@@ -1447,6 +1465,16 @@ export const claim = mutation({
       batchResults.push({ batchId, grantIds, createdCount });
     }
 
+    if (entry.role === "supreme") {
+      totalCreatedGrants += await grantSupremeRolePermissions(ctx, {
+        eventId: event._id,
+        personId: person._id,
+        eventAccessSubjectId: subject._id,
+        roleId,
+        grantedByPersonId: rosterImport.createdByPersonId,
+      });
+    }
+
     const accessChanged =
       roleCreated || totalCreatedGrants > 0 || createdSupportGrantCount > 0;
     const accessVersion =
@@ -1578,7 +1606,6 @@ export const revoke = mutation({
       scopeType: "roster_entry",
       scopeId: args.rosterEntryId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const entry = await ctx.db.get("rosterEntries", args.rosterEntryId);
     if (!entry || entry.eventId !== event._id) {
       throw new ConvexError({

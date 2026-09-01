@@ -11,16 +11,16 @@ This file records current decisions only. It does not keep obsolete product path
 | P-003 | Google sign-in is the only interactive sign-in method. |
 | P-004 | Participant accounts are VIT student or external participant profiles. The server verifies the class. |
 | P-005 | The only role labels are Supreme, Board, SC, JC, and External Judge. |
-| P-006 | Role labels do not authorize actions. Atomic, scoped, time-bounded per-user grants authorize actions. |
+| P-006 | Protected functions do not authorize from role labels. Role assignment may materialize a code-owned template, but only the resulting atomic, scoped, time-bounded per-user grants authorize actions. |
 | P-007 | Any event-linked account can receive a grant without receiving a role label. |
 | P-008 | One participant can belong to one active team. One active team has exactly one lead. |
 | P-009 | Leadership transfer requires acceptance by the proposed lead. |
-| P-010 | Final submission locks team membership. It does not lock proposal content. |
-| P-011 | The lead can revise submitted proposal content until the authoritative `applicationsCloseAt` deadline. |
-| P-012 | Every proposal revision creates an immutable version and invalidates stale human-review and AI-admission outputs. |
+| P-010 | Final submission creates the first immutable team and proposal snapshot. It does not close team management. |
+| P-011 | Membership, leadership, and proposal content remain editable until the deadline for the team's verified participant class. |
+| P-012 | Every accepted post-submission team or proposal change creates an immutable version and invalidates stale human-review and AI-admission outputs. |
 | P-013 | Route proposals by current proposal content and reviewer-domain coverage. |
 | P-014 | Git tracked branches remain part of GitHub evidence. Synesthesia music tracks remain part of the music catalog. |
-| P-015 | Proposal intake is free text followed by two friendly AI questions. The second follow-up is the required third total question. |
+| P-015 | Proposal intake is free text followed by two required fixed questions and up to two grounded AI questions when useful. |
 | P-016 | The proposal flow remains usable without OpenAI. |
 | P-017 | Live novelty appears only as a non-blocking number above the idea text box. |
 | P-018 | Novelty does not affect submission, admission, review routing, judging, awards, or exports. |
@@ -42,6 +42,8 @@ This file records current decisions only. It does not keep obsolete product path
 | P-034 | Synesthesia is a separate licensed-catalog request, vote, report, moderation, and playback-record system. |
 | P-035 | Support links do not grant access to linked domain records. |
 | P-036 | Protected corrections preserve earlier records and add actor, reason, time, and before/after values. |
+| P-037 | External participants and VIT students have separate application deadlines. The external deadline is no later than the VIT deadline. |
+| P-038 | A team contains only VIT students or only external participants. This rule is not configurable. |
 
 ## 2. Technical decisions
 
@@ -66,7 +68,7 @@ This file records current decisions only. It does not keep obsolete product path
 | T-017 | Store only a fingerprint and character count on novelty requests. | The proposal draft remains the only participant-text source. |
 | T-018 | Use OpenAI strict structured output with `store: false` for follow-up and admission requests. | The server validates a closed contract. |
 | T-019 | Give AI no event command tools. | Model output cannot carry product authority. |
-| T-020 | Use a GitHub App with Metadata read and Contents read. | The evidence path does not need repository writes. |
+| T-020 | Use a GitHub App with repository Metadata read and Contents read. Give its user authorization Starring read and write. | Team evidence does not need repository writes. The separate participant onboarding action needs the minimum user permission that can star SGLang. |
 | T-021 | Bind several repositories to one team integration. | A product can span several repositories and organizations. |
 | T-022 | Use Figma OAuth with the minimum approved file scopes. | The system can capture exact design evidence without write access. |
 | T-023 | Pin GitHub SHAs and Figma file versions at review start. | Later provider changes cannot rewrite review evidence. |
@@ -78,6 +80,9 @@ This file records current decisions only. It does not keep obsolete product path
 | T-029 | Use two-person verification for paper score recovery and final round exports. | A protected manual source needs independent confirmation. |
 | T-030 | Run operations intelligence outside the authority boundary. | It can observe and recommend, but a human command makes effects. |
 | T-031 | Deploy staging Workers from `staging` and production Workers from `main` through separate Cloudflare Workers Builds connections. | Branch identity, Worker runtime configuration, deployment history, and rollback stay exact for each surface. |
+| T-032 | Derive a VIT participant's study year from the verified registration number and configured event start year. | A release-year prefix table would reject valid later cohorts and fifth-year participants. |
+| T-033 | Invalidate older team novelty vectors and running previews in the same transaction that accepts changed idea text. | Provider failure or late completion cannot leave an obsolete idea active in the density pool. |
+| T-034 | Require a provider-verified SGLang star after profile completion and before team setup. | A browser click is not evidence. State, PKCE, a short encrypted token lifetime, one-GitHub-user-per-participant uniqueness, and backend enforcement make the step deterministic. |
 
 ## 3. Required concurrency rules
 
@@ -90,6 +95,7 @@ This file records current decisions only. It does not keep obsolete product path
 | Proposal revision and AI completion | The old AI result settles as stale and cannot attach to the new version. |
 | Proposal revision and deadline | The server-time order decides. No write commits at or after `applicationsCloseAt`. |
 | Two proposal saves | One expected version wins. The loser reloads current state. |
+| Idea edit and novelty completion | The accepted edit marks the older request stale and removes older team vectors. A late action cannot restore them. |
 | Two repository reorders | One complete ordered set wins. The loser reloads. |
 | Attendance scan and session close | The transaction order decides against the authoritative session boundary. |
 | Duplicate attendance scans | One accepted fact produces one resulting state transition. |
@@ -107,10 +113,10 @@ This file records current decisions only. It does not keep obsolete product path
 
 | ID | Decision owner | Required decision |
 | --- | --- | --- |
-| O-001 | Board | Team-size bounds and mixed-team eligibility |
-| O-002 | Board | Authoritative application open and close times |
+| O-001 | Board | Team-size bounds |
+| O-002 | Board | External-participant and VIT-student application deadlines |
 | O-003 | Board and admissions owner | Admission rubric, minimum human reviews, AI-use rule, capacity, waitlist order, offer deadline, and participant-visible reasons |
-| O-004 | Board and participant owner | Profile fields, notices, consent, privacy URL, fresh-project text, and membership-lock warning |
+| O-004 | Board and participant owner | Profile fields, notices, consent, privacy URL, fresh-project text, and final-submission warning |
 | O-005 | Board and review owner | Panel size, reviewer eligibility, expertise coverage, review duration, and substitute policy |
 | O-006 | Board and judging owner | Rubric, correction deadline, feedback release, finalist process, and awards |
 | O-007 | Attendance owner | Sessions, expected groups, scan windows, grace rules, and result policy |

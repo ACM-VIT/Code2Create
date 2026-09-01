@@ -19,9 +19,7 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
   requireMembership,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -442,12 +440,12 @@ export const detail = query({
       project: v.object({
         id: v.id("projectVersions"),
         initialIdea: v.string(),
+        additionalInformation: v.optional(v.string()),
         intakeResponses: v.array(
           v.object({
             ordinal: v.number(),
             question: v.string(),
-            answer: v.optional(v.string()),
-            skipped: v.boolean(),
+            answer: v.string(),
           }),
         ),
         informationResponses: v.array(
@@ -771,11 +769,13 @@ export const detail = query({
       project: {
         id: project._id,
         initialIdea: project.initialIdea,
+        ...(project.additionalInformation !== undefined
+          ? { additionalInformation: project.additionalInformation }
+          : {}),
         intakeResponses: project.intakeResponses.map((response) => ({
           ordinal: response.ordinal,
           question: response.question,
-          ...(response.answer !== undefined ? { answer: response.answer } : {}),
-          skipped: response.skipped,
+          answer: response.answer,
         })),
         informationResponses: (project.admissionInformationResponses ?? []).map(
           (response) => ({
@@ -1669,6 +1669,7 @@ const rerunnableAdmissionRecommendationStates = new Set<
   "rate_limited",
   "failed",
   "stale",
+  "disabled",
 ]);
 
 export function admissionRecommendationCanRerun(
@@ -2381,6 +2382,9 @@ export async function respondToAdmissionInformationRequest(
     teamId: project.teamId,
     version: project.version + 1,
     initialIdea: project.initialIdea,
+    ...(project.additionalInformation !== undefined
+      ? { additionalInformation: project.additionalInformation }
+      : {}),
     intakePolicyVersionId: project.intakePolicyVersionId,
     intakeResponses: project.intakeResponses,
     lockedRosterSnapshotId: project.lockedRosterSnapshotId,
@@ -2999,7 +3003,6 @@ export const sendOffer = mutation({
       scopeType: "application",
       scopeId: application._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (application.version !== args.expectedApplicationVersion) {
       throw new ConvexError({
         code: "APPLICATION_CHANGED",
@@ -3280,7 +3283,6 @@ export const revokeOffer = mutation({
       scopeType: "application",
       scopeId: application._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const [offer, project, team] = await Promise.all([
       application.currentOfferId
         ? ctx.db.get(application.currentOfferId)

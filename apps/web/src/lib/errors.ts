@@ -2,6 +2,15 @@ import { ConvexError } from 'convex/values'
 
 const fallbackMessage = 'Something went wrong. Try again.'
 
+export function convexErrorCode(error: unknown) {
+  if (!(error instanceof ConvexError)) return null
+  if (typeof error.data !== 'object' || error.data === null || !('code' in error.data)) {
+    return null
+  }
+  const code = error.data.code
+  return typeof code === 'string' ? code : null
+}
+
 export function readableError(error: unknown) {
   if (error instanceof ConvexError) {
     if (typeof error.data === 'string' && error.data.trim()) return error.data

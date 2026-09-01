@@ -1,12 +1,16 @@
-import { Presence } from "@convex-dev/presence";
 import { ConvexError, v } from "convex/values";
 
-import { components } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { currentReadTeamContext, currentTeamContext } from "./intake";
-import { requireRegistrationOpen } from "./lib/events";
+import { applicationsCloseAtFor, requireRegistrationOpen } from "./lib/events";
 import { requireCurrentPerson } from "./lib/identity";
+import {
+  intakeEditingPresence,
+  intakeEditingRoomId,
+  maximumIntakeEditors,
+  type IntakeEditingSurface,
+} from "./lib/intakeEditingPresence";
 import { requirePermission } from "./lib/permissions";
 
 const editingSurface = v.union(
@@ -14,20 +18,68 @@ const editingSurface = v.union(
   v.literal("follow_up"),
   v.literal("proposal_revision"),
 );
-type EditingSurface = "idea" | "follow_up" | "proposal_revision";
+type EditingSurface = IntakeEditingSurface;
 
-const heartbeatIntervalMs = 4_000;
-const maximumTeamMembers = 5;
-const presence = new Presence<string, Id<"eventMemberships">>(components.intakePresence);
+const heartbeatIntervalMs = 10_000;
 
-function roomId(teamId: Id<"teams">, surface: EditingSurface) {
-  return `intake:${teamId}:${surface}`;
+async function requireEditingTarget(
+  ctx: MutationCtx,
+  args: {
+    teamId: Id<"teams">;
+    surface: EditingSurface;
+    questionId?: Id<"intakeGeneratedQuestions">;
+  },
+) {
+  if (args.surface === "idea") {
+    if (args.questionId !== undefined) {
+      throw new ConvexError({
+        code: "INVALID_EDITING_TARGET",
+        message: "The idea editor cannot target a follow-up question.",
+      });
+    }
+    return;
+  }
+  if (args.surface === "follow_up") {
+    if (args.questionId === undefined) {
+      throw new ConvexError({
+        code: "INVALID_EDITING_TARGET",
+        message: "The follow-up editor requires its exact question.",
+      });
+    }
+    const question = await ctx.db.get(args.questionId);
+    if (
+      !question ||
+      question.teamId !== args.teamId ||
+      (question.state !== "active" && question.state !== "answered")
+    ) {
+      throw new ConvexError({
+        code: "INVALID_EDITING_TARGET",
+        message: "That follow-up is no longer editable.",
+      });
+    }
+    return;
+  }
+  if (args.questionId === undefined) return;
+  const application = await ctx.db
+    .query("applications")
+    .withIndex("by_team", (index) => index.eq("teamId", args.teamId))
+    .unique();
+  const project = application
+    ? await ctx.db.get(application.submittedProjectVersionId)
+    : null;
+  if (!project?.intakeResponses.some(({ questionId }) => questionId === args.questionId)) {
+    throw new ConvexError({
+      code: "INVALID_EDITING_TARGET",
+      message: "That submitted follow-up is no longer editable.",
+    });
+  }
 }
 
 export const heartbeat = mutation({
   args: {
     eventSlug: v.string(),
     surface: editingSurface,
+    questionId: v.optional(v.id("intakeGeneratedQuestions")),
     sessionId: v.string(),
   },
   returns: v.object({
@@ -37,15 +89,21 @@ export const heartbeat = mutation({
   handler: async (ctx, args) => {
     const { event, subject, membership, member, team } =
       await currentTeamContext(ctx, args.eventSlug);
+    await requireEditingTarget(ctx, {
+      teamId: team._id,
+      surface: args.surface,
+      ...(args.questionId !== undefined ? { questionId: args.questionId } : {}),
+    });
     if (args.surface === "proposal_revision") {
-      if (Date.now() >= event.applicationsCloseAt) {
+      if (
+        Date.now() >= applicationsCloseAtFor(event, membership.participantClass)
+      ) {
         throw new ConvexError({
           code: "APPLICATION_DEADLINE_PASSED",
           message: "The application deadline has passed.",
         });
       }
       if (
-        !team.membershipLocked ||
         member.role !== "lead" ||
         team.leadMembershipId !== membership._id
       ) {
@@ -72,7 +130,17 @@ export const heartbeat = mutation({
         });
       }
     } else {
-      requireRegistrationOpen(event);
+      requireRegistrationOpen(event, membership.participantClass);
+      const application = await ctx.db
+        .query("applications")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique();
+      if (application) {
+        throw new ConvexError({
+          code: "APPLICATION_ALREADY_SUBMITTED",
+          message: "This application has been submitted. Edit its current proposal instead.",
+        });
+      }
       if (team.membershipLocked) {
         throw new ConvexError({
           code: "SUBMISSION_LOCKED",
@@ -80,9 +148,9 @@ export const heartbeat = mutation({
         });
       }
     }
-    return presence.heartbeat(
+    return intakeEditingPresence.heartbeat(
       ctx,
-      roomId(team._id, args.surface),
+      intakeEditingRoomId(team._id, args.surface, args.questionId),
       membership._id,
       args.sessionId,
       heartbeatIntervalMs,
@@ -95,28 +163,83 @@ export const list = query({
   returns: v.array(v.object({
     membershipId: v.id("eventMemberships"),
     surface: editingSurface,
+    questionId: v.optional(v.id("intakeGeneratedQuestions")),
+    label: v.string(),
   })),
   handler: async (ctx, args) => {
     const context = await currentReadTeamContext(ctx, args.eventSlug);
     if (!context) return [];
-    const surfaces: readonly EditingSurface[] = [
-      "idea",
-      "follow_up",
-      "proposal_revision",
+    const [draft, application] = await Promise.all([
+      ctx.db
+        .query("projectDrafts")
+        .withIndex("by_team", (index) => index.eq("teamId", context.team._id))
+        .unique(),
+      ctx.db
+        .query("applications")
+        .withIndex("by_team", (index) => index.eq("teamId", context.team._id))
+        .unique(),
+    ]);
+    const [activeQuestions, answeredQuestions] = draft
+      ? await Promise.all([
+          ctx.db
+            .query("intakeGeneratedQuestions")
+            .withIndex("by_draft_state_ordinal", (index) =>
+              index.eq("draftId", draft._id).eq("state", "active"),
+            )
+            .take(2),
+          ctx.db
+            .query("intakeGeneratedQuestions")
+            .withIndex("by_draft_state_ordinal", (index) =>
+              index.eq("draftId", draft._id).eq("state", "answered"),
+            )
+            .take(2),
+        ])
+      : [[], []];
+    const draftQuestions = [...activeQuestions, ...answeredQuestions]
+      .toSorted((left, right) => left.ordinal - right.ordinal);
+    const project = application
+      ? await ctx.db.get(application.submittedProjectVersionId)
+      : null;
+    const targets: {
+      surface: EditingSurface;
+      questionId?: Id<"intakeGeneratedQuestions">;
+      label: string;
+    }[] = [
+      { surface: "idea", label: "the idea" },
+      ...draftQuestions.map((question) => ({
+        surface: "follow_up" as const,
+        questionId: question._id,
+        label: question.text,
+      })),
+      ...(project
+        ? [
+            { surface: "proposal_revision" as const, label: "the idea" },
+            ...project.intakeResponses.map((response) => ({
+              surface: "proposal_revision" as const,
+              questionId: response.questionId,
+              label: response.question,
+            })),
+          ]
+        : []),
     ];
-    const bySurface = await Promise.all(surfaces.map(async (surface) => ({
-      surface,
-      members: await presence.listRoom(
+    const byTarget = await Promise.all(targets.map(async (target) => ({
+      ...target,
+      members: await intakeEditingPresence.listRoom(
         ctx,
-        roomId(context.team._id, surface),
+        intakeEditingRoomId(context.team._id, target.surface, target.questionId),
         true,
-        maximumTeamMembers,
+        maximumIntakeEditors,
       ),
     })));
-    return bySurface.flatMap(({ surface, members }) =>
+    return byTarget.flatMap(({ surface, questionId, label, members }) =>
       members
         .filter(({ userId }) => userId !== context.member.membershipId)
-        .map(({ userId }) => ({ membershipId: userId, surface })),
+        .map(({ userId }) => ({
+          membershipId: userId,
+          surface,
+          ...(questionId !== undefined ? { questionId } : {}),
+          label,
+        })),
     );
   },
 });
@@ -126,6 +249,6 @@ export const disconnect = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     await requireCurrentPerson(ctx);
-    return presence.disconnect(ctx, args.sessionToken);
+    return intakeEditingPresence.disconnect(ctx, args.sessionToken);
   },
 });

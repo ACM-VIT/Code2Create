@@ -12,15 +12,22 @@ export function FigmaCallbackScreen() {
   const completeConnection = useAction(api.figmaActions.completeConnection)
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const [error, setError] = useState<string | null>(null)
+  const [completionFailure, setCompletionFailure] = useState<{
+    key: string
+    message: string
+  } | null>(null)
   const state = searchParams.get('state')
   const code = searchParams.get('code')
+  const parameterError = !state || !code
+    ? 'Figma returned an incomplete connection. Start again from integrations.'
+    : null
+  const completionKey = state ?? ''
+  const error = parameterError ?? (
+    completionFailure?.key === completionKey ? completionFailure.message : null
+  )
 
   useEffect(() => {
-    if (!state || !code) {
-      setError('Figma returned an incomplete connection. Start again from integrations.')
-      return
-    }
+    if (!state || !code) return
     let completion = pendingCompletions.get(state)
     if (!completion) {
       completion = completeConnection({ eventSlug, state, code })
@@ -33,15 +40,17 @@ export function FigmaCallbackScreen() {
     let active = true
     void completion
       .then(() => {
-        if (active) navigate('/integrations', { replace: true })
+        if (active) navigate('/integrations', { replace: true, viewTransition: true })
       })
       .catch((caught) => {
-        if (active) setError(readableError(caught))
+        if (active) {
+          setCompletionFailure({ key: completionKey, message: readableError(caught) })
+        }
       })
     return () => {
       active = false
     }
-  }, [code, completeConnection, navigate, state])
+  }, [code, completeConnection, completionKey, navigate, state])
 
   return (
     <section className="integration-shell narrow-panel">
@@ -50,7 +59,7 @@ export function FigmaCallbackScreen() {
       {error ? (
         <>
           <p className="lead">{error}</p>
-          <Link className="secondary link-button" to="/integrations">Back to integrations</Link>
+          <Link className="secondary link-button" to="/integrations" viewTransition>Back to integrations</Link>
         </>
       ) : (
         <p className="muted" role="status">Exchanging the short-lived Figma authorization.</p>

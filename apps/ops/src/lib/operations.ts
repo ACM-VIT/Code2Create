@@ -1,12 +1,6 @@
 import { ConvexError } from 'convex/values'
 import { useState, useSyncExternalStore } from 'react'
 
-import { isConvexErrorCode } from './errors.ts'
-import {
-  FreshAuthenticationCancelledError,
-  requestFreshAuthentication,
-} from './freshAuthentication.ts'
-
 type PendingAttempt<Result> = {
   execute: () => Promise<Result>
 }
@@ -26,17 +20,14 @@ function createRetriableAttemptStore<Result>(operationName: 'command' | 'mutatio
     if (running.has(slot)) throw new Error(`This ${operationName} is already in progress.`)
     running.add(slot)
     try {
-      const result = await executeWithFreshAuthentication(attempt)
+      const result = await attempt.execute()
       if (pending.get(slot) === attempt) {
         pending.delete(slot)
         changed()
       }
       return result
     } catch (caught) {
-      if (
-        (caught instanceof ConvexError || caught instanceof FreshAuthenticationCancelledError) &&
-        pending.get(slot) === attempt
-      ) {
+      if (caught instanceof ConvexError && pending.get(slot) === attempt) {
         pending.delete(slot)
         changed()
       }
@@ -132,14 +123,4 @@ export function useMutationAttempt<Result>() {
   const [attempt] = useState(createMutationAttempt<Result>)
   useSyncExternalStore(attempt.subscribe, attempt.snapshot, attempt.snapshot)
   return attempt
-}
-
-async function executeWithFreshAuthentication<Result>(attempt: PendingAttempt<Result>) {
-  try {
-    return await attempt.execute()
-  } catch (caught) {
-    if (!isConvexErrorCode(caught, 'FRESH_AUTH_REQUIRED')) throw caught
-    await requestFreshAuthentication()
-    return attempt.execute()
-  }
 }

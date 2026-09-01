@@ -135,11 +135,17 @@ export const ideaIntelligenceReadEndpoint = httpAction(async (ctx, request) => {
     experienceBand: projection.experienceBand,
     sources: [
       { sourceRef: "initial_idea", answer: redactProjectText(projection.initialIdea) },
+      ...(projection.additionalInformation
+        ? [{
+            sourceRef: "additional_information",
+            question: "Any additional information or links you want to share (please, no PPTs)",
+            answer: redactProjectText(projection.additionalInformation),
+          }]
+        : []),
       ...projection.intakeResponses.map((source) => ({
         sourceRef: source.sourceRef,
         question: source.question,
-        ...(source.answer === undefined ? {} : { answer: redactProjectText(source.answer) }),
-        skipped: source.skipped,
+        answer: redactProjectText(source.answer),
       })),
       ...projection.informationResponses.map((source) => ({
         sourceRef: source.sourceRef,

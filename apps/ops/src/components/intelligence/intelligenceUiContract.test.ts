@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const liveConsoleSource = read('./LiveAgentConsole.tsx')
+const copilotConsoleSource = read('../OperationsCopilotConsole.tsx')
+const commandTraySource = read('./CopilotCommandTray.tsx')
 const recommendationSource = read('./RecommendationCard.tsx')
 const recommendationQueuesSource = read('./RecommendationQueues.tsx')
 const briefSource = read('../OperationsBrief.tsx')
@@ -148,6 +150,21 @@ test('an uncertain copilot send presents one idempotent retry state', () => {
   assert.doesNotMatch(liveConsoleSource, /previous send may have committed/i)
 })
 
+test('Ask keeps operator-scoped command approval inline with explicit recovery and breathing room', () => {
+  assert.match(copilotConsoleSource, /timelineFooter: <CopilotCommandTray \/>/)
+  assert.match(commandTraySource, /api\.intelligenceRecommendations\.copilotConversation/)
+  assert.match(commandTraySource, /api\.intelligenceRecommendations\.approve/)
+  assert.match(commandTraySource, /api\.intelligenceRecommendations\.reject/)
+  assert.match(commandTraySource, /operations\.hasPending\(approveSlot\)/)
+  assert.match(commandTraySource, /operations\.retryPending\(pendingSlot\)/)
+  assert.match(commandTraySource, /Permissions, lifecycle, and versions are checked again\./)
+  assert.match(commandTraySource, /command\.expectedEventVersion/)
+  assert.match(commandTraySource, /command\.expectedBasePolicyId/)
+  assert.match(liveConsoleSource, /className="pt-3 pb-2"/)
+  assert.match(liveConsoleSource, /'shrink-0 px-4 pt-2 pb-8'/)
+  assert.doesNotMatch(commandTraySource, /style=\{/)
+})
+
 test('the setup surface configures effect-bounded autonomy, not cognitive quotas', () => {
   const completePolicySource = `${policySource}\n${policyFieldsSource}`
   assert.match(policySource, /api\.operationsAutonomyPolicyConfiguration/)
@@ -220,6 +237,10 @@ test('the agent control plane exposes every release, prompt, management boundary
   assert.match(controlPlaneSource, /Code-owned release/)
   assert.match(controlPlaneSource, /Management boundary/)
   assert.match(controlPlaneSource, /className="mx-auto grid/)
+  assert.match(controlPlaneSource, /max-w-\[1072px\]/)
+  assert.match(controlPlaneSource, /Deployed agents/)
+  assert.doesNotMatch(controlPlaneSource, /<aside/)
+  assert.doesNotMatch(controlPlaneSource, /sticky top-/)
   assert.doesNotMatch(stylesheet, /agent-control-plane|agent-fleet|agent-run-ledger/u)
 })
 

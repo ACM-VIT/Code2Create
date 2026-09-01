@@ -1,9 +1,64 @@
 import { useState } from 'react'
-import type { Code2CreateAuthClient } from '@code2create/web-auth'
-import { ErrorNotice } from '../components/Form'
+import {
+  GoogleFedCmButton,
+  signInWithGooglePopup,
+  type Code2CreateAuthClient,
+} from '@code2create/web-auth'
+import {
+  restrictGoogleAuthorizationToVitStudents,
+  vitStudentEmailDomain,
+} from '../lib/googleAuthorization'
+import { PortalScene } from '../components/portal/PortalScene'
+import { usePortalTheme } from '../lib/portalTheme'
+import { PortalButton } from '../components/portal/PortalButton'
+import { PortalError } from '../components/portal/PortalField'
 import type { ParticipantClass, PublicState } from '../types'
 
 export const participantClassStorageKey = 'code2create.participant-class'
+
+function popupErrorMessage(code: string | undefined) {
+  if (code === 'POPUP_BLOCKED') return 'Allow pop-ups for this site, then try again.'
+  if (code === 'POPUP_CLOSED') return 'Google sign-in was closed before it finished.'
+  if (code === 'POPUP_TIMEOUT') return 'Google sign-in took too long. Try again.'
+  return 'Google sign-in could not start. Try again.'
+}
+
+function ClassCard({
+  title,
+  detail,
+  selected,
+  disabled,
+  onSelect,
+}: {
+  title: string
+  detail: string
+  selected: boolean
+  disabled: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-pressed={selected}
+      onClick={onSelect}
+      className={`w-full rounded-petal-sm px-6 py-5 text-left backdrop-blur-md transition-all duration-250 disabled:cursor-not-allowed disabled:opacity-45 sm:w-[250px] ${
+        selected
+          ? 'border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] shadow-[0_24px_50px_-18px_var(--shade-2)]'
+          : 'border-[1.5px] border-petal-edge-soft bg-[image:var(--tile-bg)] shadow-[0_24px_50px_-18px_var(--shade-2)]'
+      }`}
+    >
+      <p
+        className={`mb-1 font-display font-light tracking-[-.01em] text-[19px] ${
+          selected ? 'text-rose-light' : 'text-fg/85'
+        }`}
+      >
+        {title}
+      </p>
+      <p className="text-xs text-fg/55">{detail}</p>
+    </button>
+  )
+}
 
 export function EntryScreen({
   publicState,
@@ -12,23 +67,56 @@ export function EntryScreen({
   publicState: PublicState
   authClient: Code2CreateAuthClient
 }) {
+  const portalTheme = usePortalTheme()
   const [participantClass, setParticipantClass] = useState<ParticipantClass | null>(() => {
     const stored = sessionStorage.getItem(participantClassStorageKey)
     return stored === 'vit_student' || stored === 'external_participant' ? stored : null
   })
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  // Before the event is published there is nothing to sign into — tease,
+  // don't explain.
   if (!publicState.event) {
     return (
-      <main className="centered-shell">
-        <section className="narrow-panel">
-          <p className="eyebrow">Code2Create</p>
-          <h1>Event setup is not complete</h1>
-          <p className="muted">An organizer with event setup access needs to finish setup.</p>
-        </section>
-      </main>
+      <PortalScene tree="both" logo="none">
+        <a
+          href="https://acmvit.in"
+          target="_blank"
+          rel="noreferrer"
+          className="absolute top-7 left-6 z-[6] opacity-85 transition-opacity hover:opacity-100 lg:top-9 lg:left-11"
+        >
+          <img
+            src="/assets/acm-mark.svg"
+            alt="ACM-VIT"
+            className="size-8 [filter:var(--mark-filter)] lg:size-9"
+          />
+        </a>
+        <div className="flex w-full max-w-[640px] flex-col items-center text-center">
+          <img
+            src="/assets/logo.svg"
+            alt=""
+            className="mb-3.5 w-11 drop-shadow-[0_0_20px_var(--logo-glow)] lg:mb-[18px] lg:w-[52px]"
+          />
+          <h1 className="mb-8 flex justify-center lg:mb-10">
+            <img
+              src="/assets/wordmark.svg"
+              alt="Code2Create"
+              className="h-9 w-auto [filter:var(--wordmark-filter)] sm:h-12 lg:h-[68px]"
+            />
+          </h1>
+          <p className="mb-2 font-display font-light tracking-[-.01em] text-[26px] text-rose-light lg:text-[32px]">
+            it’s cooking.
+          </p>
+          <p className="text-[13px] text-fg/50">come back in a little while</p>
+        </div>
+      </PortalScene>
     )
   }
+
+  const vitOpen = publicState.event.registrationOpen && publicState.serverNow < publicState.event.applicationsCloseAt
+  const externalOpen = publicState.event.registrationOpen && publicState.serverNow < publicState.event.externalApplicationsCloseAt
+  const selectedClassOpen = participantClass === 'vit_student' ? vitOpen : externalOpen
 
   const choose = (value: ParticipantClass) => {
     sessionStorage.setItem(participantClassStorageKey, value)
@@ -36,63 +124,112 @@ export function EntryScreen({
     setError(null)
   }
 
-  const signIn = async () => {
+  const fallbackSignIn = async () => {
     if (!participantClass || !publicState.auth.googleConfigured) return
     setBusy(true)
     setError(null)
     try {
-      const result = await authClient.signIn.social({
-        provider: 'google',
-        callbackURL: window.location.href,
-      })
-      if (result.error) setError('Google sign-in could not start. Try again.')
+      const result = await signInWithGooglePopup(
+        authClient,
+        window.location.href,
+        participantClass === 'vit_student'
+          ? restrictGoogleAuthorizationToVitStudents
+          : undefined,
+      )
+      if (result.error) setError(popupErrorMessage(result.error.code))
     } catch {
-      setError('Google sign-in could not start. Try again.')
+      setError(popupErrorMessage(undefined))
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <main className="centered-shell">
-      <section className="narrow-panel entry-panel">
-        <p className="eyebrow">{publicState.event.name}</p>
-        <h1>Hello.</h1>
-        <p className="lead">Which describes you?</p>
+    <PortalScene tree="both" logo="none">
+      {/* The organising club's mark, top-left — the portal's only ACM branding. */}
+      <a
+        href="https://acmvit.in"
+        target="_blank"
+        rel="noreferrer"
+        className="absolute top-7 left-6 z-[6] opacity-85 transition-opacity hover:opacity-100 lg:top-9 lg:left-11"
+      >
+        <img
+          src="/assets/acm-mark.svg"
+          alt="ACM-VIT"
+          className="size-8 [filter:var(--mark-filter)] lg:size-9"
+        />
+      </a>
+      <div className="flex w-full max-w-[640px] flex-col items-center text-center">
+        <img
+          src="/assets/logo.svg"
+          alt="Code2Create"
+          className="mb-3.5 w-11 drop-shadow-[0_0_20px_var(--logo-glow)] lg:mb-[18px] lg:w-[52px]"
+        />
+        {/* The landing page's lettered wordmark. */}
+        <h1 className="mb-8 flex justify-center lg:mb-10">
+          <img
+            src="/assets/wordmark.svg"
+            alt={publicState.event.name}
+            className="h-9 w-auto [filter:var(--wordmark-filter)] sm:h-12 lg:h-[68px]"
+          />
+        </h1>
 
-        <div className="choice-stack" role="group" aria-label="Participant type">
-          <button
-            type="button"
-            className={participantClass === 'vit_student' ? 'choice selected' : 'choice'}
-            onClick={() => choose('vit_student')}
+        <div
+          className="mb-7 flex w-full flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4"
+          role="group"
+          aria-label="Participant type"
           >
-            <span>VIT student</span>
-            <small>Use your VIT Google account.</small>
-          </button>
-          <button
-            type="button"
-            className={participantClass === 'external_participant' ? 'choice selected' : 'choice'}
-            onClick={() => choose('external_participant')}
-          >
-            <span>External participant</span>
-            <small>Use your regular Google account.</small>
-          </button>
+            <ClassCard
+              title="VIT student"
+              detail={`only @${vitStudentEmailDomain} Google accounts are accepted`}
+              disabled={!vitOpen}
+              selected={participantClass === 'vit_student'}
+            onSelect={() => choose('vit_student')}
+          />
+            <ClassCard
+              title="external participant"
+              detail={externalOpen ? 'use your regular Google account' : 'applications have closed'}
+              disabled={!externalOpen}
+              selected={participantClass === 'external_participant'}
+            onSelect={() => choose('external_participant')}
+          />
         </div>
 
-        <button
-          type="button"
-          className="primary full-width"
-          disabled={!participantClass || busy || !publicState.auth.googleConfigured}
-          onClick={signIn}
-        >
-          {busy ? 'Opening Google…' : 'Continue with Google'}
-        </button>
+        {participantClass && selectedClassOpen && publicState.auth.googleClientId ? (
+          <GoogleFedCmButton
+            authClient={authClient}
+            appearance={portalTheme === 'daybreak' ? 'light' : 'dark'}
+            clientId={publicState.auth.googleClientId}
+            {...(participantClass === 'vit_student'
+              ? { hostedDomain: vitStudentEmailDomain }
+              : {})}
+            loading={<PortalButton disabled className="mx-auto w-full max-w-[320px]">Loading Google…</PortalButton>}
+            pending={<PortalButton disabled className="mx-auto w-full max-w-[320px]">Signing in…</PortalButton>}
+            fallback={(
+              <PortalButton
+                type="button"
+                disabled={busy}
+                className="mx-auto w-full max-w-[320px]"
+                onClick={() => void fallbackSignIn()}
+              >
+                {busy ? 'Opening Google…' : 'Continue with Google'}
+              </PortalButton>
+            )}
+            onError={(message) => setError(message)}
+          />
+        ) : (
+          <PortalButton type="button" disabled className="w-full max-w-[320px]">
+            Continue with Google
+          </PortalButton>
+        )}
+
         {!publicState.auth.googleConfigured ? (
-          <p className="configuration-note">Google sign-in is unavailable right now. Ask an organizer for help.</p>
+          <p className="mt-4 text-[11.5px] text-rose-light">
+            Google sign-in is unavailable right now. Ask an organizer for help.
+          </p>
         ) : null}
-        <ErrorNotice message={error} />
-        <p className="fine-print">Sign-in confirms who you are. Event eligibility is checked next.</p>
-      </section>
-    </main>
+        <PortalError message={error} />
+      </div>
+    </PortalScene>
   )
 }

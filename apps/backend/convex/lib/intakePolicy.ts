@@ -125,7 +125,7 @@ export const defaultDeterministicIntakePolicy: IntakePolicy = {
   followUpAnswerMinLength: 5,
   followUpAnswerMaxLength: 1_200,
   minimumFollowUpCount: 2,
-  maximumFollowUpCount: 2,
+  maximumFollowUpCount: 4,
   deterministicFollowUpCount: 2,
   questionMaxLength: 140,
   allowedPurposeKeys: [
@@ -139,26 +139,19 @@ export const defaultDeterministicIntakePolicy: IntakePolicy = {
   fallbackQuestions: [
     {
       ordinal: 1,
-      text: "Who would use this first?",
-      purposeKey: "user",
-      answerLength: "short",
+      text: "What problem are you solving, and who has it?",
+      purposeKey: "problem",
+      answerLength: "medium",
     },
     {
       ordinal: 2,
-      text: "What would you most like to finish during Code2Create?",
-      purposeKey: "event_goal",
+      text: "How will your solution work in practice?",
+      purposeKey: "experience",
       answerLength: "medium",
     },
   ],
   blockedTerms: [...requiredBlockedTerms],
-  commonIdeaPatterns: [
-    {
-      stableKey: "civic_issue_reporting",
-      description: "A tool for reporting potholes, waste, damage, or another civic issue.",
-      supportiveQuestionGuidance:
-        "Ask what useful action or feedback should happen after someone submits a report.",
-    },
-  ],
+  commonIdeaPatterns: [],
   model: { mode: "deterministic" },
 };
 
@@ -261,8 +254,12 @@ export function normalizeIntakePolicy(input: IntakePolicy): IntakePolicy {
     200,
     2_000,
   );
-  if (input.minimumFollowUpCount !== 2 || input.maximumFollowUpCount !== 2) {
-    invalidPolicy("The introduction must ask exactly two follow-up questions.");
+  const hasCurrentQuestionBounds =
+    input.minimumFollowUpCount === 2 && input.maximumFollowUpCount === 4;
+  const hasLegacyQuestionBounds =
+    input.minimumFollowUpCount === 2 && input.maximumFollowUpCount === 2;
+  if (!hasCurrentQuestionBounds && !hasLegacyQuestionBounds) {
+    invalidPolicy("The introduction must ask two fixed questions and up to two generated questions.");
   }
   const deterministicFollowUpCount = wholeNumber(
     input.deterministicFollowUpCount,
@@ -294,15 +291,15 @@ export function normalizeIntakePolicy(input: IntakePolicy): IntakePolicy {
       invalidPolicy(`Blocked wording must include "${required}".`);
     }
   }
-  if (input.fallbackQuestions.length !== input.maximumFollowUpCount) {
-    invalidPolicy("The policy needs one deterministic fallback for each possible follow-up ordinal.");
+  if (input.fallbackQuestions.length !== deterministicFollowUpCount) {
+    invalidPolicy("The policy needs exactly two fixed questions.");
   }
   const fallbackQuestions = input.fallbackQuestions
     .map((fallback) => ({
-      ordinal: wholeNumber(fallback.ordinal, "Fallback ordinal", 1, input.maximumFollowUpCount),
+      ordinal: wholeNumber(fallback.ordinal, "Fixed-question ordinal", 1, deterministicFollowUpCount),
       text: normalizeQuestion(
         fallback.text,
-        `Fallback ${fallback.ordinal}`,
+        `Fixed question ${fallback.ordinal}`,
         questionMaxLength,
         blockedTerms,
       ),
@@ -311,10 +308,10 @@ export function normalizeIntakePolicy(input: IntakePolicy): IntakePolicy {
     }))
     .toSorted((left, right) => left.ordinal - right.ordinal);
   if (fallbackQuestions.some((fallback, index) => fallback.ordinal !== index + 1)) {
-    invalidPolicy("Fallback ordinals must start at one with no gaps.");
+    invalidPolicy("Fixed-question ordinals must start at one with no gaps.");
   }
   if (fallbackQuestions.some((fallback) => !allowedPurposeKeys.includes(fallback.purposeKey))) {
-    invalidPolicy("Every fallback purpose must be allowed by the question policy.");
+    invalidPolicy("Every fixed-question purpose must be allowed by the question policy.");
   }
   const commonIdeaPatterns = input.commonIdeaPatterns.map((pattern) => ({
     stableKey: normalizeStableKey(pattern.stableKey, "Idea-pattern key"),
@@ -339,7 +336,7 @@ export function normalizeIntakePolicy(input: IntakePolicy): IntakePolicy {
     followUpAnswerMinLength,
     followUpAnswerMaxLength,
     minimumFollowUpCount: 2,
-    maximumFollowUpCount: 2,
+    maximumFollowUpCount: input.maximumFollowUpCount,
     deterministicFollowUpCount,
     questionMaxLength,
     allowedPurposeKeys,
@@ -520,9 +517,9 @@ export async function publishIntakePolicy(
   return { policyVersionId: draft._id, policyVersion: draft.version };
 }
 
-export function fallbackForOrdinal(policy: IntakePolicy, ordinal: number) {
+export function fixedQuestionForOrdinal(policy: IntakePolicy, ordinal: number) {
   const fallback = policy.fallbackQuestions.find((entry) => entry.ordinal === ordinal);
-  if (!fallback) throw new Error(`The intake policy has no fallback for ordinal ${ordinal}.`);
+  if (!fallback) throw new Error(`The intake policy has no fixed question for ordinal ${ordinal}.`);
   return fallback;
 }
 

@@ -1,32 +1,40 @@
 import { api } from '@code2create/backend/api'
+import { defaultVitHostelResidenceCatalog } from '@code2create/domain'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import { useMutation, useQuery } from 'convex/react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import {
+  indiaDateTimeToTimestamp,
+  optionalIndiaDateTimeToTimestamp,
+} from '../lib/indiaDateTime'
 
 export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthClient }) {
   const eligibility = useQuery(api.system.bootstrapEligibility, { eventSlug })
   const bootstrap = useMutation(api.system.bootstrapEvent)
   const [eventName, setEventName] = useState('Code2Create 7.0')
-  const [startsAtLocal, setStartsAtLocal] = useState('')
-  const [endsAtLocal, setEndsAtLocal] = useState('')
-  const [applicationsCloseAtLocal, setApplicationsCloseAtLocal] = useState('')
-  const [venueName, setVenueName] = useState('VIT Chennai')
-  const [venueAddress, setVenueAddress] = useState('')
-  const [discordUrl, setDiscordUrl] = useState('')
+  const [startsAtLocal, setStartsAtLocal] = useState('2026-09-07T14:00')
+  const [endsAtLocal, setEndsAtLocal] = useState('2026-09-09T15:00')
+  const [externalApplicationsCloseAtLocal, setExternalApplicationsCloseAtLocal] = useState('')
+  const [vitApplicationsCloseAtLocal, setVitApplicationsCloseAtLocal] = useState('')
+  const [venueName, setVenueName] = useState('Anna Auditorium, VIT Vellore')
+  const [venueAddress, setVenueAddress] = useState(
+    'Anna Auditorium, VIT Vellore, Vellore, Tamil Nadu 632014',
+  )
+  const [discordUrl, setDiscordUrl] = useState('https://discord.gg/code2create')
   const [vitEmailDomain, setVitEmailDomain] = useState('vitstudent.ac.in')
   const [privacyNoticeUrl, setPrivacyNoticeUrl] = useState('https://code2create.in/privacy')
-  const [teamMinimumSize, setTeamMinimumSize] = useState('1')
-  const [teamMaximumSize, setTeamMaximumSize] = useState('4')
+  const [teamMinimumSize, setTeamMinimumSize] = useState('2')
+  const [teamMaximumSize, setTeamMaximumSize] = useState('5')
   const [participantCapacity, setParticipantCapacity] = useState('1000')
   const [integrationPolicyVersion, setIntegrationPolicyVersion] = useState('integrations-v1')
   const [requiredGitHubTopic, setRequiredGitHubTopic] = useState('code2create-7-0')
   const [maximumGitHubRepositories, setMaximumGitHubRepositories] = useState('10')
   const [maximumFigmaFiles, setMaximumFigmaFiles] = useState('10')
-  const [githubFreezeAtLocal, setGithubFreezeAtLocal] = useState('')
-  const [figmaFreezeAtLocal, setFigmaFreezeAtLocal] = useState('')
+  const [githubFreezeAtLocal, setGithubFreezeAtLocal] = useState('2026-09-09T15:00')
+  const [figmaFreezeAtLocal, setFigmaFreezeAtLocal] = useState('2026-09-09T15:00')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -56,12 +64,15 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
     event.preventDefault()
     const startsAt = indiaDateTimeToTimestamp(startsAtLocal)
     const endsAt = indiaDateTimeToTimestamp(endsAtLocal)
-    const applicationsCloseAt = indiaDateTimeToTimestamp(applicationsCloseAtLocal)
+    const externalApplicationsCloseAt = indiaDateTimeToTimestamp(externalApplicationsCloseAtLocal)
+    const applicationsCloseAt = indiaDateTimeToTimestamp(vitApplicationsCloseAtLocal)
     if (
       startsAt === null ||
       endsAt === null ||
+      externalApplicationsCloseAt === null ||
       applicationsCloseAt === null ||
       endsAt <= startsAt ||
+      externalApplicationsCloseAt > applicationsCloseAt ||
       applicationsCloseAt > startsAt
     ) {
       setError('Choose a valid application deadline, event start, and event end.')
@@ -80,19 +91,15 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
         eventSlug,
         eventName,
         timezone: 'Asia/Kolkata',
+        externalApplicationsCloseAt,
         applicationsCloseAt,
         vitEmailDomains: [vitEmailDomain],
         participantPolicy: {
           label: 'Participant policy · 1',
           teamMinimumSize: Number(teamMinimumSize),
           teamMaximumSize: Number(teamMaximumSize),
-          mixedParticipantClassesAllowed: true,
-          phoneField: 'optional',
-          vitRegistrationNumberField: 'required',
-          vitProgrammeField: 'required',
-          vitCampusField: 'required',
-          externalCityField: 'optional',
-          externalCountryField: 'required',
+          mixedParticipantClassesAllowed: false,
+          vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
           profileNotice:
             'We use these details to establish event eligibility, contact you about operations, and run Code2Create.',
           projectTextNotice:
@@ -115,7 +122,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           followUpAnswerMinLength: 5,
           followUpAnswerMaxLength: 1_200,
           minimumFollowUpCount: 2,
-          maximumFollowUpCount: 2,
+          maximumFollowUpCount: 4,
           deterministicFollowUpCount: 2,
           questionMaxLength: 140,
           allowedPurposeKeys: [
@@ -129,14 +136,14 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           fallbackQuestions: [
             {
               ordinal: 1,
-              text: 'Who would use this first?',
-              purposeKey: 'user',
-              answerLength: 'short',
+              text: 'What problem are you solving, and who has it?',
+              purposeKey: 'problem',
+              answerLength: 'medium',
             },
             {
               ordinal: 2,
-              text: 'What would you most like to finish during Code2Create?',
-              purposeKey: 'event_goal',
+              text: 'How will your solution work in practice?',
+              purposeKey: 'experience',
               answerLength: 'medium',
             },
           ],
@@ -151,14 +158,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
             'winner',
             'why should you win',
           ],
-          commonIdeaPatterns: [
-            {
-              stableKey: 'civic_issue_reporting',
-              description: 'A tool for reporting potholes, waste, damage, or another civic issue.',
-              supportiveQuestionGuidance:
-                'Ask what useful action or feedback should happen after someone submits a report.',
-            },
-          ],
+          commonIdeaPatterns: [],
           model: { mode: 'deterministic' },
         },
         communicationsPolicy: {
@@ -212,8 +212,12 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
                 <input required minLength={3} maxLength={80} value={eventName} onChange={(event) => setEventName(event.currentTarget.value)} />
               </label>
               <label className="field">
-                <span>Applications close · India time</span>
-                <input required type="datetime-local" value={applicationsCloseAtLocal} onChange={(event) => setApplicationsCloseAtLocal(event.currentTarget.value)} />
+                <span>External applications close · India time</span>
+                <input required type="datetime-local" value={externalApplicationsCloseAtLocal} onChange={(event) => setExternalApplicationsCloseAtLocal(event.currentTarget.value)} />
+              </label>
+              <label className="field">
+                <span>VIT applications close · India time</span>
+                <input required type="datetime-local" value={vitApplicationsCloseAtLocal} onChange={(event) => setVitApplicationsCloseAtLocal(event.currentTarget.value)} />
               </label>
               <label className="field">
                 <span>Starts · India time</span>
@@ -310,15 +314,6 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
       </section>
     </main>
   )
-}
-
-function indiaDateTimeToTimestamp(value: string) {
-  const timestamp = Date.parse(`${value}:00+05:30`)
-  return Number.isSafeInteger(timestamp) && timestamp > 0 ? timestamp : null
-}
-
-function optionalIndiaDateTimeToTimestamp(value: string) {
-  return value ? indiaDateTimeToTimestamp(value) : undefined
 }
 
 function CenteredStatus({ children }: { children: ReactNode }) {

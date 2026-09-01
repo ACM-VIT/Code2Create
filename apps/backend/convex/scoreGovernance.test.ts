@@ -1,4 +1,5 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
+import { defaultVitHostelResidenceCatalog } from "@code2create/domain";
 import { ConvexError } from "convex/values";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test, vi } from "vitest";
@@ -56,6 +57,7 @@ describe("score governance pagination", () => {
         timezone: "Asia/Kolkata",
         status: "live",
         vitEmailDomains: ["vitstudent.ac.in"],
+        externalApplicationsCloseAt: Date.now() + 86_400_000,
         applicationsCloseAt: Date.now() + 86_400_000,
         startsAt: fixture.now - 60_000,
         endsAt: fixture.now + 3_600_000,
@@ -484,6 +486,7 @@ describe("score governance pagination", () => {
         version: 1,
       },
       editRules: {
+        additionalInformationMaxLength: 4_000,
         initialIdeaMinLength: defaultDeterministicIntakePolicy.initialIdeaMinLength,
         initialIdeaMaxLength: defaultDeterministicIntakePolicy.initialIdeaMaxLength,
         followUpAnswerMinLength: defaultDeterministicIntakePolicy.followUpAnswerMinLength,
@@ -655,7 +658,8 @@ async function seedCorrectionFixture(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      externalApplicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,
@@ -705,13 +709,8 @@ async function seedCorrectionFixture(backend: BackendTest) {
       label: "Correction policy",
       teamMinimumSize: 1,
       teamMaximumSize: 4,
-      mixedParticipantClassesAllowed: true,
-      phoneField: "optional",
-      vitRegistrationNumberField: "not_collected",
-      vitProgrammeField: "not_collected",
-      vitCampusField: "not_collected",
-      externalCityField: "optional",
-      externalCountryField: "optional",
+      mixedParticipantClassesAllowed: false,
+      vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
       profileNotice: "Correction fixture profile notice",
       projectTextNotice: "Correction fixture project notice",
       privacyNoticeUrl: "https://example.test/privacy",

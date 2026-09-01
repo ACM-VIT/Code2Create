@@ -19,6 +19,7 @@ export function admissionInputFingerprint(args: {
   projectVersionId: Doc<"projectVersions">["_id"];
   projectVersion: number;
   initialIdea: string;
+  additionalInformation?: string;
   intakeResponses: Doc<"projectVersions">["intakeResponses"];
   admissionInformationResponses: NonNullable<
     Doc<"projectVersions">["admissionInformationResponses"]

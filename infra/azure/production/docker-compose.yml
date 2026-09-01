@@ -1,0 +1,41 @@
+name: code2create-production
+
+services:
+  backend:
+    image: ghcr.io/get-convex/convex-backend@sha256:1f2044e3eac463ac78973b136c0baf72d4ada602611d853d6f99f280e29e0a98
+    restart: unless-stopped
+    stop_grace_period: 30s
+    stop_signal: SIGINT
+    env_file: ${C2C_RUNTIME_ENV_FILE:-.env}
+    ports:
+      - "127.0.0.1:3210:3210"
+      - "127.0.0.1:3211:3211"
+    volumes:
+      - backend_data:/convex/data
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "node --version | grep -Eq '^v(20|22|24)\\.' && curl -f http://localhost:3210/version"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  caddy:
+    image: caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  backend_data:
+  caddy_data:
+  caddy_config:

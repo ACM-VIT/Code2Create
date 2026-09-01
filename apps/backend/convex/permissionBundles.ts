@@ -10,8 +10,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   bundleBindingRequirements,
@@ -883,7 +881,6 @@ export const publish = mutation({
         "access.permission_bundles.publish",
       ],
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (bundle.version !== args.expectedBundleVersion || !bundle.draftVersionId) {
       throw new ConvexError({
         code: "BUNDLE_CHANGED",
@@ -1343,7 +1340,6 @@ export const apply = mutation({
       bindings: args.bindings,
       requestedValidUntil: args.validUntil,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (
       context.targetSubject.accessVersion !== args.expectedAccessVersion ||
       context.previewChecksum !== args.previewChecksum

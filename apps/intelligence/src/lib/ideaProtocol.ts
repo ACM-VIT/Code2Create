@@ -33,7 +33,6 @@ const sourceSchema = v.strictObject({
 	sourceRef: bounded(1, 80),
 	question: v.optional(bounded(1, 400)),
 	answer: v.optional(bounded(1, 4_000)),
-	skipped: v.optional(v.boolean()),
 });
 
 const criterionSchema = v.strictObject({

@@ -15,8 +15,6 @@ import { requireEventBySlug } from "./lib/events";
 import {
   requireCurrentPerson,
   requireEventSubject,
-  requireFreshAuthSession,
-  sensitiveCommandSessionMaxAgeMs,
 } from "./lib/identity";
 import {
   findOperation,
@@ -266,7 +264,7 @@ async function resolveReference(
   return {
     membership,
     referenceKind: candidate.referenceKind,
-    participantName: profile?.preferredName ?? profile?.fullName ?? person.displayName,
+    participantName: profile?.fullName ?? person.displayName,
   };
 }
 
@@ -507,7 +505,6 @@ export const createDraft = mutation({
       scopeType: "attendance_session",
       scopeId: session._id,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
 
     const now = Date.now();
     const earliestCapturedAt = Math.max(session.openedAt, incident.openedAt - 15 * 60_000);
@@ -667,7 +664,6 @@ export const sourceUploadContext = internalQuery({
       scopeType: "attendance_session",
       scopeId: sheet.sessionId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     if (sheet.enteredByPersonId !== person._id) {
       throw new ConvexError({
         code: "SHEET_OWNER_REQUIRED",
@@ -837,7 +833,6 @@ export const attachSource = internalMutation({
       scopeType: "attendance_session",
       scopeId: sheet.sessionId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const [incident, session, reusedSource] = await Promise.all([
       ctx.db.get(sheet.incidentId),
       ctx.db.get(sheet.sessionId),
@@ -965,7 +960,6 @@ export const cancelDraft = mutation({
       scopeType: "attendance_session",
       scopeId: sheet.sessionId,
     });
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const now = Date.now();
     const version = sheet.version + 1;
     await ctx.db.patch(sheet._id, {
@@ -1197,7 +1191,6 @@ export const verify = mutation({
       }),
     ]);
     const authorizationGrantIds = [...grantIds, ...sourceGrantIds];
-    await requireFreshAuthSession(ctx, sensitiveCommandSessionMaxAgeMs);
     const [incident, session, sourceMetadata] = await Promise.all([
       ctx.db.get(sheet.incidentId),
       ctx.db.get(sheet.sessionId),
