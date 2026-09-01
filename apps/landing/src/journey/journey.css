@@ -8,12 +8,13 @@
  * tablets and phones rather than just scaling it down.
  * ------------------------------------------------------------------ */
 
-/* ~1588vh of travel over the timeline's 244s — the same glide-not-resist
+/* ~1888vh of travel over the timeline's 290s — the same glide-not-resist
    pace as the 146s/1050vh cut; the added length is the schedule act
-   running at five times its old scroll span. */
+   running at five times its old scroll span, plus the sponsor volley
+   between the lanterns and the hills going down. */
 .journey {
   position: relative;
-  height: 1688vh;
+  height: 1988vh;
 }
 
 .journey__stage {
@@ -590,6 +591,91 @@
 }
 
 /* ------------------------------------------------------------------ *
+ * Sponsors — two scroll-scrubbed firecracker rockets rise from behind the
+ * hills. Their own burst stars form the names while the logos settle above.
+ * ------------------------------------------------------------------ */
+
+.sponsors {
+  position: absolute;
+  inset: 0;
+  /* Above the mid ridge, below the near one, so a shell leaves the ground
+     from BEHIND the front hills — the same trick the ember lanterns use. */
+  z-index: 4;
+  pointer-events: none;
+}
+
+.fireworks {
+  position: absolute;
+  inset: 0;
+  /* A canvas is a replaced element; size it explicitly or it lays out at
+     its backing-store size. */
+  width: 100%;
+  height: 100%;
+  contain: strict;
+}
+
+/* Its GSAP start is below the viewport. This layer sits behind the near ridge,
+   so the title is revealed by the hill line as the scroll lifts it upward. */
+.sponsors__title {
+  position: absolute;
+  left: 50%;
+  top: 66%;
+  transform: translateX(-50%);
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(20px, 3vw, 40px);
+  line-height: 1.1;
+  color: #fff;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.75);
+  white-space: nowrap;
+  will-change: transform, opacity;
+}
+
+/* One logo per burst, centred on where its shell pops. Hidden until scroll
+   finishes pulling the burst stars into their lettering. */
+.sponsor {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  opacity: 0;
+  visibility: hidden;
+  will-change: transform, opacity;
+}
+
+.sponsor::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 145%;
+  height: 190%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse,
+    var(--burst) 0%,
+    var(--burst-soft) 36%,
+    transparent 70%
+  );
+  opacity: 0.72;
+}
+
+.sponsor__logo {
+  position: relative;
+  display: block;
+  height: auto;
+  object-fit: contain;
+}
+
+.sponsor__logo--elevenlabs {
+  width: clamp(220px, 23vw, 340px);
+}
+
+.sponsor__logo--sglang {
+  width: clamp(112px, 10.5vw, 148px);
+}
+
+/* ------------------------------------------------------------------ *
  * Timeline
  * ------------------------------------------------------------------ */
 
@@ -1091,6 +1177,21 @@
 
   .lantern__label {
     font-size: clamp(11px, 4vw, 18px);
+  }
+
+  /* The bursts cascade down the middle of a phone frame, so the heading
+     drops beneath the lowest of them. */
+  .sponsors__title {
+    top: 76%;
+    font-size: clamp(18px, 5.4vw, 26px);
+  }
+
+  .sponsor__logo--elevenlabs {
+    width: clamp(190px, 70vw, 275px);
+  }
+
+  .sponsor__logo--sglang {
+    width: clamp(106px, 32vw, 136px);
   }
 
   /* The design floats the big lamps and their captions over the hills. */
