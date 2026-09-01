@@ -10,7 +10,7 @@
     "build:release": "node ../backend/scripts/release/webEnvironment.ts participant build && pnpm build && pnpm posthog:sourcemaps",
     "posthog:sourcemaps": "node ../../scripts/upload-posthog-sourcemaps.mjs dist code2create-participant",
     "cloudflare:build:staging": "CLOUDFLARE_ENV=staging VITE_CONVEX_URL=https://realtime-staging.c2c.sh VITE_CONVEX_SITE_URL=https://api-staging.c2c.sh VITE_EVENT_SLUG=code2create-7 VITE_DEPLOYMENT_ENVIRONMENT=staging VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm build:release",
-    "cloudflare:deploy:staging": "CLOUDFLARE_ENV=staging VITE_DEPLOYMENT_ENVIRONMENT=staging VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm deploy:built",
+    "cloudflare:deploy:staging": "CLOUDFLARE_ENV=staging VITE_CONVEX_URL=https://realtime-staging.c2c.sh VITE_CONVEX_SITE_URL=https://api-staging.c2c.sh VITE_EVENT_SLUG=code2create-7 VITE_DEPLOYMENT_ENVIRONMENT=staging VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm deploy:built",
     "cloudflare:build:production": "CLOUDFLARE_ENV=production VITE_CONVEX_URL=https://realtime.c2c.sh VITE_CONVEX_SITE_URL=https://api.c2c.sh VITE_EVENT_SLUG=code2create-7 VITE_DEPLOYMENT_ENVIRONMENT=production VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm build:release",
     "cloudflare:deploy:production": "CLOUDFLARE_ENV=production VITE_CONVEX_URL=https://realtime.c2c.sh VITE_CONVEX_SITE_URL=https://api.c2c.sh VITE_EVENT_SLUG=code2create-7 VITE_DEPLOYMENT_ENVIRONMENT=production VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm deploy:built",
     "deploy": "pnpm build:release && pnpm deploy:built",
