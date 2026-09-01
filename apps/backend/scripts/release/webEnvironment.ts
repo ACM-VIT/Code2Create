@@ -2,6 +2,17 @@ type ReleaseSurface = 'landing' | 'participant' | 'operations'
 type ValidationMode = 'build' | 'deploy'
 type BuildEnvironment = Readonly<Record<string, string | undefined>>
 
+const convexOrigins = {
+  staging: {
+    cloud: 'https://realtime-staging.c2c.sh',
+    site: 'https://api-staging.c2c.sh',
+  },
+  production: {
+    cloud: 'https://realtime.c2c.sh',
+    site: 'https://api.c2c.sh',
+  },
+} as const
+
 export function validateWebReleaseEnvironment(
   surface: ReleaseSurface,
   mode: ValidationMode,
@@ -21,8 +32,17 @@ export function validateWebReleaseEnvironment(
   if (surface === 'landing') {
     requiredHttpsUrl(environment, 'VITE_EVENT_REGISTRATION_URL')
   } else {
-    requiredHttpsUrl(environment, 'VITE_CONVEX_URL')
-    requiredHttpsUrl(environment, 'VITE_CONVEX_SITE_URL')
+    const convexUrl = requiredHttpsOrigin(environment, 'VITE_CONVEX_URL')
+    const convexSiteUrl = requiredHttpsOrigin(environment, 'VITE_CONVEX_SITE_URL')
+    const expectedOrigins = convexOrigins[cloudflareEnvironment]
+    if (convexUrl !== expectedOrigins.cloud) {
+      throw new Error(`VITE_CONVEX_URL must be ${expectedOrigins.cloud} for ${cloudflareEnvironment}.`)
+    }
+    if (convexSiteUrl !== expectedOrigins.site) {
+      throw new Error(
+        `VITE_CONVEX_SITE_URL must be ${expectedOrigins.site} for ${cloudflareEnvironment}.`,
+      )
+    }
 
     const eventSlug = required(environment, 'VITE_EVENT_SLUG')
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(eventSlug) || eventSlug.length > 80) {
@@ -69,6 +89,14 @@ function requiredHttpsUrl(
     throw new Error(`${name} must be a complete HTTPS URL without embedded credentials.`)
   }
   return url
+}
+
+function requiredHttpsOrigin(environment: BuildEnvironment, name: string) {
+  const value = requiredHttpsUrl(environment, name)
+  if (value.pathname !== '/' || value.search || value.hash) {
+    throw new Error(`${name} must be one HTTPS origin without a path.`)
+  }
+  return value.origin
 }
 
 function required(environment: BuildEnvironment, name: string) {

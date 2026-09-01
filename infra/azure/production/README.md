@@ -1,5 +1,11 @@
 # Azure production backend release gate
 
+The production portal is `https://c2c.sh`. The operations surface is
+`https://ops.c2c.sh`. Both use the production backend origins below. Creating
+the infrastructure or deploying a Worker must not create an event or change an
+event's application state. Applications remain closed until a Supreme operator
+explicitly opens the relevant participant windows from Event setup.
+
 Production uses one active self-hosted Convex backend in the same Azure region
 and private VNet as Azure Database for PostgreSQL Flexible Server. Do not put two
 independent Convex backends behind a load balancer. The supported unit is one
@@ -22,6 +28,76 @@ PostgreSQL tier, connection limit, and provider budgets only after the checked-i
 - a separate production deployment secret inventory; and
 - automated database backup verification plus a timed restore rehearsal into an
   isolated environment.
+
+## Provisioned inventory
+
+- resource group: `rg-code2create-production` in Central India;
+- VNet: `vnet-c2c-production` (`10.43.0.0/16`);
+- application subnet: `snet-app` (`10.43.1.0/24`);
+- PostgreSQL subnet: `snet-postgres` (`10.43.2.0/24`);
+- application public IP: `20.204.40.131`;
+- Key Vault: `kv-c2c-prod-b88416`;
+- Log Analytics: `log-c2c-production`, with all PostgreSQL diagnostic logs and
+  metrics retained for 30 days;
+- PostgreSQL: `pg-c2c-prod-b88416`, PostgreSQL 17, private General Purpose
+  `Standard_D4ds_v5`, 128 GiB Premium storage with auto-grow, 35-day backups,
+  geo-redundant backup, zone-redundant high availability, and the
+  `code2create_production` Convex database; and
+- proposed application VM: `vm-c2c-production-app`, `Standard_D8as_v5`.
+
+The VM size is the proposed capacity-test shape, not an assertion that it has
+passed. Resize it before opening applications if the checked-in 3,000-client run
+does not leave the required headroom.
+
+The Convex backend stores durable database state in PostgreSQL and file/module
+state in these private R2 buckets:
+
+- `code2create-convex-production-exports`;
+- `code2create-convex-production-imports`;
+- `code2create-convex-production-modules`;
+- `code2create-convex-production-files`; and
+- `code2create-convex-production-search`.
+
+The exports bucket has a 35-day retention lock. A backup is not considered
+verified merely because an export object exists: the recovery rehearsal must
+still import it into the isolated rehearsal deployment and compare inventories.
+
+The VM identity reads `postgres-app-password`, `convex-instance-secret`,
+`r2-access-key-id`, and `r2-secret-access-key` from the production Key Vault.
+The R2 credentials must be a production-only token scoped to the five buckets.
+Do not reuse the interactive Wrangler or staging credentials.
+
+After the backend is healthy, generate its CLI key inside the container, store
+it as `convex-admin-key`, then run `configure-convex-environment.sh` followed by
+`deploy-convex.sh`. Both scripts select the self-hosted production deployment
+explicitly. Environment configuration grants one bootstrap email permission to
+create the event; it does not create the event or open either application
+window.
+
+Only ports 80 and 443 accept inbound traffic, and only from Cloudflare's
+published IPv4 proxy ranges. SSH is not an operational path; use Azure Run
+Command for host maintenance. The Convex dashboard is intentionally absent from
+the production Compose file.
+
+Azure Monitor alerts the technical-director action group when the VM or
+PostgreSQL becomes unavailable, PostgreSQL CPU remains above 80%, or storage
+exceeds 80%. These alerts supplement the application-level release and
+operations-health checks; they do not replace them.
+
+## DNS and release order
+
+1. Point proxied `realtime.c2c.sh` and `api.c2c.sh` A records at
+   `20.204.40.131` only after the backend is healthy.
+2. Deploy the participant Worker with its `c2c.sh` custom domain and the
+   operations Worker with its `ops.c2c.sh` custom domain.
+3. Set the Google Web OAuth redirect URI to
+   `https://api.c2c.sh/api/auth/callback/google` and its JavaScript origins to
+   `https://c2c.sh` and `https://ops.c2c.sh`.
+4. Verify the public state contains no event, or an event whose internal and
+   external application windows are both closed.
+
+The old wildcard `*.c2c.sh` DNS records are not production routing. Remove them
+when all named production records exist; do not use the wildcard as a fallback.
 
 The backend health check must verify both `node --version` and `/version`.
 Deployment is incomplete until one Node-backed intake action runs through the
