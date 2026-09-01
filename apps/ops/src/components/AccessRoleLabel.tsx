@@ -18,10 +18,14 @@ export function AccessRoleLabel({
   personId,
   currentRole,
   accessVersion,
+  canGrantAny,
+  canRevokeAny,
 }: {
   personId: AccessDetail['person']['id']
   currentRole: EventRole | undefined
   accessVersion: number
+  canGrantAny: boolean
+  canRevokeAny: boolean
 }) {
   const setRole = useMutation(api.accessRoles.set)
   const operations = useOperationRunner()
@@ -31,6 +35,9 @@ export function AccessRoleLabel({
   const [error, setError] = useState<string | null>(null)
   const rolePending = operations.hasPending('access-role-set')
   const synchronizingSupreme = currentRole === 'supreme' && selectedRole === 'supreme'
+  const roleCeilingAllowsChange =
+    (selectedRole !== 'supreme' || canGrantAny) &&
+    (currentRole !== 'supreme' || selectedRole === 'supreme' || canRevokeAny)
 
   const selectRole = (value: string) => {
     if (!value) {
@@ -68,16 +75,18 @@ export function AccessRoleLabel({
     <AccessManagementDisclosure
       description={currentRole === 'supreme'
         ? 'Supreme includes every event-wide permission and the account’s own reviewer permissions.'
-        : `Currently ${currentRole ? eventRoleLabels[currentRole] : 'no role label'}. Exact scoped permissions remain separate.`}
-      title="Change role label"
+        : `Currently ${currentRole ? eventRoleLabels[currentRole] : 'no role'}. Exact scoped permissions remain separate.`}
+      title="Change role"
     >
       <form className="role-form" onSubmit={submit}>
         <label className="field">
-          <span>Role label</span>
+          <span>Role</span>
           <select disabled={busy || rolePending} value={selectedRole} onChange={(event) => selectRole(event.target.value)}>
-            <option value="">No role label</option>
+            <option value="">No role</option>
             {roleOptions.map((role) => (
-              <option key={role} value={role}>{eventRoleLabels[role]}</option>
+              <option disabled={role === 'supreme' && !canGrantAny} key={role} value={role}>
+                {eventRoleLabels[role]}
+              </option>
             ))}
           </select>
         </label>
@@ -90,7 +99,7 @@ export function AccessRoleLabel({
             className="secondary"
             type="submit"
             disabled={busy || (!rolePending && (
-              reason.trim().length < 5 || (
+              !roleCeilingAllowsChange || reason.trim().length < 5 || (
                 selectedRole === (currentRole ?? '') && !synchronizingSupreme
               )
             ))}
@@ -103,7 +112,11 @@ export function AccessRoleLabel({
                   ? 'Synchronize Supreme access'
                   : 'Save role'}
           </button>
-          <small>You may be asked to sign in again before this change.</small>
+          <small>
+            {roleCeilingAllowsChange
+              ? 'You may be asked to sign in again before this change.'
+              : 'Your permission ceiling does not cover every permission changed by this role.'}
+          </small>
         </div>
       </form>
       {error ? <p className="notice error" role="alert">{error}</p> : null}

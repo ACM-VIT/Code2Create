@@ -1,43 +1,42 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
+
+/* The bonsai is the landing page's own illustration: a large inline SVG driven
+   by GSAP's morph plugin. Loading it lazily keeps that weight off the first
+   paint, and the reveal delay below covers the fetch, so a fast load shows
+   nothing at all rather than a flash of loader. */
+const TreeLoader = lazy(() =>
+  import('./TreeLoader').then((module) => ({ default: module.TreeLoader })),
+)
 
 const revealDelay = 300
-const bonsaiSource = '/plants/plant-01.webp'
-const bonsaiDecoded = decodeBonsai()
 
-function decodeBonsai() {
-  const image = new Image()
-  image.src = bonsaiSource
-  return image.decode().catch(() => undefined)
-}
-
-export function DelayedBonsai({ compact = false }: { compact?: boolean }) {
+/**
+ * The portal's waiting state: the landing timeline's bonsai, blooming on a
+ * clock. Held back for a beat so quick transitions never flash it, and named
+ * for the view transition (c2c-pending) so it stays sharp while the outgoing
+ * surface blurs away beneath it.
+ */
+export function DelayedBonsai({
+  compact = false,
+  label = 'just a moment',
+}: {
+  compact?: boolean
+  label?: string
+}) {
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
-    let active = true
-    let resolveDelay = () => {}
-    const delayElapsed = new Promise<void>((resolve) => {
-      resolveDelay = resolve
-    })
-    const timer = window.setTimeout(resolveDelay, revealDelay)
-    void Promise.all([delayElapsed, bonsaiDecoded]).then(() => {
-      if (active) setVisible(true)
-    })
-    return () => {
-      active = false
-      window.clearTimeout(timer)
-    }
+    const timer = window.setTimeout(() => setVisible(true), revealDelay)
+    return () => window.clearTimeout(timer)
   }, [])
 
   if (!visible) return null
 
   return (
-    <div className={`delayed-bonsai${compact ? ' delayed-bonsai-compact' : ''}`} role="status">
-      <div className="delayed-bonsai-art" aria-hidden="true">
-        <img src={bonsaiSource} alt="" />
-        {Array.from({ length: 9 }, (_, index) => <i key={index} />)}
-      </div>
-      <span className="delayed-bonsai-label">just a moment</span>
+    <div className={`delayed-bonsai${compact ? ' delayed-bonsai-compact' : ''}`}>
+      <Suspense fallback={null}>
+        <TreeLoader label={label} variant={compact ? 'shell' : 'scene'} />
+      </Suspense>
     </div>
   )
 }

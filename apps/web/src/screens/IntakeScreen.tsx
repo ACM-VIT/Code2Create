@@ -21,6 +21,7 @@ import { Flower } from '../components/portal/FlowerAvatar'
 import {
   PortalCheckRow,
   PortalError,
+  PortalLabel,
   PortalTextarea,
 } from '../components/portal/PortalField'
 import { useEditingPresence } from '../hooks/useEditingPresence'
@@ -31,7 +32,12 @@ import {
 } from '../lib/submissionCelebration'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
-import { reconcileWorkingCopy, shouldRecoverFollowUpDraft } from '../lib/intakeCollaboration'
+import {
+  isIntakeCollaborationConflict,
+  reconcileCommittedField,
+  reconcileWorkingCopy,
+  shouldRecoverFollowUpDraft,
+} from '../lib/intakeCollaboration'
 import { useOperationRunner } from '../lib/operations'
 import { recoverProposalRevision } from '../lib/proposalRevision'
 import {
@@ -44,6 +50,9 @@ import { useDeadlineReached } from '../lib/useDeadlineReached'
 import type { CurrentIntake, CurrentTeam, CurrentTeamMember } from '../types'
 
 type NoveltyBand = 'familiar' | 'developing' | 'distinct'
+
+const additionalInformationLabel =
+  'Any additional information or links you want to share (please, no PPTs)'
 
 // The pill's plain-speak read of each band: how close the idea sits to
 // what other teams are writing.
@@ -68,6 +77,7 @@ type IntakeOperationResult =
   | FunctionReturnType<typeof api.intake.saveInitialIdea>
   | FunctionReturnType<typeof api.intake.respondToFollowUp>
   | FunctionReturnType<typeof api.intake.reviseFollowUp>
+  | FunctionReturnType<typeof api.intake.saveAdditionalInformation>
   | FunctionReturnType<typeof api.intake.setFreshnessAttestation>
   | FunctionReturnType<typeof api.intake.submit>
 
@@ -76,7 +86,7 @@ type PendingFollowUp = {
 }
 
 type PendingIntakeOperation = {
-  kind: 'idea' | 'follow_up' | 'freshness' | 'submit'
+  kind: 'idea' | 'follow_up' | 'additional_information' | 'freshness' | 'submit'
   slot: string
   action: string
 }
@@ -87,7 +97,20 @@ type RecoveredFollowUp = {
   savedByMembershipId: CurrentTeamMember['membershipId']
 }
 
-const noveltyRefreshIntervalMs = 15_000
+type ReviewAnswerEdit = {
+  questionId: string
+  value: string
+  baseValue: string
+  baseDraftVersion: number
+  conflict: boolean
+}
+
+type AdditionalInformationEdit = {
+  value: string
+  baseValue: string
+  baseDraftVersion: number
+  conflict: boolean
+}
 
 function normalizedIdeaLength(value: string) {
   return value.trim().replace(/\s+/g, ' ').length
@@ -334,6 +357,7 @@ function IntakeWorkspace({
   const saveIdea = useMutation(api.intake.saveInitialIdea)
   const respondToFollowUp = useMutation(api.intake.respondToFollowUp)
   const reviseFollowUp = useMutation(api.intake.reviseFollowUp)
+  const saveAdditionalInformation = useMutation(api.intake.saveAdditionalInformation)
   const setFreshness = useMutation(api.intake.setFreshnessAttestation)
   const submitApplication = useMutation(api.intake.submit)
   const opening = useQuery(api.intake.opening, { eventSlug })
@@ -375,10 +399,10 @@ function IntakeWorkspace({
   const followUpWorkingRevision = useRef(workingFollowUp?.revision ?? 0)
   const [followUpConflict, setFollowUpConflict] = useState(false)
   const [recoveredFollowUp, setRecoveredFollowUp] = useState<RecoveredFollowUp | null>(null)
-  const [editingFollowUpId, setEditingFollowUpId] = useState<string | null>(null)
-  const [editedFollowUpAnswer, setEditedFollowUpAnswer] = useState('')
-  const [revisionBaseVersion, setRevisionBaseVersion] = useState<number | null>(null)
+  const [reviewAnswerEdit, setReviewAnswerEdit] = useState<ReviewAnswerEdit | null>(null)
   const [editingIdea, setEditingIdea] = useState(false)
+  const [additionalInformationEdit, setAdditionalInformationEdit] =
+    useState<AdditionalInformationEdit | null>(null)
   // Which tucked sheet in the follow-up pile is peeked open, by question id.
   const [peekQuestionId, setPeekQuestionId] = useState<string | null>(null)
   const [pendingFollowUp, setPendingFollowUp] = useState<PendingFollowUp | null>(null)
@@ -422,6 +446,7 @@ function IntakeWorkspace({
   const followUpSlot = pendingFollowUp ? `follow-up:${pendingFollowUp.questionId}` : null
   const followUpPending = followUpSlot !== null && operations.hasPending(followUpSlot)
   const freshnessPending = operations.hasPending('freshness')
+  const additionalInformationPending = operations.hasPending('additional-information')
   const submitPending = operations.hasPending('final-submit')
 
   useEffect(() => {
@@ -445,6 +470,7 @@ function IntakeWorkspace({
     if (savedVersion !== ideaBase.current.version) {
       if (savedValue === ideaBase.current.value) {
         ideaBase.current = { value: savedValue, version: savedVersion }
+        setIdeaConflict(false)
         writeVersionedSessionDraft(ideaStorageKey, {
           base: String(savedVersion),
           value: idea,
@@ -548,11 +574,86 @@ function IntakeWorkspace({
   useEffect(() => {
     if (
       activeFollowUp &&
-      answer.trim() &&
       followUpBase.current.questionId === activeFollowUp.id &&
       followUpBase.current.version !== (draft?.version ?? 0)
-    ) setFollowUpConflict(true)
-  }, [activeFollowUp, answer, draft?.version])
+    ) {
+      const currentVersion = draft?.version ?? 0
+      followUpBase.current = { questionId: activeFollowUp.id, version: currentVersion }
+      setFollowUpConflict(false)
+      if (answer) {
+        writeVersionedSessionDraft(
+          `c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`,
+          { base: String(currentVersion), value: answer },
+        )
+      }
+    }
+  }, [activeFollowUp, answer, draft?.version, team.id])
+
+  useEffect(() => {
+    if (!preview || !reviewAnswerEdit) return
+    const savedAnswer = preview.followUps.find(
+      (followUp) => followUp.id === reviewAnswerEdit.questionId,
+    )?.answer
+    if (savedAnswer === undefined) return
+    const reconciliation = reconcileCommittedField({
+      baseVersion: reviewAnswerEdit.baseDraftVersion,
+      baseValue: reviewAnswerEdit.baseValue,
+      localValue: reviewAnswerEdit.value,
+      serverVersion: preview.draftVersion,
+      serverValue: savedAnswer,
+    })
+    if (reconciliation.kind === 'unchanged') return
+    if (reconciliation.kind === 'conflict') {
+      if (reviewAnswerEdit.conflict) return
+      setReviewAnswerEdit((current) => current ? { ...current, conflict: true } : null)
+      setError(null)
+      return
+    }
+    const storageKey = `c2c:${eventSlug}:${team.id}:review:${reviewAnswerEdit.questionId}`
+    if (reconciliation.kind === 'acknowledge') clearSessionDraft(storageKey)
+    else {
+      writeVersionedSessionDraft(storageKey, {
+        base: String(reconciliation.version),
+        value: reviewAnswerEdit.value,
+      })
+    }
+    setReviewAnswerEdit((current) => {
+      if (!current || current.questionId !== reviewAnswerEdit.questionId) return current
+      return {
+        ...current,
+        baseValue: savedAnswer,
+        baseDraftVersion: reconciliation.version,
+        conflict: false,
+      }
+    })
+  }, [preview, reviewAnswerEdit, team.id])
+
+  useEffect(() => {
+    if (!preview || !additionalInformationEdit) return
+    const savedValue = preview.additionalInformation ?? ''
+    const reconciliation = reconcileCommittedField({
+      baseVersion: additionalInformationEdit.baseDraftVersion,
+      baseValue: additionalInformationEdit.baseValue,
+      localValue: additionalInformationEdit.value,
+      serverVersion: preview.draftVersion,
+      serverValue: savedValue,
+    })
+    if (reconciliation.kind === 'unchanged') return
+    if (reconciliation.kind === 'conflict') {
+      if (additionalInformationEdit.conflict) return
+      setAdditionalInformationEdit((current) => current ? { ...current, conflict: true } : null)
+      setError(null)
+      return
+    }
+    if (reconciliation.kind === 'acknowledge') {
+      setAdditionalInformationEdit(null)
+      setError(null)
+      return
+    }
+    setAdditionalInformationEdit((current) => current
+      ? { ...current, baseValue: savedValue, baseDraftVersion: reconciliation.version }
+      : null)
+  }, [additionalInformationEdit, preview])
 
   useEffect(() => {
     noveltySequence.current += 1
@@ -589,8 +690,6 @@ function IntakeWorkspace({
     }
 
     if (!hasSavedSignal) setNoveltyState({ status: 'checking' })
-    let refreshTimer: number | undefined
-    let cancelled = false
     const checkNovelty = () => {
       void previewNovelty({
         eventSlug,
@@ -611,11 +710,6 @@ function IntakeWorkspace({
             setNoveltyState({ status: 'unavailable' })
           }
         })
-        .finally(() => {
-          if (!cancelled && noveltySequence.current === sequence) {
-            refreshTimer = window.setTimeout(checkNovelty, noveltyRefreshIntervalMs)
-          }
-        })
     }
     const initialTimer = window.setTimeout(
       checkNovelty,
@@ -623,9 +717,7 @@ function IntakeWorkspace({
     )
 
     return () => {
-      cancelled = true
       window.clearTimeout(initialTimer)
-      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
     }
   }, [
     draft?.initialIdea,
@@ -665,6 +757,7 @@ function IntakeWorkspace({
         field: { kind: 'idea' },
         value,
         baseDraftVersion: ideaBase.current.version,
+        baseCommittedValue: ideaBase.current.value,
         expectedRevision: ideaWorkingRevision.current,
       })
     },
@@ -679,12 +772,11 @@ function IntakeWorkspace({
     },
     onError: (autosaveError) => {
       pendingIdeaAutosave.current = null
-      const message = readableError(autosaveError)
-      if (message.includes('newer text')) {
+      if (isIntakeCollaborationConflict(autosaveError)) {
         setIdeaConflict(true)
         setError(null)
       } else {
-        setError(message)
+        setError(readableError(autosaveError))
       }
     },
   })
@@ -696,7 +788,7 @@ function IntakeWorkspace({
       !followUpConflict &&
       answer.length <= (draft?.intakePolicy.followUpAnswerMaxLength ?? 0),
     initialSavedValue: workingFollowUp?.value ?? '',
-    resetKey: `follow-up:${activeFollowUp?.id ?? 'none'}`,
+    resetKey: `follow-up:${activeFollowUp?.id ?? 'none'}:${draft?.version ?? 0}`,
     value: answer,
     save: (value) => {
       if (!activeFollowUp) return Promise.reject(new Error('The follow-up changed.'))
@@ -705,6 +797,7 @@ function IntakeWorkspace({
         field: { kind: 'follow_up', questionId: activeFollowUp.id },
         value,
         baseDraftVersion: followUpBase.current.version,
+        baseCommittedValue: '',
         expectedRevision: followUpWorkingRevision.current,
       })
     },
@@ -716,55 +809,73 @@ function IntakeWorkspace({
       setError(null)
     },
     onError: (autosaveError) => {
-      const message = readableError(autosaveError)
-      if (message.includes('newer text')) setFollowUpConflict(true)
-      setError(message)
+      if (isIntakeCollaborationConflict(autosaveError)) {
+        setFollowUpConflict(true)
+        setError(null)
+      } else {
+        setError(readableError(autosaveError))
+      }
     },
   })
 
-  const editingFollowUp = editingFollowUpId === null
+  const editingFollowUp = reviewAnswerEdit === null
     ? undefined
-    : draft?.followUps.find((followUp) => followUp.id === editingFollowUpId)
+    : draft?.followUps.find((followUp) => followUp.id === reviewAnswerEdit.questionId)
   const { retry: retryRevisionAutosave, state: revisionAutosaveState } = useDebouncedAutosave({
     delayMs: 1_000,
     enabled:
       applicationsOpen &&
       draft?.stage === 'review' &&
       editingFollowUp !== undefined &&
-      revisionBaseVersion !== null &&
-      editedFollowUpAnswer.length >= draft.intakePolicy.followUpAnswerMinLength &&
-      editedFollowUpAnswer.length <= draft.intakePolicy.followUpAnswerMaxLength,
-    initialSavedValue: editingFollowUp?.answer ?? '',
-    resetKey: `review:${editingFollowUpId ?? 'none'}`,
-    value: editedFollowUpAnswer,
+      reviewAnswerEdit !== null &&
+      !reviewAnswerEdit.conflict &&
+      reviewAnswerEdit.value.length >= draft.intakePolicy.followUpAnswerMinLength &&
+      reviewAnswerEdit.value.length <= draft.intakePolicy.followUpAnswerMaxLength,
+    initialSavedValue: reviewAnswerEdit?.baseValue ?? '',
+    resetKey:
+      `review:${reviewAnswerEdit?.questionId ?? 'none'}:${reviewAnswerEdit?.baseDraftVersion ?? 0}`,
+    value: reviewAnswerEdit?.value ?? '',
     save: (value) => {
-      if (!editingFollowUp || revisionBaseVersion === null) {
+      if (!editingFollowUp || !reviewAnswerEdit) {
         return Promise.reject(new Error('That answer is no longer editable.'))
       }
       return reviseFollowUp({
         eventSlug,
         questionId: editingFollowUp.id,
         answer: value,
-        expectedDraftVersion: revisionBaseVersion,
+        expectedDraftVersion: reviewAnswerEdit.baseDraftVersion,
         clientOperationId: crypto.randomUUID(),
       })
     },
     onSaved: (result, savedValue) => {
-      setRevisionBaseVersion(result.draftVersion)
-      if (editingFollowUp) {
-        const storageKey = `c2c:${eventSlug}:${team.id}:review:${editingFollowUp.id}`
-        if (savedValue === editedFollowUpAnswer) {
+      setReviewAnswerEdit((current) => {
+        if (!current || current.questionId !== editingFollowUp?.id) return current
+        const storageKey = `c2c:${eventSlug}:${team.id}:review:${current.questionId}`
+        if (savedValue === current.value) {
           clearSessionDraft(storageKey)
         } else {
           writeVersionedSessionDraft(storageKey, {
             base: String(result.draftVersion),
-            value: editedFollowUpAnswer,
+            value: current.value,
           })
         }
-      }
+        return {
+          ...current,
+          baseValue: savedValue,
+          baseDraftVersion: result.draftVersion,
+          conflict: false,
+        }
+      })
       setError(null)
     },
-    onError: (autosaveError) => setError(readableError(autosaveError)),
+    onError: (autosaveError) => {
+      if (isIntakeCollaborationConflict(autosaveError)) {
+        setReviewAnswerEdit((current) => current ? { ...current, conflict: true } : null)
+        setError(null)
+      } else {
+        setError(readableError(autosaveError))
+      }
+    },
   })
 
   const run = async (command: () => Promise<unknown>) => {
@@ -785,12 +896,19 @@ function IntakeWorkspace({
   const submitIdea = (event: FormEvent) => {
     event.preventDefault()
     void run(async () => {
-      await operations.run('idea', (clientOperationId) => () => saveIdea({
-          eventSlug,
-          idea,
-          expectedDraftVersion: ideaBase.current.version,
-          clientOperationId,
-        }))
+      try {
+        await operations.run('idea', (clientOperationId) => () => saveIdea({
+            eventSlug,
+            idea,
+            expectedDraftVersion: ideaBase.current.version,
+            clientOperationId,
+          }))
+      } catch (caught) {
+        if (!isIntakeCollaborationConflict(caught)) throw caught
+        setIdeaConflict(true)
+        setError(null)
+        return
+      }
       clearSessionDraft(ideaStorageKey)
       setIdeaDirty(false)
       setIdeaConflict(false)
@@ -807,13 +925,21 @@ function IntakeWorkspace({
       if (!operations.hasPending(slot)) {
         setPendingFollowUp({ questionId: activeFollowUp.id })
       }
-      await operations.run(slot, (clientOperationId) => () => respondToFollowUp({
-          eventSlug,
-          questionId: activeFollowUp.id,
-          answer,
-          expectedDraftVersion: followUpBase.current.version,
-          clientOperationId,
-        }))
+      try {
+        await operations.run(slot, (clientOperationId) => () => respondToFollowUp({
+            eventSlug,
+            questionId: activeFollowUp.id,
+            answer,
+            expectedDraftVersion: followUpBase.current.version,
+            clientOperationId,
+          }))
+      } catch (caught) {
+        if (!isIntakeCollaborationConflict(caught)) throw caught
+        setFollowUpConflict(true)
+        setPendingFollowUp(null)
+        setError(null)
+        return
+      }
       clearSessionDraft(`c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`)
       setAnswer('')
       setFollowUpConflict(false)
@@ -823,14 +949,45 @@ function IntakeWorkspace({
     })
   }
 
+  const submitAdditionalInformation = (event: FormEvent) => {
+    event.preventDefault()
+    if (!preview || additionalInformationEdit === null) return
+    void run(async () => {
+      try {
+        await operations.run(
+          'additional-information',
+          (clientOperationId) => () => saveAdditionalInformation({
+            eventSlug,
+            value: additionalInformationEdit.value,
+            baseValue: additionalInformationEdit.baseValue,
+            expectedDraftVersion: additionalInformationEdit.baseDraftVersion,
+            clientOperationId,
+          }),
+        )
+      } catch (caught) {
+        if (!isIntakeCollaborationConflict(caught)) throw caught
+        setAdditionalInformationEdit((current) => current ? { ...current, conflict: true } : null)
+        setError(null)
+        return
+      }
+      setAdditionalInformationEdit(null)
+    })
+  }
+
   const pendingOperation: PendingIntakeOperation | null = ideaPending
     ? { kind: 'idea', slot: 'idea', action: 'Confirm idea' }
-    : followUpPending && pendingFollowUp
+        : followUpPending && pendingFollowUp
         ? {
             kind: 'follow_up',
             slot: `follow-up:${pendingFollowUp.questionId}`,
             action: 'Confirm answer',
           }
+        : additionalInformationPending
+          ? {
+              kind: 'additional_information',
+              slot: 'additional-information',
+              action: 'Confirm additional information',
+            }
         : freshnessPending
               ? { kind: 'freshness', slot: 'freshness', action: 'Confirm answer' }
               : submitPending
@@ -845,6 +1002,9 @@ function IntakeWorkspace({
     if (operation.kind === 'follow_up') {
       setPendingFollowUp(null)
       return
+    }
+    if (operation.kind === 'additional_information') {
+      setAdditionalInformationEdit(null)
     }
   }
 
@@ -1226,11 +1386,6 @@ function IntakeWorkspace({
         />
       )
     }
-    const revisionConflict =
-      revisionAutosaveState !== 'saving' &&
-      editingFollowUpId !== null &&
-      revisionBaseVersion !== null &&
-      revisionBaseVersion !== preview.draftVersion
     const canSubmit =
       preview.blockers.length === 0 &&
       team.currentRole === 'lead' &&
@@ -1321,12 +1476,17 @@ function IntakeWorkspace({
               disabled={busy}
               onChange={(accepted) => {
                 void run(async () => {
-                  await operations.run('freshness', (clientOperationId) => () => setFreshness({
-                    eventSlug,
-                    accepted,
-                    expectedDraftVersion: preview.draftVersion,
-                    clientOperationId,
-                  }))
+                  try {
+                    await operations.run('freshness', (clientOperationId) => () => setFreshness({
+                      eventSlug,
+                      accepted,
+                      expectedDraftVersion: preview.draftVersion,
+                      clientOperationId,
+                    }))
+                  } catch (caught) {
+                    if (!isIntakeCollaborationConflict(caught)) throw caught
+                    setError(null)
+                  }
                 })
               }}
             >
@@ -1391,6 +1551,11 @@ function IntakeWorkspace({
                     } catch (caught) {
                       if (!operations.hasPending('final-submit')) {
                         clearSubmissionCelebration()
+                      }
+                      if (isIntakeCollaborationConflict(caught)) {
+                        setConfirming(false)
+                        setError(null)
+                        return
                       }
                       throw caught
                     }
@@ -1479,10 +1644,17 @@ function IntakeWorkspace({
                   type="button"
                   className="mt-2"
                   onClick={() => {
+                    const savedAnswer = preview.followUps.find(
+                      (followUp) => followUp.id === recoveredFollowUp.questionId,
+                    )?.answer ?? ''
                     revealSection(recoveredFollowUp.questionId)
-                    setEditingFollowUpId(recoveredFollowUp.questionId)
-                    setEditedFollowUpAnswer(recoveredFollowUp.answer)
-                    setRevisionBaseVersion(preview.draftVersion)
+                    setReviewAnswerEdit({
+                      questionId: recoveredFollowUp.questionId,
+                      value: recoveredFollowUp.answer,
+                      baseValue: savedAnswer,
+                      baseDraftVersion: preview.draftVersion,
+                      conflict: false,
+                    })
                     setRecoveredFollowUp(null)
                   }}
                 >
@@ -1501,9 +1673,14 @@ function IntakeWorkspace({
                   preview.draftVersion,
                   recovered,
                 )
-                setEditingFollowUpId(followUp.id)
-                setEditedFollowUpAnswer(revision.answer)
-                setRevisionBaseVersion(revision.baseDraftVersion)
+                setReviewAnswerEdit({
+                  questionId: followUp.id,
+                  value: revision.answer,
+                  baseValue: savedAnswer,
+                  baseDraftVersion: revision.baseDraftVersion,
+                  conflict:
+                    revision.recovered && revision.baseDraftVersion !== preview.draftVersion,
+                })
                 if (!revision.recovered) clearSessionDraft(storageKey)
               }
               return (
@@ -1516,7 +1693,7 @@ function IntakeWorkspace({
                     </AccordionItemHeader>
                   </AccordionItemTrigger>
                   <AccordionItemContent className="text-[15px] leading-relaxed wrap-anywhere text-fg">
-                    {editingFollowUpId === followUp.id ? (
+                    {reviewAnswerEdit?.questionId === followUp.id ? (
                     <div>
                       <PortalTextarea
                         autoFocus
@@ -1525,24 +1702,24 @@ function IntakeWorkspace({
                         maxLength={draft.intakePolicy.followUpAnswerMaxLength}
                         rows={4}
                         disabled={busy}
-                        value={editedFollowUpAnswer}
+                        value={reviewAnswerEdit.value}
                         onChange={(event) => {
                           const nextAnswer = event.target.value
-                          setEditedFollowUpAnswer(nextAnswer)
-                          if (revisionBaseVersion !== null) {
-                            writeVersionedSessionDraft(
-                              `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
-                              {
-                                base: String(revisionBaseVersion),
-                                value: nextAnswer,
-                              },
-                            )
-                          }
+                          setReviewAnswerEdit((current) => current
+                            ? { ...current, value: nextAnswer }
+                            : null)
+                          writeVersionedSessionDraft(
+                            `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
+                            {
+                              base: String(reviewAnswerEdit.baseDraftVersion),
+                              value: nextAnswer,
+                            },
+                          )
                           setError(null)
                           markEditing('follow_up', followUp.id)
                         }}
                       />
-                      {revisionConflict ? (
+                      {reviewAnswerEdit.conflict ? (
                         <ConflictNotice
                           message={`${editorLabel(
                             members,
@@ -1550,19 +1727,31 @@ function IntakeWorkspace({
                             preview.lastEditedByMembershipId,
                           )} saved a newer answer. Your text is still here.`}
                           onUseSaved={() => {
-                            setEditedFollowUpAnswer(followUp.answer ?? '')
-                            setRevisionBaseVersion(preview.draftVersion)
+                            setReviewAnswerEdit({
+                              questionId: followUp.id,
+                              value: followUp.answer ?? '',
+                              baseValue: followUp.answer ?? '',
+                              baseDraftVersion: preview.draftVersion,
+                              conflict: false,
+                            })
                             clearSessionDraft(
                               `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
                             )
                           }}
                           onKeepMine={() => {
-                            setRevisionBaseVersion(preview.draftVersion)
+                            setReviewAnswerEdit((current) => current
+                              ? {
+                                  ...current,
+                                  baseValue: followUp.answer ?? '',
+                                  baseDraftVersion: preview.draftVersion,
+                                  conflict: false,
+                                }
+                              : null)
                             writeVersionedSessionDraft(
                               `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
                               {
                                 base: String(preview.draftVersion),
-                                value: editedFollowUpAnswer,
+                                value: reviewAnswerEdit.value,
                               },
                             )
                             retryRevisionAutosave()
@@ -1576,19 +1765,18 @@ function IntakeWorkspace({
                         <PortalTextButton
                           type="button"
                           disabled={
-                            revisionConflict ||
+                            reviewAnswerEdit.conflict ||
                             revisionAutosaveState === 'dirty' ||
                             revisionAutosaveState === 'saving' ||
                             revisionAutosaveState === 'error' ||
-                            editedFollowUpAnswer.trim().length <
+                            reviewAnswerEdit.value.trim().length <
                               draft.intakePolicy.followUpAnswerMinLength
                           }
                           onClick={() => {
                             clearSessionDraft(
                               `c2c:${eventSlug}:${team.id}:review:${followUp.id}`,
                             )
-                            setEditingFollowUpId(null)
-                            setRevisionBaseVersion(null)
+                            setReviewAnswerEdit(null)
                             stopEditing()
                           }}
                         >
@@ -1608,6 +1796,110 @@ function IntakeWorkspace({
             })}
             </AccordionRoot>
 
+            <div className="border-t border-petal-line py-5">
+              <PortalLabel>{additionalInformationLabel}</PortalLabel>
+              {additionalInformationEdit !== null || preview.additionalInformation === undefined ? (
+                <form onSubmit={submitAdditionalInformation}>
+                  {additionalInformationEdit?.conflict ? (
+                    <ConflictNotice
+                      cloudValue={preview.additionalInformation ?? ''}
+                      message={`${editorLabel(
+                        members,
+                        team.currentMembershipId,
+                        preview.lastEditedByMembershipId,
+                      )} saved newer additional information. Your text is still here.`}
+                      onUseSaved={() => {
+                        setAdditionalInformationEdit(null)
+                        setError(null)
+                      }}
+                      onKeepMine={() => {
+                        setAdditionalInformationEdit((current) => current
+                          ? {
+                              ...current,
+                              baseValue: preview.additionalInformation ?? '',
+                              baseDraftVersion: preview.draftVersion,
+                              conflict: false,
+                            }
+                          : null)
+                        setError(null)
+                      }}
+                    />
+                  ) : null}
+                  <PortalTextarea
+                    aria-label={additionalInformationLabel}
+                    autoFocus={
+                      additionalInformationEdit !== null &&
+                      preview.additionalInformation !== undefined
+                    }
+                    rows={5}
+                    maxLength={preview.additionalInformationMaxLength}
+                    disabled={busy}
+                    value={additionalInformationEdit?.value ?? ''}
+                    placeholder="Share a website, repository, document, demo link, or anything else useful."
+                    onChange={(event) => {
+                      const value = event.currentTarget.value
+                      setAdditionalInformationEdit((current) => current
+                        ? { ...current, value }
+                        : {
+                            value,
+                            baseValue: preview.additionalInformation ?? '',
+                            baseDraftVersion: preview.draftVersion,
+                            conflict: false,
+                          })
+                      setError(null)
+                    }}
+                  />
+                  <div className="mt-3 flex items-center justify-between gap-4">
+                    <span className="text-xs text-fg/45">
+                      {(additionalInformationEdit?.value ?? '').length} /{' '}
+                      {preview.additionalInformationMaxLength}
+                    </span>
+                    <div className="flex items-center gap-4">
+                      {preview.additionalInformation !== undefined ? (
+                        <PortalTextButton
+                          type="button"
+                          disabled={busy}
+                          onClick={() => setAdditionalInformationEdit(null)}
+                        >
+                          cancel
+                        </PortalTextButton>
+                      ) : null}
+                      <PortalButton
+                        type="submit"
+                        size="sm"
+                        disabled={
+                          busy ||
+                          additionalInformationPending ||
+                          additionalInformationEdit === null ||
+                          additionalInformationEdit.conflict ||
+                          additionalInformationEdit.value === (preview.additionalInformation ?? '')
+                        }
+                      >
+                        {busy ? 'Saving…' : 'Save'}
+                      </PortalButton>
+                    </div>
+                  </div>
+                </form>
+              ) : (
+                <div>
+                  <p className="whitespace-pre-line text-[15px] leading-relaxed wrap-anywhere text-fg">
+                    {preview.additionalInformation}
+                  </p>
+                  <ReviewEditRow
+                    busy={busy}
+                    onEdit={() => {
+                      setAdditionalInformationEdit({
+                        value: preview.additionalInformation ?? '',
+                        baseValue: preview.additionalInformation ?? '',
+                        baseDraftVersion: preview.draftVersion,
+                        conflict: false,
+                      })
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
           </PetalCard>
 
           <PortalError message={error ?? submissionFailureMessage ?? null} />
@@ -1615,7 +1907,11 @@ function IntakeWorkspace({
           <div className="mt-8 flex flex-col items-center">
             <PortalButton
               type="button"
-              disabled={busy}
+              disabled={
+                busy ||
+                (additionalInformationEdit !== null &&
+                  additionalInformationEdit.value !== (preview.additionalInformation ?? ''))
+              }
               onClick={() => setConfirming(true)}
             >
               Continue to submit
@@ -1795,7 +2091,7 @@ export function NoveltyReviewRow({
         />
       </div>
       <p className="mt-2 mb-0 text-[11px] leading-relaxed text-fg/45">
-        This score compares your idea with ideas from other teams. A higher score means fewer teams are working on something similar. It updates while you type and is saved with your idea. 
+        This score compares your idea with ideas from other teams. A higher score means fewer teams are working on something similar. It updates while you type and is saved with your idea.
         We don't use this score to block submissions. Our team will see your idea, not this score.
       </p>
     </div>

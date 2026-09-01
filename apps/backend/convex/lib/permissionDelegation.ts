@@ -150,6 +150,26 @@ export async function requireGrantAuthority(
     action: PermissionAdministrationAction;
   },
 ): Promise<ResolvedPermissionAuthority> {
+  return requireGrantAuthorities(ctx, {
+    eventId: args.eventId,
+    eventAccessSubjectId: args.eventAccessSubjectId,
+    actorPersonId: args.actorPersonId,
+    actions: [args.action],
+  });
+}
+
+export async function requireGrantAuthorities(
+  ctx: ReadCtx,
+  args: {
+    eventId: Id<"events">;
+    eventAccessSubjectId: Id<"eventAccessSubjects">;
+    actorPersonId: Id<"people">;
+    actions: readonly PermissionAdministrationAction[];
+  },
+): Promise<ResolvedPermissionAuthority> {
+  if (args.actions.length === 0) {
+    throw new Error("Permission administration requires at least one action.");
+  }
   const unrestrictedIds = await anyAuthorityGrantIds(ctx, {
     eventId: args.eventId,
     eventAccessSubjectId: args.eventAccessSubjectId,
@@ -162,8 +182,10 @@ export async function requireGrantAuthority(
     };
   }
   if (
-    args.actorPersonId === args.action.targetPersonId ||
-    isPermissionAdministrationKey(args.action.permissionKey)
+    args.actions.some((action) =>
+      args.actorPersonId === action.targetPersonId ||
+      isPermissionAdministrationKey(action.permissionKey)
+    )
   ) {
     throw new ConvexError({
       code: "ACCESS_DENIED",
@@ -175,34 +197,39 @@ export async function requireGrantAuthority(
     eventAccessSubjectId: args.eventAccessSubjectId,
     permissionKey: "access.permissions.grant_scoped",
   });
-  const matching = scoped.filter((grant) =>
-    scopedAuthorityMatches(
-      {
-        id: grant._id,
-        permissionKey: grant.permissionKey,
-        status: grant.status,
-        validFrom: grant.validFrom,
-        ...(grant.validUntil !== undefined
-          ? { validUntil: grant.validUntil }
-          : {}),
-        ...(grant.delegation !== undefined
-          ? { delegation: grant.delegation }
-          : {}),
-      },
-      "access.permissions.grant_scoped",
-      args.action,
-      Date.now(),
-    ),
-  );
-  if (matching.length === 0) {
-    throw new ConvexError({
-      code: "ACCESS_DENIED",
-      message: "This account cannot grant that permission to that person, resource, or expiry.",
-    });
+  const now = Date.now();
+  const matchingGrantIds = new Set<Id<"permissionGrants">>();
+  for (const action of args.actions) {
+    const matching = scoped.filter((grant) =>
+      scopedAuthorityMatches(
+        {
+          id: grant._id,
+          permissionKey: grant.permissionKey,
+          status: grant.status,
+          validFrom: grant.validFrom,
+          ...(grant.validUntil !== undefined
+            ? { validUntil: grant.validUntil }
+            : {}),
+          ...(grant.delegation !== undefined
+            ? { delegation: grant.delegation }
+            : {}),
+        },
+        "access.permissions.grant_scoped",
+        action,
+        now,
+      ),
+    );
+    if (matching.length === 0) {
+      throw new ConvexError({
+        code: "ACCESS_DENIED",
+        message: "This account cannot grant that permission to that person, resource, or expiry.",
+      });
+    }
+    for (const grant of matching) matchingGrantIds.add(grant._id);
   }
   return {
     permissionKey: "access.permissions.grant_scoped",
-    grantIds: matching.map((grant) => grant._id),
+    grantIds: [...matchingGrantIds],
   };
 }
 
@@ -214,6 +241,24 @@ export async function requireRevokeAuthority(
     action: PermissionAdministrationAction;
   },
 ): Promise<ResolvedPermissionAuthority> {
+  return requireRevokeAuthorities(ctx, {
+    eventId: args.eventId,
+    eventAccessSubjectId: args.eventAccessSubjectId,
+    actions: [args.action],
+  });
+}
+
+export async function requireRevokeAuthorities(
+  ctx: ReadCtx,
+  args: {
+    eventId: Id<"events">;
+    eventAccessSubjectId: Id<"eventAccessSubjects">;
+    actions: readonly PermissionAdministrationAction[];
+  },
+): Promise<ResolvedPermissionAuthority> {
+  if (args.actions.length === 0) {
+    throw new Error("Permission administration requires at least one action.");
+  }
   const unrestrictedIds = await anyAuthorityGrantIds(ctx, {
     eventId: args.eventId,
     eventAccessSubjectId: args.eventAccessSubjectId,
@@ -225,7 +270,7 @@ export async function requireRevokeAuthority(
       grantIds: unrestrictedIds,
     };
   }
-  if (isPermissionAdministrationKey(args.action.permissionKey)) {
+  if (args.actions.some((action) => isPermissionAdministrationKey(action.permissionKey))) {
     throw new ConvexError({
       code: "ACCESS_DENIED",
       message: "Scoped revoke authority cannot revoke permission-administration authority.",
@@ -236,34 +281,39 @@ export async function requireRevokeAuthority(
     eventAccessSubjectId: args.eventAccessSubjectId,
     permissionKey: "access.permissions.revoke_scoped",
   });
-  const matching = scoped.filter((grant) =>
-    scopedAuthorityMatches(
-      {
-        id: grant._id,
-        permissionKey: grant.permissionKey,
-        status: grant.status,
-        validFrom: grant.validFrom,
-        ...(grant.validUntil !== undefined
-          ? { validUntil: grant.validUntil }
-          : {}),
-        ...(grant.delegation !== undefined
-          ? { delegation: grant.delegation }
-          : {}),
-      },
-      "access.permissions.revoke_scoped",
-      args.action,
-      Date.now(),
-    ),
-  );
-  if (matching.length === 0) {
-    throw new ConvexError({
-      code: "ACCESS_DENIED",
-      message: "This account cannot revoke that person’s exact permission grant.",
-    });
+  const now = Date.now();
+  const matchingGrantIds = new Set<Id<"permissionGrants">>();
+  for (const action of args.actions) {
+    const matching = scoped.filter((grant) =>
+      scopedAuthorityMatches(
+        {
+          id: grant._id,
+          permissionKey: grant.permissionKey,
+          status: grant.status,
+          validFrom: grant.validFrom,
+          ...(grant.validUntil !== undefined
+            ? { validUntil: grant.validUntil }
+            : {}),
+          ...(grant.delegation !== undefined
+            ? { delegation: grant.delegation }
+            : {}),
+        },
+        "access.permissions.revoke_scoped",
+        action,
+        now,
+      ),
+    );
+    if (matching.length === 0) {
+      throw new ConvexError({
+        code: "ACCESS_DENIED",
+        message: "This account cannot revoke that person’s exact permission grant.",
+      });
+    }
+    for (const grant of matching) matchingGrantIds.add(grant._id);
   }
   return {
     permissionKey: "access.permissions.revoke_scoped",
-    grantIds: matching.map((grant) => grant._id),
+    grantIds: [...matchingGrantIds],
   };
 }
 

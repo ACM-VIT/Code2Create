@@ -25,6 +25,7 @@ const recommendationContext = v.object({
   evaluationSuiteVersion: v.string(),
   experienceBand: admissionExperienceBand,
   initialIdea: v.string(),
+  additionalInformation: v.optional(v.string()),
   intakeResponses: v.array(
     v.object({
       sourceRef,
@@ -134,6 +135,9 @@ export const beginRecommendation = internalMutation({
       projectVersionId: project._id,
       projectVersion: project.version,
       initialIdea: project.initialIdea,
+      ...(project.additionalInformation !== undefined
+        ? { additionalInformation: project.additionalInformation }
+        : {}),
       intakeResponses: project.intakeResponses,
       admissionInformationResponses: project.admissionInformationResponses ?? [],
       experienceBand: application.experienceBand,
@@ -168,6 +172,9 @@ export const beginRecommendation = internalMutation({
       evaluationSuiteVersion: modelConfig.evaluationSuiteVersion,
       experienceBand: application.experienceBand,
       initialIdea: project.initialIdea,
+      ...(project.additionalInformation !== undefined
+        ? { additionalInformation: project.additionalInformation }
+        : {}),
       intakeResponses: project.intakeResponses.map((response) => ({
         sourceRef: followUpSourceRef(response.ordinal),
         question: response.question,
@@ -366,6 +373,9 @@ export const finishRecommendation = internalMutation({
         ? validSubmittedIntakeResponses(project.intakeResponses)
         : false;
       const availableSourceRefs = new Set<SourceRef>(["initial_idea"]);
+      if (project?.additionalInformation) {
+        availableSourceRefs.add("additional_information");
+      }
       if (project && validProjectResponses) {
         for (const response of project.intakeResponses) {
           availableSourceRefs.add(followUpSourceRef(response.ordinal));

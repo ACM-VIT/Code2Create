@@ -20,6 +20,8 @@ function embeddingResponse(requestId = "embedding-request") {
     headers: {
       "content-type": "application/json",
       "x-request-id": requestId,
+      "x-ratelimit-remaining-requests": "742",
+      "x-ratelimit-reset-requests": "1.2s",
     },
   });
 }
@@ -42,6 +44,8 @@ describe("createOpenAiEmbeddings", () => {
 
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(result.requestId).toBe("embedding-request");
+    expect(result.remainingRequests).toBe(742);
+    expect(result.requestReset).toBe("1.2s");
     expect(result.data).toEqual([{ embedding: [0.1, 0.2], index: 0 }]);
   });
 

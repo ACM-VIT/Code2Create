@@ -273,6 +273,9 @@ export async function refreshSubmittedApplicationRoster(
     teamId: team._id,
     version: project.version + 1,
     initialIdea: project.initialIdea,
+    ...(project.additionalInformation !== undefined
+      ? { additionalInformation: project.additionalInformation }
+      : {}),
     intakePolicyVersionId: project.intakePolicyVersionId,
     intakeResponses: project.intakeResponses,
     lockedRosterSnapshotId: attemptId,

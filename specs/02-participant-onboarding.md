@@ -119,7 +119,7 @@ Each question must:
 
 Each generated question requires an answer before the team can continue. The flow does not offer a skip action.
 
-All active team members with `team.project.write` can help draft the initial idea and follow-up answers. Text saves to a small server-side working field after a short pause; typing does not advance the flow, generate a question, or run admission analysis. The portal shows `Saving…`, `Saved`, or `Not saved` beside the field. `Next` advances the flow. The portal also shows the exact active member and exact idea or question they are editing. If another member saves the same field first, the subscribed server revision wins and the losing browser keeps its text for an explicit keep-or-discard choice. A member's own successful save cannot produce a teammate-conflict notice.
+All active team members with `team.project.write` can help draft the initial idea and follow-up answers. Text saves to a small server-side working field after a short pause; typing does not advance the flow, generate a question, or run admission analysis. The portal shows `Saving…`, `Saved`, or `Not saved` beside the field. `Next` advances the flow. The portal also shows the exact active member and exact idea or question they are editing. A change to another proposal field rebases the local editor without warning. If another member saves the same field first, the subscribed server revision wins and the losing browser keeps its text for an explicit keep-or-discard choice. A member's own successful save cannot produce a teammate-conflict notice. After the questions, the review adds one optional 4,000-character plain-text field labelled **Any additional information or links you want to share (please, no PPTs)**. It accepts ordinary notes and URLs together; it does not require URL-only input or accept a file upload.
 
 Confirming a changed initial idea invalidates the old question route and starts again from the two fixed questions. Editing either fixed answer preserves the other fixed answer, invalidates generated questions, and evaluates the generated-question route again. Editing a generated answer preserves earlier answers, invalidates only later generated questions, and evaluates the remaining route again. Stale model results cannot attach to a changed answer version.
 
@@ -184,7 +184,7 @@ The final preview shows:
 
 - the active member list;
 - the current lead;
-- the proposal text and follow-up answers;
+- the proposal text, follow-up answers, and optional additional information or links;
 - the fresh-project acknowledgement;
 - material prior-resource disclosures; and
 - the exact participant-policy version.

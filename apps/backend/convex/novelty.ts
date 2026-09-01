@@ -18,7 +18,6 @@ import {
   noveltyBandForScore,
   noveltyDensitySimilarity,
   noveltyDensitySimilarityPolicy,
-  noveltyEmbeddingInputs,
   noveltyEmbeddingDimensions,
   noveltyEmbeddingModel,
   noveltyInputFingerprint,
@@ -34,6 +33,13 @@ import { requirePinnedIntakePolicy, requirePublishedIntakePolicy } from "./lib/i
 import { containsSensitiveProjectText } from "./lib/projectText";
 import { normalizedText } from "./lib/strings";
 import { createOpenAiEmbeddings, OpenAiEmbeddingError } from "./lib/openAiEmbeddings";
+import {
+  backgroundNoveltyIndexDeduplicationLimit,
+  backgroundNoveltyIndexRateLimit,
+  globalNoveltyRateLimit,
+  noveltyRateLimiter,
+  teamNoveltyRateLimit,
+} from "./lib/noveltyRateLimits";
 
 const noveltyBand = v.union(
   v.literal("familiar"),
@@ -50,6 +56,7 @@ const noveltyIdeaLifecycle = v.union(
 const noveltyTeamVectorMatchLimit = 256;
 const noveltyEditingIdeaLifetimeMs = 45_000;
 const noveltyPreviewCacheLifetimeMs = 30_000;
+const noveltyPreviewRunningLifetimeMs = 15_000;
 
 const readyPreview = v.object({
   state: v.literal("ready"),
@@ -191,6 +198,37 @@ const beginPreviewResult = v.union(
 );
 type BeginPreviewResult = Infer<typeof beginPreviewResult>;
 
+async function recordUnavailablePreview(
+  ctx: MutationCtx,
+  args: {
+    eventId: Id<"events">;
+    teamId: Id<"teams">;
+    personId: Id<"people">;
+    corpusVersionId: Id<"noveltyCorpusVersions">;
+    clientRequestId: string;
+    inputFingerprint: string;
+    inputCharacterCount: number;
+    failureCategory: "team_rate_limited" | "global_rate_limited";
+    now: number;
+  },
+): Promise<BeginPreviewResult> {
+  await ctx.db.insert("noveltyPreviewRequests", {
+    eventId: args.eventId,
+    teamId: args.teamId,
+    personId: args.personId,
+    corpusVersionId: args.corpusVersionId,
+    clientRequestId: args.clientRequestId,
+    inputFingerprint: args.inputFingerprint,
+    inputCharacterCount: args.inputCharacterCount,
+    state: "unavailable",
+    latencyMs: 0,
+    failureCategory: args.failureCategory,
+    requestedAt: args.now,
+    completedAt: args.now,
+  });
+  return { kind: "complete", result: { state: "unavailable" } };
+}
+
 export const beginPreview = internalMutation({
   args: {
     authUserId: v.string(),
@@ -298,10 +336,7 @@ export const beginPreview = internalMutation({
         });
       }
       if (existingRequest.state === "running") {
-        throw new ConvexError({
-          code: "NOVELTY_CHECK_RUNNING",
-          message: "That novelty check is still running.",
-        });
+        return { kind: "complete", result: { state: "unavailable" } };
       }
       return {
         kind: "complete",
@@ -319,21 +354,59 @@ export const beginPreview = internalMutation({
     if (
       cached &&
       cached.corpusVersionId === corpus._id &&
+      cached.state === "running"
+    ) {
+      if (cached.requestedAt >= now - noveltyPreviewRunningLifetimeMs) {
+        return { kind: "complete", result: { state: "unavailable" } };
+      }
+      await ctx.db.patch(cached._id, {
+        state: "failed",
+        failureCategory: "abandoned_preview",
+        latencyMs: now - cached.requestedAt,
+        completedAt: now,
+      });
+    }
+    if (
+      cached &&
+      cached.corpusVersionId === corpus._id &&
       cached.requestedAt >= now - noveltyPreviewCacheLifetimeMs
     ) {
       const result = readyResult(cached, corpus);
       if (result) return { kind: "complete", result };
     }
-    const recentRequests = await ctx.db
-      .query("noveltyPreviewRequests")
-      .withIndex("by_team_requested", (index) =>
-        index.eq("teamId", team._id).gte("requestedAt", now - 60_000),
-      )
-      .collect();
-    if (recentRequests.length >= corpus.maximumRequestsPerMinute) {
-      throw new ConvexError({
-        code: "NOVELTY_RATE_LIMITED",
-        message: "Pause for a moment before checking the idea again.",
+    const teamLimit = await noveltyRateLimiter.limit(ctx, "teamPreview", {
+      key: team._id,
+      config: teamNoveltyRateLimit(corpus.maximumRequestsPerMinute),
+    });
+    if (!teamLimit.ok) {
+      return recordUnavailablePreview(ctx, {
+        eventId: event._id,
+        teamId: team._id,
+        personId: person._id,
+        corpusVersionId: corpus._id,
+        clientRequestId,
+        inputFingerprint,
+        inputCharacterCount: normalizedIdea.length,
+        failureCategory: "team_rate_limited",
+        now,
+      });
+    }
+    const globalLimit = await noveltyRateLimiter.limit(ctx, "globalPreview", {
+      config: globalNoveltyRateLimit(
+        process.env.NOVELTY_GLOBAL_REQUESTS_PER_MINUTE,
+      ),
+    });
+    if (!globalLimit.ok) {
+      return recordUnavailablePreview(ctx, {
+        eventId: event._id,
+        teamId: team._id,
+        personId: person._id,
+        corpusVersionId: corpus._id,
+        clientRequestId,
+        inputFingerprint,
+        inputCharacterCount: normalizedIdea.length,
+        failureCategory: "global_rate_limited",
+        now,
       });
     }
     const requestId = await ctx.db.insert("noveltyPreviewRequests", {
@@ -357,7 +430,7 @@ export const beginPreview = internalMutation({
       corpusLabel: corpus.label,
       comparedProjectCount: corpus.entryCount,
       inputFingerprint,
-      embeddingInputs: noveltyEmbeddingInputs(normalizedIdea),
+      embeddingInputs: [normalizedIdea],
       embeddingModel: corpus.embeddingModel,
     };
   },
@@ -395,12 +468,10 @@ export const upsertPreviewTeamIdea = internalMutation({
     requestId: v.id("noveltyPreviewRequests"),
     inputFingerprint: v.string(),
     embedding: v.array(v.float64()),
-    segmentEmbeddings: v.optional(v.array(v.array(v.float64()))),
   },
   returns: v.object({ ideaIds: v.array(v.id("noveltyTeamIdeas")) }),
   handler: async (ctx, args) => {
-    const embeddings = [args.embedding, ...(args.segmentEmbeddings ?? [])];
-    if (embeddings.some((embedding) => !validEmbedding(embedding))) {
+    if (!validEmbedding(args.embedding)) {
       throw new Error("A team idea index requires a valid embedding.");
     }
     const request = await ctx.db.get(args.requestId);
@@ -421,7 +492,7 @@ export const upsertPreviewTeamIdea = internalMutation({
       teamId: request.teamId,
       inputFingerprint: request.inputFingerprint,
       lifecycle,
-      embeddings,
+      embeddings: [args.embedding],
       sourceUpdatedAt: request.requestedAt,
     });
     if (lifecycle === "editing") {
@@ -468,6 +539,7 @@ export const readTeamIdeaMetadata = internalQuery({
   args: {
     eventId: v.id("events"),
     ideaIds: v.array(v.id("noveltyTeamIdeas")),
+    now: v.number(),
   },
   returns: v.array(v.object({
     id: v.id("noveltyTeamIdeas"),
@@ -477,7 +549,7 @@ export const readTeamIdeaMetadata = internalQuery({
   })),
   handler: async (ctx, args) => {
     const ideas = await Promise.all(args.ideaIds.map((ideaId) => ctx.db.get(ideaId)));
-    const editingCutoff = Date.now() - noveltyEditingIdeaLifetimeMs;
+    const editingCutoff = args.now - noveltyEditingIdeaLifetimeMs;
     return ideas.map((idea, index) => {
       if (!idea || idea.eventId !== args.eventId) {
         throw new Error(`Team novelty vector result ${index + 1} belongs to another event.`);
@@ -528,7 +600,7 @@ export const prepareDraftIndex = internalMutation({
       .query("noveltyTeamIdeas")
       .withIndex("by_team", (index) => index.eq("teamId", draft.teamId))
       .collect()).filter((idea) => idea.lifecycle !== "editing");
-    const embeddingInputs = noveltyEmbeddingInputs(draft.initialIdea);
+    const embeddingInputs = [draft.initialIdea];
     if (
       existing.length === 1
       && existing.every((idea) => idea.inputFingerprint === args.inputFingerprint)
@@ -571,12 +643,10 @@ export const finishDraftIndex = internalMutation({
     inputFingerprint: v.string(),
     sourceUpdatedAt: v.number(),
     embedding: v.array(v.float64()),
-    segmentEmbeddings: v.optional(v.array(v.array(v.float64()))),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const embeddings = [args.embedding, ...(args.segmentEmbeddings ?? [])];
-    if (embeddings.some((embedding) => !validEmbedding(embedding))) {
+    if (!validEmbedding(args.embedding)) {
       throw new Error("A saved team idea requires a valid embedding.");
     }
     const draft = await ctx.db.get(args.draftId);
@@ -586,15 +656,12 @@ export const finishDraftIndex = internalMutation({
     ) {
       return null;
     }
-    if (embeddings.length !== noveltyEmbeddingInputs(draft.initialIdea).length) {
-      throw new Error("A saved team idea has an incomplete embedding set.");
-    }
     await storeTeamIdeaEmbeddings(ctx, {
       eventId: draft.eventId,
       teamId: draft.teamId,
       inputFingerprint: args.inputFingerprint,
       lifecycle: indexedLifecycle(draft, args.inputFingerprint),
-      embeddings,
+      embeddings: [args.embedding],
       sourceUpdatedAt: args.sourceUpdatedAt,
     });
     return null;
@@ -606,13 +673,51 @@ export const indexDraftIdea = internalAction({
     draftId: v.id("projectDrafts"),
     inputFingerprint: v.string(),
     sourceUpdatedAt: v.number(),
+    attempt: v.optional(v.number()),
+    deduplicationReserved: v.optional(v.boolean()),
+    providerCapacityReserved: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const prepared = await ctx.runMutation(internal.novelty.prepareDraftIndex, args);
+    const prepared = await ctx.runMutation(internal.novelty.prepareDraftIndex, {
+      draftId: args.draftId,
+      inputFingerprint: args.inputFingerprint,
+      sourceUpdatedAt: args.sourceUpdatedAt,
+    });
     if (prepared.kind === "complete") return null;
     const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) return null;
+    if (!args.deduplicationReserved) {
+      const duplicate = await noveltyRateLimiter.limit(ctx, "backgroundIndexInput", {
+        key: `draft:${args.draftId}:${args.inputFingerprint}`,
+        config: backgroundNoveltyIndexDeduplicationLimit(),
+      });
+      if (!duplicate.ok) return null;
+    }
+    if (!args.providerCapacityReserved) {
+      const capacity = await noveltyRateLimiter.limit(ctx, "backgroundIndexGlobal", {
+        config: backgroundNoveltyIndexRateLimit(
+          process.env.NOVELTY_INDEX_REQUESTS_PER_MINUTE,
+        ),
+        reserve: true,
+      });
+      if (capacity.retryAfter !== undefined) {
+        await ctx.scheduler.runAfter(
+          capacity.retryAfter,
+          internal.novelty.indexDraftIdea,
+          {
+            draftId: args.draftId,
+            inputFingerprint: args.inputFingerprint,
+            sourceUpdatedAt: args.sourceUpdatedAt,
+            ...(args.attempt !== undefined ? { attempt: args.attempt } : {}),
+            deduplicationReserved: true,
+            ...(capacity.ok ? { providerCapacityReserved: true } : {}),
+          },
+        );
+        return null;
+      }
+      if (!capacity.ok) return null;
+    }
     try {
       const response = await createOpenAiEmbeddings({
         apiKey,
@@ -622,13 +727,28 @@ export const indexDraftIdea = internalAction({
       });
       const embeddings = orderedEmbeddings(response.data, prepared.embeddingInputs.length);
       const embedding = embeddings?.[0];
-      if (!embeddings || !embedding) return null;
+      if (!embeddings || !embedding) throw new Error("The background embedding was invalid.");
       await ctx.runMutation(internal.novelty.finishDraftIndex, {
-        ...args,
+        draftId: args.draftId,
+        inputFingerprint: args.inputFingerprint,
+        sourceUpdatedAt: args.sourceUpdatedAt,
         embedding,
-        segmentEmbeddings: embeddings.slice(1),
       });
     } catch {
+      const attempt = args.attempt ?? 1;
+      if (attempt < 3) {
+        await ctx.scheduler.runAfter(
+          1_000 * (2 ** (attempt - 1)),
+          internal.novelty.indexDraftIdea,
+          {
+            draftId: args.draftId,
+            inputFingerprint: args.inputFingerprint,
+            sourceUpdatedAt: args.sourceUpdatedAt,
+            attempt: attempt + 1,
+            deduplicationReserved: true,
+          },
+        );
+      }
       return null;
     }
     return null;
@@ -663,7 +783,7 @@ export const prepareSubmittedProjectIndex = internalMutation({
       .query("noveltyTeamIdeas")
       .withIndex("by_team", (index) => index.eq("teamId", project.teamId))
       .collect()).filter((idea) => idea.lifecycle !== "editing");
-    const embeddingInputs = noveltyEmbeddingInputs(project.initialIdea);
+    const embeddingInputs = [project.initialIdea];
     if (
       existing.length === 1
       && existing.every((idea) => idea.inputFingerprint === args.inputFingerprint)
@@ -696,12 +816,10 @@ export const finishSubmittedProjectIndex = internalMutation({
     inputFingerprint: v.string(),
     sourceUpdatedAt: v.number(),
     embedding: v.array(v.float64()),
-    segmentEmbeddings: v.optional(v.array(v.array(v.float64()))),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const embeddings = [args.embedding, ...(args.segmentEmbeddings ?? [])];
-    if (embeddings.some((embedding) => !validEmbedding(embedding))) {
+    if (!validEmbedding(args.embedding)) {
       throw new Error("A submitted team idea requires a valid embedding.");
     }
     const project = await ctx.db.get(args.projectVersionId);
@@ -710,15 +828,12 @@ export const finishSubmittedProjectIndex = internalMutation({
     }
     const team = await ctx.db.get(project.teamId);
     if (!team || team.lockedProjectVersionId !== project._id) return null;
-    if (embeddings.length !== noveltyEmbeddingInputs(project.initialIdea).length) {
-      throw new Error("A submitted team idea has an incomplete embedding set.");
-    }
     await storeTeamIdeaEmbeddings(ctx, {
       eventId: project.eventId,
       teamId: project.teamId,
       inputFingerprint: args.inputFingerprint,
       lifecycle: "submitted",
-      embeddings,
+      embeddings: [args.embedding],
       sourceUpdatedAt: args.sourceUpdatedAt,
     });
     return null;
@@ -730,16 +845,54 @@ export const indexSubmittedProjectIdea = internalAction({
     projectVersionId: v.id("projectVersions"),
     inputFingerprint: v.string(),
     sourceUpdatedAt: v.number(),
+    attempt: v.optional(v.number()),
+    deduplicationReserved: v.optional(v.boolean()),
+    providerCapacityReserved: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const prepared = await ctx.runMutation(
       internal.novelty.prepareSubmittedProjectIndex,
-      args,
+      {
+        projectVersionId: args.projectVersionId,
+        inputFingerprint: args.inputFingerprint,
+        sourceUpdatedAt: args.sourceUpdatedAt,
+      },
     );
     if (prepared.kind === "complete") return null;
     const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) return null;
+    if (!args.deduplicationReserved) {
+      const duplicate = await noveltyRateLimiter.limit(ctx, "backgroundIndexInput", {
+        key: `project:${args.projectVersionId}:${args.inputFingerprint}`,
+        config: backgroundNoveltyIndexDeduplicationLimit(),
+      });
+      if (!duplicate.ok) return null;
+    }
+    if (!args.providerCapacityReserved) {
+      const capacity = await noveltyRateLimiter.limit(ctx, "backgroundIndexGlobal", {
+        config: backgroundNoveltyIndexRateLimit(
+          process.env.NOVELTY_INDEX_REQUESTS_PER_MINUTE,
+        ),
+        reserve: true,
+      });
+      if (capacity.retryAfter !== undefined) {
+        await ctx.scheduler.runAfter(
+          capacity.retryAfter,
+          internal.novelty.indexSubmittedProjectIdea,
+          {
+            projectVersionId: args.projectVersionId,
+            inputFingerprint: args.inputFingerprint,
+            sourceUpdatedAt: args.sourceUpdatedAt,
+            ...(args.attempt !== undefined ? { attempt: args.attempt } : {}),
+            deduplicationReserved: true,
+            ...(capacity.ok ? { providerCapacityReserved: true } : {}),
+          },
+        );
+        return null;
+      }
+      if (!capacity.ok) return null;
+    }
     try {
       const response = await createOpenAiEmbeddings({
         apiKey,
@@ -749,13 +902,28 @@ export const indexSubmittedProjectIdea = internalAction({
       });
       const embeddings = orderedEmbeddings(response.data, prepared.embeddingInputs.length);
       const embedding = embeddings?.[0];
-      if (!embeddings || !embedding) return null;
+      if (!embeddings || !embedding) throw new Error("The background embedding was invalid.");
       await ctx.runMutation(internal.novelty.finishSubmittedProjectIndex, {
-        ...args,
+        projectVersionId: args.projectVersionId,
+        inputFingerprint: args.inputFingerprint,
+        sourceUpdatedAt: args.sourceUpdatedAt,
         embedding,
-        segmentEmbeddings: embeddings.slice(1),
       });
     } catch {
+      const attempt = args.attempt ?? 1;
+      if (attempt < 3) {
+        await ctx.scheduler.runAfter(
+          1_000 * (2 ** (attempt - 1)),
+          internal.novelty.indexSubmittedProjectIdea,
+          {
+            projectVersionId: args.projectVersionId,
+            inputFingerprint: args.inputFingerprint,
+            sourceUpdatedAt: args.sourceUpdatedAt,
+            attempt: attempt + 1,
+            deduplicationReserved: true,
+          },
+        );
+      }
       return null;
     }
     return null;
@@ -779,6 +947,8 @@ export const finishPreview = internalMutation({
     nearestThemeLabel: v.optional(v.string()),
     reflectionPrompt: v.optional(v.string()),
     providerRequestId: v.optional(v.string()),
+    providerRemainingRequests: v.optional(v.number()),
+    providerRequestReset: v.optional(v.string()),
     latencyMs: v.number(),
     failureCategory: v.optional(v.string()),
   },
@@ -804,6 +974,12 @@ export const finishPreview = internalMutation({
       await ctx.db.patch(request._id, {
         state: args.state,
         ...(args.providerRequestId ? { providerRequestId: args.providerRequestId } : {}),
+        ...(args.providerRemainingRequests !== undefined
+          ? { providerRemainingRequests: args.providerRemainingRequests }
+          : {}),
+        ...(args.providerRequestReset
+          ? { providerRequestReset: args.providerRequestReset }
+          : {}),
         latencyMs: args.latencyMs,
         ...(args.failureCategory ? { failureCategory: args.failureCategory } : {}),
         completedAt: now,
@@ -831,6 +1007,10 @@ export const finishPreview = internalMutation({
       nearestThemeLabel: args.nearestThemeLabel,
       reflectionPrompt: args.reflectionPrompt,
       ...(args.providerRequestId ? { providerRequestId: args.providerRequestId } : {}),
+      ...(args.providerRemainingRequests !== undefined
+        ? { providerRemainingRequests: args.providerRemainingRequests }
+        : {}),
+      ...(args.providerRequestReset ? { providerRequestReset: args.providerRequestReset } : {}),
       latencyMs: args.latencyMs,
       completedAt: now,
     });
@@ -887,12 +1067,15 @@ export const preview = action({
         message: "Google must verify the email address before it can be used.",
       });
     }
-    const begun = await ctx.runMutation(internal.novelty.beginPreview, {
-      authUserId: user._id,
-      ...args,
-    });
+    const begun: BeginPreviewResult = await ctx.runMutation(
+      internal.novelty.beginPreview,
+      { authUserId: user._id, ...args },
+    );
     if (begun.kind === "complete") return begun.result;
     const startedAt = Date.now();
+    let providerRequestId: string | undefined;
+    let providerRemainingRequests: number | undefined;
+    let providerRequestReset: string | undefined;
     try {
       const apiKey = process.env.OPENAI_API_KEY?.trim();
       if (!apiKey) {
@@ -909,11 +1092,12 @@ export const preview = action({
         model: begun.embeddingModel,
         input: begun.embeddingInputs,
         timeoutMs: 6_000,
-        maximumAttempts: 2,
       });
       const embeddings = orderedEmbeddings(response.data, begun.embeddingInputs.length);
       const embedding = embeddings?.[0];
-      const providerRequestId = response.requestId;
+      providerRequestId = response.requestId;
+      providerRemainingRequests = response.remainingRequests;
+      providerRequestReset = response.requestReset;
       if (!embeddings || !embedding) {
         throw new Error("The embedding provider returned an invalid idea vector set.");
       }
@@ -921,55 +1105,30 @@ export const preview = action({
         requestId: begun.requestId,
         inputFingerprint: begun.inputFingerprint,
         embedding,
-        segmentEmbeddings: embeddings.slice(1),
       });
-      const searchBatches = await Promise.all(embeddings.map(async (segmentEmbedding) => {
-        const [corpusMatches, teamMatches] = await Promise.all([
-          ctx.vectorSearch(
-            "noveltyCorpusEntries",
-            "by_corpus_embedding",
-            {
-              vector: segmentEmbedding,
-              limit: noveltyDensityMatchLimit,
-              filter: (filter) => filter.eq("corpusVersionId", begun.corpusVersionId),
-            },
-          ),
-          ctx.vectorSearch(
-            "noveltyTeamIdeas",
-            "by_event_embedding",
-            {
-              vector: segmentEmbedding,
-              limit: noveltyTeamVectorMatchLimit,
-              filter: (filter) => filter.eq("eventId", begun.eventId),
-            },
-          ),
-        ]);
-        return { corpusMatches, teamMatches };
-      }));
-      const corpusSimilarityById = new Map<Id<"noveltyCorpusEntries">, number>();
-      const teamSimilarityById = new Map<Id<"noveltyTeamIdeas">, number>();
-      for (const batch of searchBatches) {
-        for (const match of batch.corpusMatches) {
-          const current = corpusSimilarityById.get(match._id);
-          if (current === undefined || match._score > current) {
-            corpusSimilarityById.set(match._id, match._score);
-          }
-        }
-        for (const match of batch.teamMatches) {
-          const current = teamSimilarityById.get(match._id);
-          if (current === undefined || match._score > current) {
-            teamSimilarityById.set(match._id, match._score);
-          }
-        }
-      }
-      const corpusMatches = [...corpusSimilarityById]
-        .map(([id, score]) => ({ _id: id, _score: score }))
-        .toSorted((left, right) => right._score - left._score)
-        .slice(0, noveltyDensityMatchLimit);
-      const teamMatches = [...teamSimilarityById]
-        .map(([id, score]) => ({ _id: id, _score: score }))
-        .toSorted((left, right) => right._score - left._score)
-        .slice(0, noveltyTeamVectorMatchLimit);
+      const [corpusMatches, teamMatches] = await Promise.all([
+        ctx.vectorSearch(
+          "noveltyCorpusEntries",
+          "by_corpus_embedding",
+          {
+            vector: embedding,
+            limit: noveltyDensityMatchLimit,
+            filter: (filter) => filter.eq("corpusVersionId", begun.corpusVersionId),
+          },
+        ),
+        ctx.vectorSearch(
+          "noveltyTeamIdeas",
+          "by_event_embedding",
+          {
+            vector: embedding,
+            limit: noveltyTeamVectorMatchLimit,
+            filter: (filter) => filter.eq("eventId", begun.eventId),
+          },
+        ),
+      ]);
+      const teamSimilarityById = new Map(
+        teamMatches.map((match) => [match._id, match._score] as const),
+      );
       const nearest = corpusMatches[0];
       if (!nearest) {
         return ctx.runMutation(internal.novelty.finishPreview, {
@@ -977,6 +1136,8 @@ export const preview = action({
           inputFingerprint: begun.inputFingerprint,
           state: "unavailable",
           ...(providerRequestId ? { providerRequestId } : {}),
+          ...(providerRemainingRequests !== undefined ? { providerRemainingRequests } : {}),
+          ...(providerRequestReset ? { providerRequestReset } : {}),
           latencyMs: Date.now() - startedAt,
           failureCategory: "corpus_index_empty",
         });
@@ -992,6 +1153,7 @@ export const preview = action({
       const teamMetadata = await ctx.runQuery(internal.novelty.readTeamIdeaMetadata, {
         eventId: begun.eventId,
         ideaIds: teamMatches.map((match) => match._id),
+        now: Date.now(),
       });
       const teamDensityCandidates: Array<{
         teamId: Id<"teams">;
@@ -1037,6 +1199,8 @@ export const preview = action({
         nearestThemeLabel: nearestMetadata.themeLabel,
         reflectionPrompt: nearestMetadata.reflectionPrompt,
         ...(providerRequestId ? { providerRequestId } : {}),
+        ...(providerRemainingRequests !== undefined ? { providerRemainingRequests } : {}),
+        ...(providerRequestReset ? { providerRequestReset } : {}),
         latencyMs: Date.now() - startedAt,
       });
     } catch (error) {
@@ -1052,6 +1216,9 @@ export const preview = action({
         requestId: begun.requestId,
         inputFingerprint: begun.inputFingerprint,
         state: "failed",
+        ...(providerRequestId ? { providerRequestId } : {}),
+        ...(providerRemainingRequests !== undefined ? { providerRemainingRequests } : {}),
+        ...(providerRequestReset ? { providerRequestReset } : {}),
         latencyMs: Date.now() - startedAt,
         failureCategory,
       });

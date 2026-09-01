@@ -150,6 +150,12 @@ export function AdmissionDetail() {
             <p>{response.answer}</p>
           </div>
         ))}
+        {detail.project.additionalInformation ? (
+          <div className="answer">
+            <span>Any additional information or links you want to share (please, no PPTs)</span>
+            <p>{detail.project.additionalInformation}</p>
+          </div>
+        ) : null}
         {detail.project.informationResponses.flatMap((response) =>
           response.answers.map((answer) => (
             <div className="answer" key={`${response.requestId}:${answer.questionKey}`}>

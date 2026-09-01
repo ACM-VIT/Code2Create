@@ -5,6 +5,8 @@ export const operationsHealthSignalKey = v.union(
   v.literal("active_incidents"),
   v.literal("intake_interpretation_stalls"),
   v.literal("recent_intake_fallbacks"),
+  v.literal("novelty_preview_stalls"),
+  v.literal("recent_novelty_unavailable"),
   v.literal("admission_analysis_stalls"),
   v.literal("recent_admission_fallbacks"),
   v.literal("active_round_pauses"),

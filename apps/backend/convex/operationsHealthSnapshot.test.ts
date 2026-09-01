@@ -125,6 +125,112 @@ describe("operations-health materialization", () => {
     expect(rows).toHaveLength(1);
   });
 
+  test("surfaces stalled and recently unavailable novelty previews", async () => {
+    const backend = convexTest(schema, modules);
+    const now = Date.now();
+    const eventId = await backend.run((ctx) => insertEvent(ctx, "health-novelty", 1));
+    const personId = await backend.run(async (ctx) => {
+      const id = await ctx.db.insert("people", {
+        authUserId: `health-novelty-${crypto.randomUUID()}`,
+        googleSubject: `health-novelty-${crypto.randomUUID()}`,
+        verifiedEmail: `health-novelty-${crypto.randomUUID()}@example.test`,
+        displayName: "Novelty operator",
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const subjectId = await ctx.db.insert("eventAccessSubjects", {
+        eventId,
+        personId: id,
+        emailNormalized: `health-novelty-${crypto.randomUUID()}@example.test`,
+        displayName: "Novelty operator",
+        status: "active",
+        linkedBy: "participant_provisioning",
+        accessVersion: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const membershipId = await ctx.db.insert("eventMemberships", {
+        eventId,
+        personId: id,
+        eventAccessSubjectId: subjectId,
+        participantClass: "external_participant",
+        eligibilityStatus: "eligible",
+        onboardingStatus: "project_required",
+        acceptedParticipantPolicyVersionIds: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+      const teamId = await ctx.db.insert("teams", {
+        eventId,
+        name: "Health novelty team",
+        publicCode: "HLTHNV",
+        leadMembershipId: membershipId,
+        status: "forming",
+        activeMemberCount: 1,
+        activeVitMemberCount: 0,
+        activeExternalMemberCount: 1,
+        membershipLocked: false,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const corpusVersionId = await ctx.db.insert("noveltyCorpusVersions", {
+        eventId,
+        version: 1,
+        revision: 1,
+        status: "published",
+        importState: "ready",
+        label: "Health fixture",
+        minimumIdeaLength: 80,
+        debounceMs: 15_000,
+        maximumRequestsPerMinute: 6,
+        distinctSimilarityBoundary: 0.45,
+        commonSimilarityBoundary: 0.72,
+        embeddingModel: "text-embedding-3-small",
+        embeddingDimensions: 1_536,
+        entryCount: 1,
+        createdByPersonId: id,
+        lastEditedByPersonId: id,
+        createdAt: now,
+        updatedAt: now,
+        publishedAt: now,
+      });
+      const baseRequest = {
+        eventId,
+        teamId,
+        personId: id,
+        corpusVersionId,
+        inputFingerprint: "health-fixture-fingerprint",
+        inputCharacterCount: 120,
+      };
+      await ctx.db.insert("noveltyPreviewRequests", {
+        ...baseRequest,
+        clientRequestId: "health-stalled-preview",
+        state: "running",
+        requestedAt: now - 21_000,
+      });
+      await ctx.db.insert("noveltyPreviewRequests", {
+        ...baseRequest,
+        clientRequestId: "health-unavailable-preview",
+        state: "unavailable",
+        failureCategory: "provider_rate_limited",
+        requestedAt: now - 1_000,
+        completedAt: now - 900,
+      });
+      return id;
+    });
+    expect(personId).toBeTruthy();
+
+    const { snapshot } = await backend.query(internal.operationsHealth.computeSnapshot, {
+      eventId,
+    });
+    expect(snapshot.signals).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "novelty_preview_stalls", count: 1 }),
+      expect.objectContaining({ key: "recent_novelty_unavailable", count: 1 }),
+    ]));
+  });
+
   test("the public read exposes missing and stale states and rejects the removed refresh bucket", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);

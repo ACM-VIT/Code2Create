@@ -12,6 +12,7 @@ import {
   saveIntakePolicyDraft,
   type IntakePolicy,
 } from "./lib/intakePolicy.ts";
+import { ideaQuestionEndToEndDeadlineMs } from "./lib/ideaSubmissionAi.ts";
 import { replaceCurrentIntakeQuestions } from "./lib/intakeQuestions.ts";
 import schema from "./schema.ts";
 
@@ -360,6 +361,44 @@ describe("intake policy configuration", () => {
       failureCategory: "settlement_deadline_exceeded",
     });
     expect(result.questions).toHaveLength(2);
+  });
+
+  test("a queued interpretation cannot leave the participant waiting indefinitely", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, "assisted");
+    await answerFixedQuestions(backend, fixture);
+    const draft = await backend.run((ctx) => ctx.db.get(fixture.projectDraftId));
+    if (!draft) throw new Error("The intake draft is missing.");
+    const enqueuedAt = Date.now() - ideaQuestionEndToEndDeadlineMs;
+
+    await backend.mutation(internal.intelligence.expireQueuedIntakeInterpretation, {
+      draftId: draft._id,
+      draftVersion: draft.version,
+      enqueuedAt,
+    });
+
+    const result = await backend.run(async (ctx) => ({
+      draft: await ctx.db.get(fixture.projectDraftId),
+      interpretations: await ctx.db
+        .query("intakeInterpretations")
+        .withIndex("by_draft_created", (index) => index.eq("draftId", fixture.projectDraftId))
+        .collect(),
+      questions: await ctx.db
+        .query("intakeGeneratedQuestions")
+        .withIndex("by_draft_ordinal", (index) => index.eq("draftId", fixture.projectDraftId))
+        .collect(),
+    }));
+    expect(result.draft?.stage).toBe("review");
+    expect(result.questions).toHaveLength(2);
+    expect(result.interpretations.at(-1)).toMatchObject({
+      state: "disabled",
+      failureCategory: "workpool_queue_deadline_exceeded",
+      createdAt: enqueuedAt,
+    });
+    expect(await backend.mutation(
+      internal.intelligence.beginIntakeInterpretation,
+      { draftId: draft._id, providerAvailable: true },
+    )).toBeNull();
   });
 
   test("clear fixed answers allow the model to stop without a generated question", async () => {

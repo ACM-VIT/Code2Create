@@ -3,6 +3,8 @@ export const operationsHealthSignalKeys = [
   "active_incidents",
   "intake_interpretation_stalls",
   "recent_intake_fallbacks",
+  "novelty_preview_stalls",
+  "recent_novelty_unavailable",
   "admission_analysis_stalls",
   "recent_admission_fallbacks",
   "active_round_pauses",

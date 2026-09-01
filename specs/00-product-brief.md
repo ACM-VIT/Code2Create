@@ -28,7 +28,7 @@ The product must prevent these failures:
 | JC | Hold suggested station, table, queue, support, verification, runner, or playback grants |
 | External Judge | Hold assigned-panel, presence, and own-scorecard grants |
 
-The only role labels are `Supreme`, `Board`, `SC`, `JC`, and `External Judge`. A role label does not authorize an action. Each protected action requires an atomic permission grant for one person, one scope, and one validity window. A person can receive a grant without a role label.
+The only role labels are `Supreme`, `Board`, `SC`, `JC`, and `External Judge`. Protected functions never authorize from the label itself; each action requires an atomic permission grant for one person, one scope, and one validity window. Assigning Supreme atomically materializes its code-owned role template only when the assigner can grant every permission in that template. A person can still receive a grant without a role label.
 
 ## 3. Product surfaces
 
@@ -159,16 +159,26 @@ Judging uses the published judging rubric, reviewer assignments, independent sco
 
 ## 8. Initial scale envelope
 
-Capacity tests use this initial envelope until registration supplies final counts:
+The online application round and the offline event have different capacity shapes.
+
+The application release test uses:
+
+- 3,000 simultaneous authenticated participant clients;
+- up to 1,500 applicant teams before admission;
+- a 60-second connection ramp, followed by two minutes at steady state;
+- active team editing, autosave, and presence traffic; and
+- a novelty-preview burst that may shed optional checks but cannot delay a save or submission.
+
+The offline event test uses:
 
 - 1,200 simultaneous live clients;
 - 60 attendance scan attempts per second;
-- 200 to 330 teams;
+- no more than 400 accepted teams;
 - up to 60 concurrent reviews;
 - 300 reconnects or queue reads near a round start; and
 - 150 operational writes per minute during the busiest review period.
 
-The rehearsal must replace these assumptions with the registered team count, panel count, and round schedule.
+The rehearsal must replace these assumptions with the registered participant count, applicant and accepted team counts, panel count, and round schedule.
 
 ## 9. Acceptance outcomes
 

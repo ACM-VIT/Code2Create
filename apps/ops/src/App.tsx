@@ -177,13 +177,17 @@ function Operations({
   const invitation = useQuery(api.accessInvitations.mine, { eventSlug })
   const roster = useQuery(api.rosters.mine, { eventSlug })
   const synchronizeSupremePermissions = useMutation(api.access.synchronizeSupremePermissions)
+  const supremeSync = useOperationRunner()
   const supremeSyncStarted = useRef(false)
   const { data: session } = authClient.useSession()
   useEffect(() => {
     if (!access?.isSupreme || supremeSyncStarted.current) return
     supremeSyncStarted.current = true
-    void synchronizeSupremePermissions({ eventSlug })
-  }, [access, synchronizeSupremePermissions])
+    void supremeSync.run(
+      'supreme-permissions-sync',
+      () => () => synchronizeSupremePermissions({ eventSlug }),
+    ).catch(() => undefined)
+  }, [access, supremeSync, synchronizeSupremePermissions])
   if (access === undefined || invitation === undefined || roster === undefined) {
     return <GateBoot status="Loading your event access…" />
   }

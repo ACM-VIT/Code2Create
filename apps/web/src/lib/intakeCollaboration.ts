@@ -1,3 +1,39 @@
+import { convexErrorCode } from './errors.ts'
+
+const collaborationConflictCodes = new Set([
+  'DRAFT_CHANGED',
+  'FOLLOW_UP_CHANGED',
+  'WORKING_FIELD_CHANGED',
+])
+
+export function isIntakeCollaborationConflict(error: unknown) {
+  const code = convexErrorCode(error)
+  return code !== null && collaborationConflictCodes.has(code)
+}
+
+export type CommittedFieldReconciliation =
+  | { kind: 'unchanged' }
+  | { kind: 'rebase'; version: number }
+  | { kind: 'acknowledge'; version: number }
+  | { kind: 'conflict' }
+
+export function reconcileCommittedField(args: {
+  baseVersion: number
+  baseValue: string
+  localValue: string
+  serverVersion: number
+  serverValue: string
+}): CommittedFieldReconciliation {
+  if (args.serverVersion === args.baseVersion) return { kind: 'unchanged' }
+  if (args.serverValue === args.baseValue) {
+    return { kind: 'rebase', version: args.serverVersion }
+  }
+  if (args.serverValue === args.localValue) {
+    return { kind: 'acknowledge', version: args.serverVersion }
+  }
+  return { kind: 'conflict' }
+}
+
 export function shouldRecoverFollowUpDraft(args: {
   answer: string
   currentMembershipId: string

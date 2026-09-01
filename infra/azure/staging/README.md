@@ -68,8 +68,13 @@ Check the runtime without printing secrets:
 
 ```sh
 ssh c2cadmin@104.211.94.181 \
-  'cd /srv/code2create && sudo docker compose ps'
+  'cd /srv/code2create && sudo docker compose ps && sudo docker compose exec -T backend node --version'
 ```
+
+The backend health check requires Node.js 20, 22, or 24 as well as the Convex
+version endpoint. This is a release requirement because intake question
+generation uses a Node-backed action; a backend image without Node must never
+receive participant traffic.
 
 If the operator's public IP changes, update the `AllowSshFromOperator` source on
 `nsg-c2c-staging-app` before connecting. Ports 80 and 443 accept only Cloudflare's

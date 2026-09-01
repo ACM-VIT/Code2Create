@@ -128,7 +128,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
               </PortalField>
               <PortalField label="year of study">
                 {(id) => (
-                  <PortalSelect id={id} defaultValue="third">
+                  <PortalSelect id={id} value="third" onValueChange={noop}>
                     <option value="third">Third year</option>
                   </PortalSelect>
                 )}
@@ -141,7 +141,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
               </PortalField>
               <PortalField label="hostel">
                 {(id) => (
-                  <PortalSelect id={id} defaultValue="lh_s">
+                  <PortalSelect id={id} value="lh_s" onValueChange={noop}>
                     <option value="lh_s">Ladies' hostel · S block</option>
                   </PortalSelect>
                 )}

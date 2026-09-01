@@ -661,6 +661,14 @@ async function prepareImport(
     permissionKey: "access.roster.import",
     scopeType: "event",
   });
+  const roleGrantIds = normalized.rows.some((row) => row.role === "supreme")
+    ? await requirePermission(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: actorSubjectId,
+        permissionKey: "access.permissions.grant_any",
+        scopeType: "event",
+      })
+    : [];
   const bundleContext = await selectedBundles(ctx, {
     eventId: event._id,
     actorSubjectId,
@@ -751,7 +759,11 @@ async function prepareImport(
     rows,
     counts,
     authorizingGrantIds: [
-      ...new Set([...rosterGrantIds, ...bundleContext.authorizingGrantIds]),
+      ...new Set([
+        ...rosterGrantIds,
+        ...roleGrantIds,
+        ...bundleContext.authorizingGrantIds,
+      ]),
     ],
   };
 }
@@ -1039,7 +1051,8 @@ export const mine = query({
           .eq("status", "pending"),
       )
       .unique();
-    if (!entry || entry.validUntil <= Date.now()) return null;
+    const now = Date.now();
+    if (!entry || entry.validFrom > now || entry.validUntil <= now) return null;
     const rosterImport = await ctx.db.get("rosterImports", entry.rosterImportId);
     if (!rosterImport || rosterImport.eventId !== event._id) {
       throw new Error("Roster import provenance is missing.");
@@ -1221,6 +1234,12 @@ export const claim = mutation({
       });
     }
     const now = Date.now();
+    if (entry.validFrom > now) {
+      throw new ConvexError({
+        code: "ROSTER_ENTRY_NOT_ACTIVE",
+        message: "This roster entry is not active yet.",
+      });
+    }
     if (entry.validUntil <= now) {
       throw new ConvexError({
         code: "ROSTER_ENTRY_EXPIRED",

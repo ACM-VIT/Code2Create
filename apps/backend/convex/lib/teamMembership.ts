@@ -1,10 +1,7 @@
-import { ConvexError } from "convex/values";
-
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { advanceAccessVersion } from "./accessVersion";
 import { insertPermissionGrant } from "./permissions";
-import { maximumReviewTeamsPerEvent } from "./reviewLimits";
 import { normalizedText } from "./strings";
 
 export const teamMemberPermissionKeys = [
@@ -132,17 +129,6 @@ export async function createFormingTeamWithLead(
     source: Doc<"teamMembers">["source"];
   },
 ): Promise<{ teamId: Id<"teams">; publicCode: string; teamMemberId: Id<"teamMembers"> }> {
-  const teamCapacity = await ctx.db
-    .query("teams")
-    .withIndex("by_event_status", (index) => index.eq("eventId", args.event._id))
-    .take(maximumReviewTeamsPerEvent);
-  if (teamCapacity.length === maximumReviewTeamsPerEvent) {
-    throw new ConvexError({
-      code: "EVENT_TEAM_LIMIT_REACHED",
-      message: `This event can register at most ${maximumReviewTeamsPerEvent} teams.`,
-    });
-  }
-
   const name = normalizedText(args.name, "Team name", 2, 60);
   const publicCode = await unusedTeamCode(ctx, args.event._id);
   const activeVitMemberCount = args.membership.participantClass === "vit_student" ? 1 : 0;

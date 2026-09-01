@@ -486,6 +486,7 @@ describe("score governance pagination", () => {
         version: 1,
       },
       editRules: {
+        additionalInformationMaxLength: 4_000,
         initialIdeaMinLength: defaultDeterministicIntakePolicy.initialIdeaMinLength,
         initialIdeaMaxLength: defaultDeterministicIntakePolicy.initialIdeaMaxLength,
         followUpAnswerMinLength: defaultDeterministicIntakePolicy.followUpAnswerMinLength,

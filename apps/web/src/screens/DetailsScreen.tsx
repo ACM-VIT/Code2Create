@@ -1,7 +1,9 @@
 import { api } from '@code2create/backend/api'
 import {
+  isVitHostelRoomNumber,
   normalizeParticipantName,
   normalizeParticipantPhone,
+  normalizeVitHostelRoomNumberInput,
   participantGenderLabels,
   participantNameValidationError,
   participantPhoneValidationError,
@@ -11,7 +13,7 @@ import {
   type VitResidenceType,
 } from '@code2create/domain'
 import { useMutation } from 'convex/react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { AccountBadge } from '../components/portal/AccountBadge'
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalButton } from '../components/portal/PortalButton'
@@ -28,7 +30,6 @@ import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
 import type { ParticipantMe } from '../types'
 
-/** The policy page on the event site; the privacy notice URL stays config-driven. */
 const participantPolicyUrl = 'https://c2c.acmvit.in/policy'
 const vitInstitutionName = 'Vellore Institute of Technology, Vellore'
 
@@ -46,6 +47,35 @@ function parseStudyYear(value: string): StudyYear | null {
     default:
       return null
   }
+}
+
+function parseParticipantGender(value: string): ParticipantGender | null {
+  switch (value) {
+    case 'male':
+    case 'female':
+      return value
+    default:
+      return null
+  }
+}
+
+function parseVitResidenceType(value: string): VitResidenceType | null {
+  switch (value) {
+    case 'day_scholar':
+    case 'hosteller':
+      return value
+    default:
+      return null
+  }
+}
+
+function institutionValidationError(value: string, label: string) {
+  const normalized = value.trim().replace(/\s+/gu, ' ')
+  if (normalized.length < 2 || (normalized.match(/\p{L}/gu) ?? []).length < 2) {
+    return `Enter your ${label}.`
+  }
+  if (normalized.length > 160) return `Keep the ${label} under 160 characters.`
+  return null
 }
 
 /** VIT identity stays verified; external participants provide their event-facing name. */
@@ -66,20 +96,25 @@ export function DetailsScreen({
   const [phone, setPhone] = useState(existing?.phone ?? '')
   const [fullNameTouched, setFullNameTouched] = useState(false)
   const [phoneTouched, setPhoneTouched] = useState(false)
+  const [genderTouched, setGenderTouched] = useState(false)
   const [gender, setGender] = useState<ParticipantGender | ''>(existing?.gender ?? '')
+  const [yearOfStudyTouched, setYearOfStudyTouched] = useState(false)
   const [yearOfStudy, setYearOfStudy] = useState<StudyYear | ''>(existing?.yearOfStudy ?? '')
+  const [residenceTypeTouched, setResidenceTypeTouched] = useState(false)
   const [residenceType, setResidenceType] = useState<VitResidenceType | ''>(
     existing?.vitResidenceType ?? '',
   )
+  const [hostelResidenceTouched, setHostelResidenceTouched] = useState(false)
   const [hostelResidence, setHostelResidence] = useState(existing?.vitHostelResidence ?? '')
+  const [hostelRoomNumberTouched, setHostelRoomNumberTouched] = useState(false)
   const [hostelRoomNumber, setHostelRoomNumber] = useState(existing?.vitHostelRoomNumber ?? '')
+  const [externalUniversityTouched, setExternalUniversityTouched] = useState(false)
   const [externalUniversity, setExternalUniversity] = useState(existing?.externalUniversity ?? '')
+  const [externalCollegeTouched, setExternalCollegeTouched] = useState(false)
   const [externalCollege, setExternalCollege] = useState(existing?.externalCollege ?? '')
   const [accepted, setAccepted] = useState(me.participantPolicy.accepted)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const fullNameInputRef = useRef<HTMLInputElement>(null)
-  const phoneInputRef = useRef<HTMLInputElement>(null)
   const operations = useOperationRunner()
   const savePending = operations.hasPending('profile-save')
   const acceptPending = operations.hasPending('participant-policy-accept')
@@ -89,14 +124,24 @@ export function DetailsScreen({
   const vitStudent = membership?.participantClass === 'vit_student'
   const fullNameError = vitStudent ? null : participantNameValidationError(fullName)
   const phoneError = participantPhoneValidationError(phone)
-
-  useEffect(() => {
-    fullNameInputRef.current?.setCustomValidity(fullNameError ?? '')
-  }, [fullNameError])
-
-  useEffect(() => {
-    phoneInputRef.current?.setCustomValidity(phoneError ?? '')
-  }, [phoneError])
+  const genderError = gender ? null : 'Choose your gender.'
+  const yearOfStudyError = !vitStudent && !yearOfStudy ? 'Choose your year of study.' : null
+  const residenceTypeError = vitStudent && !residenceType ? 'Choose your residence.' : null
+  const hostelResidenceError =
+    vitStudent && residenceType === 'hosteller' && !hostelResidence
+      ? 'Choose your hostel block.'
+      : null
+  const normalizedHostelRoomNumber = normalizeVitHostelRoomNumberInput(hostelRoomNumber)
+  const hostelRoomNumberError =
+    vitStudent && residenceType === 'hosteller' && !isVitHostelRoomNumber(normalizedHostelRoomNumber)
+      ? 'Enter a room number with 1 to 10 letters, digits, or hyphens.'
+      : null
+  const externalUniversityError = vitStudent
+    ? null
+    : institutionValidationError(externalUniversity, 'university')
+  const externalCollegeError = vitStudent
+    ? null
+    : institutionValidationError(externalCollege, 'college')
 
   if (!membership) return null
   if (vitStudent && !vitStudentIdentity) return null
@@ -110,7 +155,25 @@ export function DetailsScreen({
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!gender || (!vitStudent && !yearOfStudy)) {
+    setFullNameTouched(true)
+    setPhoneTouched(true)
+    setGenderTouched(true)
+    setYearOfStudyTouched(true)
+    setResidenceTypeTouched(true)
+    setHostelResidenceTouched(true)
+    setHostelRoomNumberTouched(true)
+    setExternalUniversityTouched(true)
+    setExternalCollegeTouched(true)
+    const submittedGender = parseParticipantGender(gender)
+    const submittedYearOfStudy = parseStudyYear(yearOfStudy)
+    const submittedResidenceType = parseVitResidenceType(residenceType)
+    if (
+      fullNameError ||
+      phoneError ||
+      !submittedGender ||
+      (!vitStudent && (!submittedYearOfStudy || externalUniversityError || externalCollegeError)) ||
+      (vitStudent && (!submittedResidenceType || hostelResidenceError || hostelRoomNumberError))
+    ) {
       setError('Complete the highlighted fields before continuing.')
       return
     }
@@ -136,20 +199,23 @@ export function DetailsScreen({
             eventSlug,
             participantPolicyVersionId: me.participantPolicy.id,
             phone: normalizeParticipantPhone(phone),
-            gender,
-            ...(!vitStudent && yearOfStudy
+            gender: submittedGender,
+            ...(!vitStudent && submittedYearOfStudy
               ? {
                   fullName: normalizeParticipantName(fullName),
-                  yearOfStudy,
+                  yearOfStudy: submittedYearOfStudy,
                   externalUniversity,
                   externalCollege,
                 }
               : {}),
-            ...(vitStudent && residenceType
+            ...(vitStudent && submittedResidenceType
               ? {
-                  vitResidenceType: residenceType,
-                  ...(residenceType === 'hosteller'
-                    ? { vitHostelResidence: hostelResidence, vitHostelRoomNumber: hostelRoomNumber }
+                  vitResidenceType: submittedResidenceType,
+                  ...(submittedResidenceType === 'hosteller'
+                    ? {
+                        vitHostelResidence: hostelResidence,
+                        vitHostelRoomNumber: normalizedHostelRoomNumber,
+                      }
                     : {}),
                 }
               : {}),
@@ -196,7 +262,7 @@ export function DetailsScreen({
         </h1>
 
         <PetalCard className="px-6 pt-6 pb-4 lg:px-[30px]">
-          <form onSubmit={submit}>
+          <form noValidate onSubmit={submit}>
             <fieldset disabled={disabled} className="contents">
               <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
                 <PortalField
@@ -206,8 +272,8 @@ export function DetailsScreen({
                 >
                   {(id) => (
                     <PortalInput
-                      ref={fullNameInputRef}
                       id={id}
+                      aria-invalid={!vitStudent && fullNameTouched && fullNameError !== null}
                       autoComplete="name"
                       maxLength={100}
                       minLength={2}
@@ -230,8 +296,8 @@ export function DetailsScreen({
                 <PortalField label="phone" error={phoneTouched ? phoneError : null}>
                   {(id) => (
                     <PortalInput
-                      ref={phoneInputRef}
                       id={id}
+                      aria-invalid={phoneTouched && phoneError !== null}
                       autoComplete="tel"
                       inputMode="tel"
                       maxLength={24}
@@ -251,15 +317,15 @@ export function DetailsScreen({
                   )}
                 </PortalField>
 
-                <PortalField label="gender">
+                <PortalField label="gender" error={genderTouched ? genderError : null}>
                   {(id) => (
                     <PortalSelect
                       id={id}
-                      required
+                      aria-invalid={genderTouched && genderError !== null}
                       value={gender}
-                      onChange={(event) => {
-                        const nextGender = event.target.value as ParticipantGender | ''
-                        setGender(nextGender)
+                      onValueChange={(next) => {
+                        setGenderTouched(true)
+                        setGender(parseParticipantGender(next) ?? '')
                         setHostelResidence('')
                         setHostelRoomNumber('')
                       }}
@@ -300,15 +366,19 @@ export function DetailsScreen({
                         <PortalInput id={id} readOnly value={vitStudentIdentity.programmeCode} />
                       )}
                     </PortalField>
-                    <PortalField label="residence">
+                    <PortalField
+                      label="residence"
+                      error={residenceTypeTouched ? residenceTypeError : null}
+                    >
                       {(id) => (
                         <PortalSelect
                           id={id}
-                          required
+                          aria-invalid={residenceTypeTouched && residenceTypeError !== null}
                           value={residenceType}
-                          onChange={(event) => {
-                            const nextType = event.target.value as VitResidenceType | ''
-                            setResidenceType(nextType)
+                          onValueChange={(next) => {
+                            setResidenceTypeTouched(true)
+                            setResidenceType(parseVitResidenceType(next) ?? '')
+                            setHostelResidenceTouched(false)
                             setHostelResidence('')
                             setHostelRoomNumber('')
                           }}
@@ -323,15 +393,21 @@ export function DetailsScreen({
                     </PortalField>
                     {residenceType === 'hosteller' ? (
                       <>
-                        <PortalField label="hostel block">
+                        <PortalField
+                          label="hostel block"
+                          error={hostelResidenceTouched ? hostelResidenceError : null}
+                        >
                           {(id) => (
                             <PortalSelect
                               id={id}
-                              required
+                              aria-invalid={
+                                hostelResidenceTouched && hostelResidenceError !== null
+                              }
                               disabled={!hostelKind}
                               value={hostelResidence}
-                              onChange={(event) => {
-                                setHostelResidence(event.target.value)
+                              onValueChange={(next) => {
+                                setHostelResidenceTouched(true)
+                                setHostelResidence(next)
                                 setHostelRoomNumber('')
                               }}
                             >
@@ -346,16 +422,29 @@ export function DetailsScreen({
                             </PortalSelect>
                           )}
                         </PortalField>
-                        <PortalField label="room number">
+                        <PortalField
+                          label="room number"
+                          error={hostelRoomNumberTouched ? hostelRoomNumberError : null}
+                        >
                           {(id) => (
                             <PortalInput
                               id={id}
+                              aria-invalid={
+                                hostelRoomNumberTouched && hostelRoomNumberError !== null
+                              }
                               required
                               className="font-mono"
                               inputMode="text"
                               autoCapitalize="characters"
                               value={hostelRoomNumber}
-                              onChange={(event) => setHostelRoomNumber(event.target.value)}
+                              onBlur={() => {
+                                setHostelRoomNumberTouched(true)
+                                setHostelRoomNumber(normalizedHostelRoomNumber)
+                              }}
+                              onChange={(event) => {
+                                setHostelRoomNumberTouched(true)
+                                setHostelRoomNumber(event.target.value)
+                              }}
                             />
                           )}
                         </PortalField>
@@ -364,34 +453,62 @@ export function DetailsScreen({
                   </>
                 ) : (
                   <>
-                    <PortalField label="university">
+                    <PortalField
+                      label="university"
+                      error={externalUniversityTouched ? externalUniversityError : null}
+                    >
                       {(id) => (
                         <PortalInput
                           id={id}
+                          aria-invalid={
+                            externalUniversityTouched && externalUniversityError !== null
+                          }
                           required
                           value={externalUniversity}
-                          onChange={(event) => setExternalUniversity(event.target.value)}
+                          onBlur={() => {
+                            setExternalUniversityTouched(true)
+                            setExternalUniversity((current) => current.trim().replace(/\s+/gu, ' '))
+                          }}
+                          onChange={(event) => {
+                            setExternalUniversityTouched(true)
+                            setExternalUniversity(event.target.value)
+                          }}
                         />
                       )}
                     </PortalField>
-                    <PortalField label="college">
+                    <PortalField
+                      label="college"
+                      error={externalCollegeTouched ? externalCollegeError : null}
+                    >
                       {(id) => (
                         <PortalInput
                           id={id}
+                          aria-invalid={externalCollegeTouched && externalCollegeError !== null}
                           required
                           value={externalCollege}
-                          onChange={(event) => setExternalCollege(event.target.value)}
+                          onBlur={() => {
+                            setExternalCollegeTouched(true)
+                            setExternalCollege((current) => current.trim().replace(/\s+/gu, ' '))
+                          }}
+                          onChange={(event) => {
+                            setExternalCollegeTouched(true)
+                            setExternalCollege(event.target.value)
+                          }}
                         />
                       )}
                     </PortalField>
-                    <PortalField label="year of study">
+                    <PortalField
+                      label="year of study"
+                      error={yearOfStudyTouched ? yearOfStudyError : null}
+                    >
                       {(id) => (
                         <PortalSelect
                           id={id}
-                          required
+                          aria-invalid={yearOfStudyTouched && yearOfStudyError !== null}
                           value={yearOfStudy}
-                          onChange={(event) => {
-                            const nextYear = parseStudyYear(event.target.value)
+                          onValueChange={(next) => {
+                            setYearOfStudyTouched(true)
+                            const nextYear = parseStudyYear(next)
                             setYearOfStudy(nextYear ?? '')
                           }}
                         >
@@ -413,6 +530,7 @@ export function DetailsScreen({
                 <PortalCheckRow
                   checked={accepted}
                   disabled={policyAlreadyAccepted || disabled}
+                  required={!policyAlreadyAccepted}
                   onChange={setAccepted}
                 >
                   I accept the{' '}

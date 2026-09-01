@@ -44,6 +44,9 @@ type CurrentApplication = SubmittedIntake['application']
 type ApplicationState = CurrentApplication['state']
 type InformationRequest = NonNullable<CurrentApplication['informationRequest']>
 
+const additionalInformationLabel =
+  'Any additional information or links you want to share (please, no PPTs)'
+
 const deliveryStatusCopy: Record<ParticipantDeliveryState, string> = {
   pending: 'Email queued.',
   sending: 'Email is being sent.',
@@ -951,6 +954,7 @@ function ProposalSummary({
           expectedProjectVersionId: editBase.current.projectVersionId,
           expectedProjectVersion: editBase.current.projectVersion,
           initialIdea: draft.initialIdea,
+          additionalInformation: draft.additionalInformation,
           responses: draft.responses.map((response) => ({
             questionId: response.questionId,
             answer: response.answer,
@@ -979,6 +983,8 @@ function ProposalSummary({
   const invalidIdea =
     ideaLength < intake.editRules.initialIdeaMinLength ||
     ideaLength > intake.editRules.initialIdeaMaxLength
+  const invalidAdditionalInformation =
+    draft.additionalInformation.trim().length > intake.editRules.additionalInformationMaxLength
   const hasLocalChanges =
     serializeProposalDraft(draft) !== serializeProposalDraft(proposalDraft(intake))
 
@@ -1108,6 +1114,28 @@ function ProposalSummary({
               )}
             </PortalField>
           ))}
+          <PortalField label={additionalInformationLabel} className="mb-5">
+            {(id) => (
+              <PortalTextarea
+                id={id}
+                rows={5}
+                maxLength={intake.editRules.additionalInformationMaxLength}
+                value={draft.additionalInformation}
+                disabled={busy || pending}
+                placeholder="Share a website, repository, document, demo link, or anything else useful."
+                onChange={(event) => {
+                  const value = event.currentTarget.value
+                  const nextDraft = { ...draft, additionalInformation: value }
+                  setDraft(nextDraft)
+                  writeVersionedSessionDraft(proposalStorageKey, {
+                    base: proposalRevisionBaseFingerprint(editBase.current),
+                    value: serializeProposalDraft(nextDraft),
+                  })
+                  markEditing('proposal_revision')
+                }}
+              />
+            )}
+          </PortalField>
           <PortalError message={error} />
           <div className="mt-1 flex items-center gap-4 border-t border-petal-line pt-3.5">
             <PortalTextButton type="button" disabled={busy || pending} onClick={toggleEditing}>
@@ -1123,7 +1151,13 @@ function ProposalSummary({
             <PortalButton
               type="submit"
               size="sm"
-              disabled={busy || editConflict || invalidIdea || invalidResponse}
+              disabled={
+                busy ||
+                editConflict ||
+                invalidIdea ||
+                invalidResponse ||
+                invalidAdditionalInformation
+              }
             >
               {busy ? 'Saving…' : pending ? 'Confirm earlier save' : 'Save submission'}
             </PortalButton>
@@ -1159,6 +1193,16 @@ function ProposalSummary({
               ))}
             </div>
           ) : null}
+          {intake.project.additionalInformation ? (
+            <div className="mt-4 border-t border-petal-line pt-4">
+              <p className="mb-1.5 text-[11px] tracking-[.06em] text-fg/45">
+                {additionalInformationLabel}
+              </p>
+              <p className="whitespace-pre-line text-sm leading-relaxed wrap-anywhere text-fg/90">
+                {intake.project.additionalInformation}
+              </p>
+            </div>
+          ) : null}
           {canEdit ? (
             <div className="mt-5 flex justify-end border-t border-petal-line pt-3.5">
               <button
@@ -1180,6 +1224,7 @@ function ProposalSummary({
 function proposalDraft(intake: SubmittedIntake) {
   return {
     initialIdea: intake.project.initialIdea,
+    additionalInformation: intake.project.additionalInformation ?? '',
     responses: intake.project.intakeResponses.map((response) => ({
       questionId: response.questionId,
       answer: response.answer,
@@ -1192,6 +1237,7 @@ type ProposalDraft = ReturnType<typeof proposalDraft>
 function serializeProposalDraft(draft: ProposalDraft) {
   const values = new URLSearchParams()
   values.set('idea', draft.initialIdea)
+  values.set('additionalInformation', draft.additionalInformation)
   for (const response of draft.responses) {
     values.set(`answer:${response.questionId}`, response.answer)
   }
@@ -1203,6 +1249,8 @@ function recoverProposalDraft(intake: SubmittedIntake, stored: string): Proposal
   const values = new URLSearchParams(stored)
   return {
     initialIdea: values.get('idea') ?? current.initialIdea,
+    additionalInformation:
+      values.get('additionalInformation') ?? current.additionalInformation,
     responses: current.responses.map((response) => ({
       ...response,
       answer: values.get(`answer:${response.questionId}`) ?? response.answer,

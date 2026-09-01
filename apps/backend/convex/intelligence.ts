@@ -12,6 +12,7 @@ import {
 } from "./lib/intakePolicy";
 import {
   ideaQuestionModelId,
+  ideaQuestionEndToEndDeadlineMs,
   ideaQuestionSettlementDeadlineMs,
   ideaQuestionSystemInstruction,
   isBroadIdeaQuestion,
@@ -412,6 +413,94 @@ export const expireIntakeInterpretation = internalMutation({
       },
     );
     return result;
+  },
+});
+
+export const expireQueuedIntakeInterpretation = internalMutation({
+  args: {
+    draftId: v.id("projectDrafts"),
+    draftVersion: v.number(),
+    enqueuedAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const remainingMs = args.enqueuedAt + ideaQuestionEndToEndDeadlineMs - now;
+    if (remainingMs > 0) {
+      await ctx.scheduler.runAfter(
+        remainingMs,
+        internal.intelligence.expireQueuedIntakeInterpretation,
+        args,
+      );
+      return null;
+    }
+    const draft = await ctx.db.get(args.draftId);
+    if (
+      !draft?.initialIdea ||
+      draft.stage !== "follow_up" ||
+      draft.version !== args.draftVersion
+    ) return null;
+    const [{ policy, normalized }, responses, answers] = await Promise.all([
+      requirePinnedIntakePolicy(ctx, draft),
+      loadCurrentIntakeResponses(ctx, draft._id),
+      loadActiveIntakeAnswers(ctx, draft._id),
+    ]);
+    const ordinal = nextQuestionOrdinal(responses);
+    if (
+      ordinal === null ||
+      ordinal <= normalized.deterministicFollowUpCount ||
+      ordinal > normalized.maximumFollowUpCount
+    ) return null;
+    const inputFingerprint = intakeInputFingerprint({
+      draftId: draft._id,
+      policyChecksum: policy.checksum,
+      ordinal,
+      answers,
+    });
+    const prior = await ctx.db
+      .query("intakeInterpretations")
+      .withIndex("by_draft_input", (index) =>
+        index.eq("draftId", draft._id).eq("inputFingerprint", inputFingerprint),
+      )
+      .first();
+    if (prior?.state === "running") {
+      await ctx.runMutation(internal.intelligence.finishIntakeInterpretation, {
+        interpretationId: prior._id,
+        inputFingerprint,
+        state: "timed_out",
+        ...emptyCompletion(),
+        latencyMs: Math.max(0, now - args.enqueuedAt),
+        failureCategory: "end_to_end_deadline_exceeded",
+      });
+      return null;
+    }
+    if (prior) return null;
+    const interpretationId = await ctx.db.insert("intakeInterpretations", {
+      eventId: draft.eventId,
+      teamId: draft.teamId,
+      draftId: draft._id,
+      intakePolicyVersionId: policy._id,
+      inputAnswerVersionIds: answers.map((answer) => answer._id),
+      inputFingerprint,
+      ordinal,
+      state: "disabled",
+      coveragePurposeKeys: [],
+      modelId: ideaQuestionModelId,
+      latencyMs: Math.max(0, now - args.enqueuedAt),
+      failureCategory: "workpool_queue_deadline_exceeded",
+      completedAt: now,
+      createdAt: args.enqueuedAt,
+    });
+    await appendIntakeJobReadFactById(ctx, interpretationId, now);
+    await applyDeterministicPath(ctx, {
+      draft,
+      policy,
+      normalizedPolicy: normalized,
+      ordinal,
+      sourceAnswerVersionIds: answers.map((answer) => answer._id),
+      now,
+    });
+    return null;
   },
 });
 

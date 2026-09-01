@@ -50,6 +50,7 @@ import {
   loadCurrentIntakeResponses,
   replaceIntakeQuestionsAfter,
 } from "./lib/intakeQuestions";
+import { ideaQuestionEndToEndDeadlineMs } from "./lib/ideaSubmissionAi";
 import { intakeWorkpool } from "./workpools";
 import { teamClassesMeetPolicy, teamRosterCounts } from "./lib/teamRoster";
 import {
@@ -59,6 +60,20 @@ import {
   applicationState,
   projectDraftStage,
 } from "./values";
+
+const additionalInformationMaxLength = 4_000;
+
+function normalizedAdditionalInformation(value: string) {
+  const normalized = value.trim().replace(/\r\n/g, "\n");
+  if (normalized.length > additionalInformationMaxLength) {
+    throw new ConvexError({
+      code: "INVALID_FIELD",
+      field: "Additional information",
+      message: `Additional information must be at most ${additionalInformationMaxLength} characters.`,
+    });
+  }
+  return normalized || undefined;
+}
 
 const currentDraftView = v.object({
   id: v.id("projectDrafts"),
@@ -76,6 +91,7 @@ const currentDraftView = v.object({
   }),
   stage: projectDraftStage,
   initialIdea: v.optional(v.string()),
+  additionalInformation: v.optional(v.string()),
   novelty: v.union(
     v.null(),
     v.object({
@@ -427,6 +443,9 @@ export const current = query({
         },
         stage: draft.stage,
         ...(draft.initialIdea !== undefined ? { initialIdea: draft.initialIdea } : {}),
+        ...(draft.additionalInformation !== undefined
+          ? { additionalInformation: draft.additionalInformation }
+          : {}),
         novelty,
         noveltySignal:
           draft.initialIdea &&
@@ -495,6 +514,7 @@ export const submitted = query({
       project: v.object({
         id: v.id("projectVersions"),
         initialIdea: v.string(),
+        additionalInformation: v.optional(v.string()),
         intakeResponses: v.array(
           v.object({
             questionId: v.id("intakeGeneratedQuestions"),
@@ -509,6 +529,7 @@ export const submitted = query({
         initialIdeaMaxLength: v.number(),
         followUpAnswerMinLength: v.number(),
         followUpAnswerMaxLength: v.number(),
+        additionalInformationMaxLength: v.number(),
       }),
       applicationsCloseAt: v.number(),
       canEdit: v.boolean(),
@@ -556,6 +577,9 @@ export const submitted = query({
       project: {
         id: project._id,
         initialIdea: project.initialIdea,
+        ...(project.additionalInformation !== undefined
+          ? { additionalInformation: project.additionalInformation }
+          : {}),
         intakeResponses: project.intakeResponses.map((response) => ({
           questionId: response.questionId,
           question: response.question,
@@ -568,6 +592,7 @@ export const submitted = query({
         initialIdeaMaxLength: normalizedPolicy.initialIdeaMaxLength,
         followUpAnswerMinLength: normalizedPolicy.followUpAnswerMinLength,
         followUpAnswerMaxLength: normalizedPolicy.followUpAnswerMaxLength,
+        additionalInformationMaxLength,
       },
       applicationsCloseAt,
       canEdit:
@@ -589,6 +614,7 @@ export const reviseSubmission = mutation({
     expectedProjectVersionId: v.id("projectVersions"),
     expectedProjectVersion: v.number(),
     initialIdea: v.string(),
+    additionalInformation: v.string(),
     responses: v.array(proposalRevisionResponseInput),
     clientOperationId: v.string(),
   },
@@ -602,6 +628,7 @@ export const reviseSubmission = mutation({
       args.expectedProjectVersionId,
       args.expectedProjectVersion,
       args.initialIdea,
+      args.additionalInformation,
       JSON.stringify(args.responses),
     ]);
     const prior = await findOperation(ctx, {
@@ -711,6 +738,9 @@ export const reviseSubmission = mutation({
       policy.initialIdeaMinLength,
       policy.initialIdeaMaxLength,
     );
+    const additionalInformation = normalizedAdditionalInformation(
+      args.additionalInformation,
+    );
     if (
       args.responses.length !== project.intakeResponses.length ||
       args.responses.some(
@@ -744,6 +774,7 @@ export const reviseSubmission = mutation({
     });
     const unchanged =
       project.initialIdea === initialIdea &&
+      project.additionalInformation === additionalInformation &&
       project.intakeResponses.every((response, index) => {
         const next = intakeResponses[index];
         return next !== undefined &&
@@ -803,6 +834,7 @@ export const reviseSubmission = mutation({
       teamId: team._id,
       version: project.version + 1,
       initialIdea,
+      ...(additionalInformation !== undefined ? { additionalInformation } : {}),
       intakePolicyVersionId: project.intakePolicyVersionId,
       intakeResponses,
       lockedRosterSnapshotId: project.lockedRosterSnapshotId,
@@ -1057,6 +1089,34 @@ function requireDraftVersion(actual: number, expected: number) {
   }
 }
 
+async function enqueueIntakeInterpretation(
+  ctx: MutationCtx,
+  args: {
+    draftId: Id<"projectDrafts">;
+    draftVersion: number;
+    enqueuedAt: number;
+  },
+) {
+  await intakeWorkpool.enqueueAction(
+    ctx,
+    internal.intelligence.interpretIdea,
+    { draftId: args.draftId },
+    {
+      retry: false,
+      onComplete: internal.intelligence.intakeGenerationFinished,
+      context: {
+        draftId: args.draftId,
+        draftVersion: args.draftVersion,
+      },
+    },
+  );
+  await ctx.scheduler.runAfter(
+    ideaQuestionEndToEndDeadlineMs,
+    internal.intelligence.expireQueuedIntakeInterpretation,
+    args,
+  );
+}
+
 async function saveAnswerVersion(
   ctx: MutationCtx,
   args: {
@@ -1146,6 +1206,7 @@ export const autosaveWorkingField = mutation({
     field: intakeWorkingField,
     value: v.string(),
     baseDraftVersion: v.number(),
+    baseCommittedValue: v.string(),
     expectedRevision: v.number(),
   },
   returns: v.object({ revision: v.number(), updatedAt: v.number() }),
@@ -1173,7 +1234,6 @@ export const autosaveWorkingField = mutation({
       });
     }
     const draftVersion = draft?.version ?? 0;
-    requireDraftVersion(draftVersion, args.baseDraftVersion);
     const pinnedPolicy = draft
       ? await requirePinnedIntakePolicy(ctx, draft)
       : await requirePublishedIntakePolicy(ctx, event);
@@ -1186,20 +1246,29 @@ export const autosaveWorkingField = mutation({
         message: `Keep this response within ${maximumLength} characters.`,
       });
     }
+    let followUpQuestion: Doc<"intakeGeneratedQuestions"> | null = null;
     if (args.field.kind === "follow_up") {
-      const question = await ctx.db.get(args.field.questionId);
+      followUpQuestion = await ctx.db.get(args.field.questionId);
       if (
         !draft ||
-        !question ||
-        question.eventId !== event._id ||
-        question.teamId !== team._id ||
-        question.draftId !== draft._id ||
-        (question.state !== "active" && question.state !== "answered")
+        !followUpQuestion ||
+        followUpQuestion.eventId !== event._id ||
+        followUpQuestion.teamId !== team._id ||
+        followUpQuestion.draftId !== draft._id ||
+        followUpQuestion.state !== "active"
       ) {
         throw new ConvexError({
           code: "FOLLOW_UP_CHANGED",
           message: "That follow-up changed. Your text is still on this device.",
         });
+      }
+    }
+    if (draftVersion !== args.baseDraftVersion) {
+      const committedValueUnchanged = args.field.kind === "idea"
+        ? (draft?.initialIdea ?? "") === args.baseCommittedValue
+        : followUpQuestion?.state === "active" && args.baseCommittedValue === "";
+      if (!committedValueUnchanged) {
+        requireDraftVersion(draftVersion, args.baseDraftVersion);
       }
     }
     const existing = await findWorkingField(ctx, team._id, args.field);
@@ -1414,16 +1483,7 @@ export const saveInitialIdea = mutation({
     await deleteWorkingField(ctx, team._id, { kind: "idea" });
 
     if (shouldGenerateAdaptiveQuestion) {
-      await intakeWorkpool.enqueueAction(
-        ctx,
-        internal.intelligence.interpretIdea,
-        { draftId },
-        {
-          retry: false,
-          onComplete: internal.intelligence.intakeGenerationFinished,
-          context: { draftId, draftVersion },
-        },
-      );
+      await enqueueIntakeInterpretation(ctx, { draftId, draftVersion, enqueuedAt: now });
     }
 
     await ctx.scheduler.runAfter(0, internal.novelty.indexDraftIdea, {
@@ -1577,16 +1637,11 @@ export const respondToFollowUp = mutation({
       needsAnotherInterpretation &&
       nextOrdinal > policy.deterministicFollowUpCount
     ) {
-      await intakeWorkpool.enqueueAction(
-        ctx,
-        internal.intelligence.interpretIdea,
-        { draftId: draft._id },
-        {
-          retry: false,
-          onComplete: internal.intelligence.intakeGenerationFinished,
-          context: { draftId: draft._id, draftVersion },
-        },
-      );
+      await enqueueIntakeInterpretation(ctx, {
+        draftId: draft._id,
+        draftVersion,
+        enqueuedAt: now,
+      });
     }
     await recordDraftOperation(ctx, {
       eventId: event._id,
@@ -1704,22 +1759,99 @@ export const reviseFollowUp = mutation({
       updatedAt: now,
     });
     if (needsAnotherInterpretation) {
-      await intakeWorkpool.enqueueAction(
-        ctx,
-        internal.intelligence.interpretIdea,
-        { draftId: draft._id },
-        {
-          retry: false,
-          onComplete: internal.intelligence.intakeGenerationFinished,
-          context: { draftId: draft._id, draftVersion },
-        },
-      );
+      await enqueueIntakeInterpretation(ctx, {
+        draftId: draft._id,
+        draftVersion,
+        enqueuedAt: now,
+      });
     }
     await recordDraftOperation(ctx, {
       eventId: event._id,
       personId: person._id,
       clientOperationId: args.clientOperationId,
       commandName: "intake.follow_up.revise",
+      requestFingerprint,
+      draftId: draft._id,
+      createdAt: now,
+    });
+    return { draftVersion };
+  },
+});
+
+export const saveAdditionalInformation = mutation({
+  args: {
+    eventSlug: v.string(),
+    value: v.string(),
+    baseValue: v.string(),
+    expectedDraftVersion: v.number(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({ draftVersion: v.number() }),
+  handler: async (ctx, args) => {
+    const { event, person, membership, team } = await currentTeamContext(
+      ctx,
+      args.eventSlug,
+    );
+    const requestFingerprint = operationFingerprint([
+      team._id,
+      args.expectedDraftVersion,
+      args.baseValue,
+      args.value,
+    ]);
+    const replay = await replayDraftOperation(
+      ctx,
+      event._id,
+      person._id,
+      args.clientOperationId,
+      "intake.additional_information.save",
+      requestFingerprint,
+    );
+    if (replay) return { draftVersion: replay.version };
+    requireRegistrationOpen(event, membership.participantClass);
+    requireEditableTeam(team);
+    const draft = await ctx.db
+      .query("projectDrafts")
+      .withIndex("by_team", (index) => index.eq("teamId", team._id))
+      .unique();
+    if (!draft?.initialIdea || draft.stage !== "review") {
+      throw new ConvexError({
+        code: "ADDITIONAL_INFORMATION_NOT_EDITABLE",
+        message: "Additional information can be edited after the project questions are complete.",
+      });
+    }
+    const additionalInformation = normalizedAdditionalInformation(args.value);
+    const baseAdditionalInformation = normalizedAdditionalInformation(args.baseValue);
+    if (
+      draft.version !== args.expectedDraftVersion &&
+      draft.additionalInformation !== baseAdditionalInformation
+    ) {
+      requireDraftVersion(draft.version, args.expectedDraftVersion);
+    }
+    const now = Date.now();
+    if (draft.additionalInformation === additionalInformation) {
+      await recordDraftOperation(ctx, {
+        eventId: event._id,
+        personId: person._id,
+        clientOperationId: args.clientOperationId,
+        commandName: "intake.additional_information.save",
+        requestFingerprint,
+        draftId: draft._id,
+        createdAt: now,
+      });
+      return { draftVersion: draft.version };
+    }
+    const draftVersion = draft.version + 1;
+    await ctx.db.patch(draft._id, {
+      additionalInformation,
+      version: draftVersion,
+      lastEditedByMembershipId: membership._id,
+      updatedAt: now,
+    });
+    await recordDraftOperation(ctx, {
+      eventId: event._id,
+      personId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "intake.additional_information.save",
       requestFingerprint,
       draftId: draft._id,
       createdAt: now,
@@ -1795,6 +1927,8 @@ export const submissionPreview = query({
       lastEditedByMembershipId: v.id("eventMemberships"),
       applicationsCloseAt: v.number(),
       initialIdea: v.optional(v.string()),
+      additionalInformation: v.optional(v.string()),
+      additionalInformationMaxLength: v.number(),
       followUps: v.array(
         v.object({
           id: v.id("intakeGeneratedQuestions"),
@@ -1935,6 +2069,10 @@ export const submissionPreview = query({
       lastEditedByMembershipId: draft.lastEditedByMembershipId,
       applicationsCloseAt,
       ...(draft.initialIdea !== undefined ? { initialIdea: draft.initialIdea } : {}),
+      ...(draft.additionalInformation !== undefined
+        ? { additionalInformation: draft.additionalInformation }
+        : {}),
+      additionalInformationMaxLength,
       followUps: followUps.map(({ question, answer }) => ({
         id: question._id,
         ordinal: question.ordinal,
@@ -2478,6 +2616,9 @@ export const finalizeSubmission = internalMutation({
       teamId: team._id,
       version: (previousProjectVersion?.version ?? 0) + 1,
       initialIdea: draft.initialIdea,
+      ...(draft.additionalInformation !== undefined
+        ? { additionalInformation: draft.additionalInformation }
+        : {}),
       intakePolicyVersionId: pinnedPolicy.policy._id,
       intakeResponses: intakeResponses.map(({ question, answer }) => ({
         questionId: question._id,

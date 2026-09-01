@@ -27,6 +27,7 @@ import {
   assertDelegatedPermissionKey,
   delegationCanTargetAnyPerson,
   isScopedPermissionAuthority,
+  requireGrantAuthorities,
   requireGrantAuthority,
   requireRevokeAuthority,
   scopedAuthorityMatches,
@@ -56,7 +57,11 @@ import {
   storedOperationResult,
   storedOperationVersion,
 } from "./lib/operations";
-import { grantSupremeRolePermissions } from "./lib/rolePermissions";
+import {
+  grantSupremeRolePermissions,
+  missingSupremeRolePermissionPlans,
+  supremeRolePermissionPlans,
+} from "./lib/rolePermissions";
 import { normalizeEmail, normalizedText } from "./lib/strings";
 import {
   eventRole,
@@ -704,6 +709,26 @@ export const synchronizeSupremePermissions = mutation({
         message: "Only a Supreme organizer can synchronize Supreme catalog permissions.",
       });
     }
+    const missingPlans = await missingSupremeRolePermissionPlans(ctx, {
+      eventId: event._id,
+      personId: person._id,
+      eventAccessSubjectId: subject._id,
+      roleId: role._id,
+    });
+    if (missingPlans.length === 0) {
+      return { createdCount: 0, accessVersion: subject.accessVersion };
+    }
+    const authority = await requireGrantAuthorities(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      actorPersonId: person._id,
+      actions: supremeRolePermissionPlans(subject._id).map((plan) => ({
+        permissionKey: plan.permissionKey,
+        scopeType: plan.scopeType,
+        ...(plan.scopeType === "event" ? {} : { scopeId: plan.scopeId }),
+        targetPersonId: person._id,
+      })),
+    });
     const createdCount = await grantSupremeRolePermissions(ctx, {
       eventId: event._id,
       personId: person._id,
@@ -720,7 +745,7 @@ export const synchronizeSupremePermissions = mutation({
         eventId: event._id,
         actorPersonId: person._id,
         permissionKey: "access.roles.assign",
-        grantIds: [],
+        grantIds: authority.grantIds,
         scopeType: "person",
         scopeId: person._id,
         action: "access.supreme_permissions_synchronized",

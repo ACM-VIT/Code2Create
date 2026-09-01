@@ -20,7 +20,7 @@ const editingSurface = v.union(
 );
 type EditingSurface = IntakeEditingSurface;
 
-const heartbeatIntervalMs = 4_000;
+const heartbeatIntervalMs = 10_000;
 
 async function requireEditingTarget(
   ctx: MutationCtx,

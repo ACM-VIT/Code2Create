@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { ConvexError } from 'convex/values'
 
-import { reconcileWorkingCopy, shouldRecoverFollowUpDraft } from './intakeCollaboration.ts'
+import {
+  isIntakeCollaborationConflict,
+  reconcileCommittedField,
+  reconcileWorkingCopy,
+  shouldRecoverFollowUpDraft,
+} from './intakeCollaboration.ts'
 
 const changedQuestion = {
   answer: 'A local answer that has not been saved.',
@@ -79,4 +85,57 @@ test('keeps newer typing when the server echoes an earlier in-flight save', () =
     serverRevision: 2,
     serverValue: 'Earlier autosave',
   }), { kind: 'continue', revision: 2 })
+})
+
+test('recognizes only trusted collaboration conflicts', () => {
+  expectCollaborationConflict('DRAFT_CHANGED')
+  expectCollaborationConflict('FOLLOW_UP_CHANGED')
+  expectCollaborationConflict('WORKING_FIELD_CHANGED')
+  assert.equal(
+    isIntakeCollaborationConflict(
+      new ConvexError({ code: 'NOT_A_CONFLICT', message: 'No.' }),
+    ),
+    false,
+  )
+  assert.equal(
+    isIntakeCollaborationConflict({ data: { code: 'DRAFT_CHANGED' } }),
+    false,
+  )
+})
+
+function expectCollaborationConflict(code: string) {
+  assert.equal(
+    isIntakeCollaborationConflict(new ConvexError({ code, message: 'Conflict.' })),
+    true,
+  )
+}
+
+test('rebases an edit when only another proposal field changed', () => {
+  assert.deepEqual(reconcileCommittedField({
+    baseVersion: 4,
+    baseValue: 'Same answer',
+    localValue: 'My pending answer',
+    serverVersion: 5,
+    serverValue: 'Same answer',
+  }), { kind: 'rebase', version: 5 })
+})
+
+test('acknowledges the same value saved by another session', () => {
+  assert.deepEqual(reconcileCommittedField({
+    baseVersion: 4,
+    baseValue: 'Old answer',
+    localValue: 'Shared answer',
+    serverVersion: 5,
+    serverValue: 'Shared answer',
+  }), { kind: 'acknowledge', version: 5 })
+})
+
+test('requires a choice only when the same committed field diverged', () => {
+  assert.deepEqual(reconcileCommittedField({
+    baseVersion: 4,
+    baseValue: 'Old answer',
+    localValue: 'My answer',
+    serverVersion: 5,
+    serverValue: 'Their answer',
+  }), { kind: 'conflict' })
 })

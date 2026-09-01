@@ -207,6 +207,7 @@ describe("participant intake lifecycle", () => {
       field: { kind: "idea" },
       value: initialIdea,
       baseDraftVersion: 0,
+      baseCommittedValue: "",
       expectedRevision: 0,
     })).resolves.toMatchObject({ revision: 1 });
     await expect(participant.query(api.intake.current, {
@@ -226,6 +227,7 @@ describe("participant intake lifecycle", () => {
       field: { kind: "idea" },
       value: shortenedWorkingIdea,
       baseDraftVersion: 0,
+      baseCommittedValue: "",
       expectedRevision: 1,
     })).resolves.toMatchObject({ revision: 2 });
     await expect(participant.query(api.intake.current, {
@@ -244,6 +246,7 @@ describe("participant intake lifecycle", () => {
       field: { kind: "idea" },
       value: "",
       baseDraftVersion: 0,
+      baseCommittedValue: "",
       expectedRevision: 2,
     })).resolves.toMatchObject({ revision: 3 });
     await expect(participant.query(api.intake.current, {
@@ -262,6 +265,7 @@ describe("participant intake lifecycle", () => {
       field: { kind: "idea" },
       value: `${initialIdea} A conflicting rewrite.`,
       baseDraftVersion: 0,
+      baseCommittedValue: "",
       expectedRevision: 0,
     })).rejects.toThrow("newer text");
     const savedIdea = await participant.mutation(api.intake.saveInitialIdea, {
@@ -293,6 +297,7 @@ describe("participant intake lifecycle", () => {
       field: { kind: "idea" },
       value: idea,
       baseDraftVersion: firstQuestionState.draft.version,
+      baseCommittedValue: initialIdea,
       expectedRevision: 0,
     });
     await expect(participant.query(api.intake.current, {
@@ -371,6 +376,7 @@ describe("participant intake lifecycle", () => {
       field: { kind: "follow_up", questionId: activeQuestion.id },
       value: firstFollowUpAnswer,
       baseDraftVersion: withQuestion.draft.version,
+      baseCommittedValue: "",
       expectedRevision: 0,
     })).resolves.toMatchObject({ revision: 1 });
     await participant.mutation(api.intake.respondToFollowUp, {
@@ -536,12 +542,60 @@ describe("participant intake lifecycle", () => {
         followUps: questionIdsBeforeAnswerEdit.map((id) => ({ id })),
       },
     });
+    const additionalInformation =
+      "Our working notes and demo links are at https://example.com/accessibility-demo.";
+    await expect(participant.mutation(api.intake.saveAdditionalInformation, {
+      eventSlug: fixture.eventSlug,
+      value: "x".repeat(4_001),
+      baseValue: "",
+      expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
+      clientOperationId: "intake-additional-information-too-long",
+    })).rejects.toThrow("at most 4000 characters");
     const freshness = await participant.mutation(api.intake.setFreshnessAttestation, {
       eventSlug: fixture.eventSlug,
       accepted: true,
       expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
       clientOperationId: "intake-freshness-confirm",
     });
+    await expect(participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "idea" },
+      value: ideaAfterFixedAnswers,
+      baseDraftVersion: reviewAfterAnswerEdit.draft.version,
+      baseCommittedValue: ideaAfterFixedAnswers,
+      expectedRevision: 0,
+    })).resolves.toMatchObject({ revision: 1 });
+    await participant.mutation(api.intake.saveInitialIdea, {
+      eventSlug: fixture.eventSlug,
+      idea: ideaAfterFixedAnswers,
+      expectedDraftVersion: freshness.draftVersion,
+      clientOperationId: "intake-idea-acknowledge-after-unrelated-edit",
+    });
+    await expect(participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "idea" },
+      value: `${ideaAfterFixedAnswers} A conflicting local edit.`,
+      baseDraftVersion: reviewAfterAnswerEdit.draft.version,
+      baseCommittedValue: idea,
+      expectedRevision: 0,
+    })).rejects.toThrow("changed in another session");
+    const additionalInformationSave = await participant.mutation(
+      api.intake.saveAdditionalInformation,
+      {
+        eventSlug: fixture.eventSlug,
+        value: `  ${additionalInformation}  `,
+        baseValue: "",
+        expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
+        clientOperationId: "intake-additional-information-save",
+      },
+    );
+    await expect(participant.mutation(api.intake.saveAdditionalInformation, {
+      eventSlug: fixture.eventSlug,
+      value: "A different stale edit must not replace the saved information.",
+      baseValue: "",
+      expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
+      clientOperationId: "intake-additional-information-conflict",
+    })).rejects.toThrow("changed in another session");
 
     const blockedPreview = await participant.query(api.intake.submissionPreview, {
       eventSlug: fixture.eventSlug,
@@ -582,8 +636,9 @@ describe("participant intake lifecycle", () => {
     expect(preview).toMatchObject({
       teamId: team.teamId,
       teamVersion: 2,
-      draftVersion: freshness.draftVersion,
+      draftVersion: additionalInformationSave.draftVersion,
       initialIdea: ideaAfterFixedAnswers,
+      additionalInformation,
       freshnessAttested: true,
       memberCount: 2,
       members: [
@@ -728,6 +783,7 @@ describe("participant intake lifecycle", () => {
       currentRole: "lead",
       project: {
         initialIdea: ideaAfterFixedAnswers,
+        additionalInformation,
       },
       application: { state: "submitted", contentVersion: 1 },
       canEdit: true,
@@ -775,6 +831,8 @@ describe("participant intake lifecycle", () => {
       return { humanReviewId, assignmentId };
     });
     const revisedIdea = `${ideaAfterFixedAnswers} It also shows volunteers which request needs help next.`;
+    const revisedAdditionalInformation =
+      "Updated demo: https://example.com/accessibility-demo-v2\nRepository: https://example.com/repo";
     const revisionRequest = {
       eventSlug: fixture.eventSlug,
       applicationId: submitted.application.id,
@@ -782,6 +840,7 @@ describe("participant intake lifecycle", () => {
       expectedProjectVersionId: submitted.project.id,
       expectedProjectVersion: submitted.project.version,
       initialIdea: revisedIdea,
+      additionalInformation: revisedAdditionalInformation,
       responses: submitted.project.intakeResponses.map((response) => ({
         questionId: response.questionId,
         answer: "Students with access needs would use the updated workflow first.",
@@ -803,7 +862,12 @@ describe("participant intake lifecycle", () => {
     await expect(
       participant.query(api.intake.submitted, { eventSlug: fixture.eventSlug }),
     ).resolves.toMatchObject({
-      project: { id: revision.projectVersionId, initialIdea: revisedIdea, version: 2 },
+      project: {
+        id: revision.projectVersionId,
+        initialIdea: revisedIdea,
+        additionalInformation: revisedAdditionalInformation,
+        version: 2,
+      },
       application: { contentVersion: 2 },
     });
 

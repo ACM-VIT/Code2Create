@@ -11,7 +11,7 @@ This file records current decisions only. It does not keep obsolete product path
 | P-003 | Google sign-in is the only interactive sign-in method. |
 | P-004 | Participant accounts are VIT student or external participant profiles. The server verifies the class. |
 | P-005 | The only role labels are Supreme, Board, SC, JC, and External Judge. |
-| P-006 | Role labels do not authorize actions. Atomic, scoped, time-bounded per-user grants authorize actions. |
+| P-006 | Protected functions do not authorize from role labels. Role assignment may materialize a code-owned template, but only the resulting atomic, scoped, time-bounded per-user grants authorize actions. |
 | P-007 | Any event-linked account can receive a grant without receiving a role label. |
 | P-008 | One participant can belong to one active team. One active team has exactly one lead. |
 | P-009 | Leadership transfer requires acceptance by the proposed lead. |

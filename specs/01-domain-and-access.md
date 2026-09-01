@@ -63,7 +63,7 @@ After Google sign-in, the exact matching verified account sees a short claim scr
 2. links the row to the Better Auth user and Google provider subject;
 3. creates or reuses the active event access subject;
 4. creates the organizational role assignment unless the same label already exists, and stops on a conflicting active label;
-5. expands only the pinned compatible bundle versions into separately inspectable person-specific grants with the roster validity window;
+5. materializes the code-owned role template when one exists, then expands only the pinned compatible bundle versions into separately inspectable person-specific grants with the roster validity window;
 6. marks the row claimed and records the role, grant batches, identity link, operation, and audit event atomically;
 7. uses the linked person on later sign-ins instead of repeating an email match.
 
@@ -75,7 +75,7 @@ Roster normalization trims whitespace and lowercases the address for lookup. It 
 
 An unmatched account receives no staff data. A pending row can be revoked before claim by `access.roster.revoke` scoped to that exact row or the event; this requires current scoped authorization and a reason. Correcting a pending name, role, email, window, or bundle set means previewing and confirming another import. Correcting a claimed identity or role uses the separately authorized identity-repair or role workflow.
 
-The first permission administrators are part of the reviewed production seed. The seed lists every access key separately and includes event-scoped `access.permissions.read`, `access.permissions.grant_any`, `access.permissions.revoke_any`, and `access.subjects.invite`. Their role label is normally Supreme, but none of this authority comes from the word `supreme`. No dashboard command can create the first grant-any or revoke-any authority. A later holder may grant either permission to another event-linked person through the ordinary audited path.
+The first permission administrators are part of the reviewed production seed. The seed materializes the Supreme role template as atomic grants, including event-scoped `access.permissions.read`, `access.permissions.grant_any`, `access.permissions.revoke_any`, and `access.subjects.invite`. Protected functions authorize those grants rather than the word `supreme`. No dashboard command can create the first grant-any or revoke-any authority because assigning Supreme requires the assigner to hold grant-any already. A later holder may grant either permission to another event-linked person through the ordinary audited path.
 
 An event-scoped `access.subjects.invite` holder can create a pending invitation for one exact normalized Google email without browsing the global account directory. The claim window is explicit and must be between five minutes and 30 days. Creation and revocation require a current scoped authorization plus a reason.
 
@@ -117,7 +117,7 @@ The event keeps five organizational labels:
 | JC | Frontline execution defaults for selected station, floor-zone, queue, support, verification, or playback scopes |
 | External Judge | Assigned-panel context, presence, and own-scorecard defaults |
 
-Roles exist for roster grouping, display, sensible starting bundles, and training. A protected Convex function never authorizes from the role string. There is no hard role ceiling.
+Roles exist for roster grouping, display, sensible starting bundles, and training. A protected Convex function never authorizes from the role string. A role assignment may atomically materialize a code-owned template as ordinary source-attributed grants; the deployed Supreme template contains every event-wide catalog permission plus its own self-scoped permissions. There is no ceiling on permissions a target may hold based on their role.
 
 Any authenticated person linked to the event may receive any permission regardless of role, including a participant or External Judge. The grant must name:
 
@@ -206,7 +206,7 @@ Grant authority is not execution authority. A person who can grant `round.close`
 
 Access administration is decomposed like every other area. Looking up event people, reading another person’s grants, assigning a role label, importing a roster, publishing a permission bundle, applying a bundle, migrating existing bundle-sourced grants, granting, and revoking use separate keys. A person may hold any subset. For example, `access.permission_bundles.apply` can be scoped to one bundle and constrained to named targets without permitting bundle editing, role changes, or direct manual grants.
 
-Applying a suggested role-default template or operational bundle is only a separate shortcut. It creates `permissionGrants` rows tied to one `permissionGrantBatch`. Assigning or changing a role label never applies, removes, or migrates a bundle. Editing a bundle later also changes nobody until a previewed migration or new grant/revoke batch runs.
+Applying a versioned operational bundle remains a separate shortcut and creates `permissionGrants` rows tied to one `permissionGrantBatch`. Role assignment instead applies the selected role's code-owned template in the same mutation and attributes those grants to the role row. It never applies or migrates a versioned bundle. Editing a bundle later changes nobody until a previewed migration or new grant/revoke batch runs.
 
 The deployed bundle manager keeps one stable bundle identity. It has at most one editable draft and one current published version. Draft saves use the current bundle version and draft revision. Publication validates every entry against the code-owned catalog. It retires the prior published version and records the content checksum and diff. It requires exact bundle read and publish authority. It also requires a current scoped authorization. Published versions are immutable.
 
@@ -216,7 +216,7 @@ Publishing a new version remains non-retroactive. The deployed migration flow se
 
 The server resolves destination bindings again, suggests an old binding only when the binding key and resource type still match, and preserves each source application's expiry subject to the current event end. Preview identifies every add, replacement, removal, already-current grant, and preserved exception. Confirmation rechecks the immutable version checksums, exact source batches and grant states, target `accessVersion` values, destination-source history, bindings, and actor authority. One authorized, idempotent Convex mutation either migrates all selected targets or none. It supersedes only current grants attributed to those selected old applications. Manual grants, grants from another bundle application, and permissions explicitly revoked in either the old application or an existing application of the destination version are never silently restored or removed.
 
-The deployed role-label command accepts only Supreme, Board, SC, JC, External Judge, or no label. It requires `access.roles.assign` for the exact target person (or an explicit event-wide grant), the target's current `accessVersion`, a current scoped authorization, and a reason. Replacement or removal ends the prior role row and writes a new active row only when a label remains. It never writes `permissionGrants`.
+The deployed role command accepts only Supreme, Board, SC, JC, External Judge, or no role. It requires `access.roles.assign` for the exact target person (or an explicit event-wide grant), the target's current `accessVersion`, a fresh current authorization, and a reason. Before writing, the backend expands the selected role template and validates every planned grant against the assigner's grant ceiling. Replacing or removing a templated role likewise validates every planned removal against the revoke ceiling. The transaction ends the prior role row, revokes only that row's `role_template` grants, writes a new active row when a role remains, materializes the new template grants, and advances access once. Supreme is the only deployed role with an automatic code-owned template; the other labels continue to use explicit bundles or grants.
 
 Team membership, team lead, panel assignment, scanner-station assignment, floor-zone mapping duty, incident command, and release ownership use the same model. Each assignment materializes narrowly scoped permissions. When the assignment ends, it revokes only the active or scheduled grants from that assignment. Creating one logical grant group advances the affected person’s `accessVersion` once, and only when the operation added at least one row. An exact retry that finds every row does not change the version. Source teardown follows the same rule for revocation. `floor_plan` and `floor_zone` are first-class grant scopes. Mapping one zone never implies another. A frozen correction uses a different key from ordinary mapping.
 
@@ -277,7 +277,7 @@ Operations screens are assembled from granular read permissions. `event.lifecycl
 - Better Auth sessions expire after seven days and can refresh after twelve hours of activity. Every protected command relies on the active signed-in identity and rechecks its exact current grants and scopes when it runs.
 - Permission grants have explicit validity windows and cannot outlive the configured event/access ceiling.
 - Revoking a permission affects the next protected backend call even if the Google session and role label remain valid.
-- Changing a role label changes no grant. Removing prior template-sourced access or applying the new role’s suggested bundle requires separate, explicitly authorized operations.
+- Changing a templated role atomically revokes the prior role row's source grants and applies the new role template only within the actor's separate grant and revoke ceilings. Independent manual, bundle, and assignment grants remain unchanged.
 - Web sessions use secure, HTTP-only, same-site cookies.
 - The Expo Better Auth client stores session cookies in `expo-secure-store`.
 - The Expo app registers one device record with platform, build number, camera capability, notification token, last-seen time, and revocation state.
@@ -330,7 +330,7 @@ Normal page views are not written to the audit log.
 - Reactivation fails without its independently granted exact-person permission and never restores a revoked or expired grant.
 - A user cannot self-suspend and leave the event without an accountable second administrator.
 - A role label without an active permission grant authorizes no protected read or command.
-- Assigning, replacing, or removing a role label leaves every permission grant unchanged and preserves the ended role row.
+- Assigning, replacing, or removing a templated role changes only the exact `role_template` grants owned by the affected role row and preserves the ended role row; unrelated grant sources remain unchanged.
 - A participant can mint only their own short-lived attendance QR and cannot choose its session, station direction, or membership.
 - Minting a new attendance QR revokes every older active code for that membership. A successful attendance use or staffed-participant resolution consumes the presented code in the same transaction.
 - Staffed resolution binds independent venue and physical-credential action slots to the exact operator, assigned phone, station, and member. A credential begin/single-step command claims its slot, and its second scan cannot move to another action, credential, operator, phone, station, or member.

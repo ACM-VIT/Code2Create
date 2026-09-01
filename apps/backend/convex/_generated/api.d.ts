@@ -117,6 +117,7 @@ import type * as lib_intelligenceServiceConfiguration from "../lib/intelligenceS
 import type * as lib_labelContract from "../lib/labelContract.js";
 import type * as lib_novelty from "../lib/novelty.js";
 import type * as lib_noveltyIndex from "../lib/noveltyIndex.js";
+import type * as lib_noveltyRateLimits from "../lib/noveltyRateLimits.js";
 import type * as lib_openAiEmbeddings from "../lib/openAiEmbeddings.js";
 import type * as lib_operations from "../lib/operations.js";
 import type * as lib_operationsAttention from "../lib/operationsAttention.js";
@@ -375,6 +376,7 @@ declare const fullApi: ApiFromModules<{
   "lib/labelContract": typeof lib_labelContract;
   "lib/novelty": typeof lib_novelty;
   "lib/noveltyIndex": typeof lib_noveltyIndex;
+  "lib/noveltyRateLimits": typeof lib_noveltyRateLimits;
   "lib/openAiEmbeddings": typeof lib_openAiEmbeddings;
   "lib/operations": typeof lib_operations;
   "lib/operationsAttention": typeof lib_operationsAttention;
@@ -554,4 +556,5 @@ export declare const components: {
   exportWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"exportWorkpool">;
   intelligenceWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"intelligenceWorkpool">;
   intakePresence: import("@convex-dev/presence/_generated/component.js").ComponentApi<"intakePresence">;
+  noveltyRateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"noveltyRateLimiter">;
 };

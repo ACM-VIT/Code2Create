@@ -151,7 +151,7 @@ function CopilotCommandCard({
                 Reject
               </button>
               <span className="text-[10.5px] text-ink-3">
-                Permissions, fresh auth, lifecycle, and versions are checked again.
+                Permissions, lifecycle, and versions are checked again.
               </span>
             </div>
           ) : (

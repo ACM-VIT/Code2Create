@@ -1,7 +1,6 @@
 import type {
   InputHTMLAttributes,
   ReactNode,
-  SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from 'react'
 import { forwardRef, useId } from 'react'
@@ -17,7 +16,6 @@ export function PortalLabel({ children }: { children: ReactNode }) {
   )
 }
 
-/** A labelled control. `hint` renders as the dimmed "· optional" tail. */
 export function PortalField({
   label,
   hint,
@@ -54,17 +52,7 @@ export const PortalInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTML
   },
 )
 
-export function PortalSelect({
-  className = '',
-  children,
-  ...props
-}: SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select {...props} className={`${control} appearance-none pr-9 ${className}`}>
-      {children}
-    </select>
-  )
-}
+export { PortalSelect } from './PortalDropdown'
 
 export function PortalTextarea({
   className = '',
@@ -73,16 +61,17 @@ export function PortalTextarea({
   return <textarea {...props} className={`${control} resize-none leading-relaxed ${className}`} />
 }
 
-/** The inline consent / acknowledgement row. */
 export function PortalCheckRow({
   checked,
   onChange,
   disabled,
+  required,
   children,
 }: {
   checked: boolean
   onChange: (next: boolean) => void
   disabled?: boolean
+  required?: boolean
   children: ReactNode
 }) {
   return (
@@ -91,6 +80,7 @@ export function PortalCheckRow({
         type="checkbox"
         checked={checked}
         disabled={disabled}
+        required={required}
         onChange={(event) => onChange(event.target.checked)}
         className="mt-0.5 accent-rose"
       />

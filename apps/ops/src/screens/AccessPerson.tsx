@@ -148,6 +148,8 @@ export function AccessPerson() {
               <AccessRoleLabel
                 key={`${detail.person.id}:${detail.person.role ?? 'none'}`}
                 accessVersion={detail.accessVersion}
+                canGrantAny={detail.canGrantAny}
+                canRevokeAny={detail.canRevokeAny}
                 currentRole={detail.person.role}
                 personId={detail.person.id}
               />

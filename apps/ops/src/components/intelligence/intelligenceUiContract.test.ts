@@ -157,7 +157,7 @@ test('Ask keeps operator-scoped command approval inline with explicit recovery a
   assert.match(commandTraySource, /api\.intelligenceRecommendations\.reject/)
   assert.match(commandTraySource, /operations\.hasPending\(approveSlot\)/)
   assert.match(commandTraySource, /operations\.retryPending\(pendingSlot\)/)
-  assert.match(commandTraySource, /Permissions, fresh auth, lifecycle, and versions are checked again\./)
+  assert.match(commandTraySource, /Permissions, lifecycle, and versions are checked again\./)
   assert.match(commandTraySource, /command\.expectedEventVersion/)
   assert.match(commandTraySource, /command\.expectedBasePolicyId/)
   assert.match(liveConsoleSource, /className="pt-3 pb-2"/)

@@ -19,7 +19,7 @@ Charts are secondary. The product must lead with current work, not system termin
 
 ## 2. Access
 
-Every route, query, and command checks a stable permission key against current person-specific grants. Role labels provide suggested default bundles and filters only. A Supreme user without a matching grant is denied; a JC, participant, or External Judge with the exact grant is allowed within its scope.
+Every route, query, and command checks a stable permission key against current person-specific grants. Role labels provide organizational context, while role assignment may materialize a code-owned permission template as ordinary grants. A user whose role-template grant is absent or revoked is denied; a JC, participant, or External Judge with the exact grant is allowed within its scope.
 
 The dashboard is assembled from independent read/action permissions. Examples:
 
@@ -79,11 +79,11 @@ The deployed page lets the user:
 
 The page shows the optional role label but never uses it to disable an otherwise legal grant. The backend resolves `self` to the target participant membership for participant permissions and to the target event-access subject for reviewer-device registration. Page and reviewer-owned scorecard grants cannot be attached to a different person. Every other scope is loaded and checked against the event rather than trusting a client-supplied parent ID.
 
-A separate organizational-label control appears only when the operator holds `access.roles.assign` for that exact person or the event. It can set Supreme, Board, SC, JC, External Judge, or no role label. It requires the target's current access version, a reason, and a current scoped authorization. The resulting access preview is unchanged except for its label and incremented version.
+A separate role control appears only when the operator holds `access.roles.assign` for that exact person or the event. It can set Supreme, Board, SC, JC, External Judge, or no role. It requires the target's current access version, a reason, and a fresh current authorization. Before submission, the control disables a templated role change that exceeds the operator's grant or revoke ceiling; the backend independently expands and validates every template permission. The saved transaction changes the role row and only that row's source-attributed template grants.
 
 The exact-email lookup also resolves a suspended or closed event account; the ordinary directory remains active-only. An active target shows **Suspend event account** only to an operator with matching `access.subjects.suspend`. A suspended target shows **Reactivate event account** only with matching `access.subjects.reactivate`. Each confirmation shows the number of currently effective permission types, requires the current access version, current scoped authorization, and reason, and changes the subject boundary without editing grant rows. Self-suspension is rejected.
 
-The deployed roster workspace accepts the exact `email,name,role` CSV shape. The file can contain at most 200 logical rows and 256 KB. The request includes a source, one event-bounded validity window, an audited reason, and up to eight optional compatible published bundle versions. The workspace shows a server-resolved no-write preview with new, replacement, unchanged, and already-claimed counts and rows. Confirmation requires a current scoped authorization. Confirmation atomically records the import, supersedes only previewed pending rows, and schedules pending-row expiry. The realtime history is paginated for event-wide readers. An exact-row reader receives only the row covered by the reader's grants. An authorized operator can revoke only a current pending row with its version, current authorization, and a reason.
+The deployed roster workspace accepts the exact `email,name,role` CSV shape. The file can contain at most 200 logical rows and 256 KB. The request includes a source, one event-bounded validity window, an audited reason, and up to eight optional compatible published bundle versions. The workspace shows a server-resolved no-write preview with new, replacement, unchanged, and already-claimed counts and rows. Confirmation requires a fresh current authorization; an import containing Supreme also requires event-wide `access.permissions.grant_any` because claim will materialize that role's complete template under the importer's recorded authority. Confirmation atomically records the import, supersedes only previewed pending rows, and schedules exact activation and expiry of the pending rows' materialized validity. The realtime history is paginated for event-wide readers. An exact-row reader receives only the row covered by the reader's grants. An authorized operator can revoke only a current pending row with its version, current authorization, and a reason.
 
 The roster screen never assigns a panel, station, round, team, or other resource. Bundles that need such a binding are visibly unavailable and must be followed by the resource's own assignment flow. A claimed row is historical evidence, not an editable account form; later CSV uploads report it as already claimed and leave it unchanged.
 
@@ -95,7 +95,7 @@ Sensitive web commands enforce freshness on the server. When the Google session 
 
 The permission-bundle workspace can migrate one to five exact prior applications from a retired version to the current published version. It suggests compatible old resource bindings but requires an explicit choice for every unresolved destination binding. The preview lists adds, replacements, removals, grants already present from the destination source, and revoked exceptions that will stay off. Confirmation preserves the old application expiry within the event end, updates all selected people atomically, and supersedes only grants attributed to the selected source applications. Direct grants and other bundle sources remain independent.
 
-Role labels, rosters, and bundles are separate tools. `access.roles.assign`, `access.roster.import`, `access.permission_bundles.read`, `access.permission_bundles.publish`, `access.permission_bundles.apply`, and `access.permission_bundles.migrate` do not imply one another or direct grant/revoke authority. Bundle apply can be limited to one bundle, exact targets, scopes, and validity.
+Roles, rosters, and bundles are separate tools. `access.roles.assign`, `access.roster.import`, `access.permission_bundles.read`, `access.permission_bundles.publish`, `access.permission_bundles.apply`, and `access.permission_bundles.migrate` do not imply one another or direct grant/revoke authority. Assigning a templated role additionally requires authority for every grant it creates and every prior role-template grant it revokes. Bundle apply can be limited to one bundle, exact targets, scopes, and validity.
 
 The UI labels delegation separately from execution. Being allowed to grant an action never lights up that action’s button unless the user also holds the action permission.
 
@@ -138,7 +138,7 @@ The overview permission returns aggregate operational state only. It does not im
 The current projection covers:
 
 - open critical and non-critical incidents plus active review-round pauses;
-- stalled or failed intake interpretation and admission-analysis work, with model fallback counts limited to the recent operating window;
+- stalled or failed intake interpretation and admission-analysis work, plus stalled or recently unavailable novelty previews, with failure counts limited to the recent operating window;
 - current attendance preparation/finalization jobs, authenticated scanner liveness, and phones reporting encrypted scans awaiting replay during the live event;
 - panels needing a reviewer, stale reviewer heartbeats on open rounds, overdue reviews, and expired substitute pages;
 - the latest participant-email attempt, distinguishing terminal delivery failure, unknown provider outcome, and processing stall;
@@ -652,7 +652,7 @@ Categories include identity, team, proposal, configuration, attendance credentia
 
 Participant provisioning and approved roster claim create independently revocable self-scoped `support.case.create`, `support.case.read`, and `support.case.reply` grants. Those grants expose only cases reported by that same person. An exact-email access invitation still creates a grantless account; a grant administrator must explicitly add any support capability it needs. Staff list/detail access requires `support.case.read` for the exact `support_case` or event; updating requires the separate `support.case.manage` grant for that same case or event. Logging a walk-up issue for operations requires event-scoped `support.case.create`.
 
-Assignment is routing metadata, not authorization. An owner must be an active event account, but assignment creates no grant and an ungranted owner still cannot open or change the case. Role labels likewise grant nothing.
+Assignment is routing metadata, not authorization. An owner must be an active event account, but assignment creates no grant and an ungranted owner still cannot open or change the case. A role string cannot substitute for the exact grant; any grant created by a role template is evaluated through the same permission path.
 
 Reporter-visible actions exclude internal notes and owner history. Staff readers receive the internal timeline only when their case read grant covers that record. A public reply is visible to the reporter; an internal note never is. A reporter reply changes `waiting` or `resolved` back to `open`. A closed case accepts no reporter reply; staff may reopen it to `open`, or the reporter creates a new case.
 
@@ -680,7 +680,7 @@ Final sign-off uses the separate `rehearsal.complete` permission and a recent Go
 | Claim event invitation | matching verified Google identity; no permission grant | exact event/email, pending state, current version, server-time expiry; creates/reuses one active subject and grants no role/access |
 | Suspend event access subject | `access.subjects.suspend` | exact target person (or explicit event scope), current access version, effective-grant impact, current scoped authorization, reason, and no self-suspension |
 | Reactivate event access subject | `access.subjects.reactivate` | independently granted exact target person (or event scope), suspended state, current access version, current scoped authorization, and reason; grant rows are untouched |
-| Assign, replace, or clear a role label | `access.roles.assign` | exact target person (or explicit event scope), current access version, current scoped authorization, and reason; no grant changes |
+| Assign, replace, or clear a role | `access.roles.assign` plus grant/revoke authority for every affected role-template permission | exact target person (or explicit event scope), current access version, fresh current authorization, and reason; changes only source-attributed role-template grants |
 | Create own support case | self-scoped `support.case.create` | exact event subject, validated optional self-owned review/attendance context, 10–2,000-character description, and idempotent operation ID |
 | Read/reply to own support case | self-scoped `support.case.read` / `support.case.reply` | reporter must be current person; internal actions remain hidden; closed cases reject replies |
 | Read support desk | `support.case.read` | exact support case or explicit event scope; bounded indexed list and append-only timeline only |
@@ -693,7 +693,7 @@ Final sign-off uses the separate `rehearsal.complete` permission and a recent Go
 | Sign off rehearsal | `rehearsal.complete` | exact active run or event scope, current run version, all 62 scenarios passed, current scoped authorization, completion summary, and idempotent operation ID |
 | Read roster | `access.roster.read` | exact pending/history row or event scope; event-wide results are paginated and contain no raw Google subject, auth user ID, or grant contents |
 | Import roster | event-scoped `access.roster.import` plus exact readable/applicable selected bundles | exact CSV/event, no more than 200 rows/eight bundles, event-bounded validity, current published compatible versions, unchanged/claimed preservation, matching preview checksum, current authorization, idempotency key, and importer reason |
-| Claim roster row | matching verified Google identity; no permission grant | exact pending event/email/version, unexpired claim window, pinned bundle checksums; atomically links identity, role label, grant batches, and claimed row |
+| Claim roster row | matching verified Google identity; no pre-existing permission grant | exact active-validity event/email/version row and pinned bundle checksums; atomically links identity, role, role-template grants when applicable, bundle grant batches, and claimed row |
 | Revoke pending roster row | `access.roster.revoke` | exact row or event scope, pending state/version, unexpired window, current authorization, idempotency key, and reason; claimed rows use separate account/role/grant controls |
 | Publish permission bundle | `access.permission_bundles.read` + `access.permission_bundles.publish` | exact bundle/event scope; optimistic draft revision, catalog validation, diff, current authorization, and reason |
 | Apply permission bundle | `access.permissions.read` + exact-bundle and exact-person `access.permission_bundles.apply` + bundle read | separately resolved bundle and target scopes; current target access version, resource bindings/expiry, atomic-grant preview, current authorization, and reason |
@@ -790,7 +790,7 @@ High-impact commands also carry a client operation ID. Repeating the same reques
 
 ## 19. Incident mode
 
-A named incident commander is an assignment, not a role boundary. Any event-linked person may receive event- or incident-scoped `incident.read`, `incident.create`, `incident.manual_mode.approve`, and `incident.resolve`, plus exact-round `review.round.pause` or `review.round.resume`. No role label grants those commands.
+A named incident commander is an assignment, not a role boundary. Any event-linked person may receive event- or incident-scoped `incident.read`, `incident.create`, `incident.manual_mode.approve`, and `incident.resolve`, plus exact-round `review.round.pause` or `review.round.resume`. The role string never substitutes for those grants; a role-template grant, when present, is checked like any other source.
 
 The operations shell subscribes to active incidents and renders only incidents covered by the caller’s current `incident.read` grants. Each visible entry contains:
 
@@ -910,7 +910,7 @@ Manual incident records are reconciled after recovery under the reliability proc
 - Two operators cannot start different requests in the same window; a stale request/window/report/access version changes nothing.
 - Queue read alone exposes no internal moderation note or report reason. Exact-request report read pages every open reason without loading report text into the live queue. Participant music suspension changes no event-account grant.
 - A role label with no grants opens no protected dashboard route.
-- Assigning, replacing, or clearing a role label changes no permission and retains the ended label as history.
+- Assigning, replacing, or clearing a templated role validates the complete grant/revoke ceiling, changes only that role row's source grants, and retains the ended role as history.
 - An invite-only administrator can create and revoke exact-email invitations without reading the event account directory.
 - If an invited email is already linked, the control says so without exposing an account ID or an inaccessible account link.
 - Claiming an invitation exposes no operations route until a separate permission grant exists.

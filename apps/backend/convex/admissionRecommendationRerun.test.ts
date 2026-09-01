@@ -199,10 +199,13 @@ describe("manual admission analysis retry", () => {
     });
     expect(repeatedRead).toEqual(firstRead);
     if (!firstRead) throw new Error("The idea-agent fixture did not produce a projection.");
+    expect(firstRead.additionalInformation).toBe(
+      "Demo notes: https://example.com/retry-petals",
+    );
     const criterionAssessments = firstRead.criteria.map((criterion) => ({
       criterionKey: criterion.criterionKey,
       assessment: "meets" as const,
-      sourceRefs: ["initial_idea"],
+      sourceRefs: ["additional_information"],
     }));
     const completion = {
       recommendationId: rerun.recommendationId,
@@ -509,6 +512,7 @@ async function seedFixture(backend: BackendTest) {
       intakePolicyVersionId: intakePolicyId,
       stage: "submitted",
       initialIdea: "A calm handoff tool for volunteers at a busy venue.",
+      additionalInformation: "Demo notes: https://example.com/retry-petals",
       version: 1,
       lastEditedByMembershipId: membershipId,
       updatedAt: now,
@@ -555,6 +559,7 @@ async function seedFixture(backend: BackendTest) {
       teamId,
       version: 1,
       initialIdea: "A calm handoff tool for volunteers at a busy venue.",
+      additionalInformation: "Demo notes: https://example.com/retry-petals",
       intakePolicyVersionId: intakePolicyId,
       intakeResponses: [{
         questionId,

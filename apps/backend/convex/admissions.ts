@@ -440,6 +440,7 @@ export const detail = query({
       project: v.object({
         id: v.id("projectVersions"),
         initialIdea: v.string(),
+        additionalInformation: v.optional(v.string()),
         intakeResponses: v.array(
           v.object({
             ordinal: v.number(),
@@ -768,6 +769,9 @@ export const detail = query({
       project: {
         id: project._id,
         initialIdea: project.initialIdea,
+        ...(project.additionalInformation !== undefined
+          ? { additionalInformation: project.additionalInformation }
+          : {}),
         intakeResponses: project.intakeResponses.map((response) => ({
           ordinal: response.ordinal,
           question: response.question,
@@ -2378,6 +2382,9 @@ export async function respondToAdmissionInformationRequest(
     teamId: project.teamId,
     version: project.version + 1,
     initialIdea: project.initialIdea,
+    ...(project.additionalInformation !== undefined
+      ? { additionalInformation: project.additionalInformation }
+      : {}),
     intakePolicyVersionId: project.intakePolicyVersionId,
     intakeResponses: project.intakeResponses,
     lockedRosterSnapshotId: project.lockedRosterSnapshotId,

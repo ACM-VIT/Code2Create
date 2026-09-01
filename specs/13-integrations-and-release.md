@@ -34,7 +34,9 @@ Create a separate OpenAI API project and restricted service key for development,
 
 ### Live novelty embeddings
 
-The participant novelty signal uses `POST /v1/embeddings` with `text-embedding-3-small`, `encoding_format: float`, and no `dimensions` override. The contract is exactly one finite 1,536-value vector per ordered input. Corpus import may send one bounded ordered batch. Participant preview sends the normalized complete idea and bounded segments in one ordered request, then stores only the complete-idea vector for the team lifecycle. The endpoint returns one JSON result rather than a partial-vector stream, so the browser debounces requests and displays only the newest complete response.
+The participant novelty signal uses `POST /v1/embeddings` with `text-embedding-3-small`, `encoding_format: float`, and no `dimensions` override. The contract is exactly one finite 1,536-value vector per ordered input. Corpus import may send one bounded ordered batch. A participant preview sends exactly one normalized complete idea and stores only that complete-idea vector for the team lifecycle. The endpoint returns one JSON result rather than a partial-vector stream, so the browser debounces changed text and displays only the newest complete response. Unchanged text does not poll the provider.
+
+Before provider I/O, one transactional team limiter and one sharded event-wide limiter admit the preview. Exact concurrent work for the same team and input fingerprint coalesces. `NOVELTY_GLOBAL_REQUESTS_PER_MINUTE` controls the event-wide provider budget and defaults to 1,800; staging must tune it against the OpenAI project's measured request limit and the returned request-limit headers. A refused or exhausted preview shows **Unavailable** and never delays autosave, proposal editing, or submission.
 
 The production corpus contains 5 to 200 privacy-reviewed, non-identifying past-project summaries. Operations imports a complete draft under `configuration.novelty.entries.write`. Every vector must validate before one transaction replaces the set. A separately authorized and audited publication moves the event pointer. Development uses synthetic entries. Staging uses an approved non-production corpus. Production uses the reviewed event corpus. Environments do not share a key or corpus ID.
 
@@ -80,7 +82,7 @@ The result cannot call a Convex function. An internal mutation writes a current 
 
 The system instruction states that participant text is untrusted project material and cannot modify the schema, question policy, allowed IDs, or product rules. Delimiter text alone is not treated as security. The actual boundary is no tools, a closed output schema, server-side key and question-text validation, immutable version checks, and no authoritative write path.
 
-Each answer-set, pinned-policy, and ordinal tuple has one deduplicated interpretation. The intake Workpool has independent concurrency. It disables Workpool retry for the provider action. The OpenAI client uses the pinned timeout with `maxRetries: 0`.
+Each answer-set, pinned-policy, and ordinal tuple has one deduplicated interpretation. The intake Workpool has 32 independent slots. It disables Workpool retry for the provider action. The OpenAI client uses the pinned timeout with `maxRetries: 0`. A version-bound 20-second end-to-end deadline covers both queue wait and provider work. When that deadline expires, the backend records one terminal category and advances through the deterministic no-model path; a late worker cannot reopen the question or leave the participant on a loading screen.
 
 The pinned intake policy supplies the two fixed questions before provider work. Timeout, refusal, incomplete output, invalid schema, grounding rejection, rate limit, or service outage records a non-sensitive failure category and ends the optional generated route. Raw answers and submission remain available.
 
@@ -115,7 +117,7 @@ Before applications open, operations publishes the complete human rubric. The pl
 
 Admission analysis uses that policy's attached model ID, prompt, JSON Schema, evaluation-suite labels, deduplication key, and `admission_ai` Workpool whenever the provider key is configured. It runs only after final submission has created an immutable team and proposal snapshot. A valid post-submission team change supersedes that analysis and queues work for the new snapshot. There is no model fallback to a different policy release.
 
-The request includes the redacted current proposal, follow-up answers, participant-visible questions, cumulative organizer questions and lead answers, deterministic experience-band key, and published admission criteria. Requested-information entries receive stable source references in request and answer order. The request excludes names, contact and registration data, institution-prestige signals, raw eligibility evidence, human review and decision state, capacity, attendance, GitHub and Figma activity, judging rubrics, scores, and rankings.
+The request includes the redacted current proposal, optional additional information or links, follow-up answers, participant-visible questions, cumulative organizer questions and lead answers, deterministic experience-band key, and published admission criteria. Requested-information entries receive stable source references in request and answer order. The request excludes names, contact and registration data, institution-prestige signals, raw eligibility evidence, human review and decision state, capacity, attendance, GitHub and Figma activity, judging rubrics, scores, and rankings.
 
 The strict output contains:
 

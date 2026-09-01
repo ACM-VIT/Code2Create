@@ -129,9 +129,9 @@ Key fields:
 - `createdAt`, assignment reason;
 - `endedAt?`, `endedByPersonId?`, and `endReason?` for replaced, revoked, or expired rows.
 
-Protected functions do not query this table to authorize a request. The role is used for roster grouping, display, training, and suggesting a default permission bundle. Changing it changes no grant. Applying the new suggestion or removing prior template-sourced grants is a separate, previewed, separately authorized batch.
+Protected functions do not query this table to authorize a request. The role is used for roster grouping, display, training, and selecting a code-owned default template. The role command expands that template, validates every grant or removal against the actor's separate ceiling, and changes only `role_template` grants attributed to the affected role row. Versioned permission bundles remain separate.
 
-The deployed set command checks `access.roles.assign` for the target person, the subject's optimistic `accessVersion`, a current scoped authorization, and a reason. It ends the one active row before inserting a replacement and increments the subject version in the same transaction. Clearing a label inserts no sentinel row.
+The deployed set command checks `access.roles.assign` for the target person, the subject's optimistic `accessVersion`, a current scoped authorization, and a reason. It expands the selected and prior templates before writing, checks every planned addition/removal against the actor's grant/revoke ceiling, ends the one active row, revokes only that row's template grants, inserts a replacement when requested, materializes the replacement template, and increments the subject version in the same transaction. Clearing a role inserts no sentinel row.
 
 ### `rosterImports`
 
@@ -162,7 +162,7 @@ Key fields:
 - optional claimed person, event access subject, event role, permission-grant batch IDs, Better Auth user, Google subject, operation, and time;
 - optional superseding row/time, revoker/operation/reason/time, or expiry time.
 
-Claiming reloads and checksum-validates the import and every pinned bundle version. Creating/reusing the event subject, creating or validating its role label, materialising every missing atomic bundle grant, completing their source-attributed batches, linking the verified identity, and marking the row claimed happen in one mutation. A later import never edits a claimed row.
+Claiming reloads and checksum-validates the import and every pinned bundle version. Creating/reusing the event subject, creating or validating its role, materializing its code-owned template when one exists, materializing every missing atomic bundle grant, completing their source-attributed batches, linking the verified identity, and marking the row claimed happen in one mutation. A later import never edits a claimed row.
 
 ### Code-owned permission catalog
 
@@ -257,7 +257,7 @@ The schema does not predeclare placeholder scope types. A later feature adds its
 
 `access.permissions.grant_any` is event-scoped and can grant any catalog key to any event-linked person. `access.permissions.revoke_any` separately revokes grants in that event; neither implies the other. Each `access.permissions.grant_scoped` or `access.permissions.revoke_scoped` row names one non-administrative permission key, one exact legal resource scope, an exact active target person or the explicit `any_event_person` value, and a required expiry. For grant authority, that same time is the latest expiry it may issue. Several delegation rows are required for several keys or resources. Target-owned self, reviewer-page, and reviewer-owned scorecard scopes cannot use the broad target boundary.
 
-Grant and revoke commands reject cross-event targets, unknown or wildcard keys, missing/foreign scopes, invalid constraint combinations, an excluded target person, expiry beyond the actor’s ceiling, and self-escalation. Reading another person’s grants, looking up event people, assigning a role label, importing a roster, publishing/applying/migrating bundles, granting, and revoking are independent permission checks.
+Grant and revoke commands reject cross-event targets, unknown or wildcard keys, missing/foreign scopes, invalid constraint combinations, an excluded target person, expiry beyond the actor’s ceiling, and self-escalation. Reading another person’s grants, looking up event people, assigning a role, importing a roster, publishing/applying/migrating bundles, granting, and revoking remain independent permission checks; a templated role assignment must satisfy both `access.roles.assign` and every applicable grant/revoke ceiling.
 
 Direct grant and revoke batches contain one to twenty unique entries for one event access subject. A grant batch has one optional common expiry and one reason. A revoke batch names only current active or scheduled grant IDs and has one reason. The command validates every row and every authorizing grant before the first write. One batch cannot mix unrestricted and delegated authority. A successful grant batch uses `access.grant_batch:<clientOperationId>` as the common manual or delegated source, stores each grant as an ordinary `permissionGrants` row, advances the subject's `accessVersion` at most once, and records one aggregate operation result and audit event. A successful revoke batch revokes every selected row, advances the version once, and records the same aggregate evidence. These direct operations do not create `permissionGrantBatches`; that table remains provenance for versioned permission-bundle applications and migrations.
 
@@ -266,8 +266,6 @@ Grant authority never satisfies the underlying protected function. Scoped grant 
 Grant creation stores a future row as `scheduled` and atomically schedules state-checked internal mutations at its start and optional end. A 15-second repair sweep reads bounded `status + validFrom` and `status + validUntil` index ranges; when more due rows remain, it immediately schedules another batch. Exact jobs advance the affected subject’s `accessVersion`; a repair batch advances each affected subject once. Every path reloads current status, so revocation or supersession makes stale work a no-op. Protected functions also compare server time to `validFrom`/`validUntil`; delayed expiry materialization can make history briefly stale but can never extend access.
 
 The row-insert boundary validates that `eventId`, `personId`, and `eventAccessSubjectId` identify one active account, then returns the exact grant ID and whether it created a row. Commands group related row inserts and advance the subject once only when that group created something. An idempotent source retry returns existing IDs and leaves `accessVersion` unchanged. A brand-new subject is committed with its initial grant set and version `1`; no client can observe the subject before that transaction commits.
-
-The operations client does not treat a completed OAuth popup as proof that the protected command may resume. It reads `freshAuthenticationStatus` through the current Convex identity. Only a `fresh: true` result releases the one shared waiting operation. The client then retries the same immutable mutation closure and operation ID once. Closing the prompt rejects the local wait and performs no domain write.
 
 ### `reviewerDevices`
 
@@ -427,7 +425,9 @@ A corpus contains 5 to 300 entries. Source keys are unique. Source years cannot 
 - one finite native 1,536-value complete-idea embedding;
 - source update time and index update time.
 
-The table stores no raw idea. One team has at most one current row for editing and one current durable row for saved or submitted text. Segment embeddings exist only in the active provider response and retrieval request; they do not become team rows. Editing rows expire after the short live-edit window. If retrieval sees both rows, the durable row is authoritative and the editing row does not add or replace that team's density contribution. An authoritative idea change deletes all older rows and makes running preview requests stale in the same transaction. Provider failure after that transaction leaves no current replacement row and therefore cannot preserve an obsolete idea in density results.
+The table stores no raw idea. One team has at most one current row for editing and one current durable row for saved or submitted text. Each row is the complete idea; the provider request, response, and retrieval path contain no segment embeddings. Editing rows expire after the short live-edit window. If retrieval sees both rows, the durable row is authoritative and the editing row does not add or replace that team's density contribution. An authoritative idea change deletes all older rows and makes running preview requests stale in the same transaction. Provider failure after that transaction leaves no current replacement row and therefore cannot preserve an obsolete idea in density results.
+
+Saved and submitted replacement indexing uses the rate-limiter component under a background-only sharded reservation budget. The default sustained budget is 300 embeddings per minute and is deployment-configurable through `NOVELTY_INDEX_REQUESTS_PER_MINUTE`; at most 1,500 future tokens can be reserved. A delayed action carries only record IDs, fingerprints, timestamps, retry count, and reservation state. It reloads the authoritative draft or submitted version before external work. Provider failure gets no more than two retries, and each retry reserves new background capacity. Participant preview capacity and proposal writes do not wait for this drain.
 
 ### `noveltyPreviewRequests`
 
@@ -435,9 +435,9 @@ The table stores no raw idea. One team has at most one current row for editing a
 - client request ID, normalized input fingerprint, and character count, but no raw idea text;
 - `state: running | succeeded | unavailable | failed | stale`;
 - optional whole-number score and internal nearest similarity;
-- optional provider request ID, latency, non-sensitive failure category, and request/completion time.
+- optional provider request ID, remaining-request/reset headers, latency, non-sensitive failure category, and request/completion time.
 
-One team/client-request range makes the public action idempotent. A second use with different input fails. A successful same-team/corpus/fingerprint row may be reused for 30 seconds, which is longer than the editor's 15-second refresh interval, and a bounded team/time range enforces the published minute limit. A sensitive-looking idea returns unavailable before a request row or provider call exists. Only a current successful request may be copied onto the mutable project draft; preview rows never become application, admission, review, or score evidence.
+One team/client-request range makes the public action idempotent. A second use with different input fails. Exact running work for one team/input coalesces, and a successful same-team/corpus/fingerprint row may be reused for 30 seconds. The rate-limiter component enforces a sharded deployment budget and the published per-team minute budget without scanning preview history. A denied capacity request is settled as unavailable so event health includes load shedding. A sensitive-looking idea returns unavailable before a request row or provider call exists. Only a current successful request may be copied onto the mutable project draft; preview rows never become application, admission, review, or score evidence.
 
 `noveltyPreviewRequests.by_team_state_requested` lets an accepted idea edit invalidate only that team's running requests without a table scan. A late action cannot store a team vector from a stale request.
 
@@ -576,6 +576,7 @@ One mutable draft per team.
 - `eventId`, `teamId`, and required immutable `intakePolicyVersionId`;
 - `stage: opening | follow_up | review | submitted`;
 - initial idea;
+- optional additional information or links, stored as plain text after the intake questions;
 - optional pinned novelty-corpus version ID; optional fingerprint, whole-number score, request ID, and evaluation time for the latest signal that still matches the saved idea;
 - freshness-attestation actor/time;
 - `version`, last editor, updated time.
@@ -590,7 +591,7 @@ Short-lived server autosave for one team's current idea or exact follow-up field
 - verbatim partial value and the authoritative draft version it is based on;
 - small field revision, last writing membership, and update time.
 
-One row exists per team and field. A write checks the exact field revision and base draft version. This prevents a delayed browser request from overwriting a teammate's newer text. These rows are the recovery and collaboration layer only: autosave does not advance intake, regenerate a question, create an application version, or run AI. `Next` commits the displayed value into the authoritative draft and removes the working field. Replacing the initial idea removes all old working fields because the question route changes.
+One row exists per team and field. A write checks the exact working-field revision and the committed value that editor started from. A newer global draft version is accepted when this exact committed field is unchanged; a change to the same field conflicts. This prevents a delayed browser request from overwriting a teammate's newer text without turning an unrelated proposal change into a false conflict. These rows are the recovery and collaboration layer only: autosave does not advance intake, regenerate a question, create an application version, or run AI. `Next` commits the displayed value into the authoritative draft and removes the working field. Replacing the initial idea removes all old working fields because the question route changes.
 
 ### `intakeAnswerVersions`
 
@@ -636,13 +637,15 @@ Model-produced, non-authoritative drafts.
 
 This record cannot become a participant answer, application decision, route assignment, or score. Raw answer text is not copied into job or error metadata.
 
+The intake Workpool has 32 participant-critical slots. Enqueue also schedules one version-bound 20-second end-to-end deadline. If work is still queued, the deadline writes a terminal `disabled` interpretation for that exact input and advances to review. If provider work is running, it settles it as timed out. Either row prevents late queued work from reopening the question.
+
 ### `projectVersions`
 
 Immutable submitted proposal versions.
 
 - `eventId`, `teamId`
 - project version number;
-- verbatim initial idea and ordered current intake responses `{ questionId, ordinal, question, purposeKey, answerLength, source, answer }`;
+- verbatim initial idea, optional additional information or links, and ordered current intake responses `{ questionId, ordinal, question, purposeKey, answerLength, source, answer }`;
 - required intake-policy-version ID;
 - `fresh_for_event` attestation with exact participant-policy version ID and accepted member/time;
 - immutable roster-snapshot ID, snapshot member count, and snapshot lead membership ID;
@@ -706,6 +709,8 @@ One pre-event application per team/event.
 - application `contentVersion` plus optimistic row `version`.
 
 Any accepted lead revision or information response moves `currentProposalVersionId` to the new immutable version. It increments `contentVersion` and returns the state to `under_review`. It clears invalid decision and AI pointers, supersedes human reviews for older content, and resets current completed review coverage. It leaves earlier proposal, review, and model rows as history.
+
+The aggregate admissions cohort is assembled through bounded internal pages ordered by immutable `submittedAt`. One page hydrates at most 20 applications with their bounded related projections. The public whole-event action requires event-wide `application.read`, applies the caller's separate profile/AI visibility grants to every row, and refuses to cross the 1,500-team applicant release envelope. Mutable state transitions do not reorder the scan.
 
 ### `admissionInformationRequests`
 
@@ -2108,7 +2113,7 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `noveltyCorpusEntries.by_corpus_embedding` | Search native 1,536-value vectors inside one pinned corpus |
 | `noveltyTeamIdeas.by_team` | Replace or invalidate one team's bounded current novelty rows without scanning the event |
 | `noveltyTeamIdeas.by_event_embedding` | Search current complete-idea vectors inside one event without exposing another team's text |
-| `noveltyPreviewRequests.by_team_requested` | Enforce the bounded per-team request rate and inspect recent work |
+| `noveltyPreviewRequests.by_team_requested` | Inspect one team's recent preview work; rate enforcement lives in the transactional rate-limiter component |
 | `noveltyPreviewRequests.by_team_state_requested` | Invalidate one team's running previews in the same transaction as an accepted idea edit |
 | `noveltyPreviewRequests.by_team_fingerprint_requested` | Reuse one recent successful comparison for unchanged team text |
 | `noveltyPreviewRequests.by_team_client_request` | Resolve one idempotent participant preview request |
@@ -2127,6 +2132,7 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `intakeInterpretations.by_event_state_created` | Bound recent fallback and stalled-running checks for aggregate event health |
 | `projectVersions.by_team_version` | Load exact reviewer context |
 | `applications.by_event_state` | Admission queues and capacity |
+| `applications.by_event_submitted` | Page the complete admissions cohort in immutable submission order without state-transition cursor gaps |
 | `admissionReviewAssignments.by_application_reviewer_state` | Enforce one active routing row per application/reviewer |
 | `admissionReviewAssignments.by_event_reviewer_state_assigned` | Page one person's active/completed review work |
 | `admissionReviewAssignments.by_application_state_assigned` | Read assignment coverage and bounded history for one application |
@@ -2867,7 +2873,7 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - Applying a bundle creates individually inspectable grants; editing the bundle changes nobody until an explicit migration batch completes.
 - A bundle migration requires independent exact bundle and target authority, accepts no more than five exact source applications, rechecks the full preview and access versions, and commits every selected person or none.
 - Migration supersedes only current grants attributed to the selected old applications; manual/other bundle sources remain, and an explicitly revoked old or destination grant is not resurrected.
-- Changing a role label changes no permission grant; bundle application and removal require separate exact permissions and previews.
+- Changing a templated role changes only the source-attributed grants owned by the prior and selected role rows, after validating every addition/removal against the actor's ceiling; bundle application remains separate.
 - Revoking one of several matching grants preserves access until the final matching grant is revoked or expires.
 - A future grant is stored as scheduled, cannot authorize early, and records activation only through a current-state transition.
 - Exact lifecycle jobs and the bounded repair sweep never reactivate a revoked or superseded grant, and expiry is enforced from server time even before `expiredAt` is written.
@@ -2902,7 +2908,7 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - A novelty request stores no raw idea, performs no provider call for sensitive-looking text, applies the event's exact team rate limit, and returns only one whole-number result.
 - A repeated preview ID cannot create another row or name different text. Provider failure leaves intake usable. A completion attaches only while the saved idea fingerprint and pinned corpus match.
 - A changed saved or submitted idea invalidates older team vectors and running previews in its accepting transaction. Provider failure cannot keep the previous idea searchable, and an older action cannot reinsert it.
-- Segment retrieval stores at most one complete-idea row per team lifecycle. Repeated segment hits and editing/durable rows collapse to one strongest match per team before density is calculated.
+- Whole-idea retrieval stores at most one row per team lifecycle. Editing and durable rows collapse to one strongest match per team before density is calculated.
 - Novelty number and similarity are absent from proposal versions, admission-model input, human admission evidence, review evidence, judging records, and score exports.
 - A model result with unknown IDs, stale answers, invalid schema, a repeated/compound/overlong/prohibited question, refusal, or late completion changes no authoritative project field or visible prompt.
 - Every submitted follow-up snapshot retains its immutable question ID, ordinal, wording, purpose, source, and participant answer.

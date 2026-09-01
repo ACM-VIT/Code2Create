@@ -10,8 +10,8 @@ type EditingQuestionId = NonNullable<
   FunctionArgs<typeof api.intakePresence.heartbeat>['questionId']
 >
 
-const heartbeatMs = 4_000
-const idleMs = 7_000
+const heartbeatMs = 10_000
+const idleMs = 16_000
 
 type ActiveSession = {
   generation: number

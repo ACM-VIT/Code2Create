@@ -8,7 +8,7 @@ import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { maximumReviewTeamsPerEvent } from "./reviewLimits";
+import { maximumApplicantTeamsPerEvent } from "./reviewLimits";
 import { fingerprintText, normalizedLongText, normalizedText } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -250,10 +250,10 @@ export async function participantPolicyPublicationIssue(
   const teams = await ctx.db
     .query("teams")
     .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
-    .take(maximumReviewTeamsPerEvent + 1);
-  if (teams.length > maximumReviewTeamsPerEvent) {
+    .take(maximumApplicantTeamsPerEvent + 1);
+  if (teams.length > maximumApplicantTeamsPerEvent) {
     throw new Error(
-      `The event exceeds the supported limit of ${maximumReviewTeamsPerEvent} teams.`,
+      `The event exceeds the supported applicant limit of ${maximumApplicantTeamsPerEvent} teams.`,
     );
   }
   for (const team of teams) {

@@ -1,3 +1,4 @@
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
@@ -33,6 +34,12 @@ import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 type BackendTest = TestConvex<typeof schema>;
+
+function noveltyBackend() {
+  const backend = convexTest(schema, modules);
+  rateLimiterTest.register(backend, "noveltyRateLimiter");
+  return backend;
+}
 
 describe("live novelty", () => {
   test("uses weighted team density and the logarithmic novelty curve", () => {
@@ -101,7 +108,7 @@ describe("live novelty", () => {
   });
 
   test("settles one request exactly once and replays its result idempotently", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
     const request = previewArgs(fixture, "novelty-request-0001", fixture.idea);
     const begun = await backend.mutation(internal.novelty.beginPreview, request);
@@ -109,7 +116,7 @@ describe("live novelty", () => {
 
     await expect(
       backend.mutation(internal.novelty.beginPreview, request),
-    ).rejects.toThrow("still running");
+    ).resolves.toEqual({ kind: "complete", result: { state: "unavailable" } });
 
     const result = await backend.mutation(internal.novelty.finishPreview, {
       requestId: begun.requestId,
@@ -145,16 +152,28 @@ describe("live novelty", () => {
     expect(state.request).not.toHaveProperty("initialIdea");
   });
 
-  test("creates one row under a concurrent duplicate and never sends sensitive text onward", async () => {
-    const backend = convexTest(schema, modules);
+  test("coalesces concurrent teammates by fingerprint and never sends sensitive text onward", async () => {
+    const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
     const request = previewArgs(fixture, "novelty-concurrent-0001", fixture.idea);
     const attempts = await Promise.allSettled([
       backend.mutation(internal.novelty.beginPreview, request),
-      backend.mutation(internal.novelty.beginPreview, request),
+      backend.mutation(
+        internal.novelty.beginPreview,
+        previewArgs(fixture, "novelty-concurrent-0002", fixture.idea),
+      ),
     ]);
-    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
-    expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(2);
+    expect(attempts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        status: "fulfilled",
+        value: expect.objectContaining({ kind: "run" }),
+      }),
+      {
+        status: "fulfilled",
+        value: { kind: "complete", result: { state: "unavailable" } },
+      },
+    ]));
     const requests = await backend.run((ctx) => ctx.db
       .query("noveltyPreviewRequests")
       .withIndex("by_team_requested")
@@ -178,7 +197,7 @@ describe("live novelty", () => {
   });
 
   test("does not attach a result after the team changes its idea", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
     const begun = await backend.mutation(
       internal.novelty.beginPreview,
@@ -215,7 +234,7 @@ describe("live novelty", () => {
   });
 
   test("keeps durable and active editing vectors separate for one team", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
     const embedding = Array.from({ length: noveltyEmbeddingDimensions }, (_, index) => (
       index === 0 ? 1 : 0
@@ -229,7 +248,6 @@ describe("live novelty", () => {
       requestId: savedRequest.requestId,
       inputFingerprint: savedRequest.inputFingerprint,
       embedding,
-      segmentEmbeddings: [embedding, embedding],
     });
     const saved = await backend.run((ctx) => ctx.db
       .query("noveltyTeamIdeas")
@@ -247,7 +265,6 @@ describe("live novelty", () => {
       requestId: editingRequest.requestId,
       inputFingerprint: editingRequest.inputFingerprint,
       embedding,
-      segmentEmbeddings: [embedding, embedding],
     });
     const indexed = await backend.run((ctx) => ctx.db
       .query("noveltyTeamIdeas")
@@ -267,7 +284,7 @@ describe("live novelty", () => {
   });
 
   test("invalidates old vectors and in-flight previews before an idea changes", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
     const request = await backend.mutation(
       internal.novelty.beginPreview,
@@ -314,7 +331,7 @@ describe("live novelty", () => {
   });
 
   test("does not let a newer editing preview suppress durable draft indexing", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
     const savedEmbedding = Array.from(
       { length: noveltyEmbeddingDimensions },
@@ -385,8 +402,49 @@ describe("live novelty", () => {
     });
   });
 
+  test("embeds only the complete idea for durable draft indexing", async () => {
+    const backend = noveltyBackend();
+    const fixture = await seedFixture(backend);
+
+    const prepared = await backend.mutation(internal.novelty.prepareDraftIndex, {
+      draftId: fixture.projectDraftId,
+      inputFingerprint: noveltyInputFingerprint(fixture.idea),
+      sourceUpdatedAt: fixture.now,
+    });
+
+    expect(prepared).toMatchObject({
+      kind: "run",
+      embeddingInputs: [fixture.idea],
+    });
+  });
+
+  test("evaluates editing-vector expiry from the action-provided clock", async () => {
+    const backend = noveltyBackend();
+    const fixture = await seedFixture(backend);
+    const ideaId = await backend.run((ctx) => ctx.db.insert("noveltyTeamIdeas", {
+      eventId: fixture.eventId,
+      teamId: fixture.teamId,
+      inputFingerprint: noveltyInputFingerprint(fixture.idea),
+      lifecycle: "editing",
+      embedding: [1],
+      sourceUpdatedAt: fixture.now,
+      updatedAt: fixture.now,
+    }));
+
+    await expect(backend.query(internal.novelty.readTeamIdeaMetadata, {
+      eventId: fixture.eventId,
+      ideaIds: [ideaId],
+      now: fixture.now + 44_999,
+    })).resolves.toEqual([expect.objectContaining({ id: ideaId, active: true })]);
+    await expect(backend.query(internal.novelty.readTeamIdeaMetadata, {
+      eventId: fixture.eventId,
+      ideaIds: [ideaId],
+      now: fixture.now + 45_000,
+    })).resolves.toEqual([expect.objectContaining({ id: ideaId, active: false })]);
+  });
+
   test("removes obsolete vectors when the current saved idea is non-indexable", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
     const sensitiveIdea = `${fixture.idea} Contact private-person@example.test for access.`;
     const sensitiveFingerprint = noveltyInputFingerprint(sensitiveIdea);
@@ -461,7 +519,7 @@ describe("live novelty", () => {
   });
 
   test("removes obsolete vectors when the current submitted idea is non-indexable", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
     const sensitiveIdea = `${fixture.idea} Call +91 98765 43210 for the private walkthrough.`;
     const sensitiveFingerprint = noveltyInputFingerprint(sensitiveIdea);
@@ -556,7 +614,7 @@ describe("live novelty", () => {
       ),
     ).rejects.toThrow("does not have permission for that exact resource");
 
-    const backend = convexTest(schema, modules);
+    const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
     for (let index = 0; index < defaultNoveltyPolicy.maximumRequestsPerMinute; index += 1) {
       const result = await backend.mutation(
@@ -569,20 +627,28 @@ describe("live novelty", () => {
       );
       expect(result.kind).toBe("run");
     }
-    await expect(
-      backend.mutation(
-        internal.novelty.beginPreview,
-        previewArgs(
-          fixture,
-          "novelty-rate-overflow",
-          `${fixture.idea} This additional variation exceeds the request window.`,
-        ),
+    await expect(backend.mutation(
+      internal.novelty.beginPreview,
+      previewArgs(
+        fixture,
+        "novelty-rate-overflow",
+        `${fixture.idea} This additional variation exceeds the request window.`,
       ),
-    ).rejects.toThrow("Pause for a moment");
+    )).resolves.toEqual({ kind: "complete", result: { state: "unavailable" } });
+    const overflow = await backend.run((ctx) => ctx.db
+      .query("noveltyPreviewRequests")
+      .withIndex("by_team_client_request", (index) =>
+        index.eq("teamId", fixture.teamId).eq("clientRequestId", "novelty-rate-overflow"),
+      )
+      .unique());
+    expect(overflow).toMatchObject({
+      state: "unavailable",
+      failureCategory: "team_rate_limited",
+    });
   });
 
   test("imports one corpus transactionally and replays the completed operation", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
     const entries = corpusEntries();
     const args = {

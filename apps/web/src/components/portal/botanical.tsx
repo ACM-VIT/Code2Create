@@ -549,7 +549,7 @@ export function Plant() {
           viewBox). */}
       <img
         className="plant-base"
-        src="/plants/plant-01.svg"
+        src="/plants/plant-01.webp"
         width="387"
         height="493"
         alt=""

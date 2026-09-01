@@ -85,9 +85,25 @@ async function requestOpenAiEmbeddings(args: {
     );
   }
   const requestId = response.headers.get("x-request-id")?.trim();
+  const remainingRequestsHeader = response.headers
+    .get("x-ratelimit-remaining-requests")
+    ?.trim();
+  const remainingRequests = remainingRequestsHeader === undefined
+    ? undefined
+    : Number(remainingRequestsHeader);
+  const requestResetHeader = response.headers.get("x-ratelimit-reset-requests")?.trim();
+  const requestReset = requestResetHeader && requestResetHeader.length <= 40
+    ? requestResetHeader
+    : undefined;
   return {
     data: parsed.data.data,
     ...(requestId ? { requestId } : {}),
+    ...(remainingRequests !== undefined
+      && Number.isSafeInteger(remainingRequests)
+      && remainingRequests >= 0
+      ? { remainingRequests }
+      : {}),
+    ...(requestReset ? { requestReset } : {}),
   };
 }
 

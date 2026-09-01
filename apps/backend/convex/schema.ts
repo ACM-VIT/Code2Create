@@ -534,6 +534,8 @@ export default defineSchema({
     nearestThemeLabel: v.optional(v.string()),
     reflectionPrompt: v.optional(v.string()),
     providerRequestId: v.optional(v.string()),
+    providerRemainingRequests: v.optional(v.number()),
+    providerRequestReset: v.optional(v.string()),
     agentOperationId: v.optional(v.string()),
     agentOutputChecksum: v.optional(v.string()),
     agentVersion: v.optional(v.string()),
@@ -1593,6 +1595,7 @@ export default defineSchema({
     intakePolicyVersionId: v.id("intakePolicyVersions"),
     stage: projectDraftStage,
     initialIdea: v.optional(v.string()),
+    additionalInformation: v.optional(v.string()),
     noveltyCorpusVersionId: v.optional(v.id("noveltyCorpusVersions")),
     noveltyEvaluatedInputFingerprint: v.optional(v.string()),
     noveltyScore: v.optional(v.number()),
@@ -1721,6 +1724,7 @@ export default defineSchema({
     teamId: v.id("teams"),
     version: v.number(),
     initialIdea: v.string(),
+    additionalInformation: v.optional(v.string()),
     intakePolicyVersionId: v.id("intakePolicyVersions"),
     intakeResponses: v.array(
       v.object({
@@ -1859,6 +1863,7 @@ export default defineSchema({
     submittedAt: v.number(),
   })
     .index("by_team", ["teamId"])
+    .index("by_event_submitted", ["eventId", "submittedAt"])
     .index("by_event_state_submitted", ["eventId", "state", "submittedAt"]),
 
   participantNotificationDestinations: defineTable({
