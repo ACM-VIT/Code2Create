@@ -131,6 +131,17 @@ export const beginIntakeInterpretation = internalMutation({
       });
       return null;
     }
+    if (normalized.model.mode === "deterministic") {
+      await applyDeterministicPath(ctx, {
+        draft,
+        policy,
+        normalizedPolicy: normalized,
+        ordinal,
+        sourceAnswerVersionIds: answers.map((answer) => answer._id),
+        now: Date.now(),
+      });
+      return null;
+    }
     const inputFingerprint = intakeInputFingerprint({
       draftId: draft._id,
       policyChecksum: policy.checksum,

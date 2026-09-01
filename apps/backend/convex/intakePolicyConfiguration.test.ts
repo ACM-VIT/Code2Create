@@ -165,6 +165,44 @@ describe("intake policy configuration", () => {
     expect(second.source).toBe("fixed");
   });
 
+  test("a deterministic policy never sends answers to an available provider", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, "deterministic");
+    await answerFixedQuestions(backend, fixture);
+    vi.stubEnv("OPENAI_API_KEY", "configured-provider-key");
+    const providerRequest = vi.fn(() => {
+      throw new Error("A deterministic policy attempted an external request.");
+    });
+    vi.stubGlobal("fetch", providerRequest);
+
+    await backend.action(internal.intelligence.interpretIdea, {
+      draftId: fixture.projectDraftId,
+    });
+
+    const result = await backend.run(async (ctx) => ({
+      draft: await ctx.db.get(fixture.projectDraftId),
+      interpretations: await ctx.db
+        .query("intakeInterpretations")
+        .withIndex("by_draft_created", (index) =>
+          index.eq("draftId", fixture.projectDraftId),
+        )
+        .collect(),
+      questions: await ctx.db
+        .query("intakeGeneratedQuestions")
+        .withIndex("by_draft_ordinal", (index) =>
+          index.eq("draftId", fixture.projectDraftId),
+        )
+        .collect(),
+    }));
+    expect(providerRequest).not.toHaveBeenCalled();
+    expect(result.draft?.stage).toBe("review");
+    expect(result.interpretations).toEqual([]);
+    expect(result.questions).toHaveLength(2);
+    expect(
+      result.questions.every((question) => question.source === "fixed"),
+    ).toBe(true);
+  });
+
   test("an assisted policy starts generation only after both fixed answers", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "assisted");
