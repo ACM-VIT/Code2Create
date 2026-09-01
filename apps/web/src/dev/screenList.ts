@@ -3,6 +3,7 @@ export const GALLERY_SCREENS = [
   { id: 'f0a', label: 'Entry' },
   { id: 'f0b', label: 'Details' },
   { id: 'fs', label: 'SGLang / GitHub' },
+  { id: 'fsb', label: 'SGLang / connected GitHub' },
   { id: 'f0c', label: 'Team start' },
   { id: 'f1', label: 'Home · in progress' },
   { id: 'f2', label: 'Idea' },

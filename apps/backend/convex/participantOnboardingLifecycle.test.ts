@@ -633,6 +633,95 @@ describe("participant onboarding lifecycle", () => {
         .unique()).toBeNull();
       expect((await ctx.db.get(fixture.membershipId))?.onboardingStatus).toBe("team_required");
     });
+    await expect(participant.mutation(api.githubStarGate.disconnect, {
+      eventSlug: fixture.eventSlug,
+    })).rejects.toThrow("already complete");
+  });
+
+  test("disconnects an unfinished GitHub authorization and expires open callbacks", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "github-disconnect-policy",
+    });
+    await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Aarav Menon",
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "third",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "github-disconnect-profile",
+    });
+
+    await participant.mutation(internal.githubStarGate.createSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      stateDigest: "github-disconnect-connected-state",
+      pkceVerifierCiphertext: "encrypted-verifier",
+      redirectUri: "https://participant.example.test/onboarding/github/callback",
+    });
+    const connectedClaim = await participant.mutation(
+      internal.githubStarGate.claimSetupIntent,
+      {
+        eventSlug: fixture.eventSlug,
+        stateDigest: "github-disconnect-connected-state",
+        attemptId: "github-disconnect-connected-attempt",
+      },
+    );
+    if (connectedClaim.kind !== "verify") throw new Error("The setup intent was not claimed.");
+    await participant.mutation(internal.githubStarGate.finishSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      intentId: connectedClaim.intentId,
+      attemptId: "github-disconnect-connected-attempt",
+      githubUserId: "2010",
+      githubLogin: "aarav-disconnect",
+      authorization: {
+        kind: "connected",
+        accessTokenCiphertext: "encrypted-access-token",
+        authorizationExpiresAt: Date.now() + 60_000,
+      },
+    });
+    const openIntent = await participant.mutation(
+      internal.githubStarGate.createSetupIntent,
+      {
+        eventSlug: fixture.eventSlug,
+        stateDigest: "github-disconnect-open-state",
+        pkceVerifierCiphertext: "another-encrypted-verifier",
+        redirectUri: "https://participant.example.test/onboarding/github/callback",
+      },
+    );
+
+    await expect(participant.mutation(api.githubStarGate.disconnect, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toEqual({ disconnected: true });
+    await expect(participant.query(api.githubStarGate.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toEqual({ connected: false, completed: false });
+    await backend.run(async (ctx) => {
+      expect(await ctx.db
+        .query("githubStarAuthorizations")
+        .withIndex("by_event_membership", (index) =>
+          index.eq("eventId", fixture.eventId).eq("membershipId", fixture.membershipId),
+        )
+        .unique()).toBeNull();
+      const expiredIntent = await ctx.db.get(openIntent.intentId);
+      expect(expiredIntent).toMatchObject({ status: "expired" });
+      expect(expiredIntent).not.toHaveProperty("pkceVerifierCiphertext");
+    });
+    await expect(participant.mutation(api.githubStarGate.disconnect, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toEqual({ disconnected: false });
   });
 
   test("completes GitHub onboarding immediately when the account already stars SGLang", async () => {

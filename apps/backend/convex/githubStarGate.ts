@@ -3,7 +3,7 @@ import { type Infer, ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { internalMutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
 import {
   findCurrentPerson,
@@ -117,6 +117,56 @@ export const current = query({
     return authorization
       ? { connected: true, githubLogin: authorization.githubLogin, completed: false }
       : { connected: false, completed: false };
+  },
+});
+
+export const disconnect = mutation({
+  args: { eventSlug: v.string() },
+  returns: v.object({ disconnected: v.boolean() }),
+  handler: async (ctx, args) => {
+    const { event, membership } = await onboardingContext(ctx, args.eventSlug);
+    const completion = await ctx.db
+      .query("githubStarCompletions")
+      .withIndex("by_event_membership", (index) =>
+        index.eq("eventId", event._id).eq("membershipId", membership._id),
+      )
+      .unique();
+    if (completion) {
+      throw new ConvexError({
+        code: "GITHUB_STAR_COMPLETE",
+        message: "This GitHub step is already complete.",
+      });
+    }
+
+    const authorization = await ctx.db
+      .query("githubStarAuthorizations")
+      .withIndex("by_event_membership", (index) =>
+        index.eq("eventId", event._id).eq("membershipId", membership._id),
+      )
+      .unique();
+    if (authorization) await ctx.db.delete(authorization._id);
+
+    let clearedIntentCount = 0;
+    for (const status of ["pending", "verifying", "failed"] as const) {
+      const intents = await ctx.db
+        .query("githubStarSetupIntents")
+        .withIndex("by_membership_status", (index) =>
+          index.eq("membershipId", membership._id).eq("status", status),
+        )
+        .collect();
+      for (const intent of intents) {
+        await ctx.db.patch(intent._id, {
+          status: "expired",
+          pkceVerifierCiphertext: undefined,
+          attemptId: undefined,
+          claimExpiresAt: undefined,
+          completedAt: Date.now(),
+        });
+        clearedIntentCount += 1;
+      }
+    }
+
+    return { disconnected: authorization !== null || clearedIntentCount > 0 };
   },
 });
 
@@ -285,7 +335,7 @@ async function completeGitHubStar(
   if (githubCompletion) {
     throw new ConvexError({
       code: "GITHUB_ACCOUNT_IN_USE",
-      message: "That GitHub account has already completed this step for another participant.",
+      message: "That GitHub account was already used by another participant. Disconnect it, then connect a different GitHub account.",
     });
   }
   const completedAt = Date.now();
@@ -372,7 +422,7 @@ export const finishSetupIntent = internalMutation({
     if (githubCompletion && githubCompletion.membershipId !== membership._id) {
       throw new ConvexError({
         code: "GITHUB_ACCOUNT_IN_USE",
-        message: "That GitHub account has already completed this step for another participant.",
+        message: "That GitHub account was already used by another participant. Disconnect it, then connect a different GitHub account.",
       });
     }
     const githubAuthorization = await ctx.db

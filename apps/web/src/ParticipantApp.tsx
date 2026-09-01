@@ -187,6 +187,7 @@ export function ParticipantApp({
         <SglangInterlude
           state={githubStarGate}
           callback={location.pathname === '/onboarding/github/callback'}
+          onSignOut={signOut}
         />
       )
     }

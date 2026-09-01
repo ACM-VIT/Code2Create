@@ -519,6 +519,14 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
     <SglangInterlude
       state={{ connected: false, completed: false }}
       callback={false}
+      onSignOut={() => undefined}
+    />
+  )],
+  ['fsb', () => (
+    <SglangInterlude
+      state={{ connected: true, completed: false, githubLogin: 'freshman-builder' }}
+      callback={false}
+      onSignOut={() => undefined}
     />
   )],
   ['f7b', () => (
