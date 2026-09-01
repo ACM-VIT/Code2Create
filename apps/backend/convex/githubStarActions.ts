@@ -52,7 +52,7 @@ type SetupClaim =
     }
   | { kind: "completed" };
 
-type StarVerificationClaim =
+type StarClaim =
   | { kind: "completed"; githubLogin: string; completedAt: number }
   | {
       kind: "verify";
@@ -312,13 +312,13 @@ export const disconnect = action({
   },
 });
 
-export const verifyStar = action({
+export const star = action({
   args: { eventSlug: v.string() },
   returns: v.object({ githubLogin: v.string(), completedAt: v.number() }),
   handler: async (ctx, args): Promise<{ githubLogin: string; completedAt: number }> => {
     const attemptId = randomUUID();
-    const claim: StarVerificationClaim = await ctx.runMutation(
-      internal.githubStarGate.claimStarVerification,
+    const claim: StarClaim = await ctx.runMutation(
+      internal.githubStarGate.claimStar,
       { eventSlug: args.eventSlug, attemptId },
     );
     if (claim.kind === "completed") {
@@ -339,14 +339,14 @@ export const verifyStar = action({
           message: "GitHub does not show the SGLang star yet. Star the repository, then try again.",
         });
       }
-      return await ctx.runMutation(internal.githubStarGate.finishStarVerification, {
+      return await ctx.runMutation(internal.githubStarGate.finishStar, {
         eventSlug: args.eventSlug,
         authorizationId: claim.authorizationId,
         attemptId,
       });
     } catch (error) {
       const invalidAuthorization = error instanceof RequestError && error.status === 401;
-      await ctx.runMutation(internal.githubStarGate.failStarVerification, {
+      await ctx.runMutation(internal.githubStarGate.failStar, {
         authorizationId: claim.authorizationId,
         attemptId,
         invalidateAuthorization: invalidAuthorization,

@@ -29,7 +29,7 @@ export function SglangInterlude({
 }) {
   const beginConnection = useAction(api.githubStarActions.beginConnection)
   const completeConnection = useAction(api.githubStarActions.completeConnection)
-  const verifyStar = useAction(api.githubStarActions.verifyStar)
+  const star = useAction(api.githubStarActions.star)
   const disconnectGitHub = useAction(api.githubStarActions.disconnect)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -101,7 +101,7 @@ export function SglangInterlude({
     setBusy('verify')
     setFailure(null)
     try {
-      await verifyStar({ eventSlug })
+      await star({ eventSlug })
       setBusy(null)
     } catch (reason) {
       setBusy(null)

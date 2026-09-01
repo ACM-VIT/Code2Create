@@ -605,7 +605,7 @@ describe("participant onboarding lifecycle", () => {
     });
 
     const starClaim = await participant.mutation(
-      internal.githubStarGate.claimStarVerification,
+      internal.githubStarGate.claimStar,
       {
         eventSlug: fixture.eventSlug,
         attemptId: "github-gate-star-attempt",
@@ -614,7 +614,7 @@ describe("participant onboarding lifecycle", () => {
     expect(starClaim.kind).toBe("verify");
     if (starClaim.kind !== "verify") throw new Error("The star authorization was not claimed.");
     const completed = await participant.mutation(
-      internal.githubStarGate.finishStarVerification,
+      internal.githubStarGate.finishStar,
       {
         eventSlug: fixture.eventSlug,
         authorizationId: starClaim.authorizationId,
@@ -622,7 +622,7 @@ describe("participant onboarding lifecycle", () => {
       },
     );
     const replayed = await participant.mutation(
-      internal.githubStarGate.finishStarVerification,
+      internal.githubStarGate.finishStar,
       {
         eventSlug: fixture.eventSlug,
         authorizationId: starClaim.authorizationId,
