@@ -6,7 +6,6 @@ import {
   githubUserAuthorizationConfiguration,
   githubUserAuthorizationUrl,
   githubUserGrantRevocationRequest,
-  githubUserStarRequest,
   isGitHubRateLimit,
   timedGitHubFetch,
 } from "./githubClient";
@@ -55,27 +54,6 @@ describe("GitHub request boundary", () => {
       code_challenge: "pkce-challenge",
       code_challenge_method: "S256",
       prompt: "select_account",
-    });
-  });
-
-  it("uses GitHub's documented user-token star request", () => {
-    const request = githubUserStarRequest(
-      "ghu_participant_token",
-      "sgl-project",
-      "sglang",
-    );
-
-    expect(request).toEqual({
-      url: "https://api.github.com/user/starred/sgl-project/sglang",
-      init: {
-        method: "PUT",
-        headers: {
-          accept: "application/vnd.github+json",
-          authorization: "Bearer ghu_participant_token",
-          "content-length": "0",
-          "x-github-api-version": "2026-03-10",
-        },
-      },
     });
   });
 

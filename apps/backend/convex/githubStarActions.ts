@@ -16,7 +16,6 @@ import {
   githubUserAuthorizationConfiguration,
   githubUserAuthorizationUrl,
   githubUserGrantRevocationRequest,
-  githubUserStarRequest,
   isGitHubRateLimit,
   timedGitHubFetch,
 } from "./lib/githubClient";
@@ -53,10 +52,10 @@ type SetupClaim =
     }
   | { kind: "completed" };
 
-type StarClaim =
+type StarVerificationClaim =
   | { kind: "completed"; githubLogin: string; completedAt: number }
   | {
-      kind: "star";
+      kind: "verify";
       authorizationId: Id<"githubStarAuthorizations">;
       accessTokenCiphertext: string;
     };
@@ -125,8 +124,7 @@ function providerFailure(error: unknown) {
     if (error.status === 403) {
       return new ConvexError({
         code: "GITHUB_STAR_PERMISSION_REQUIRED",
-        message:
-          "GitHub did not allow Code2Create to star the repository. Disconnect GitHub, then connect it again and approve star access.",
+        message: "GitHub did not allow Code2Create to check the repository star. Connect GitHub again.",
       });
     }
   }
@@ -314,47 +312,41 @@ export const disconnect = action({
   },
 });
 
-export const star = action({
+export const verifyStar = action({
   args: { eventSlug: v.string() },
   returns: v.object({ githubLogin: v.string(), completedAt: v.number() }),
   handler: async (ctx, args): Promise<{ githubLogin: string; completedAt: number }> => {
     const attemptId = randomUUID();
-    const claim: StarClaim = await ctx.runMutation(
-      internal.githubStarGate.claimStar,
+    const claim: StarVerificationClaim = await ctx.runMutation(
+      internal.githubStarGate.claimStarVerification,
       { eventSlug: args.eventSlug, attemptId },
     );
     if (claim.kind === "completed") {
       return { githubLogin: claim.githubLogin, completedAt: claim.completedAt };
     }
     try {
-      const accessToken = decryptProviderSecret(claim.accessTokenCiphertext);
-      const request = githubUserStarRequest(
-        accessToken,
+      const octokit = new GitHubOctokit({
+        auth: decryptProviderSecret(claim.accessTokenCiphertext),
+      });
+      const starred = await githubRepositoryIsStarred(
+        (route, options) => octokit.request(route, options),
         repositoryOwner,
         repositoryName,
       );
-      const response = await timedGitHubFetch(request.url, request.init);
-      if (response.status !== 204 && response.status !== 304) {
-        await response.body?.cancel();
-        throw new RequestError("GitHub rejected the repository star.", response.status, {
-          request: { method: "PUT", url: request.url, headers: {} },
-          response: {
-            data: null,
-            status: response.status,
-            url: request.url,
-            headers: Object.fromEntries(response.headers),
-          },
+      if (!starred) {
+        throw new ConvexError({
+          code: "GITHUB_STAR_NOT_FOUND",
+          message: "GitHub does not show the SGLang star yet. Star the repository, then try again.",
         });
       }
-      await response.body?.cancel();
-      return await ctx.runMutation(internal.githubStarGate.finishStar, {
+      return await ctx.runMutation(internal.githubStarGate.finishStarVerification, {
         eventSlug: args.eventSlug,
         authorizationId: claim.authorizationId,
         attemptId,
       });
     } catch (error) {
       const invalidAuthorization = error instanceof RequestError && error.status === 401;
-      await ctx.runMutation(internal.githubStarGate.failStar, {
+      await ctx.runMutation(internal.githubStarGate.failStarVerification, {
         authorizationId: claim.authorizationId,
         attemptId,
         invalidateAuthorization: invalidAuthorization,

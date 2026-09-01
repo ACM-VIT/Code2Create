@@ -23,24 +23,6 @@ export function githubUserAuthorizationUrl(args: {
   return authorizationUrl.toString();
 }
 
-export function githubUserStarRequest(accessToken: string, owner: string, repo: string) {
-  if (!accessToken || !owner || !repo) {
-    throw new Error("The GitHub star request is incomplete.");
-  }
-  return {
-    url: `https://api.github.com/user/starred/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
-    init: {
-      method: "PUT",
-      headers: {
-        accept: "application/vnd.github+json",
-        authorization: `Bearer ${accessToken}`,
-        "content-length": "0",
-        "x-github-api-version": githubApiVersion,
-      },
-    } satisfies RequestInit,
-  };
-}
-
 export function isGitHubRateLimit(
   status: number,
   headers: Readonly<Record<string, string | number | undefined>>,

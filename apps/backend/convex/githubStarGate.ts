@@ -582,24 +582,24 @@ export const expireSetupIntent = internalMutation({
   },
 });
 
-const starClaim = v.union(
+const starVerificationClaim = v.union(
   v.object({
     kind: v.literal("completed"),
     githubLogin: v.string(),
     completedAt: v.number(),
   }),
   v.object({
-    kind: v.literal("star"),
+    kind: v.literal("verify"),
     authorizationId: v.id("githubStarAuthorizations"),
     accessTokenCiphertext: v.string(),
   }),
 );
-type StarClaim = Infer<typeof starClaim>;
+type StarVerificationClaim = Infer<typeof starVerificationClaim>;
 
-export const claimStar = internalMutation({
+export const claimStarVerification = internalMutation({
   args: { eventSlug: v.string(), attemptId: v.string() },
-  returns: starClaim,
-  handler: async (ctx, args): Promise<StarClaim> => {
+  returns: starVerificationClaim,
+  handler: async (ctx, args): Promise<StarVerificationClaim> => {
     const { event, membership } = await onboardingContext(ctx, args.eventSlug);
     const completion = await ctx.db
       .query("githubStarCompletions")
@@ -641,14 +641,14 @@ export const claimStar = internalMutation({
       updatedAt: now,
     });
     return {
-      kind: "star",
+      kind: "verify",
       authorizationId: authorization._id,
       accessTokenCiphertext: authorization.accessTokenCiphertext,
     };
   },
 });
 
-export const finishStar = internalMutation({
+export const finishStarVerification = internalMutation({
   args: {
     eventSlug: v.string(),
     authorizationId: v.id("githubStarAuthorizations"),
@@ -690,7 +690,7 @@ export const finishStar = internalMutation({
   },
 });
 
-export const failStar = internalMutation({
+export const failStarVerification = internalMutation({
   args: {
     authorizationId: v.id("githubStarAuthorizations"),
     attemptId: v.string(),

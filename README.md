@@ -37,7 +37,7 @@ INITIAL_EVENT_SLUG=code2create-7
 
 Register `http://localhost:3211/api/auth/callback/google` as the Google OAuth redirect URI. Register `http://localhost:5180` and `http://localhost:5181` as browser origins.
 
-The mandatory SGLang onboarding step directly authorizes the configured GitHub App without installing it on a user or organization. Give the App **Starring: read and write** and **Metadata: read**, then set `GITHUB_APP_CLIENT_ID` and `GITHUB_APP_CLIENT_SECRET`. Register `http://localhost:5180/onboarding/github/callback` as a callback URL. Staging and production register the same path on their respective `PARTICIPANT_SITE_URL` origins. The backend uses the short-lived user token only to check or add the SGLang star. It does not load the App private key or request access to participant repositories.
+The mandatory SGLang onboarding step directly authorizes the configured GitHub App without installing it on a user or organization. Give the App **Starring: read** and **Metadata: read**, then set `GITHUB_APP_CLIENT_ID` and `GITHUB_APP_CLIENT_SECRET`. Register `http://localhost:5180/onboarding/github/callback` as a callback URL. Staging and production register the same path on their respective `PARTICIPANT_SITE_URL` origins. The participant stars SGLang on GitHub and the backend verifies the result with the short-lived user token. It does not load the App private key or request access to participant repositories.
 
 Start the ordinary product loop:
 
