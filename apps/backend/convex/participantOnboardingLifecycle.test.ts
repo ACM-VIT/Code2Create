@@ -569,7 +569,6 @@ describe("participant onboarding lifecycle", () => {
     const setup = await participant.mutation(internal.githubStarGate.createSetupIntent, {
       eventSlug: fixture.eventSlug,
       stateDigest: "github-gate-state-digest",
-      pkceVerifierCiphertext: "encrypted-verifier",
       redirectUri: "https://participant.example.test/onboarding/github/callback",
     });
     const setupClaim = await participant.mutation(internal.githubStarGate.claimSetupIntent, {
@@ -577,9 +576,12 @@ describe("participant onboarding lifecycle", () => {
       stateDigest: "github-gate-state-digest",
       attemptId: "github-gate-setup-attempt",
     });
-    expect(setupClaim.kind).toBe("verify");
+    expect(setupClaim).toEqual({
+      kind: "verify",
+      intentId: setup.intentId,
+      redirectUri: "https://participant.example.test/onboarding/github/callback",
+    });
     if (setupClaim.kind !== "verify") throw new Error("The setup intent was not claimed.");
-    expect(setupClaim.intentId).toBe(setup.intentId);
     await participant.mutation(internal.githubStarGate.finishSetupIntent, {
       eventSlug: fixture.eventSlug,
       intentId: setupClaim.intentId,
@@ -668,7 +670,6 @@ describe("participant onboarding lifecycle", () => {
     await participant.mutation(internal.githubStarGate.createSetupIntent, {
       eventSlug: fixture.eventSlug,
       stateDigest: "github-disconnect-connected-state",
-      pkceVerifierCiphertext: "encrypted-verifier",
       redirectUri: "https://participant.example.test/onboarding/github/callback",
     });
     const connectedClaim = await participant.mutation(
@@ -697,7 +698,6 @@ describe("participant onboarding lifecycle", () => {
       {
         eventSlug: fixture.eventSlug,
         stateDigest: "github-disconnect-open-state",
-        pkceVerifierCiphertext: "another-encrypted-verifier",
         redirectUri: "https://participant.example.test/onboarding/github/callback",
       },
     );
@@ -729,7 +729,6 @@ describe("participant onboarding lifecycle", () => {
         .unique()).toBeNull();
       const expiredIntent = await ctx.db.get(openIntent.intentId);
       expect(expiredIntent).toMatchObject({ status: "expired" });
-      expect(expiredIntent).not.toHaveProperty("pkceVerifierCiphertext");
     });
     await expect(participant.mutation(internal.githubStarGate.prepareDisconnect, {
       eventSlug: fixture.eventSlug,
@@ -769,7 +768,6 @@ describe("participant onboarding lifecycle", () => {
     await participant.mutation(internal.githubStarGate.createSetupIntent, {
       eventSlug: fixture.eventSlug,
       stateDigest: "existing-star-state-digest",
-      pkceVerifierCiphertext: "encrypted-verifier",
       redirectUri: "https://participant.example.test/onboarding/github/callback",
     });
     const claim = await participant.mutation(internal.githubStarGate.claimSetupIntent, {

@@ -38,8 +38,9 @@ export function SglangInterlude({
     if (oauthError) return { kind: 'error' as const }
     const code = searchParams.get('code')
     const oauthState = searchParams.get('state')
-    if (!code || !oauthState) return { kind: 'invalid' as const }
-    return { kind: 'complete' as const, code, oauthState }
+    const installationId = searchParams.get('installation_id')
+    if (!code || !oauthState || !installationId) return { kind: 'invalid' as const }
+    return { kind: 'complete' as const, code, oauthState, installationId }
   }, [callback, searchParams])
   const [busy, setBusy] = useState<'callback' | 'connect' | 'disconnect' | 'star' | null>(
     callbackValues?.kind === 'complete' ? 'callback' : null,
@@ -48,13 +49,14 @@ export function SglangInterlude({
 
   useEffect(() => {
     if (callbackValues?.kind !== 'complete') return
-    const key = `${callbackValues.oauthState}:${callbackValues.code}`
+    const key = `${callbackValues.oauthState}:${callbackValues.installationId}`
     let attempt = callbackAttempts.get(key)
     if (!attempt) {
       attempt = completeConnection({
         eventSlug,
         state: callbackValues.oauthState,
         code: callbackValues.code,
+        installationId: callbackValues.installationId,
       })
       callbackAttempts.set(key, attempt)
     }
@@ -89,7 +91,7 @@ export function SglangInterlude({
     setFailure(null)
     try {
       const result = await beginConnection({ eventSlug })
-      window.location.assign(result.authorizationUrl)
+      window.location.assign(result.installationUrl)
     } catch (reason) {
       setBusy(null)
       setFailure({ code: convexErrorCode(reason), message: readableError(reason) })
