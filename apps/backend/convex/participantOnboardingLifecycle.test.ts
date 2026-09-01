@@ -586,8 +586,11 @@ describe("participant onboarding lifecycle", () => {
       attemptId: "github-gate-setup-attempt",
       githubUserId: "2001",
       githubLogin: "aarav-github",
-      accessTokenCiphertext: "encrypted-access-token",
-      authorizationExpiresAt: Date.now() + 60_000,
+      authorization: {
+        kind: "connected",
+        accessTokenCiphertext: "encrypted-access-token",
+        authorizationExpiresAt: Date.now() + 60_000,
+      },
     });
     await expect(participant.query(api.githubStarGate.current, {
       eventSlug: fixture.eventSlug,
@@ -620,6 +623,76 @@ describe("participant onboarding lifecycle", () => {
       connected: true,
       completed: true,
       githubLogin: "aarav-github",
+    });
+    await backend.run(async (ctx) => {
+      expect(await ctx.db
+        .query("githubStarAuthorizations")
+        .withIndex("by_event_membership", (index) =>
+          index.eq("eventId", fixture.eventId).eq("membershipId", fixture.membershipId),
+        )
+        .unique()).toBeNull();
+      expect((await ctx.db.get(fixture.membershipId))?.onboardingStatus).toBe("team_required");
+    });
+  });
+
+  test("completes GitHub onboarding immediately when the account already stars SGLang", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "existing-star-policy",
+    });
+    await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Aarav Menon",
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "third",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "existing-star-profile",
+    });
+
+    await participant.mutation(internal.githubStarGate.createSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      stateDigest: "existing-star-state-digest",
+      pkceVerifierCiphertext: "encrypted-verifier",
+      redirectUri: "https://participant.example.test/onboarding/github/callback",
+    });
+    const claim = await participant.mutation(internal.githubStarGate.claimSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      stateDigest: "existing-star-state-digest",
+      attemptId: "existing-star-attempt",
+    });
+    if (claim.kind !== "verify") throw new Error("The setup intent was not claimed.");
+    const settled = await participant.mutation(internal.githubStarGate.finishSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      intentId: claim.intentId,
+      attemptId: "existing-star-attempt",
+      githubUserId: "2002",
+      githubLogin: "already-supports-sglang",
+      authorization: { kind: "already_starred" },
+    });
+
+    expect(settled).toMatchObject({
+      kind: "completed",
+      githubLogin: "already-supports-sglang",
+    });
+    await expect(participant.query(api.githubStarGate.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      connected: true,
+      completed: true,
+      githubLogin: "already-supports-sglang",
     });
     await backend.run(async (ctx) => {
       expect(await ctx.db

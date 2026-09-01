@@ -109,37 +109,61 @@ export function SglangInterlude({
       <div className="absolute top-9 right-6 lg:right-11">
         <DaybreakToggle />
       </div>
-      <div className="relative mx-auto flex w-full max-w-[660px] flex-1 flex-col justify-center pt-16 pb-14 text-center">
+      <div className="relative mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center pt-20 pb-14 text-center">
         <h1 className="mb-6 font-display font-light tracking-[-.01em] text-balance text-[28px] leading-[1.25] lg:text-[38px]">
-          Star SGLang to continue.
+          Star SGLang to continue
         </h1>
-        <p className="m-0 text-pretty text-[15px] leading-[1.8] text-fg/70">
-          It serves trillions of tokens a day across 400,000+ GPUs, at xAI, NVIDIA, AMD, LinkedIn,
-          and Cursor. ACM-VIT contributes to it, and our alum{' '}
-          <a
-            href="https://github.com/adarshxs"
-            target="_blank"
-            rel="noreferrer"
-            className="text-rose-light underline underline-offset-[3px]"
-          >
-            Adarsh Shriwalmath ↗
-          </a>{' '}
-          went from contributor to maintainer to MLE at Hugging Face.
-        </p>
-        <p className="mt-4 mb-0 text-pretty text-[15px] leading-[1.8] text-fg/70">
-          Connect GitHub here, then star{' '}
-          <a
-            href="https://github.com/sgl-project/sglang"
-            target="_blank"
-            rel="noreferrer"
-            className="text-rose-light underline underline-offset-[3px]"
-          >
-            sgl-project/sglang ↗
-          </a>
-          .
-        </p>
+        <div className="space-y-4 text-pretty text-[15px] leading-[1.75] text-fg/70">
+          <p className="m-0">
+            SGLang is one of the fastest and most capable open-source inference engines today,
+            outperforming vLLM across a range of workloads while serving{' '}
+            <strong className="font-semibold text-fg/90">
+              trillions of tokens every day across 400,000+ GPUs
+            </strong>{' '}
+            at companies like{' '}
+            <strong className="font-semibold text-fg/90">
+              xAI, NVIDIA, AMD, LinkedIn, and Cursor
+            </strong>
+            .
+          </p>
+          <p className="m-0">
+            ACM-VIT is proud to contribute to SGLang&apos;s open source ecosystem. Our alum{' '}
+            <a
+              href="https://github.com/adarshxs"
+              target="_blank"
+              rel="noreferrer"
+              className="font-semibold text-rose-light underline underline-offset-[3px]"
+            >
+              Adarsh Shriwalmath ↗
+            </a>{' '}
+            started as a contributor, became a{' '}
+            <strong className="font-semibold text-fg/90">maintainer</strong>, and later went on to
+            become an{' '}
+            <strong className="font-semibold text-fg/90">ML Engineer at Hugging Face</strong>.
+          </p>
+          <p className="m-0">
+            The SGLang team has also been incredibly generous in supporting and sponsoring
+            Code2Create.
+          </p>
+          <p className="m-0 font-semibold text-fg/90">
+            Connect your GitHub and star{' '}
+            <a
+              href="https://github.com/sgl-project/sglang"
+              target="_blank"
+              rel="noreferrer"
+              className="text-rose-light underline underline-offset-[3px]"
+            >
+              <code className="font-mono text-[.92em]">sgl-project/sglang</code> ↗
+            </a>
+            .
+          </p>
+          <p className="m-0">
+            It takes a few seconds, supports a project our own community contributes to, and helps
+            one of the strongest open source projects continue growing.
+          </p>
+        </div>
 
-        <div className="mt-[38px] flex min-h-[78px] flex-col items-center gap-3.5">
+        <div className="mt-8 flex min-h-[78px] flex-col items-center gap-3.5">
           {state.connected && state.githubLogin ? (
             <p className="m-0 text-[13px] text-fg/55">connected as @{state.githubLogin}</p>
           ) : null}
@@ -166,7 +190,7 @@ export function SglangInterlude({
           ) : null}
         </div>
 
-        <div className="mt-[54px] flex items-center justify-center gap-[26px] opacity-55">
+        <div className="mt-10 flex items-center justify-center gap-[26px] opacity-55">
           <span className="inline-flex items-center gap-[7px]">
             <img src="/assets/sglang-logo.png" alt="" className="w-5" />
             <span className="text-sm font-bold">SGLang</span>

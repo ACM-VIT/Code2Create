@@ -41,12 +41,13 @@ The event stores one deadline for external participants and one later or equal d
 After the profile is complete and before team creation or joining, each participant must connect a GitHub account and star `sgl-project/sglang`. The screen has one staged action:
 
 - before connection, it shows **Connect GitHub**;
-- after connection, it shows the verified GitHub login and **Star SGLang**; and
+- after connection, the backend checks whether the verified account already stars the repository;
+- an existing star completes the step immediately, while a missing star shows the verified GitHub login and **Star SGLang**; and
 - after GitHub accepts the star, onboarding continues to team setup.
 
 There is no skip action. Opening the repository link does not complete the step. The server, not the browser, calls GitHub's authenticated starring endpoint and records completion. One GitHub account can complete this step for only one participant in the event. A pending imported-roster assignment also waits at this boundary.
 
-The OAuth request uses state and PKCE. The server encrypts the short-lived user token, uses it only to identify the GitHub account and star this repository, then deletes it immediately after success. An abandoned authorization expires within eight hours. This participant-scoped authorization is separate from the later team-scoped GitHub App installation used for repository evidence.
+The OAuth request uses state and PKCE through GitHub App user authorization with Starring read/write access. The participant step requires only the App client ID and client secret; it does not load the App private key or an installation token. After identifying the account, the backend reads its exact star state. An existing star creates the durable completion without storing the access token. Otherwise, the server encrypts the short-lived token, uses it only to star this repository after the participant confirms, and deletes it immediately after success. An abandoned authorization expires within eight hours. This participant-scoped authorization is separate from the later team-scoped GitHub App installation used for repository evidence.
 
 Existing participants who already have an active team do not return to this new onboarding gate. Team creation, joining, and imported-roster claim all enforce the completion on the server for participants who have not joined a team.
 
@@ -327,6 +328,7 @@ The participant cannot control playback or queue order. A music action cannot ch
 - Google sign-in and server-side account classification work for both participant classes.
 - Profile fields and consent follow the published participant policy.
 - A participant without an active team cannot create, join, or claim an imported team before GitHub confirms the SGLang star.
+- A participant whose verified GitHub account already stars SGLang proceeds immediately and leaves no temporary GitHub authorization row.
 - The SGLang step has no skip path, does not trust a browser click, and deletes its temporary GitHub token after success.
 - One GitHub account cannot complete the SGLang step for two participants in one event.
 - One participant belongs to at most one active team.

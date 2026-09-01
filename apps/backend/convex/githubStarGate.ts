@@ -238,6 +238,75 @@ export const claimSetupIntent = internalMutation({
   },
 });
 
+const setupAuthorization = v.union(
+  v.object({ kind: v.literal("already_starred") }),
+  v.object({
+    kind: v.literal("connected"),
+    accessTokenCiphertext: v.string(),
+    authorizationExpiresAt: v.number(),
+  }),
+);
+
+const setupSettlement = v.union(
+  v.object({ kind: v.literal("connected"), githubLogin: v.string() }),
+  v.object({
+    kind: v.literal("completed"),
+    githubLogin: v.string(),
+    completedAt: v.number(),
+  }),
+);
+type SetupSettlement = Infer<typeof setupSettlement>;
+
+async function completeGitHubStar(
+  ctx: MutationCtx,
+  args: {
+    event: Doc<"events">;
+    person: Doc<"people">;
+    membership: Doc<"eventMemberships">;
+    githubUserId: string;
+    githubLogin: string;
+  },
+) {
+  const existing = await ctx.db
+    .query("githubStarCompletions")
+    .withIndex("by_event_membership", (index) =>
+      index.eq("eventId", args.event._id).eq("membershipId", args.membership._id),
+    )
+    .unique();
+  if (existing) {
+    return { githubLogin: existing.githubLogin, completedAt: existing.completedAt };
+  }
+  const githubCompletion = await ctx.db
+    .query("githubStarCompletions")
+    .withIndex("by_event_github_user", (index) =>
+      index.eq("eventId", args.event._id).eq("githubUserId", args.githubUserId),
+    )
+    .unique();
+  if (githubCompletion) {
+    throw new ConvexError({
+      code: "GITHUB_ACCOUNT_IN_USE",
+      message: "That GitHub account has already completed this step for another participant.",
+    });
+  }
+  const completedAt = Date.now();
+  await ctx.db.insert("githubStarCompletions", {
+    eventId: args.event._id,
+    membershipId: args.membership._id,
+    personId: args.person._id,
+    githubUserId: args.githubUserId,
+    githubLogin: args.githubLogin,
+    repositoryOwner: "sgl-project",
+    repositoryName: "sglang",
+    completedAt,
+  });
+  await ctx.db.patch(args.membership._id, {
+    onboardingStatus: "team_required",
+    updatedAt: completedAt,
+  });
+  await claimPendingTeamRosterEntry(ctx, { event: args.event, person: args.person });
+  return { githubLogin: args.githubLogin, completedAt };
+}
+
 export const finishSetupIntent = internalMutation({
   args: {
     eventSlug: v.string(),
@@ -245,11 +314,10 @@ export const finishSetupIntent = internalMutation({
     attemptId: v.string(),
     githubUserId: v.string(),
     githubLogin: v.string(),
-    accessTokenCiphertext: v.string(),
-    authorizationExpiresAt: v.number(),
+    authorization: setupAuthorization,
   },
-  returns: v.object({ githubLogin: v.string() }),
-  handler: async (ctx, args) => {
+  returns: setupSettlement,
+  handler: async (ctx, args): Promise<SetupSettlement> => {
     const { event, person, membership } = await onboardingContext(ctx, args.eventSlug);
     const intent = await ctx.db.get(args.intentId);
     const now = Date.now();
@@ -267,11 +335,33 @@ export const finishSetupIntent = internalMutation({
         message: "The GitHub connection changed. Start again.",
       });
     }
-    if (args.authorizationExpiresAt <= now) {
+    if (
+      args.authorization.kind === "connected" &&
+      args.authorization.authorizationExpiresAt <= now
+    ) {
       throw new ConvexError({
         code: "GITHUB_TOKEN_EXPIRED",
         message: "GitHub returned an expired authorization. Start again.",
       });
+    }
+    const membershipCompletion = await ctx.db
+      .query("githubStarCompletions")
+      .withIndex("by_event_membership", (index) =>
+        index.eq("eventId", event._id).eq("membershipId", membership._id),
+      )
+      .unique();
+    if (membershipCompletion) {
+      await ctx.db.patch(intent._id, {
+        status: "completed",
+        pkceVerifierCiphertext: undefined,
+        completedAt: now,
+        claimExpiresAt: undefined,
+      });
+      return {
+        kind: "completed",
+        githubLogin: membershipCompletion.githubLogin,
+        completedAt: membershipCompletion.completedAt,
+      };
     }
     const githubCompletion = await ctx.db
       .query("githubStarCompletions")
@@ -304,14 +394,33 @@ export const finishSetupIntent = internalMutation({
       )
       .unique();
     if (currentAuthorization) await ctx.db.delete(currentAuthorization._id);
+
+    if (args.authorization.kind === "already_starred") {
+      const completion = await completeGitHubStar(ctx, {
+        event,
+        person,
+        membership,
+        githubUserId: args.githubUserId,
+        githubLogin: args.githubLogin,
+      });
+      await ctx.db.patch(intent._id, {
+        status: "completed",
+        pkceVerifierCiphertext: undefined,
+        authorizationId: undefined,
+        completedAt: completion.completedAt,
+        claimExpiresAt: undefined,
+      });
+      return { kind: "completed", ...completion };
+    }
+
     const authorizationId = await ctx.db.insert("githubStarAuthorizations", {
       eventId: event._id,
       membershipId: membership._id,
       personId: person._id,
       githubUserId: args.githubUserId,
       githubLogin: args.githubLogin,
-      accessTokenCiphertext: args.accessTokenCiphertext,
-      expiresAt: args.authorizationExpiresAt,
+      accessTokenCiphertext: args.authorization.accessTokenCiphertext,
+      expiresAt: args.authorization.authorizationExpiresAt,
       status: "active",
       createdAt: now,
       updatedAt: now,
@@ -324,11 +433,11 @@ export const finishSetupIntent = internalMutation({
       claimExpiresAt: undefined,
     });
     await ctx.scheduler.runAt(
-      args.authorizationExpiresAt,
+      args.authorization.authorizationExpiresAt,
       internal.githubStarGate.expireAuthorization,
       { authorizationId },
     );
-    return { githubLogin: args.githubLogin };
+    return { kind: "connected", githubLogin: args.githubLogin };
   },
 });
 
@@ -466,36 +575,15 @@ export const finishStar = internalMutation({
         message: "The GitHub connection changed. Connect again.",
       });
     }
-    const githubCompletion = await ctx.db
-      .query("githubStarCompletions")
-      .withIndex("by_event_github_user", (index) =>
-        index.eq("eventId", event._id).eq("githubUserId", authorization.githubUserId),
-      )
-      .unique();
-    if (githubCompletion) {
-      throw new ConvexError({
-        code: "GITHUB_ACCOUNT_IN_USE",
-        message: "That GitHub account has already completed this step for another participant.",
-      });
-    }
-    const completedAt = Date.now();
-    await ctx.db.insert("githubStarCompletions", {
-      eventId: event._id,
-      membershipId: membership._id,
-      personId: person._id,
+    const completion = await completeGitHubStar(ctx, {
+      event,
+      person,
+      membership,
       githubUserId: authorization.githubUserId,
       githubLogin: authorization.githubLogin,
-      repositoryOwner: "sgl-project",
-      repositoryName: "sglang",
-      completedAt,
     });
     await ctx.db.delete(authorization._id);
-    await ctx.db.patch(membership._id, {
-      onboardingStatus: "team_required",
-      updatedAt: completedAt,
-    });
-    await claimPendingTeamRosterEntry(ctx, { event, person });
-    return { githubLogin: authorization.githubLogin, completedAt };
+    return completion;
   },
 });
 

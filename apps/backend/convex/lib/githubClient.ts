@@ -1,7 +1,7 @@
 "use node";
 
 import { ConvexError } from "convex/values";
-import { App, Octokit } from "octokit";
+import { App, Octokit, RequestError } from "octokit";
 
 const githubApiVersion = "2026-03-10";
 const githubRequestTimeoutMs = 30_000;
@@ -51,12 +51,33 @@ export type GitHubConfiguration = {
   clientSecret: string;
 };
 
+export type GitHubUserAuthorizationConfiguration = {
+  clientId: string;
+  clientSecret: string;
+};
+
+type GitHubStarLookup = (
+  route: "GET /user/starred/{owner}/{repo}",
+  options: { owner: string; repo: string },
+) => Promise<unknown>;
+
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
   if (!value) {
     throw new ConvexError({
       code: "GITHUB_NOT_CONFIGURED",
       message: "The GitHub App is not configured for this environment.",
+    });
+  }
+  return value;
+}
+
+function requiredUserAuthorizationEnvironment(name: string) {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new ConvexError({
+      code: "GITHUB_NOT_CONFIGURED",
+      message: "Participant GitHub authorization is not configured for this environment.",
     });
   }
   return value;
@@ -69,6 +90,27 @@ export function githubConfiguration(): GitHubConfiguration {
     clientId: requiredEnvironment("GITHUB_APP_CLIENT_ID"),
     clientSecret: requiredEnvironment("GITHUB_APP_CLIENT_SECRET"),
   };
+}
+
+export function githubUserAuthorizationConfiguration(): GitHubUserAuthorizationConfiguration {
+  return {
+    clientId: requiredUserAuthorizationEnvironment("GITHUB_APP_CLIENT_ID"),
+    clientSecret: requiredUserAuthorizationEnvironment("GITHUB_APP_CLIENT_SECRET"),
+  };
+}
+
+export async function githubRepositoryIsStarred(
+  request: GitHubStarLookup,
+  owner: string,
+  repo: string,
+) {
+  try {
+    await request("GET /user/starred/{owner}/{repo}", { owner, repo });
+    return true;
+  } catch (error) {
+    if (error instanceof RequestError && error.status === 404) return false;
+    throw error;
+  }
 }
 
 export function githubApp(configuration = githubConfiguration()) {

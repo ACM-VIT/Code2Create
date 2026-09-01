@@ -12,7 +12,8 @@ import { action } from "./_generated/server";
 import { readBoundedJsonResponse } from "./lib/boundedHttpBody";
 import {
   GitHubOctokit,
-  githubConfiguration,
+  githubRepositoryIsStarred,
+  githubUserAuthorizationConfiguration,
   isGitHubRateLimit,
   timedGitHubFetch,
 } from "./lib/githubClient";
@@ -57,6 +58,10 @@ type StarClaim =
       authorizationId: Id<"githubStarAuthorizations">;
       accessTokenCiphertext: string;
     };
+
+type CompleteConnectionResult =
+  | { state: "connected"; githubLogin: string }
+  | { state: "completed" };
 
 function opaqueDigest(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -131,8 +136,8 @@ function providerFailure(error: unknown) {
 export const beginConnection = action({
   args: { eventSlug: v.string() },
   returns: v.object({ authorizationUrl: v.string() }),
-  handler: async (ctx, args) => {
-    const configuration = githubConfiguration();
+  handler: async (ctx, args): Promise<{ authorizationUrl: string }> => {
+    const configuration = githubUserAuthorizationConfiguration();
     const state = randomBytes(32).toString("base64url");
     const verifier = randomBytes(48).toString("base64url");
     const challenge = createHash("sha256").update(verifier, "utf8").digest("base64url");
@@ -159,7 +164,7 @@ export const completeConnection = action({
     v.object({ state: v.literal("connected"), githubLogin: v.string() }),
     v.object({ state: v.literal("completed") }),
   ),
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<CompleteConnectionResult> => {
     if (
       args.state.length < 32 ||
       args.state.length > 256 ||
@@ -176,7 +181,7 @@ export const completeConnection = action({
     if (claim.kind === "completed") return { state: "completed" as const };
 
     try {
-      const configuration = githubConfiguration();
+      const configuration = githubUserAuthorizationConfiguration();
       const body = new URLSearchParams({
         client_id: configuration.clientId,
         client_secret: configuration.clientSecret,
@@ -221,6 +226,11 @@ export const completeConnection = action({
           message: "GitHub returned an invalid account. Connect GitHub again.",
         });
       }
+      const alreadyStarred = await githubRepositoryIsStarred(
+        (route, options) => octokit.request(route, options),
+        repositoryOwner,
+        repositoryName,
+      );
       const now = Date.now();
       const providerLifetime = parsedToken.data.expires_in === undefined
         ? maximumAuthorizationLifetimeMs
@@ -229,7 +239,9 @@ export const completeConnection = action({
         providerLifetime,
         maximumAuthorizationLifetimeMs,
       );
-      const result: { githubLogin: string } = await ctx.runMutation(
+      const result:
+        | { kind: "connected"; githubLogin: string }
+        | { kind: "completed"; githubLogin: string; completedAt: number } = await ctx.runMutation(
         internal.githubStarGate.finishSetupIntent,
         {
           eventSlug: args.eventSlug,
@@ -237,10 +249,16 @@ export const completeConnection = action({
           attemptId,
           githubUserId: String(parsedUser.data.id),
           githubLogin: parsedUser.data.login,
-          accessTokenCiphertext: encryptProviderSecret(parsedToken.data.access_token),
-          authorizationExpiresAt,
+          authorization: alreadyStarred
+            ? { kind: "already_starred" }
+            : {
+                kind: "connected",
+                accessTokenCiphertext: encryptProviderSecret(parsedToken.data.access_token),
+                authorizationExpiresAt,
+              },
         },
       );
+      if (result.kind === "completed") return { state: "completed" as const };
       return { state: "connected" as const, githubLogin: result.githubLogin };
     } catch (error) {
       await ctx.runMutation(internal.githubStarGate.failSetupIntent, {
