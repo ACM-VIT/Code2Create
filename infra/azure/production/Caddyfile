@@ -2,10 +2,20 @@
 	email technicaldirector.acmvit@gmail.com
 }
 
+(cloudflare_proxy_tls) {
+	tls {
+		issuer acme {
+			disable_tlsalpn_challenge
+		}
+	}
+}
+
 realtime.c2c.sh {
+	import cloudflare_proxy_tls
 	reverse_proxy backend:3210
 }
 
 api.c2c.sh {
+	import cloudflare_proxy_tls
 	reverse_proxy backend:3211
 }

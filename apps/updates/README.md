@@ -27,7 +27,7 @@ Cloudflare commands use an explicit `CLOUDFLARE_API_TOKEN` when present. Otherwi
 Current endpoints:
 
 - staging: `https://code2create-updates-staging.acmvit.workers.dev/manifest`
-- production: `https://code2create-updates.acmvit.workers.dev/manifest`
+- production: `https://updates.c2c.sh/manifest`
 
 Use the deployed Worker or its custom domain as `C2C_UPDATES_URL`, including `/manifest`. For each environment, the reviewer app's `.env.<environment>.local` is the single source for that URL. Add the private-key path to `apps/updates/.env.<environment>.local`, and put the URL and native identifiers/build values in `apps/reviewer/.env.<environment>.local`. Staging and production commands load only their matching files; explicit shell variables may be used instead.
 

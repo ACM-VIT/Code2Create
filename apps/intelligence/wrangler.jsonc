@@ -32,6 +32,10 @@
 		},
 		"production": {
 			"name": "code2create-intelligence",
+			"routes": [{
+				"pattern": "intelligence.c2c.sh",
+				"custom_domain": true
+			}],
 			"durable_objects": {
 				"bindings": [{
 					"name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",

@@ -13,13 +13,14 @@ The Worker uses:
 
 Copy `.env.example` to `.dev.vars` for local provider testing. Do not commit it. Set the same request and callback secrets on the matching Convex deployment. Configure the remaining provider secrets on each Cloudflare Worker environment before deployment.
 
-Cloudflare Workers Builds deploys staging from repository branch `staging`, root directory `apps/voice`, build command `pnpm cloudflare:build:staging`, and deploy command `pnpm cloudflare:deploy:staging`. Non-production branch builds stay disabled.
+Cloudflare Workers Builds deploys staging from repository branch `staging`, root directory `apps/voice`, build command `pnpm cloudflare:build:staging`, and deploy command `pnpm cloudflare:deploy:staging`. Production uses branch `main`, the corresponding `production` commands, and `https://voice.c2c.sh`. Non-production branch builds stay disabled.
 
 ```sh
 pnpm --filter @code2create/voice dev
 pnpm --filter @code2create/voice test
 pnpm --filter @code2create/voice build
 pnpm --filter @code2create/voice deploy:staging
+pnpm --filter @code2create/voice deploy:production
 ```
 
 The reusable protocol is in `packages/domain/src/voice.ts`. A participant operational-call release must add its own consent copy, source validation, permission rule, and bounded script policy before it can create deliveries.

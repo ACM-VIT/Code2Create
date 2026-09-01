@@ -659,7 +659,19 @@ Each Worker connects separately to `ACM-VIT/Code2Create`. This preserves indepen
 | `code2create-email-staging` | `apps/email` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 | `code2create-voice-staging` | `apps/voice` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 
-Every staging build sets `NODE_VERSION=24.18.0` and `PNPM_VERSION=11.18.0`. Cloudflare supplies `WORKERS_CI`, `WORKERS_CI_BRANCH`, and `WORKERS_CI_COMMIT_SHA`. Cloudflare's production-branch setting owns the branch boundary. The environment-specific package commands set `CLOUDFLARE_ENV` and `VITE_DEPLOYMENT_ENVIRONMENT`, and the Vite deployments use `WORKERS_CI_COMMIT_SHA` as `VITE_RELEASE_ID`. Do not create user-defined copies of the `WORKERS_CI_*` values.
+Production uses the same one-Worker-per-application shape from `main`:
+
+| Production Worker | Public domain | Root directory | Build command | Deploy command |
+| --- | --- | --- | --- | --- |
+| `code2create-landing` | `c2c.acmvit.in`, `code2create.acmvit.in` | `apps/landing` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-participant` | `c2c.sh` | `apps/web` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-operations` | `ops.c2c.sh` | `apps/ops` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-intelligence` | `intelligence.c2c.sh` | `apps/intelligence` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-updates` | `updates.c2c.sh` | `apps/updates` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-email` | `email.c2c.sh` | `apps/email` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-voice` | `voice.c2c.sh` | `apps/voice` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+
+Every Worker build sets `NODE_VERSION=24.18.0` and `PNPM_VERSION=11.18.0`. Cloudflare supplies `WORKERS_CI`, `WORKERS_CI_BRANCH`, and `WORKERS_CI_COMMIT_SHA`. Cloudflare's production-branch setting owns the branch boundary. The environment-specific package commands set `CLOUDFLARE_ENV` and `VITE_DEPLOYMENT_ENVIRONMENT`, and the Vite deployments use `WORKERS_CI_COMMIT_SHA` as `VITE_RELEASE_ID`. Do not create user-defined copies of the `WORKERS_CI_*` values.
 
 The three browser applications use these additional build values:
 
@@ -674,9 +686,9 @@ The remaining Workers need only the common build-tool versions. Their operationa
 | Worker | Wrangler-owned bindings and plain runtime values | Runtime secrets |
 | --- | --- | --- |
 | Intelligence | OpenAI Responses, admission-fence Durable Object, exact Ops origin, and exact Convex callback/read/work/recommendation URLs | `OPENAI_API_KEY`, `INTELLIGENCE_INGRESS_SECRET`, `INTELLIGENCE_CALLBACK_SECRET`, `INTELLIGENCE_READ_SECRET`, `INTELLIGENCE_STREAM_SECRET`; the URLs and Ops origin may also be stored as encrypted Worker secrets |
-| Updates | staging R2 bucket and `UPDATE_CHANNEL=staging` | `C2C_UPDATES_ADMIN_TOKEN` |
-| Email | staging Queue consumer and dead-letter Queue | `CONVEX_EMAIL_EVENT_CALLBACK_URL`, `EMAIL_EVENT_CALLBACK_SECRET`, `EMAIL_ROUTING_ADDRESS`, `EMAIL_ROUTING_FORWARD_TO`, `EMAIL_SENDING_DOMAIN` |
-| Voice | outbound-call Durable Object and staging `PUBLIC_BASE_URL` | `OUTBOUND_CALL_REQUEST_SECRET`, `OUTBOUND_CALL_EVENT_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `SARVAM_API_KEY` |
+| Updates | environment-specific R2 bucket and `UPDATE_CHANNEL` | `C2C_UPDATES_ADMIN_TOKEN` |
+| Email | environment-specific Queue consumer and dead-letter Queue | `CONVEX_EMAIL_EVENT_CALLBACK_URL`, `EMAIL_EVENT_CALLBACK_SECRET`, `EMAIL_ROUTING_ADDRESS`, `EMAIL_ROUTING_FORWARD_TO`, `EMAIL_SENDING_DOMAIN` |
+| Voice | outbound-call Durable Object and environment-specific `PUBLIC_BASE_URL` | `OUTBOUND_CALL_REQUEST_SECRET`, `OUTBOUND_CALL_EVENT_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `SARVAM_API_KEY` |
 
 The Cloudflare GitHub App and the Worker-specific build token are configured in Cloudflare. They do not become repository or application environment variables. Cloudflare's automatic dependency installation uses the workspace lockfile. Watch paths remain unrestricted for the first staging release so a shared package, generated API, specification, lockfile, or patch cannot leave one Worker stale.
 
@@ -702,7 +714,7 @@ Do not wire production Convex to a staging Worker or vice versa. If the Worker i
 
 ### Mobile and update release contract
 
-Release operations creates the staging and production R2 buckets once. It sets a different `C2C_UPDATES_ADMIN_TOKEN` secret on each update Worker. It deploys each Worker through its checked-in Wrangler environment. The initial endpoints are `https://code2create-updates-staging.acmvit.workers.dev/manifest` and `https://code2create-updates.acmvit.workers.dev/manifest`. A later custom-domain binding must preserve the exact environment split. The same environment's URL is the sole `C2C_UPDATES_URL` in `apps/reviewer/.env.staging.local` or `.env.production.local`. The matching admin token and private-key path live in the corresponding ignored file under `apps/updates/`. A staging or production command loads only its matching file. Cloudflare receives neither the private key nor native signing credentials.
+Release operations creates the staging and production R2 buckets once. It sets a different `C2C_UPDATES_ADMIN_TOKEN` secret on each update Worker. It deploys each Worker through its checked-in Wrangler environment. The staging endpoint is `https://code2create-updates-staging.acmvit.workers.dev/manifest`; production uses `https://updates.c2c.sh/manifest`. The same environment's URL is the sole `C2C_UPDATES_URL` in `apps/reviewer/.env.staging.local` or `.env.production.local`. The matching admin token and private-key path live in the corresponding ignored file under `apps/updates/`. A staging or production command loads only its matching file. Cloudflare receives neither the private key nor native signing credentials.
 
 For each new application-version runtime:
 

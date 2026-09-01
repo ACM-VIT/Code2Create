@@ -55,8 +55,11 @@ if (import.meta.main) {
   if (!baseName) throw new Error('Pass the Cloudflare Worker base name.')
   const configPath = process.argv[3]
 
+  const wranglerEnvironment = { ...process.env }
+  delete wranglerEnvironment.CLOUDFLARE_ENV
+
   const result = spawnSync('pnpm', cloudflareDeployArguments(baseName, process.env, configPath), {
-    env: process.env,
+    env: wranglerEnvironment,
     stdio: 'inherit',
   })
   if (result.error) throw result.error

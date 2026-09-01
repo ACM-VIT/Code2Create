@@ -26,13 +26,13 @@ read_secret() {
 
 export CONVEX_SELF_HOSTED_URL="https://realtime.c2c.sh"
 export CONVEX_SELF_HOSTED_ADMIN_KEY="$(read_secret convex-admin-key)"
+export CONVEX_DEPLOYMENT=""
 
 cat >"${C2C_ENV_FILE}" <<EOF
 C2C_DEPLOYMENT_ENVIRONMENT=production
 AUTH_SITE_URL=https://api.c2c.sh
 PARTICIPANT_SITE_URL=https://c2c.sh
 OPERATIONS_SITE_URL=https://ops.c2c.sh
-CONVEX_SITE_URL=https://api.c2c.sh
 BETTER_AUTH_SECRET=$(read_secret better-auth-secret)
 GOOGLE_CLIENT_ID=$(read_secret google-client-id)
 GOOGLE_CLIENT_SECRET=$(read_secret google-client-secret)
@@ -47,7 +47,7 @@ GITHUB_APP_CLIENT_SECRET=$(read_secret github-app-client-secret)
 GITHUB_WEBHOOK_SECRET=$(read_secret github-webhook-secret)
 PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION=production-v1
 PROVIDER_TOKEN_ENCRYPTION_KEY=$(read_secret provider-token-encryption-key)
-INTELLIGENCE_WORKER_URL=https://code2create-intelligence.acmvit.workers.dev
+INTELLIGENCE_WORKER_URL=https://intelligence.c2c.sh
 INTELLIGENCE_INGRESS_SECRET=$(read_secret intelligence-ingress-secret)
 INTELLIGENCE_CALLBACK_SECRET=$(read_secret intelligence-callback-secret)
 INTELLIGENCE_READ_SECRET=$(read_secret intelligence-read-secret)
@@ -55,7 +55,7 @@ INTELLIGENCE_STREAM_SECRET=$(read_secret intelligence-stream-secret)
 ATTENDANCE_WRAPPING_KEY_VERSION=production-v1
 ATTENDANCE_WRAPPING_KEY=$(read_secret attendance-wrapping-key)
 EMAIL_EVENT_CALLBACK_SECRET=$(read_secret email-event-callback-secret)
-OUTBOUND_CALL_WORKER_URL=https://code2create-voice.acmvit.workers.dev
+OUTBOUND_CALL_WORKER_URL=https://voice.c2c.sh
 OUTBOUND_CALL_REQUEST_SECRET=$(read_secret outbound-call-request-secret)
 OUTBOUND_CALL_EVENT_SECRET=$(read_secret outbound-call-event-secret)
 EOF

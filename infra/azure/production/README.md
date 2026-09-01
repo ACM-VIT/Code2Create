@@ -99,6 +99,10 @@ operations-health checks; they do not replace them.
 The old wildcard `*.c2c.sh` DNS records are not production routing. Remove them
 when all named production records exist; do not use the wildcard as a fallback.
 
+Cloudflare terminates the public TLS connection before proxying to Caddy. The
+production Caddy configuration therefore disables the ACME TLS-ALPN challenge
+and uses HTTP validation, which Cloudflare can forward to the origin.
+
 The backend health check must verify both `node --version` and `/version`.
 Deployment is incomplete until one Node-backed intake action runs through the
 public production-shaped route. Pin the exact multi-architecture image digest;

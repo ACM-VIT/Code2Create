@@ -16,6 +16,7 @@ export CONVEX_SELF_HOSTED_ADMIN_KEY="$(
     --query value \
     --output tsv
 )"
+export CONVEX_DEPLOYMENT=""
 
 (
   cd "${C2C_REPOSITORY_ROOT}/apps/backend"
