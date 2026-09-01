@@ -551,6 +551,11 @@ describe("participant intake lifecycle", () => {
       expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
       clientOperationId: "intake-additional-information-too-long",
     })).rejects.toThrow("at most 4000 characters");
+    const unacknowledgedPreview = await participant.query(api.intake.submissionPreview, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(unacknowledgedPreview?.freshnessAttested).toBe(false);
+    expect(unacknowledgedPreview?.blockers).not.toContain("Accept the fresh-project rule.");
     const freshness = await participant.mutation(api.intake.setFreshnessAttestation, {
       eventSlug: fixture.eventSlug,
       accepted: true,

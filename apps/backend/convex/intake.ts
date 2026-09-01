@@ -2055,7 +2055,6 @@ export const submissionPreview = query({
         "Every team member must be eligible, accept the current policy, and finish their profile.",
       );
     }
-    if (!draft.freshnessAttestedAt) blockers.push("Accept the fresh-project rule.");
     const applicationsCloseAt = applicationsCloseAtFor(
       event,
       membership.participantClass,

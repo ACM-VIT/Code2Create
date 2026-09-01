@@ -1392,6 +1392,7 @@ function IntakeWorkspace({
     }
     const canSubmit =
       preview.blockers.length === 0 &&
+      preview.freshnessAttested &&
       team.currentRole === 'lead' &&
       team.canSubmitApplication
 
