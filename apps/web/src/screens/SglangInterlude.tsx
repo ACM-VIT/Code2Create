@@ -1,5 +1,5 @@
 import { api } from '@code2create/backend/api'
-import { useAction, useMutation } from 'convex/react'
+import { useAction } from 'convex/react'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DaybreakToggle } from '../components/portal/DaybreakToggle'
@@ -29,7 +29,7 @@ export function SglangInterlude({
   const beginConnection = useAction(api.githubStarActions.beginConnection)
   const completeConnection = useAction(api.githubStarActions.completeConnection)
   const starRepository = useAction(api.githubStarActions.star)
-  const disconnectGitHub = useMutation(api.githubStarGate.disconnect)
+  const disconnectGitHub = useAction(api.githubStarActions.disconnect)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const callbackValues = useMemo(() => {

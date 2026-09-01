@@ -15,6 +15,7 @@ import {
   githubRepositoryIsStarred,
   githubUserAuthorizationConfiguration,
   githubUserAuthorizationUrl,
+  githubUserGrantRevocationRequest,
   isGitHubRateLimit,
   timedGitHubFetch,
 } from "./lib/githubClient";
@@ -130,6 +131,26 @@ function providerFailure(error: unknown) {
   return new ConvexError({
     code: "GITHUB_REQUEST_FAILED",
     message: "GitHub could not complete this step. Try again.",
+  });
+}
+
+async function revokeGitHubUserGrant(accessToken: string) {
+  const request = githubUserGrantRevocationRequest(
+    githubUserAuthorizationConfiguration(),
+    accessToken,
+  );
+  const response = await timedGitHubFetch(request.url, request.init);
+  if (response.status === 204 || response.status === 404) return;
+  await response.body?.cancel();
+  if (response.status === 429 || response.status >= 500) {
+    throw new ConvexError({
+      code: "GITHUB_TEMPORARILY_UNAVAILABLE",
+      message: "GitHub is temporarily unavailable. Try again in a moment.",
+    });
+  }
+  throw new ConvexError({
+    code: "GITHUB_DISCONNECT_FAILED",
+    message: "GitHub could not disconnect this account. Try again.",
   });
 }
 
@@ -272,6 +293,25 @@ export const completeConnection = action({
   },
 });
 
+export const disconnect = action({
+  args: { eventSlug: v.string() },
+  returns: v.object({ disconnected: v.boolean() }),
+  handler: async (ctx, args): Promise<{ disconnected: boolean }> => {
+    const claim = await ctx.runMutation(internal.githubStarGate.prepareDisconnect, {
+      eventSlug: args.eventSlug,
+    });
+    if (claim.kind === "revoke") {
+      await revokeGitHubUserGrant(decryptProviderSecret(claim.accessTokenCiphertext));
+    }
+    return await ctx.runMutation(
+      internal.githubStarGate.finishDisconnect,
+      claim.kind === "revoke"
+        ? { eventSlug: args.eventSlug, authorizationId: claim.authorizationId }
+        : { eventSlug: args.eventSlug },
+    );
+  },
+});
+
 export const star = action({
   args: { eventSlug: v.string() },
   returns: v.object({ githubLogin: v.string(), completedAt: v.number() }),
@@ -298,12 +338,29 @@ export const star = action({
         attemptId,
       });
     } catch (error) {
-      const invalidAuthorization = error instanceof RequestError && error.status === 401;
+      let invalidAuthorization = error instanceof RequestError && error.status === 401;
+      let stalePermissionGrant = false;
+      if (error instanceof RequestError && error.status === 403) {
+        try {
+          await revokeGitHubUserGrant(decryptProviderSecret(claim.accessTokenCiphertext));
+          invalidAuthorization = true;
+          stalePermissionGrant = true;
+        } catch {
+          // Preserve the local token so an explicit disconnect can retry revocation.
+        }
+      }
       await ctx.runMutation(internal.githubStarGate.failStar, {
         authorizationId: claim.authorizationId,
         attemptId,
         invalidateAuthorization: invalidAuthorization,
       });
+      if (stalePermissionGrant) {
+        throw new ConvexError({
+          code: "GITHUB_REAUTHORIZATION_REQUIRED",
+          message:
+            "GitHub was still using the App's older permissions. Connect GitHub again and approve read and write access to stars.",
+        });
+      }
       throw providerFailure(error);
     }
   },

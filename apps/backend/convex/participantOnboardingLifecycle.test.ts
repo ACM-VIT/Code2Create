@@ -633,7 +633,7 @@ describe("participant onboarding lifecycle", () => {
         .unique()).toBeNull();
       expect((await ctx.db.get(fixture.membershipId))?.onboardingStatus).toBe("team_required");
     });
-    await expect(participant.mutation(api.githubStarGate.disconnect, {
+    await expect(participant.mutation(internal.githubStarGate.prepareDisconnect, {
       eventSlug: fixture.eventSlug,
     })).rejects.toThrow("already complete");
   });
@@ -702,8 +702,20 @@ describe("participant onboarding lifecycle", () => {
       },
     );
 
-    await expect(participant.mutation(api.githubStarGate.disconnect, {
+    const disconnectClaim = await participant.mutation(
+      internal.githubStarGate.prepareDisconnect,
+      { eventSlug: fixture.eventSlug },
+    );
+    expect(disconnectClaim).toMatchObject({
+      kind: "revoke",
+      accessTokenCiphertext: "encrypted-access-token",
+    });
+    if (disconnectClaim.kind !== "revoke") {
+      throw new Error("The GitHub grant was not prepared for revocation.");
+    }
+    await expect(participant.mutation(internal.githubStarGate.finishDisconnect, {
       eventSlug: fixture.eventSlug,
+      authorizationId: disconnectClaim.authorizationId,
     })).resolves.toEqual({ disconnected: true });
     await expect(participant.query(api.githubStarGate.current, {
       eventSlug: fixture.eventSlug,
@@ -719,7 +731,10 @@ describe("participant onboarding lifecycle", () => {
       expect(expiredIntent).toMatchObject({ status: "expired" });
       expect(expiredIntent).not.toHaveProperty("pkceVerifierCiphertext");
     });
-    await expect(participant.mutation(api.githubStarGate.disconnect, {
+    await expect(participant.mutation(internal.githubStarGate.prepareDisconnect, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toEqual({ kind: "clear" });
+    await expect(participant.mutation(internal.githubStarGate.finishDisconnect, {
       eventSlug: fixture.eventSlug,
     })).resolves.toEqual({ disconnected: false });
   });

@@ -73,6 +73,30 @@ export type GitHubUserAuthorizationConfiguration = {
   clientSecret: string;
 };
 
+export function githubUserGrantRevocationRequest(
+  configuration: GitHubUserAuthorizationConfiguration,
+  accessToken: string,
+) {
+  const clientId = configuration.clientId.trim();
+  const clientSecret = configuration.clientSecret.trim();
+  if (!clientId || !clientSecret || !accessToken) {
+    throw new Error("GitHub user grant revocation requires complete credentials.");
+  }
+  return {
+    url: `https://api.github.com/applications/${encodeURIComponent(clientId)}/grant`,
+    init: {
+      method: "DELETE",
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+        "content-type": "application/json",
+        "x-github-api-version": githubApiVersion,
+      },
+      body: JSON.stringify({ access_token: accessToken }),
+    } satisfies RequestInit,
+  };
+}
+
 type GitHubStarLookup = (
   route: "GET /user/starred/{owner}/{repo}",
   options: { owner: string; repo: string },

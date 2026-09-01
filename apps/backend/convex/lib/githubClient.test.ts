@@ -5,6 +5,7 @@ import {
   githubRepositoryIsStarred,
   githubUserAuthorizationConfiguration,
   githubUserAuthorizationUrl,
+  githubUserGrantRevocationRequest,
   isGitHubRateLimit,
   timedGitHubFetch,
 } from "./githubClient";
@@ -54,6 +55,26 @@ describe("GitHub request boundary", () => {
       code_challenge_method: "S256",
       prompt: "select_account",
     });
+  });
+
+  it("revokes the GitHub App grant instead of only forgetting its local token", () => {
+    const request = githubUserGrantRevocationRequest(
+      { clientId: "Iv1.participant", clientSecret: "app-secret" },
+      "ghu_participant_token",
+    );
+
+    expect(request.url).toBe(
+      "https://api.github.com/applications/Iv1.participant/grant",
+    );
+    expect(request.init.method).toBe("DELETE");
+    expect(request.init.headers).toMatchObject({
+      accept: "application/vnd.github+json",
+      authorization: `Basic ${Buffer.from("Iv1.participant:app-secret").toString("base64")}`,
+      "content-type": "application/json",
+    });
+    expect(request.init.body).toBe(
+      JSON.stringify({ access_token: "ghu_participant_token" }),
+    );
   });
 
   it("recognizes an existing star without changing it", async () => {

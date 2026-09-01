@@ -3,7 +3,7 @@ import { type Infer, ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, query } from "./_generated/server";
 import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
 import {
   findCurrentPerson,
@@ -120,8 +120,53 @@ export const current = query({
   },
 });
 
-export const disconnect = mutation({
+const disconnectClaim = v.union(
+  v.object({ kind: v.literal("clear") }),
+  v.object({
+    kind: v.literal("revoke"),
+    authorizationId: v.id("githubStarAuthorizations"),
+    accessTokenCiphertext: v.string(),
+  }),
+);
+
+export const prepareDisconnect = internalMutation({
   args: { eventSlug: v.string() },
+  returns: disconnectClaim,
+  handler: async (ctx, args) => {
+    const { event, membership } = await onboardingContext(ctx, args.eventSlug);
+    const completion = await ctx.db
+      .query("githubStarCompletions")
+      .withIndex("by_event_membership", (index) =>
+        index.eq("eventId", event._id).eq("membershipId", membership._id),
+      )
+      .unique();
+    if (completion) {
+      throw new ConvexError({
+        code: "GITHUB_STAR_COMPLETE",
+        message: "This GitHub step is already complete.",
+      });
+    }
+    const authorization = await ctx.db
+      .query("githubStarAuthorizations")
+      .withIndex("by_event_membership", (index) =>
+        index.eq("eventId", event._id).eq("membershipId", membership._id),
+      )
+      .unique();
+    return authorization
+      ? {
+          kind: "revoke" as const,
+          authorizationId: authorization._id,
+          accessTokenCiphertext: authorization.accessTokenCiphertext,
+        }
+      : { kind: "clear" as const };
+  },
+});
+
+export const finishDisconnect = internalMutation({
+  args: {
+    eventSlug: v.string(),
+    authorizationId: v.optional(v.id("githubStarAuthorizations")),
+  },
   returns: v.object({ disconnected: v.boolean() }),
   handler: async (ctx, args) => {
     const { event, membership } = await onboardingContext(ctx, args.eventSlug);
@@ -138,15 +183,19 @@ export const disconnect = mutation({
       });
     }
 
-    const authorization = await ctx.db
-      .query("githubStarAuthorizations")
-      .withIndex("by_event_membership", (index) =>
-        index.eq("eventId", event._id).eq("membershipId", membership._id),
-      )
-      .unique();
-    if (authorization) await ctx.db.delete(authorization._id);
+    let disconnected = false;
+    if (args.authorizationId) {
+      const authorization = await ctx.db.get(args.authorizationId);
+      if (
+        authorization &&
+        authorization.eventId === event._id &&
+        authorization.membershipId === membership._id
+      ) {
+        await ctx.db.delete(authorization._id);
+        disconnected = true;
+      }
+    }
 
-    let clearedIntentCount = 0;
     for (const status of ["pending", "verifying", "failed"] as const) {
       const intents = await ctx.db
         .query("githubStarSetupIntents")
@@ -162,11 +211,10 @@ export const disconnect = mutation({
           claimExpiresAt: undefined,
           completedAt: Date.now(),
         });
-        clearedIntentCount += 1;
+        disconnected = true;
       }
     }
-
-    return { disconnected: authorization !== null || clearedIntentCount > 0 };
+    return { disconnected };
   },
 });
 
