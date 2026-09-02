@@ -49,6 +49,14 @@ export type OpenAiNoveltyJudgeFailureCategory =
   | "provider_http_error"
   | "provider_response_invalid";
 
+export type OpenAiNoveltyJudgeRequest = {
+  apiKey: string;
+  query: string;
+  candidates: Array<{ key: string; text: string }>;
+  safetyIdentifier: string;
+  timeoutMs: number;
+};
+
 export class OpenAiNoveltyJudgeError extends Error {
   readonly status: number | undefined;
   readonly timedOut: boolean;
@@ -224,13 +232,7 @@ function outputSchema(candidateKeys: string[]) {
   } as const;
 }
 
-export async function requestOpenAiNoveltyJudgments(args: {
-  apiKey: string;
-  query: string;
-  candidates: Array<{ key: string; text: string }>;
-  safetyIdentifier: string;
-  timeoutMs: number;
-}) {
+export async function requestOpenAiNoveltyJudgments(args: OpenAiNoveltyJudgeRequest) {
   const parsedRequest = requestSchema.safeParse(args);
   if (!parsedRequest.success) {
     throw invalidInput("The novelty judge request is invalid.");
@@ -323,4 +325,45 @@ export async function requestOpenAiNoveltyJudgments(args: {
     ...(requestId ? { requestId } : {}),
     outputChecksum: bytesToHex(sha256(utf8ToBytes(outputText))),
   };
+}
+
+export function noveltyJudgeFailureCategory(error: OpenAiNoveltyJudgeError) {
+  if (error.failureCategory === "provider_rate_limited") {
+    return "judge_provider_rate_limited";
+  }
+  if (error.failureCategory === "provider_request_timed_out") {
+    return "judge_provider_timed_out";
+  }
+  if (error.failureCategory === "provider_http_error" && error.status !== undefined) {
+    return `judge_provider_http_${error.status}`;
+  }
+  return `judge_${error.failureCategory}`;
+}
+
+export function allowsEmbeddingFallback(error: OpenAiNoveltyJudgeError) {
+  // Embeddings are independently valid evidence. A provider transport,
+  // authorization, availability, or structured-output failure must not erase
+  // that score; retain the failure category so refinement can be retried and
+  // operators can still diagnose the underlying issue. Only a malformed
+  // request indicates an internal contract bug that should fail loudly.
+  return error.failureCategory !== "invalid_input";
+}
+
+export async function requestOpenAiNoveltyJudgmentsWithFallback(
+  args: OpenAiNoveltyJudgeRequest,
+) {
+  try {
+    return {
+      kind: "judged" as const,
+      result: await requestOpenAiNoveltyJudgments(args),
+    };
+  } catch (error) {
+    if (!(error instanceof OpenAiNoveltyJudgeError) || !allowsEmbeddingFallback(error)) {
+      throw error;
+    }
+    return {
+      kind: "embedding_fallback" as const,
+      failureCategory: noveltyJudgeFailureCategory(error),
+    };
+  }
 }

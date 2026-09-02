@@ -158,6 +158,7 @@ describe("live novelty", () => {
       nearestThemeLabel: "Campus service routing",
       reflectionPrompt: "What happens after a volunteer accepts a request?",
       latencyMs: 90,
+      failureCategory: "judge_provider_rate_limited",
     });
     expect(result).toMatchObject({ state: "ready", score: 74, band: "distinct" });
 
@@ -175,6 +176,10 @@ describe("live novelty", () => {
       noveltyScore: 74,
       noveltyBand: "distinct",
       noveltyPreviewRequestId: begun.requestId,
+    });
+    expect(state.request).toMatchObject({
+      state: "succeeded",
+      failureCategory: "judge_provider_rate_limited",
     });
     expect(state.request).not.toHaveProperty("idea");
     expect(state.request).not.toHaveProperty("initialIdea");

@@ -50,8 +50,8 @@ import { createOpenAiEmbeddings, OpenAiEmbeddingError } from "./lib/openAiEmbedd
 import {
   noveltyJudgeModelId,
   noveltyJudgePromptVersion,
-  OpenAiNoveltyJudgeError,
   requestOpenAiNoveltyJudgments,
+  requestOpenAiNoveltyJudgmentsWithFallback,
 } from "./lib/openAiNoveltyJudge";
 import {
   backgroundNoveltyIndexDeduplicationLimit,
@@ -725,20 +725,20 @@ async function evaluateNoveltyEmbedding(
   let judgeResponse: Awaited<ReturnType<typeof requestOpenAiNoveltyJudgments>> | undefined;
   let refinementFailureCategory: string | undefined;
   if (args.mode === "hybrid") {
-    try {
-      judgeResponse = await requestOpenAiNoveltyJudgments({
-        apiKey: args.apiKey,
-        query: redactProjectText(args.idea),
-        candidates: judgedMetadata.map((entry, index) => ({
-          key: `candidate-${index + 1}`,
-          text: `${entry.themeLabel}\n${entry.summary}`,
-        })),
-        safetyIdentifier: args.safetyIdentifier,
-        timeoutMs: noveltyJudgeProviderTimeoutMs,
-      });
-    } catch (error) {
-      if (!(error instanceof OpenAiNoveltyJudgeError)) throw error;
-      refinementFailureCategory = `judge_${error.failureCategory}`;
+    const judgeAttempt = await requestOpenAiNoveltyJudgmentsWithFallback({
+      apiKey: args.apiKey,
+      query: redactProjectText(args.idea),
+      candidates: judgedMetadata.map((entry, index) => ({
+        key: `candidate-${index + 1}`,
+        text: `${entry.themeLabel}\n${entry.summary}`,
+      })),
+      safetyIdentifier: args.safetyIdentifier,
+      timeoutMs: noveltyJudgeProviderTimeoutMs,
+    });
+    if (judgeAttempt.kind === "judged") {
+      judgeResponse = judgeAttempt.result;
+    } else {
+      refinementFailureCategory = judgeAttempt.failureCategory;
     }
   }
   const judgmentByKey = new Map(
@@ -1093,6 +1093,12 @@ export const indexDraftIdea = internalAction({
         safetyIdentifier: String(prepared.teamId),
       });
       if (evaluation) {
+        if (evaluation.refinementFailureCategory) {
+          console.warn("Novelty judge used embedding fallback.", {
+            draftId: String(args.draftId),
+            failureCategory: evaluation.refinementFailureCategory,
+          });
+        }
         const applied: boolean = await ctx.runMutation(internal.novelty.finishDraftNovelty, {
           draftId: args.draftId,
           corpusVersionId: prepared.corpusVersionId,
@@ -1403,6 +1409,7 @@ export const finishPreview = internalMutation({
       agentVersion: args.agentVersion,
       ...(args.agentModel ? { agentModel: args.agentModel } : {}),
       latencyMs: args.latencyMs,
+      ...(args.failureCategory ? { failureCategory: args.failureCategory } : {}),
       completedAt: now,
     });
     const team = await ctx.db.get(request.teamId);
