@@ -181,8 +181,6 @@ export function EntryScreen({
             onSelect={() => choose('external_participant')}
           />
         </div>
-
-        {/* Keep both provider controls in one stable-width sign-in column. */}
         <div className="flex w-full max-w-[320px] flex-col items-center gap-3">
           <div className="flex min-h-[60px] w-full items-center justify-center">
             {participantClass && selectedClassOpen && publicState.auth.googleClientId ? (
@@ -204,21 +202,20 @@ export function EntryScreen({
               </PortalButton>
             )}
           </div>
-          {participantClass === 'external_participant' ? (
-            <>
-              <div className="flex w-full items-center gap-3 text-[10.5px] font-semibold tracking-[.08em] text-fg/40">
-                <span className="h-px flex-1 bg-petal-edge-soft" />
-                or
-                <span className="h-px flex-1 bg-petal-edge-soft" />
-              </div>
-              <EmailOtpSignIn
-                authClient={authClient}
-                configured={publicState.auth.emailOtpConfigured}
-                disabled={!selectedClassOpen}
-                googleOnlyEmailDomain={vitStudentEmailDomain}
-              />
-            </>
-          ) : null}
+          <div className="flex w-full items-center gap-3 text-[10.5px] font-semibold tracking-[.08em] text-fg/40">
+            <span className="h-px flex-1 bg-petal-edge-soft" />
+            or
+            <span className="h-px flex-1 bg-petal-edge-soft" />
+          </div>
+          <div className="flex min-h-[100px] w-full flex-col items-stretch">
+            <EmailOtpSignIn
+              key={participantClass ?? 'none'}
+              authClient={authClient}
+              configured={publicState.auth.emailOtpConfigured}
+              disabled={participantClass !== 'external_participant' || !selectedClassOpen}
+              googleOnlyEmailDomain={vitStudentEmailDomain}
+            />
+          </div>
         </div>
 
         {authUnavailableMessage ? (

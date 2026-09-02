@@ -113,7 +113,6 @@ Your team's proposal is already marked **submitted**, so you're done for this st
 - keep the idea to one clear problem and one clear first user
 - link anything a reviewer can open, not a deck`
 
-/** The composer autosizes through its own ref; the fixture lends it one. */
 function ComposerFixture({ leading, confirm }: { leading?: ReactNode; confirm?: ComposerConfirm }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   return (
@@ -136,7 +135,6 @@ const fixtureHeader = (team?: string) => (
   <GuideHeader phaseLabel="Idea submission" deadline="Sep 23, 4:00 PM" {...(team ? { team } : {})} />
 )
 
-/** Help, mid-conversation: the thread in its own scroll, reasoning folded above the answer, the team in the room. */
 function HelpThreadFixture() {
   const [startedAt] = useState(() => Date.now() - 2_300)
   return (
@@ -191,7 +189,6 @@ function HelpThreadFixture() {
   )
 }
 
-/** Help before the first question: the Guide introduces itself and offers three ways in. */
 function HelpEmptyFixture() {
   return (
     <PortalScene tree="left" header={account} fill>
@@ -234,10 +231,6 @@ function IdeaCard({ children, footer }: { children: ReactNode; footer: ReactNode
   )
 }
 
-/**
- * The details form walking the phone flow on its own: send, type the texted
- * code (000000 comes back wrong), and land on the verified tick.
- */
 function DetailsFixture({ initialPhase }: { initialPhase: 'idle' | 'verified' }) {
   const [phase, setPhase] = useState<'idle' | 'sent' | 'verified'>(initialPhase)
   const [code, setCode] = useState('')
@@ -368,11 +361,9 @@ function DetailsFixture({ initialPhase }: { initialPhase: 'idle' | 'verified' })
   )
 }
 
-/**
- * The entry screen with the external path unfolded: Google, then email, then
- * the emailed code (000000 comes back wrong).
- */
 function EntryFixture() {
+  const [participantClass, setParticipantClass] = useState<'vit' | 'external' | null>('external')
+  const external = participantClass === 'external'
   const [step, setStep] = useState<'closed' | 'email' | 'code'>('closed')
   const [email, setEmail] = useState('ananya@bmsce.ac.in')
   const [code, setCode] = useState('')
@@ -402,28 +393,34 @@ function EntryFixture() {
             title="VIT student"
             detail="only @vitstudent.ac.in Google accounts are accepted"
             disabled={false}
-            selected={false}
-            onSelect={noop}
+            selected={participantClass === 'vit'}
+            onSelect={() => {
+              setParticipantClass('vit')
+              setStep('closed')
+            }}
           />
           <ClassCard
             title="external participant"
             detail="continue with Google or a non-VIT email address"
             disabled={false}
-            selected
-            onSelect={noop}
+            selected={external}
+            onSelect={() => setParticipantClass('external')}
           />
         </div>
         <div className="flex w-full max-w-[320px] flex-col items-center gap-3">
           <div className="flex min-h-[60px] w-full items-center justify-center">
-            <PortalButton className="w-full">Continue with Google</PortalButton>
+            <PortalButton className="w-full" disabled={participantClass === null}>
+              Continue with Google
+            </PortalButton>
           </div>
           <div className="flex w-full items-center gap-3 text-[10.5px] font-semibold tracking-[.08em] text-fg/40">
             <span className="h-px flex-1 bg-petal-edge-soft" />
             or
             <span className="h-px flex-1 bg-petal-edge-soft" />
           </div>
-          {step === 'closed' ? (
-            <PortalButton className="w-full" onClick={() => setStep('email')}>
+          <div className="flex min-h-[100px] w-full flex-col items-stretch">
+          {step === 'closed' || !external ? (
+            <PortalButton className="w-full" disabled={!external} onClick={() => setStep('email')}>
               Continue with email
             </PortalButton>
           ) : step === 'email' ? (
@@ -467,6 +464,7 @@ function EntryFixture() {
               shakeKey={shake}
             />
           )}
+          </div>
         </div>
         <PortalError message={null} reserve />
       </div>
