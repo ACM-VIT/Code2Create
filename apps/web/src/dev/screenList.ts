@@ -5,7 +5,7 @@ export const GALLERY_SCREENS = [
   { id: 'f0d', label: 'Participant type' },
   { id: 'fs', label: 'SGLang / GitHub' },
   { id: 'fsb', label: 'SGLang / connected GitHub' },
-  { id: 'fsc', label: 'SGLang / starred · balloons' },
+  { id: 'fsc', label: 'SGLang / starred · branded balloons' },
   { id: 'f0c', label: 'Team start' },
   { id: 'f0e', label: 'Imported team choice' },
   { id: 'f1', label: 'Home · in progress' },

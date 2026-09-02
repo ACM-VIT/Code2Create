@@ -91,3 +91,4 @@ minimumReleaseAgeExclude:
   - ai@7.0.89
 patchedDependencies:
   '@flue/runtime@2.0.3': patches/@flue__runtime@2.0.3.patch
+  balloons-js@0.0.3: patches/balloons-js@0.0.3.patch
