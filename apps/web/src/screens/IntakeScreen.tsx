@@ -1363,50 +1363,23 @@ function IntakeWorkspace({
               placeholder="Describe your idea…"
               className="bare-field min-h-[180px] border-0 bg-transparent px-0 py-0 text-[17px] leading-[1.7] focus:border-0"
             />
-            <IdeaPromptsLink className="mt-1" />
+            <div className="mt-1 flex items-center justify-between gap-4">
+              <IdeaPromptsLink />
+              <span className="font-mono text-[11px] tracking-[.04em] text-fg/45">
+                {idea.length} / {initialIdeaMaxLength}
+              </span>
+            </div>
             <PortalError message={error} />
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-petal-line pt-3.5">
-              {/* The live score owns the left of the footer; the save state
-                  keeps to the button it describes. Near the limit the count
-                  shows everywhere, otherwise the note waits for wide screens. */}
               <NoveltyPill
                 state={noveltyState}
                 currentLength={normalizedIdeaLength(idea)}
                 minimumLength={novelty?.minimumIdeaLength ?? null}
               />
               <div className="ml-auto flex items-center gap-4.5">
-                {idea.length > initialIdeaMaxLength * 0.8 ? (
-                  <span className="font-mono text-[11px] tracking-[.04em] text-fg/45">
-                    {idea.length} / {initialIdeaMaxLength}
-                  </span>
-                ) : (
-                  <span className="hidden text-xs text-fg/45 sm:inline">
-                    {ideaDirty ? autosaveLabel(ideaAutosaveState) : `saved · editable until ${closeDateLabel}`}
-                  </span>
-                )}
-                {editingIdea ? (
-                  <PortalTextButton
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      setIdea(draft?.initialIdea ?? '')
-                      setIdeaDirty(false)
-                      setIdeaConflict(false)
-                      ideaBase.current = {
-                        value: draft?.initialIdea ?? '',
-                        version: draft?.version ?? 0,
-                      }
-                      clearSessionDraft(ideaStorageKey)
-                      stopEditing()
-                      setReviewSequenceActive(false)
-                      setReviewAnswerEdit(null)
-                      setEditingIdea(false)
-                      setError(null)
-                    }}
-                  >
-                    cancel
-                  </PortalTextButton>
-                ) : null}
+                <span className="hidden text-xs text-fg/45 sm:inline">
+                  {ideaDirty ? autosaveLabel(ideaAutosaveState) : `saved · editable until ${closeDateLabel}`}
+                </span>
                 <PortalButton
                   type="submit"
                   size="sm"
