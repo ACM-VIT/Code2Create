@@ -2,6 +2,7 @@ import type { OperationsAutonomyReadTool } from "@code2create/domain";
 
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { operationsAutonomyAvailable } from "./operationsAutonomyAvailability";
 import {
   operationsAutonomyPolicyChecksum,
   operationsAutonomyPolicyFromDocument,
@@ -23,7 +24,7 @@ export function autonomyRunIsTerminal(run: Doc<"operationsAutonomyRuns">) {
 export async function requireCurrentAutonomyAuthority(
   ctx: QueryCtx | MutationCtx,
   run: Doc<"operationsAutonomyRuns">,
-  _now: number,
+  now: number,
 ) {
   const [event, policy, state] = await Promise.all([
     ctx.db.get(run.eventId),
@@ -33,7 +34,9 @@ export async function requireCurrentAutonomyAuthority(
       .withIndex("by_policy", (index) => index.eq("policyVersionId", run.policyVersionId))
       .unique(),
   ]);
-  if (!event || event.status !== "live") return { state: "revoked" as const, reason: "event_not_live" as const };
+  if (!event || !operationsAutonomyAvailable(event, now)) {
+    return { state: "revoked" as const, reason: "event_not_live" as const };
+  }
   const normalizedPolicy = policy ? operationsAutonomyPolicyFromDocument(policy) : null;
   const policyChecksum = normalizedPolicy
     ? operationsAutonomyPolicyChecksum(normalizedPolicy)

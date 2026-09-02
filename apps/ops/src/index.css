@@ -406,6 +406,10 @@ html:has(.intelligence-workspace) { overflow: hidden; }
 .page-heading, .application-heading, .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
 .page-heading > .primary, .page-heading > .secondary,
 .section-heading > .primary, .section-heading > .secondary { flex: 0 0 auto; }
+/* A row of actions stays a row — including inside headings, whose title
+   block rule (`> div { display: grid }`) would otherwise stack them. */
+.button-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.page-heading > .button-row, .section-heading > .button-row { display: flex; flex: 0 0 auto; justify-content: flex-end; gap: 8px; }
 .configuration-tabs { display: flex; width: fit-content; margin-top: 22px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 3px; }
 .configuration-tabs button { min-height: 38px; padding: 8px 12px; color: var(--muted); background: transparent; border: 0; border-right: 1px solid var(--border); cursor: pointer; }
 .configuration-tabs button:last-child { border-right: 0; }

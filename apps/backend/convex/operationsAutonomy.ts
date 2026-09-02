@@ -9,6 +9,7 @@ import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   enqueueOperationsAutonomyManual,
 } from "./lib/operationsAutonomyInbox";
+import { operationsAutonomyAvailable } from "./lib/operationsAutonomyAvailability";
 import {
   activateOperationsAutonomyRun,
   materializeOperationsAutonomyInboxRun,
@@ -243,10 +244,11 @@ export const startManual = mutation({
     if (prior) {
       return parsedStartResult(ctx, prior.resultJson);
     }
-    if (event.status !== "live") {
+    const now = Date.now();
+    if (!operationsAutonomyAvailable(event, now)) {
       throw new ConvexError({
         code: "OPERATIONS_AUTONOMY_EVENT_NOT_LIVE",
-        message: "Autonomous operations can run only while the event is live.",
+        message: "Autonomous operations can run while applications are open or the event is running.",
       });
     }
     const [policy, source] = await Promise.all([
@@ -273,7 +275,6 @@ export const startManual = mutation({
         message: "Generate operations health before starting autonomous work.",
       });
     }
-    const now = Date.now();
     const inbox = await enqueueOperationsAutonomyManual(ctx, {
       eventId: event._id,
       policy,
@@ -352,6 +353,7 @@ export const status = query({
   args: { eventSlug: v.string() },
   returns: v.object({
     eventStatus,
+    available: v.boolean(),
     canStart: v.boolean(),
     policy: v.object({
       policyVersionId: v.id("operationsAutonomyPolicyVersions"),
@@ -410,10 +412,12 @@ export const status = query({
     if (active && (!checkpoint || !supervision)) {
       throw new Error("The active autonomy run state is incomplete.");
     }
+    const available = operationsAutonomyAvailable(event, Date.now());
     return {
       eventStatus: event.status,
+      available,
       canStart:
-        event.status === "live" && policy.enabled && state.lifecycle.kind === "active",
+        available && policy.enabled && state.lifecycle.kind === "active",
       policy: {
         policyVersionId: policy._id,
         policyVersion: policy.version,

@@ -195,7 +195,7 @@ test('autonomy uses the existing activity and recommendation primitives', () => 
   assert.match(activitySource, /api\.operationsAutonomy\.queuedWork/)
   assert.match(activitySource, /api\.operationsAutonomy\.startManual/)
   assert.match(activitySource, /canGenerate && autonomy\.canStart/)
-  assert.match(activitySource, /autonomy\.eventStatus !== 'live'/)
+  assert.match(activitySource, /!autonomy\.available/)
   assert.match(activitySource, /AutonomyRunInspection/)
   assert.match(activitySource, /RecommendationQueues/)
   assert.match(recommendationQueuesSource, /api\.intelligenceRecommendations\.proposed/)

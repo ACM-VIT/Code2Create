@@ -61,6 +61,8 @@ export function autonomyCancellationLabel(reason: AutonomyRun['cancellationReaso
   if (reason === 'kill_switch') return 'An operator used the autonomy kill switch.'
   if (reason === 'policy_superseded') return 'A newly published policy superseded this run.'
   if (reason === 'owner_revoked') return 'The accountable owner no longer has the required authority.'
-  if (reason === 'event_not_live') return 'The event is no longer live.'
+  if (reason === 'event_not_live') {
+    return 'Applications are closed and the event is not running.'
+  }
   return 'The review was canceled by an event state change.'
 }
