@@ -10,7 +10,7 @@ index 66fe5253ea68686d7e63513bf5d4756511df098a..ac012f90bccf0efe9fdc8281b6fcafe5
 +}
 +export declare function balloons(options?: BalloonsOptions): Promise<void>;
 diff --git a/dist/index.esm.js b/dist/index.esm.js
-index e360ef6da8f7f5a0147edd477b427a4852caec55..62d293b1685fc6ee8ce42645d1034127f12b87e1 100644
+index e360ef6da8f7f5a0147edd477b427a4852caec55..605cecc60dbab7c9ddec8d467d98d5072d8d3876 100644
 --- a/dist/index.esm.js
 +++ b/dist/index.esm.js
 @@ -176,7 +176,7 @@ var balloonDefaultSize = {
@@ -37,7 +37,7 @@ index e360ef6da8f7f5a0147edd477b427a4852caec55..62d293b1685fc6ee8ce42645d1034127
 +            width: "52%",
 +            height: "20%",
 +            objectFit: "contain",
-+            opacity: "0.75",
++            opacity: "0.5",
 +            filter: "var(--balloon-logo-filter, drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18)))",
 +            transform: "perspective(220px) rotateY(-7deg) scaleX(0.94)",
 +            transformOrigin: "center",
@@ -67,7 +67,7 @@ index e360ef6da8f7f5a0147edd477b427a4852caec55..62d293b1685fc6ee8ce42645d1034127
              balloonsContainer.appendChild(balloon);
              return createBalloonAnimation(__assign(__assign({ balloon: balloon }, pos), { zIndex: currentZIndex++ }));
 diff --git a/dist/index.js b/dist/index.js
-index e82506348c2b1a29a84cb635314aa905526818b7..158222a266647450c95a6c98ffe9fe85166a1b73 100644
+index e82506348c2b1a29a84cb635314aa905526818b7..e1aa9030a140d6ea40a4a549739c723e6d0dd525 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -180,7 +180,7 @@ var balloonDefaultSize = {
@@ -94,7 +94,7 @@ index e82506348c2b1a29a84cb635314aa905526818b7..158222a266647450c95a6c98ffe9fe85
 +            width: "52%",
 +            height: "20%",
 +            objectFit: "contain",
-+            opacity: "0.75",
++            opacity: "0.5",
 +            filter: "var(--balloon-logo-filter, drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18)))",
 +            transform: "perspective(220px) rotateY(-7deg) scaleX(0.94)",
 +            transformOrigin: "center",
