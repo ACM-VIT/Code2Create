@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AccountBadge } from '../components/portal/AccountBadge'
 import { ClassCard } from '../components/portal/ClassCard'
 import { FadeText } from '../components/portal/FadeText'
+import { EmailAddressStep, EmailCodeStep } from '../components/portal/EmailOtpSignIn'
 import { PhoneCodePanel } from '../components/portal/PhoneCodePanel'
 import { PetalCard } from '../components/portal/PetalCard'
 import { Petal } from '../components/portal/Petal'
@@ -367,44 +368,115 @@ function DetailsFixture({ initialPhase }: { initialPhase: 'idle' | 'verified' })
   )
 }
 
+/**
+ * The entry screen with the external path unfolded: Google, then email, then
+ * the emailed code (000000 comes back wrong).
+ */
+function EntryFixture() {
+  const [step, setStep] = useState<'closed' | 'email' | 'code'>('closed')
+  const [email, setEmail] = useState('ananya@bmsce.ac.in')
+  const [code, setCode] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [note, setNote] = useState('check spam too')
+  const [shake, setShake] = useState(0)
+  return (
+    <PortalScene tree="both" logo="none">
+      <a href="https://acmvit.in" className="absolute top-7 left-6 z-[6] opacity-85 lg:top-9 lg:left-11">
+        <img src="/assets/acm-mark.svg" alt="ACM-VIT" className="size-8 [filter:var(--mark-filter)] lg:size-9" />
+      </a>
+      <div className="flex w-full max-w-[640px] flex-col items-center text-center">
+        <img
+          src="/assets/logo.svg"
+          alt="Code2Create"
+          className="mb-3.5 w-11 drop-shadow-[0_0_20px_var(--logo-glow)] lg:mb-[18px] lg:w-[52px]"
+        />
+        <h1 className="mb-8 flex justify-center lg:mb-10">
+          <img
+            src="/assets/wordmark.svg"
+            alt="Code2Create"
+            className="h-9 w-auto [filter:var(--wordmark-filter)] sm:h-12 lg:h-[68px]"
+          />
+        </h1>
+        <div className="mb-7 flex w-full flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4">
+          <ClassCard
+            title="VIT student"
+            detail="only @vitstudent.ac.in Google accounts are accepted"
+            disabled={false}
+            selected={false}
+            onSelect={noop}
+          />
+          <ClassCard
+            title="external participant"
+            detail="continue with Google or a non-VIT email address"
+            disabled={false}
+            selected
+            onSelect={noop}
+          />
+        </div>
+        <div className="flex w-full max-w-[320px] flex-col items-center gap-3">
+          <div className="flex min-h-[60px] w-full items-center justify-center">
+            <PortalButton className="w-full">Continue with Google</PortalButton>
+          </div>
+          <div className="flex w-full items-center gap-3 text-[10.5px] font-semibold tracking-[.08em] text-fg/40">
+            <span className="h-px flex-1 bg-petal-edge-soft" />
+            or
+            <span className="h-px flex-1 bg-petal-edge-soft" />
+          </div>
+          {step === 'closed' ? (
+            <PortalButton className="w-full" onClick={() => setStep('email')}>
+              Continue with email
+            </PortalButton>
+          ) : step === 'email' ? (
+            <EmailAddressStep
+              email={email}
+              onEmailChange={setEmail}
+              onSend={() => {
+                setCode('')
+                setError(null)
+                setStep('code')
+              }}
+              onBack={() => setStep('closed')}
+              busy={false}
+              error={null}
+            />
+          ) : (
+            <EmailCodeStep
+              email={email}
+              code={code}
+              onCodeChange={(next) => {
+                setError(null)
+                setCode(next)
+              }}
+              onVerify={(entered) => {
+                setCode('')
+                if (entered === '000000') {
+                  setShake((count) => count + 1)
+                  setError('wrong code')
+                  return
+                }
+                setNote('signed in')
+              }}
+              onResend={() => {
+                setError(null)
+                setNote('fresh code sent')
+              }}
+              onChangeEmail={() => setStep('email')}
+              busy={false}
+              error={error}
+              note={note}
+              shakeKey={shake}
+            />
+          )}
+        </div>
+        <PortalError message={null} reserve />
+      </div>
+    </PortalScene>
+  )
+}
+
 const screens: Record<string, () => ReactNode> = Object.fromEntries(
   ([
-  ['f0a', () => (
-      <PortalScene tree="both" logo="none">
-        <a href="https://acmvit.in" className="absolute top-7 left-6 z-[6] opacity-85 lg:top-9 lg:left-11">
-          <img src="/assets/acm-mark.svg" alt="ACM-VIT" className="size-8 lg:size-9" />
-        </a>
-        <div className="flex w-full max-w-[640px] flex-col items-center text-center">
-          <img
-            src="/assets/logo.svg"
-            alt="Code2Create"
-            className="mb-3.5 w-11 drop-shadow-[0_0_20px_var(--logo-glow)] lg:mb-[18px] lg:w-[52px]"
-          />
-          <h1 className="mb-8 flex justify-center lg:mb-10">
-            <img
-              src="/assets/wordmark.svg"
-              alt="Code2Create"
-              className="h-9 w-auto [filter:var(--wordmark-filter)] sm:h-12 lg:h-[68px]"
-            />
-          </h1>
-          <div className="mb-7 flex w-full flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4">
-            <div className="w-full rounded-petal-sm glass-tile glass-active px-6 py-5 text-left sm:w-[250px]">
-              <p className="mb-1 font-display font-light tracking-[-.01em] text-[19px] text-rose-light">VIT student</p>
-              <p className="text-xs text-fg/55">on-campus, with a VIT ID card</p>
-            </div>
-            <div className="w-full rounded-petal-sm glass-tile px-6 py-5 text-left sm:w-[250px]">
-              <p className="mb-1 font-display font-light tracking-[-.01em] text-[19px] text-fg/85">
-                external participant
-              </p>
-              <p className="text-xs text-fg/55">visiting from another campus</p>
-            </div>
-          </div>
-          <div className="flex min-h-[60px] w-full items-center justify-center">
-            <PortalButton>Continue with Google</PortalButton>
-          </div>
-        </div>
-      </PortalScene>
-    )],
+  ['f0a', () => <EntryFixture />],
   ['f0b', () => <DetailsFixture key="idle" initialPhase="idle" />],
   ['f0bv', () => <DetailsFixture key="verified" initialPhase="verified" />],
   ['f0d', () => (
@@ -426,7 +498,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
             />
             <ClassCard
               title="external participant"
-              detail="college students and other eligible applicants"
+              detail="continue with Google or a non-VIT email address"
               disabled={false}
               selected={false}
               onSelect={noop}

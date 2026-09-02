@@ -2,12 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Flower } from './FlowerAvatar'
 
-/**
- * The signed-in person, before there is a team to stand with: one flower
- * circle that opens a small card — who you are, the way to everything else,
- * and the way out. The same shape as the team cluster's panel, so those are
- * always found under the avatar and never as circles of their own.
- */
+
 export function AccountBadge({
   name,
   seed,
@@ -41,7 +36,7 @@ export function AccountBadge({
   }, [open])
 
   return (
-    <div ref={anchor} className="relative">
+    <div ref={anchor} className="relative" data-ph-sensitive>
       <button
         type="button"
         aria-label={`Account, ${name}`}

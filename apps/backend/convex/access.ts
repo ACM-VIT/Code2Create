@@ -142,6 +142,7 @@ const operationsCapabilitiesView = v.object({
   admissions: v.boolean(),
   applicationRead: v.boolean(),
   applicationReviewRead: v.boolean(),
+  applicationAssign: v.boolean(),
   attendance: v.boolean(),
   attendanceSetup: v.boolean(),
   teamRoster: v.boolean(),
@@ -472,6 +473,7 @@ async function resolveOperationsCapabilities(
   const [
     applicationRead,
     applicationReviewRead,
+    applicationAssign,
     attendance,
     attendanceSetup,
     roster,
@@ -517,6 +519,7 @@ async function resolveOperationsCapabilities(
   ] = await Promise.all([
     any("application.read"),
     any("application.review.read"),
+    any("application.assign"),
     anyOf(attendanceWorkspacePermissions),
     anyOf(["configuration.manage", "attendance.plan.publish"]),
     any("access.roster.read"),
@@ -565,6 +568,7 @@ async function resolveOperationsCapabilities(
     admissions: applicationRead || applicationReviewRead,
     applicationRead,
     applicationReviewRead,
+    applicationAssign,
     attendance,
     attendanceSetup,
     roster,

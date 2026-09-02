@@ -16,9 +16,9 @@ import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
 import {
   ensurePerson,
   findCurrentPerson,
-  participantGoogleAccessAllowed,
+  participantIdentityAccessAllowed,
   participantMembershipAccessAllowed,
-  requireParticipantGoogleAccess,
+  requireParticipantIdentityAccess,
   requireCurrentPerson,
   requireEligibleMembership,
   requireEventSubject,
@@ -45,6 +45,7 @@ import { normalizedText } from "./lib/strings";
 import { parsedHostelDetails } from "./lib/vitHostel";
 import {
   isApprovedVitStudentIdentity,
+  isVitStudentEmailAddress,
   parseVitStudentGoogleDisplayName,
   vitIdentityReferenceYear,
   vitInstitutionName,
@@ -222,13 +223,12 @@ export const entryAllowed = query({
       .query("googleIdentityClaims")
       .withIndex("by_auth_user", (index) => index.eq("authUserId", user._id))
       .unique();
-    if (!googleIdentity?.displayName) return false;
-    return participantGoogleAccessAllowed(ctx, event, {
-      verifiedEmail: googleIdentity.verifiedEmail,
-      ...(googleIdentity.hostedDomain !== undefined
+    return participantIdentityAccessAllowed(ctx, event, {
+      verifiedEmail: user.email,
+      ...(googleIdentity?.hostedDomain !== undefined
         ? { hostedDomain: googleIdentity.hostedDomain }
         : {}),
-      displayName: googleIdentity.displayName,
+      displayName: googleIdentity?.displayName || user.name || user.email,
     });
   },
 });
@@ -290,13 +290,12 @@ export const me = query({
               index.eq("authUserId", person.authUserId),
             )
             .unique();
-          if (!googleIdentity?.displayName) return false;
-          return participantGoogleAccessAllowed(ctx, event, {
-            verifiedEmail: googleIdentity.verifiedEmail,
-            ...(googleIdentity.hostedDomain !== undefined
+          return participantIdentityAccessAllowed(ctx, event, {
+            verifiedEmail: person.verifiedEmail,
+            ...(googleIdentity?.hostedDomain !== undefined
               ? { hostedDomain: googleIdentity.hostedDomain }
               : {}),
-            displayName: googleIdentity.displayName,
+            displayName: googleIdentity?.displayName || person.displayName,
           });
         })();
     if (!participantAccessAllowed) return null;
@@ -428,14 +427,23 @@ export const provision = mutation({
   returns: v.object({ membershipId: v.id("eventMemberships"), created: v.boolean() }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { person, googleIdentity } = await ensurePerson(ctx);
+    const { person, identity } = await ensurePerson(ctx);
     const approvedVitIdentity = isApprovedVitStudentIdentity({
-      verifiedEmail: googleIdentity.verifiedEmail,
-      ...(googleIdentity.hostedDomain !== undefined
-        ? { hostedDomain: googleIdentity.hostedDomain }
+      verifiedEmail: identity.verifiedEmail,
+      ...(identity.hostedDomain !== undefined
+        ? { hostedDomain: identity.hostedDomain }
         : {}),
       allowedDomains: event.vitEmailDomains,
     });
+    if (
+      !approvedVitIdentity &&
+      isVitStudentEmailAddress(identity.verifiedEmail, event.vitEmailDomains)
+    ) {
+      throw new ConvexError({
+        code: "VIT_GOOGLE_REQUIRED",
+        message: "VIT email addresses must continue with Google Workspace.",
+      });
+    }
     if (args.participantClass === "vit_student" && !approvedVitIdentity) {
       throw new ConvexError({
         code: "VIT_EMAIL_REQUIRED",
@@ -445,12 +453,12 @@ export const provision = mutation({
     const resolvedParticipantClass = approvedVitIdentity
       ? "vit_student"
       : "external_participant";
-    await requireParticipantGoogleAccess(ctx, event, {
-      verifiedEmail: googleIdentity.verifiedEmail,
-      ...(googleIdentity.hostedDomain !== undefined
-        ? { hostedDomain: googleIdentity.hostedDomain }
+    await requireParticipantIdentityAccess(ctx, event, {
+      verifiedEmail: identity.verifiedEmail,
+      ...(identity.hostedDomain !== undefined
+        ? { hostedDomain: identity.hostedDomain }
         : {}),
-      displayName: googleIdentity.displayName,
+      displayName: identity.displayName,
     });
     requireRegistrationOpen(event, resolvedParticipantClass);
 
@@ -474,7 +482,7 @@ export const provision = mutation({
     }
 
     const vitStudentIdentity = resolvedParticipantClass === "vit_student"
-      ? requireVitStudentProfileIdentity(googleIdentity.displayName, event)
+      ? requireVitStudentProfileIdentity(identity.displayName, event)
       : null;
     if (vitStudentIdentity) {
       await requireAvailableVitRegistrationNumber(ctx, {
@@ -528,8 +536,8 @@ export const provision = mutation({
       eligibilityStatus: "eligible",
       onboardingStatus: "profile_required",
       acceptedParticipantPolicyVersionIds: [],
-      ...(googleIdentity.hostedDomain !== undefined
-        ? { googleHostedDomain: googleIdentity.hostedDomain }
+      ...(identity.hostedDomain !== undefined
+        ? { googleHostedDomain: identity.hostedDomain }
         : {}),
       createdAt: now,
       updatedAt: now,

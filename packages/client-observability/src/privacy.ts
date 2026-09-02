@@ -31,6 +31,28 @@ type SafeStackFrame = {
 }
 
 const opaqueSegment = ':id'
+const replaySensitiveSelector = '[data-ph-sensitive], .ph-sensitive'
+const replaySensitiveContextSelector = [
+  '[class*="account" i]',
+  '[class*="approval" i]',
+  '[class*="candidate" i]',
+  '[class*="identity" i]',
+  '[class*="intelligence" i]',
+  '[class*="invitation" i]',
+  '[class*="member" i]',
+  '[class*="owner" i]',
+  '[class*="participant" i]',
+  '[class*="person" i]',
+  '[class*="profile" i]',
+  '[class*="recipient" i]',
+  '[class*="reviewer" i]',
+  '[class*="roster" i]',
+  '[class*="support" i]',
+].join(', ')
+const replaySensitiveFieldPattern = /(?:account|college|credential|email|full.?name|gender|hostel|identity|invitee|member|name|one.?time|otp|owner|participant|password|person|phone|recipient|registration|reviewer|room|secret|student.?id|tel|token|university|verification.?code)/iu
+const replayEmailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/giu
+const replayPhonePattern = /(?<!\d)(?:\+?\d[\d\s().-]{8,}\d)(?!\d)/gu
+const replayRegistrationPattern = /\b\d{2}[A-Z]{2,5}\d{3,6}\b/gu
 const safeScalarProperties = new Set([
   'token',
   'distinct_id',
@@ -112,8 +134,59 @@ export function sanitizeTelemetryUrl(value: string) {
   }
 }
 
+export function maskReplayInput(value: string, element?: HTMLElement) {
+  return replayElementIsSensitive(element) ? maskedReplayValue(value) : redactReplayPii(value)
+}
+
+export function maskReplayText(value: string, element?: HTMLElement) {
+  return replayElementIsSensitive(element) ? maskedReplayValue(value) : redactReplayPii(value)
+}
+
+export function maskReplayAttribute(name: string, value: string, element?: Element) {
+  if (replayElementIsSensitive(element) || replaySensitiveFieldPattern.test(name)) {
+    return maskedReplayValue(value)
+  }
+  if (name === 'href' || name === 'src' || name === 'action') {
+    return value.startsWith('data:') || value.startsWith('blob:')
+      ? '[redacted-url]'
+      : sanitizeTelemetryUrl(value)
+  }
+  return redactReplayPii(value)
+}
+
+function replayElementIsSensitive(element: Element | undefined) {
+  if (!element) return false
+  if (element.closest(replaySensitiveSelector)) return true
+  if (element.closest(replaySensitiveContextSelector)) return true
+  const metadata = [
+    element.id,
+    element.getAttribute('name'),
+    element.getAttribute('type'),
+    element.getAttribute('autocomplete'),
+    element.getAttribute('aria-label'),
+    element.getAttribute('data-field'),
+  ].filter((value): value is string => value !== null).join(' ')
+  return replaySensitiveFieldPattern.test(metadata)
+}
+
+function redactReplayPii(value: string) {
+  return value
+    .replace(replayEmailPattern, '[redacted email]')
+    .replace(replayPhonePattern, '[redacted phone]')
+    .replace(replayRegistrationPattern, '[redacted registration]')
+}
+
+function maskedReplayValue(value: string) {
+  return value.length === 0 ? '' : '•'.repeat(Math.min(Math.max(value.length, 4), 32))
+}
+
 export function scrubPostHogEvent<T extends PostHogEvent>(event: T | null): T | null {
   if (!event) return null
+
+  // Replay payloads are produced after rrweb has applied the provider's input,
+  // text, attribute, body, and header masking. Re-shaping the payload here makes
+  // recordings undecodable, so the replay event is passed through intact.
+  if (event.event === '$snapshot') return event
 
   const properties = event.properties ? safeEventProperties(event.properties) : undefined
   Reflect.deleteProperty(event, '$set')
@@ -126,7 +199,15 @@ export function scrubPostHogEvent<T extends PostHogEvent>(event: T | null): T | 
 function safeEventProperties(properties: Record<string, unknown>) {
   const safe: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(properties)) {
-    if (safeScalarProperties.has(key) || key.startsWith('$feature/')) {
+    if (
+      safeScalarProperties.has(key)
+      || key.startsWith('$feature/')
+      || key.startsWith('$web_vitals_')
+      || key.startsWith('$performance_')
+      || key.startsWith('$dead_click_')
+      || key.startsWith('$rageclick_')
+      || key.startsWith('c2c_')
+    ) {
       if (isScalar(value)) safe[key] = value
       continue
     }
@@ -149,7 +230,25 @@ function safeEventProperties(properties: Record<string, unknown>) {
     if (key === '$exception_list') {
       const exceptionList = safeExceptionList(value)
       if (exceptionList) safe[key] = exceptionList
+      continue
     }
+    if (key === '$elements' && Array.isArray(value)) {
+      safe[key] = value.flatMap((entry) => isRecord(entry) ? [safeAutocaptureElement(entry)] : [])
+    }
+  }
+  return safe
+}
+
+function safeAutocaptureElement(element: Record<string, unknown>) {
+  const safe: Record<string, unknown> = {}
+  for (const key of ['tag_name', 'nth_child', 'nth_of_type'] as const) {
+    const value = element[key]
+    if (isScalar(value)) safe[key] = value
+  }
+  const classes = element.classes
+  if (Array.isArray(classes)) {
+    safe.classes = classes.filter((entry): entry is string =>
+      typeof entry === 'string' && /^[A-Za-z0-9_-]{1,80}$/u.test(entry))
   }
   return safe
 }

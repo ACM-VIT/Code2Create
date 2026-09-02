@@ -47,6 +47,7 @@ import { requirePinnedIntakePolicy, requirePublishedIntakePolicy } from "./lib/i
 import { redactProjectText } from "./lib/projectText";
 import { normalizedText } from "./lib/strings";
 import { createOpenAiEmbeddings, OpenAiEmbeddingError } from "./lib/openAiEmbeddings";
+import { scheduledAiEmbeddingTelemetry } from "./lib/posthog";
 import {
   noveltyJudgeModelId,
   noveltyJudgePromptVersion,
@@ -231,6 +232,7 @@ const beginPreviewResult = v.union(
   v.object({
     kind: v.literal("run"),
     requestId: v.id("noveltyPreviewRequests"),
+    personId: v.id("people"),
     eventId: v.id("events"),
     teamId: v.id("teams"),
     corpusVersionId: v.id("noveltyCorpusVersions"),
@@ -475,6 +477,7 @@ export const beginPreview = internalMutation({
     return {
       kind: "run",
       requestId,
+      personId: person._id,
       eventId: event._id,
       teamId: team._id,
       corpusVersionId: corpus._id,
@@ -1068,6 +1071,18 @@ export const indexDraftIdea = internalAction({
           input: prepared.embeddingInputs,
           timeoutMs: noveltyPreviewProviderAttemptTimeoutMs,
           maximumAttempts: 2,
+          telemetry: {
+            traceId: `${args.draftId}:${args.inputFingerprint}`,
+            sessionId: args.draftId,
+            operation: "novelty.index_draft",
+            capture: async (telemetry) => {
+              await ctx.scheduler.runAfter(
+                0,
+                internal.intelligenceActions.captureEmbeddingTelemetry,
+                scheduledAiEmbeddingTelemetry(telemetry),
+              );
+            },
+          },
         });
         const embeddings = orderedEmbeddings(response.data, prepared.embeddingInputs.length);
         const generatedEmbedding = embeddings?.[0];
@@ -1285,6 +1300,18 @@ export const indexSubmittedProjectIdea = internalAction({
         model: prepared.embeddingModel,
         input: prepared.embeddingInputs,
         timeoutMs: 12_000,
+        telemetry: {
+          traceId: `${args.projectVersionId}:${args.inputFingerprint}`,
+          sessionId: args.projectVersionId,
+          operation: "novelty.index_submission",
+          capture: async (telemetry) => {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.intelligenceActions.captureEmbeddingTelemetry,
+              scheduledAiEmbeddingTelemetry(telemetry),
+            );
+          },
+        },
       });
       const embeddings = orderedEmbeddings(response.data, prepared.embeddingInputs.length);
       const embedding = embeddings?.[0];
@@ -1600,6 +1627,19 @@ export const preview = action({
         // that tail and still keeps the full preview outside the save path.
         timeoutMs: noveltyPreviewProviderAttemptTimeoutMs,
         maximumAttempts: 2,
+        telemetry: {
+          traceId: begun.requestId,
+          sessionId: begun.teamId,
+          distinctId: begun.personId,
+          operation: "novelty.preview",
+          capture: async (telemetry) => {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.intelligenceActions.captureEmbeddingTelemetry,
+              scheduledAiEmbeddingTelemetry(telemetry),
+            );
+          },
+        },
       });
       const embeddings = orderedEmbeddings(response.data, begun.embeddingInputs.length);
       const embedding = embeddings?.[0];

@@ -16,7 +16,7 @@ export type ParticipantEligibilityLookup = {
   identityNormalized: string;
 };
 
-export function participantEligibilityLookupFromGoogleIdentity(
+export function participantEligibilityLookupFromVerifiedIdentity(
   event: Doc<"events">,
   identity: {
     verifiedEmail: string;

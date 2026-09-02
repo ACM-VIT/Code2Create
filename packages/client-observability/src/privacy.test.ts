@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { sanitizeTelemetryUrl, scrubPostHogEvent } from './privacy.ts'
+import {
+  maskReplayAttribute,
+  maskReplayInput,
+  maskReplayText,
+  sanitizeTelemetryUrl,
+  scrubPostHogEvent,
+} from './privacy.ts'
 
 test('PostHog events remove identity properties, content, and opaque route segments', () => {
   const event = scrubPostHogEvent({
@@ -83,6 +89,14 @@ test('PostHog privacy filtering default-denies unknown fields', () => {
       email: 'person@example.org',
       '$feature/safe-flag': 'enabled',
       $active_feature_flags: ['safe-flag', 42],
+      c2c_action: 'application_opened',
+      $elements: [{
+        tag_name: 'button',
+        nth_child: 2,
+        classes: ['primary-button', 'unsafe class'],
+        text: 'private idea',
+        'attr__data-email': 'person@example.org',
+      }],
     },
   })
   assert.deepEqual(event, {
@@ -91,8 +105,36 @@ test('PostHog privacy filtering default-denies unknown fields', () => {
       token: 'public-project-token',
       '$feature/safe-flag': 'enabled',
       $active_feature_flags: ['safe-flag'],
+      c2c_action: 'application_opened',
+      $elements: [{
+        tag_name: 'button',
+        nth_child: 2,
+        classes: ['primary-button'],
+      }],
     },
   })
+})
+
+test('session replay payloads remain decodable after recorder masking', () => {
+  const event = {
+    event: '$snapshot',
+    properties: {
+      $snapshot_data: { type: 3, data: { source: 0 } },
+      $session_id: 'session-1',
+    },
+  }
+  assert.equal(scrubPostHogEvent(event), event)
+})
+
+test('session replay keeps project text while redacting PII and sensitive attributes', () => {
+  const idea = 'A debugging workspace that replays production failures.'
+  assert.equal(maskReplayInput(idea), idea)
+  assert.equal(maskReplayText(idea), idea)
+  assert.equal(
+    maskReplayText('Contact person@example.org or +91 98765 43210, 23BCE1234.'),
+    'Contact [redacted email] or [redacted phone], [redacted registration].',
+  )
+  assert.match(maskReplayAttribute('data-email', 'person@example.org'), /^•+$/u)
 })
 
 test('malformed telemetry URLs are replaced', () => {

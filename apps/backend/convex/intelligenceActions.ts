@@ -4,10 +4,16 @@ import OpenAI from "openai";
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import { internalAction } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
 import type { IntakeContext } from "./intelligence";
 import { ideaQuestionProviderTimeoutMs } from "./lib/ideaSubmissionAi";
 import { parseAndValidateIntakeQuestionModelOutput } from "./lib/intakeQuestionModel";
+import {
+  captureAiEmbedding,
+  captureAiGeneration,
+  scheduledAiGenerationTelemetry,
+  type AiGenerationTelemetry,
+} from "./lib/posthog";
 import { redactProjectText } from "./lib/projectText";
 
 type ProviderResult =
@@ -15,6 +21,11 @@ type ProviderResult =
       kind: "success";
       outputText: string | null;
       providerRequestId?: string;
+      inputTokens?: number;
+      outputTokens?: number;
+      cachedInputTokens?: number;
+      reasoningTokens?: number;
+      totalTokens?: number;
     }
   | {
       kind: "failure";
@@ -27,6 +38,59 @@ type ProviderRequest = {
   systemInstruction: string;
   input: string;
 };
+
+const aiCommonArgs = {
+  traceId: v.string(),
+  sessionId: v.optional(v.string()),
+  distinctId: v.optional(v.string()),
+  model: v.string(),
+  provider: v.string(),
+  operation: v.string(),
+  durationMs: v.number(),
+  isError: v.boolean(),
+  errorCategory: v.optional(v.string()),
+};
+
+export const captureGenerationTelemetry = internalAction({
+  args: {
+    ...aiCommonArgs,
+    inputTokens: v.optional(v.number()),
+    outputTokens: v.optional(v.number()),
+    cacheReadTokens: v.optional(v.number()),
+    cacheWriteTokens: v.optional(v.number()),
+    reasoningTokens: v.optional(v.number()),
+    totalTokens: v.optional(v.number()),
+    finishReason: v.optional(v.string()),
+    providerRequestId: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (_ctx, args) => {
+    await captureAiGeneration(args);
+    return null;
+  },
+});
+
+export const captureEmbeddingTelemetry = internalAction({
+  args: {
+    ...aiCommonArgs,
+    inputTokens: v.optional(v.number()),
+    inputCount: v.number(),
+    providerRequestId: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (_ctx, args) => {
+    await captureAiEmbedding(args);
+    return null;
+  },
+});
+
+async function scheduleGenerationTelemetry(ctx: ActionCtx, args: AiGenerationTelemetry) {
+  await ctx.scheduler.runAfter(
+    0,
+    internal.intelligenceActions.captureGenerationTelemetry,
+    scheduledAiGenerationTelemetry(args),
+  );
+}
 
 function emptyCompletion() {
   return {
@@ -126,6 +190,21 @@ async function requestIdeaQuestionFromProvider(
       kind: "success",
       outputText: response.output_text || null,
       ...(response._request_id ? { providerRequestId: response._request_id } : {}),
+      ...(response.usage?.input_tokens !== undefined
+        ? { inputTokens: response.usage.input_tokens }
+        : {}),
+      ...(response.usage?.output_tokens !== undefined
+        ? { outputTokens: response.usage.output_tokens }
+        : {}),
+      ...(response.usage?.input_tokens_details?.cached_tokens !== undefined
+        ? { cachedInputTokens: response.usage.input_tokens_details.cached_tokens }
+        : {}),
+      ...(response.usage?.output_tokens_details?.reasoning_tokens !== undefined
+        ? { reasoningTokens: response.usage.output_tokens_details.reasoning_tokens }
+        : {}),
+      ...(response.usage?.total_tokens !== undefined
+        ? { totalTokens: response.usage.total_tokens }
+        : {}),
     };
   } catch (error) {
     const status = error instanceof OpenAI.APIError ? error.status : undefined;
@@ -184,6 +263,16 @@ export const interpretIdea = internalAction({
           latencyMs: Date.now() - startedAt,
           failureCategory: provider.failureCategory,
         });
+        await scheduleGenerationTelemetry(ctx, {
+          traceId: context.interpretationId,
+          sessionId: context.draftId,
+          model: context.modelId,
+          provider: "openai",
+          operation: "intake.interpret_idea",
+          durationMs: Date.now() - startedAt,
+          isError: true,
+          errorCategory: provider.failureCategory,
+        });
         return null;
       }
       const validated = provider.outputText
@@ -203,6 +292,25 @@ export const interpretIdea = internalAction({
             ? "invalid_or_disallowed_output"
             : "empty_or_refused_output",
         });
+        const failureCategory = provider.outputText
+          ? "invalid_or_disallowed_output"
+          : "empty_or_refused_output";
+        await scheduleGenerationTelemetry(ctx, {
+          traceId: context.interpretationId,
+          sessionId: context.draftId,
+          model: context.modelId,
+          provider: "openai",
+          operation: "intake.interpret_idea",
+          durationMs: Date.now() - startedAt,
+          isError: true,
+          errorCategory: failureCategory,
+          inputTokens: provider.inputTokens,
+          outputTokens: provider.outputTokens,
+          cacheReadTokens: provider.cachedInputTokens,
+          reasoningTokens: provider.reasoningTokens,
+          totalTokens: provider.totalTokens,
+          providerRequestId: provider.providerRequestId,
+        });
         return null;
       }
       await ctx.runMutation(internal.intelligence.finishIntakeInterpretation, {
@@ -215,6 +323,22 @@ export const interpretIdea = internalAction({
           : {}),
         latencyMs: Date.now() - startedAt,
       });
+      await scheduleGenerationTelemetry(ctx, {
+        traceId: context.interpretationId,
+        sessionId: context.draftId,
+        model: context.modelId,
+        provider: "openai",
+        operation: "intake.interpret_idea",
+        durationMs: Date.now() - startedAt,
+        isError: false,
+        inputTokens: provider.inputTokens,
+        outputTokens: provider.outputTokens,
+        cacheReadTokens: provider.cachedInputTokens,
+        reasoningTokens: provider.reasoningTokens,
+        totalTokens: provider.totalTokens,
+        finishReason: "stop",
+        providerRequestId: provider.providerRequestId,
+      });
     } catch {
       await ctx.runMutation(internal.intelligence.finishIntakeInterpretation, {
         interpretationId: context.interpretationId,
@@ -223,6 +347,16 @@ export const interpretIdea = internalAction({
         ...emptyCompletion(),
         latencyMs: Date.now() - startedAt,
         failureCategory: "provider_action_failed",
+      });
+      await scheduleGenerationTelemetry(ctx, {
+        traceId: context.interpretationId,
+        sessionId: context.draftId,
+        model: context.modelId,
+        provider: "openai",
+        operation: "intake.interpret_idea",
+        durationMs: Date.now() - startedAt,
+        isError: true,
+        errorCategory: "provider_action_failed",
       });
     }
     return null;

@@ -1518,6 +1518,90 @@ describe("participant onboarding lifecycle", () => {
     });
   }, 10_000);
 
+  test("allows a verified email-only account to provision only as an external participant", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const email = "email-only-participant@example.test";
+    const authUserId = await createAuthUser(backend, fixture.now, "", email);
+    const authSessionId = await createAuthSession(
+      backend,
+      authUserId,
+      fixture.now,
+      "participant-onboarding-email-only-session",
+    );
+    const participant = backend.withIdentity({
+      subject: authUserId,
+      sessionId: authSessionId,
+    });
+    const previousEnvironment = process.env.C2C_DEPLOYMENT_ENVIRONMENT;
+    process.env.C2C_DEPLOYMENT_ENVIRONMENT = "development";
+
+    try {
+      await expect(participant.mutation(api.participants.provision, {
+        eventSlug: fixture.eventSlug,
+        participantClass: "vit_student",
+      })).rejects.toThrow("Google Workspace");
+      await expect(participant.query(api.system.bootstrapEligibility, {
+        eventSlug: fixture.eventSlug,
+      })).rejects.toThrow("continue with Google");
+
+      const vitEmailAuthUserId = await createAuthUser(
+        backend,
+        fixture.now,
+        "",
+        "email-only@vitstudent.ac.in",
+      );
+      const vitEmailAuthSessionId = await createAuthSession(
+        backend,
+        vitEmailAuthUserId,
+        fixture.now,
+        "participant-onboarding-vit-email-only-session",
+      );
+      const vitEmailParticipant = backend.withIdentity({
+        subject: vitEmailAuthUserId,
+        sessionId: vitEmailAuthSessionId,
+      });
+      await expect(vitEmailParticipant.mutation(api.participants.provision, {
+        eventSlug: fixture.eventSlug,
+        participantClass: "external_participant",
+      })).rejects.toThrow("must continue with Google Workspace");
+
+      const provisioned = await participant.mutation(api.participants.provision, {
+        eventSlug: fixture.eventSlug,
+        participantClass: "external_participant",
+      });
+      expect(provisioned.created).toBe(true);
+
+      await expect(participant.query(api.participants.me, {
+        eventSlug: fixture.eventSlug,
+      })).resolves.toMatchObject({
+        person: {
+          verifiedEmail: email,
+          displayName: email,
+        },
+        membership: {
+          id: provisioned.membershipId,
+          participantClass: "external_participant",
+        },
+      });
+      await backend.run(async (ctx) => {
+        const person = await ctx.db
+          .query("people")
+          .withIndex("by_auth_user", (index) => index.eq("authUserId", authUserId))
+          .unique();
+        expect(person?.googleSubject).toBeUndefined();
+        expect(await ctx.db
+          .query("googleIdentityClaims")
+          .withIndex("by_auth_user", (index) => index.eq("authUserId", authUserId))
+          .unique()).toBeNull();
+      });
+    } finally {
+      if (previousEnvironment === undefined) delete process.env.C2C_DEPLOYMENT_ENVIRONMENT;
+      else process.env.C2C_DEPLOYMENT_ENVIRONMENT = previousEnvironment;
+    }
+  });
+
   test("provisions a VIT identity from the verified Google name instead of the mutable auth name", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);

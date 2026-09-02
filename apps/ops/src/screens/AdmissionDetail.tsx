@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
+import { useProductAnalytics } from '@code2create/client-observability'
 import {
   admissionAiDispositionLabels,
-  admissionExperienceBandLabels,
   admissionInformationRequestStateLabels,
   admissionOfferStateLabels,
   admissionRecommendationStateLabels,
@@ -11,8 +11,6 @@ import {
   applicationDecisions,
   applicationStateLabels,
   criterionAssessmentLabels,
-  participantClassLabels,
-  studyYearLabels,
   type AdmissionAiDisposition,
   type ApplicationDecision,
 } from '@code2create/domain'
@@ -22,6 +20,13 @@ import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import { useMemo, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
+import {
+  cohortSummary,
+  memberContextLine,
+  nextAssignmentId,
+  remainingAssignmentsLine,
+  teamLine,
+} from '../lib/admissionsPresentation'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
@@ -82,13 +87,20 @@ export function AdmissionDetail() {
 
   return (
     <article className="application-detail">
-      <Link className="back-link" to="/admissions">← Applications</Link>
+      <div className="application-nav">
+        <Link className="back-link" to="/admissions">← Applications</Link>
+        <NextAssignmentLink
+          className="text-button"
+          currentApplicationId={detail.application.id}
+          label="Next to review →"
+        />
+      </div>
       <header className="application-heading">
         <div>
           <p className="eyebrow">Application</p>
           <h1>{detail.team.name}</h1>
           <p className="muted">
-            {teamSizeLabel(detail.team.memberCount)} · applied {formatEventTime(detail.application.submittedAt, detail.eventTimezone)}
+            {teamLine(detail.team.memberCount, detail.application.cohort)} · applied {formatEventTime(detail.application.submittedAt, detail.eventTimezone)}
           </p>
         </div>
         <span className="state-label">{applicationStateLabels[detail.application.state]}</span>
@@ -116,7 +128,7 @@ export function AdmissionDetail() {
                 <strong>{member.displayName}</strong>
                 <small>
                   {member.profileContext
-                    ? `${participantClassLabels[member.profileContext.participantClass]} · ${studyYearLabels[member.profileContext.yearOfStudy]} · ${member.profileContext.institution}`
+                    ? memberContextLine(member.profileContext)
                     : 'No year or institution in scope'}
                 </small>
               </div>
@@ -171,7 +183,11 @@ export function AdmissionDetail() {
           <div className="section-heading">
             <div>
               <h2>What to look for</h2>
-              <p className="muted">{experienceBandName(detail.application.experienceBand)}</p>
+              <p className="muted">
+                {detail.application.cohort
+                  ? `${cohortSummary(detail.application.cohort)} team`
+                  : 'You do not have access to year context.'}
+              </p>
             </div>
             <span className="state-label">Admissions only</span>
           </div>
@@ -413,6 +429,7 @@ function AdmissionAnalysisRetry({
 }) {
   const rerunAnalysis = useMutation(api.admissions.rerunAiRecommendation)
   const operations = useOperationRunner()
+  const { capture } = useProductAnalytics()
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -435,6 +452,7 @@ function AdmissionAnalysisRetry({
         }
         return () => rerunAnalysis(command)
       })
+      capture('c2c_admission_ai_recommendation_rerun')
       setReason('')
     } catch (caught) {
       setError(readableError(caught))
@@ -677,25 +695,57 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
   )
 }
 
+function NextAssignmentLink({ className, currentApplicationId, fallback, label }: {
+  className: string
+  currentApplicationId: string
+  fallback?: React.ReactNode
+  label: string
+}) {
+  const assignments = usePaginatedQuery(
+    api.admissions.myReviewAssignments,
+    { eventSlug, state: 'active' },
+    { initialNumItems: 10 },
+  )
+  const nextId = nextAssignmentId(assignments.results, currentApplicationId)
+  if (nextId === null) {
+    return assignments.status === 'LoadingFirstPage' ? null : fallback ?? null
+  }
+  return <Link className={className} to={`/admissions/${nextId}`}>{label}</Link>
+}
+
 function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
   const saveReview = useMutation(api.admissions.saveReview)
   const operations = useOperationRunner()
-  const [recommendation, setRecommendation] = useState<ApplicationDecision | null>(null)
+  const { capture } = useProductAnalytics()
+  const assignmentCounts = useQuery(api.admissions.myReviewAssignmentCounts, { eventSlug })
+  const ownReview = detail.humanReviews.find((review) => review.own) ?? null
+  const [editing, setEditing] = useState(ownReview === null)
+  const [recommendation, setRecommendation] = useState<ApplicationDecision | null>(
+    ownReview?.recommendation ?? null,
+  )
   const reasons = useMemo(
     () => recommendation === null
       ? []
       : detail.policy.decisionReasonCodes.filter((reason) => reason.allowedDecisions.includes(recommendation)),
     [detail.policy.decisionReasonCodes, recommendation],
   )
-  const [reason, setReason] = useState('')
-  const [note, setNote] = useState('')
+  const [reason, setReason] = useState(ownReview?.reasonCode ?? '')
+  const [note, setNote] = useState(ownReview?.note ?? '')
   const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const selectedReason = reasons.some((candidate) => candidate.key === reason)
     ? reason
     : reasons[0]?.key ?? ''
   const savePending = operations.hasPending('save')
+
+  const choose = (next: ApplicationDecision) => {
+    setRecommendation(next)
+    setReason(
+      detail.policy.decisionReasonCodes.find((candidate) => candidate.allowedDecisions.includes(next))?.key ?? '',
+    )
+  }
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -719,7 +769,11 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
           return () => saveReview(command)
         })
       }
-      setNote('')
+      capture('c2c_admission_review_saved', {
+        c2c_recommendation: recommendation ?? 'retried',
+      })
+      setSaved(true)
+      setEditing(false)
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -727,43 +781,111 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
     }
   }
 
+  if (!editing) {
+    return (
+      <section className="detail-section command-section admission-own-review">
+        <h2>{saved ? 'Review saved' : 'Your review'}</h2>
+        {ownReview ? (
+          <>
+            <p className="admission-own-verdict">
+              <strong>{applicationDecisionLabels[ownReview.recommendation]}</strong>
+              {reasonLabel(detail, ownReview.reasonCode) ? <span> · {reasonLabel(detail, ownReview.reasonCode)}</span> : null}
+            </p>
+            {ownReview.note ? <p className="muted">{ownReview.note}</p> : null}
+          </>
+        ) : (
+          <p className="muted">Whoever records the decision can see it now.</p>
+        )}
+        {remainingAssignmentsLine(assignmentCounts) ? (
+          <p className="muted">{remainingAssignmentsLine(assignmentCounts)}</p>
+        ) : null}
+        <div className="button-row">
+          <NextAssignmentLink
+            className="primary"
+            currentApplicationId={detail.application.id}
+            fallback={<p className="muted">Nothing else is assigned to you.</p>}
+            label="Next to review →"
+          />
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => {
+              setSaved(false)
+              setEditing(true)
+            }}
+          >
+            Change review
+          </button>
+        </div>
+      </section>
+    )
+  }
+
   return (
     <section className="detail-section command-section">
-      <h2>Add your review</h2>
-      <p className="muted">Your recommendation and reason are visible to whoever publishes the decision.</p>
+      <h2>{ownReview ? 'Change your review' : 'Your review'}</h2>
+      <p className="muted">Pick one, choose the reason that fits, and save. Whoever records the decision sees both.</p>
       <form className="command-form" onSubmit={submit}>
         <fieldset disabled={savePending || busy} style={{ display: 'contents' }}>
-          <Field label="Recommendation">
-            <select
-              required
-              value={recommendation ?? ''}
-              onChange={(event) => {
-                const next = parseDecision(event.target.value)
-                setRecommendation(next)
-                setReason(next === null
-                  ? ''
-                  : detail.policy.decisionReasonCodes.find(
-                      (candidate) => candidate.allowedDecisions.includes(next),
-                    )?.key ?? '')
-              }}
-            >
-              <option value="">Choose a recommendation</option>
-              {applicationDecisions.map((decision) => <option key={decision} value={decision}>{applicationDecisionLabels[decision]}</option>)}
-            </select>
-          </Field>
-          <Field label="Published reason">
-            <select value={selectedReason} onChange={(event) => setReason(event.target.value)}>
-              {reasons.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
-            </select>
-          </Field>
-          <Field label="Note" hint="Optional.">
+          <div className="field">
+            <span>Recommendation</span>
+            <div aria-label="Recommendation" className="admission-choices" role="radiogroup">
+              {applicationDecisions.map((decision) => (
+                <button
+                  aria-checked={recommendation === decision}
+                  className={recommendation === decision ? 'admission-choice active' : 'admission-choice'}
+                  key={decision}
+                  role="radio"
+                  type="button"
+                  onClick={() => choose(decision)}
+                >
+                  {applicationDecisionLabels[decision]}
+                </button>
+              ))}
+            </div>
+          </div>
+          {recommendation !== null ? (
+            <Field label="Reason" hint="The team may be told this if the decision follows your review.">
+              <select value={selectedReason} onChange={(event) => setReason(event.target.value)}>
+                {reasons.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+              </select>
+            </Field>
+          ) : null}
+          <Field label="Note for the decision maker" hint="Optional.">
             <textarea value={note} maxLength={600} onChange={(event) => setNote(event.target.value)} />
           </Field>
         </fieldset>
         {error ? <p className="notice error" role="alert">{error}</p> : null}
-        <button className="primary" type="submit" disabled={busy || (!savePending && (recommendation === null || !selectedReason))}>
-          {busy ? 'Saving…' : savePending ? 'Confirm earlier review' : recommendation === null ? 'Choose a recommendation' : 'Save review'}
-        </button>
+        <div className="button-row">
+          <button
+            className="primary"
+            type="submit"
+            disabled={busy || (!savePending && (recommendation === null || !selectedReason))}
+          >
+            {busy
+              ? 'Saving…'
+              : savePending
+                ? 'Confirm earlier review'
+                : recommendation === null
+                  ? 'Pick a recommendation'
+                  : 'Save review'}
+          </button>
+          {ownReview ? (
+            <button
+              className="secondary"
+              disabled={busy}
+              type="button"
+              onClick={() => {
+                setRecommendation(ownReview.recommendation)
+                setReason(ownReview.reasonCode)
+                setNote(ownReview.note ?? '')
+                setEditing(false)
+              }}
+            >
+              Keep current
+            </button>
+          ) : null}
+        </div>
       </form>
     </section>
   )
@@ -772,6 +894,7 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
 function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
   const decide = useMutation(api.admissions.decide)
   const operations = useOperationRunner()
+  const { capture } = useProductAnalytics()
   const [decision, setDecision] = useState<ApplicationDecision | null>(
     detail.application.decisionStage === 'recorded'
       ? detail.application.humanDecision ?? null
@@ -831,6 +954,10 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
           return () => decide(command)
         })
       }
+      capture('c2c_admission_decision_recorded', {
+        c2c_decision: decision ?? 'retried',
+        c2c_ai_disposition: selectedAiDisposition,
+      })
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -1061,14 +1188,6 @@ function offerStatusLine(
   }
   if (offer.state === 'confirmed') return `${state} · ${places} reserved for this team.`
   return `${state} · ${places} released.`
-}
-
-function teamSizeLabel(count: number) {
-  return `${count} ${count === 1 ? 'member' : 'members'}`
-}
-
-function experienceBandName(band: AdmissionDetailData['application']['experienceBand']) {
-  return band ? admissionExperienceBandLabels[band] : 'You do not have access to the experience band'
 }
 
 function sourceName(value: string) {

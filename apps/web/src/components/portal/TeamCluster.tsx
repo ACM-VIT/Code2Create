@@ -109,6 +109,7 @@ export function TeamCluster({
   return (
     <div
       className="relative text-right"
+      data-ph-sensitive
       onFocus={(event) => {
         const target = event.target
         if (target instanceof HTMLElement && target.matches(':focus-visible')) {

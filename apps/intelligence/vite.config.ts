@@ -27,6 +27,7 @@ export default defineConfig(({ command }) => {
 						'@flue/runtime/internal',
 						'@earendil-works/pi-ai/providers/openai',
 						'hono',
+						'posthog-node/edge',
 						'valibot',
 					],
 				},

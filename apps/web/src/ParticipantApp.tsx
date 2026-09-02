@@ -105,8 +105,8 @@ export function ParticipantApp({
         header={gateHeader}
         title={staging ? 'This account is not on the tester list.' : 'Registration not found.'}
         body={staging
-          ? 'Use one of the Google accounts invited to staging.'
-          : 'Use the Google account registered for Code2Create.'}
+          ? 'Use one of the email addresses invited to staging.'
+          : 'Use the email address registered for Code2Create.'}
       />
     )
   }
@@ -607,9 +607,9 @@ function ProvisionScreen({
         <h1 className="mb-2 font-display font-light tracking-[-.01em] text-balance text-3xl lg:text-[40px]">
           Choose your participant type.
         </h1>
-        {/* The class is settled by the Google account, so the account is the
-            one fact worth showing: whoever signed in with the wrong one can
-            see it here and use the door in the corner. */}
+        {/* The class is settled from the verified identity, so the account is
+            the one fact worth showing: whoever signed in with the wrong one
+            can see it here and use the door in the corner. */}
         <p className="mb-7 text-[12.5px] text-fg/50">
           {email ? (
             <>

@@ -407,11 +407,14 @@ function Operations({
         ) : null}
         {canViewRehearsal ? <Route path="/rehearsal" element={<Rehearsal />} /> : null}
         {canViewSupport ? <Route path="/support" element={<SupportDesk />} /> : null}
+        {canViewSupport ? <Route path="/support/new" element={<SupportDesk composing />} /> : null}
+        {canViewSupport ? <Route path="/support/:supportCaseId" element={<SupportDesk />} /> : null}
         {canViewAdmissions ? (
           <Route
             path="/admissions"
             element={(
               <AdmissionsQueue
+                canAssign={capabilities.applicationAssign}
                 canReadApplications={capabilities.applicationRead}
                 canReadAssignments={capabilities.applicationReviewRead}
                 isSupreme={capabilities.isSupreme}

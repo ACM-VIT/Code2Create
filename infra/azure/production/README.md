@@ -91,6 +91,12 @@ explicitly. Environment configuration grants one bootstrap email permission to
 create the event; it does not create the event or open either application
 window.
 
+The production `posthog-project-token` is stored in the production Key Vault.
+Convex and the intelligence Worker use it with the first-party
+`https://i.c2c.sh` ingest proxy. To refresh only the Convex PostHog values, run
+`infra/azure/configure-posthog-environment.sh production`; the command never
+prints the token.
+
 Normal function releases use `.github/workflows/backend-deploy.yml`. Production
 deployment is an explicit workflow run from `main`; it does not run on a push.
 The production GitHub environment authenticates to Azure with OIDC, can read
@@ -98,6 +104,14 @@ only the production Key Vault secrets allowed by its role, and passes the exact
 Git revision to `deploy-convex.sh`. No Azure client secret or Convex admin key is
 stored in GitHub. Environment configuration remains a separate operator action
 and is not part of an ordinary code deployment.
+
+External-participant email sign-in uses the production Cloudflare Email
+Sending identity. Before running `configure-convex-environment.sh`, store
+`cloudflare-email-account-id`, `cloudflare-email-api-token`, and
+`cloudflare-email-from` in the production Key Vault. The API token must be
+limited to Email Sending, and the from address must belong to the verified
+production sending domain. The portal advertises email sign-in only when all
+three values are present.
 
 The D32 backend admits 512 concurrent queries, 256 mutations, and 100 Node or V8
 actions. The intake workpool uses at most 32 Node actions at a time. Draft

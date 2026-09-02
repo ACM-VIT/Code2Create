@@ -4,11 +4,11 @@ import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { authComponent } from "../auth";
 import {
-  participantEligibilityLookupFromGoogleIdentity,
+  participantEligibilityLookupFromVerifiedIdentity,
   participantEligibilityLookupFromMembership,
   productionParticipantEligibilityAllowed,
 } from "./participantEligibility";
-import { normalizeEmail } from "./strings";
+import { normalizeEmail, normalizedText } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
@@ -57,7 +57,7 @@ export async function requireStagingParticipantAccess(
   });
 }
 
-export async function participantGoogleAccessAllowed(
+export async function participantIdentityAccessAllowed(
   ctx: ReadCtx,
   event: Doc<"events">,
   identity: {
@@ -74,7 +74,7 @@ export async function participantGoogleAccessAllowed(
   return productionParticipantEligibilityAllowed(
     ctx,
     event,
-    participantEligibilityLookupFromGoogleIdentity(event, identity),
+    participantEligibilityLookupFromVerifiedIdentity(event, identity),
   );
 }
 
@@ -96,7 +96,7 @@ export async function participantMembershipAccessAllowed(
       .withIndex("by_auth_user", (query) => query.eq("authUserId", person.authUserId))
       .unique();
     if (googleIdentity?.displayName) {
-      lookup = participantEligibilityLookupFromGoogleIdentity(event, {
+      lookup = participantEligibilityLookupFromVerifiedIdentity(event, {
         verifiedEmail: googleIdentity.verifiedEmail,
         ...(googleIdentity.hostedDomain !== undefined
           ? { hostedDomain: googleIdentity.hostedDomain }
@@ -108,7 +108,7 @@ export async function participantMembershipAccessAllowed(
   return productionParticipantEligibilityAllowed(ctx, event, lookup);
 }
 
-export async function requireParticipantGoogleAccess(
+export async function requireParticipantIdentityAccess(
   ctx: ReadCtx,
   event: Doc<"events">,
   identity: {
@@ -117,7 +117,7 @@ export async function requireParticipantGoogleAccess(
     displayName: string;
   },
 ) {
-  if (await participantGoogleAccessAllowed(ctx, event, identity)) return;
+  if (await participantIdentityAccessAllowed(ctx, event, identity)) return;
   const environment = process.env.C2C_DEPLOYMENT_ENVIRONMENT?.trim();
   throw new ConvexError(
     environment === "staging"
@@ -127,7 +127,7 @@ export async function requireParticipantGoogleAccess(
         }
       : {
           code: "PARTICIPANT_NOT_REGISTERED",
-          message: "This Google account is not registered for Code2Create.",
+          message: "This email address is not registered for Code2Create.",
         },
   );
 }
@@ -137,7 +137,7 @@ export async function requireAuthUser(ctx: ReadCtx) {
   if (!user.emailVerified) {
     throw new ConvexError({
       code: "EMAIL_NOT_VERIFIED",
-      message: "Google must verify the email address before it can be used.",
+      message: "Verify the email address before it can be used.",
     });
   }
   return user;
@@ -167,29 +167,61 @@ export async function requireCurrentPerson(ctx: ReadCtx) {
   return { user, person };
 }
 
-export async function requireVerifiedGoogleIdentity(ctx: ReadCtx) {
+export async function requireVerifiedIdentity(ctx: ReadCtx) {
   const user = await requireAuthUser(ctx);
   const googleIdentity = await ctx.db
     .query("googleIdentityClaims")
     .withIndex("by_auth_user", (query) => query.eq("authUserId", user._id))
     .unique();
-  if (!googleIdentity || googleIdentity.verifiedEmail !== normalizeEmail(user.email)) {
+  const verifiedEmail = normalizeEmail(user.email);
+  if (googleIdentity && googleIdentity.verifiedEmail !== verifiedEmail) {
     throw new ConvexError({
-      code: "GOOGLE_IDENTITY_REQUIRED",
-      message: "Sign out and complete Google authentication again before continuing.",
+      code: "IDENTITY_REFRESH_REQUIRED",
+      message: "Sign out and verify this email address again before continuing.",
     });
   }
-  if (!googleIdentity.displayName) {
+  if (googleIdentity && !googleIdentity.displayName) {
     throw new ConvexError({
       code: "GOOGLE_IDENTITY_REFRESH_REQUIRED",
       message: "Sign out and complete Google authentication again before continuing.",
     });
   }
+  const displayName = normalizedText(
+    googleIdentity?.displayName || user.name || verifiedEmail,
+    "Account display name",
+    1,
+    100,
+  );
+  return {
+    user,
+    identity: {
+      verifiedEmail,
+      displayName,
+      ...(googleIdentity
+        ? {
+            googleSubject: googleIdentity.googleSubject,
+            ...(googleIdentity.hostedDomain !== undefined
+              ? { hostedDomain: googleIdentity.hostedDomain }
+              : {}),
+          }
+        : {}),
+    },
+  };
+}
+
+export async function requireVerifiedGoogleIdentity(ctx: ReadCtx) {
+  const { user, identity } = await requireVerifiedIdentity(ctx);
+  if (!identity.googleSubject) {
+    throw new ConvexError({
+      code: "GOOGLE_IDENTITY_REQUIRED",
+      message: "Sign out and continue with Google before accessing operations.",
+    });
+  }
   return {
     user,
     googleIdentity: {
-      ...googleIdentity,
-      displayName: googleIdentity.displayName,
+      ...identity,
+      googleSubject: identity.googleSubject,
     },
   };
 }
@@ -266,15 +298,15 @@ export async function ensurePerson(
 ): Promise<{
   user: Awaited<ReturnType<typeof requireAuthUser>>;
   person: Doc<"people">;
-  googleIdentity: Awaited<ReturnType<typeof requireVerifiedGoogleIdentity>>["googleIdentity"];
+  identity: Awaited<ReturnType<typeof requireVerifiedIdentity>>["identity"];
 }> {
-  const { user, googleIdentity } = await requireVerifiedGoogleIdentity(ctx);
+  const { user, identity } = await requireVerifiedIdentity(ctx);
   const existing = await ctx.db
     .query("people")
     .withIndex("by_auth_user", (query) => query.eq("authUserId", user._id))
     .unique();
   const now = Date.now();
-  const verifiedEmail = normalizeEmail(user.email);
+  const verifiedEmail = identity.verifiedEmail;
 
   if (existing) {
     if (existing.status !== "active") {
@@ -283,7 +315,11 @@ export async function ensurePerson(
         message: "This account is not active in Code2Create.",
       });
     }
-    if (existing.googleSubject !== googleIdentity.googleSubject) {
+    if (
+      existing.googleSubject &&
+      identity.googleSubject &&
+      existing.googleSubject !== identity.googleSubject
+    ) {
       throw new ConvexError({
         code: "GOOGLE_IDENTITY_CONFLICT",
         message: "This account is linked to another Google identity.",
@@ -292,23 +328,25 @@ export async function ensurePerson(
     const person = await refreshExistingPersonIdentity(ctx, {
       person: existing,
       verifiedEmail,
-      displayName: googleIdentity.displayName,
+      displayName: identity.displayName,
       now,
     });
-    return { user, person, googleIdentity };
+    return { user, person, identity };
   }
 
-  const subjectOwner = await ctx.db
-    .query("people")
-    .withIndex("by_google_subject", (query) =>
-      query.eq("googleSubject", googleIdentity.googleSubject),
-    )
-    .unique();
-  if (subjectOwner) {
-    throw new ConvexError({
-      code: "IDENTITY_LINK_REQUIRED",
-      message: "This Google identity is already linked to another account.",
-    });
+  if (identity.googleSubject) {
+    const subjectOwner = await ctx.db
+      .query("people")
+      .withIndex("by_google_subject", (query) =>
+        query.eq("googleSubject", identity.googleSubject),
+      )
+      .unique();
+    if (subjectOwner) {
+      throw new ConvexError({
+        code: "IDENTITY_LINK_REQUIRED",
+        message: "This Google identity is already linked to another account.",
+      });
+    }
   }
 
   const emailOwner = await ctx.db
@@ -324,16 +362,34 @@ export async function ensurePerson(
 
   const personId = await ctx.db.insert("people", {
     authUserId: user._id,
-    googleSubject: googleIdentity.googleSubject,
+    ...(identity.googleSubject ? { googleSubject: identity.googleSubject } : {}),
     verifiedEmail,
-    displayName: googleIdentity.displayName,
+    displayName: identity.displayName,
     status: "active",
     createdAt: now,
     updatedAt: now,
   });
   const person = await ctx.db.get(personId);
   if (!person) throw new Error("Person creation did not persist.");
-  return { user, person, googleIdentity };
+  return { user, person, identity };
+}
+
+export async function ensureGooglePerson(ctx: MutationCtx) {
+  const result = await ensurePerson(ctx);
+  if (!result.identity.googleSubject) {
+    throw new ConvexError({
+      code: "GOOGLE_IDENTITY_REQUIRED",
+      message: "Sign out and continue with Google before accessing operations.",
+    });
+  }
+  return {
+    user: result.user,
+    person: result.person,
+    googleIdentity: {
+      ...result.identity,
+      googleSubject: result.identity.googleSubject,
+    },
+  };
 }
 
 export async function requireEventSubject(

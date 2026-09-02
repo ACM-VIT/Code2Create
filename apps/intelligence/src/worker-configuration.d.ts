@@ -1,3 +1,11 @@
+interface ImportMetaEnv {
+	readonly VITE_RELEASE_ID?: string;
+}
+
+interface ImportMeta {
+	readonly env: ImportMetaEnv;
+}
+
 declare namespace Cloudflare {
 	interface Env {
 		OPENAI_API_KEY: string;
@@ -26,5 +34,9 @@ declare namespace Cloudflare {
 		CONVEX_INTELLIGENCE_AUTONOMY_RECOMMENDATION_URL: string;
 		CONVEX_INTELLIGENCE_AUTONOMY_RECOMMENDATION_EVIDENCE_URL: string;
 		OPS_ORIGIN: string;
+		POSTHOG_PROJECT_TOKEN?: string;
+		POSTHOG_HOST?: string;
+		C2C_DEPLOYMENT_ENVIRONMENT?: string;
+		C2C_RELEASE_ID?: string;
 	}
 }

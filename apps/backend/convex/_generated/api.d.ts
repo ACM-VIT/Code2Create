@@ -127,6 +127,7 @@ import type * as lib_operations from "../lib/operations.js";
 import type * as lib_operationsAttention from "../lib/operationsAttention.js";
 import type * as lib_operationsAttentionDetectors from "../lib/operationsAttentionDetectors.js";
 import type * as lib_operationsAttentionProposals from "../lib/operationsAttentionProposals.js";
+import type * as lib_operationsAutonomyAvailability from "../lib/operationsAutonomyAvailability.js";
 import type * as lib_operationsAutonomyCancellation from "../lib/operationsAutonomyCancellation.js";
 import type * as lib_operationsAutonomyContinuation from "../lib/operationsAutonomyContinuation.js";
 import type * as lib_operationsAutonomyDeepReadValidators from "../lib/operationsAutonomyDeepReadValidators.js";
@@ -166,6 +167,7 @@ import type * as lib_permissionGrantLifecycle from "../lib/permissionGrantLifecy
 import type * as lib_permissions from "../lib/permissions.js";
 import type * as lib_phaseSchedule from "../lib/phaseSchedule.js";
 import type * as lib_phoneVerification from "../lib/phoneVerification.js";
+import type * as lib_posthog from "../lib/posthog.js";
 import type * as lib_projectCheckpointPlan from "../lib/projectCheckpointPlan.js";
 import type * as lib_projectText from "../lib/projectText.js";
 import type * as lib_providerSecrets from "../lib/providerSecrets.js";
@@ -398,6 +400,7 @@ declare const fullApi: ApiFromModules<{
   "lib/operationsAttention": typeof lib_operationsAttention;
   "lib/operationsAttentionDetectors": typeof lib_operationsAttentionDetectors;
   "lib/operationsAttentionProposals": typeof lib_operationsAttentionProposals;
+  "lib/operationsAutonomyAvailability": typeof lib_operationsAutonomyAvailability;
   "lib/operationsAutonomyCancellation": typeof lib_operationsAutonomyCancellation;
   "lib/operationsAutonomyContinuation": typeof lib_operationsAutonomyContinuation;
   "lib/operationsAutonomyDeepReadValidators": typeof lib_operationsAutonomyDeepReadValidators;
@@ -437,6 +440,7 @@ declare const fullApi: ApiFromModules<{
   "lib/permissions": typeof lib_permissions;
   "lib/phaseSchedule": typeof lib_phaseSchedule;
   "lib/phoneVerification": typeof lib_phoneVerification;
+  "lib/posthog": typeof lib_posthog;
   "lib/projectCheckpointPlan": typeof lib_projectCheckpointPlan;
   "lib/projectText": typeof lib_projectText;
   "lib/providerSecrets": typeof lib_providerSecrets;

@@ -151,7 +151,7 @@ export function IntegrationOverview() {
             {summary === undefined
               ? 'Loading connection health for every team you can read.'
               : summary.totalTeamCount === 0
-                ? 'No teams are available in this workspace.'
+                ? 'Repositories and design files each team connects, with how well they are reading.'
                 : summary.disconnectedCount > 0
                   ? summary.disconnectedCount === summary.totalTeamCount
                     ? `None of the ${summary.totalTeamCount} teams have connected code or design yet. Reviewers have no project work to open.`

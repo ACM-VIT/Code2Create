@@ -12,7 +12,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import {
-  ensurePerson,
+  ensureGooglePerson,
   requireAuthUser,
   requireCurrentPerson,
   requireEventSubject,
@@ -1128,7 +1128,7 @@ export const claim = mutation({
   }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { user, person, googleIdentity } = await ensurePerson(ctx);
+    const { user, person, googleIdentity } = await ensureGooglePerson(ctx);
     const operationId = normalizedText(
       args.clientOperationId,
       "Client operation ID",

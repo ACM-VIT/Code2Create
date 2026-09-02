@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { useProductAnalytics } from '@code2create/client-observability'
 import { useMutation } from 'convex/react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -43,6 +44,7 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const operations = useOperationRunner()
+  const { capture } = useProductAnalytics()
   const createPending = operations.hasPending('team-create')
   const joinPending = operations.hasPending('team-join')
   const operationPending = createPending || joinPending
@@ -56,6 +58,7 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
         'team-create',
         (clientOperationId) => () => createTeam({ eventSlug, name, clientOperationId }),
       )
+      capture('c2c_team_created', { c2c_membership_role: 'lead' })
       navigate('/', { replace: true, viewTransition: true })
     } catch (caught) {
       setError(readableError(caught))
@@ -73,6 +76,7 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
         'team-join',
         (clientOperationId) => () => joinTeam({ eventSlug, code, clientOperationId }),
       )
+      capture('c2c_team_joined', { c2c_membership_role: 'member' })
       navigate('/', { replace: true, viewTransition: true })
     } catch (caught) {
       setError(readableError(caught))

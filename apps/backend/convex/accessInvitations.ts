@@ -14,7 +14,7 @@ import {
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import {
-  ensurePerson,
+  ensureGooglePerson,
   requireAuthUser,
   requireCurrentPerson,
   requireEventSubject,
@@ -381,7 +381,7 @@ export const claim = mutation({
   }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { person } = await ensurePerson(ctx);
+    const { person } = await ensureGooglePerson(ctx);
     const operationId = normalizedText(
       args.clientOperationId,
       "Client operation ID",

@@ -45,6 +45,27 @@ describe("event bootstrap", () => {
     );
   });
 
+  test("advertises external email sign-in only with complete delivery configuration", async () => {
+    vi.stubEnv("CLOUDFLARE_EMAIL_ACCOUNT_ID", "test-account");
+    vi.stubEnv("CLOUDFLARE_EMAIL_API_TOKEN", "test-token");
+    vi.stubEnv("CLOUDFLARE_EMAIL_FROM", "");
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+
+    await expect(backend.query(api.system.getPublicShellState, {
+      eventSlug: "code2create-7",
+    })).resolves.toMatchObject({
+      auth: { emailOtpConfigured: false },
+    });
+
+    vi.stubEnv("CLOUDFLARE_EMAIL_FROM", "Code2Create <updates@example.test>");
+    await expect(backend.query(api.system.getPublicShellState, {
+      eventSlug: "code2create-7",
+    })).resolves.toMatchObject({
+      auth: { emailOtpConfigured: true },
+    });
+  });
+
   test("lets the configured owner create the complete draft baseline once", async () => {
     vi.stubEnv("AUTH_SITE_URL", "http://localhost:3211");
     vi.stubEnv("PARTICIPANT_SITE_URL", "http://localhost:4173");

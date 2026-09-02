@@ -595,7 +595,7 @@ export default defineSchema({
 
   people: defineTable({
     authUserId: v.string(),
-    googleSubject: v.string(),
+    googleSubject: v.optional(v.string()),
     verifiedEmail: v.string(),
     displayName: v.string(),
     status: v.union(v.literal("active"), v.literal("suspended")),

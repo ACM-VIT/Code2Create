@@ -1,8 +1,14 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
+import { authenticationOtpEmail, sendAuthenticationOtp } from "./authenticationEmail";
 import { interpretCloudflareEmailSendResponse } from "./cloudflareEmailSending";
 
 const destinationEmail = "participant@example.test";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 describe("Cloudflare Email Sending response contract", () => {
   test("accepts each documented single-recipient success outcome", () => {
@@ -138,3 +144,72 @@ function failureResponse(code: number, message: string) {
     result: null,
   };
 }
+
+describe("authentication OTP email", () => {
+  test("renders the six-digit code without putting account data in the message", () => {
+    const message = authenticationOtpEmail("123456");
+    expect(message.subject).toBe("Your Code2Create sign-in code");
+    expect(message.text).toContain("123456");
+    expect(message.html).toContain("123456");
+    expect(message.text).toContain("10 minutes");
+  });
+
+  test("refuses malformed codes", () => {
+    expect(() => authenticationOtpEmail("12345")).toThrow(/six digits/u);
+    expect(() => authenticationOtpEmail("12345<")).toThrow(/six digits/u);
+  });
+
+  test("brands the message with marks hosted at the portal origin when one is known", () => {
+    const branded = authenticationOtpEmail("123456", "https://c2c.acmvit.in");
+    expect(branded.html).toContain("https://c2c.acmvit.in/assets/email/c2c-mark.png");
+    expect(branded.html).toContain("https://c2c.acmvit.in/assets/email/acm-mark.png");
+    expect(branded.html).toContain("ACM-VIT");
+    const plain = authenticationOtpEmail("123456");
+    expect(plain.html).not.toContain("<img");
+    expect(plain.html).toContain("Code2Create");
+  });
+
+  test("delivers sign-in codes through the configured Cloudflare sender", async () => {
+    vi.stubEnv("CLOUDFLARE_EMAIL_ACCOUNT_ID", "test-account");
+    vi.stubEnv("CLOUDFLARE_EMAIL_API_TOKEN", "test-token");
+    vi.stubEnv("CLOUDFLARE_EMAIL_FROM", "Code2Create <updates@example.test>");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(
+      successResponse({ queued: [destinationEmail] }),
+    ), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendAuthenticationOtp({
+      email: destinationEmail,
+      otp: "123456",
+      type: "sign-in",
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.cloudflare.com/client/v4/accounts/test-account/email/sending/send",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          Authorization: "Bearer test-token",
+          "Content-Type": "application/json",
+        },
+        body: expect.stringContaining('"to":"participant@example.test"'),
+      }),
+    );
+  });
+
+  test("does not send email sign-in codes to the VIT Workspace domain", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(sendAuthenticationOtp({
+      email: "student@vitstudent.ac.in",
+      otp: "123456",
+      type: "sign-in",
+    })).rejects.toThrow("continue with Google Workspace");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

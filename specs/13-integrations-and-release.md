@@ -684,10 +684,12 @@ The remaining Workers need only the common build-tool versions. Their operationa
 
 | Worker | Wrangler-owned bindings and plain runtime values | Runtime secrets |
 | --- | --- | --- |
-| Intelligence | OpenAI Responses, admission-fence Durable Object, exact Ops origin, and exact Convex callback/read/work/recommendation URLs | `OPENAI_API_KEY`, `INTELLIGENCE_INGRESS_SECRET`, `INTELLIGENCE_CALLBACK_SECRET`, `INTELLIGENCE_READ_SECRET`, `INTELLIGENCE_STREAM_SECRET`; the URLs and Ops origin may also be stored as encrypted Worker secrets |
+| Intelligence | OpenAI Responses, admission-fence Durable Object, exact Ops origin, exact Convex callback/read/work/recommendation URLs, `POSTHOG_PROJECT_TOKEN`, `POSTHOG_HOST`, `C2C_DEPLOYMENT_ENVIRONMENT`, and `C2C_RELEASE_ID` | `OPENAI_API_KEY`, `INTELLIGENCE_INGRESS_SECRET`, `INTELLIGENCE_CALLBACK_SECRET`, `INTELLIGENCE_READ_SECRET`, `INTELLIGENCE_STREAM_SECRET`; the URLs and Ops origin may also be stored as encrypted Worker secrets |
 | Updates | environment-specific R2 bucket and `UPDATE_CHANNEL` | `C2C_UPDATES_ADMIN_TOKEN` |
 | Email | environment-specific Queue consumer and dead-letter Queue | `CONVEX_EMAIL_EVENT_CALLBACK_URL`, `EMAIL_EVENT_CALLBACK_SECRET`, `EMAIL_ROUTING_ADDRESS`, `EMAIL_ROUTING_FORWARD_TO`, `EMAIL_SENDING_DOMAIN` |
 | Voice | outbound-call Durable Object and environment-specific `PUBLIC_BASE_URL` | `OUTBOUND_CALL_REQUEST_SECRET`, `OUTBOUND_CALL_EVENT_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `SARVAM_API_KEY` |
+
+The PostHog project token is an ingestion identifier rather than an administrative credential. Store it as a Worker runtime value and a Convex deployment environment value; never use the personal `POSTHOG_CLI_API_KEY` at runtime. The matching PostHog ingest host is the first-party proxy `https://i.c2c.sh`. Server-side AI telemetry is content-free and must use the same environment-specific project as the corresponding clients.
 
 The Cloudflare GitHub App and the Worker-specific build token are configured in Cloudflare. They do not become repository or application environment variables. Cloudflare's automatic dependency installation uses the workspace lockfile. Watch paths remain unrestricted for the first staging release so a shared package, generated API, specification, lockfile, or patch cannot leave one Worker stale.
 
