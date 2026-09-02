@@ -3,7 +3,7 @@ name: Backend deployment
 on:
   push:
     branches:
-      - staging
+      - dev
     paths:
       - .github/workflows/backend-deploy.yml
       - apps/backend/**
@@ -44,7 +44,7 @@ jobs:
 
   deploy-staging:
     name: Deploy staging backend
-    if: github.event_name == 'push' && github.ref_name == 'staging'
+    if: github.event_name == 'push' && github.ref_name == 'dev'
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 10
