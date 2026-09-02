@@ -6,6 +6,7 @@ import { interpretCloudflareEmailSendResponse } from "./cloudflareEmailSending";
 const destinationEmail = "participant@example.test";
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -199,6 +200,35 @@ describe("authentication OTP email", () => {
         body: expect.stringContaining('"to":"participant@example.test"'),
       }),
     );
+  });
+
+  test("reports deterministic transport failures instead of advancing to code entry", async () => {
+    vi.stubEnv("CLOUDFLARE_EMAIL_ACCOUNT_ID", "test-account");
+    vi.stubEnv("CLOUDFLARE_EMAIL_API_TOKEN", "test-token");
+    vi.stubEnv("CLOUDFLARE_EMAIL_FROM", "Code2Create <updates@example.test>");
+    const dnsFailure = new TypeError("getaddrinfo ENOTFOUND api.cloudflare.com");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(dnsFailure));
+
+    await expect(sendAuthenticationOtp({
+      email: destinationEmail,
+      otp: "123456",
+      type: "sign-in",
+    })).rejects.toThrow("Authentication email could not be sent.");
+  });
+
+  test("preserves the issued code when its own deadline leaves delivery ambiguous", async () => {
+    vi.stubEnv("CLOUDFLARE_EMAIL_ACCOUNT_ID", "test-account");
+    vi.stubEnv("CLOUDFLARE_EMAIL_API_TOKEN", "test-token");
+    vi.stubEnv("CLOUDFLARE_EMAIL_FROM", "Code2Create <updates@example.test>");
+    const timedOut = AbortSignal.abort(new DOMException("deadline elapsed", "TimeoutError"));
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(timedOut);
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch stopped")));
+
+    await expect(sendAuthenticationOtp({
+      email: destinationEmail,
+      otp: "123456",
+      type: "sign-in",
+    })).resolves.toBeUndefined();
   });
 
   test("does not send email sign-in codes to the VIT Workspace domain", async () => {

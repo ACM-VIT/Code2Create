@@ -116,6 +116,7 @@ export async function sendAuthenticationOtp(input: {
   if (!configuration) throw new Error("Authentication email is not configured.");
   const message = authenticationOtpEmail(input.otp, participantSiteOrigin());
   let response: Response;
+  const timeoutSignal = AbortSignal.timeout(10_000);
   try {
     response = await fetch(
       `${cloudflareApiBase}/${encodeURIComponent(configuration.accountId)}/email/sending/send`,
@@ -132,13 +133,16 @@ export async function sendAuthenticationOtp(input: {
           headers: { "X-Code2Create-Message-Type": "authentication-otp" },
           ...(configuration.replyTo ? { reply_to: configuration.replyTo } : {}),
         }),
-        signal: AbortSignal.timeout(10_000),
+        signal: timeoutSignal,
       },
     );
   } catch {
-    // A timed-out request may already have been accepted. Let the browser show
-    // the code entry step so the user can use it if the message arrives.
-    return;
+    if (timeoutSignal.aborted) {
+      // Our ten-second deadline can expire after Cloudflare has accepted the
+      // request. Preserve that issued code because its outcome is unknowable.
+      return;
+    }
+    throw new Error("Authentication email could not be sent.");
   }
 
   let decoded: unknown;
